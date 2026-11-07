@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The Go library builds for wasm again, `js` and `wasip1`. beta1 used a system constant those targets don't have.
 
+- A `#` outside quotes in a lookup path is refused, as `BadPath`. The path used to end there, so `set --remove='colors#primary'` removed all of `colors` at exit 0. Quote a name that holds one, `"colors#primary"`.
+
+- `E003` names the index as written. One past the 64-bit range was shown as 18446744073709551615.
+
 ## v3.0.0-beta1 - 2026-11-05
 
 Format 3. It fixes the 2.x design flaws that heavy use turned up. v4 will keep this format and settle the programming interface.

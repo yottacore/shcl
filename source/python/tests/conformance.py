@@ -4051,6 +4051,23 @@ def main():
 				or not quoted_hints[0].message.startswith(hwant):
 			raise SystemExit(f"hints {htext!r}: {quoted_hints}")
 
+	test_id("dez5d", "e003_quotes_the_index_as_written")
+	# E003 names the index as written, leading zeros, a sign and all, as the
+	# H006 hint quotes a Format number. One past u64 reads as the largest, and
+	# the message used to name that (2026110613470313). Rust's
+	# e003_quotes_the_index_as_written has the same rows.
+	for eindex, eshown in (
+		("99999999999999999999999", "99999999999999999999999"),
+		("007", "007"),
+		("+1", "+1"),
+		("1", "1"),
+		("1" + "0" * 200, "1" + "0" * 99 + "..." + "0" * 100 + " (201 chars)"),
+	):
+		etext = f"c: x\nc({eindex}).d: 2\n"
+		ediags = [(d.line, d.code, d.message) for d in shcl.Document.parse(etext).diagnostics()]
+		if ediags != [(2, "E003", f"no instance {eshown} of 'c'")]:
+			raise SystemExit(f"E003 text {etext!r}: {ediags}")
+
 	test_id("dcb20", "tokenizer_helpers_are_module_level")
 	# The tokenizer's helpers are module level. Defined inside it they would
 	# be rebuilt, with a fresh cell each, once per document line.

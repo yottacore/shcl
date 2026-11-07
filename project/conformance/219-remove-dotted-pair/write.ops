@@ -1,0 +1,4 @@
+remove	a.b
+remove	srv.web.port
+remove	db(main).host
+remove	p.q.r

@@ -2943,6 +2943,10 @@ const (
 	bannerName  = "## \"Simple Hierarchical Config Language\""
 )
 
+// bannerFields are the names on the info block's own lines, in any release.
+// SetBanner keeps every other line it finds in a block.
+var bannerFields = [...]string{"Format", "Home", "Syntax", "Legal"}
+
 // MigratedLine is written under FormatLine on a file Migrate actually changed.
 // It is a note for whoever opens the file; nothing reads it back.
 const MigratedLine = "##    Migrated from SHCL 2.x."
@@ -4563,6 +4567,10 @@ func pathOf(tok *Tokens, text string) (pathScan, error) {
 // bracketLookup is why a lookup path with a selector in brackets is refused.
 const bracketLookup = "selector in brackets; write it in parens, name(value)"
 
+// commentLookup is why a lookup path with a `#` outside quotes and selectors
+// is refused.
+const commentLookup = "a '#' opens a comment; quote a name that holds one"
+
 // scanLookup scans a lookup path `a . b (sel) . c`: the document-line
 // spelling plus the bare `*` segment (the name wildcard - any child name),
 // which document lines never take; only lookups (reads, the writer probe,
@@ -4570,12 +4578,17 @@ const bracketLookup = "selector in brackets; write it in parens, name(value)"
 // insignificant. A path a file line could not hold is refused the same: a
 // selector in brackets (E029), a bad escape, or a bare selector body with
 // whitespace, a quote, a colon, a comma, a bracket, a paren or a leading `#`
-// in it (E025).
+// in it (E025). A `#` anywhere else opens a comment, as it does on a file
+// line, where `a#b: 1` binds nothing; a path cut there would name the field
+// above.
 func scanLookup(input string) (pathScan, error) {
 	var tok Tokens
 	Tokenize(input, ':', true, RulesCurrent, &tok)
 	if tok.BracketSelector >= 0 {
 		return pathScan{}, errors.New(bracketLookup)
+	}
+	if tok.Sep < 0 && tok.Comment >= 0 {
+		return pathScan{}, errors.New(commentLookup)
 	}
 	if f := pathFault(&tok, input); f != nil {
 		return pathScan{}, errors.New(f.msg)
@@ -5460,14 +5473,14 @@ func (p *parser) heldNode(parent int) (int, bool) {
 // among those bound before it (E003), walked as attachPath will walk it,
 // creating nothing. A step that would create a field leaves every index
 // after it nothing to select. Judged before anything opens, so a kept line
-// opens none of its path's fields.
-func (p *parser) indexMiss(parent int, segs []segment) (uint64, string, bool) {
+// opens none of its path's fields. The segment's position.
+func (p *parser) indexMiss(parent int, segs []segment) (int, bool) {
 	indexed := false
 	for _, s := range segs {
 		indexed = indexed || byIndex(s)
 	}
 	if !indexed {
-		return 0, "", false
+		return 0, false
 	}
 	node, ok := p.heldNode(parent)
 	if ok {
@@ -5483,14 +5496,25 @@ func (p *parser) indexMiss(parent int, segs []segment) (uint64, string, bool) {
 			continue
 		}
 		if !hit {
-			return seg.sel.index, seg.name, true
+			return i, true
 		}
 		node, ok = found, true
 		if i+1 < len(segs) {
 			node, ok = p.arrayOpens(found)
 		}
 	}
-	return 0, "", false
+	return 0, false
+}
+
+// noInstance is the E003 text for the index segment at `at`: the index as
+// written, as H006 quotes a Format number, since one past u64 reads as the
+// largest.
+func noInstance(tok *Tokens, text string, segs []segment, at int) string {
+	digits := ""
+	if sel := tok.Segments[at].Selector; sel != nil {
+		digits = text[sel.Start:sel.End]
+	}
+	return fmt.Sprintf("no instance %s of '%s'", oneLine(digits), diagName(segs[at].name))
 }
 
 // arrayOpens is the node arrayUnder leaves a field under node to bind in,
@@ -6409,8 +6433,8 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		}
 		// An index that selects no instance bound before it: kept the same
 		// way, since an instance written above it later would make it bind.
-		if k, name, miss := p.indexMiss(parent, scan.segments); miss {
-			msg := fmt.Sprintf("no instance %d of '%s'", k, diagName(name))
+		if at, miss := p.indexMiss(parent, scan.segments); miss {
+			msg := noInstance(&tok, rest, scan.segments, at)
 			if _, _, _, raw := lineFence(&tok, rest); raw {
 				p.refuse(lineno, "E003", msg, outDropped, indent)
 				i = p.skipFieldLine(lines, i, indent, &tok, rest)
@@ -8112,6 +8136,56 @@ func spliceGroup(lines []string, was *emit, t0 string, wr []unit, w unit, now *e
 // the edited document's runs that match one exactly take that line's text.
 // False when the result would not reload as doc.
 func keepLines(src string, doc *Document) (string, bool) {
+	bare := false
+	if t, ok := keepLinesAs(src, doc, true, &bare); ok || !bare {
+		return t, ok
+	}
+	// Names left out that no later line named again are written.
+	return keepLinesAs(src, doc, false, &bare)
+}
+
+// headsOnly says whether every line from start to end of canonical out heads a
+// block, a name alone or an instance's: the next line not blank sits deeper,
+// and it is no comment.
+func headsOnly(out string, start, end int) bool {
+	depth := func(l string) int { return len(l) - len(strings.TrimLeft(l, "\t")) }
+	var own []string
+	for _, l := range strings.Split(out[start:end], "\n") {
+		if l != "" {
+			own = append(own, l)
+		}
+	}
+	// Line by line, since a split of the rest of out for each group is
+	// quadratic in the file.
+	after, found := "", false
+	for rest := out[end:]; rest != ""; {
+		l, r, _ := strings.Cut(rest, "\n")
+		if l != "" {
+			after, found = l, true
+			break
+		}
+		rest = r
+	}
+	for k, l := range own {
+		if strings.HasPrefix(strings.TrimLeft(l, "\t"), "#") {
+			return false
+		}
+		if k+1 < len(own) {
+			if depth(own[k+1]) <= depth(l) {
+				return false
+			}
+		} else if !found || depth(after) <= depth(l) {
+			return false
+		}
+	}
+	return len(own) > 0
+}
+
+// keepLinesAs is keepLines, and with dropBare the names a dotted line opened
+// go with the line when what is under them now comes from the next line,
+// which names them again. bare says whether any went. A reload that differs,
+// as when the names had a comment, has keepLines write them.
+func keepLinesAs(src string, doc *Document, dropBare bool, bare *bool) (string, bool) {
 	const none = -1
 	// A text that was canonical keeps its lines as the canonical form.
 	if src == "" {
@@ -8174,12 +8248,15 @@ func keepLines(src string, doc *Document) (string, bool) {
 	for k := range at {
 		at[k] = none
 	}
+	// The group each source line's runs are in, by its first line.
+	groupOf := make([]int, n+2)
 	for i, g := range was {
 		if g.line != 0 && g.line <= n {
 			at[g.line] = i
 			for _, r := range wasRuns[g.partFrom:g.partTo] {
 				if r.line != 0 && r.line <= n {
 					end[g.line] = maxInt(end[g.line], end[owner[r.line]])
+					groupOf[r.line] = g.line
 				}
 			}
 		}
@@ -8372,9 +8449,14 @@ func keepLines(src string, doc *Document) (string, bool) {
 	prev, reach := 0, 0
 	// The last kept group whose following lines are still to go out.
 	owed := 0
+	// The first group written, and the source line of names left out, whose
+	// place the next group takes.
+	lead, gone := 0, 0
 	for i, u := range is {
 		l := u.line
 		known := l != 0 && l <= n && at[l] != none
+		took := gone
+		gone = 0
 		if known {
 			// The canonical form writes this above a source line that sat above
 			// it: blocks folded together from two places, or a selector's child
@@ -8386,6 +8468,37 @@ func keepLines(src string, doc *Document) (string, bool) {
 			reach = end[l]
 		}
 		same := known && loadedText[was[at[l]].start:was[at[l]].end] == nowText[u.start:u.end]
+		// An edit that takes a dotted line's last name leaves the names
+		// before it with nothing of their own. When the next source line is
+		// what is under them now, it names them again, so the names go with
+		// the line, from the group it was in: a remove writes no line the
+		// document did not write.
+		names := 0
+		if dropBare && !same && took == 0 && l != 0 && l <= n && headsOnly(nowText, u.start, u.end) {
+			names = groupOf[l]
+			if names != 0 && (i+1 >= len(is) || is[i+1].line == 0 || is[i+1].line != next[names]) {
+				names = 0
+			}
+		}
+		if names != 0 {
+			gone = names
+			*bare = true
+			if lead == i {
+				lead = i + 1
+			}
+			continue
+		}
+		// The next group stands where the names' line was. The blank lines
+		// above that line go with it, as above any line a remove takes.
+		atL := l
+		if took != 0 {
+			atL = took
+		}
+		cut := took
+		for cut > 1 && blank(cut-1) {
+			cut--
+		}
+		skip := func(k int) bool { return took != 0 && k >= cut && k <= end[took] }
 		splicedAt, spliced, didSplice := 0, "", false
 		if known && !same {
 			splicedAt, spliced, didSplice = spliceGroup(lines, loaded, loadedText, wasRuns, was[at[l]], now, nowText, isRuns, u)
@@ -8407,7 +8520,7 @@ func keepLines(src string, doc *Document) (string, bool) {
 		pay := false
 		if owed != 0 {
 			if known {
-				pay = !(kept && prev == owed && next[prev] == l)
+				pay = !(kept && prev == owed && next[prev] == atL)
 			} else {
 				ind := indentFor(indents, depth, step)
 				for k := end[owed] + 1; k < next[owed]; k++ {
@@ -8427,25 +8540,34 @@ func keepLines(src string, doc *Document) (string, bool) {
 			owed = 0
 		}
 		switch {
-		case i == 0:
-			if kept && len(claimed) > 0 && claimed[0] == l {
+		case i == lead:
+			if kept && len(claimed) > 0 && claimed[0] == atL {
 				for k := 1; k < l; k++ {
+					if skip(k) {
+						continue
+					}
 					out.WriteString(line(k))
 					wrote[k] = true
 					left[k] = false
 				}
 			}
-		case kept && prev != 0 && next[prev] == l:
+		case kept && prev != 0 && next[prev] == atL:
 			blanks := false
 			// A blank line above a source line written here stays with it.
 			last := 0
 			for k := end[prev] + 1; k < l; k++ {
+				if skip(k) {
+					continue
+				}
 				blanks = blanks || blank(k)
 				if !blank(k) {
 					last = k
 				}
 			}
 			for k := end[prev] + 1; k < l; k++ {
+				if skip(k) {
+					continue
+				}
 				if blanksStay || !blank(k) || k < last {
 					out.WriteString(line(k))
 					wrote[k] = true
@@ -8457,7 +8579,7 @@ func keepLines(src string, doc *Document) (string, bool) {
 					out.WriteString(eol)
 				}
 			}
-		case known && blanksStay && l > 1 && blank(l-1):
+		case known && blanksStay && l > 1 && blank(l-1) && !skip(l-1):
 			k := l - 1
 			for k > 1 && blank(k-1) {
 				k--
@@ -8560,9 +8682,10 @@ func keepLines(src string, doc *Document) (string, bool) {
 // dropBanners takes the info block out of leads, from the lone "##" above its
 // "This config file format is SHCL." line to the next lone "##", and each
 // version line Migrate stamped, with the note under it. A block with no
-// closing "##" ends after its last line written the block's way. A Schema line
-// in a block stays, and so does any other comment around one, even written
-// right against it. It returns how many came off, and whether the last one
+// closing "##" ends after its last line written the block's way. A line in a
+// block that the block does not write stays, as a Schema line or an author's
+// own "##    Owner" line does, and so does any other comment around one, even
+// written right against it. It returns how many came off, and whether the last one
 // had a blank above it with no line after it to take that blank. A mark of
 // "#" takes 2.x's block instead, which had no version line. With blocks false
 // a block stays whole, and only a Format line outside one comes off.
@@ -8610,11 +8733,11 @@ func dropBanners(leads *[]lead, mark string, blocks bool) (int, bool) {
 			continue
 		}
 		// The blank that set the block off moves to whatever followed it, so
-		// the lines around it stay apart. A Schema line in the block is the
-		// author's and stays, with the blank.
+		// the lines around it stay apart. The author's lines in the block,
+		// such as a Schema line, stay, with the blank.
 		at := len(keep)
 		for _, l := range ls[start:end] {
-			if strings.HasPrefix(l.text, SchemaLineHead) {
+			if !bannerOwn(l.text, mark) {
 				keep = append(keep, l)
 			}
 		}
@@ -8636,6 +8759,64 @@ func dropBanners(leads *[]lead, mark string, blocks bool) (int, bool) {
 		*leads = keep
 	}
 	return removed, owed
+}
+
+// bannerOwn says whether t is a line the info block writes, in mark comments:
+// a lone mark, the block's two text lines, one of its named lines, or the note
+// Migrate writes under the Format line. Any other line in a block is the
+// author's.
+func bannerOwn(t, mark string) bool {
+	r, ok := strings.CutPrefix(t, mark)
+	if !ok {
+		return false
+	}
+	if r == "" || r == bannerTitle[2:] || r == bannerName[2:] || t == MigratedLine {
+		return true
+	}
+	if r, ok = strings.CutPrefix(r, "    "); !ok {
+		return false
+	}
+	for _, f := range bannerFields {
+		if rest, ok := strings.CutPrefix(r, f); ok && (rest == "" || rest[0] == ' ') {
+			return true
+		}
+	}
+	return false
+}
+
+// currentFooter gives where the info block starts in leads when it ends them
+// and reads as this release writes it, the author's lines in it aside, else
+// -1.
+func currentFooter(leads []lead) int {
+	t := -1
+	for k := len(leads) - 1; k >= 0 && t < 0; k-- {
+		if leads[k].text == bannerTitle {
+			t = k
+		}
+	}
+	if t < 1 || leads[t-1].text != "##" {
+		return -1
+	}
+	for _, l := range leads[t:] {
+		if !strings.HasPrefix(l.text, "##") || l.blankBefore {
+			return -1
+		}
+	}
+	gen := strings.Split(strings.TrimSuffix(GenBanner, "\n"), "\n")
+	k := 0
+	for _, l := range leads[t-1:] {
+		if !bannerOwn(l.text, "##") {
+			continue
+		}
+		if k == len(gen) || l.text != gen[k] {
+			return -1
+		}
+		k++
+	}
+	if k != len(gen) {
+		return -1
+	}
+	return t - 1
 }
 
 // errorsWithin: each error code d loads with, of loaded with at least as
@@ -12536,11 +12717,14 @@ func (d *Document) TryClearComments(path string) Read[int] {
 // even written right against it. A version line Migrate stamped comes off
 // too, with the note under it. Both are looked for in the footer and above
 // every field but the first one and its first child down, since a field added
-// below one by hand takes it as its comment. A block at the top of the file is
-// left alone. A dotted first line hangs it on its last name, which a saved file
-// writes as the first field's first child, so a block there is left alone too,
-// however it got there. A lone Format line there comes off with on, since the
-// new block names the format. A kept block's Format line is set to this format
+// below one by hand takes it as its comment. A line in an old block that the
+// block does not write is the author's, such as a Schema line, and stays where
+// the block was. With on, a block that already ends the file as this release
+// writes it stays as it is, the author's lines in it too. A block at the top
+// of the file is left alone. A dotted first line hangs it on its last name,
+// which a saved file writes as the first field's first child, so a block there
+// is left alone too, however it got there. A lone Format line there comes off
+// with on, since the new block names the format. A kept block's Format line is set to this format
 // too, since it reads first. The library save never adds the block by itself;
 // this is for a program that wants it in a file it writes. Returns how many old
 // blocks came off.
@@ -12584,10 +12768,22 @@ func (d *Document) swapBanner(on, v2 bool) int {
 			}
 		}
 	}
+	// A block that already ends the file as this release writes it stays as
+	// it is, and so do the author's lines in it.
+	current := -1
+	if on {
+		current = currentFooter(d.orphans)
+	}
+	var block []lead
+	if current >= 0 {
+		block = append(block, d.orphans[current:]...)
+		d.orphans = d.orphans[:current:current]
+	}
 	for _, mark := range marks {
 		gone, _ := dropBanners(&d.orphans, mark, true)
 		removed += gone
 	}
+	d.orphans = append(d.orphans, block...)
 	if on {
 		// A block kept at the top reads before the new one, so it names this
 		// format too (2026102309053667).
@@ -12600,6 +12796,8 @@ func (d *Document) swapBanner(on, v2 bool) int {
 				}
 			}
 		}
+	}
+	if on && current < 0 {
 		open := len(d.orphans) > 0 || len(d.arena[root].children) > 0
 		for n, line := range strings.Split(strings.TrimSuffix(GenBanner, "\n"), "\n") {
 			l := plainLead(line)

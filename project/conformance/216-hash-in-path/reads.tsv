@@ -1,0 +1,9 @@
+query	type	expected	status
+colors#primary	string	-	BadPath
+colors #primary	string	-	BadPath
+"colors#primary"	string	x	Good
+colors.primary	string	red	Good
+a.b#c	int	-	BadPath
+"a.b#c"	int	2	Good
+a.b	int	1	Good
+-	lost	0	-

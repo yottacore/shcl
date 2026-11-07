@@ -378,6 +378,7 @@ Both open points are settled:
 - A URL is left to editors. A check that goes to the network because of a line in a file is not one to run unattended, so `check` says it skipped it and validates nothing.
 
 - `set_banner` keeps the line when it sits inside the info block, since the author wrote it there and the block is rewritten whole.
+	- The same goes for any line in the block that the block does not write, such as an `Owner` line (2026110613470302). The block's own lines are its two text lines, the lone `##` lines and the lines named Format, Home, Syntax and Legal. A block at the end that already reads as the current one stays as it is, so `banner on` on a current file changes nothing, and the line stays in the block.
 
 **Durations and sizes are read-time types, like dates** (2026-09-26). `timeout: 30s` and `cache: 512MB` read as whole milliseconds and whole bytes, so a program never parses a unit itself.
 
@@ -708,6 +709,7 @@ Where a kept line sits is read from canonical output before the edit. Under the 
 | `Merge`, the layer's lines                                   | comes in                                                                                                              | comes in           | comes in, except a footer line the base already has, unless kept lines sit under it
 
 - A remove only takes lines away. It writes no line the document did not write before, so a field opened from a kept line does not leave a bare `name:` behind.
+	- Nor does a dotted line whose last name a remove takes, when the next line names the same names again: after `a.b: 1` goes, `a.c: 2` opens `a` (2026110613470312). The blank line above the removed line goes with it, as above any removed line.
 
 - A field opened from a kept line goes with the last line under it, and the kept line stays where it was. A raw block of the same name after it had its fence on the name's line only because of that empty field, so the fence moves to a line of its own. That is the one rewrite a remove makes.
 

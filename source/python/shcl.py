@@ -3829,8 +3829,19 @@ def _path_of(tok, s):
 	return segments, s[tok.value[0]:tok.value[1]].decode("utf-8", "surrogatepass")
 
 
+def _no_instance(tok, segs, at):
+	"""The E003 text for the index segment at `at`: the index as written, as
+	H006 quotes a Format number, since one past u64 reads as the largest."""
+	sel = tok.segments[at].selector
+	digits = "" if sel is None else tok.src[sel.start:sel.end].decode("utf-8", "surrogatepass")
+	return f"no instance {_one_line(digits)} of '{_diag_name(segs[at].name)}'"
+
+
 # Why a lookup path with a selector in brackets is refused.
 _BRACKET_LOOKUP = "selector in brackets; write it in parens, name(value)"
+
+# Why a lookup path with a `#` outside quotes and selectors is refused.
+_COMMENT_LOOKUP = "a '#' opens a comment; quote a name that holds one"
 
 
 def _scan_lookup(inp):
@@ -3840,11 +3851,15 @@ def _scan_lookup(inp):
 	do. Whitespace around dots, colons and parens is insignificant. A path
 	a file line could not hold is refused the same: a selector in brackets
 	(E029), a bad escape, or a bare selector body with whitespace, a quote, a
-	colon, a comma, a bracket, a paren or a leading `#` in it (E025)."""
+	colon, a comma, a bracket, a paren or a leading `#` in it (E025). A `#`
+	anywhere else opens a comment, as it does on a file line, where `a#b: 1`
+	binds nothing; a path cut there would name the field above."""
 	tok = Tokens()
 	tokenize(inp, ":", True, Rules.Current, tok)
 	if tok.bracket_selector is not None:
 		raise _PathError(_BRACKET_LOOKUP)
+	if tok.sep is None and tok.comment is not None:
+		raise _PathError(_COMMENT_LOOKUP)
 	f = _path_fault(tok, tok.src)
 	if f is not None:
 		raise _PathError(f.msg)
@@ -4478,7 +4493,7 @@ class _Parser:
 	def _index_miss(self, parent, segs):
 		"""The index segment of a line's path that selects no instance among
 		those bound before it (E003), walked as _attach_path() will walk it,
-		creating nothing, as (index, name). A step that would create a field
+		creating nothing, as its position. A step that would create a field
 		leaves every index after it nothing to select. Judged before anything
 		opens, so a kept line opens none of its path's fields."""
 		if not any(_by_index(s) for s in segs):
@@ -4492,7 +4507,7 @@ class _Parser:
 				node = found
 				continue
 			if found is None:
-				return (seg.selector[1], seg.name)
+				return i
 			node = self._array_opens(found) if i + 1 < len(segs) else found
 		return None
 
@@ -5155,7 +5170,7 @@ class _Parser:
 			# way, since an instance written above it later would make it bind.
 			miss = self._index_miss(parent, segments)
 			if miss is not None:
-				msg = f"no instance {miss[0]} of '{_diag_name(miss[1])}'"
+				msg = _no_instance(tok, segments, miss)
 				if _line_fence(tok) is not None:
 					self._refuse(lineno, "E003", msg, _OUT_DROPPED, indent)
 					i = self._skip_field_line(lines, i, indent, tok)
@@ -6069,6 +6084,44 @@ def _keep_lines(src, doc):
 	runs line up with the text by the source line each came from, and the
 	edited document's runs that match one exactly take that line's text.
 	None when the result would not reload as `doc`."""
+	bare = [False]
+	t = _keep_lines_as(src, doc, True, bare)
+	if t is not None or not bare[0]:
+		return t
+	# Names left out that no later line named again are written.
+	return _keep_lines_as(src, doc, False, bare)
+
+
+def _heads_only(out, start, end):
+	"""Whether every line from `start` to `end` of canonical `out` heads a
+	block, a name alone or an instance's: the next line not blank sits deeper,
+	and it is no comment."""
+	own = [ln for ln in out[start:end].split("\n") if ln]
+	# Line by line, since a split of the rest of out for each group is
+	# quadratic in the file.
+	after = None
+	pos = end
+	while pos < len(out):
+		nl = out.find("\n", pos)
+		if nl < 0:
+			nl = len(out)
+		if nl > pos:
+			after = out[pos:nl]
+			break
+		pos = nl + 1
+	for k, ln in enumerate(own):
+		nx = own[k + 1] if k + 1 < len(own) else after
+		t = ln.lstrip("\t")
+		if t.startswith("#") or nx is None or len(nx) - len(nx.lstrip("\t")) <= len(ln) - len(t):
+			return False
+	return bool(own)
+
+
+def _keep_lines_as(src, doc, drop_bare, bare):
+	"""_keep_lines(), and with `drop_bare` the names a dotted line opened go
+	with the line when what is under them now comes from the next line, which
+	names them again. `bare[0]` says whether any went. A reload that differs,
+	as when the names had a comment, has _keep_lines() write them."""
 	no = -1
 	# A text that was canonical keeps its lines as the canonical form.
 	if not src:
@@ -6123,12 +6176,15 @@ def _keep_lines(src, doc):
 	# Each source line's group in the loaded text, and the lines it stands for,
 	# through its last run's.
 	at = [no] * (n + 2)
+	# The group each source line's runs are in, by its first line.
+	group_of = [0] * (n + 2)
 	for i, g in enumerate(was):
 		if g.line != 0 and g.line <= n:
 			at[g.line] = i
 			for r in was_runs[g.parts[0]:g.parts[1]]:
 				if r.line != 0 and r.line <= n:
 					end[g.line] = max(end[g.line], end[owner[r.line]])
+					group_of[r.line] = g.line
 	claimed = [k for k in range(1, n + 1) if at[k] != no]
 	# The first group after each one's lines, for telling two that sat next to
 	# each other.
@@ -6242,9 +6298,13 @@ def _keep_lines(src, doc):
 	prev = reach = 0
 	# The last kept group whose following lines are still to go out.
 	owed = 0
+	# The first group written, and the source line of names left out, whose
+	# place the next group takes.
+	lead = gone = 0
 	for i, u in enumerate(is_):
 		k = u.line
 		known = k != 0 and k <= n and at[k] != no
+		took, gone = gone, 0
 		if known:
 			# The canonical form writes this above a source line that sat above
 			# it: blocks folded together from two places, or a selector's child
@@ -6255,6 +6315,38 @@ def _keep_lines(src, doc):
 			reach = end[k]
 		w = was[at[k]] if known else None
 		same = w is not None and loaded.text[w.start:w.end] == now.text[u.start:u.end]
+		# An edit that takes a dotted line's last name leaves the names
+		# before it with nothing of their own. When the next source line is
+		# what is under them now, it names them again, so the names go with
+		# the line, from the group it was in: a remove writes no line the
+		# document did not write.
+		names = 0
+		if (
+			drop_bare
+			and not same
+			and took == 0
+			and 0 < k <= n
+			and _heads_only(now.text, u.start, u.end)
+		):
+			names = group_of[k]
+			if names != 0 and not (i + 1 < len(is_) and is_[i + 1].line != 0 and is_[i + 1].line == nxt[names]):
+				names = 0
+		if names != 0:
+			gone = names
+			bare[0] = True
+			if lead == i:
+				lead = i + 1
+			continue
+		# The next group stands where the names' line was. The blank lines
+		# above that line go with it, as above any line a remove takes.
+		at_k = took or k
+		cut = took
+		while cut > 1 and blank(cut - 1):
+			cut -= 1
+
+		def skip(g, took=took, cut=cut):
+			return took != 0 and cut <= g <= end[took]
+
 		spliced = _splice_group(lines, loaded, was_runs, w, now, is_runs, u) if w is not None and not same else None
 		kept = same or spliced is not None
 		# The blank lines above a group stay while it has a blank before it.
@@ -6269,7 +6361,7 @@ def _keep_lines(src, doc):
 		depth = _tabs(now.text, u.start)
 		if owed != 0:
 			if known:
-				due = not (kept and prev == owed and nxt[prev] == k)
+				due = not (kept and prev == owed and nxt[prev] == at_k)
 			else:
 				ind = _indent_for(indents, depth, step)
 				g = next((g for g in range(end[owed] + 1, nxt[owed]) if left[g]), 0)
@@ -6280,13 +6372,15 @@ def _keep_lines(src, doc):
 				owed = 0
 		if known:
 			owed = 0
-		if i == 0:
-			if kept and claimed and claimed[0] == k:
-				out.extend(lines[:k - 1])
-				wrote[1:k] = [True] * (k - 1)
-				left[1:k] = [False] * (k - 1)
-		elif kept and prev != 0 and nxt[prev] == k:
-			gap = range(end[prev] + 1, k)
+		if i == lead:
+			if kept and claimed and claimed[0] == at_k:
+				for g in range(1, k):
+					if not skip(g):
+						out.append(line(g))
+						wrote[g] = True
+						left[g] = False
+		elif kept and prev != 0 and nxt[prev] == at_k:
+			gap = [g for g in range(end[prev] + 1, k) if not skip(g)]
 			blanks = any(blank(g) for g in gap)
 			# A blank line above a source line written here stays with it.
 			last = next((g for g in reversed(gap) if not blank(g)), 0)
@@ -6297,7 +6391,7 @@ def _keep_lines(src, doc):
 					left[g] = False
 			if not blanks:
 				out.extend([eol] * u.blanks)
-		elif known and blanks_stay and k > 1 and blank(k - 1):
+		elif known and blanks_stay and k > 1 and blank(k - 1) and not skip(k - 1):
 			g = k - 1
 			while g > 1 and blank(g - 1):
 				g -= 1
@@ -6363,13 +6457,42 @@ def _keep_lines(src, doc):
 	return None
 
 
+def _banner_own(t, mark):
+	"""Whether `t` is a line the info block writes, in `mark` comments: a
+	lone mark, the block's two text lines, one of its named lines, or the note
+	migrate writes under the Format line. Any other line in a block is the
+	author's."""
+	if not t.startswith(mark):
+		return False
+	r = t[len(mark):]
+	if r in ("", _BANNER_TITLE[2:], _BANNER_NAME[2:]) or t == MIGRATED_LINE:
+		return True
+	if not r.startswith("    "):
+		return False
+	r = r[4:]
+	return any(r.startswith(f) and r[len(f):len(f) + 1] in ("", " ") for f in _BANNER_FIELDS)
+
+
+def _current_footer(leads):
+	"""Where the info block starts in `leads` when it ends them and reads as
+	this release writes it, the author's lines in it aside, else -1."""
+	t = next((k for k in range(len(leads) - 1, -1, -1) if leads[k].text == _BANNER_TITLE), -1)
+	if t < 1 or leads[t - 1].text != "##":
+		return -1
+	if any(not c.text.startswith("##") or c.blank_before for c in leads[t:]):
+		return -1
+	own = [c.text for c in leads[t - 1:] if _banner_own(c.text, "##")]
+	return t - 1 if own == GEN_BANNER.rstrip("\n").split("\n") else -1
+
+
 def _drop_banners(leads, mark, blocks):
 	"""Take the info block out of `leads`, from the lone "##" above its "This
 	config file format is SHCL." line to the next lone "##", and each version
 	line migrate stamped, with the note under it. A block with no closing "##"
-	ends after its last line written the block's way. A Schema line in a block
-	stays, and so does any other comment around one, even written right against
-	it. Returns how many came off, whether the last one had a blank above it
+	ends after its last line written the block's way. A line in a block that
+	the block does not write stays, as a Schema line or an author's own
+	"##    Owner" line does, and so does any other comment around one, even
+	written right against it. Returns how many came off, whether the last one had a blank above it
 	with no line after it to take that blank, and the lines left. A `mark` of
 	"#" takes 2.x's block instead, which had no version line. With `blocks`
 	false a block stays whole, and only a Format line outside one comes off."""
@@ -6414,11 +6537,11 @@ def _drop_banners(leads, mark, blocks):
 			i += 1
 			continue
 		# The blank that set the block off moves to whatever followed it, so
-		# the lines around it stay apart. A Schema line in the block is the
-		# author's and stays, with the blank.
+		# the lines around it stay apart. The author's lines in the block,
+		# such as a Schema line, stay, with the blank.
 		blank = leads[start].blank_before
 		at = len(keep)
-		keep.extend(c for c in leads[start:end] if c.text.startswith(SCHEMA_LINE_HEAD))
+		keep.extend(c for c in leads[start:end] if not _banner_own(c.text, mark))
 		if at < len(keep):
 			keep[at].blank_before = blank
 		elif end < len(leads):
@@ -8483,11 +8606,14 @@ class Document:
 		migrate stamped comes off too, with the note under it. Both are looked
 		for in the footer and above every field but the first one and its
 		first child down, since a field added below one by hand takes it as
-		its comment. A block at the top of the file is left alone. A dotted
-		first line hangs it on its last name, which a saved file writes as
-		the first field's first child, so a block there is left alone too,
-		however it got there. A lone Format line there comes off with on, since
-		the new block names the format. A kept block's Format line is set to
+		its comment. A line in an old block that the block does not write is
+		the author's, such as a Schema line, and stays where the block was.
+		With on, a block that already ends the file as this release writes it
+		stays as it is, the author's lines in it too. A block at the top of
+		the file is left alone. A dotted first line hangs it on its last name,
+		which a saved file writes as the first field's first child, so a block
+		there is left alone too, however it got there. A lone Format line there
+		comes off with on, since the new block names the format. A kept block's Format line is set to
 		this format too, since it reads first. The library save never adds the
 		block by itself; this is for a program that wants it in a file it
 		writes. Returns how many old blocks came off."""
@@ -8522,9 +8648,16 @@ class Document:
 				if gone:
 					removed += gone
 					nd.blank_before = nd.blank_before or blank
+		# A block that already ends the file as this release writes it stays
+		# as it is, and so do the author's lines in it.
+		current = _current_footer(self.orphans) if on else -1
+		block = self.orphans[current:] if current >= 0 else []
+		if current >= 0:
+			self.orphans = self.orphans[:current]
 		for mark in marks:
 			gone, _, self.orphans = _drop_banners(self.orphans, mark, True)
 			removed += gone
+		self.orphans = self.orphans + block
 		if on:
 			# A block kept at the top reads before the new one, so it names this
 			# format too (2026102309053667).
@@ -8535,6 +8668,7 @@ class Document:
 				for c in tr.leading:
 					if c.text.startswith(FORMAT_LINE_HEAD) and c.text != FORMAT_LINE:
 						c.text, c.line = FORMAT_LINE, 0
+		if on and current < 0:
 			open_ = bool(self.orphans) or bool(self.arena[_ROOT].children)
 			for n, line in enumerate(GEN_BANNER.rstrip("\n").split("\n")):
 				self.orphans.append(_Lead(line, n == 0 and open_))
@@ -12836,6 +12970,10 @@ MIGRATED_LINE = "##    Migrated from SHCL 2.x."
 # first, which no release has worded differently.
 _BANNER_TITLE = "## This config file format is SHCL."
 _BANNER_NAME = '## "Simple Hierarchical Config Language"'
+
+# The names on the info block's own lines, in any release. set_banner keeps
+# every other line it finds in a block.
+_BANNER_FIELDS = ("Format", "Home", "Syntax", "Legal")
 
 
 def _v007_sanctioned(message):

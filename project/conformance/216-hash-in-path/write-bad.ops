@@ -1,0 +1,7 @@
+string	colors#primary	z
+string	a.b#c	V
+int	colors(red)#x	5
+empty	colors#primary
+comment	a#b	note
+literal	a.b#c	[1, 2]
+raw	a#b	sh	echo

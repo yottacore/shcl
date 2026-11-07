@@ -4474,6 +4474,44 @@ fn stamp_hints_quote_digits() {
 	}
 }
 
+/// `E003` names the index as written, leading zeros, a sign and all, as the
+/// H006 hint quotes a Format number. One past u64 reads as the largest, and
+/// the message used to name that (2026110613470313). A long one is cut the
+/// way any value in a message is.
+#[test]
+fn e003_quotes_the_index_as_written() {
+	let _id = test_id("dez5b");
+	let long = format!("1{}", "0".repeat(200));
+	let rows = [
+		(
+			"99999999999999999999999",
+			"99999999999999999999999".to_string(),
+		),
+		("007", "007".to_string()),
+		("+1", "+1".to_string()),
+		("1", "1".to_string()),
+		(
+			long.as_str(),
+			format!("1{}...{} (201 chars)", "0".repeat(99), "0".repeat(100)),
+		),
+	];
+	for (index, shown) in rows {
+		let text = format!("c: x\nc({}).d: 2\n", index);
+		let doc = Document::parse(&text);
+		let got: Vec<_> = doc
+			.diagnostics()
+			.iter()
+			.map(|d| (d.line, d.code, d.message.clone()))
+			.collect();
+		assert_eq!(
+			got,
+			[(2, "E003", format!("no instance {} of 'c'", shown))],
+			"{:?}",
+			text
+		);
+	}
+}
+
 /// A setter writes only what reads back. Each one builds its text through the
 /// emitter and hands it to the tokenizer before the document is touched, so
 /// for every input either the call refuses and the document is byte-identical,

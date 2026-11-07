@@ -48,66 +48,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Avg
 	- Held for v4 (JC, 2026-11-02).
 
-- A `#` in an unquoted path cuts the path, so `--remove` and the setters act on the field above it
-	- ID: 2026110613470301
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 1
-	- Version and build: dev at `343334df`
-	- Steps to reproduce:
-		- A file with `colors:`, then `primary: red` and `secondary: blue` under it, then `"colors#primary": x`.
-		- `shcl set --remove='colors#primary' FILE`.
-	- Incorrect behavior: exit 0, and the whole `colors` section is gone. An ops line `string a.b#c V` sets `a.b`. In the library `check_set_path("a.b#c.d")` says Ok and `set_string` writes `a.b`. A read of `colors#primary` reads `colors`.
-	- Expected behavior: `BadPath`. spec.md says a lookup path uses the same syntax and tolerances as the file, and in a file `a#b: 1` is a broken line that binds nothing. design.md's Write outcomes give `BadPath` for a path the scanner refuses, the way `ValueInPath` refuses a `: value` part.
-	- Reproduced: 20261106, all 4 CLIs and the Python library.
-	- Possible cause: `scan_lookup` and its twins read the path with comments on, and nothing refuses the comment it finds.
-	- Origin: `e58fe9f4` (2026-09-07). Not seen by an earlier round. The "finds nothing" rule for a selector body that starts with `#` covers selectors only. Confirmed.
-	- Sweep: every caller of the path scan in all 4 and the C++ interface: the reads, the setters, `check_set_path`, `remove`, `clear_comments`, and the CLIs' `--set`, `--remove`, ops lines and `get --set`.
-	- Regression test: an ops-script case in the shared conformance set, run by all 4 suites, with a `#` in a quoted segment and a bare one: the setter and the remove act on the named field or refuse, and the field above stays, checked as exact text; plus cli-regress rows for `--remove` and `set` with the same paths.
-	- Estimated effort: Low
-
-- `banner on` and `upgrade` drop an author's line inside the info block
-	- ID: 2026110613470302
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 2
-	- Related IDs: 2026100307163904
-	- Version and build: dev at `343334df`
-	- Steps to reproduce:
-		- A 3.0 file whose info block has a line added by hand, such as `##    Owner    ops team, call x1234 before changing`.
-		- `printf 'banner\ton\n' | shcl set FILE`.
-	- Incorrect behavior: exit 0, and the Owner line is gone, though the block was already current. `upgrade --from-2x --write` on a 2.x file with such a line in its `#` block drops it the same way, after the backup.
-	- Expected behavior: README says a save never deletes a line you typed unless you ask it to. design.md keeps a Schema line in the block "since the author wrote it there and the block is rewritten whole", and that reason fits any line the block didn't write.
-	- Reproduced: 20261106, all 4 CLIs.
-	- Possible cause: `drop_banners` and its twins keep only a Schema line out of the old block.
-	- Origin: `6c00b70d` (2026-10-03), the fix for 2026100307163904, which kept the comments around the block. Not seen by an earlier round. Confirmed.
-	- Note: `banner on` on a block that's already current could write nothing.
-	- Regression test: an ops-script case for all 4 suites: an info block with an author's line, then `banner on`, `banner off` and `upgrade`, expected text exact with the line in place; plus a cli-regress row for `upgrade` on the same file.
-	- Estimated effort: Low
-
-- The publish script tells the user to drop a stash that has the only copy of their untracked files
-	- ID: 2026110613470303
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 3
-	- Version and build: dev at `343334df`
-	- Steps to reproduce:
-		- A clone with an untracked `notes.txt`, while the upstream adds its own `notes.txt`.
-		- `cicd/utility/n8git_backup-and-publish`, which stashes with `--include-untracked`, pulls, then pops.
-	- Incorrect behavior: the pop can't put the untracked file back, since the pulled one is in the way, and exits 1. The tracked edits come back with no conflict markers. The script prints "Resolve the conflicts, then 'git stash drop', and re-run", and doing that deletes the only copy. The failed-pull branch gives the same advice.
-	- Expected behavior: say that the untracked files couldn't be put back and are still in the stash, name them, and never advise a drop. The script's history says a pop conflict stops "instead of stranding a half-merged tree".
-	- Reproduced: 20261106, the script's stash, pull and pop run with plain git in a scratch repo. The script itself wasn't run, since it commits and pushes.
-	- Origin: the message is `fa9e2f72` (2026-07-25), `--include-untracked` is `88d6a42b` (2026-07-12), and an untracked file alone starts the stash since `035dfb78` (2026-09-23). The items on a pop conflict and a failed pull don't cover this. Confirmed.
-	- Note: the script is a copy of the shared one. The fix goes in the shared copy first.
-	- Regression test: a shell-regress row that runs the helper in a scratch repo with an untracked file and the stash path taken, and refuses any advice line that says to drop the stash; the row runs against the repo's copy, and the shared n8git copy takes the same fix.
-	- Estimated effort: Low
-
 - The parse caps don't count comment lines or kept lines, so a capped parse can still use 100 times the file's size
 	- ID: 2026110613470304
 	- Type: Bug
@@ -287,40 +227,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Regression test: the fixed row in 2026110616475903's table and its placement property, in all 4 bindings; watched to fail on `343334df`.
 	- Estimated effort: Low
 
-- Removing one field of a dotted pair writes a bare header line
-	- ID: 2026110613470312
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 12
-	- Version and build: dev at `343334df`
-	- Steps to reproduce: `a.b: 1` and `a.c: 2`, then `shcl set --remove=a.b FILE`.
-	- Incorrect behavior: `a:` then `a.c: 2`. Taking `srv.web.port` out of a dotted pair writes `srv:` and `web:` lines. A blank line above the removed line goes too.
-	- Expected behavior: `a.c: 2` alone. design.md says a remove only takes lines away and writes no line the document didn't write before.
-	- Reproduced: 20261106, all 4 CLIs.
-	- Possible cause: the removed line was the line that opened `a`, so the line-keeping save writes `a` fresh.
-	- Origin: not blamed. Not seen by an earlier round. Confirmed.
-	- Regression test: an ops-script case for all 4 suites: remove one field of a dotted pair, expected text exact and the reload equal to the document; plus a cli-regress row for `--remove` on the same file.
-	- Estimated effort: Avg
-
-- `E003` names the capped number, not the index as written
-	- ID: 2026110613470313
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 13
-	- Related IDs: 2026101514324705
-	- Version and build: dev at `343334df`
-	- Steps to reproduce: `c: x`, then `c(99999999999999999999999).d: 2`, and `shcl check FILE`.
-	- Incorrect behavior: `E003 no instance 18446744073709551615 of 'c'`.
-	- Expected behavior: the index as written, the way `H006` and `H007` quote the Format number since 2026101514324705.
-	- Reproduced: 20261106, all 4 CLIs.
-	- Origin: a sibling of 2026101514324705, which fixed the Format number's text only. Confirmed.
-	- Regression test: a corpus case with an index past the cap, whose expected diagnostics name the index as written, run by all 4 suites.
-	- Estimated effort: Low
-
 - Some spec sentences don't match what all 4 bindings do
 	- ID: 2026110613470314
 	- Type: Bug
@@ -413,22 +319,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Regression test: shell-regress rows: install.bash run from a temp folder whose name has `..` in it, and a tag list where a longer tag contains the wanted one, asserting the anchored match; both watched to fail on `343334df`.
 	- Estimated effort: Low
 
-- sign-release.bash's key fingerprint check can't fail
-	- ID: 2026110613470319
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 19
-	- Version and build: dev at `343334df`
-	- Steps to reproduce: read `[[ -n "${want}" ]] || fDie "cannot fingerprint the signing key"` in `cicd/utility/sign-release.bash`.
-	- Incorrect behavior: `fFp` ends in `sha256sum`, which prints a hash for empty input too, so `want` is never empty.
-	- Expected behavior: the check fails when the key can't be read. The public key step before it and the compares after it still fail closed, so nothing wrong is signed today.
-	- Reproduced: 20261106, `fFp /dev/null` gives the empty input's hash.
-	- Origin: `7fb1645b` (2026-07-28). Confirmed.
-	- Regression test: a shell-regress row that signs with a test key whose fingerprint differs from the one the script expects and asserts a non-zero exit; it passes today, so it's watched to fail first.
-	- Estimated effort: Low
-
 - comparison.md's peak memory row comes from the 2026-10-02 run
 	- ID: 2026110613470320
 	- Type: Bug
@@ -443,22 +333,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261106, both runs pulled out of results.shcl.
 	- Origin: the memory row is `b30d70a8` (2026-10-14), the read row `ae8540e9` (2026-11-05). Confirmed.
 	- Regression test: a check-docs row that refuses a comparison.md row dated older than the table's run date, and the comparison run writes the memory row itself so the two can't drift.
-	- Estimated effort: Low
-
-- Make sign-release.bash refuse a dated build
-	- ID: 2026110613470321
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 21
-	- Problem description: the signer checks that the sums match the files beside them, then signs. Every pipeline run writes the local release folder, and today it has a dated build from a later run, not the beta1 bytes. Signing it with `--no-tag-check`, as beta1 was signed, passes and makes a good signature over bytes that aren't the cut. `release-table.bash --version-of` already refuses a dated build.
-	- Requirements:
-		- Refuse a dated build, or a version other than the tag's, the way release-table does.
-		- Check the binaries, not only the source HEAD.
-	- Reason: a re-sign and re-upload would put a build that isn't the cut behind a valid signature.
-	- Origin: `6d29ef3a` (2026-09-02). Confirmed with a copy of the script and a test key.
-	- Regression test: shell-regress rows: the signer on a dated build exits non-zero with the reason, on an undated tag build passes, and on a binary of another version exits non-zero.
 	- Estimated effort: Low
 
 - A filesystem property test for the save's checks, over every past path bug
@@ -585,20 +459,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reason: the same interface in every binding unless idiom makes it surprising, and in Go a usable zero value is the idiom.
 	- Origin: `8bca69bd` (2026-07-12). Not in the v4 design. Confirmed.
 	- Regression test: a Go test that calls every public method on a zero-value `Document` and asserts the chosen behavior for each, a working call or the `New()` message; a doc check that the message names `New()`.
-	- Estimated effort: Low
-
-- Give the dogfood launcher's copy its own temp name, and swap its link by rename
-	- ID: 2026110613470326
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 26
-	- Related IDs: 2026110215285714
-	- Problem description: `dogfood_shcl.ps1` copies each new build through one fixed `.partial` name per build stamp, so 2 runs as a build arrives can cut the file under the other's rename. `Update-FixedName` removes the link before it makes the new one, so for a moment there's no `shcl` on PATH.
-	- Requirements: a temp name per process, and the link replaced by a rename.
-	- Origin: `eefd1dba`. Plausible, read only.
-	- Regression test: a shell-regress row that starts 2 launchers at once against a slow copy stub, as `desp5` does, and asserts one whole copy at the end and a link that at every poll points at a whole file; a second row for a copy killed midway leaving no `.partial` behind.
 	- Estimated effort: Low
 
 - The default run takes over an hour
@@ -1009,6 +869,258 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- A `#` in an unquoted path cuts the path, so `--remove` and the setters act on the field above it
+	- ID: 2026110613470301
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: No
+	- Severity: High
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 1
+	- Version and build: dev at `343334df`
+	- Steps to reproduce:
+		- A file with `colors:`, then `primary: red` and `secondary: blue` under it, then `"colors#primary": x`.
+		- `shcl set --remove='colors#primary' FILE`.
+	- Incorrect behavior: exit 0, and the whole `colors` section is gone. An ops line `string a.b#c V` sets `a.b`. In the library `check_set_path("a.b#c.d")` says Ok and `set_string` writes `a.b`. A read of `colors#primary` reads `colors`.
+	- Expected behavior: `BadPath`. spec.md says a lookup path uses the same syntax and tolerances as the file, and in a file `a#b: 1` is a broken line that binds nothing. design.md's Write outcomes give `BadPath` for a path the scanner refuses, the way `ValueInPath` refuses a `: value` part.
+	- Reproduced: 20261106, all 4 CLIs and the Python library.
+	- Possible cause: `scan_lookup` and its twins read the path with comments on, and nothing refuses the comment it finds.
+	- Origin: `e58fe9f4` (2026-09-07). Not seen by an earlier round. The "finds nothing" rule for a selector body that starts with `#` covers selectors only. Confirmed.
+	- Sweep: every caller of the path scan in all 4 and the C++ interface: the reads, the setters, `check_set_path`, `remove`, `clear_comments`, and the CLIs' `--set`, `--remove`, ops lines and `get --set`.
+	- Regression test: an ops-script case in the shared conformance set, run by all 4 suites, with a `#` in a quoted segment and a bare one: the setter and the remove act on the named field or refuse, and the field above stays, checked as exact text; plus cli-regress rows for `--remove` and `set` with the same paths.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: confirmed. The path scan stops at a `#` outside quotes and selectors as a comment, and the lookup kept the segments before it.
+	- Actual fix: the lookup path scan refuses a `#` it reads as a comment, in all 4, so every read, setter, remove, comment clear and schema path gets `BadPath` and nothing changes. A quoted name holding one, `"colors#primary"`, still names that field. spec.md says so beside the lookup path rule.
+	- Decisions:
+		- me, 20261106: only a `#` in the path half is refused. One after a `: value` part is the value's comment, and that path is `ValueInPath` as before.
+		- me, 20261106: the CLIs keep their "not a usable path" text for it. The library's reason says a `#` opens a comment.
+	- Swept: `scan_lookup` / `scanLookup` / `_scan_lookup` / `scan_lookup` is the one lookup scan in each binding; reads, setters, `check_set_path`, `remove`, `clear_comments` and schema paths all read through it, and the C++ veneer passes paths through to C. The CLIs' `--remove`, ops lines and read PATH go through `check_set_path`. `--set` splits with its own scan, which already refused `a.b#c=V` as having no `=`. A `#` in a selector body is unchanged (corpus `109`).
+	- Test case: corpus `dez5a` (`216-hash-in-path`, reads, write, keep and bad-op dimensions), cli-regress `dez5f`, `dez5g`, `dez5h`.
+	- Verified: corpus `216` fails in Rust, Python and C on the old libraries (the remove and setters act on `colors`), and `dez5f`, `dez5h` fail on the old C CLI. All pass on the fix. The 4 conformance suites, the whole Rust suite with the quick fuzz, the Go cmd tests, the veneer smoke, cli-regress (655 rows, 4 bindings), crosscheck (23298 comparisons), check-docs, check-abnf, test-ids, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, shellcheck, markdownlint, lint-report.
+	- Branch: `r1107`
+	- Commit: `c423e310`
+	- Acceptance signoff: Self-closed: the 2M release fuzz and check-migrate passed on c423e310.
+	- Closed: 20261107-022500
+	- 20261107: Verified: SHCL_FUZZ_ITERS=2000000 release fuzz_smoke passed (31 tests, 507 s) and check-migrate.bash passed (655 documents) on c423e310, log /mnt/ext/wip2/wip/tmp/shcl/20261107-010737_001/fuzzmig.log.
+
+- `banner on` and `upgrade` drop an author's line inside the info block
+	- ID: 2026110613470302
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 2
+	- Related IDs: 2026100307163904
+	- Version and build: dev at `343334df`
+	- Steps to reproduce:
+		- A 3.0 file whose info block has a line added by hand, such as `##    Owner    ops team, call x1234 before changing`.
+		- `printf 'banner\ton\n' | shcl set FILE`.
+	- Incorrect behavior: exit 0, and the Owner line is gone, though the block was already current. `upgrade --from-2x --write` on a 2.x file with such a line in its `#` block drops it the same way, after the backup.
+	- Expected behavior: README says a save never deletes a line you typed unless you ask it to. design.md keeps a Schema line in the block "since the author wrote it there and the block is rewritten whole", and that reason fits any line the block didn't write.
+	- Reproduced: 20261106, all 4 CLIs.
+	- Possible cause: `drop_banners` and its twins keep only a Schema line out of the old block.
+	- Origin: `6c00b70d` (2026-10-03), the fix for 2026100307163904, which kept the comments around the block. Not seen by an earlier round. Confirmed.
+	- Note: `banner on` on a block that's already current could write nothing.
+	- Regression test: an ops-script case for all 4 suites: an info block with an author's line, then `banner on`, `banner off` and `upgrade`, expected text exact with the line in place; plus a cli-regress row for `upgrade` on the same file.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: confirmed. `drop_banners` kept only a Schema line out of a block it took off, and `banner on` took off a block that was already current.
+	- Actual fix: a block comes off without the lines it does not write, which stay where it was. Its own lines are the lone `##`, the two text lines, the lines named Format, Home, Syntax and Legal, and the migrated note. `banner on` leaves a block at the end that already reads as the current one, the author's lines aside, as it is. All 4 bindings, their doc comments, spec.md and design.md.
+	- Decisions:
+		- me, 20261106: the block's own lines are found by their names, not their text, since the links and the Legal line change between releases. A later release that adds a named line adds it to the list.
+		- me, 20261106: over an older block, the author's line stays where the block was and the new block goes under it, as a Schema line did (corpus `175`). Carrying it into the new block was the other option. Filed as a `Check:` in questions.md.
+	- Swept: `drop_banners` / `dropBanners` / `_drop_banners` / `drop_banners` and `swap_banner` in each, the only code that takes the block off; `upgrade` and the CLIs' `banner` op go through `swap_banner`. The C++ veneer wraps `shcl_set_banner` and says nothing about the lines.
+	- Test case: corpus `dez6b` (`217-banner-author-line`, `banner on` over a current block), `dez6c` (`218-banner-off-author-line`), cli-regress `dez6e` (`upgrade --from-2x --write`).
+	- Verified: `dez6b`, `dez6c` fail on the old C and Python libraries and `dez6e` on the old C CLI, and all pass on the fix. The 4 conformance suites, the whole Rust suite with the quick fuzz, the Go tests, cli-regress (655 rows, 4 bindings), crosscheck (54873 comparisons), analyze-c, check-docs, test-ids, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, shellcheck, markdownlint.
+	- Acceptance signoff: Self-closed
+	- Branch: `r1107`
+	- Closed: 20261106-182500
+	- 20261107: Verified: SHCL_FUZZ_ITERS=2000000 release fuzz_smoke passed (31 tests) and check-migrate.bash passed on e7e7af3a, log /mnt/ext/wip2/wip/tmp/shcl/20261107-010737_001/fuzzmig2.log.
+
+- The publish script tells the user to drop a stash that has the only copy of their untracked files
+	- ID: 2026110613470303
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 3
+	- Version and build: dev at `343334df`
+	- Steps to reproduce:
+		- A clone with an untracked `notes.txt`, while the upstream adds its own `notes.txt`.
+		- `cicd/utility/n8git_backup-and-publish`, which stashes with `--include-untracked`, pulls, then pops.
+	- Incorrect behavior: the pop can't put the untracked file back, since the pulled one is in the way, and exits 1. The tracked edits come back with no conflict markers. The script prints "Resolve the conflicts, then 'git stash drop', and re-run", and doing that deletes the only copy. The failed-pull branch gives the same advice.
+	- Expected behavior: say that the untracked files couldn't be put back and are still in the stash, name them, and never advise a drop. The script's history says a pop conflict stops "instead of stranding a half-merged tree".
+	- Reproduced: 20261106, the script's stash, pull and pop run with plain git in a scratch repo. The script itself wasn't run, since it commits and pushes.
+	- Origin: the message is `fa9e2f72` (2026-07-25), `--include-untracked` is `88d6a42b` (2026-07-12), and an untracked file alone starts the stash since `035dfb78` (2026-09-23). The items on a pop conflict and a failed pull don't cover this. Confirmed.
+	- Note: the script is a copy of the shared one. The fix goes in the shared copy first.
+	- Regression test: a shell-regress row that runs the helper in a scratch repo with an untracked file and the stash path taken, and refuses any advice line that says to drop the stash; the row runs against the repo's copy, and the shared n8git copy takes the same fix.
+	- Estimated effort: Low
+	- Actual cause [Bug]: git puts back every untracked file it can and leaves out one whose name the pull took, keeping the stash. The script gave the drop advice for any failed pop.
+	- Decisions:
+		- After a failed pop the script compares each untracked file in the stash with the tree. When any is missing or different, it names them, says the stash is their only copy, and says how to copy one out. The drop advice stays only for a pop where every untracked file is back, which is a plain tracked conflict.
+		- The failed-pull branch goes through the same check.
+		- The shared copy of the script lives outside this repo, so the same change there is left to its own project.
+	- Actual fix [Bug]: `fStashLeftBehind` and `fStashPopFailed` in `cicd/utility/n8git_backup-and-publish`, used by both pop sites.
+	- Swept: both `git stash pop` sites in the publish script. cicd.bash's sync stage pops a stash of tracked edits only, so it has no untracked file to lose.
+	- Verified: shell-regress `dez7m` failed on the old script (drop advice, no file named) and passes now. The whole shell-regress (190 rows), and `cicd.bash --backlog-run-quick cicd`.
+	- Branch: `r1107`
+	- Commit: `873010a3`
+	- Test case: shell-regress `dez7m`.
+	- Acceptance signoff: Self-closed: the row runs the script itself and failed before the fix.
+	- Closed: 20261106-190311
+
+- Removing one field of a dotted pair writes a bare header line
+	- ID: 2026110613470312
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 12
+	- Version and build: dev at `343334df`
+	- Steps to reproduce: `a.b: 1` and `a.c: 2`, then `shcl set --remove=a.b FILE`.
+	- Incorrect behavior: `a:` then `a.c: 2`. Taking `srv.web.port` out of a dotted pair writes `srv:` and `web:` lines. A blank line above the removed line goes too.
+	- Expected behavior: `a.c: 2` alone. design.md says a remove only takes lines away and writes no line the document didn't write before.
+	- Reproduced: 20261106, all 4 CLIs.
+	- Possible cause: the removed line was the line that opened `a`, so the line-keeping save writes `a` fresh.
+	- Origin: not blamed. Not seen by an earlier round. Confirmed.
+	- Regression test: an ops-script case for all 4 suites: remove one field of a dotted pair, expected text exact and the reload equal to the document; plus a cli-regress row for `--remove` on the same file.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Actual cause: confirmed. The canonical form writes `a:` from the removed line, and with that line gone the line-keeping save wrote it fresh.
+	- Actual fix: the line-keeping save leaves out a group of block heads whose line went, when the next source line is what sits under them now, since that line names them again. A head with an instance's value, as `db(main).port: 5` has, goes the same way. When the text then doesn't reload as the document, such as when a head had a comment, the save is run again and writes them as before. `keep_lines` in Rust and C, `keepLines` in Go, `_keep_lines` in Python, with design.md.
+	- Decisions:
+		- me, 20261106: the blank line above the removed line still goes with it, as for any removed field, since the document hangs it on the removed name. Keeping it is a remove handing the blank on, which is what 2026110616475902 decides. Filed as a `Check:` in questions.md.
+		- me, 20261106: a second run, rather than a stricter test up front, catches the cases where leaving the heads out doesn't reload, so the save is never worse than before.
+		- me, 20261106: removing the only field under `a.b: 1` still writes `a:`, since the document keeps `a` as an empty field.
+	- Swept: `keep_lines` and its twins are the one line-keeping save; `set`, `fmt --write` keeping lines and `upgrade` all go through it. The other block heads it writes fresh were checked: a selector head (`db(main)`, fixed with the rest) and a head inside a block (`p.q.r`).
+	- Test case: corpus `dez6d` (`219-remove-dotted-pair`, a pair, a pair through 2 names, an instance by value and a pair under a block), cli-regress `dez6f` (`set --write --remove`).
+	- Verified: `dez6d` fails on the old C and Python libraries and `dez6f` on the old C CLI, and both pass on the fix. The same suites and checks as 2026110613470302.
+	- Acceptance signoff: Self-closed
+	- Branch: `r1107`
+	- Closed: 20261106-182500
+	- 20261107: Verified: SHCL_FUZZ_ITERS=2000000 release fuzz_smoke passed (31 tests) and check-migrate.bash passed on e7e7af3a, log /mnt/ext/wip2/wip/tmp/shcl/20261107-010737_001/fuzzmig2.log.
+	- 20261107: hosted ci.yml 42332336973 failed perf-gate `dd3w8` (keeps) in Go and Python. Cause: the head check split all the text after each group to find the next line, which is quadratic in the file. Fixed: `headsOnly` and `_heads_only` read only up to the next line, as Rust and C already did.
+		- Verified: perf-gate passes for all 4 CLIs, keeps at rust 844, go 171, python 2818 and c 98 ms. On 20,000 keys, user CPU went from 3.04 to 0.14 s in Go and 7.23 to 2.92 s in Python, with the same output. Go and Python conformance pass, `dez6d` included.
+		- Swept: the rest of the e7e7af3a change in all 4 bindings; no other scan per group reaches past its own lines.
+
+- `E003` names the capped number, not the index as written
+	- ID: 2026110613470313
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 13
+	- Related IDs: 2026101514324705
+	- Version and build: dev at `343334df`
+	- Steps to reproduce: `c: x`, then `c(99999999999999999999999).d: 2`, and `shcl check FILE`.
+	- Incorrect behavior: `E003 no instance 18446744073709551615 of 'c'`.
+	- Expected behavior: the index as written, the way `H006` and `H007` quote the Format number since 2026101514324705.
+	- Reproduced: 20261106, all 4 CLIs.
+	- Origin: a sibling of 2026101514324705, which fixed the Format number's text only. Confirmed.
+	- Regression test: a corpus case with an index past the cap, whose expected diagnostics name the index as written, run by all 4 suites.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: confirmed. The message printed the selector's read value, and an index past u64 reads as the largest one.
+	- Actual fix: the load's `E003` message quotes the index from the line's own text, through each binding's `one_line`, in all 4. The read keeps the cap.
+	- Decisions:
+		- me, 20261106: "as written" keeps leading zeros and a `+`, so `c(007)` shows `007`, as H006 shows `Format 0004`. A number past 200 digits is cut the way any value in a message is.
+		- me, 20261106: the test is a runner check in all 4, not a corpus case, since `expected-diags.txt` holds codes only.
+	- Swept: the `E003` arm in `attach_path` / `attachPath` / `_attach_path` / `attach_path` still prints the read number. A load never reaches it, since `index_miss` refuses the line first. The generated path in `init` writes an index as a number, which reads back as the same index. No other message prints an index.
+	- Test case: `e003_quotes_the_index_as_written` (`dez5b` Rust, `dez5c` Go, `dez5d` Python, `dez5e` C), cli-regress `dez5j`.
+	- Verified: the Rust, Go and C checks fail on the old libraries and `dez5j` on the old C CLI. All pass on the fix, with the same gate list as 2026110613470301.
+	- Branch: `r1107`
+	- Commit: `c423e310`
+	- Acceptance signoff: me, 20261106, each new test failed on the old library and passes on the fix
+	- Closed: 20261106-172859
+
+- sign-release.bash's key fingerprint check can't fail
+	- ID: 2026110613470319
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 19
+	- Version and build: dev at `343334df`
+	- Steps to reproduce: read `[[ -n "${want}" ]] || fDie "cannot fingerprint the signing key"` in `cicd/utility/sign-release.bash`.
+	- Incorrect behavior: `fFp` ends in `sha256sum`, which prints a hash for empty input too, so `want` is never empty.
+	- Expected behavior: the check fails when the key can't be read. The public key step before it and the compares after it still fail closed, so nothing wrong is signed today.
+	- Reproduced: 20261106, `fFp /dev/null` gives the empty input's hash.
+	- Origin: `7fb1645b` (2026-07-28). Confirmed.
+	- Regression test: a shell-regress row that signs with a test key whose fingerprint differs from the one the script expects and asserts a non-zero exit; it passes today, so it's watched to fail first.
+	- Estimated effort: Low
+	- Actual cause [Bug]: the `|| true` after the pipe hid openssl's failure, and the hash of the empty output came back as the print.
+	- Decisions:
+		- The issue's row, a test key whose print differs, passes either way, so it can't watch this fail. The row uses an openssl that fails every DER read instead, in a tree where every key copy holds the test key. The old script signed there, since every print was the empty hash.
+		- The closing `key fp` line prints the checked print rather than working it out again.
+	- Actual fix [Bug]: `fFp` returns nothing when the pipe fails, so the empty check and every compare after it refuse.
+	- Swept: every `fFp` call (the signing key, `shcl-signing.pub`, install.bash's PEM), the modulus pipe, which already had its own empty check, and the `key fp` line.
+	- Verified: shell-regress `dez7n` failed on the old script (it signed) and passes now, with `dc3b6`, `dd5hb`, `dd51p`, `deyk6` and `dd5gv`.
+	- Branch: `r1107`
+	- Commit: `873010a3`
+	- Test case: shell-regress `dez7n`.
+	- Acceptance signoff: Self-closed: the row failed before the fix.
+	- Closed: 20261106-190311
+
+- Make sign-release.bash refuse a dated build
+	- ID: 2026110613470321
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 21
+	- Problem description: the signer checks that the sums match the files beside them, then signs. Every pipeline run writes the local release folder, and today it has a dated build from a later run, not the beta1 bytes. Signing it with `--no-tag-check`, as beta1 was signed, passes and makes a good signature over bytes that aren't the cut. `release-table.bash --version-of` already refuses a dated build.
+	- Requirements:
+		- Refuse a dated build, or a version other than the tag's, the way release-table does.
+		- Check the binaries, not only the source HEAD.
+	- Reason: a re-sign and re-upload would put a build that isn't the cut behind a valid signature.
+	- Origin: `6d29ef3a` (2026-09-02). Confirmed with a copy of the script and a test key.
+	- Regression test: shell-regress rows: the signer on a dated build exits non-zero with the reason, on an undated tag build passes, and on a binary of another version exits non-zero.
+	- Estimated effort: Low
+	- Decisions:
+		- The signer runs the binary this box can run with `--version`, and refuses unless the line is `shcl v<version> build <n>` with no date, as `release-table.bash --version-of` reads it. With no binary for this box in the folder it refuses too, since the date can't be read any other way.
+		- Every other bare binary in the sums file has to hold that same version line in its bytes, and nothing else like it. That catches another version or another build. The date isn't in a binary's bytes, so a cross binary's date rides on the native one's, which one run builds with the same setting.
+		- Packages, setups and the tarball aren't opened. They're built from those binaries in the same run, and the sums still cover them.
+		- The check runs before the key checks, after the sums check, so a refusal still leaves no `.sig`.
+	- Progress log:
+		- 20261106: the signer on the dated build in `cicd/artifacts/release/` now refuses at the native binary's dated line.
+	- Swept: the existing signer rows got a stand-in binary that prints a version line, named for the box running them, since a bare file named like a binary no longer passes.
+	- Verified: shell-regress `dez7p` failed on the old script (it signed a dated build and one beside a binary of another version) and passes now, and an undated build signs. The rest of the signer rows pass.
+	- Branch: `r1107`
+	- Commit: `873010a3`
+	- Test case: shell-regress `dez7p`.
+	- Acceptance signoff: Self-closed: each requirement has a row that failed before.
+	- Closed: 20261106-190311
+
+- Give the dogfood launcher's copy its own temp name, and swap its link by rename
+	- ID: 2026110613470326
+	- Type: Enhancement
+	- Status: Done
+	- Needs external testing: No
+	- Priority: High
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 26
+	- Related IDs: 2026110215285714
+	- Problem description: `dogfood_shcl.ps1` copies each new build through one fixed `.partial` name per build stamp, so 2 runs as a build arrives can cut the file under the other's rename. `Update-FixedName` removes the link before it makes the new one, so for a moment there's no `shcl` on PATH.
+	- Requirements: a temp name per process, and the link replaced by a rename.
+	- Origin: `eefd1dba`. Plausible, read only.
+	- Regression test: a shell-regress row that starts 2 launchers at once against a slow copy stub, as `desp5` does, and asserts one whole copy at the end and a link that at every poll points at a whole file; a second row for a copy killed midway leaving no `.partial` behind.
+	- Estimated effort: Low
+	- Decisions:
+		- The temp copy is `<version>.<pid>.partial`. A run that finds the version already there after its copy drops its own rather than renaming over it.
+		- A run killed partway leaves its temp file. Each run clears one whose process is gone or that is a day old, and one with no process ID from before.
+		- The new fixed name is made at `shcl.<pid>.new` beside the old one and renamed over it. pwsh 7 does it in one rename. Windows PowerShell 5.1 has no replacing rename, so there the old name goes first, as before.
+		- Rotation renaming the version the fixed name points at left it dangling the same way, until the link moved. On Linux and macOS rotation now adds the new name as a hard link and drops the old one once the fixed name points elsewhere. Windows keeps the plain rename, since a running image keeps its name there and a twin would hold a place in the pool.
+		- The concurrent row holds each copy at a gate in a Copy-Item stand-in rather than timing a slow copy. Timed, the second copy caught up and the old script passed.
+	- Swept: the pool copy, the fixed name in Update-FixedName, and rotation's rename. The bash launcher only runs what `--print-path` gives.
+	- Verified: shell-regress `dez7q` failed on the old script (the fixed name named a part-written build) and passes now, 4 runs. `dez7r` fails with the stale sweep taken out and passes with it. The other launcher rows (`dd2gn`, `desp5` and 7 more) and PSScriptAnalyzer pass.
+	- Branch: `r1107`
+	- Commit: `873010a3`
+	- Test case: shell-regress `dez7q`, `dez7r`; win-runners `dd71z` for Windows.
+	- Acceptance signoff: Self-closed: win-runners dd71z passed on the hosted windows job, under powershell and pwsh.
+	- Closed: 20261107-035500
+	- 20261107: Verified: hosted ci.yml run 42332336973 on r1107 (5fbc1faf, which has 873010a3), windows job: PASS dd71z win-runners dogfood runner, which runs it under both powershell and pwsh.
 
 - How `◉` shows in a Windows console
 	- ID: 2026110609135700

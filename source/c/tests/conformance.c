@@ -4664,6 +4664,33 @@ int main(int argc, char **argv) {
 			shcl_free(hd);
 		}
 	}
+	test_id("dez5e", "e003_quotes_the_index_as_written");
+	/* E003 names the index as written, leading zeros, a sign and all, as the
+	   H006 hint quotes a Format number. One past u64 reads as the largest, and
+	   the message used to name that (2026110613470313). Rust's
+	   e003_quotes_the_index_as_written has the same rows. */
+	{
+		char longIndex[256], longShown[256];
+		snprintf(longIndex, sizeof longIndex, "1%0200d", 0);
+		snprintf(longShown, sizeof longShown, "1%099d...%0100d (201 chars)", 0, 0);
+		const struct { const char *index; const char *shown; } et[] = {
+			{"99999999999999999999999", "99999999999999999999999"},
+			{"007", "007"},
+			{"+1", "+1"},
+			{"1", "1"},
+			{longIndex, longShown},
+		};
+		for (size_t k = 0; k < sizeof et / sizeof et[0]; k++) {
+			char text[512], want[512];
+			snprintf(text, sizeof text, "c: x\nc(%s).d: 2\n", et[k].index);
+			snprintf(want, sizeof want, "no instance %s of 'c'", et[k].shown);
+			size_t n = strlen(text);
+			shcl_doc *ed = shcl_parse(text, n);
+			shcl_str em = shcl_diag_count(ed) == 1 ? shcl_diag_message(ed, 0) : (shcl_str){NULL, 0};
+			if (shcl_diag_count(ed) != 1 || strcmp(shcl_diag_code(ed, 0), "E003") || shcl_diag_line(ed, 0) != 2 || em.n != strlen(want) || memcmp(em.p, want, em.n)) fail("e003_quotes_the_index_as_written", text);
+			shcl_free(ed);
+		}
+	}
 	test_id("ddkpe", "a_comma_splits_a_bare_value_only_before_a_blank");
 	/* A comma splits a value outside brackets only with a blank, a comment or
 	   the end after it; inside brackets every one does (value-syntax.md,

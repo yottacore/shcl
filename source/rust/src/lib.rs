@@ -3842,6 +3842,20 @@ fn index_usize(k: u64) -> Option<usize> {
 	usize::try_from(k).ok()
 }
 
+/// The `E003` text for the index segment at `at`: the index as written, as
+/// `H006` quotes a Format number, since one past u64 reads as the largest.
+fn no_instance(tok: &Tokens, text: &str, segs: &[Segment], at: usize) -> String {
+	let digits = tok.segments[at]
+		.selector
+		.as_ref()
+		.map_or("", |p| &text[p.start..p.end]);
+	format!(
+		"no instance {} of '{}'",
+		one_line(digits),
+		diag_name(&segs[at].name)
+	)
+}
+
 /// What a selector body means: `*` the wildcard, an index shape an index, a
 /// quoted body a value match, anything else a bare value match.
 fn selector_of(p: &Piece, text: &str) -> Selector {
@@ -4305,6 +4319,9 @@ fn path_of(tok: &Tokens, text: &str) -> Result<PathScan, String> {
 /// Why a lookup path with a selector in brackets is refused.
 const BRACKET_LOOKUP: &str = "selector in brackets; write it in parens, name(value)";
 
+/// Why a lookup path with a `#` outside quotes and selectors is refused.
+const COMMENT_LOOKUP: &str = "a '#' opens a comment; quote a name that holds one";
+
 /// Scan a lookup path `a . b (sel) . c`: the document-line spelling plus
 /// the bare `*` segment (the name wildcard - any child name), which document
 /// lines never take; only lookups (reads, the writer probe, schema paths)
@@ -4312,11 +4329,16 @@ const BRACKET_LOOKUP: &str = "selector in brackets; write it in parens, name(val
 /// a file line could not hold is refused the same: a selector in brackets
 /// (`E029`), a bad escape, or a bare selector body with whitespace, a quote,
 /// a colon, a comma, a bracket, a paren or a leading `#` in it (`E025`).
+/// A `#` anywhere else opens a comment, as it does on a file line, where
+/// `a#b: 1` binds nothing; a path cut there would name the field above.
 fn scan_lookup(input: &str) -> Result<PathScan, String> {
 	let mut tok = Tokens::default();
 	tokenize(input, b':', true, Rules::Current, &mut tok);
 	if tok.bracket_selector.is_some() {
 		return Err(BRACKET_LOOKUP.to_string());
+	}
+	if tok.sep.is_none() && tok.comment.is_some() {
+		return Err(COMMENT_LOOKUP.to_string());
 	}
 	if let Some(f) = path_fault(&tok, input) {
 		return Err(f.msg);
@@ -5267,20 +5289,20 @@ impl<'a> Parser<'a> {
 	/// those bound before it (E003), walked as attach_path() will walk it,
 	/// creating nothing. A step that would create a field leaves every
 	/// index after it nothing to select. Judged before anything opens, so a
-	/// kept line opens none of its path's fields.
-	fn index_miss<'s>(&self, parent: usize, segs: &'s [Segment]) -> Option<(u64, &'s str)> {
+	/// kept line opens none of its path's fields. The segment's position.
+	fn index_miss(&self, parent: usize, segs: &[Segment]) -> Option<usize> {
 		if !segs.iter().any(by_index) {
 			return None;
 		}
 		let mut node = self.held_node(parent).and_then(|n| self.array_opens(n));
 		for (i, seg) in segs.iter().enumerate() {
 			let found = node.and_then(|n| self.found_step(n, seg));
-			let Some(Selector::ByIndex(k)) = seg.selector else {
+			if !by_index(seg) {
 				node = found;
 				continue;
-			};
+			}
 			let Some(n) = found else {
-				return Some((k, &seg.name));
+				return Some(i);
 			};
 			node = if i + 1 < segs.len() {
 				self.array_opens(n)
@@ -6380,8 +6402,8 @@ impl<'a> Parser<'a> {
 			}
 			// An index that selects no instance bound before it: kept the same
 			// way, since an instance written above it later would make it bind.
-			if let Some((k, name)) = self.index_miss(parent, &scan.segments) {
-				let msg = format!("no instance {} of '{}'", k, diag_name(name));
+			if let Some(at) = self.index_miss(parent, &scan.segments) {
+				let msg = no_instance(&tok, rest, &scan.segments, at);
 				if line_fence(&tok, rest).is_some() {
 					self.refuse(lineno, "E003", msg, Outcome::Dropped, indent);
 					i = self.skip_field_line(&lines, i, indent, &tok, rest);
@@ -8489,6 +8511,37 @@ fn splice_group(
 /// edited document's runs that match one exactly take that line's text.
 /// None when the result would not reload as `doc`.
 fn keep_lines(src: &str, doc: &Document) -> Option<String> {
+	let mut bare = false;
+	keep_lines_as(src, doc, true, &mut bare).or_else(|| {
+		// Names left out that no later line named again are written.
+		bare.then(|| keep_lines_as(src, doc, false, &mut bare))
+			.flatten()
+	})
+}
+
+/// Whether every line from `start` to `end` of canonical `out` heads a
+/// block, a name alone or an instance's: the next line not blank sits deeper,
+/// and it is no comment.
+fn heads_only(out: &str, start: usize, end: usize) -> bool {
+	let depth = |l: &str| l.bytes().take_while(|&b| b == b'\t').count();
+	let own: Vec<&str> = out[start..end].lines().filter(|l| !l.is_empty()).collect();
+	let after = out[end..].lines().find(|l| !l.is_empty());
+	!own.is_empty()
+		&& own.iter().enumerate().all(|(k, l)| {
+			!l.trim_start_matches('\t').starts_with('#')
+				&& own
+					.get(k + 1)
+					.copied()
+					.or(after)
+					.is_some_and(|x| depth(x) > depth(l))
+		})
+}
+
+/// keep_lines(), and with `drop_bare` the names a dotted line opened go with
+/// the line when what is under them now comes from the next line, which
+/// names them again. `bare` says whether any went. A reload that differs,
+/// as when the names had a comment, has keep_lines() write them.
+fn keep_lines_as(src: &str, doc: &Document, drop_bare: bool, bare: &mut bool) -> Option<String> {
 	// A text that was canonical keeps its lines as the canonical form.
 	if src.is_empty() {
 		return Some(doc.to_canonical());
@@ -8549,12 +8602,15 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 	// Each source line's group in the loaded text, and the lines it stands
 	// for, through its last run's.
 	let mut at = vec![NIL; n + 2];
+	// The group each source line's runs are in, by its first line.
+	let mut group_of = vec![0; n + 2];
 	for (i, g) in was.iter().enumerate() {
 		if g.line != 0 && g.line <= n {
 			at[g.line] = i;
 			for r in &was_runs[g.parts.clone()] {
 				if r.line != 0 && r.line <= n {
 					end[g.line] = end[g.line].max(end[owner[r.line]]);
+					group_of[r.line] = g.line;
 				}
 			}
 		}
@@ -8713,9 +8769,13 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 	let (mut prev, mut reach) = (0, 0);
 	// The last kept group whose following lines are still to go out.
 	let mut owed = 0;
+	// The first group written, and the source line of names left out, whose
+	// place the next group takes.
+	let (mut lead, mut gone) = (0, 0);
 	for (i, u) in is.iter().enumerate() {
 		let l = u.line;
 		let known = l != 0 && l <= n && at[l] != NIL;
+		let took = std::mem::take(&mut gone);
 		if known {
 			// The canonical form writes this above a source line that sat
 			// above it: blocks folded together from two places, or a
@@ -8728,6 +8788,38 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 		}
 		let from = known.then(|| &was[at[l]]);
 		let same = from.is_some_and(|w| loaded.out[w.start..w.end] == now.out[u.start..u.end]);
+		// An edit that takes a dotted line's last name leaves the names
+		// before it with nothing of their own. When the next source line is
+		// what is under them now, it names them again, so the names go with
+		// the line, from the group it was in: a remove writes no line the
+		// document did not write.
+		let names = (drop_bare
+			&& !same && took == 0
+			&& l != 0 && l <= n
+			&& heads_only(&now.out, u.start, u.end))
+		.then(|| group_of[l])
+		.filter(|&g| {
+			g != 0
+				&& is
+					.get(i + 1)
+					.is_some_and(|v| v.line != 0 && v.line == next[g])
+		});
+		if let Some(g) = names {
+			gone = g;
+			*bare = true;
+			if lead == i {
+				lead = i + 1;
+			}
+			continue;
+		}
+		// The next group stands where the names' line was. The blank lines
+		// above that line go with it, as above any line a remove takes.
+		let at_l = if took != 0 { took } else { l };
+		let mut cut = took;
+		while cut > 1 && blank(cut - 1) {
+			cut -= 1;
+		}
+		let skip = |k: usize| took != 0 && (cut..=end[took]).contains(&k);
 		let spliced = match from {
 			Some(w) if !same => splice_group(&lines, &loaded, (&was_runs, w), &now, (&is_runs, u)),
 			_ => None,
@@ -8749,7 +8841,7 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 		let depth = tabs(&now.out[u.start..u.end]);
 		if owed != 0
 			&& if known {
-				!(kept && prev == owed && next[prev] == l)
+				!(kept && prev == owed && next[prev] == at_l)
 			} else {
 				let ind = indent_for(&indents, depth, step);
 				(end[owed] + 1..next[owed])
@@ -8763,16 +8855,16 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 		if known {
 			owed = 0;
 		}
-		if i == 0 {
-			if kept && claimed.first() == Some(&l) {
-				(1..l).for_each(|k| {
+		if i == lead {
+			if kept && claimed.first() == Some(&at_l) {
+				(1..l).filter(|&k| !skip(k)).for_each(|k| {
 					out.push_str(line(k));
 					wrote[k] = true;
 					left[k] = false;
 				});
 			}
-		} else if kept && prev != 0 && next[prev] == l {
-			let gap = end[prev] + 1..l;
+		} else if kept && prev != 0 && next[prev] == at_l {
+			let gap = (end[prev] + 1..l).filter(|&k| !skip(k));
 			let blanks = gap.clone().any(blank);
 			// A blank line above a source line written here stays with it.
 			let last = gap.clone().rev().find(|&k| !blank(k)).unwrap_or(0);
@@ -8786,7 +8878,7 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 			if !blanks {
 				(0..u.blanks).for_each(|_| out.push_str(eol));
 			}
-		} else if known && blanks_stay && l > 1 && blank(l - 1) {
+		} else if known && blanks_stay && l > 1 && blank(l - 1) && !skip(l - 1) {
 			let mut k = l - 1;
 			while k > 1 && blank(k - 1) {
 				k -= 1;
@@ -8871,13 +8963,14 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 /// Take the info block out of `leads`, from the lone `##` above its
 /// `This config file format is SHCL.` line to the next lone `##`, and each
 /// version line `migrate` stamped, with the note under it. A block with no
-/// closing `##` ends after its last line written the block's way. A Schema
-/// line in a block stays, and so does any other comment around one, even
-/// written right against it. Returns how many came off, and whether the last
-/// one had a blank above it with no line after it to take that blank. A
-/// `mark` of `#` takes 2.x's block instead, which had no version line. With
-/// `blocks` false a block stays whole, and only a Format line outside one
-/// comes off.
+/// closing `##` ends after its last line written the block's way. A line in
+/// a block that the block does not write stays, as a Schema line or an
+/// author's own `##    Owner` line does, and so does any other comment around
+/// one, even written right against it. Returns how many came off, and
+/// whether the last one had a blank above it with no line after it to take
+/// that blank. A `mark` of `#` takes 2.x's block instead, which had no version
+/// line. With `blocks` false a block stays whole, and only a Format line
+/// outside one comes off.
 fn drop_banners(leads: &mut Vec<Lead>, mark: &str, blocks: bool) -> (usize, bool) {
 	let in_run = |l: &Lead| l.text.starts_with(mark) && !l.blank_before;
 	let title = format!("{mark}{}", &BANNER_TITLE[2..]);
@@ -8925,14 +9018,14 @@ fn drop_banners(leads: &mut Vec<Lead>, mark: &str, blocks: bool) -> (usize, bool
 			continue;
 		}
 		// The blank that set the block off moves to whatever followed it, so
-		// the lines around it stay apart. A Schema line in the block is the
-		// author's and stays, with the blank.
+		// the lines around it stay apart. The author's lines in the block,
+		// such as a Schema line, stay, with the blank.
 		let blank = leads[start].blank_before;
 		let at = keep.len();
 		keep.extend(
 			leads[start..end]
 				.iter()
-				.filter(|l| l.text.starts_with(SCHEMA_LINE_HEAD))
+				.filter(|l| !banner_own(&l.text, mark))
 				.cloned(),
 		);
 		if let Some(first) = keep.get_mut(at) {
@@ -8953,6 +9046,46 @@ fn drop_banners(leads: &mut Vec<Lead>, mark: &str, blocks: bool) -> (usize, bool
 		*leads = keep;
 	}
 	(removed, owed)
+}
+
+/// Whether `t` is a line the info block writes, in `mark` comments: a lone
+/// mark, the block's two text lines, one of its named lines, or the note
+/// `migrate` writes under the Format line. Any other line in a block is the
+/// author's.
+fn banner_own(t: &str, mark: &str) -> bool {
+	let Some(r) = t.strip_prefix(mark) else {
+		return false;
+	};
+	r.is_empty()
+		|| r == &BANNER_TITLE[2..]
+		|| r == &BANNER_NAME[2..]
+		|| t == MIGRATED_LINE
+		|| r.strip_prefix("    ").is_some_and(|r| {
+			BANNER_FIELDS.iter().any(|f| {
+				r.strip_prefix(f)
+					.is_some_and(|r| r.is_empty() || r.starts_with(' '))
+			})
+		})
+}
+
+/// Where the info block starts in `leads` when it ends them and reads as this
+/// release writes it, the author's lines in it aside.
+fn current_footer(leads: &[Lead]) -> Option<usize> {
+	let t = leads.iter().rposition(|l| l.text == BANNER_TITLE)?;
+	let s = t.checked_sub(1)?;
+	if leads[s].text != "##"
+		|| leads[t..]
+			.iter()
+			.any(|l| !l.text.starts_with("##") || l.blank_before)
+	{
+		return None;
+	}
+	leads[s..]
+		.iter()
+		.map(|l| l.text.as_str())
+		.filter(|t| banner_own(t, "##"))
+		.eq(GEN_BANNER.lines())
+		.then_some(s)
 }
 
 /// Each error code `d` loads with, `of` loaded with at least as often.
@@ -12797,7 +12930,11 @@ impl Document {
 	/// `migrate` stamped comes off too, with the note under it. Both are
 	/// looked for in the footer and above every field but the first one and
 	/// its first child down, since a field added below one by hand takes it
-	/// as its comment. A block at the top of the file is left alone.
+	/// as its comment. A line in an old block that the block does not write is
+	/// the author's, such as a Schema line, and stays where the block was.
+	/// With `on`, a block that already ends the file as this release writes
+	/// it stays as it is, the author's lines in it too. A block at the top of
+	/// the file is left alone.
 	/// A dotted first line hangs it on its last name, which a saved file
 	/// writes as the first field's first child, so a block there is left
 	/// alone too, however it got there. A lone Format line there comes off with
@@ -12841,9 +12978,20 @@ impl Document {
 				}
 			}
 		}
+		// A block that already ends the file as this release writes it stays
+		// as it is, and so do the author's lines in it.
+		let current = if on {
+			current_footer(&self.orphans)
+		} else {
+			None
+		};
+		let mut block = current
+			.map(|s| self.orphans.split_off(s))
+			.unwrap_or_default();
 		for mark in marks {
 			removed += drop_banners(&mut self.orphans, mark, true).0;
 		}
+		self.orphans.append(&mut block);
 		if on {
 			// A block kept at the top reads before the new one, so it names
 			// this format too (2026102309053667).
@@ -12857,6 +13005,8 @@ impl Document {
 					}
 				}
 			}
+		}
+		if on && current.is_none() {
 			let open = !self.orphans.is_empty() || !self.arena[ROOT].children.is_empty();
 			for (n, line) in GEN_BANNER.lines().enumerate() {
 				let mut l = Lead::plain(line.to_string());
@@ -16160,6 +16310,10 @@ pub const GEN_BANNER: &str = "\
 /// the first, which no release has worded differently.
 const BANNER_TITLE: &str = "## This config file format is SHCL.";
 const BANNER_NAME: &str = "## \"Simple Hierarchical Config Language\"";
+
+/// The names on the info block's own lines, in any release. `set_banner`
+/// keeps every other line it finds in a block.
+const BANNER_FIELDS: [&str; 4] = ["Format", "Home", "Syntax", "Legal"];
 
 /// The format major the info block names. Bumped with the format, not with the
 /// crate: a file says which rule set it was written for, and nothing else.

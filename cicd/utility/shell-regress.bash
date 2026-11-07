@@ -1105,14 +1105,24 @@ if fHave openssl; then
 	fSignRun(){   ## fSignRun DIR: run the signer on DIR with the throwaway key; stderr in signOut
 		signOut="$(bash "${repoDir}/cicd/utility/sign-release.bash" --key "${tmpDir}/wrong.pem" --dir "$1" --no-tag-check 2>&1 || true)"
 	}
+	## The signer asks the binary this box can run for its version
+	## (2026110613470321), so the stand-in is named for this box and prints an
+	## undated release line, which it also holds as bytes.
+	case "$(uname -s)-$(uname -m)" in
+		Darwin-*)                        signBin="shcl-${sver}-macos-universal" ;;
+		Linux-aarch64|Linux-arm64)       signBin="shcl-${sver}-linux-arm64" ;;
+		FreeBSD-amd64|FreeBSD-x86_64)    signBin="shcl-${sver}-freebsd-x86_64" ;;
+		*)                               signBin="shcl-${sver}-linux-x86_64" ;;
+	esac
+	fSignStub(){ printf '#!/bin/sh\necho %s\necho Copyright\n' "'$2'" > "$1"; chmod +x "$1" ;}   ## fSignStub FILE VERSIONLINE
 	## Right name, right sums, wrong key: refused on the key, nothing written.
-	mkdir -p "${tmpDir}/sign1"; printf 'bin\n' > "${tmpDir}/sign1/shcl-${sver}-linux-x86_64"
-	(cd "${tmpDir}/sign1" && sha256sum "shcl-${sver}-linux-x86_64" > "shcl-${sver}-sha256sums.txt")
+	mkdir -p "${tmpDir}/sign1"; fSignStub "${tmpDir}/sign1/${signBin}" "shcl v${sver} build abcde"
+	(cd "${tmpDir}/sign1" && sha256sum "${signBin}" > "shcl-${sver}-sha256sums.txt")
 	fSignRun "${tmpDir}/sign1"
 	[[ "${signOut}" == *"not this key"* ]] || fBad "sign-release.bash did not refuse the wrong key: ${signOut@Q}"
 	[[ ! -e "${tmpDir}/sign1/shcl-${sver}-sha256sums.txt.sig" ]] || fBad "sign-release.bash left a .sig behind after refusing the key"
 	## Stale sums: an entry that no longer matches its file.
-	mkdir -p "${tmpDir}/sign2"; cp "${tmpDir}/sign1/"* "${tmpDir}/sign2/"; printf 'rebuilt\n' > "${tmpDir}/sign2/shcl-${sver}-linux-x86_64"
+	mkdir -p "${tmpDir}/sign2"; cp "${tmpDir}/sign1/"* "${tmpDir}/sign2/"; printf 'rebuilt\n' > "${tmpDir}/sign2/${signBin}"
 	fSignRun "${tmpDir}/sign2"
 	[[ "${signOut}" == *"does not match the files"* ]] || fBad "sign-release.bash signed a stale sums file: ${signOut@Q}"
 	[[ ! -e "${tmpDir}/sign2/shcl-${sver}-sha256sums.txt.sig" ]] || fBad "sign-release.bash left a .sig behind after a stale sums file"
@@ -1216,6 +1226,43 @@ if fHave openssl; then
 	else
 		fBad "could not put the throwaway key into copies of the real installers"
 	fi
+	fTest dez7n 2026110613470319-sign-release-unreadable-key
+	##	2026110613470319: the fingerprint pipe ended in sha256sum, which hashes
+	##	empty input too, so a key openssl could not read had the same print as
+	##	every copy it was checked against. An openssl that fails every DER
+	##	read stands in for that, in dd51p's tree, where the key copies agree.
+	# shellcheck disable=SC2016  ## install.ps1's own variable name
+	printf '$signingModulus = '"'%s'"'\n' "${smod}" > "${skey}/install.ps1"
+	mkdir -p "${tmpDir}/nodersl" "${tmpDir}/sign7"; cp "${tmpDir}/sign1/"* "${tmpDir}/sign7/"
+	# shellcheck disable=SC2016  ## the stand-in's own $@ and $a
+	printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = DER ] && exit 1; done\nexec %s "$@"\n' "'$(command -v openssl)'" > "${tmpDir}/nodersl/openssl"
+	chmod +x "${tmpDir}/nodersl/openssl"
+	signOut="$(PATH="${tmpDir}/nodersl:${tmpDir}/noxxd" "${BASH}" "${skey}/cicd/utility/sign-release.bash" --key "${tmpDir}/wrong.pem" --dir "${tmpDir}/sign7" --no-tag-check 2>&1 || true)"
+	[[ "${signOut}" == *"cannot fingerprint the signing key"* ]] || fBad "sign-release.bash took a key it could not fingerprint: ${signOut@Q}"
+	[[ ! -e "${tmpDir}/sign7/shcl-${sver}-sha256sums.txt.sig" ]] || fBad "sign-release.bash signed with a key it could not fingerprint"
+	fTest dez7p 2026110613470321-sign-release-refuses-a-dated-build
+	##	2026110613470321: the signer checked the sums against the files and
+	##	signed, and every pipeline run writes that dir. A dated build, and a
+	##	binary of another version beside a right one, are refused with no .sig;
+	##	an undated build of the version signs. dd51p's tree, as above.
+	fSignDir(){ signOut="$(bash "${skey}/cicd/utility/sign-release.bash" --key "${tmpDir}/wrong.pem" --dir "$1" --no-tag-check 2>&1 || true)" ;}
+	mkdir -p "${tmpDir}/sign8"; fSignStub "${tmpDir}/sign8/${signBin}" "shcl v${sver} build abcde (2026-11-06)"
+	(cd "${tmpDir}/sign8" && sha256sum "${signBin}" > "shcl-${sver}-sha256sums.txt")
+	fSignDir "${tmpDir}/sign8"
+	[[ "${signOut}" == *"is not a ${sver} release build"* ]] || fBad "sign-release.bash signed a dated build: ${signOut@Q}"
+	[[ ! -e "${tmpDir}/sign8/shcl-${sver}-sha256sums.txt.sig" ]] || fBad "sign-release.bash left a .sig behind for a dated build"
+	mkdir -p "${tmpDir}/sign9"; cp "${tmpDir}/sign1/${signBin}" "${tmpDir}/sign9/"
+	fSignStub "${tmpDir}/sign9/shcl-${sver}-windows-x86_64.exe" "shcl v0.0.1 build abcde"
+	printf 'setup\n' > "${tmpDir}/sign9/shcl-${sver}-windows-x86_64-setup.exe"
+	(cd "${tmpDir}/sign9" && sha256sum -- * > "${tmpDir}/sign9.sums" && mv "${tmpDir}/sign9.sums" "shcl-${sver}-sha256sums.txt")
+	fSignDir "${tmpDir}/sign9"
+	[[ "${signOut}" == *"shcl-${sver}-windows-x86_64.exe is not the same build"* ]] || fBad "sign-release.bash signed beside a binary of another version: ${signOut@Q}"
+	[[ ! -e "${tmpDir}/sign9/shcl-${sver}-sha256sums.txt.sig" ]] || fBad "sign-release.bash left a .sig behind for a binary of another version"
+	fSignStub "${tmpDir}/sign9/shcl-${sver}-windows-x86_64.exe" "shcl v${sver} build abcde"
+	(cd "${tmpDir}/sign9" && sha256sum -- shcl-*[!t] > "${tmpDir}/sign9.sums" && mv "${tmpDir}/sign9.sums" "shcl-${sver}-sha256sums.txt")
+	fSignDir "${tmpDir}/sign9"
+	[[ "${signOut}" == *"signed  shcl-${sver}-sha256sums.txt"* && -e "${tmpDir}/sign9/shcl-${sver}-sha256sums.txt.sig" ]] \
+		|| fBad "sign-release.bash refused an undated build of ${sver}: ${signOut@Q}"
 	fTest dd5gv 20260725-37-installers-check-the-signature
 	##	20260725 item 37: nothing in the sums file is trusted until its signature
 	##	checks out against the key the installer has. Each installer's check,
@@ -2873,6 +2920,38 @@ if command -v git >/dev/null 2>&1; then
 	[[ "${leftRc}" == 1 ]] || fBad "n8git_backup-and-publish published over an earlier run's auto-stash"
 fi
 
+fTest dez7m 2026110613470303-publish-keeps-stash-of-untracked
+##	2026110613470303: an untracked file whose name the pull brings in can't be
+##	popped back, and the advice was to drop the stash, its only copy. The same
+##	scratch remote and stub rar as dcnmr. The tracked edit conflicts too, as it
+##	would in a busy tree.
+if command -v git >/dev/null 2>&1; then
+	out="$(
+		unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX GIT_CONFIG_COUNT
+		git(){ GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 command git "$@" ;}
+		sb="${tmpDir}/publish-untracked"
+		mkdir -p "${sb}/bin"
+		printf '#!/bin/sh\nexit 0\n' > "${sb}/bin/rar"; chmod +x "${sb}/bin/rar"
+		fClone(){ git clone -q "${sb}/remote.git" "$1" 2>/dev/null; git -C "$1" config user.name t; git -C "$1" config user.email t@t.invalid ;}
+		fCommit(){ echo "$3" > "$1/$2"; git -C "$1" add "$2"; git -C "$1" commit -qm "$2" ;}
+		gitBin="$(dirname "$(type -P git)")"
+		git init -q --bare -b main "${sb}/remote.git"
+		fClone "${sb}/a/github"; fCommit "${sb}/a/github" f 1; git -C "${sb}/a/github" push -q -u origin HEAD 2>/dev/null
+		fClone "${sb}/other"; fCommit "${sb}/other" notes.txt theirs; fCommit "${sb}/other" f 2; git -C "${sb}/other" push -q 2>/dev/null
+		echo mine > "${sb}/a/github/notes.txt"; echo kept > "${sb}/a/github/also.txt"; echo 3 > "${sb}/a/github/f"
+		rc=0; (cd "${sb}/a/github" && GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 PATH="${sb}/bin:${gitBin}:/usr/bin:/bin" GIT_BACKUP_AND_PUBLISH_QUIET=1 GIT_BACKUP_AND_PUBLISH_NOBACKUP=1 "${BASH}" "${pub}" > "${sb}/out.txt" 2>&1) || rc=$?
+		printf '%s %s %s\n' "${rc}" "$(git -C "${sb}/a/github" stash list | wc -l)" "$(git -C "${sb}/a/github" show 'stash@{0}^3:notes.txt' 2>/dev/null || echo none)"
+		cat "${sb}/out.txt"
+	)" || true
+	read -r popRc popStashes popNotes <<< "${out%%$'\n'*}"
+	popOut="${out#*$'\n'}"
+	[[ "${popRc}" == 1 ]] || fBad "n8git_backup-and-publish exited ${popRc} after a pop that left an untracked file out"
+	[[ "${popStashes}" == 1 && "${popNotes}" == mine ]] || fBad "n8git_backup-and-publish lost the stash holding the untracked file (stashes ${popStashes}, notes ${popNotes})"
+	if grep -qiE 'stash drop|drop it' <<< "${popOut}"; then fBad "n8git_backup-and-publish said to drop the only copy of an untracked file: ${popOut@Q}"; fi
+	grep -qE '^  notes\.txt$' <<< "${popOut}" || fBad "n8git_backup-and-publish did not name the untracked file it left in the stash: ${popOut@Q}"
+	if grep -qE '^  also\.txt$' <<< "${popOut}"; then fBad "n8git_backup-and-publish named an untracked file that was put back: ${popOut@Q}"; fi
+fi
+
 fTest dd5hj 20260819-1-remote-sync-stage
 ##	20260819 item 1: the only pull was in the publish stage, after the tests,
 ##	so upstream work went out never built here. Stage 0 comes out of cicd.bash
@@ -3216,6 +3295,105 @@ PYEOF
 	fi
 else
 	fTestSkip
+fi
+
+fTest dez7q 2026110613470326-dogfood-two-runs-one-build
+##	2026110613470326: two runs as a build arrived copied it through one temp
+##	name, so the second cut the file the first was about to rename, and the
+##	fixed name was taken away before the new one was made. A Copy-Item stand-in
+##	holds each copy at a gate, so the order is fixed: the first run has all but
+##	its last piece written when the second starts its own copy, and the first
+##	then finishes while the second still holds. The fixed name has to name a
+##	whole build at every look.
+if fHave pwsh; then
+	dh="${tmpDir}/dfrace"
+	dsrc="${dh}/synced/0-0/common/exec/util/linux/bin"
+	dlink="${dh}/.local/bin/shcl"
+	dgate="${tmpDir}/dfgate"
+	mkdir -p "${dsrc}" "${dh}/.local/bin" "${dgate}"
+	printf '#!/bin/sh\necho old\n' > "${dsrc}/shcl"; chmod +x "${dsrc}/shcl"; cp "${dsrc}/shcl" "${tmpDir}/dfrace-old"
+	touch -d '2026-09-20 10:00 UTC' "${dsrc}/shcl"
+	cat > "${tmpDir}/dfslow.ps1" <<'PSEOF'
+function global:Copy-Item {
+	[CmdletBinding()]
+	param([string]$LiteralPath, [string]$Destination, [switch]$Force)
+	$gate = $env:DFSLOW_GATE
+	$role = $env:DFSLOW_ROLE
+	$bytes = [IO.File]::ReadAllBytes($LiteralPath)
+	$out = [IO.File]::Open($Destination, 'Create', 'Write', 'ReadWrite')
+	try {
+		if ($role -eq 'b') {
+			$null = New-Item -ItemType File -Path "$gate/b-open" -Force
+			while (-not (Test-Path -LiteralPath "$gate/go-b")) { Start-Sleep -Milliseconds 50 }
+		}
+		$cut = if ($role -eq 'a') { $bytes.Length - 65536 } else { $bytes.Length }
+		$out.Write($bytes, 0, $cut)
+		$out.Flush()
+		if ($role -eq 'a') {
+			$null = New-Item -ItemType File -Path "$gate/a-waiting" -Force
+			while (-not (Test-Path -LiteralPath "$gate/go-a")) { Start-Sleep -Milliseconds 50 }
+			$out.Write($bytes, $cut, $bytes.Length - $cut)
+		}
+	} finally { $out.Dispose() }
+}
+& $args[0] --print-path
+PSEOF
+	## fSlowRun HOME ROLE: role a holds before its last piece, b before its first.
+	fSlowRun(){ env -u DISPLAY -u WAYLAND_DISPLAY HOME="$1" TZ=UTC DFSLOW_ROLE="$2" DFSLOW_GATE="${dgate}" pwsh -NoProfile -File "${tmpDir}/dfslow.ps1" "${repoDir}/utility/dogfood_shcl.ps1" </dev/null >/dev/null 2>&1 ;}
+	fGateWait(){ local i; for ((i = 0; i < 600; i++)); do [[ -e "${dgate}/$1" ]] && return 0; sleep 0.1; done; return 1 ;}
+	fSlowRun "${dh}" none
+	[[ -L "${dlink}" ]] || fBad "dogfood_shcl.ps1 made no fixed name for the first build"
+	head -c 1048576 /dev/urandom > "${dsrc}/shcl"; cp "${dsrc}/shcl" "${tmpDir}/dfrace-new"
+	touch -d '2026-09-21 10:00 UTC' "${dsrc}/shcl"
+	looks=''
+	fLook(){
+		local t; t="$(readlink "${dlink}" 2>/dev/null || true)"
+		if [[ -z "${t}" ]]; then looks+=' none'
+		elif ! cmp -s "${t}" "${tmpDir}/dfrace-new" && ! cmp -s "${t}" "${tmpDir}/dfrace-old"; then looks+=" ${t##*/}"
+		fi
+	}
+	fSlowRun "${dh}" a & race1=$!
+	if fGateWait a-waiting; then
+		fSlowRun "${dh}" b & race2=$!
+		fGateWait b-open || fBad "dogfood_shcl.ps1's second run never started its copy"
+		: > "${dgate}/go-a"
+		while kill -0 "${race1}" 2>/dev/null; do fLook; sleep 0.05; done
+		for ((i = 0; i < 20; i++)); do fLook; sleep 0.05; done
+		: > "${dgate}/go-b"
+		while kill -0 "${race2}" 2>/dev/null; do fLook; sleep 0.05; done
+		wait "${race2}" || true
+	else
+		fBad "dogfood_shcl.ps1's first run never reached its copy"
+		: > "${dgate}/go-a"
+	fi
+	wait "${race1}" || true
+	fLook
+	[[ -z "${looks}" ]] || fBad "dogfood_shcl.ps1's fixed name did not name a whole build at every look:${looks}"
+	cmp -s "$(readlink "${dlink}")" "${tmpDir}/dfrace-new" || fBad "dogfood_shcl.ps1 ended on something other than the whole new build"
+	left="$(find "${dh}/.local/bin" \( -name '*.partial' -o -name '*.new' \) -printf '%f ')"
+	[[ -z "${left}" ]] || fBad "dogfood_shcl.ps1 left temp files behind: ${left}"
+	fTest dez7r 2026110613470326-dogfood-killed-copy-leaves-nothing
+	##	2026110613470326: each run copies through a temp name of its own, so a
+	##	run killed mid-copy leaves one that no later run would reuse. The next
+	##	run clears it, and still takes the build whole.
+	dh="${tmpDir}/dfkill"
+	dsrc="${dh}/synced/0-0/common/exec/util/linux/bin"
+	dgate="${tmpDir}/dfgate-kill"
+	mkdir -p "${dsrc}" "${dh}/.local/bin" "${dgate}"
+	head -c 1048576 /dev/urandom > "${dsrc}/shcl"; chmod +x "${dsrc}/shcl"
+	touch -d '2026-09-21 10:00 UTC' "${dsrc}/shcl"
+	env -u DISPLAY -u WAYLAND_DISPLAY HOME="${dh}" TZ=UTC DFSLOW_ROLE=a DFSLOW_GATE="${dgate}" pwsh -NoProfile -File "${tmpDir}/dfslow.ps1" "${repoDir}/utility/dogfood_shcl.ps1" </dev/null >/dev/null 2>&1 &
+	killed=$!
+	fGateWait a-waiting || fBad "dogfood_shcl.ps1 was never seen mid-copy"
+	compgen -G "${dh}/.local/bin/shcl_versions/*.partial" > /dev/null || fBad "dogfood_shcl.ps1 mid-copy had no temp file to leave"
+	kill -KILL "${killed}" 2>/dev/null || true
+	{ wait "${killed}"; } 2>/dev/null || true
+	out="$(env -u DISPLAY -u WAYLAND_DISPLAY HOME="${dh}" TZ=UTC pwsh -NoProfile -File "${repoDir}/utility/dogfood_shcl.ps1" --print-path </dev/null 2>/dev/null || true)"
+	left="$(find "${dh}/.local/bin" \( -name '*.partial' -o -name '*.new' \) -printf '%f ')"
+	[[ -z "${left}" ]] || fBad "dogfood_shcl.ps1 left a killed run's temp file: ${left}"
+	cmp -s "${out}" "${dsrc}/shcl" || fBad "dogfood_shcl.ps1 did not take the build whole after a killed run: ${out@Q}"
+else
+	fTestSkipBlock
 fi
 
 fTest dd6yz 20260924d-idea1-dogfood-dests

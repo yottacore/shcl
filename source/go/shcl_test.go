@@ -4256,6 +4256,31 @@ func TestStampHintsQuoteDigits(t *testing.T) {
 	}
 }
 
+// TestE003QuotesTheIndexAsWritten: E003 names the index as written, leading
+// zeros, a sign and all, as the H006 hint quotes a Format number. One past
+// u64 reads as the largest, and the message used to name that
+// (2026110613470313). Rust's e003_quotes_the_index_as_written has the same
+// rows.
+func TestE003QuotesTheIndexAsWritten(t *testing.T) {
+	defer testID(t, "dez5c")
+	long := "1" + strings.Repeat("0", 200)
+	rows := []struct{ index, shown string }{
+		{"99999999999999999999999", "99999999999999999999999"},
+		{"007", "007"},
+		{"+1", "+1"},
+		{"1", "1"},
+		{long, "1" + strings.Repeat("0", 99) + "..." + strings.Repeat("0", 100) + " (201 chars)"},
+	}
+	for _, c := range rows {
+		text := "c: x\nc(" + c.index + ").d: 2\n"
+		diags := Parse(text).Diagnostics()
+		want := "no instance " + c.shown + " of 'c'"
+		if len(diags) != 1 || diags[0].Line != 2 || diags[0].Code != "E003" || diags[0].Message != want {
+			t.Errorf("%q: diagnostics %+v, want E003 on line 2 %q", text, diags, want)
+		}
+	}
+}
+
 // TestSettersWriteOnlyWhatReadsBack: a setter writes only what reads back. Each
 // one builds its text through the emitter and hands it to the tokenizer before
 // the document is touched, so for every input either the call refuses and the
