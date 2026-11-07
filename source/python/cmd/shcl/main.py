@@ -1075,7 +1075,11 @@ def unchanged_since_read(file, before):
 	try:
 		now = read_regular(file)
 		if now is None:
-			sys.stderr.write(f"{file}: not a regular file\n")
+			# A folder gets the words a folder there from the start gets.
+			if os.path.isdir(file):
+				sys.stderr.write(f"{file}: Is a directory\n")
+			else:
+				sys.stderr.write(f"{file}: not a regular file\n")
 			return False
 		if now == before.encode("utf-8"):
 			return True
@@ -1129,18 +1133,19 @@ def write_back(doc, file, o, read=None, keep=False):
 		return 0
 	# The text is already built, so the line-keeping save writes it rather than
 	# building it again, with the same refusal save_file_keep_lines makes
-	# (20260926 idea 3).
+	# (20260926 idea 3). The check above is this write's changed check. The
+	# library's would refuse every file, since the parse read none.
 	try:
 		if o.lossy and keep:
 			shcl.write_file_atomic(file, text)
 		elif o.lossy:
-			doc.save_file_lossy(file)
+			doc.save_file_with(file, shcl.SaveOptions(lossy=True, force=True))
 		elif keep and not kept and doc.lost_count() > 0:
 			raise shcl.SaveRefused(file, doc.lost_count())
 		elif keep:
 			shcl.write_file_atomic(file, text)
 		else:
-			doc.save_file(file)
+			doc.save_file_with(file, shcl.SaveOptions(force=True))
 		# A created file is the one write with nothing to compare against
 		# afterwards, and a typo in the name used to end at exit 0 with an
 		# empty stderr and a new file nobody asked for.

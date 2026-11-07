@@ -990,10 +990,11 @@ type Document struct {
 	// its lines. A merge drops it: the layer's lines are not this text's. Nil
 	// when none was kept.
 	source *string
-	// The file a load read, which a save over it checks first. A merge keeps
-	// it, since the file under the merged document is still that one. A save
-	// there records what it wrote, so a save is a write like any edit.
-	file *loadedFile
+	// What a save checks the bytes at its path against. A merge keeps it,
+	// since the file under the merged document is still the one the load
+	// read. A save records what it wrote, so a save is a write like any edit.
+	// Nil until a load reads a file or a save writes one.
+	file *seenBytes
 	// newer: the text named a newer format than this one (H006), so its lines
 	// may read differently there, and a save refuses. A merge takes a layer's.
 	newer bool
@@ -9967,7 +9968,7 @@ func linkAt(file string) bool {
 // would be the exact replacement the symlink walk exists to avoid.
 func resolveTarget(file string) (string, error) {
 	if p, err := filepath.EvalSymlinks(file); err == nil {
-		return absReal(p), nil
+		return p, nil
 	}
 	p := file
 	for hop := 0; hop < 40; hop++ {
@@ -9989,92 +9990,7 @@ func resolveTarget(file string) (string, error) {
 	if _, err := os.Readlink(p); err == nil {
 		return "", errors.New("too many levels of symbolic links")
 	}
-	return realNearest(p), nil
-}
-
-// realNearest is p, with nothing at it, made absolute through the real path of
-// the nearest folder above it that is there, the rest as written. So one file
-// has one spelling whether it's there or not, and however the path names it:
-// bare, `./`, absolute, through a link, or relative to another working folder.
-// The rest isn't cleaned, since a clean cancels `nodir/..` as text where the
-// kernel refuses the missing folder, and the save would create the file.
-func realNearest(p string) string {
-	at := p
-	for {
-		dir := rawDir(at)
-		if dir == at {
-			break
-		}
-		if real, err := filepath.EvalSymlinks(dir); err == nil {
-			// at is p up to some separator, so its last part starts the rest.
-			// FromSlash so it reads as EvalSymlinks writes a file that's there.
-			rest := filepath.FromSlash(p[len(at)-len(rawBase(at)):])
-			if runtime.GOOS != "windows" {
-				rest = tidyRest(rest)
-			}
-			out := absReal(real)
-			if !os.IsPathSeparator(out[len(out)-1]) {
-				out += string(filepath.Separator)
-			}
-			return out + rest
-		}
-		at = dir
-	}
-	if abs, err := filepath.Abs(p); err == nil {
-		return abs
-	}
-	return p
-}
-
-// tidyRest is the rest of a path under a missing folder, less its `.` and empty
-// parts. Neither changes what the kernel reaches, and a file that's there
-// resolves with neither, so a load of `new/./n.shcl` and a save to
-// `new/n.shcl` name one file. `..` stays, since the kernel refuses it through a
-// missing folder. Windows is left as it was (2026110314240418).
-func tidyRest(rest string) string {
-	parts := strings.Split(rest, "/")
-	kept := parts[:0]
-	for _, n := range parts {
-		if n != "" && n != "." {
-			kept = append(kept, n)
-		}
-	}
-	return strings.Join(kept, "/")
-}
-
-// absReal makes a path EvalSymlinks gave absolute. Getwd can answer with $PWD,
-// which may run through a link, so the working folder is resolved too, or a
-// file named relative and absolute would get 2 spellings. On windows the
-// working folder can be a short name, and EvalSymlinks of the absolute path
-// gives the long one, as it does for a file that's there.
-func absReal(p string) string {
-	if filepath.IsAbs(p) {
-		return p
-	}
-	if runtime.GOOS != "windows" {
-		if wd, err := os.Getwd(); err == nil {
-			if real, err := filepath.EvalSymlinks(wd); err == nil {
-				return filepath.Join(real, p)
-			}
-		}
-	}
-	if abs, err := filepath.Abs(p); err == nil {
-		if real, err := filepath.EvalSymlinks(abs); err == nil {
-			return real
-		}
-		return abs
-	}
-	return p
-}
-
-// rawBase is the last part of p as written, the half rawDir leaves.
-func rawBase(p string) string {
-	vol := filepath.VolumeName(p)
-	i := len(p)
-	for i > len(vol) && !os.IsPathSeparator(p[i-1]) {
-		i--
-	}
-	return p[i:]
+	return p, nil
 }
 
 // rawDir is the directory half of p as written. filepath.Dir cleans it, and a
@@ -10265,17 +10181,15 @@ func loadFileAny(path string, level Strictness, keep bool) (*Document, FileStatu
 	text, st := ReadFile(path, 0)
 	if st != FileClean {
 		doc := newParser().parse("", level)
-		// A file that could not be read gives a save nothing to compare.
-		if st == FileNotFound {
-			doc.file = loadedFileAt(path, nil)
-		}
+		// A file that could not be read gives a save nothing to compare, so
+		// its bytes are as unread as a parsed document's.
 		return doc, st
 	}
 	doc := newParser().parse(text, level)
 	if keep {
 		doc.keepSource(text)
 	}
-	doc.file = loadedFileAt(path, &text)
+	doc.file = &seenBytes{read: &text}
 	if doc.ErrorCount() > 0 {
 		return doc, FileHadErrors
 	}
@@ -10299,17 +10213,18 @@ func (e *SaveRefused) Error() string {
 		"from the file (see diagnostics; SaveFileLossy overrides)", e.Path, e.Lost)
 }
 
-// SaveChanged is the error a save returns when the file the document was
-// loaded from no longer holds what the load read, or what this document's
-// last save there wrote. Nothing is written. Another program's edit is not
-// the caller's to undo by accident, so SaveOptions.Force is the override.
+// SaveChanged is the error a save returns when what is at the path now is
+// neither what the load read nor what this document's last save wrote:
+// another program's edit, a file gone since the load, or a file this document
+// never read. Nothing is written. Those bytes are not the caller's to undo by
+// accident, so SaveOptions.Force is the override.
 type SaveChanged struct {
 	Path string
 }
 
 // Error names the file and the override.
 func (e *SaveChanged) Error() string {
-	return e.Path + ": refusing to save: the file changed since it was loaded; nothing written (force overrides)"
+	return e.Path + ": refusing to save: what is there is not what this document read or wrote; nothing written (force overrides)"
 }
 
 // SaveExists is the error a save returns when SaveOptions.Create found a file
@@ -10354,42 +10269,39 @@ type SaveOptions struct {
 	Mode os.FileMode
 }
 
-// loadedFile is the file a load read, for the save's changed check: where the
-// path resolved to, and its text, or nil when nothing was there.
-type loadedFile struct {
-	target string
-	text   *string
+// seenBytes is what a save checks the bytes at its path against: what the
+// load read, nil when it found nothing there or no load read a file, and what
+// this document's last save wrote. No path is kept, since a path taken at the
+// load names another file by the save once a folder or a link on it changes,
+// and every spelling of one file reads the same bytes.
+type seenBytes struct {
+	read  *string
+	saved *string
 }
 
-// loadedFileAt gives nil for a path that resolves to no target, a link cycle,
-// since that is a save's error already and gets no check.
-func loadedFileAt(path string, text *string) *loadedFile {
-	target, err := resolveTarget(path)
-	if err != nil {
-		return nil
-	}
-	return &loadedFile{target: target, text: text}
-}
-
-func (f *loadedFile) over(path string) bool {
-	target, err := resolveTarget(path)
-	return err == nil && target == f.target
-}
-
-// holds is true when the file at path still holds the text, byte for byte, or
-// is still not there. Content only, so a touch alone is no change. Something
-// that isn't a regular file is left to the write, which refuses it. A file
-// that can't be read is a change, since the rename that replaces it needs no
-// read access.
-func (f *loadedFile) holds(path string) bool {
+// holds is true when path, as given and read now, holds what the load read or
+// the last save wrote, or nothing, where the load read no file. Content only,
+// so a touch alone is no change. Something that isn't a regular file is left
+// to the write, which refuses it, and so is a path the write can't reach a
+// file through: part of it a file, a folder not there, or a link cycle. A file that can't be read
+// is a change, since the rename that replaces it needs no read access.
+func (s *seenBytes) holds(path string) bool {
 	now, regular, err := readRegular(path)
 	switch {
 	case err == nil && !regular:
 		return true
 	case err == nil:
-		return f.text != nil && *f.text == string(now)
+		return (s.read != nil && *s.read == string(now)) || (s.saved != nil && *s.saved == string(now))
 	case errors.Is(err, os.ErrNotExist):
-		return f.text == nil
+		// A file gone with its folder is left to the write, which says the
+		// folder is missing.
+		if s.read == nil {
+			return true
+		}
+		st, serr := os.Stat(rawDir(path))
+		return serr != nil || !st.IsDir()
+	case errors.Is(err, syscall.ENOTDIR), errors.Is(err, syscall.ELOOP):
+		return true
 	}
 	return false
 }
@@ -10417,9 +10329,9 @@ func readRegular(path string) ([]byte, bool, error) {
 // to path through WriteFileAtomic, so an interrupted save can never truncate
 // the config it rewrites - the same mechanics the CLI's `--write` uses.
 // Refuses when the write would delete content from the file (see
-// LostCount); SaveFileLossy writes anyway. Over the file a load read, refuses
-// when that file no longer holds what the load read, or what this document's
-// last save there wrote, so another program's edit is not lost;
+// LostCount); SaveFileLossy writes anyway. Refuses when what is at path now is
+// neither what the load read nor what this document's last save wrote, so
+// another program's edit, or a file nobody read, is not lost;
 // SaveOptions.Force writes anyway. A refusal comes back as *SaveRefused,
 // another program's edit as *SaveChanged, a document from a newer format as
 // *SaveTooNew (see NewerFormat), a write failure as
@@ -10458,31 +10370,31 @@ func (d *Document) SaveFileWith(path string, opts SaveOptions) (bool, error) {
 	if !opts.Lossy && !kept && lost > 0 {
 		return false, &SaveRefused{Path: path, Lost: lost}
 	}
-	// The file the load read has to be as the load or this document's last
-	// save there left it. That's a check and not a lock: an edit between it
-	// and the rename is still lost.
+	// The is-a-directory rows of Save outcomes answer before the checks,
+	// which would read such a path as a change or as something there.
+	if namesADirectory(path) {
+		return false, &WriteError{Status: WriteIsDirectory, Err: fmt.Errorf("%s: is a directory", path)}
+	}
 	// Before the changed check, so a create that loses to another program is
 	// told the file is there.
 	if opts.Create {
-		if linkAt(path) {
+		if _, err := os.Lstat(path); err == nil || linkAt(path) {
 			return false, &SaveExists{Path: path}
 		}
-		if target, err := resolveTarget(path); err == nil {
-			if _, err := os.Lstat(target); err == nil {
-				return false, &SaveExists{Path: path}
-			}
-		}
 	}
-	over := d.file != nil && d.file.over(path)
-	if over && !opts.Force && !d.file.holds(path) {
+	if d.file == nil {
+		d.file = &seenBytes{}
+	}
+	// The bytes at the path have to be ones this document has seen there,
+	// whatever file the path names now. That's a check and not a lock: an
+	// edit between it and the rename is still lost.
+	if !opts.Force && !d.file.holds(path) {
 		return false, &SaveChanged{Path: path}
 	}
 	if err := writeFileHow(path, text, opts.Create, opts.Mode); err != nil {
 		return false, err
 	}
-	if over {
-		d.file.text = &text
-	}
+	d.file.saved = &text
 	return kept, nil
 }
 

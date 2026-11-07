@@ -187,7 +187,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The changed check misses a file reached through a second spelling of its path
 	- ID: 2026110613470307
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs external testing: hosted ci.yml windows job, for the Rust and C suites and the C++ veneer smoke on Windows (`dekkm`, `dekkn`, `detpn`, `detpr`, `detps`, `dc42j`, `dc42n`, `dbxm2`, the Rust `save_rewrites_a_read_only_file`), since Windows-only tests there save a parse over a file the way `dbxkq` did. The Windows and macOS rows of 2026110616475901, on b29w and vmKt6m or b26.
 	- Severity: High
 	- Target version: v3.0.0
 	- Opened: 20261106-134703
@@ -217,13 +218,29 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A property test over spellings alone: finds the next spelling, holds nothing. Each fix since 2026110312163201 closed one spelling with a hand rule in `real_nearest`, in 4 languages, and a compare of 2 strings resolved at 2 different times breaks on the next event nobody listed.
 		- Canonicalize with realpath and write temp-and-rename over it: already done for the write. It can't help the check, since realpath has no answer for a path that doesn't fully exist yet, which every case in this class is, and a canonical path taken at load isn't canonical at save once a component becomes a link.
 	- Note: still a check, not a lock. An edit between the read and the rename is lost either way, and only a file lock would close that, which is a separate call.
+	- Test case: the `nodir/..`, hard-link and other-folder rows in `a_changed_check_knows_its_file_by_any_spelling` (`detpn`, `detpp`, `detpq`, `detpr`), the save-as and parse rows in `a_save_over_a_file_changed_since_the_load_is_refused` (`dekj7`, `dekk8`, `dekkm`, `dekkn`). The item closes with 2026110616475901's run, per the requirements.
+	- Branch: `r1107b`
 	- Regression test: 2026110616475901, with the `nodir/..` row and the flipped `detpn` row (a save-as over unread bytes refuses) as fixed cases, in all 4 bindings; watched to fail on `343334df`.
 	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Actual cause: confirmed. The check asked whether the save path was the file the load read, by 2 paths resolved at 2 different times. `nodir/..` kept its `..` at the load and lost it at the save, once the folder was there.
+	- Actual fix: JC's destination-bytes rule, in all 4 and the veneer. The save reads the path as given just before the write. It writes when the bytes there are what the load read or what this document's last save wrote, or when nothing is there and the load read no file, and refuses as Changed otherwise, unless force. The load's path record, `real_nearest`/`realNearest`/`_real_nearest`/C's nearest-folder part, `tidyRest`/`_tidy_rest`, Go's `absReal` and `rawBase`, C's `s_save_target`, its windows mode 2 and `s_win_read_link` are gone. `resolve_target` is the write's alone. spec.md, design.md, examples.md and the changelog say so.
+	- Decisions:
+		- me, 20261107: the 4 CLIs save with force, since their own check just before the write is the changed check, and the library's would refuse every file, as their documents come from a parse.
+		- me, 20261107: besides a FIFO or a folder, the check leaves to the write a path it can't reach a file through: part of it a file (ENOTDIR), a link cycle (ELOOP), and a file gone with its folder. The write's own error is the true one there, and nothing could be written, so a caller isn't sent to force.
+		- me, 20261107: the Changed message is now `PATH: refusing to save: what is there is not what this document read or wrote; nothing written (force overrides)`, since "changed since it was loaded" was wrong for a save-as.
+		- me, 20261107: the create check looks at the path as given (lstat, `GetFileAttributesW` on windows), so on windows too a link to nowhere is now Exists. That may close the create half of 2026110408432594, unchecked.
+		- me, 20261107: the soak tests in Rust, Go and Python save each case with force, since each case's document never read what the last one saved.
+		- 20261107, tests whose assert only needed the new rule (a parse or another load saving over a file it never read): `lost_and_save_gate` and its twins (`dbcxf`, `dd5h6`, `d9v59`), the newer-format loop (`dekvw`, `dekvx` and twins), the read-only and hidden saves (`dbxkq`, `dbxm2` and twins), and the soaks now remove the file first or force. The changed tests (`dekj7`, `dekk8`, `dekkm`, `dekkn`) and the spelling tests' other-folder row flip from Ok to Changed, as asked.
+	- Swept: every caller of the resolve and the record in all 4 and the veneer (load, save, create check, write, C's `dir_takes_a_temp`), the 4 CLIs' save calls, every test that saves a parse or a second document over a file, Windows-only ones included as far as a read shows.
+	- Verified: on the old code, the new rows fail: Python saves through `nodir/../q.shcl` over the other program's file, and Go `detpq`, C `detpr`, Rust `detpn` fail the other-folder row, Go `dekk8`, C `dekkm`, Rust and Python `dekj7` the save-as rows. All pass on the new code. Rust `cargo test` (all binaries), clippy for the host and windows, fmt; Go tests in both modules, vet and staticcheck for the host and windows, a wasip1 build; Python conformance, ruff, mypy (one error left, from `df027`, not this change); the C runner, the veneer smoke, oom_hook, oom_recover, mem_bounds, analyze-c (202 s), a mingw build; cli-regress (658 rows); perf-gate; `test-ids.py check`. On b29w with a short-name TEMP: Python conformance whole, and Go `detpq`, `dekk8`, `dc42k`, `dbcxf`, `dekvw` and the read-only save.
+		- Not run: `--backlog-run-quick` with every area (past one call), check-c-compilers (past one call), check-docs, crosscheck.
 
 - A path that names a folder gets the wrong refusal in Rust and C, and from the CLIs' own changed check
 	- ID: 2026110613470308
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs external testing: hosted ci.yml windows job, for `dc42j` and `dc42n` in Rust and C on Windows.
 	- Severity: High
 	- Target version: v3.0.0
 	- Opened: 20261106-134703
@@ -240,6 +257,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: a caller that retries with `force` on `Changed` is misled.
 	- Regression test: rows in 2026110616475901 with a folder at the save path, for the library save, the changed check and the CLIs' own check, expecting the directory refusal in all 4 and exit 8 with the matching text from each CLI; a cli-regress fixture that puts a folder at the path.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: confirmed. Rust and C ran the create and changed checks before the write's is-a-directory test, through a resolve that drops the trailing separator, and a read that failed with ENOTDIR counted as a change. The CLIs' own check gave one message for anything not a regular file. The C CLI's create test took only ENOENT as nothing there, so `f.shcl/` went to the read.
+	- Actual fix: every binding's save answers a path ending in a separator, `.` or `..` as IsDirectory first, before the create and changed checks. The CLIs' check names a folder as a folder there from the start is named, `FILE: Is a directory`. The C CLI takes ENOTDIR as nothing there, as the other 3 do, and skips the temp-file probe for EISDIR.
+	- Decisions:
+		- me, 20261107: the regression rows went into the existing tests (`dc42j`, `dc42p`, `dc42k`, `dc42n`) and cli-regress, since 2026110616475901 isn't written yet. That item still owes its own folder rows.
+	- Verified: `dc42j` gave Changed for `f.shcl/` on the old Rust code and `dc42n` failed on the old C code; both pass now. cli-regress `df03q`, `df03r` and `df03s` fail on the old CLIs (Python and C for the swap, C for the 2 paths) and pass on all 4 new ones. Go `dc42k` passed on b29w. The rest as on 2026110613470307.
+	- Test case: `save_refuses_a_directory_shaped_path` (`dc42j`, `dc42p`, `dc42k`, `dc42n`), cli-regress `df03q` (`write-dir-during-wait`, stdin `@dir`), `df03r` (`write-dir-shaped`) and `df03s` (`write-dir-shaped-dot`). POSIX only for `df03q`.
+	- Branch: `r1107b`
 
 - C checks a recursive schema in time cubic in the nesting depth
 	- ID: 2026110613470309

@@ -160,8 +160,9 @@ pub enum SaveError {
 	Refused { path: String, lost: usize },
 	/// The write itself failed: why, and the message.
 	Io(WriteError),
-	/// The file the document was loaded from no longer holds what the load
-	/// read, or what this document's last save there wrote. Nothing written.
+	/// What is at the path now is neither what the load read nor what this
+	/// document's last save wrote: another program's edit, a file gone since
+	/// the load, or a file this document never read. Nothing written.
 	Changed { path: String },
 	/// `SaveOptions::create` found a file already there, or another save made
 	/// it first. Nothing written.
@@ -183,7 +184,7 @@ impl std::fmt::Display for SaveError {
 			SaveError::Io(e) => std::fmt::Display::fmt(e, f),
 			SaveError::Changed { path } => write!(
 				f,
-				"{}: refusing to save: the file changed since it was loaded; nothing written (force overrides)",
+				"{}: refusing to save: what is there is not what this document read or wrote; nothing written (force overrides)",
 				path
 			),
 			SaveError::Exists { path } => write!(
@@ -208,8 +209,8 @@ pub struct SaveOptions {
 	pub lossy: bool,
 	/// Keep the lines no edit touched, as `save_file_keep_lines` does.
 	pub keep_lines: bool,
-	/// Write over the file the document was loaded from even when it changed
-	/// since, for a caller that means to replace whatever is there.
+	/// Write over whatever is at the path, even a file this document never
+	/// read or one changed since, for a caller that means to replace it.
 	pub force: bool,
 	/// Only make a new file: refuse with `SaveError::Exists` when one is
 	/// there, even one another save makes at the same time.
@@ -220,36 +221,59 @@ pub struct SaveOptions {
 	pub mode: u32,
 }
 
-/// The file a load read, for the save's changed check: where the path
-/// resolved to, and its text, or None when nothing was there.
-#[derive(Debug, Clone)]
-struct LoadedFile {
-	target: std::path::PathBuf,
-	text: Option<String>,
+/// What a save checks the bytes at its path against: what the load read, and
+/// what this document's last save wrote. No path is kept, since a path taken
+/// at the load names another file by the save once a folder or a link on it
+/// changes, and every spelling of one file reads the same bytes.
+#[derive(Debug, Clone, Default)]
+struct Seen {
+	/// None when the load found nothing there, or no load read a file.
+	read: Option<String>,
+	saved: Option<String>,
 }
 
-impl LoadedFile {
-	/// A path that resolves to no target, a link cycle, is a save's error
-	/// already, so it gets no check.
-	fn at(path: &str, text: Option<String>) -> Option<Box<LoadedFile>> {
-		let target = resolve_target(path).ok()?;
-		Some(Box::new(LoadedFile { target, text }))
-	}
-
-	/// The file at PATH still holds the text, byte for byte, or is still
-	/// not there. Content only, so a touch alone is no change. Something
-	/// that isn't a regular file is left to the write, which refuses it. A
-	/// file that can't be read is a change, since the rename that replaces it
-	/// needs no read access.
+impl Seen {
+	/// PATH, as given and read now, holds what the load read or the last save
+	/// wrote, or nothing, where the load read no file. Content only, so a
+	/// touch alone is no change. Something that isn't a regular file is left
+	/// to the write, which refuses it, and so is a path the write can't reach
+	/// a file through: part of it a file, a folder not there, or a link
+	/// cycle. A file that can't
+	/// be read is a change, since the rename that replaces it needs no read
+	/// access.
 	fn holds(&self, path: &str) -> bool {
+		use std::io::ErrorKind;
 		match read_regular(path) {
-			Ok(Some(now)) => self.text.as_deref().is_some_and(|t| t.as_bytes() == now),
+			Ok(Some(now)) => [&self.read, &self.saved]
+				.into_iter()
+				.flatten()
+				.any(|t| t.as_bytes() == now),
 			Ok(None) => true,
-			Err(e) if e.kind() == std::io::ErrorKind::NotFound => self.text.is_none(),
+			Err(e) if e.kind() == ErrorKind::NotFound => self.read.is_none() || !folder_there(path),
+			Err(e) if e.kind() == ErrorKind::NotADirectory || e.raw_os_error() == ELOOP => true,
 			Err(_) => false,
 		}
 	}
 }
+
+/// The folder PATH names its file in is there. A file gone with its folder
+/// is left to the write, which says the folder is missing.
+fn folder_there(path: &str) -> bool {
+	std::path::Path::new(path)
+		.parent()
+		.filter(|d| !d.as_os_str().is_empty())
+		.unwrap_or(std::path::Path::new("."))
+		.is_dir()
+}
+
+/// A link cycle on the path, which the write refuses by name. std has no
+/// stable kind for it.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const ELOOP: Option<i32> = Some(40);
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
+const ELOOP: Option<i32> = Some(62);
+#[cfg(not(unix))]
+const ELOOP: Option<i32> = None;
 
 impl std::error::Error for SaveError {}
 
@@ -954,9 +978,9 @@ pub struct Document {
 	// was already canonical, since the canonical form is then the one that
 	// keeps its lines. A merge drops it: the layer's lines are not this text's.
 	source: Option<String>,
-	// The file a load read, which a save over it checks first. A merge keeps
-	// it, since the file under the merged document is still that one.
-	file: Option<Box<LoadedFile>>,
+	// What a save checks the bytes at its path against. A merge keeps it,
+	// since the file under the merged document is still the one the load read.
+	seen: Box<Seen>,
 	// The text named a newer format than this one (H006), so its lines may
 	// read differently there, and a save refuses. A merge takes a layer's.
 	newer: bool,
@@ -6587,7 +6611,7 @@ impl<'a> Parser<'a> {
 			ends: self.ends,
 			dropped: self.dropped,
 			source: None,
-			file: None,
+			seen: Box::default(),
 			newer,
 		};
 		doc.refile_folded(folded);
@@ -6827,14 +6851,9 @@ impl Document {
 	fn load_file_any(path: &str, level: Strictness, keep: bool) -> (Document, FileStatus) {
 		let text = match read_file(path, 0) {
 			Ok(t) => t,
-			Err(st) => {
-				let mut doc = Parser::new().parse("", level);
-				// A file that could not be read gives a save nothing to compare.
-				if st == FileStatus::NotFound {
-					doc.file = LoadedFile::at(path, None);
-				}
-				return (doc, st);
-			}
+			// A file that could not be read gives a save nothing to compare,
+			// so its bytes are as unread as a parsed document's.
+			Err(st) => return (Parser::new().parse("", level), st),
 		};
 		let mut doc = Parser::new().parse(&text, level);
 		let st = if doc.error_count() > 0 {
@@ -6845,7 +6864,7 @@ impl Document {
 		if keep {
 			doc.keep_source(&text);
 		}
-		doc.file = LoadedFile::at(path, Some(text));
+		doc.seen.read = Some(text);
 		(doc, st)
 	}
 
@@ -6854,10 +6873,10 @@ impl Document {
 	/// interrupted save can never truncate the config it rewrites - the same
 	/// mechanics the CLI's `--write` uses. Refuses when the write would delete
 	/// content from the file (see lost_count); save_file_lossy writes
-	/// anyway. Over the file a load read, refuses when that file no longer
-	/// holds what the load read, or what this document's last save there
-	/// wrote, so another program's edit is not lost; `SaveOptions::force`
-	/// writes anyway. The Err tells them apart without matching on prose:
+	/// anyway. Refuses when what is at PATH now is neither what the load read
+	/// nor what this document's last save wrote, so another program's edit,
+	/// or a file nobody read, is not lost; `SaveOptions::force` writes
+	/// anyway. The Err tells them apart without matching on prose:
 	/// SaveError::Refused is the gate, SaveError::Changed the other program's
 	/// edit, SaveError::TooNew a document from a newer format (see
 	/// newer_format), SaveError::Io the write failing.
@@ -6899,39 +6918,28 @@ impl Document {
 				lost,
 			});
 		}
-		// The file the load read has to be as the load or this document's last
-		// save there left it. That's a check and not a lock: an edit between it
-		// and the rename is still lost.
-		let target = resolve_target(path).ok();
+		// The is-a-directory rows of Save outcomes answer before the checks,
+		// which would read such a path as a change or as something there.
+		if names_a_directory(path) {
+			return Err(SaveError::Io(is_a_directory(path)));
+		}
 		// Before the changed check, so a create that loses to another program
 		// is told the file is there.
-		if opts.create
-			&& (link_at(path)
-				|| target
-					.as_ref()
-					.is_some_and(|t| std::fs::symlink_metadata(t).is_ok()))
-		{
+		if opts.create && (link_at(path) || std::fs::symlink_metadata(path).is_ok()) {
 			return Err(SaveError::Exists {
 				path: path.to_string(),
 			});
 		}
-		let over = self
-			.file
-			.as_deref()
-			.filter(|f| target.as_ref().is_some_and(|t| *t == f.target));
-		if let Some(f) = over
-			&& !opts.force
-			&& !f.holds(path)
-		{
+		// The bytes at the path have to be ones this document has seen there,
+		// whatever file the path names now. That's a check and not a lock: an
+		// edit between it and the rename is still lost.
+		if !opts.force && !self.seen.holds(path) {
 			return Err(SaveError::Changed {
 				path: path.to_string(),
 			});
 		}
-		let over = over.is_some();
 		write_file_how(path, &text, opts.create, opts.mode)?;
-		if over && let Some(f) = self.file.as_deref_mut() {
-			f.text = Some(text);
-		}
+		self.seen.saved = Some(text);
 		Ok(kept)
 	}
 
@@ -9656,10 +9664,7 @@ fn write_file_how(file: &str, data: &str, new_only: bool, mode: u32) -> Result<(
 		path: file.to_string(),
 	};
 	if names_a_directory(file) {
-		return Err(SaveError::Io(WriteError::new(
-			WriteStatus::IsDirectory,
-			format!("{}: Is a directory", file),
-		)));
+		return Err(SaveError::Io(is_a_directory(file)));
 	}
 	let target = resolve_target(file)
 		.map_err(|(status, why)| WriteError::new(status, format!("{}: {}", file, why)))
@@ -9710,10 +9715,7 @@ fn write_file_how(file: &str, data: &str, new_only: bool, mode: u32) -> Result<(
 		&& !m.is_file()
 	{
 		return Err(SaveError::Io(if m.is_dir() {
-			WriteError::new(
-				WriteStatus::IsDirectory,
-				format!("{}: Is a directory", file),
-			)
+			is_a_directory(file)
 		} else {
 			not_regular(file)
 		}));
@@ -10152,29 +10154,14 @@ fn resolve_target(file: &str) -> Result<std::path::PathBuf, (WriteStatus, &'stat
 	if std::fs::read_link(&p).is_ok() {
 		return Err((WriteStatus::Other, "too many levels of symbolic links"));
 	}
-	Ok(real_nearest(p))
+	Ok(p)
 }
 
-/// P, with nothing at it, made absolute through the real path of the nearest
-/// folder above it that is there, the rest as written. So one file has one
-/// spelling whether it's there or not, and however the path names it: bare,
-/// `./`, absolute, through a link, or relative to another working folder.
-fn real_nearest(p: std::path::PathBuf) -> std::path::PathBuf {
-	let mut rest = Vec::new();
-	let mut at = p.as_path();
-	while let (Some(d), Some(n)) = (at.parent(), at.file_name()) {
-		rest.push(n);
-		let dir = if d.as_os_str().is_empty() {
-			std::path::Path::new(".")
-		} else {
-			d
-		};
-		if let Ok(real) = std::fs::canonicalize(dir) {
-			return rest.iter().rev().fold(real, |a, n| a.join(n));
-		}
-		at = d;
-	}
-	std::path::absolute(&p).unwrap_or(p)
+fn is_a_directory(file: &str) -> WriteError {
+	WriteError::new(
+		WriteStatus::IsDirectory,
+		format!("{}: Is a directory", file),
+	)
 }
 
 #[cfg(windows)]

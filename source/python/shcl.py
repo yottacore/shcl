@@ -369,14 +369,15 @@ class SaveFailed(SaveError):
 
 
 class SaveChanged(SaveError):
-	"""The file the document was loaded from no longer holds what the load
-	read, or what this document's last save there wrote. Nothing was written;
+	"""What is at the path now is neither what the load read nor what this
+	document's last save wrote: another program's edit, a file gone since the
+	load, or a file this document never read. Nothing was written;
 	SaveOptions.force is the override."""
 	path: str | os.PathLike[str]
 
 	def __init__(self, path: str | os.PathLike[str]):
 		self.path = path
-		super().__init__(f"{path}: refusing to save: the file changed since it was loaded; nothing written (force overrides)")
+		super().__init__(f"{path}: refusing to save: what is there is not what this document read or wrote; nothing written (force overrides)")
 
 
 class SaveExists(SaveError):
@@ -422,48 +423,42 @@ class SaveOptions:
 		self.mode = mode
 
 
-class _LoadedFile:
-	"""The file a load read, for the save's changed check: where the path
-	resolved to, and its text, or None when nothing was there."""
-	__slots__ = ("target", "text")
+class _Seen:
+	"""What a save checks the bytes at its path against: what the load read,
+	and what this document's last save wrote. No path is kept, since a path
+	taken at the load names another file by the save once a folder or a link
+	on it changes, and every spelling of one file reads the same bytes."""
+	__slots__ = ("read", "saved")
 
-	def __init__(self, target: str, text: str | None) -> None:
-		self.target = target
-		self.text = text
-
-	@staticmethod
-	def at(path: str | os.PathLike[str], text: str | None) -> _LoadedFile | None:
-		# A path that resolves to no target, a link cycle, is a save's error
-		# already, so it gets no check.
-		try:
-			return _LoadedFile(_resolve_target(os.fspath(path)), text)
-		except (OSError, ValueError):
-			return None
-
-	def over(self, path: str | os.PathLike[str]) -> bool:
-		try:
-			return _resolve_target(os.fspath(path)) == self.target
-		except (OSError, ValueError):
-			return False
+	def __init__(self) -> None:
+		# None when the load found nothing there, or no load read a file.
+		self.read: str | None = None
+		self.saved: str | None = None
 
 	def holds(self, path: str | os.PathLike[str]) -> bool:
-		"""The file at path still holds the text, byte for byte, or is still
-		not there. Content only, so a touch alone is no change. Something that
-		isn't a regular file is left to the write, which refuses it. A file
-		that can't be read is a change, since the rename that replaces it needs
-		no read access."""
+		"""path, as given and read now, holds what the load read or the last
+		save wrote, or nothing, where the load read no file. Content only, so a
+		touch alone is no change. Something that isn't a regular file is left
+		to the write, which refuses it, and so is a path the write can't reach
+		a file through: part of it a file, a folder not there, or a link
+		cycle. A file that can't
+		be read is a change, since the rename that replaces it needs no read
+		access."""
 		try:
 			now = _read_regular(os.fspath(path))
 		except FileNotFoundError:
-			return self.text is None
-		except ValueError:
-			# A NUL in the path, which the write refuses the same way.
+			# A file gone with its folder is left to the write, which says the
+			# folder is missing.
+			return self.read is None or not os.path.isdir(os.path.dirname(os.fspath(path)) or ".")
+		except (NotADirectoryError, ValueError):
+			# ValueError is a NUL in the path, which the write refuses the
+			# same way.
 			return True
-		except OSError:
-			return False
+		except OSError as e:
+			return e.errno == errno.ELOOP
 		if now is None:
 			return True
-		return self.text is not None and self.text.encode("utf-8") == now
+		return any(t is not None and t.encode("utf-8") == now for t in (self.read, self.saved))
 
 
 def _read_regular(path: str) -> bytes | None:
@@ -6693,9 +6688,10 @@ class Document:
 		# that keeps its lines. A merge drops it: the layer's lines are not
 		# this text's.
 		self._source: str | None = None
-		# The file a load read, which a save over it checks first. A merge
-		# keeps it, since the file under the merged document is still that one.
-		self._file: _LoadedFile | None = None
+		# What a save checks the bytes at its path against. A merge keeps it,
+		# since the file under the merged document is still the one the load
+		# read.
+		self._file = _Seen()
 		# The text named a newer format than this one (H006), so its lines may
 		# read differently there, and a save refuses. A merge takes a layer's.
 		self._newer = False
@@ -6782,14 +6778,13 @@ class Document:
 		text, st = read_file(path, 0)
 		if text is None:
 			doc = _Parser().parse("", strictness)
-			# A file that could not be read gives a save nothing to compare.
-			if st == FileStatus.NotFound:
-				doc._file = _LoadedFile.at(path, None)
+			# A file that could not be read gives a save nothing to compare,
+			# so its bytes are as unread as a parsed document's.
 			return doc, st
 		doc = _Parser().parse(text, strictness)
 		if keep:
 			doc._keep_source(text)
-		doc._file = _LoadedFile.at(path, text)
+		doc._file.read = text
 		if doc.error_count() > 0:
 			return doc, FileStatus.HadErrors
 		return doc, FileStatus.Clean
@@ -6831,20 +6826,21 @@ class Document:
 			text, kept = self.to_canonical(), False
 		if not opts.lossy and not kept and lost > 0:
 			raise SaveRefused(path, lost)
-		# The file the load read has to be as the load or this document's last
-		# save there left it. That's a check and not a lock: an edit between it
-		# and the rename is still lost.
+		# The is-a-directory rows of Save outcomes answer before the checks,
+		# which would read such a path as a change or as something there.
+		if _names_a_directory(os.fspath(path)):
+			raise SaveFailed(f"{os.fspath(path)}: is a directory", WriteStatus.IsDirectory)
 		# Before the changed check, so a create that loses to another program
 		# is told the file is there.
 		if opts.create and _something_at(path):
 			raise SaveExists(path)
-		f = self._file
-		over = f is not None and f.over(path)
-		if f is not None and over and not opts.force and not f.holds(path):
+		# The bytes at the path have to be ones this document has seen there,
+		# whatever file the path names now. That's a check and not a lock: an
+		# edit between it and the rename is still lost.
+		if not opts.force and not self._file.holds(path):
 			raise SaveChanged(path)
 		_save_text(path, text, opts.create, opts.mode)
-		if f is not None and over:
-			f.text = text
+		self._file.saved = text
 		return kept
 
 	def diagnostics(self) -> list[Diagnostic]:
@@ -10135,10 +10131,8 @@ def _link_at(path) -> bool:
 
 
 def _something_at(path) -> bool:
-	if _link_at(path):
-		return True
 	try:
-		return os.path.lexists(_resolve_target(os.fspath(path)))
+		return _link_at(path) or os.path.lexists(path)
 	except (OSError, ValueError):
 		return False
 
@@ -11044,40 +11038,7 @@ def _resolve_target(file):
 			p = os.path.join(os.path.dirname(p) or ".", nxt)
 	if os.path.islink(p):
 		raise OSError("too many levels of symbolic links")
-	return _real_nearest(p)
-
-
-def _real_nearest(p):
-	"""P, with nothing at it, made absolute through the real path of the
-	nearest folder above it that is there, the rest as written. So one file
-	has one spelling whether it's there or not, and however the path names it:
-	bare, `./`, absolute, through a link, or relative to another working
-	folder. realpath alone would cancel `nodir/..` as text where the kernel
-	refuses the missing folder, and the save would create the file."""
-	at = p
-	while True:
-		d = os.path.dirname(at)
-		if os.path.exists(d or "."):
-			# at is p up to some separator, so its last part starts the rest.
-			# On windows with the separator realpath gives a file that's there.
-			rest = p[len(at) - len(os.path.basename(at)):]
-			if os.altsep:
-				rest = rest.replace(os.altsep, os.sep)
-			if os.name != "nt":
-				rest = _tidy_rest(rest)
-			return os.path.join(os.path.realpath(d or "."), rest)
-		if not d or d == at:
-			return p
-		at = d
-
-
-def _tidy_rest(rest):
-	"""The rest of a path under a missing folder, less its `.` and empty
-	parts. Neither changes what the kernel reaches, and a file that's there
-	resolves with neither, so a load of `new/./n.shcl` and a save to
-	`new/n.shcl` name one file. `..` stays, since the kernel refuses it through
-	a missing folder. Windows is left as it was (2026110314240418)."""
-	return "/".join(n for n in rest.split("/") if n not in ("", "."))
+	return p
 
 
 def _set_read_only(path, on):

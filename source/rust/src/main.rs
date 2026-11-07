@@ -6,10 +6,10 @@
 
 use shcl::{
 	Diagnostic, Document, DurationUnit, FORMAT_MAJOR, GEN_BANNER, Piece, Quote, Rules, SaveError,
-	SchemaStatus, Severity, SizeUnit, Status, Strictness, Tokens, UpgradeError, format_diagnostic,
-	format_float, format_version, generate, migrate, parse_datetime, read_named_schema,
-	suppress_declared_reopens, suppress_declared_repeats, tokenize, upgrade, upgrade_file,
-	write_backup, write_file_atomic,
+	SaveOptions, SchemaStatus, Severity, SizeUnit, Status, Strictness, Tokens, UpgradeError,
+	format_diagnostic, format_float, format_version, generate, migrate, parse_datetime,
+	read_named_schema, suppress_declared_reopens, suppress_declared_repeats, tokenize, upgrade,
+	upgrade_file, write_backup, write_file_atomic,
 };
 use std::fmt::Write as _;
 use std::process::ExitCode;
@@ -1872,15 +1872,25 @@ fn write_back(doc: &mut Document, file: &str, o: &Opts, read: Option<&str>, keep
 	// The text is already built, so the line-keeping save writes it rather
 	// than building it again, with the same refusal save_file_keep_lines
 	// makes (20260926 idea 3).
+	// The check above is this write's changed check. The library's would
+	// refuse every file, since the parse read none.
+	let save = |doc: &mut Document, lossy| {
+		let opts = SaveOptions {
+			lossy,
+			force: true,
+			..SaveOptions::default()
+		};
+		doc.save_file_with(file, &opts).map(|_| ())
+	};
 	let r = match (o.lossy, keep) {
 		(true, true) => write_file_atomic(file, &text).map_err(SaveError::Io),
-		(true, false) => doc.save_file_lossy(file),
+		(true, false) => save(doc, true),
 		(false, true) if !kept && doc.lost_count() > 0 => Err(SaveError::Refused {
 			path: file.to_string(),
 			lost: doc.lost_count(),
 		}),
 		(false, true) => write_file_atomic(file, &text).map_err(SaveError::Io),
-		(false, false) => doc.save_file(file),
+		(false, false) => save(doc, false),
 	};
 	match r {
 		Ok(()) => {
@@ -1926,7 +1936,12 @@ fn unchanged_since_read(file: &str, before: &str) -> bool {
 	match read_regular(file) {
 		Ok(Some(now)) if now == before.as_bytes() => true,
 		Ok(None) => {
-			errln!("{}: not a regular file", file);
+			// A folder gets the words a folder there from the start gets.
+			if std::path::Path::new(file).is_dir() {
+				errln!("{}: Is a directory", file);
+			} else {
+				errln!("{}: not a regular file", file);
+			}
 			false
 		}
 		_ => {

@@ -2744,7 +2744,10 @@ fn save_reports_a_symlink_cycle_instead_of_replacing_it() {
 	std::os::unix::fs::symlink("b.shcl", &a).unwrap();
 	std::os::unix::fs::symlink("a.shcl", &b).unwrap();
 	let mut doc = Document::parse("a: 1\n");
-	assert!(doc.save_file(a.to_str().unwrap()).is_err());
+	match doc.save_file(a.to_str().unwrap()) {
+		Err(shcl::SaveError::Io(e)) => assert_eq!(e.status, shcl::WriteStatus::Other),
+		other => panic!("a symlink cycle saved as {other:?}"),
+	}
 	for link in [&a, &b] {
 		assert!(
 			std::fs::symlink_metadata(link)
@@ -2820,8 +2823,13 @@ fn save_rewrites_a_read_only_file() {
 	let mut perms = std::fs::metadata(&f).unwrap().permissions();
 	perms.set_readonly(true);
 	std::fs::set_permissions(&f, perms).unwrap();
+	// A parse never read the file there, so these saves force.
+	let force = shcl::SaveOptions {
+		force: true,
+		..shcl::SaveOptions::default()
+	};
 	let mut doc = Document::parse("a: 2\n");
-	doc.save_file(f.to_str().unwrap()).unwrap();
+	doc.save_file_with(f.to_str().unwrap(), &force).unwrap();
 	assert_eq!(std::fs::read_to_string(&f).unwrap(), "a: 2\n");
 	assert!(std::fs::metadata(&f).unwrap().permissions().readonly());
 	let left: Vec<_> = std::fs::read_dir(&dir).unwrap().collect();
@@ -2836,7 +2844,7 @@ fn save_rewrites_a_read_only_file() {
 	// hidden config used to come back visible.
 	set_attrs(&f, 0x2 | 0x4);
 	Document::parse("a: 3\n")
-		.save_file(f.to_str().unwrap())
+		.save_file_with(f.to_str().unwrap(), &force)
 		.unwrap();
 	let after = {
 		use std::os::windows::fs::MetadataExt;
@@ -2878,19 +2886,37 @@ fn set_attrs(path: &std::path::Path, attrs: u32) {
 #[test]
 fn save_refuses_a_directory_shaped_path() {
 	let _id = test_id("dc42j");
+	use shcl::{SaveError, SaveOptions, WriteStatus};
 	let dir = std::env::temp_dir().join(format!("shcl-dirpath-{}", std::process::id()));
 	std::fs::create_dir_all(&dir).unwrap();
 	let f = dir.join("f.shcl");
 	std::fs::write(&f, "a: 1\n").unwrap();
-	let mut doc = Document::parse("a: 2\n");
+	let (mut doc, _) = Document::load_file(f.to_str().unwrap());
+	let _ = doc.set_int("a", 2);
+	// Is a directory, before the changed and create checks, which read such
+	// a path as a change or as a file there (2026110613470308).
+	let create = SaveOptions {
+		create: true,
+		..SaveOptions::default()
+	};
 	for suffix in ["/", "/.", "/.."] {
 		let p = format!("{}{}", f.display(), suffix);
-		assert!(
-			doc.save_file(&p).is_err(),
-			"save through {:?} was accepted",
-			p
-		);
+		for opts in [SaveOptions::default(), create] {
+			match doc.save_file_with(&p, &opts) {
+				Err(SaveError::Io(e)) => assert_eq!(e.status, WriteStatus::IsDirectory, "{p:?}"),
+				other => panic!("save through {p:?} gave {other:?}"),
+			}
+		}
 	}
+	// A folder at the path, made after the load.
+	let g = dir.join("g.shcl");
+	let (mut gone, _) = Document::load_file(g.to_str().unwrap());
+	std::fs::create_dir(&g).unwrap();
+	match gone.save_file(g.to_str().unwrap()) {
+		Err(SaveError::Io(e)) => assert_eq!(e.status, WriteStatus::IsDirectory),
+		other => panic!("save over a folder gave {other:?}"),
+	}
+	std::fs::remove_dir(&g).unwrap();
 	assert_eq!(std::fs::read_to_string(&f).unwrap(), "a: 1\n");
 	assert!(doc.save_file(f.to_str().unwrap()).is_ok());
 	assert_eq!(std::fs::read_to_string(&f).unwrap(), "a: 2\n");
@@ -3833,6 +3859,8 @@ fn lost_and_save_gate() {
 	let (back, _) = Document::load_file(fs);
 	assert!(back.to_canonical().contains("square-miles 300\n"));
 	assert!(lost.save_file(fs).is_err());
+	// lost never read what kept wrote there.
+	std::fs::remove_file(&f).unwrap();
 	assert!(lost.save_file_lossy(fs).is_ok());
 	// A refusal and a failed write are separate values, not two spellings of one
 	// message, and the gate answers before any i/o - so an unwritable path still
@@ -3850,6 +3878,7 @@ fn lost_and_save_gate() {
 	let mut keep =
 		Document::parse_keep_lines("a:\n\t\tb: 1\n\tc: 2\n", Strictness::Standard).unwrap();
 	assert_eq!(keep.set_int("a.b", 5), shcl::SetStatus::Ok);
+	std::fs::remove_file(&f).unwrap();
 	assert!(matches!(keep.save_file_keep_lines(fs), Ok(true)));
 	assert_eq!(
 		std::fs::read_to_string(fs).unwrap(),
@@ -6129,8 +6158,9 @@ fn format_array_is_the_setters_text() {
 }
 
 /// A save over the file a load read refuses when another program changed it
-/// since, writes nothing, and writes with force. A save elsewhere, and a
-/// document from parse, save as they always did (2026102910482342).
+/// since, writes nothing, and writes with force. A save over a file the
+/// document never read, a parse's included, is refused the same way
+/// (2026102910482342, 2026110613470307).
 #[cfg_attr(
 	miri,
 	ignore = "saves to disk, and Miri has no fchown or directory fsync"
@@ -6162,7 +6192,7 @@ fn a_save_over_a_file_changed_since_the_load_is_refused() {
 	assert_eq!(
 		doc.save_file(&f).unwrap_err().to_string(),
 		format!(
-			"{f}: refusing to save: the file changed since it was loaded; nothing written (force overrides)"
+			"{f}: refusing to save: what is there is not what this document read or wrote; nothing written (force overrides)"
 		)
 	);
 	assert_eq!(doc.save_file_with(&f, &force), Ok(false));
@@ -6212,15 +6242,24 @@ fn a_save_over_a_file_changed_since_the_load_is_refused() {
 	assert_eq!(fresh.save_file(&n), Ok(()));
 	assert_eq!(read(&n), "a: 1\n");
 
-	// Elsewhere is not checked, and the load's file still is.
+	// A file the document never read is checked too: a save-as over it is
+	// refused, and force writes it. The load's file still is.
 	let other = at("other.shcl");
 	std::fs::write(&other, "z: 0\n").unwrap();
+	assert_eq!(gone.save_file(&other), Err(changed(&other)));
+	assert_eq!(read(&other), "z: 0\n");
+	assert_eq!(gone.save_file_with(&other, &force), Ok(false));
 	assert_eq!(gone.save_file(&other), Ok(()));
 	assert_eq!(gone.save_file(&f), Err(changed(&f)));
-	// A parse has no file behind it.
+	// A parse read no file, so it writes only where nothing is, or over what
+	// it wrote itself.
 	let mut parsed = Document::parse("a: 5\n");
-	assert_eq!(parsed.save_file(&other), Ok(()));
+	assert_eq!(parsed.save_file(&other), Err(changed(&other)));
+	assert_eq!(parsed.save_file_with(&other, &force), Ok(false));
 	assert_eq!(read(&other), "a: 5\n");
+	assert_eq!(parsed.save_file(&f), Ok(()));
+	assert_eq!(parsed.save_file(&f), Ok(()));
+	assert_eq!(read(&f), "a: 5\n");
 	let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -6419,6 +6458,8 @@ fn a_newer_format_document_saves_nowhere() {
 	] {
 		let mut d = Document::parse(text);
 		assert!(!d.newer_format(), "{text:?}");
+		// A parse never read the file the last pass wrote.
+		let _ = std::fs::remove_file(&other);
 		assert_eq!(d.save_file(&other), Ok(()), "{text:?}");
 	}
 	// A merged layer's lines are the document's now.

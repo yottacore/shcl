@@ -2483,15 +2483,31 @@ def main():
 		dfile = os.path.join(dtd, "f.shcl")
 		with open(dfile, "w", encoding="utf-8", newline="") as fh:
 			fh.write("a: 1\n")
-		ddoc = shcl.Document.parse("a: 2\n")
+		ddoc, _ = shcl.Document.load_file(dfile)
+		ddoc.set_int("a", 2)
+		# Is a directory, before the changed and create checks, which read
+		# such a path as a change or as a file there (2026110613470308).
 		for suffix in ("/", "/.", "/.."):
-			try:
-				ddoc.save_file(dfile + suffix)
-				raise SystemExit(f"save through {dfile + suffix} was accepted")
-			except shcl.SaveFailed:
-				pass
+			for dopts in (shcl.SaveOptions(), shcl.SaveOptions(create=True)):
+				try:
+					ddoc.save_file_with(dfile + suffix, dopts)
+					raise SystemExit(f"save through {dfile + suffix} was accepted")
+				except shcl.SaveFailed as de:
+					if de.status != shcl.WriteStatus.IsDirectory:
+						raise SystemExit(f"save through {dfile + suffix}: {de.status}") from None
 		if _read(dfile) != "a: 1\n":
 			raise SystemExit("a refused save changed the file")
+		# A folder at the path, made after the load.
+		gfile = os.path.join(dtd, "g.shcl")
+		gdoc, _ = shcl.Document.load_file(gfile)
+		os.mkdir(gfile)
+		try:
+			gdoc.save_file(gfile)
+			raise SystemExit("a save over a folder was accepted")
+		except shcl.SaveFailed as ge:
+			if ge.status != shcl.WriteStatus.IsDirectory:
+				raise SystemExit(f"a save over a folder: {ge.status}") from None
+		os.rmdir(gfile)
 		ddoc.save_file(dfile)
 		if _read(dfile) != "a: 2\n":
 			raise SystemExit("the plain path did not save")
@@ -3476,7 +3492,9 @@ def main():
 			with open(ro, "w", encoding="utf-8", newline="") as fh:
 				fh.write("a: 1\n")
 			os.chmod(ro, stat.S_IREAD)
-			shcl.Document.parse("a: 2\n").save_file(ro)
+			# A parse never read the file there, so these saves force.
+			rforce = shcl.SaveOptions(force=True)
+			shcl.Document.parse("a: 2\n").save_file_with(ro, rforce)
 			if _read(ro) != "a: 2\n":
 				raise SystemExit("read-only file not rewritten")
 			if os.stat(ro).st_mode & stat.S_IWRITE:
@@ -3494,7 +3512,7 @@ def main():
 			# checks this file against the POSIX stubs, where both are absent.
 			k32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
 			k32.SetFileAttributesW(ro, 0x2 | 0x4)
-			shcl.Document.parse("a: 3\n").save_file(ro)
+			shcl.Document.parse("a: 3\n").save_file_with(ro, rforce)
 			after = os.stat(ro).st_file_attributes  # type: ignore[attr-defined]
 			if not after & 0x2:
 				raise SystemExit("file did not come back hidden")
@@ -3516,7 +3534,7 @@ def main():
 		if surdoc.read_string("s").value != "\udcff":
 			raise SystemExit("the parse dropped a surrogate")
 		try:
-			surdoc.save_file(fpath)
+			surdoc.save_file(fpath + ".sur")
 			raise SystemExit("save_file wrote a lone surrogate")
 		except shcl.SaveFailed:
 			pass
@@ -3740,6 +3758,9 @@ def main():
 		lostdoc = shcl.Document.parse("a:\n\t\tb: 1\n\tc: 2\n")
 		if lostdoc.lost_count() != 1:
 			raise SystemExit(f"lost lost_count got {lostdoc.lost_count()}")
+		# A parse never read the file an earlier fixture left there.
+		if os.path.exists(fpath):
+			os.remove(fpath)
 		kept.save_file(fpath)
 		kback, _ = shcl.Document.load_file(fpath)
 		if "square-miles 300\n" not in kback.to_canonical():
@@ -3749,6 +3770,8 @@ def main():
 			raise SystemExit("save_file did not refuse a lossy save")
 		except shcl.SaveRefused:
 			pass
+		# lostdoc never read what kept wrote there.
+		os.remove(fpath)
 		lostdoc.save_file_lossy(fpath)
 		# A refusal and a failed write are separate classes, not two spellings of
 		# one message, and the gate answers before any i/o - so an unwritable path
@@ -3773,6 +3796,7 @@ def main():
 		keep = shcl.Document.parse_keep_lines("a:\n\t\tb: 1\n\tc: 2\n", shcl.Strictness.Standard)
 		if not keep.set_int("a.b", 5):
 			raise SystemExit("keep set_int a.b failed")
+		os.remove(fpath)
 		if keep.save_file_keep_lines(fpath) is not True:
 			raise SystemExit("save_file_keep_lines did not keep the dropped line")
 		with open(fpath, encoding="utf-8", newline="") as fh:
@@ -5481,8 +5505,9 @@ def main():
 
 	test_id("dekj7", "a_save_over_a_file_changed_since_the_load_is_refused")
 	# A save over the file a load read refuses when another program changed it
-	# since, writes nothing, and writes with force. A save elsewhere, and a
-	# document from parse, save as they always did (2026102910482342).
+	# since, writes nothing, and writes with force. A save over a file the
+	# document never read, a parse's included, is refused the same way
+	# (2026102910482342, 2026110613470307).
 	with tempfile.TemporaryDirectory() as cd:
 		def cread(p):
 			with open(p, encoding="utf-8", newline="") as fh:
@@ -5514,7 +5539,7 @@ def main():
 		refused("plain", lambda: cdoc.save_file(cf), cf)
 		refused("lossy", lambda: cdoc.save_file_lossy(cf), cf)
 		same("left", cread(cf), "a: 9\n")
-		same("message", refused("plain", lambda: cdoc.save_file(cf), cf), f"{cf}: refusing to save: the file changed since it was loaded; nothing written (force overrides)")
+		same("message", refused("plain", lambda: cdoc.save_file(cf), cf), f"{cf}: refusing to save: what is there is not what this document read or wrote; nothing written (force overrides)")
 		same("force", cdoc.save_file_with(cf, force), False)
 		same("forced", cread(cf), "a: 2\n")
 		# The next save is checked against what that one wrote.
@@ -5555,21 +5580,34 @@ def main():
 		cfresh.save_file(cn)
 		same("created", cread(cn), "a: 1\n")
 
-		# Elsewhere is not checked, and the load's file still is.
+		# A file the document never read is checked too: a save-as over it is
+		# refused, and force writes it. The load's file still is.
 		cother = os.path.join(cd, "other.shcl")
 		cwrite(cother, "z: 0\n")
+		refused("other", lambda: cgone.save_file(cother), cother)
+		same("other left", cread(cother), "z: 0\n")
+		same("other force", cgone.save_file_with(cother, force), False)
 		cgone.save_file(cother)
 		refused("still", lambda: cgone.save_file(cf), cf)
-		# A parse has no file behind it.
-		shcl.Document.parse("a: 5\n").save_file(cother)
+		# A parse read no file, so it writes only where nothing is, or over
+		# what it wrote itself.
+		cparsed = shcl.Document.parse("a: 5\n")
+		refused("parsed", lambda: cparsed.save_file(cother), cother)
+		same("parsed force", cparsed.save_file_with(cother, force), False)
 		same("parsed", cread(cother), "a: 5\n")
+		cparsed.save_file(cf)
+		cparsed.save_file(cf)
+		same("parsed new", cread(cf), "a: 5\n")
 
 	test_id("detpp", "a_changed_check_knows_its_file_by_any_spelling")
 	# One file gives one answer however its path is spelled: bare, `./`,
-	# absolute, through a link, in a folder made after the load, or from
-	# another working folder. A FIFO swapped in gets the write's own refusal
-	# rather than a wait, and a file the check can't read is a change
-	# (2026110312163201, 2026110312163202).
+	# absolute, through a link, in a folder made after the load, through `..`
+	# under a folder made after it, or by another hard link. The check reads
+	# the bytes at the save path, so a file the document never read, such as
+	# the same name from another working folder, is refused too. A FIFO
+	# swapped in gets the write's own refusal rather than a wait, and a file
+	# the check can't read is a change (2026110312163201, 2026110312163202,
+	# 2026110613470307).
 	with tempfile.TemporaryDirectory() as sd:
 		def sread(p):
 			with open(p, encoding="utf-8", newline="") as fh:
@@ -5641,14 +5679,14 @@ def main():
 				srefused("link", lambda: slinked.save_file("sub/k.shcl"), "sub/k.shcl")
 				ssame("link left", sread("sub/k.shcl"), "b: 2\n")
 
-			# The same name from another working folder is another file, so
-			# it isn't checked.
+			# The same name from another working folder is another file, one
+			# the document never read, so a save over it is refused.
 			swrite("m.shcl", "a: 1\n")
 			smoved, _ = shcl.Document.load_file("m.shcl")
 			os.chdir("sub")
 			swrite("m.shcl", "z: 0\n")
-			smoved.save_file("m.shcl")
-			ssame("moved", sread("m.shcl"), "a: 1\n")
+			srefused("moved", lambda: smoved.save_file("m.shcl"), "m.shcl")
+			ssame("moved left", sread("m.shcl"), "z: 0\n")
 			os.chdir(sd)
 
 			if os.name != "nt":
@@ -5673,6 +5711,21 @@ def main():
 				except shcl.SaveFailed:
 					pass
 				ssame("missing folder left", os.path.exists("q.shcl"), False)
+				# Loaded through it while it's missing, saved through it once
+				# another program made the folder and the file.
+				supthrough, st = shcl.Document.load_file("nodir/../q.shcl")
+				ssame("up through status", st, shcl.FileStatus.NotFound)
+				os.mkdir("nodir")
+				swrite("q.shcl", "b: 2\n")
+				srefused("up through", lambda: supthrough.save_file("nodir/../q.shcl"), "nodir/../q.shcl")
+				ssame("up through left", sread("q.shcl"), "b: 2\n")
+				# 2 hard links are 2 paths to one set of bytes.
+				swrite("h1.shcl", "a: 1\n")
+				os.link("h1.shcl", "h2.shcl")
+				shard, _ = shcl.Document.load_file("h1.shcl")
+				swrite("h2.shcl", "a: 9\n")
+				srefused("hard link", lambda: shard.save_file("h1.shcl"), "h1.shcl")
+				ssame("hard link left", sread("h1.shcl"), "a: 9\n")
 
 			if hasattr(os, "mkfifo"):
 				# A FIFO swapped in is refused as the write refuses it, with no
@@ -5855,6 +5908,9 @@ def main():
 				"a: 1\n##    Format   4x\n", "note:\n\t```\n##    Format   4\n\t```\n"):
 			d = shcl.Document.parse(text)
 			nsame(repr(text), d.newer_format(), False)
+			# A parse never read the file the last pass wrote.
+			if os.path.exists(nother):
+				os.remove(nother)
 			d.save_file(nother)
 		# A merged layer's lines are the document's now.
 		nbase = shcl.Document.parse("b: 2\n")

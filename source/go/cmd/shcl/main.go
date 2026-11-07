@@ -1667,7 +1667,12 @@ const exitIO = 8
 func unchangedSinceRead(file, before string) bool {
 	now, regular, err := readRegular(file)
 	if err == nil && !regular {
-		fmt.Fprintf(os.Stderr, "%s: not a regular file\n", file)
+		// A folder gets the words a folder there from the start gets.
+		if st, serr := os.Stat(file); serr == nil && st.IsDir() {
+			fmt.Fprintf(os.Stderr, "%s: Is a directory\n", file)
+		} else {
+			fmt.Fprintf(os.Stderr, "%s: not a regular file\n", file)
+		}
 		return false
 	}
 	if err == nil && string(now) == before {
@@ -1901,19 +1906,20 @@ func writeBack(doc *shcl.Document, file string, o *opts, read *string, keep bool
 	}
 	// The text is already built, so the line-keeping save writes it rather
 	// than building it again, with the same refusal SaveFileKeepLines makes
-	// (20260926 idea 3).
+	// (20260926 idea 3). The check above is this write's changed check. The
+	// library's would refuse every file, since the parse read none.
 	var werr error
 	switch {
 	case o.lossy && keep:
 		werr = shcl.WriteFileAtomic(file, text)
 	case o.lossy:
-		werr = doc.SaveFileLossy(file)
+		_, werr = doc.SaveFileWith(file, shcl.SaveOptions{Lossy: true, Force: true})
 	case keep && !kept && doc.LostCount() > 0:
 		werr = &shcl.SaveRefused{Path: file, Lost: doc.LostCount()}
 	case keep:
 		werr = shcl.WriteFileAtomic(file, text)
 	default:
-		werr = doc.SaveFile(file)
+		_, werr = doc.SaveFileWith(file, shcl.SaveOptions{Force: true})
 	}
 	if werr == nil {
 		// A created file is the one write with nothing to compare against

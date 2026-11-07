@@ -2764,7 +2764,8 @@ func TestSaveRewritesAReadOnlyFile(t *testing.T) {
 	if err := os.Chmod(f, 0o444); err != nil {
 		t.Fatal(err)
 	}
-	if err := Parse("a: 2\n").SaveFile(f); err != nil {
+	// A parse never read the file there, so the save forces.
+	if _, err := Parse("a: 2\n").SaveFileWith(f, SaveOptions{Force: true}); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := os.ReadFile(f); err != nil || string(got) != "a: 2\n" {
@@ -2792,14 +2793,33 @@ func TestSaveRefusesADirectoryShapedPath(t *testing.T) {
 	if err := os.WriteFile(f, []byte("a: 1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	doc := Parse("a: 2\n")
+	doc, _ := LoadFile(f)
+	doc.SetInt("a", 2)
+	// Is a directory, before the changed and create checks, which read such a
+	// path as a change or as a file there (2026110613470308).
 	for _, suffix := range []string{"/", "/.", "/.."} {
-		if err := doc.SaveFile(f + suffix); err == nil {
-			t.Errorf("save through %q was accepted", f+suffix)
+		for _, opts := range []SaveOptions{{}, {Create: true}} {
+			var we *WriteError
+			if _, err := doc.SaveFileWith(f+suffix, opts); !errors.As(err, &we) || we.Status != WriteIsDirectory {
+				t.Errorf("save through %q, %+v: %v", f+suffix, opts, err)
+			}
 		}
 	}
 	if got, err := os.ReadFile(f); err != nil || string(got) != "a: 1\n" {
 		t.Errorf("a refused save changed the file: %q %v", got, err)
+	}
+	// A folder at the path, made after the load.
+	g := filepath.Join(dir, "g.shcl")
+	gone, _ := LoadFile(g)
+	if err := os.Mkdir(g, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var we *WriteError
+	if err := gone.SaveFile(g); !errors.As(err, &we) || we.Status != WriteIsDirectory {
+		t.Errorf("save over a folder: %v", err)
+	}
+	if err := os.Remove(g); err != nil {
+		t.Fatal(err)
 	}
 	if err := doc.SaveFile(f); err != nil {
 		t.Fatal(err)
@@ -3164,6 +3184,10 @@ func TestLostAndSaveGate(t *testing.T) {
 	if err := lost.SaveFile(f); err == nil {
 		t.Errorf("SaveFile did not refuse a lossy save")
 	}
+	// lost never read what kept wrote there.
+	if err := os.Remove(f); err != nil {
+		t.Fatal(err)
+	}
 	if err := lost.SaveFileLossy(f); err != nil {
 		t.Fatal(err)
 	}
@@ -3187,6 +3211,9 @@ func TestLostAndSaveGate(t *testing.T) {
 	}
 	if keep.SetInt("a.b", 5) != SetOk {
 		t.Fatal("SetInt a.b refused")
+	}
+	if err := os.Remove(f); err != nil {
+		t.Fatal(err)
 	}
 	if k, err := keep.SaveFileKeepLines(f); err != nil || !k {
 		t.Errorf("keep save with a dropped line: kept %v, err %v", k, err)
@@ -7226,9 +7253,9 @@ func TestFormatArrayIsTheSettersText(t *testing.T) {
 }
 
 // A save over the file a load read refuses when another program changed it
-// since, writes nothing, and writes with Force. A save elsewhere, and a
-// document from Parse, save as they always did (2026102910482342). Same
-// fixture in every runner.
+// since, writes nothing, and writes with Force. A save over a file the document
+// never read, a Parse's included, is refused the same way (2026102910482342,
+// 2026110613470307). Same fixture in every runner.
 func TestASaveOverAFileChangedSinceTheLoadIsRefused(t *testing.T) {
 	defer testID(t, "dekk8")
 	dir := t.TempDir()
@@ -7266,7 +7293,7 @@ func TestASaveOverAFileChangedSinceTheLoadIsRefused(t *testing.T) {
 	changed("save", doc.SaveFile(f), f)
 	changed("lossy save", doc.SaveFileLossy(f), f)
 	has(f, "a: 9\n")
-	if err := doc.SaveFile(f); err == nil || err.Error() != f+": refusing to save: the file changed since it was loaded; nothing written (force overrides)" {
+	if err := doc.SaveFile(f); err == nil || err.Error() != f+": refusing to save: what is there is not what this document read or wrote; nothing written (force overrides)" {
 		t.Errorf("message: %v", err)
 	}
 	if k, err := doc.SaveFileWith(f, SaveOptions{Force: true}); err != nil || k {
@@ -7329,21 +7356,37 @@ func TestASaveOverAFileChangedSinceTheLoadIsRefused(t *testing.T) {
 	ok("save where nothing is again", fresh.SaveFile(n))
 	has(n, "a: 1\n")
 
-	// Elsewhere is not checked, and the load's file still is.
+	// A file the document never read is checked too: a save-as over it is
+	// refused, and force writes it. The load's file still is.
 	other := at("other.shcl")
 	write(other, "z: 0\n")
-	ok("save elsewhere", gone.SaveFile(other))
+	changed("save over a file never read", gone.SaveFile(other), other)
+	has(other, "z: 0\n")
+	force := SaveOptions{Force: true}
+	_, err = gone.SaveFileWith(other, force)
+	ok("forced save over a file never read", err)
+	ok("save over what it wrote", gone.SaveFile(other))
 	changed("save over the load's file after one elsewhere", gone.SaveFile(f), f)
-	// A parse has no file behind it.
-	ok("save of a parse", Parse("a: 5\n").SaveFile(other))
+	// A parse read no file, so it writes only where nothing is, or over what
+	// it wrote itself.
+	parsed := Parse("a: 5\n")
+	changed("save of a parse", parsed.SaveFile(other), other)
+	_, err = parsed.SaveFileWith(other, force)
+	ok("forced save of a parse", err)
 	has(other, "a: 5\n")
+	ok("save of a parse where nothing is", parsed.SaveFile(f))
+	ok("save of a parse over what it wrote", parsed.SaveFile(f))
+	has(f, "a: 5\n")
 }
 
 // One file gives one answer however its path is spelled: bare, `./`,
-// absolute, through a link, in a folder made after the load, or from another
-// working folder. A FIFO swapped in gets the write's own refusal rather than a
-// wait, and a file the check can't read is a change (2026110312163201,
-// 2026110312163202). Same fixture in every runner.
+// absolute, through a link, in a folder made after the load, through `..`
+// under a folder made after it, or by another hard link. The check reads the
+// bytes at the save path, so a file the document never read, such as the same
+// name from another working folder, is refused too. A FIFO swapped in gets the
+// write's own refusal rather than a wait, and a file the check can't read is a
+// change (2026110312163201, 2026110312163202, 2026110613470307). Same fixture
+// in every runner.
 func TestAChangedCheckKnowsItsFileByAnySpelling(t *testing.T) {
 	defer testID(t, "detpq")
 	dir := t.TempDir()
@@ -7429,18 +7472,18 @@ func TestAChangedCheckKnowsItsFileByAnySpelling(t *testing.T) {
 		has("sub/k.shcl", "b: 2\n")
 	}
 
-	// The same name from another working folder is another file, so it isn't
-	// checked.
+	// The same name from another working folder is another file, one the
+	// document never read, so a save over it is refused.
 	write("m.shcl", "a: 1\n")
 	moved, _ := LoadFile("m.shcl")
 	if err := os.Chdir("sub"); err != nil {
 		t.Fatal(err)
 	}
 	write("m.shcl", "z: 0\n")
-	if err := moved.SaveFile("m.shcl"); err != nil {
-		t.Errorf("another folder: %v", err)
+	if err := moved.SaveFile("m.shcl"); !errors.As(err, new(*SaveChanged)) {
+		t.Errorf("another folder: %v, want *SaveChanged", err)
 	}
-	has("m.shcl", "a: 1\n")
+	has("m.shcl", "z: 0\n")
 	if err := os.Chdir(dir); err != nil {
 		t.Fatal(err)
 	}
@@ -7473,6 +7516,31 @@ func TestAChangedCheckKnowsItsFileByAnySpelling(t *testing.T) {
 	if _, err := os.Lstat("q.shcl"); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("missing folder: q.shcl is there (%v)", err)
 	}
+	// Loaded through it while it's missing, saved through it once another
+	// program made the folder and the file.
+	upThrough, st := LoadFile("nodir/../q.shcl")
+	if st != FileNotFound {
+		t.Errorf("up through: status %v", st)
+	}
+	if err := os.Mkdir("nodir", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write("q.shcl", "b: 2\n")
+	if err := upThrough.SaveFile("nodir/../q.shcl"); !errors.As(err, new(*SaveChanged)) {
+		t.Errorf("up through: %v, want *SaveChanged", err)
+	}
+	has("q.shcl", "b: 2\n")
+	// 2 hard links are 2 paths to one set of bytes.
+	write("h1.shcl", "a: 1\n")
+	if err := os.Link("h1.shcl", "h2.shcl"); err != nil {
+		t.Fatal(err)
+	}
+	hard, _ := LoadFile("h1.shcl")
+	write("h2.shcl", "a: 9\n")
+	if err := hard.SaveFile("h1.shcl"); !errors.As(err, new(*SaveChanged)) {
+		t.Errorf("hard link: %v, want *SaveChanged", err)
+	}
+	has("h1.shcl", "a: 9\n")
 	// A FIFO swapped in is refused as the write refuses it, with no wait.
 	write("f.shcl", "a: 1\n")
 	fifo, _ := LoadFile("./f.shcl")
@@ -7720,6 +7788,8 @@ func TestANewerFormatDocumentSavesNowhere(t *testing.T) {
 		if d.NewerFormat() {
 			t.Errorf("%q: newer", text)
 		}
+		// A parse never read the file the last pass wrote.
+		_ = os.Remove(other)
 		if err := d.SaveFile(other); err != nil {
 			t.Errorf("%q: %v", text, err)
 		}
