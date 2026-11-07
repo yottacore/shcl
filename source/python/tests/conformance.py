@@ -2682,7 +2682,12 @@ def main():
 	# A good escape built the E023 text it never read (2026110613470306).
 	built = []
 	one_line_in = shcl._one_line_in
-	shcl._one_line_in = lambda *a: (built.append(a), one_line_in(*a))[1]
+
+	def counted(*a):
+		built.append(a)
+		return one_line_in(*a)
+
+	shcl._one_line_in = counted
 	try:
 		good = shcl._resolve_marks("x\u25c9TAB\u25c9y\u25c9U+41\u25c9z\u25c9ESCAPE_CHAR\u25c9")
 		if good != ("x\tyAz\u25c9", None) or built:
