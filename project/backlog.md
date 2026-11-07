@@ -195,6 +195,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual effort: Low
 	- Progress log:
 		- 20261107: design.md has a new section, "Lines an edit takes from their node", with the rule, the order, `adopt`, and where the code still differs. spec.md's SetComment sentence names it for a replaced list. `adopt` in `lib.rs`, `shcl.go` (`adopt`), `shcl.py` (`_adopt`) and `shcl.h`, called from `unstack` in each. The changelog has a line.
+		- 2026-11-07: the round's 2M release fuzz failed dd3t9 at iteration 863179 on an input dev c9f4bc4b fails the same way (Bug 2026110714552634); the other 30 fuzz tests passed. Waits on that Bug for a clean 2M run.
 	- Decisions:
 		- me, 20261107: the lines go right above the heir's line, after its own comments, and the heir's blank goes above them. A blank the heir's own comments had stays where it was, since the edit didn't touch them. Moving the blank above every comment the heir has, as `SetComment` does, was the other option, and it waits for the fixed order in 2026110712372276.
 		- me, 20261107: a blank above the first moved line goes, and one between 2 moved lines stays. Keeping the first would set the field off from the line above it where the file did not.
@@ -203,6 +204,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `221-list-replace-comments` (`df09h`), through the write ops, the line-keeping save and the layered merge.
 	- Verified: `df09h` fails on the old Rust, C and Python libraries, and the old Go and C CLIs give the old output, and it passes on the new ones in all 4. The 4 conformance suites, the whole Rust suite, the Go tests, the 200,000-iteration fuzz, cli-regress (658 rows), crosscheck (54717 comparisons), check-migrate (659 documents), check-docs, test-ids, analyze-c, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, markdownlint, lint-report.
 	- Branch: `r1107c`
+	- Prereq IDs: 2026110714552634
 
 - The changed check misses a file reached through a second spelling of its path
 	- ID: 2026110613470307
@@ -414,6 +416,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual effort: Low
 	- Progress log:
 		- 20261107: the round's 2,000,000-iteration release fuzz failed `dd3t9` at iteration 863179. dev at `c9f4bc4b` gives the same text for that input after each op, so this change did not cause it. Filed as 2026110714552634, with no code changed. The 2M run still waits on that one.
+		- 2026-11-07: the round's 2M release fuzz failed dd3t9 at iteration 863179 on an input dev c9f4bc4b fails the same way (Bug 2026110714552634); the other 30 fuzz tests passed. Waits on that Bug for a clean 2M run.
 	- Actual fix: `unstack` hands the lines to `adopt` (2026110712372271), which puts them right above the field's line with the field's blank above them. All 4 bindings, design.md, spec.md and the changelog.
 	- Decisions:
 		- me, 20261107: the fixed row is corpus `221-list-replace-comments` for now, since 2026110616475903's table isn't built yet. That item takes it into its table, or keeps the case and points at it.
@@ -421,6 +424,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `221-list-replace-comments` (`df09h`): the review's file, a field with a comment of its own and a blank among its items, and a list in a block, through `literal` ops, the line-keeping save and a layered merge.
 	- Verified: `df09h` fails on the libraries before the fix in Rust, C and Python, and the Go and C CLIs before it print the review's output. It passes on the fix in all 4. The rest as on 2026110712372271.
 	- Branch: `r1107c`
+	- Prereq IDs: 2026110714552634
 
 - Some spec sentences don't match what all 4 bindings do
 	- ID: 2026110613470314
