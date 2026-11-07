@@ -11825,7 +11825,23 @@ fn literal_value(text: &str) -> Option<Value> {
 	{
 		return None;
 	}
-	Some(cell_of_tokens(&tok, &line))
+	// No source wrote it either, so bare text the save quotes counts as
+	// quoted, as from the other setters. The author's quotes stay.
+	Some(match cell_of_tokens(&tok, &line) {
+		Value::Cell(e) if e.mark == Mark::Bare => cell_of(e.text),
+		Value::Array(els) => Value::Array(
+			els.into_iter()
+				.map(|e| {
+					if e.mark == Mark::Bare {
+						new_element(e.text)
+					} else {
+						e
+					}
+				})
+				.collect(),
+		),
+		v => v,
+	})
 }
 
 /// An overwrite keeps the quote kind the old value was written in, when the

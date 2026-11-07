@@ -11467,7 +11467,19 @@ func literalValue(text string) (value, bool) {
 	if arrayFault(&tok) != nil || (len(tok.Elements) > 1 && tok.Array < 0) || (!fence && valueFault(&tok, line) != nil) {
 		return value{}, false
 	}
-	return cellOfTokens(&tok, line), true
+	// No source wrote it either, so bare text the save quotes counts as
+	// quoted, as from the other setters. The author's quotes stay.
+	v := cellOfTokens(&tok, line)
+	for i, e := range v.els {
+		switch {
+		case e.mark != markBare:
+		case v.kind == vCell:
+			v.els[i] = newScalar(e.text)
+		default:
+			v.els[i] = newElement(e.text)
+		}
+	}
+	return v, true
 }
 
 // keepMark: an overwrite keeps the quote kind the old value was written in,

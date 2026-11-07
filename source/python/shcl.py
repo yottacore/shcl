@@ -818,7 +818,13 @@ def _literal_value(text):
 			or (len(tok.elements) > 1 and tok.array is None)
 			or (not fence and _value_fault(tok, s) is not None)):
 		return None
-	return _cell_of_tokens(tok, s)
+	# No source wrote it either, so bare text the save quotes counts as
+	# quoted, as from the other setters. The author's quotes stay.
+	v = _cell_of_tokens(tok, s)
+	for i, e in enumerate(v.els):
+		if e.mark is _Mark.BARE:
+			v.els[i] = _new_scalar(e.text) if v.kind == "cell" else _new_element(e.text)
+	return v
 
 
 def _keep_mark(old, new):

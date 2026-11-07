@@ -8895,6 +8895,12 @@ static int literal_value(ShclArena *a, ShclArena *tmp, ShclStr text, ShclValue *
 	ShclFault f;
 	if (array_fault(tmp, &tok, &f) || (tok.nelem > 1 && !tok.has_array) || (!fence && value_fault(tmp, &tok, line, &f))) return 0;
 	*out = cell_of_tokens(a, tmp, &tok, line);
+	/* No source wrote it either, so bare text the save quotes counts as
+	   quoted, as from the other setters. The author's quotes stay. */
+	for (size_t i = 0; i < out->nels; i++) {
+		if (out->els[i].mark != MARK_BARE) continue;
+		out->els[i] = out->kind == V_CELL ? new_scalar(out->els[i].text) : new_element(out->els[i].text);
+	}
 	return 1;
 }
 

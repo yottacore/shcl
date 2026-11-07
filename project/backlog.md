@@ -190,7 +190,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `set_literal` leaves `quoted` false on a value the save writes quoted
 	- ID: 2026110613470310
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: High
 	- Target version: v3.0.0
 	- Opened: 20261106-134703
@@ -206,6 +206,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: `58d8e81e` (2026-09-09). A missed twin of Code review 20260909 item 13. Confirmed.
 	- Regression test: an ops-script case for all 4 suites: `set_literal` with each listed value, the `quoted` flag read before the save and after a reload, both true; watched to fail on `343334df`.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: confirmed. `literal_value` returned the cell the tokens gave, so a bare piece kept its bare mark even where the writer quotes it.
+	- Actual fix: a bare element from `literal_value` is rebuilt the way the other setters build theirs, a value by `new_scalar` and an array element by `new_element`, in Rust, Go, Python and C. The author's quotes and a backtick value stay as given, and a bare thousands number stays bare, as the save writes it. The changelog says so. spec.md already stated the rule.
+		- Swept: every `cell_of_tokens` and `element_of` caller in all 4. The others are the parser's, for text a source wrote. `set_literal_default` and every CLI's `--set-literal` go through `set_literal`, and the C++ `set_literal` wraps C's.
+	- Decisions:
+		- me, 20261107: the test is a runner fixture in all 4 suites, not a write-ops case, since the ops dimension reads no `quoted` flag. Adding one to all 4 runners and the CLI replay is more than this needs.
+	- Verified: the new fixture fails on the old code in all 4 and passes after. The 4 conformance suites (220 cases), `cargo test`, both Go modules, gofmt, go vet, rustfmt, ruff, mypy, `cicd/cicd.bash --backlog-run-quick rust go python c cli`, cli-regress (658 rows) and crosscheck over the corpus.
+	- Test case: `set_literal_quoted_flag_survives_a_save`, Rust `df08k`, Go `df08m`, Python `df08n`, C `df08p`: each listed value read before the save and after a reload, both true, with a bare word, a bare thousands number, a quoted value and a one-element array beside them.
+	- Acceptance signoff: Self-closed 20261107: the expected behavior on the item; the tests fail before and pass after.
+	- Closed: 20261107-122414
 
 - Comments taken off a replaced item list end up above the list's blank line
 	- ID: 2026110613470311

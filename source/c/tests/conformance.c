@@ -2052,6 +2052,37 @@ int main(int argc, char **argv) {
 		shcl_free(rd2);
 		shcl_free(rd);
 	}
+	// A bare value shcl_set_literal stores counts as quoted when a save quotes
+	// it, as from every other setter, so the flag reads the same after a reload
+	// (2026110613470310). Same fixture in every runner.
+	test_id("df08p", "set_literal_quoted_flag_survives_a_save");
+	{
+		static const struct { const char *path, *text; int quoted; } qc[] = {
+			{ "a", "10:00", 1 },
+			{ "b", "(5)", 1 },
+			{ "c", "- 5", 1 },
+			{ "d", "1 200", 1 },
+			{ "e", "1,2", 1 },
+			{ "f", "2026-01-01T10:00", 1 },
+			{ "g", "abc", 0 },
+			{ "h", "1,200", 0 },
+			{ "i", "'x'", 1 },
+			{ "j", "[10:00]", 1 },
+		};
+		size_t nq = sizeof qc / sizeof qc[0];
+		shcl_doc *qd = shcl_parse("", 0);
+		for (size_t i = 0; i < nq; i++) {
+			if (shcl_set_literal(qd, qc[i].path, 1, qc[i].text, strlen(qc[i].text)) != SHCL_SET_OK) fail("set_literal", qc[i].text);
+		}
+		shcl_str qt = shcl_to_canonical(qd);
+		shcl_doc *qb = shcl_parse(qt.p, qt.n);
+		for (size_t i = 0; i < nq; i++) {
+			if (shcl_quoted(qd, qc[i].path, 1) != qc[i].quoted) fail("set_literal quoted before a save", qc[i].text);
+			if (shcl_quoted(qb, qc[i].path, 1) != qc[i].quoted) fail("set_literal quoted after a reload", qc[i].text);
+		}
+		shcl_free(qb);
+		shcl_free(qd);
+	}
 	// line()/quoted()/children(): read-surface accessors. Same fixture in every
 	// runner - the other three have line and quoted on the read result, C
 	// keeps its read structs value+status and answers with these instead.

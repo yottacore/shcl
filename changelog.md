@@ -22,6 +22,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A `#` outside quotes in a lookup path is refused, as `BadPath`. The path used to end there, so `set --remove='colors#primary'` removed all of `colors` at exit 0. Quote a name that holds one, `"colors#primary"`.
 
+- A bare value `set_literal` stores, such as `10:00` or `(5)`, counts as quoted when a save quotes it, as from the other setters. Its `quoted` flag read false before the save and true after it.
+
 - `E003` names the index as written. One past the 64-bit range was shown as 18446744073709551615.
 
 - The node cap of `parse_limited` counts comment lines and kept lines too. A file of nothing else built no node, so a capped parse of it held 100 times the file. A cap crossed on the last line no longer reports `E020`, since nothing was left to stop.
