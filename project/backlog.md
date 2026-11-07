@@ -192,6 +192,64 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Time each step over 2 runs, then move what pushes the run past an hour to `--long`.
 	- Estimated effort: Avg
 
+- A filesystem property test for the save's checks, over every past path bug
+	- ID: 2026110616475901
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261106-164759
+	- Opened by: Code review 20261106 follow-up (JC)
+	- Related IDs: 2026102910482342, 2026110312163201, 2026110312163202, 2026110312163207, 2026110313211991, 2026110314064292, 2026110314240418, 2026110408432594, 2026110613470307, 2026110613470308
+	- Problem description: every test of the changed, create-only and FIFO checks is a list of examples (`detpn`, `detpp`, `detpq`, `detpr`, `detps`, `dekm5`, `dekmf`, `dd5h4`), each case added after its own bug. The fuzz suite runs on text in memory and never opens a file, so no generated case has a folder, a link or a file appear between the load and the save. 8 items in 2 weeks came from this one class, and each closed one spelling.
+	- Requirements:
+		- A seeded property test that works in a temp folder, each case a pure function of its seed, with a wall-clock budget from an env var, the way the text fuzz does. It runs in all 4 bindings beside the conformance suites, from one set of generator rules, and the cross-binding check holds them to the same answer. A dump of the cases a run drew, as `SHCL_FUZZ_DUMP` does for the kept fuzz, so a failure can be replayed.
+		- The load spelling and the save spelling each come from a small grammar: bare name, `./x`, absolute, `//`, `/./`, `dir/../x`, through a link to the folder, a link to the file, a dangling link, a link cycle, from another working folder, a trailing `.` or `..`, and on Windows `\`, mixed separators, an 8.3 short name and a `\\?\` prefix, and on macOS a case variant.
+		- An event between the load and the save, drawn from: nothing, the file rewritten, removed, swapped for a FIFO, made where the load found nothing, a folder on the path made, a link on the path made or pointed elsewhere, the working folder changed, the read bit taken off.
+		- An oracle that doesn't ask the library. Write a marker through the save spelling and read through the load spelling to learn whether the 2 name one file. Then: the save refuses as Changed iff they name one file and its bytes differ from what the load read; refuses as Exists iff create-only and anything is at the path; refuses a FIFO as not regular; and a refused save writes nothing anywhere.
+		- Every case in the Related list is a fixed row the generator also has to be able to draw, and a run fails when the generator didn't draw each kind at least once, as the fuzz guards do.
+		- Windows and macOS rows run on b29w with a short-name TEMP and on vmKt6m or b26, through the box step. Until a box runs them, they're skipped by platform, never dropped.
+		- Watched to fail: run it on `343334df` and see the `nodir/..` row and 2026110613470308's folder row go red before 2026110613470307's fix.
+	- Reason: a property over the whole space of spellings and events is the only test that finds the next member of the class before a user does. The example lists found none of the 8.
+	- Estimated effort: Avg
+
+- One helper reattaches the lines around a node an edit takes away
+	- ID: 2026110616475902
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261106-164759
+	- Opened by: Code review 20261106 follow-up (JC)
+	- Related IDs: 2026110613470311, 2026110613470302, 2026110613470312, 2026100307163904, 2026100218185700, 2026092718195400, 2026110312163204, 2026110315051536
+	- Problem description: when an edit removes, replaces, folds or merges a node, the comments and blank lines around it are moved by that edit's own code: `unstack` for a replaced item list, `beside_kept` with `leave_above` and `leave_last` for a merged duplicate, `refile_folded` and `settle_first_blank` for a fold at load, `drop_banners` for the info block, and the remove's own path. Each is a separate answer to one question, where do the lines around a node go when the node goes, and each has got the blank line wrong at least once. This review found one more (2026110613470311), and the setter and fold ones were 2026110312163204 and 2026110315051536 this month. Fixing the site at hand has closed one case per round since Code review 20260802.
+	- Requirements:
+		- Design first, in design.md: one ownership rule. Every comment line and blank line belongs to one node from the parse on, as its leading lines or its trailing lines, and the emitter writes a node's lines in one fixed order: the blank, the comments, the line, the children, the trailing lines. spec.md names the rule where the SetComment rule is.
+		- One function, say `adopt`, takes a node that is going away and gives its leading lines to the node that takes its place, else the next sibling, else the parent's trailing lines, with the blank staying above the comments. Removes, item list replaces, setter folds, load folds, merges and the banner toggle all call it. After the change no edit moves a comment or a blank any other way, and a grep for the old helpers finds only `adopt`.
+		- Same name and the same call sites in all 4 bindings. The old helpers go in the same commit, once the placement suite 2026110616475903 passes with both in place.
+		- The kept-line rules stay as they are: design.md's table for kept lines under edits, a misplaced line keeping its space indent, `E001` and `E008` lines as built.
+		- The placement suite 2026110616475903 is the gate. 2026110613470311 closes through this item.
+	- Reason: one place that answers the question can be tested once, and a new edit kind can't get the blank line wrong on its own.
+	- Alternatives:
+		- Fix `unstack` alone. Closes 2026110613470311 and leaves the class open, as every fix before it did.
+	- Estimated effort: High
+
+- An exhaustive comment placement suite, with a placement property in the fuzz
+	- ID: 2026110616475903
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261106-164759
+	- Opened by: Code review 20261106 follow-up (JC)
+	- Related IDs: 2026110616475902, 2026110613470311, 2026110613470302, 2026100307163904, 2026100218185700, 2026092718195400
+	- Problem description: no test says where a comment must be after an edit. The kept-lines fuzz's `setter_moved` returns early when there are no kept lines, and a parsed comment isn't one. Its `stretches` helper anchors on non-blank lines only, so a comment that crossed a blank line passes it. `dd3t9` checks that the edited text reloads as the document, and a wrong placement that reloads the same is a fixpoint, so it passes too. The corpus goldens fix the placement after a load, not after an edit. Each past bug got one example test, and the next site had none. Past cases, old format: Code review 20260802 items 8 and 20 (comments dropped on merge, end-of-file comments multiply), 20260830 item 19 (a blank between a new node's comment and the node), 20260901b item 7 (footer comments collapse), 20260904 item 18 (`SetComment` leaves the blank between comment and node), 20260923 item 3 (filed differently after an edit than after a reload), 20260925b item 2 (a comment above a dotted line moves on any edit), the 2 `to_canonical()` items from the SilkTerm devs (blanks between comment regions dropped, a trailing run re-attaching to the next node), and the ones in the Related list.
+	- Requirements:
+		- A placement property computed from text alone, so it needs nothing from the library. For each comment line of the input, its anchor is the next line below that isn't blank or a comment, plus a flag for a blank directly above the comment run. After an edit that didn't remove or replace the anchor, the run sits directly above the same anchor, the blank above the run, and nothing between the run and the anchor. When the anchor went, the run sits above what took its place, by 2026110616475902's rule. A trailing comment stays on its line with the same text after the `#`.
+		- It runs in `dd3t9` and `dderx` both, since one has removes and the other the list-replacing `set_literal`, and at the merge step. `dd3t9` gets a `set_literal` with a bracket list over an item list. The generators have to make item lists with per-item comments and blanks between siblings, with a guard that counts the shape in each run, as the fuzz guards do.
+		- The 4-binding cross check replays the dumps, as it does for the kept fuzz.
+		- A fixed table, one row per past case above and each new one, as a before text, an edit and the exact expected text, in one file all 4 conformance suites read, as the corpus is. Watch each row fail in a worktree at the commit before its fix.
+		- Watch the property fail: on `343334df`, 2026110613470311's case goes red.
+	- Reason: an example per bug has found none of the next ones. A property over every comment in every generated edit finds the next site before a review does.
+	- Estimated effort: Avg
+
 - The changed check misses a file reached through a second spelling of its path
 	- ID: 2026110613470307
 	- Type: Bug
@@ -213,7 +271,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Windows Go: `nodir\..\x.shcl` keeps `..` in the record, while Windows cancels it, so a later save to `x.shcl` skips the check.
 		- macOS Go and Python: on a volume that ignores case, a load of `Conf.shcl` and a save to `conf.shcl` skip the check, since `EvalSymlinks` and `realpath` keep the case given. Rust and C get the case on disk from Darwin's `realpath`.
 	- Origin: `2c878191` (2026-11-03) in Go and Python, `2f38f68b` (2026-11-03) in Rust, `0710c634` (2026-11-04) in C. A missed twin of 2026110314240418, which kept `..` as written without the folder showing up later. Confirmed on Linux, Plausible on Windows and macOS.
-	- Note: this class has come back in 3 rounds in a row. A property test that walks path spellings across file system changes between the load and the save would cover the class, where a test per spelling covers one.
+	- Requirements (JC, 2026-11-06, after the review's recurring-problems question):
+		- Decide "same file" at save time, under one filesystem state. The load records the path as given and the working folder of the moment, nothing resolved. The save resolves that record and its own path with the same call, so `nodir/..` cancels for both or for neither, and the Windows twin goes with it.
+		- Where the file exists at save time, the OS decides identity, not a string: device and inode on unix, volume serial and file index on Windows (`os.SameFile` in Go, `os.path.samefile` in Python). That covers links, short names and the macOS case twin, since the OS already knows. The string compare stays only for a file that isn't there yet, and both strings then come from one state.
+		- Same call flow in all 4 bindings.
+		- The filesystem property test 2026110616475901 is the proof. This item closes when that test runs in all 4 bindings and passes every case it lists, and the Windows and macOS rows ran on their boxes.
+	- Note: this class has come back in 4 rounds in a row. Each fix since 2026110312163201 closed one spelling with a hand rule in `real_nearest`, in 4 languages, and the compare of 2 strings resolved at 2 different times breaks on the next event nobody listed. A test over spellings alone won't hold it.
 	- Estimated effort: Avg
 
 - A path that names a folder gets the wrong refusal in Rust and C, and from the CLIs' own changed check
@@ -288,7 +351,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261106, all 4 CLIs.
 	- Possible cause: `unstack` adds the list's comments to the node's leading comments and leaves its blank line where it was.
 	- Origin: `7c90c42d` (2026-10-05). The same class as Code review 20260904 item 18 and Code review 20260830 item 19. Confirmed.
-	- Note: comment placement under edits has come back one site at a time. A fuzz property that each comment stays on the same side of each blank line would cover the class.
+	- Requirements (JC, 2026-11-06):
+		- No fix inside `unstack`. The list replace goes through the one reattach helper 2026110616475902 asks for, and this item closes through that one.
+		- The placement suite 2026110616475903 has this case as a fixed row: both comments directly above `items:`, the blank line above them, in all 4 bindings.
+	- Note: comment placement under edits has come back one site at a time since Code review 20260802. The list of past cases is on 2026110616475903.
 	- Estimated effort: Low
 
 - Removing one field of a dotted pair writes a bare header line
