@@ -159,6 +159,15 @@ try {
 	} finally {
 		Remove-SafeTree -Parent $tmpParent -Path $broken -ErrorAction Continue
 	}
+	## 2026110613470316: a machine PATH with empty segments, here one ending in
+	## ';;'. A remove of a folder that isn't there rewrote it without them, and
+	## an add rebuilt it the same way. Seeded here, and put back by the finally.
+	$semi = $savedLm.TrimEnd(';') + ';;'
+	$lm.SetValue('Path', $semi, [Microsoft.Win32.RegistryValueKind]::ExpandString)
+	& powershell -NoProfile -ExecutionPolicy Bypass -File $script -Dir $dir -Remove
+	Test-Check -Id 'df0af' (($LASTEXITCODE -eq 0) -and ((Get-RawPath $lm) -ceq $semi)) 'setup remove of an absent folder leaves the machine PATH byte for byte'
+	& powershell -NoProfile -ExecutionPolicy Bypass -File $script -Dir $dir
+	Test-Check -Id 'df0ag' (($LASTEXITCODE -eq 0) -and ((Get-RawPath $lm) -ceq "$semi$dir")) 'setup add keeps empty segments, the rest byte for byte'
 } finally {
 	Restore-PathValue -Key $lm -Value $savedLm -Kind $savedLmKind
 	$lm.Close()

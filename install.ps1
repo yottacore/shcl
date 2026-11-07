@@ -272,7 +272,7 @@ installed.
 	function Select-ReleaseTag {
 		[CmdletBinding()]
 		param([string]$Channel, [object[]]$Releases)
-		$all = @($Releases) | Where-Object { $_.tag_name -match '^v\d+\.\d+\.\d+' }
+		$all = @($Releases) | Where-Object { $_.tag_name -match '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' }
 		$all = @($all) | Where-Object { -not $_.draft }
 		if ($Channel -eq 'stable') {
 			$full = @($all) | Where-Object { -not $_.prerelease }
@@ -345,6 +345,21 @@ installed.
 				try { [Console]::OutputEncoding = $oldEncoding } catch { $null = $_ }
 			}
 		}
+	}
+
+	## Windows' own tar, by full path. A GNU tar from Git for Windows, MSYS2 or
+	## Cygwin ahead of System32 on PATH reads C:\... as a remote host and file,
+	## so a lookup by name could not unpack the payload. The exit code is left
+	## in $LASTEXITCODE for the caller.
+	function Get-ShclTar {
+		[CmdletBinding()]
+		param()
+		Join-Path -Path $env:SystemRoot -ChildPath 'System32\tar.exe'
+	}
+	function Expand-ShclPayload {
+		[CmdletBinding()]
+		param([string]$Archive, [string]$Dest)
+		& (Get-ShclTar) -xzf $Archive -C $Dest
 	}
 
 	## Removes the files an install writes, by name, the staging name an
@@ -601,7 +616,7 @@ installed.
 
 	## The drop-in payload is a tar.gz. Windows 10 1803 and Server 2019 ship tar;
 	## anything older finds out here, before a download, not after.
-	if (-not (Get-Command -Name tar -ErrorAction SilentlyContinue)) {
+	if (-not (Test-Path -LiteralPath (Get-ShclTar) -PathType Leaf)) {
 		Exit-Install 'needs tar to unpack the drop-in payload (Windows 10 1803, Server 2019 and later ship it) - on an older Windows use the setup .exe from the releases page'
 	}
 
@@ -673,7 +688,7 @@ installed.
 			if ($gotSrc -ne $wantSrc.ToLower()) { Exit-Install "sha256 mismatch on $dropins" }
 			$unpackDir = Join-Path -Path $tmp -ChildPath 'x'
 			New-Item -ItemType Directory -Path $unpackDir | Out-Null
-			tar -xzf (Join-Path -Path $tmp -ChildPath 'dropins.tgz') -C $unpackDir
+			Expand-ShclPayload -Archive (Join-Path -Path $tmp -ChildPath 'dropins.tgz') -Dest $unpackDir
 			if ($LASTEXITCODE -ne 0) { Exit-Install "cannot unpack $dropins" }
 			$srcroot = Get-Item -LiteralPath $unpackDir
 			$haveDropins = $true

@@ -364,7 +364,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The setup's PATH removal rewrites a machine PATH that doesn't have the folder
 	- ID: 2026110613470316
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: High
 	- Target version: v3.0.0
 	- Opened: 20261106-134703
@@ -378,31 +378,51 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: `f66b81f5` (2026-09-17). A missed twin of `a30d9b91` (2026-09-27). Confirmed.
 	- Regression test: a winpath-regress.ps1 row: `-Remove` on a machine PATH that lacks the folder leaves the machine PATH byte for byte as it was; runs in win-runners on b29w, and its logic row under pwsh on Linux through the sandbox.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: confirmed. shclpath.ps1 rebuilt the value from its non-empty segments and wrote it whenever that differed from what it read, so an empty segment alone made a remove write. Its add rebuilt the value the same way.
+	- Actual fix: shclpath.ps1 writes only when its own segment changes, as install.ps1's `Update-ShclPath` does. A remove of a folder that isn't there writes nothing, and an add appends to the value as it was. The changelog says so.
+		- Swept: install.ps1's `Update-ShclPath`, already right for both. The NSIS script calls shclpath.ps1 and edits no PATH itself.
+	- Decisions:
+		- me, 20261107: the add half gets the same fix, since it rewrote a PATH with empty segments the same way. A remove that does take our segment still drops empty ones, as install.ps1's does (`dc52t`).
+	- Verified: on b29w, winpath-regress.ps1 `df0af` and `df0ag` fail with the old shclpath.ps1 and pass with the new one, and every other row passes; the machine PATH was back as it was after. shell-regress `df0ah` fails on the old script and passes on the new one.
+	- Test case: winpath-regress.ps1 `df0af` (a remove of an absent folder leaves a machine PATH ending in `;;` byte for byte) and `df0ag` (an add keeps the empty segments), in win-runners on Windows; shell-regress `df0ah`, the shipped script against a stand-in registry key on Linux.
+	- Acceptance signoff: Self-closed 20261107: the expected behavior on the item; the tests fail before and pass after.
+	- Closed: 20261107-134129
 
 - install.ps1 calls `tar` by name, so a GNU tar ahead of System32 can't unpack the payload
 	- ID: 2026110613470317
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: High
 	- Target version: v3.0.0
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 17
 	- Target OS: Windows
-	- Needs external testing: b29w, with Git for Windows' `usr\bin` ahead of System32 on PATH.
 	- Version and build: dev at `343334df`
 	- Steps to reproduce: a PATH with Git for Windows' `usr\bin`, MSYS2 or Cygwin ahead of System32, then install.ps1.
 	- Incorrect behavior: GNU tar reads `C:\...` as a remote host and file unless given `--force-local`, so the unpack fails.
 	- Expected behavior: the install works with any PATH order.
-	- Reproduced: no. A probe for b29w is ready.
+	- Reproduced: 20261107, b29w, Windows PowerShell 5.1 with Git's `usr\bin` first on PATH: `tar -xzf C:\...` says "Cannot connect to C: resolve failed" and exits 2.
 	- Possible cause: `tar -xzf ... -C ...` at the unpack, found through `Get-Command tar`.
 	- Origin: Plausible.
 	- Regression test: a win-runners row on b29w that puts a `tar` stub ahead of System32 on PATH and runs install.ps1's unpack; the stub recording a call fails the row. Batched with 2026110408432594's visit.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: confirmed, as above.
+	- Actual fix: install.ps1 unpacks through `%SystemRoot%\System32\tar.exe` by full path (`Get-ShclTar`, `Expand-ShclPayload`), and the check before the download looks for that file rather than any `tar` on PATH. A 32-bit PowerShell finds it too, through SysWOW64. The changelog says so.
+		- Swept: install.ps1 runs no other native tool by name except the shcl.exe it downloaded. shell-regress `dd51t`'s line for the tar check now names `Get-ShclTar`, and `dd2rm` gives its whole-script run a stand-in SystemRoot.
+	- Decisions:
+		- me, 20261107: Windows' own tar by path, not `--force-local` or a relative path, so the unpack doesn't depend on which tar a PATH has. A Windows older than 1803 with only a GNU tar on PATH now gets the "needs tar" message before the download, rather than a failed unpack after it.
+		- me, 20261107: shell-regress `dd51t` looks for `Test-Path -LiteralPath (Get-ShclTar)` before the first download, in place of `Get-Command -Name tar`. The rest of the row is as it was.
+	- Verified: on b29w, win-runners' `df0ap` row passes with a recording `tar.cmd` first on PATH, and the stub was never called. shell-regress `df0aj` passes, and fails on the old install.ps1.
+	- Test case: win-runners `df0ap` (a `tar` ahead of System32 on PATH is never called, and the payload unpacks), shell-regress `df0aj` (the same with a stand-in System32 on Linux).
+	- Acceptance signoff: Self-closed 20261107: reproduced, and the tests fail before and pass after.
+	- Closed: 20261107-134129
 
 - install.bash fails when a temp folder's name has `..` in it, and the tag filter isn't anchored
 	- ID: 2026110613470318
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: High
 	- Target version: v3.0.0
 	- Opened: 20261106-134703
@@ -416,6 +436,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: `fRmTmp`'s match is `ae548339` (2026-10-31), the tag filter `ce64bbea`. Confirmed.
 	- Regression test: shell-regress rows: install.bash run from a temp folder whose name has `..` in it, and a tag list where a longer tag contains the wanted one, asserting the anchored match; both watched to fail on `343334df`.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: confirmed. `fRmTmp` refused `*..*` anywhere in the path, and both tag filters matched only the start of the tag.
+	- Actual fix: install.bash's `fRmTmp` refuses `..` only as a whole path part. Both installers take a tag only when it is all of `vX.Y.Z`, with an optional `-suffix` of letters, digits, dots and dashes. The changelog says so.
+		- Swept: the same `*..*` test was in the repo's own guard, `fSafeRm` and `fSafeRmUnder` in `cicd/utility/include/safe-rm.bash`, and in check-boxes' guard on a box. All 3 take the same fix. install.ps1's `Remove-SafeTree` already checked by part. No other tag filter in the tree.
+	- Decisions:
+		- me, 20261107: the suffix allows `.` and `-`, so `v2.1.0-alpha.10` still counts. A `+build` tag or a 4-part version doesn't.
+	- Verified: shell-regress `df0ak` and `df0am` and check-push-gate `df0an` fail on the old code and pass on the new. check-push-gate's guard rows `dephf` and `depk3` still pass, so `..` as a part is still refused.
+	- Test case: shell-regress `df0ak` (install.bash under a TMPDIR named `tmp sp..x` exits 0 and leaves nothing), `df0am` (both pickers drop `v2.0.0x`, `v2.0.1.4`, `v2.0.1+build`); check-push-gate `df0an` (`fSafeRm`, `fSafeRmUnder` and `fRmTmp` take a folder with `..` in a name, and no guard tests `*..*`).
+	- Acceptance signoff: Self-closed 20261107: the expected behavior on the item; the tests fail before and pass after.
+	- Closed: 20261107-134129
 
 - comparison.md's peak memory row comes from the 2026-10-02 run
 	- ID: 2026110613470320

@@ -1431,6 +1431,34 @@ stOut="$(
 	[[ ! -e "${tmpParent}/t.1" && -d "${tmpParent}/t.2" ]] || echo "install.bash removed the wrong folder"
 )"
 [[ -z "${stOut}" ]] || fail "the scratch folder and the installer's guard: ${stOut//$'\n'/; }"
+fTest df0an the guards take a folder with .. inside a name
+## 2026110613470318: each refused any `..` in the path, so a temp folder under a
+## TMPDIR named `sp..x` was refused at the end of a run and left behind. `..` as
+## a whole path part is still refused, by the rows above.
+ddOut="$(
+	set +e
+	unset TMPDIR TEMP TMP
+	# shellcheck source=/dev/null
+	source "${root}/cicd/utility/include/safe-rm.bash"
+	HOST_TEMP="${work}/dd sp..x"
+	# shellcheck disable=SC2034  ## the guard reads it
+	projectName=shcl
+	mkdir -p "${HOST_TEMP}/shcl/run..1/a" "${HOST_TEMP}/shcl/run2/..b" "${work}/dd-par..x/out"
+	fSafeRm "${HOST_TEMP}/shcl/run..1" || echo "fSafeRm refused a run folder under a TMPDIR named sp..x"
+	fSafeRm "${HOST_TEMP}/shcl/run2/..b" || echo "fSafeRm refused a folder named ..b"
+	if fSafeRm "${HOST_TEMP}/shcl/run2/.." 2>/dev/null; then echo "fSafeRm took a path ending in .."; fi
+	fSafeRmUnder "${work}/dd-par..x" "${work}/dd-par..x/out" || echo "fSafeRmUnder refused a parent named par..x"
+	eval "$(sed -n '/^fRmTmp()/,/^}/p' "${root}/install.bash")"
+	tmpParent="${work}/dd sp..x/inst"; mkdir -p "${tmpParent}/t..1" "${tmpParent}/t.2"
+	fRmTmp "${tmpParent}/t..1" || echo "install.bash refused its own folder under a TMPDIR named sp..x"
+	if fRmTmp "${tmpParent}/.." 2>/dev/null; then echo "install.bash took a path ending in .."; fi
+	[[ ! -e "${HOST_TEMP}/shcl/run..1" && ! -e "${HOST_TEMP}/shcl/run2/..b" && -d "${HOST_TEMP}/shcl/run2" \
+		&& ! -e "${work}/dd-par..x/out" && ! -e "${tmpParent}/t..1" && -d "${tmpParent}/t.2" ]] || echo "removed the wrong folders"
+)"
+[[ -z "${ddOut}" ]] || fail "the guards and .. inside a name: ${ddOut//$'\n'/; }"
+## The same shape anywhere else, such as check-boxes' guard on a box.
+ddAny="$(grep -nE -- '\*\.\.\*' "${root}/install.bash" "${root}/cicd/hooks/pre-push" "${root}/cicd/utility/"*.bash "${root}/cicd/utility/include/"*.bash || true)"
+[[ -z "${ddAny}" ]] || fail "a guard refuses .. inside a name: ${ddAny//$'\n'/; }"
 fTest depk4 no bare recursive removal in the hook, the gate scripts or install.bash
 ## 2026103114560029: each goes through the guard. Two guards of their own stay:
 ## install.bash's, and the one check-boxes runs on a box, in POSIX sh.
@@ -1804,3 +1832,4 @@ exit "${rc}"
 ##		- 2026-11-02: Our own buildx builder and its prune, and a failed or stopped run tidies docker too.
 ##		- 2026-11-04: Builds on docker's default builder, no build cache prune, and the old builder removed once.
 ##		- 2026-11-04: --quick and the test boxes, and an image that won't build.
+##		- 2026-11-07: The guards take a folder with .. inside a name (2026110613470318).

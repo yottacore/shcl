@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- The Windows setup's uninstall rewrote a machine PATH that held an empty segment, such as a trailing `;`, even with no shcl folder in it, and its install dropped the empty segments. It writes only its own segment now, as install.ps1 does.
+
+- install.ps1 unpacks the drop-in payload with Windows' own `tar`. A GNU tar from Git for Windows, MSYS2 or Cygwin ahead of it on PATH failed the unpack.
+
+- install.bash under a `TMPDIR` with `..` inside a folder name, such as `tmp sp..x`, installed, then refused to remove its temp folder and exited 1. Both installers take only a whole `vX.Y.Z` or `vX.Y.Z-suffix` tag, where a tag such as `v2.0.0x` passed before.
+
 - A setter or a merge that replaced a stacked list put the comments among its items above the field's blank line, so they read as part of the block above. They go right above the field now, with the blank above them.
 
 - A save through `nodir/../f.shcl`, loaded while `nodir` wasn't there, wrote over a file another program made there since. The check compared 2 paths resolved at 2 different times, and now compares bytes.

@@ -19,9 +19,9 @@
 ##		                        a run folder of its own when run by hand
 ##	The caller sets HOST_TEMP, resolved with realpath once, and projectName,
 ##	or calls fSafeTmpDir first, which does both.
-##	Both refuse an empty path, .., //, a newline, a link, a path through a link
-##	and one that isn't there, and stay on one filesystem. PARENT itself may sit
-##	behind a link.
+##	Both refuse an empty path, .. as a path part, //, a newline, a link, a path
+##	through a link and one that isn't there, and stay on one filesystem. PARENT
+##	itself may sit behind a link.
 ##	History: At bottom of script.
 
 ##	Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
@@ -50,7 +50,7 @@ fi
 
 fSafeRm(){
 	local p="${1:-}" real='' own="${HOST_TEMP:?}/${projectName:?}"
-	if [[ "${#}" -ne 1 || -z "${p}" || "${p}" == *..* || "${p}" == *//* || "${p}" == *$'\n'* ]]; then
+	if [[ "${#}" -ne 1 || -z "${p}" || "/${p}/" == */../* || "${p}" == *//* || "${p}" == *$'\n'* ]]; then
 		printf 'safe-rm: refused, bad path: "%s"\n' "${p}" >&2; return 1
 	fi
 	p="${p%/}"
@@ -69,7 +69,7 @@ fSafeRm(){
 ## Same checks, with the one parent named by the caller in place of the tmp rule.
 fSafeRmUnder(){
 	local top="${1:-}" p="${2:-}" real='' topReal=''
-	if [[ "${#}" -ne 2 || -z "${p}" || "${top}" != /?* || "${p}" == *..* || "${p}" == *//* || "${p}" == *$'\n'* ]]; then
+	if [[ "${#}" -ne 2 || -z "${p}" || "${top}" != /?* || "/${p}/" == */../* || "${p}" == *//* || "${p}" == *$'\n'* ]]; then
 		printf 'safe-rm: refused, bad path: "%s"\n' "${p}" >&2; return 1
 	fi
 	p="${p%/}"; top="${top%/}"
@@ -121,3 +121,5 @@ fSafeTmpDir(){
 ##		  repo's build folders (2026103114555299).
 ##		- 2026-10-31 JC: fSafeTmpDir and fSafeRmUnder_IfThere, for the hook and
 ##		  the gate scripts (2026103114560029).
+##		- 2026-11-07: `..` refused only as a whole path part, so a folder
+##		  named `sp..x` is taken (2026110613470318).

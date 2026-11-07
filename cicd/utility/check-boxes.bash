@@ -65,7 +65,7 @@ while :; do
 	n=$((n + 1)); [ "${n}" -le 999 ] || exit 90
 done
 gone(){
-	case "${w}" in *..*|*//*) return 0 ;; "${base}"/*_[0-9][0-9][0-9]) ;; *) return 0 ;; esac
+	case "${w}" in */../*|*/..|*//*) return 0 ;; "${base}"/*_[0-9][0-9][0-9]) ;; *) return 0 ;; esac
 	[ -d "${w}" ] && [ ! -h "${w}" ] && rm -rf -- "${w}"
 }
 trap gone EXIT
@@ -382,3 +382,4 @@ echo "check-boxes: OK"
 ##		2026-10-31  A Windows box's |perf runs perf-gate.bash there, for 2026103016433965.
 ##		2026-10-31  A Windows box gets the PowerShell guard with win-runners' source, for 2026103114555334.
 ##		2026-11-02  The VM state helper is SHCL_VM_STATE or vm-state on PATH, for 2026110215285701.
+##		2026-11-07  The box guard refuses .. only as a whole path part, for 2026110613470318.
