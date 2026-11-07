@@ -687,8 +687,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Give the dogfood launcher's copy its own temp name, and swap its link by rename
 	- ID: 2026110613470326
 	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs external testing: hosted ci.yml windows job, win-runners `dd71z` under both shells, for the rename of the fixed name on Windows (pwsh 7 and the 5.1 fallback).
+	- Status: Done
+	- Needs external testing: No
 	- Priority: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 26
@@ -709,6 +709,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1107`
 	- Commit: `873010a3`
 	- Test case: shell-regress `dez7q`, `dez7r`; win-runners `dd71z` for Windows.
+	- Acceptance signoff: Self-closed: win-runners dd71z passed on the hosted windows job, under powershell and pwsh.
+	- Closed: 20261107-035500
+	- 20261107: Verified: hosted ci.yml run 42332336973 on r1107 (5fbc1faf, which has 873010a3), windows job: PASS dd71z win-runners dogfood runner, which runs it under both powershell and pwsh.
 
 - The default run takes over an hour
 	- ID: 2026110215285706
