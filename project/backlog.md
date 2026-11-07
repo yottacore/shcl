@@ -35,6 +35,26 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Fuzz `dd3t9` fails at iteration 863179: a remove puts a kept line below the next kept line, and the reload gets a new `E018`
+	- ID: 2026110714552634
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261107-145526
+	- Opened by: found while working 2026110613470311
+	- Related IDs: 2026110613470311, 2026110407313888, 2026110315051536, 2026110712372281
+	- Version and build: `r1107c` at `217bff58`, and dev at `c9f4bc4b`
+	- Steps to reproduce:
+		- `SHCL_FUZZ_ITERS=2000000 cargo test --release --test fuzz_smoke keeping_lines_reloads_as_the_document`, on a corpus holding 220 and 221.
+		- Load this with `parse_keep_lines` (a Rust literal): `"window:\n\topacity: 1.0\n    m_argin: 4\n\n\tcol\tmns: 160\n\trows: 48\nfont:\n\tface:\n\t\tsize: 12\n    bad:\t 1\n\t\tfamily: mono\n\thint:\n  ~ bad: 2\n\t\tfist: 1\n\t\tsecond: 2\\a:\n    b: 1\n  c: 2\n     d 3\n    h: 6\nz: 9\n"`.
+		- Remove `font.hint.fist`, remove `window`, set `font.face.family.kid2` to 3, then `to_text_keep_lines`. The swap is there after the first remove.
+	- Incorrect behavior: the first remove writes the kept `  ~ bad: 2`, which sat above `fist: 1`, below the kept `second: 2\a:` (`E025`), so 2 kept lines swap places. The reload reads the line after them, `    b: 1`, as `E018` where the base read it as `E012`, so the property sees an `E018` the base did not have. The reload is the same document.
+	- Expected behavior: a remove leaves the kept lines beside the node where they were, in file order (design.md "Kept lines under edits"). Or, to be judged, the property takes an `E012` turning into `E018` once the kept line above it moved.
+	- Reproduced: 20261107, Rust library, on `r1107c` at `217bff58` and on dev at `c9f4bc4b`, with the same text after each op. The round's new corpus cases 220 and 221 shifted the seeds onto it. The other 3 bindings not tried.
+	- Possible cause: `second: 2\a:` is refused, so `fist` is the only child of `hint`. The remove hands its kept leading line to `leave_last`, which appends it after the kept lines already at the end of the block, with no look at source order. `refile_folded` places by source line for this reason (2026110315051536).
+	- Estimated effort: Avg
+	- Test case: none yet. The fix adds this base and these ops as a fixed test, in all 4.
+
 - Spec promises the depth cap keeps every binding inside a thread stack
 	- ID: 2026110713595457
 	- Type: Bug
@@ -392,6 +412,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Actual cause: confirmed. `unstack` added the lines among the items and the comments on them to the field's comments, and the field's blank stayed between them and the field's line.
 	- Actual effort: Low
+	- Progress log:
+		- 20261107: the round's 2,000,000-iteration release fuzz failed `dd3t9` at iteration 863179. dev at `c9f4bc4b` gives the same text for that input after each op, so this change did not cause it. Filed as 2026110714552634, with no code changed. The 2M run still waits on that one.
 	- Actual fix: `unstack` hands the lines to `adopt` (2026110712372271), which puts them right above the field's line with the field's blank above them. All 4 bindings, design.md, spec.md and the changelog.
 	- Decisions:
 		- me, 20261107: the fixed row is corpus `221-list-replace-comments` for now, since 2026110616475903's table isn't built yet. That item takes it into its table, or keeps the case and points at it.
