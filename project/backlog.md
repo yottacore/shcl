@@ -40,6 +40,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Stalled
 	- Priority: Avg
+	- Target version: v4.0.0
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 15
 	- Problem description: `install.ps1` exits off Windows and points at install.bash. The shared installer rules want it to work wherever PowerShell runs, as silkterm's does. The original item was titled cross-platform, and shell-regress `dc0bt` pins the refusal, but no recorded call covers it.
@@ -53,6 +54,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: High
+	- Target version: v3.0.0
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 4
 	- Version and build: dev at `343334df`
@@ -74,6 +76,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: High
+	- Target version: v3.0.0
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 5
 	- Related IDs: 2026110315051536
@@ -95,6 +98,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: High
+	- Target version: v3.0.0
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 6
 	- Version and build: dev at `343334df`
@@ -115,6 +119,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: High
+	- Target version: v3.0.0
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 7
 	- Related IDs: 2026110312163201, 2026110314064292, 2026110314240418, 2026110408432594
@@ -150,6 +155,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: High
+	- Target version: v3.0.0
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 8
 	- Version and build: dev at `343334df`
@@ -170,6 +176,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: High
+	- Target version: v3.0.0
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 9
 	- Version and build: dev at `343334df`
@@ -190,6 +197,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: High
+	- Target version: v3.0.0
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 10
 	- Version and build: dev at `343334df`
@@ -209,6 +217,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: High
+	- Target version: v3.0.0
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 11
 	- Version and build: dev at `343334df`
@@ -232,6 +241,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: High
+	- Target version: v3.0.0
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 14
 	- Related IDs: 2026100717500001, 2026100717500010
@@ -254,6 +264,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: High
+	- Target version: v3.0.0
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 15
 	- Version and build: dev at `343334df`
@@ -271,6 +282,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: High
+	- Target version: v3.0.0
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 16
 	- Target OS: Windows
@@ -288,6 +300,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: High
+	- Target version: v3.0.0
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 17
 	- Target OS: Windows
@@ -307,6 +320,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: High
+	- Target version: v3.0.0
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 18
 	- Version and build: dev at `343334df`
@@ -324,6 +338,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: High
+	- Target version: v3.0.0
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 20
 	- Version and build: dev at `343334df`
@@ -340,6 +355,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: High
+	- Target version: v3.0.0
 	- Opened: 20261106-164759
 	- Opened by: Code review 20261106 follow-up (JC)
 	- Related IDs: 2026102910482342, 2026110312163201, 2026110312163202, 2026110312163207, 2026110313211991, 2026110314064292, 2026110314240418, 2026110408432594, 2026110613470307, 2026110613470308
@@ -368,6 +384,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: High
+	- Target version: v3.0.0
 	- Opened: 20261106-164759
 	- Opened by: Code review 20261106 follow-up (JC)
 	- Related IDs: 2026110613470311, 2026110613470302, 2026110613470312, 2026100307163904, 2026100218185700, 2026092718195400, 2026110312163204, 2026110315051536
@@ -389,6 +406,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: High
+	- Target version: v3.0.0
 	- Opened: 20261106-164759
 	- Opened by: Code review 20261106 follow-up (JC)
 	- Related IDs: 2026110616475902, 2026110613470311, 2026110613470302, 2026100307163904, 2026100218185700, 2026092718195400
@@ -408,6 +426,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: High
+	- Target version: v3.0.0
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 22
 	- Related IDs: 2026110215285718
@@ -425,6 +444,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: High
+	- Target version: v3.0.0
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 23
 	- Related IDs: 2026100818140260
@@ -439,6 +459,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: High
+	- Target version: v3.0.0
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 24
 	- Problem description: spec.md quotes an instance value with a line break in it, because a consumer splits the output on newlines. U+2028, U+2029, U+0085, VT and FF print as they are, though Python's `splitlines()` splits on them and `fmt` escapes them. A list of 3 values came out as 5 lines.
@@ -452,6 +473,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: High
+	- Target version: v3.0.0
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 25
 	- Problem description: `var d shcl.Document`, then `d.SetString("a", "b")` or `d.GetStringOr(...)`, panics with an index out of range, and so does `d.Merge(nil)`. Rust has `Default`, Python's `Document()` works, and the C++ comment says a default Document is usable. Go's `Document` doc doesn't say to use `New()`.
@@ -466,6 +488,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Avg
+	- Target version: v3.0.0
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 6
 	- Related IDs: 2026102515494614
@@ -479,6 +502,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: Low
+	- Target version: v3.0.0
 	- Opened: 20261104-084325
 	- Opened by: 2026110312163207's fix
 	- Related IDs: 2026110312163207, 2026110314240418
@@ -498,6 +522,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: Low
+	- Target version: v3.0.0
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 4
 	- Steps to reproduce:
@@ -523,6 +548,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: Low
+	- Target version: v3.0.0
 	- Opened: 20261102-185119
 	- Opened by: 2026110215285704
 	- Parent ID: 2026110215285704
@@ -538,6 +564,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: Low
+	- Target version: v3.0.0
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 5
 	- Steps to reproduce:
@@ -552,6 +579,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: Low
+	- Target version: v3.0.0
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 18
 	- Incorrect behavior:
@@ -569,6 +597,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: Low
+	- Target version: v3.0.0
 	- Opened: 20261101-195845
 	- Opened by:
 	- Progress log:
@@ -579,6 +608,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: Low
+	- Target version: v3.0.0
 	- Opened: 20261105-161000
 	- Opened by: the comparison rerun for 3.0.0-beta1
 	- Version and build: `cut3b1` at `ae8540e9`
@@ -590,6 +620,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: Low
+	- Target version: v3.0.0
 	- Opened: 20261101-140201
 	- Opened by: Code review 20261101 item 1
 	- Related IDs: 2026102821334970
@@ -611,6 +642,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Task
 	- Status: Queued
 	- Priority: Low
+	- Target version: v3.0.0
 	- Opened: 20261104-095656
 	- Opened by: me, from 2026110312163206
 	- Parent ID: 2026110312163206
@@ -627,6 +659,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Task
 	- Status: Queued
 	- Priority: Low
+	- Target version: v3.0.0
 	- Opened: 20261102-162543
 	- Opened by: 2026110215285723
 	- Problem description:
@@ -643,6 +676,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
+	- Target version: v3.0.0
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 7
 	- Problem description:
@@ -660,6 +694,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
+	- Target version: v3.0.0
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 8
 	- Problem description:
@@ -674,6 +709,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
+	- Target version: v3.0.0
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 9
 	- Problem description: design.md and install.md say the release builds are byte-identical, and nothing rebuilds and compares. `build.rs` falls back to a cargo warning when it finds no resource compiler, so a Windows build could lose its icon and version info with nothing failing. Both older items gave "the gate builds no Windows or release binary" as the reason for no test, and `--merge-gate` builds both now.
@@ -687,6 +723,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
+	- Target version: v3.0.0
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 10
 	- Problem description: `pull_request:` in ci.yml has no branch filter, so a PR to dev runs the whole hosted gate. The windows, linux-arm, setup and winarm jobs and go-floor also run, beside the macOS one. b29w and vmDebARM64 cover windows and linux-arm locally now, and no call since the 2026-10-24 reset says to keep them.
@@ -702,6 +739,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
+	- Target version: v3.0.0
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 11
 	- Problem description: the shared Go pipeline notes ask for one where a hosted workflow exists, with PRs against dev and minor and patch bumps grouped. The Rust notes ask for none, so this covers only Go and the workflow's actions.
@@ -714,6 +752,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
+	- Target version: v3.0.0
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 12
 	- Problem description: `analyze-c.bash` runs `clang-analyzer-*` and `bugprone-*`. The shared rules also want a short list from `cppcoreguidelines-*` and `performance-*` on first-party C++.
@@ -727,6 +766,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
+	- Target version: v3.0.0
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 13
 	- Problem description: `soak-c.bash` soaks the C library only. The veneer's own strings and vectors are never looped under heaptrack, and no growing-heap bait was seen to fail for it. The decline of heaptrack for the other bindings didn't name the veneer.
@@ -739,6 +779,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Task
 	- Status: Queued
 	- Priority: Low
+	- Target version: v3.0.0
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 14
 	- Problem description:
@@ -756,6 +797,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
+	- Target version: v3.0.0
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 17
 	- Problem description: a FreeBSD system install goes to `/opt/shcl`, where the table has `/usr/local/shcl/`. A macOS user install goes to `~/.local/share/shcl`, where it has `~/Library/Application Support/shcl/`. The `~/.local/bin` link matches. The Linux layout call came before the macOS and FreeBSD builds.
@@ -770,6 +812,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
+	- Target version: v3.0.0
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 20
 	- Problem description:
@@ -784,6 +827,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
+	- Target version: v3.0.0
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 21
 	- Problem description:
@@ -801,6 +845,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
+	- Target version: v3.0.0
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 22
 	- Problem description:
@@ -819,6 +864,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
+	- Target version: v3.0.0
 	- Opened: 20261031-094850
 	- Opened by: 2026102515494624
 	- Related IDs: 2026102515494624
@@ -831,6 +877,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
+	- Target version: v3.0.0
 	- Opened: 20261101-140201
 	- Opened by: Code review 20261101 item 2
 	- Problem description: Code style's Rust section says to restructure rather than clone to get past the borrow checker, and to give a needed clone a reason. Most of the 85 or so clones outside tests in `lib.rs` and `main.rs` build an owned return value, which is fine. A handful copy a name or a child list only so a `&mut self` call can follow, such as the name passed to `settle_fence_name` in the remove path, the child lists copied to seed the tree walks, and `base_kids` in the merge. The list is in details.md.
@@ -845,6 +892,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
+	- Target version: v3.0.0
 	- Opened: 20261101-140201
 	- Opened by: Code review 20261101 item 3
 	- Problem description: Code style's Bash section wants every expansion braced and quoted, `"${var}"`. About 460 bare `$var` forms are left outside single-quoted text, most in the older scripts: crosscheck.bash has about 140, then shell-regress, sanitize-c, cicd.bash, lint-report and win-runners. shellcheck doesn't ask for braces, so a new one goes unseen.
@@ -860,6 +908,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Task
 	- Status: Queued
 	- Priority: Low
+	- Target version: v3.0.0
 	- Opened: 20261024-184414
 	- Opened by: 2026102413172941's sweep
 	- Related IDs: 2026102413172941
@@ -22275,6 +22324,7 @@ Template:
 	- Needs local test suite run?:
 	- Needs external testing:
 	- Priority [Feature|Enhancement] | Severity [Bug]: [Critical|High|Avg|Low]
+	- Target version:
 	- Opened:
 	- Opened by:
 	- Assigned to:
