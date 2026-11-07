@@ -9155,8 +9155,12 @@ static ShclTrivia *w_clone_trivia(ShclArena *a, const ShclTrivia *st) {
 	}
 	return nt;
 }
-/* merged: the copy is a merge's, which writes every list in brackets. */
-static size_t w_clone_subtree(shcl_doc *d, const shcl_doc *over, size_t oi, size_t parent, int merged) { // NOLINT(bugprone-easily-swappable-parameters): source node, then the parent it goes under
+/* A node and the node it came from, for the walks that keep their own stack. */
+typedef struct { size_t node, from; } ShclNodePair;
+DEFINE_VEC(ShclVecNodePair, ShclNodePair)
+
+/* One node of w_clone_subtree: everything but the children. */
+static size_t w_clone_node(shcl_doc *d, const shcl_doc *over, size_t oi, size_t parent) { // NOLINT(bugprone-easily-swappable-parameters): source node, then the parent it goes under
 	ShclArena *a = &d->arena;
 	const ShclNode *src = &over->nodes.data[oi];
 	ShclNode n; memset(&n, 0, sizeof n);
@@ -9172,15 +9176,38 @@ static size_t w_clone_subtree(shcl_doc *d, const shcl_doc *over, size_t oi, size
 	if (src->trivia) n.trivia = w_clone_trivia(a, src->trivia);
 	size_t idx = d->nodes.len;
 	nodes_push(d, n);
-	// Snapshot the source children (const, stable) before recursing.
-	size_t nk = over->nodes.data[oi].children.len;
-	for (size_t i = 0; i < nk; i++) {
-		size_t ok = over->nodes.data[oi].children.data[i];
-		size_t c = w_clone_subtree(d, over, ok, idx, merged);
-		ShclVecSize_push(a, &NODE(d, idx).children, c);
-	}
-	if (merged) bracket(d, &NODE(d, idx));
 	return idx;
+}
+
+/* merged: the copy is a merge's, which writes every list in brackets. The
+   reference recurses once per level; this keeps its own stack, as Python's
+   does, so a subtree at the nesting cap fits a small thread stack. Children
+   are queued last first so they pop in source order, and each appends to its
+   own parent, so sibling order holds. */
+static size_t w_clone_subtree(shcl_doc *d, const shcl_doc *over, size_t oi, size_t parent, int merged) { // NOLINT(bugprone-easily-swappable-parameters): source node, then the parent it goes under
+	ShclArena *a = &d->arena;
+	size_t root = w_clone_node(d, over, oi, parent);
+	ShclVecNodePair todo; memset(&todo, 0, sizeof todo);
+	ShclNodePair top; top.node = root; top.from = oi;
+	ShclVecNodePair_push(&d->scratch, &todo, top);
+	while (todo.len) {
+		ShclNodePair p = todo.data[--todo.len];
+		size_t first = todo.len;
+		size_t nk = over->nodes.data[p.from].children.len; // const doc: stable
+		for (size_t i = 0; i < nk; i++) {
+			size_t ok = over->nodes.data[p.from].children.data[i];
+			size_t c = w_clone_node(d, over, ok, p.node);
+			ShclVecSize_push(a, &NODE(d, p.node).children, c);
+			ShclNodePair q; q.node = c; q.from = ok;
+			ShclVecNodePair_push(&d->scratch, &todo, q);
+		}
+		for (size_t lo = first, hi = todo.len; lo + 1 < hi; lo++, hi--) {
+			ShclNodePair t = todo.data[lo]; todo.data[lo] = todo.data[hi - 1]; todo.data[hi - 1] = t;
+		}
+		/* Its child list is final now, and bracketing reads only the node. */
+		if (merged) bracket(d, &NODE(d, p.node));
+	}
+	return root;
 }
 
 /* A matched instance keeps the base node, so the over side's comments have to
@@ -9219,9 +9246,10 @@ static void adopt_trivia(shcl_doc *d, size_t base, const shcl_doc *over, size_t 
 // shape re-filtered the over side per distinct name and re-scanned (and
 // re-keyed) the base side per over node - three O(K^2) terms at one parent,
 // plus a fresh children vector per replaced name.
+// One level of the overlay. The pairs whose subtrees still have to be merged
+// go on pending, in order.
 // codeql[cpp/complex-block] laid out as the Rust reference's w_overlay is, for parity
-static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, ShclVecSize *touched) {
-	ShclVecSize_push(&d->scratch, touched, bp);
+static void w_overlay_level(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, ShclVecNodePair *pending) {
 	ShclArena *a = &d->arena;
 	ShclArena *t = &d->scratch;
 	ShclVecSize okids = over->nodes.data[op].children; // const doc: stable
@@ -9407,10 +9435,8 @@ static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, S
 				}
 				if (b != (size_t)-1) {
 					adopt_trivia(d, b, over, ok);
-					w_overlay(d, b, over, ok, touched);
-					/* A merge writes a list in brackets, once its child list
-					   is final. */
-					bracket(d, &NODE(d, b));
+					ShclNodePair pr; pr.node = b; pr.from = ok;
+					ShclVecNodePair_push(t, pending, pr);
 				}
 				else { app_at[pos] = w_clone_subtree(d, over, ok, bp, 1); nappended++; }
 			}
@@ -9456,6 +9482,28 @@ static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, S
 	for (size_t k = 0; k < nw.len; k++) kept.data[k] = nw.data[k];
 	kept.len = nw.len;
 	NODE(d, bp).children = kept;
+}
+
+/* The reference recurses once per level here. This keeps its own stack, as
+   Python's does, so a merge at the nesting cap fits a small thread stack. A
+   level's rebuild reads nothing the deeper levels change, so deferring them
+   changes no result, and the walk stays depth-first and in order. touched
+   gets the base blocks it visits, which are the ones a merge settles. */
+static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, ShclVecSize *touched) {
+	ShclVecNodePair todo; memset(&todo, 0, sizeof todo);
+	ShclNodePair top; top.node = bp; top.from = op;
+	ShclVecNodePair_push(&d->scratch, &todo, top);
+	while (todo.len) {
+		ShclNodePair p = todo.data[--todo.len];
+		ShclVecSize_push(&d->scratch, touched, p.node);
+		size_t first = todo.len;
+		w_overlay_level(d, p.node, over, p.from, &todo);
+		for (size_t lo = first, hi = todo.len; lo + 1 < hi; lo++, hi--) {
+			ShclNodePair t = todo.data[lo]; todo.data[lo] = todo.data[hi - 1]; todo.data[hi - 1] = t;
+		}
+		/* A merge writes a list in brackets, once its child list is final. */
+		if (p.node != bp) bracket(d, &NODE(d, p.node));
+	}
 }
 
 void shcl_merge(shcl_doc *d, const shcl_doc *over) {

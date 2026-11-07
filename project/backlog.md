@@ -49,6 +49,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: Rust needs about 171 KB at the cap, while spec.md's Limits bullet says depth-linear recursion can never outrun a thread stack.
 	- Expected behavior: the spec says what stack a full-depth document needs in each binding, or Rust's walks stop growing with the depth. Rust's own threads default to 2 MB, so a number in the spec may be enough.
 	- Estimated effort: Low
+	- Note: `SHCL_MAX_DEPTH`'s comment in `shcl.h` makes the same claim for emit, merge and clone, so it changes with the spec line. C's emit, overlay and clone walks iterate since 2026110713595389 and 2026110713595411.
 
 - C's validate, generate and path walks need stack in proportion to the depth
 	- ID: 2026110713595434
@@ -63,11 +64,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: unverified on a small thread. The recursive walks are `v_check_from` with `v_node` (720 bytes a level per the review), `v_contexts`, `g_expand_go` (880), `resolve_from`, `chain_parts_legal` and `shcl_free`.
 	- Expected behavior: each one either fits a small stack at the cap, or is bounded by something other than the depth; the 64 KB thread test covers each op that is depth-linear.
 	- Estimated effort: Avg
+	- Note: the 64 KB thread runner `deep_on_64_kb` in the C runner (`df0c9`, `df0d5`) and the harness in the tools folder's `deepstack/` come from the first two children. A new op goes in `deep_round_trip`.
 
 - C's overlay and clone walks need stack in proportion to the depth
 	- ID: 2026110713595411
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: High
 	- Target version: v3.0.0
 	- Opened: 20261107-135954
@@ -78,6 +80,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: merge and clone at the depth cap fit a small thread stack, as Python's walks already do.
 	- Estimated effort: Avg
 	- Note: the 64 KB thread test and the harness in the tools folder's `deepstack/` come from the first child; add `merge` to the test.
+	- Reproduced: 20261107, `shcl_merge` of two documents at the cap on a 64 KB pthread segfaults on `528ade2c`.
+	- Actual cause: `w_overlay` recurses once per matched level, and `w_clone_subtree` once per level of what it copies.
+	- Actual fix: the overlay does one level at a time and queues the matched pairs below it, and the clone copies one node at a time from its own stack, both in the scratch arena, as Python's walks do. A level's rebuild reads nothing the deeper levels change, and a bracket reads only its own node, so the output is unchanged.
+	- Decisions: same pattern as Python's `_overlay` and `_clone_subtree`, so the two bindings that iterate agree in shape. The style guide's C deviation names all three walks.
+	- Test case: C runner `merge_at_the_depth_cap_fits_a_64_kb_stack` (`df0d5`): the capped document laid over an empty one (the clone) and a bare copy laid over that (the overlay), on a 64 KB thread, same bytes back. It crashed the runner on `528ade2c` and passes now.
+	- Verified: C runner, crosscheck with a fuzz dump (22 layered corpus cases among them), and `fmt --layer` of the capped document byte-identical to the recursive build.
+	- Swept: every caller of `w_clone_subtree` (the overlay's two and `shcl_compact`'s copy) and of `w_overlay` (`shcl_merge`). Python already iterates, Go grows its stack, Rust is 2026110713595457.
+	- Branch: `r1107c`
+	- Acceptance signoff: Self-closed: output unchanged across the crosscheck, and the test was seen to fail first.
+	- Closed: 20261107-143247
 
 - C's emit walk needs stack in proportion to the depth
 	- ID: 2026110713595389
@@ -442,7 +454,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: either the spec gives the stack a full-depth document needs, or the recursion uses less.
 	- Regression test: a C test that parses a document at the depth cap on a thread with a 64 KB stack (`pthread_attr_setstacksize`, `CreateThread`'s size on Windows), asserting a clean parse; watched to fail on `343334df`.
 	- Estimated effort: Avg
-	- Children: 2026110713595389 (emit), 2026110713595411 (overlay and clone), 2026110713595434 (validate, generate, paths), 2026110713595457 (spec and Rust). The C walks go iterative, as Python's did, since 128 bytes a level is all a 64 KB stack leaves at the cap.
+	- Children: 2026110713595389 (emit, Done), 2026110713595411 (overlay and clone, Done), 2026110713595434 (validate, generate, paths), 2026110713595457 (spec and Rust). The C walks go iterative, as Python's did, since 128 bytes a level is all a 64 KB stack leaves at the cap.
 
 - The setup's PATH removal rewrites a machine PATH that doesn't have the folder
 	- ID: 2026110613470316
