@@ -115,6 +115,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed
 	- Branch: `r1107`
 	- Closed: 20261106-182500
+	- 20261107: Verified: SHCL_FUZZ_ITERS=2000000 release fuzz_smoke passed (31 tests) and check-migrate.bash passed on e7e7af3a, log /mnt/ext/wip2/wip/tmp/shcl/20261107-010737_001/fuzzmig2.log.
 
 - The publish script tells the user to drop a stash that has the only copy of their untracked files
 	- ID: 2026110613470303
@@ -356,6 +357,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed
 	- Branch: `r1107`
 	- Closed: 20261106-182500
+	- 20261107: Verified: SHCL_FUZZ_ITERS=2000000 release fuzz_smoke passed (31 tests) and check-migrate.bash passed on e7e7af3a, log /mnt/ext/wip2/wip/tmp/shcl/20261107-010737_001/fuzzmig2.log.
 
 - `E003` names the capped number, not the index as written
 	- ID: 2026110613470313
