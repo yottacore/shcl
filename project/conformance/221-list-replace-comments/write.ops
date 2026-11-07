@@ -1,0 +1,3 @@
+literal	items	[one, two]
+literal	hosts	[a, b]
+literal	srv.tags	[x, y]

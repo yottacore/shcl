@@ -1,0 +1,19 @@
+server:
+	port: 8080
+
+# first element
+# second
+items: [one, two]
+
+z: 1
+
+# the list
+# b is the spare
+hosts: [a, b]
+srv:
+	name: web
+
+	# t1
+	# why
+	tags: [x, y]
+	port: 80

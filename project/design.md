@@ -29,6 +29,7 @@ Design, requirements, and direction. The task list is in `backlog.md`. The full 
 	- [Lexical edges](#lexical-edges)
 	- [Write outcomes](#write-outcomes)
 	- [Kept lines under edits](#kept-lines-under-edits)
+	- [Lines an edit takes from their node](#lines-an-edit-takes-from-their-node)
 	- [Default forms](#default-forms)
 	- [Generation outcomes](#generation-outcomes)
 	- [Testing](#testing)
@@ -637,7 +638,7 @@ The full rules for each kind of bare piece are in `spec.md`, under Whitespace, q
 
 What follows from the table:
 
-- A `#` is a comment anywhere outside quotes, backticks and a raw body, whether or not whitespace precedes it. `color: "#ff0000"` and `url: "http://x/y#frag"` are the spellings for a value holding one. `a(#0)` in a file is a selector cut off by a comment. The `[#N]` index went with bracket selectors, so a lookup path with a bare body that starts with `#` finds nothing too. An index is a bare number, `a(0)`, and a file addresses an instance by value. A fence line's info string ends where a comment starts, so ```` ```c# ```` labels the block `c`.
+- A `#` is a comment anywhere outside quotes, backticks and a raw body, whether or not whitespace precedes it. `color: "#ff0000"` and `url: "http://x/y#frag"` are the spellings for a value holding one. `a(#0)` in a file is a selector cut off by a comment. The `[#N]` index went with bracket selectors, so a lookup path with a bare body that starts with `#` is refused too, as `BadPath`. An index is a bare number, `a(0)`, and a file addresses an instance by value. A fence line's info string ends where a comment starts, so ```` ```c# ```` labels the block `c`.
 
 - A `#` against text still opens a comment, and the load hints `H008` so the cut is not silent (2026102307035776). Against text means text right before the `#` in a bare piece (a value, an element, a selector body or a fence label), as in `url: http://h/#frag`, `a(x#y)` or ```` ```c# ````, or an empty piece with text right after it, as in `color: #fff` or `a(#0)`. A blank before the `#`, a closing quote or `]` before it, or a blank or another `#` after it in an empty piece is a plain comment, so `port: 80  # main`, `a: # note` and `a: ## two` get none. The scan judges it from the characters on either side of the `#` it already stopped at, so a line with no comment costs nothing more.
 	- Among hinting only a `#` with text right before it, which misses `color: #fff`, the commonest case; hinting any `#` with text right after it, which also hints a plain `port: 80 #main`; and this rule, it was decided that it is this rule. A header written `server: #main` gets the hint, since it reads exactly as `color: #fff` does; `server:  # main` gets none.
@@ -721,7 +722,7 @@ Where a kept line sits is read from canonical output before the edit. Under the 
 
 - The kept lines beside a target that was the last field in its block stay at the end of that block. A misplaced line among them has no level there, so it goes down to just above the next field line, with the comments after it, which is where a reload files them.
 
-- A setter that replaces a stacked list's value moves the kept lines among its elements above it, as under Load outcomes. A move is not a loss. A line among them that names the list is then a comment, as the next bullet says, on that set and not a later one.
+- A setter that replaces a stacked list's value moves the kept lines among its elements above it, as under Load outcomes, with the field's blank above them (see [Lines an edit takes from their node](#lines-an-edit-takes-from-their-node)). A move is not a loss. A line among them that names the list is then a comment, as the next bullet says, on that set and not a later one.
 
 - A setter writing a field writes every kept line at that level of its block that names just that field as a comment. That includes the one heading it when the field was opened from a kept line. So once those lines are fixed by hand, the field does not read as Multiple. Only a field line refused for its value alone counts, since its name reads, and not one with a raw body, which cannot be commented out as one line. Then the setter changes the field in place. Where there is no field of that name, the new one goes right under the first of those comments. The lines written under that kept line go under the new field, where a reload files them. A field made on the way to the target does the same. Two valid lines of one name stay as they are, since a setter on that name is refused (`Multiple`) where a read of it would give `Multiple`.
 
@@ -746,6 +747,20 @@ Where a kept line sits is read from canonical output before the edit. Under the 
 - The save gate counts kept lines. The load records how many it kept, and each edit takes off only what this table lets it. A document holding fewer than that counts the rest as lost, so `LostCount` includes them, the save refuses, and the save that keeps lines falls back and refuses with it. `--lossy` writes anyway, as for a dropped line. Among checking each edit site and checking the count at the save, the count was chosen, since the sites were the problem.
 
 - A fuzz property holds all four bindings to it: after any edits, every kept line no edit's target took is still in the saved text, or the save refuses, and a remove adds no line. The other three are held through the cross-binding check, which replays its inputs and edits through each CLI's `set --write`.
+
+### Lines an edit takes from their node
+
+When an edit removes, replaces, folds or merges a node, or replaces a list's items, the comments and blank lines around what went need a new owner. Each edit answered that in its own code: `unstack` for a replaced item list, `beside_kept` with `leave_above` and `leave_last` for a merged duplicate, `refile_folded` and `settle_first_blank` for a fold at load, `drop_banners` for the info block, and the remove's own path. Each got the blank line wrong at least once, and fixing the site at hand closed one case per round (2026110616475902).
+
+- Every comment line and blank line belongs to one node from the parse on, as its leading lines or its trailing lines. The emitter writes a node's lines in one fixed order: the blank, the comments, the line, the children, the trailing lines.
+
+- The lines of something an edit takes away go to what takes its place, else the next sibling, else the parent's trailing lines. They go right above the heir's line, after the comments it already has, and the heir's blank goes above them. So a comment stays against a line, and the blank that set the heir off from the line above it still does. A blank between 2 of the lines that moved stays. One above the first of them goes, since it would set the heir off where the file did not.
+
+- `adopt` is the one function that does it, with the same name and the same call sites in all 4 bindings. No edit moves a comment or a blank any other way, so a new edit kind can't get the blank wrong on its own.
+
+- A replaced item list goes through it: a setter or a merge that writes the list anew puts the comments among its items, and the ones on them, right above the field (2026110613470311). Before that they went above the field's blank, so they read as part of the block above.
+
+- Where the code still differs: the parse still gives a node the blank between its comments and its line, so in `# c`, a blank, `b: 2`, the comment is `b`'s and goes with it. The fixed order is 2026110712372276. The remove, the folds, the merge of a duplicate and the banner toggle still use their own helpers, which go once the comment placement suite (2026110616475903) passes with both in place (2026110712372281).
 
 ### Default forms
 

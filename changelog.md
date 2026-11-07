@@ -10,6 +10,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- The Windows setup's uninstall rewrote a machine PATH that held an empty segment, such as a trailing `;`, even with no shcl folder in it, and its install dropped the empty segments. It writes only its own segment now, as install.ps1 does.
+
+- install.ps1 unpacks the drop-in payload with Windows' own `tar`. A GNU tar from Git for Windows, MSYS2 or Cygwin ahead of it on PATH failed the unpack.
+
+- install.bash under a `TMPDIR` with `..` inside a folder name, such as `tmp sp..x`, installed, then refused to remove its temp folder and exited 1. Both installers take only a whole `vX.Y.Z` or `vX.Y.Z-suffix` tag, where a tag such as `v2.0.0x` passed before.
+
+- A setter or a merge that replaced a stacked list put the comments among its items above the field's blank line, so they read as part of the block above. They go right above the field now, with the blank above them.
+
 - A save through `nodir/../f.shcl`, loaded while `nodir` wasn't there, wrote over a file another program made there since. The check compared 2 paths resolved at 2 different times, and now compares bytes.
 
 - A save to `f.shcl/`, `f.shcl/.` or `f.shcl/..`, or a create-only one, says it is a directory in Rust and C, as in Go and Python. They said the file changed, or that it was there. `set --write` says the same for a folder swapped in during its wait as for one there from the start, and the C CLI no longer says `Not a directory` for `f.shcl/`.
@@ -18,7 +26,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A file that re-opens many blocks loads in linear time again. In beta1, 100,000 blocks each named twice took 4 to 5.5 s to load in Go and C, and a kept line before each second instance made it 10 s and more.
 
+- C checks a document against a fragment that mounts itself in time that grows with the square of the depth, not the cube. In beta1, 40 lines each 510 levels deep took 4 s to check in C, and now take a quarter of a second.
+
 - A `#` outside quotes in a lookup path is refused, as `BadPath`. The path used to end there, so `set --remove='colors#primary'` removed all of `colors` at exit 0. Quote a name that holds one, `"colors#primary"`.
+
+- A bare value `set_literal` stores, such as `10:00` or `(5)`, counts as quoted when a save quotes it, as from the other setters. Its `quoted` flag read false before the save and true after it.
 
 - `E003` names the index as written. One past the 64-bit range was shown as 18446744073709551615.
 

@@ -818,7 +818,13 @@ def _literal_value(text):
 			or (len(tok.elements) > 1 and tok.array is None)
 			or (not fence and _value_fault(tok, s) is not None)):
 		return None
-	return _cell_of_tokens(tok, s)
+	# No source wrote it either, so bare text the save quotes counts as
+	# quoted, as from the other setters. The author's quotes stay.
+	v = _cell_of_tokens(tok, s)
+	for i, e in enumerate(v.els):
+		if e.mark is _Mark.BARE:
+			v.els[i] = _new_scalar(e.text) if v.kind == "cell" else _new_element(e.text)
+	return v
 
 
 def _keep_mark(old, new):
@@ -1201,15 +1207,28 @@ def _unstack(nd):
 		return
 	notes = t.notes
 	k = 0
+	orphans = []
 	for before, lead in t.among:
 		while k < len(notes) and notes[k][0] < before:
-			t.leading.append(_Lead(notes[k][1], False))
+			orphans.append(_Lead(notes[k][1], False))
 			k += 1
-		t.leading.append(lead)
+		orphans.append(lead)
 	for _, text in notes[k:]:
-		t.leading.append(_Lead(text, False))
+		orphans.append(_Lead(text, False))
 	t.among = []
 	t.notes = []
+	_adopt(nd, orphans)
+
+
+def _adopt(heir, lines):
+	"""Lines an edit took off a node or a list item it took away go to heir:
+	right above its line, after its own comments, with its blank above them
+	(design.md, Lines an edit takes from their node)."""
+	if not lines:
+		return
+	lines[0].blank_before = heir.blank_before
+	heir.blank_before = False
+	heir._triv().leading.extend(lines)
 
 
 def _bracket(nd):
@@ -12590,7 +12609,8 @@ def _allowed_join(a):
 
 
 def _gen_annotation(c, tyname):
-	# The `# type, ...` line summarizing a constraint, ASCII only.
+	# The `## type, ...` line summarizing a constraint. Values keep their
+	# text, with a line break written as its escape.
 	parts = [tyname]
 	if c.unit_d is not None:
 		parts[0] = tyname + " in " + c.unit_d.value
@@ -13280,17 +13300,19 @@ def _chain_parts_legal(cons, frags, set_idx, parts):
 		if (name, at) in seen:
 			continue
 		seen.add((name, at))
-		rest = parts[at:]
-		# The stack only descends with parts left over, and the sweep never
-		# asks about an empty chain, so rest always has a first part to look up.
+		# Indexes into parts rather than a slice of the rest: a copy per
+		# level is the chain's length per level, cubic in a recursive mount's
+		# depth. The stack only descends with parts left over, and the sweep
+		# never asks about an empty chain, so parts[at] is always there.
+		left = len(parts) - at
 		idx = set_idx.get(name)
-		order = range(len(cons)) if idx is None else _candidates(idx, rest[0])
+		order = range(len(cons)) if idx is None else _candidates(idx, parts[at])
 		for ci in order:
 			c = cons[ci]
 			n = len(c.segs)
-			k = min(len(rest), n)
-			if all(c.segs[i].star or c.segs[i].name == rest[i] for i in range(k)):
-				if len(rest) <= n:
+			k = min(left, n)
+			if all(c.segs[i].star or c.segs[i].name == parts[at + i] for i in range(k)):
+				if left <= n:
 					return True
 				if c.inherits is not None:
 					fcs = frags.get(c.inherits)

@@ -7,3 +7,4 @@ server(web1).*	string[]	8080|a.example	Good	standard	Good|Good
 *	count	4	-
 *	instances	web1|web2|x|lit	-
 server.*	count	3	-
+server.host	string	a.example	Good

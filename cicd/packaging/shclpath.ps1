@@ -36,12 +36,20 @@ try {
 	if ($null -eq $key) { throw 'no Environment key' }
 	try {
 		$cur = [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
-		$parts = @($cur -split ';' | Where-Object { $_ -ne '' })
+		## The value is written only when our segment changes, as install.ps1's
+		## Update-ShclPath does: absent is no write on a remove, and an add
+		## appends to the value as it was. Rebuilding from the split dropped
+		## empty segments, so a PATH ending in ';' was rewritten with nothing of
+		## ours in it.
+		$has = ($cur -split ';') -contains $Dir
 		if ($Remove) {
-			$new = @($parts | Where-Object { $_ -ne $Dir }) -join ';'
-			if ($new -ne $cur) { $key.SetValue('Path', $new, [Microsoft.Win32.RegistryValueKind]::ExpandString) }
-		} elseif ($parts -notcontains $Dir) {
-			$key.SetValue('Path', (@($parts + $Dir) -join ';'), [Microsoft.Win32.RegistryValueKind]::ExpandString)
+			if ($has) {
+				$new = @($cur -split ';' | Where-Object { $_ -and $_ -ne $Dir }) -join ';'
+				$key.SetValue('Path', $new, [Microsoft.Win32.RegistryValueKind]::ExpandString)
+			}
+		} elseif (-not $has) {
+			$new = if ($cur -and -not $cur.EndsWith(';')) { "$cur;$Dir" } else { "$cur$Dir" }
+			$key.SetValue('Path', $new, [Microsoft.Win32.RegistryValueKind]::ExpandString)
 		}
 	} finally {
 		$key.Close()

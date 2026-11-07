@@ -1293,18 +1293,33 @@ func unstack(nd *nodeData) {
 	}
 	notes := t.notes
 	k := 0
+	var orphans []lead
 	for _, a := range t.among {
 		for k < len(notes) && notes[k].at < a.before {
-			t.leading = append(t.leading, plainLead(notes[k].text))
+			orphans = append(orphans, plainLead(notes[k].text))
 			k++
 		}
-		t.leading = append(t.leading, a.lead)
+		orphans = append(orphans, a.lead)
 	}
 	for ; k < len(notes); k++ {
-		t.leading = append(t.leading, plainLead(notes[k].text))
+		orphans = append(orphans, plainLead(notes[k].text))
 	}
 	t.among = nil
 	t.notes = nil
+	adopt(nd, orphans)
+}
+
+// adopt gives heir the lines an edit took off a node or a list item it took
+// away: right above its line, after its own comments, with its blank above
+// them (design.md, Lines an edit takes from their node).
+func adopt(heir *nodeData, lines []lead) {
+	if len(lines) == 0 {
+		return
+	}
+	lines[0].blankBefore = heir.blankBefore
+	heir.blankBefore = false
+	t := heir.trivMut()
+	t.leading = append(t.leading, lines...)
 }
 
 // bracket: a merge writes a list in brackets.
@@ -11467,7 +11482,19 @@ func literalValue(text string) (value, bool) {
 	if arrayFault(&tok) != nil || (len(tok.Elements) > 1 && tok.Array < 0) || (!fence && valueFault(&tok, line) != nil) {
 		return value{}, false
 	}
-	return cellOfTokens(&tok, line), true
+	// No source wrote it either, so bare text the save quotes counts as
+	// quoted, as from the other setters. The author's quotes stay.
+	v := cellOfTokens(&tok, line)
+	for i, e := range v.els {
+		switch {
+		case e.mark != markBare:
+		case v.kind == vCell:
+			v.els[i] = newScalar(e.text)
+		default:
+			v.els[i] = newElement(e.text)
+		}
+	}
+	return v, true
 }
 
 // keepMark: an overwrite keeps the quote kind the old value was written in,
@@ -15666,7 +15693,8 @@ func allowedJoin(a *allowedSet) string {
 	return strings.Join(parts, ", ")
 }
 
-// genAnnotation is the `# type, ...` line summarizing a constraint, ASCII only.
+// genAnnotation is the `## type, ...` line summarizing a constraint. Values
+// keep their text, with a line break written as its escape.
 func genAnnotation(c *constraint, tyname string) string {
 	parts := []string{tyname}
 	if c.unitD != DurationNone {

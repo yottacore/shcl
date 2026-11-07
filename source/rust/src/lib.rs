@@ -1250,16 +1250,30 @@ fn unstack(nd: &mut NodeData) {
 			el.mark = writer_mark(&el.text);
 		}
 	}
-	if let Some(t) = nd.trivia.as_deref_mut() {
-		let mut notes = t.notes.drain(..).peekable();
-		for (at, l) in t.among.drain(..) {
-			while let Some((_, n)) = notes.next_if(|n| n.0 < at) {
-				t.leading.push(Lead::plain(n));
-			}
-			t.leading.push(l);
+	let Some(t) = nd.trivia.as_deref_mut() else {
+		return;
+	};
+	let mut notes = t.notes.drain(..).peekable();
+	let mut orphans = Vec::new();
+	for (at, l) in t.among.drain(..) {
+		while let Some((_, n)) = notes.next_if(|n| n.0 < at) {
+			orphans.push(Lead::plain(n));
 		}
-		t.leading.extend(notes.map(|n| Lead::plain(n.1)));
+		orphans.push(l);
 	}
+	orphans.extend(notes.map(|n| Lead::plain(n.1)));
+	adopt(nd, orphans);
+}
+
+/// Lines an edit took off a node or a list item it took away go to `heir`:
+/// right above its line, after its own comments, with its blank above them
+/// (design.md, Lines an edit takes from their node).
+fn adopt(heir: &mut NodeData, mut lines: Vec<Lead>) {
+	let Some(first) = lines.first_mut() else {
+		return;
+	};
+	first.blank_before = std::mem::take(&mut heir.blank_before);
+	heir.triv_mut().leading.append(&mut lines);
 }
 
 /// A merge writes a list in brackets.
@@ -11825,7 +11839,23 @@ fn literal_value(text: &str) -> Option<Value> {
 	{
 		return None;
 	}
-	Some(cell_of_tokens(&tok, &line))
+	// No source wrote it either, so bare text the save quotes counts as
+	// quoted, as from the other setters. The author's quotes stay.
+	Some(match cell_of_tokens(&tok, &line) {
+		Value::Cell(e) if e.mark == Mark::Bare => cell_of(e.text),
+		Value::Array(els) => Value::Array(
+			els.into_iter()
+				.map(|e| {
+					if e.mark == Mark::Bare {
+						new_element(e.text)
+					} else {
+						e
+					}
+				})
+				.collect(),
+		),
+		v => v,
+	})
 }
 
 /// An overwrite keeps the quote kind the old value was written in, when the
@@ -15805,7 +15835,8 @@ fn allowed_join(a: &AllowedSet) -> String {
 	}
 }
 
-/// The `# type, ...` annotation line summarizing a constraint, ASCII only.
+/// The `## type, ...` annotation line summarizing a constraint. Values keep
+/// their text, with a line break written as its escape.
 fn gen_annotation(c: &Constraint, tyname: &str) -> String {
 	let mut parts: Vec<String> = vec![tyname.to_string()];
 	if let Some(u) = c.unit_d {

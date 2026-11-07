@@ -669,6 +669,87 @@ static void *validate_on_small_stack(void *unused) {
 }
 #endif
 
+// A document at the depth cap, with a comment at each level when asked. It is
+// already canonical, so a clean round trip gives the same bytes back.
+static char *deep_doc(size_t *len, int comments) {
+	size_t levels = SHCL_MAX_DEPTH - 1, cap = (levels + 1) * (levels + 32), n = 0;
+	char *t = xrealloc(NULL, cap);
+	for (size_t i = 0; i < levels; i++) {
+		if (comments) {
+			memset(t + n, '\t', i); n += i;
+			n += (size_t)snprintf(t + n, cap - n, "# c%zu\n", i);
+		}
+		memset(t + n, '\t', i); n += i;
+		n += (size_t)snprintf(t + n, cap - n, "k%zu:\n", i);
+	}
+	memset(t + n, '\t', levels); n += levels;
+	n += (size_t)snprintf(t + n, cap - n, "leaf: 1\n");
+	*len = n;
+	return t;
+}
+
+// Parses and formats the document at the depth cap. With merge set it is laid
+// over an empty document instead, which clones it, and the same tree without
+// its comments over that, which walks every level and changes nothing.
+// Nonzero when every step was clean; a stack overflow crashes the run instead.
+static int deep_round_trip(int merge) {
+	size_t n, bn;
+	char *t = deep_doc(&n, 1);
+	shcl_doc *d = merge ? shcl_new() : shcl_parse(t, n);
+	int ok = d && shcl_diag_count(d) == 0;
+	if (ok && merge) {
+		char *bare = deep_doc(&bn, 0);
+		shcl_doc *o = shcl_parse(t, n), *b = shcl_parse(bare, bn);
+		ok = o && b && shcl_diag_count(o) == 0 && shcl_diag_count(b) == 0;
+		if (ok) { shcl_merge(d, o); shcl_merge(d, b); }
+		shcl_free(b); shcl_free(o); free(bare);
+	}
+	if (ok) {
+		shcl_str out = shcl_to_canonical(d);
+		ok = out.n == n && memcmp(out.p, t, n) == 0;
+	}
+	shcl_free(d);
+	free(t);
+	return ok;
+}
+
+#ifdef _WIN32
+static DWORD WINAPI deep_on_small_stack(LPVOID merge) { return deep_round_trip(*(const int *)merge) ? 1 : 0; }
+#else
+static void *deep_on_small_stack(void *merge) { return deep_round_trip(*(const int *)merge) ? (void *)1 : NULL; }
+#endif
+
+// Runs deep_round_trip on a 64 KB thread, or the platform's smallest when that
+// is larger. Nonzero when it finished clean.
+static int deep_on_64_kb(int merge, const char *at) {
+	size_t small = 64 * 1024;
+	int ok = 0;
+#ifdef _WIN32
+	HANDLE th = CreateThread(NULL, small, deep_on_small_stack, &merge, STACK_SIZE_PARAM_IS_A_RESERVATION, NULL);
+	if (!th) { fail(at, "cannot start a 64 KB thread"); return 0; }
+	DWORD res = 0;
+	WaitForSingleObject(th, INFINITE);
+	ok = GetExitCodeThread(th, &res) && res == 1;
+	CloseHandle(th);
+#else
+	pthread_attr_t at_;
+	pthread_t th;
+	long floorBytes = sysconf(_SC_THREAD_STACK_MIN);
+	if (floorBytes > 0 && (size_t)floorBytes > small) small = (size_t)floorBytes;
+	if (pthread_attr_init(&at_) != 0 || pthread_attr_setstacksize(&at_, small) != 0) {
+		fail(at, "cannot make a 64 KB thread attribute");
+	} else if (pthread_create(&th, &at_, deep_on_small_stack, &merge) != 0) {
+		fail(at, "cannot start a 64 KB thread");
+	} else {
+		void *res = NULL;
+		pthread_join(th, &res);
+		ok = res != NULL;
+	}
+	pthread_attr_destroy(&at_);
+#endif
+	return ok;
+}
+
 #ifdef _WIN32
 static int text_is(const char *path, const char *want) {
 	size_t n; char *t = read_file(path, &n);
@@ -2051,6 +2132,37 @@ int main(int argc, char **argv) {
 		if (rc.n != rc2.n || memcmp(rc.p, rc2.p, rc.n) != 0) fail("raw", "raw block with CR is not a formatter fixpoint");
 		shcl_free(rd2);
 		shcl_free(rd);
+	}
+	// A bare value shcl_set_literal stores counts as quoted when a save quotes
+	// it, as from every other setter, so the flag reads the same after a reload
+	// (2026110613470310). Same fixture in every runner.
+	test_id("df08p", "set_literal_quoted_flag_survives_a_save");
+	{
+		static const struct { const char *path, *text; int quoted; } qc[] = {
+			{ "a", "10:00", 1 },
+			{ "b", "(5)", 1 },
+			{ "c", "- 5", 1 },
+			{ "d", "1 200", 1 },
+			{ "e", "1,2", 1 },
+			{ "f", "2026-01-01T10:00", 1 },
+			{ "g", "abc", 0 },
+			{ "h", "1,200", 0 },
+			{ "i", "'x'", 1 },
+			{ "j", "[10:00]", 1 },
+		};
+		size_t nq = sizeof qc / sizeof qc[0];
+		shcl_doc *qd = shcl_parse("", 0);
+		for (size_t i = 0; i < nq; i++) {
+			if (shcl_set_literal(qd, qc[i].path, 1, qc[i].text, strlen(qc[i].text)) != SHCL_SET_OK) fail("set_literal", qc[i].text);
+		}
+		shcl_str qt = shcl_to_canonical(qd);
+		shcl_doc *qb = shcl_parse(qt.p, qt.n);
+		for (size_t i = 0; i < nq; i++) {
+			if (shcl_quoted(qd, qc[i].path, 1) != qc[i].quoted) fail("set_literal quoted before a save", qc[i].text);
+			if (shcl_quoted(qb, qc[i].path, 1) != qc[i].quoted) fail("set_literal quoted after a reload", qc[i].text);
+		}
+		shcl_free(qb);
+		shcl_free(qd);
 	}
 	// line()/quoted()/children(): read-surface accessors. Same fixture in every
 	// runner - the other three have line and quoted on the read result, C
@@ -4273,6 +4385,15 @@ int main(int argc, char **argv) {
 		pthread_attr_destroy(&at);
 	}
 #endif
+	// Formatting at the depth cap used to recurse once per level, about 190 KB
+	// at -O2, which overflowed a 64 KB thread. musl gives a thread 128 KB, and
+	// an embedded stack is smaller still.
+	test_id("df0c9", "canonical_at_the_depth_cap_fits_a_64_kb_stack");
+	if (!deep_on_64_kb(0, "deep-stack")) fail("deep-stack", "parse and format at the depth cap were not clean on a 64 KB stack");
+	// The merge and the clone it makes of unmatched blocks recursed the same
+	// way, about 560 KB at the cap.
+	test_id("df0d5", "merge_at_the_depth_cap_fits_a_64_kb_stack");
+	if (!deep_on_64_kb(1, "deep-merge")) fail("deep-merge", "a merge at the depth cap was not clean on a 64 KB stack");
 	/* A path that names a directory - it ends in a separator, or its last
 	   component is `.` or `..` - is not a document. A path cleanup drops the
 	   trailing separator first, so a save through `f/.` used to rewrite `f` in

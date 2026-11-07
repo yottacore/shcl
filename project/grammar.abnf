@@ -68,7 +68,7 @@ index-sel       = [ "+" ] 1*DIGIT              ; bare integer = index
                 ; a leading "+" is accepted (list(+1) = list(1)); "-" is not
                 ; an index sign - (-1) is a value selector. The old "[#N]"
                 ; index is gone: a bare body that starts with "#" opens a
-                ; comment on a file line and finds nothing in a query.
+                ; comment on a file line and is refused in a query.
 value-sel       = quoted / bare-sel           ; non-numeric bare, or quoted (forces value)
 bare-sel        = 1*( sel-text / escape )
                 ; a bare selector's scan runs to the first ")", so a "." passes

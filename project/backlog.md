@@ -90,6 +90,74 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Not run: `--backlog-run-quick` with every area (past one call), check-c-compilers (past one call), check-docs, crosscheck.
 		- 20261107, b29w with a short-name TEMP, at `30887e7e` plus the 2 test fixes below: Rust `cargo test` whole (all binaries, `detpn`, `dc42j`, `dekj7`, `save_rewrites_a_read_only_file` included), the C runner whole (`dekkm`, `detpr`, `dc42n`, `dbxm2`), and the veneer smoke (`dekkn`, `detps`) linked static, 3 runs. The dynamic veneer build dies at startup on b29w on dev too, so that build is the box's.
 
+- Comments taken off a replaced item list end up above the list's blank line
+	- ID: 2026110613470311
+	- Type: Bug
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz on the commit, as on 2026110712372271.
+	- Severity: High
+	- Target version: v3.0.0
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 11
+	- Version and build: dev at `343334df`
+	- Steps to reproduce:
+		- `server:` with `port: 8080`, a blank line, then `items:` with `# first element`, `- one` and `- two  # second`, a blank line, and `z: 1`.
+		- `shcl set --set-literal='items=[one, two]' FILE`.
+	- Incorrect behavior: both comments come out right under `port: 8080`, then the blank line, then `items:`, so they read as part of `server`. `fmt --layer` gives the same. The output is a fixpoint, so it never corrects itself.
+	- Expected behavior: README says comments survive a rewrite attached to what they documented. spec.md's SetComment rule puts a node's blank line above its comment.
+	- Reproduced: 20261106, all 4 CLIs.
+	- Possible cause: `unstack` adds the list's comments to the node's leading comments and leaves its blank line where it was.
+	- Origin: `7c90c42d` (2026-10-05). The same class as Code review 20260904 item 18 and Code review 20260830 item 19. Confirmed.
+	- Requirements (JC, 2026-11-06):
+		- No fix inside `unstack`. The list replace goes through the one reattach helper 2026110616475902 asks for, and this item closes through that one.
+		- The placement suite 2026110616475903 has this case as a fixed row: both comments directly above `items:`, the blank line above them, in all 4 bindings.
+	- Note: comment placement under edits has come back one site at a time since Code review 20260802. The list of past cases is on 2026110616475903.
+	- Regression test: the fixed row in 2026110616475903's table and its placement property, in all 4 bindings; watched to fail on `343334df`.
+	- Estimated effort: Low
+	- Actual cause: confirmed. `unstack` added the lines among the items and the comments on them to the field's comments, and the field's blank stayed between them and the field's line.
+	- Actual effort: Low
+	- Progress log:
+		- 20261107: the round's 2,000,000-iteration release fuzz failed `dd3t9` at iteration 863179. dev at `c9f4bc4b` gives the same text for that input after each op, so this change did not cause it. Filed as 2026110714552634, with no code changed. The 2M run still waits on that one.
+		- 2026-11-07: the round's 2M release fuzz failed dd3t9 at iteration 863179 on an input dev c9f4bc4b fails the same way (Bug 2026110714552634); the other 30 fuzz tests passed. Waits on that Bug for a clean 2M run.
+	- Actual fix: `unstack` hands the lines to `adopt` (2026110712372271), which puts them right above the field's line with the field's blank above them. All 4 bindings, design.md, spec.md and the changelog.
+	- Decisions:
+		- me, 20261107: the fixed row is corpus `221-list-replace-comments` for now, since 2026110616475903's table isn't built yet. That item takes it into its table, or keeps the case and points at it.
+	- Swept: see 2026110712372271. Every `unstack` caller, the merge's `bracket` included, goes through `adopt`, so `fmt --layer` is fixed with the set.
+	- Test case: corpus `221-list-replace-comments` (`df09h`): the review's file, a field with a comment of its own and a blank among its items, and a list in a block, through `literal` ops, the line-keeping save and a layered merge.
+	- Verified: `df09h` fails on the libraries before the fix in Rust, C and Python, and the Go and C CLIs before it print the review's output. It passes on the fix in all 4. The rest as on 2026110712372271.
+	- Branch: `r1107c`
+	- Prereq IDs: 2026110714552634
+
+- One rule for where the comments and blank of a removed list item go, through `adopt`
+	- ID: 2026110712372271
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz (`SHCL_FUZZ_ITERS=2000000`, `fuzz_smoke`) on this item's commit, since corpus 221 shifts the seeds. check-migrate passed on the same tree.
+	- Priority: High
+	- Target version: v3.0.0
+	- Opened: 20261107-123722
+	- Opened by: split from 2026110616475902
+	- Parent ID: 2026110616475902
+	- Related IDs: 2026110613470311
+	- Problem description: the design half of 2026110616475902, and the one `adopt` its list replace needs.
+	- Requirements:
+		- design.md's ownership rule, and spec.md naming it where the SetComment rule is.
+		- `adopt` in all 4 bindings, and `unstack` handing the lines among a list's items and on them to it, rather than moving them itself (2026110613470311).
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Progress log:
+		- 20261107: design.md has a new section, "Lines an edit takes from their node", with the rule, the order, `adopt`, and where the code still differs. spec.md's SetComment sentence names it for a replaced list. `adopt` in `lib.rs`, `shcl.go` (`adopt`), `shcl.py` (`_adopt`) and `shcl.h`, called from `unstack` in each. The changelog has a line.
+		- 2026-11-07: the round's 2M release fuzz failed dd3t9 at iteration 863179 on an input dev c9f4bc4b fails the same way (Bug 2026110714552634); the other 30 fuzz tests passed. Waits on that Bug for a clean 2M run.
+	- Decisions:
+		- me, 20261107: the lines go right above the heir's line, after its own comments, and the heir's blank goes above them. A blank the heir's own comments had stays where it was, since the edit didn't touch them. Moving the blank above every comment the heir has, as `SetComment` does, was the other option, and it waits for the fixed order in 2026110712372276.
+		- me, 20261107: a blank above the first moved line goes, and one between 2 moved lines stays. Keeping the first would set the field off from the line above it where the file did not.
+		- me, 20261107: the heir is chosen by the caller. A list replace has only one, the field. The fallbacks in the rule come with the sites in 2026110712372281.
+	- Swept: every `unstack` caller in all 4: the setter's list replace, `new_child`, `new_child_under`, `fold_list_into_empty` and the merge's `bracket`. All go through `adopt` now. The other movers named in 2026110616475902 are 2026110712372281.
+	- Test case: corpus `221-list-replace-comments` (`df09h`), through the write ops, the line-keeping save and the layered merge.
+	- Verified: `df09h` fails on the old Rust, C and Python libraries, and the old Go and C CLIs give the old output, and it passes on the new ones in all 4. The 4 conformance suites, the whole Rust suite, the Go tests, the 200,000-iteration fuzz, cli-regress (658 rows), crosscheck (54717 comparisons), check-migrate (659 documents), check-docs, test-ids, analyze-c, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, markdownlint, lint-report.
+	- Branch: `r1107c`
+	- Prereq IDs: 2026110714552634
+
 - `install.ps1` refuses pwsh on Linux and macOS
 	- ID: 2026110215285715
 	- Type: Enhancement
@@ -103,6 +171,37 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Port it, but v4.
 	- Estimated effort: Avg
 	- Held for v4 (JC, 2026-11-02).
+
+- Spec promises the depth cap keeps every binding inside a thread stack
+	- ID: 2026110713595457
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Target version: v3.0.0
+	- Opened: 20261107-135954
+	- Opened by: Child of 2026110613470315
+	- Parent ID: 2026110613470315
+	- Prereq IDs: 2026110713595411, 2026110713595434
+	- Steps to reproduce: `fmt`, `--layer` or `set` on a 511-deep document under `ulimit -s 64` with the Rust CLI.
+	- Incorrect behavior: Rust needs about 171 KB at the cap, while spec.md's Limits bullet says depth-linear recursion can never outrun a thread stack.
+	- Expected behavior: the spec says what stack a full-depth document needs in each binding, or Rust's walks stop growing with the depth. Rust's own threads default to 2 MB, so a number in the spec may be enough.
+	- Estimated effort: Low
+	- Note: `SHCL_MAX_DEPTH`'s comment in `shcl.h` makes the same claim for emit, merge and clone, so it changes with the spec line. C's emit, overlay and clone walks iterate since 2026110713595389 and 2026110713595411.
+
+- C's validate, generate and path walks need stack in proportion to the depth
+	- ID: 2026110713595434
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Target version: v3.0.0
+	- Opened: 20261107-135954
+	- Opened by: Child of 2026110613470315
+	- Parent ID: 2026110613470315
+	- Steps to reproduce: validate a 511-deep document against a recursive schema, or `init` from a mount chain at the cap, on a thread with a 64 KB stack.
+	- Incorrect behavior: unverified on a small thread. The recursive walks are `v_check_from` with `v_node` (720 bytes a level per the review), `v_contexts`, `g_expand_go` (880), `resolve_from`, `chain_parts_legal` and `shcl_free`.
+	- Expected behavior: each one either fits a small stack at the cap, or is bounded by something other than the depth; the 64 KB thread test covers each op that is depth-linear.
+	- Estimated effort: Avg
+	- Note: the 64 KB thread runner `deep_on_64_kb` in the C runner (`df0c9`, `df0d5`) and the harness in the tools folder's `deepstack/` come from the first two children. A new op goes in `deep_round_trip`.
 
 - The parse caps don't count comment lines or kept lines, so a capped parse can still use 100 times the file's size
 	- ID: 2026110613470304
@@ -137,94 +236,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261107, test asserts updated for the last-line change, the rest of each test as it was: `parse_limited_caps` in all 4 runners (`dc1yg`, `dc1yh`, `dc26x`, `dc1yj`), the last-line cross from 1 `E020` to 0, and the one-line overshoot `x.y.z: 1` from 1 `E020` to 0. The overshoot with a next line is pinned in the new tests.
 	- Test case: `the_node_cap_counts_comment_and_kept_lines` (`df003` Rust, `df004` Go, `df005` Python, `df006` C) and the budget tests (`df007` Rust `mem_caps`, `df008` Go `mem_test`, `df009` C `mem_bounds`, `df00a` Python). All failed on the old code and pass now. The fuzz guard is the child's.
 
-- C checks a recursive schema in time cubic in the nesting depth
-	- ID: 2026110613470309
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Target version: v3.0.0
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 9
-	- Version and build: dev at `343334df`
-	- Steps to reproduce:
-		- A schema with `fragment: f` with a `field: a` that inherits `f` and an int `field: leaf`, plus a top-level `field: a` that inherits `f`.
-		- A 41 KB document of 40 lines, each `a(vN).`, then `a.` 509 times, then `leaf: 1`.
-		- `shcl check --schema=SCHEMA FILE`.
-	- Incorrect behavior: C 4.0 s, Python 7.4, Rust 0.56, Go 0.33. Twice the depth costs C 7 times as much, and the others 4 times.
-	- Expected behavior: spec.md says the check's cost is proportional to the document, never the schema's unfolding.
-	- Reproduced: 20261106, all 4 CLIs.
-	- Possible cause: C's candidate loop in `chain_parts_legal` walks to the end of the chain for each candidate at every level, where Rust stops at the path's length. That bound took C to 0.21 s, with the same results over the corpus schema cases. All 4 also rebuild each node's chain from the root in the unknown-field check, which is the square.
-	- Origin: `d61bfc8c` (2026-09-17). Code review 20260905 item 4 removed the doubling per level. perf-gate's `recurse` (`dc81v`) times one 60-level chain. Confirmed.
-	- Regression test: a scaling test in the C suite, a recursive schema 8 levels deeper checked in under 3 times the time, and a shared schema case all 4 suites run so the answer at depth is pinned too.
-	- Estimated effort: Low
-
-- `set_literal` leaves `quoted` false on a value the save writes quoted
-	- ID: 2026110613470310
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Target version: v3.0.0
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 10
-	- Version and build: dev at `343334df`
-	- Steps to reproduce:
-		- `set_literal("k", "10:00")`, read the `quoted` flag on `k`, save, reload, and read it again.
-		- The same for `(5)`, `- 5`, `1 200`, `1,2` and `2026-01-01T10:00`.
-	- Incorrect behavior: false before the save and true after it. `set_string` with the same text gives true both times.
-	- Expected behavior: spec.md says a value a setter wrote counts as quoted when a save would quote it, so the flag reads the same before and after the save.
-	- Reproduced: 20261106, Rust, Go, Python and the C++ interface. No typed read differed for these values.
-	- Possible cause: `set_literal` builds its cell from the tokens, not through `new_element`, which every other setter uses since Code review 20260909 item 13.
-	- Origin: `58d8e81e` (2026-09-09). A missed twin of Code review 20260909 item 13. Confirmed.
-	- Regression test: an ops-script case for all 4 suites: `set_literal` with each listed value, the `quoted` flag read before the save and after a reload, both true; watched to fail on `343334df`.
-	- Estimated effort: Low
-
-- Comments taken off a replaced item list end up above the list's blank line
-	- ID: 2026110613470311
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Target version: v3.0.0
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 11
-	- Version and build: dev at `343334df`
-	- Steps to reproduce:
-		- `server:` with `port: 8080`, a blank line, then `items:` with `# first element`, `- one` and `- two  # second`, a blank line, and `z: 1`.
-		- `shcl set --set-literal='items=[one, two]' FILE`.
-	- Incorrect behavior: both comments come out right under `port: 8080`, then the blank line, then `items:`, so they read as part of `server`. `fmt --layer` gives the same. The output is a fixpoint, so it never corrects itself.
-	- Expected behavior: README says comments survive a rewrite attached to what they documented. spec.md's SetComment rule puts a node's blank line above its comment.
-	- Reproduced: 20261106, all 4 CLIs.
-	- Possible cause: `unstack` adds the list's comments to the node's leading comments and leaves its blank line where it was.
-	- Origin: `7c90c42d` (2026-10-05). The same class as Code review 20260904 item 18 and Code review 20260830 item 19. Confirmed.
-	- Requirements (JC, 2026-11-06):
-		- No fix inside `unstack`. The list replace goes through the one reattach helper 2026110616475902 asks for, and this item closes through that one.
-		- The placement suite 2026110616475903 has this case as a fixed row: both comments directly above `items:`, the blank line above them, in all 4 bindings.
-	- Note: comment placement under edits has come back one site at a time since Code review 20260802. The list of past cases is on 2026110616475903.
-	- Regression test: the fixed row in 2026110616475903's table and its placement property, in all 4 bindings; watched to fail on `343334df`.
-	- Estimated effort: Low
-
-- Some spec sentences don't match what all 4 bindings do
-	- ID: 2026110613470314
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Target version: v3.0.0
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 14
-	- Related IDs: 2026100717500001, 2026100717500010
-	- Version and build: dev at `343334df`
-	- Steps to reproduce: run each case below through the 4 CLIs.
-	- Incorrect behavior:
-		- A lookup path whose bare selector body starts with `#`, or has `E017` or `E023` in it, "finds nothing" in spec.md's Paths section, its `E023` row and its selector bullet, and in grammar.abnf and design.md. Every binding refuses it as `BadPath` at exit 1, since 2026100717500001.
-		- The indent rule says "a proper prefix of the open one is a child". It's the other way round: the open level's indent is a proper prefix of the child's.
-		- The init annotation line is "ASCII only", with a newline written as `\n`. It writes `◉` escapes and other non-ASCII text, such as `a◉NEWLINE◉b`. Rust's `gen_annotation` comment says ASCII too.
-		- A set with no selector over repeated instances is refused "since a read of the path would answer `Multiple` too". With `srv: a`, `srv: b` and `srv.port: 80` the read gives 80 and the set is refused. The refusal is by step, per 2026100717500010, so only the reason is wrong.
-		- `allowed` on a datetime compares in "the coerced space", the moment. `12:00` and `12:00:00` are 2 values to it, on purpose since Code review 20260905 item 8, and the spec doesn't say so.
-	- Expected behavior: the docs say what the code does.
-	- Reproduced: 20261106, all 4 CLIs.
-	- Origin: the "finds nothing" lines are `df0eab64` (2026-10-06), a day before `BadPath`. The indent line is `d5978c0d` (2026-09-20), the annotation line `dd004f13` (2026-09-08, before `◉`), and the set line `a4d2d6b0` (2026-10-08). Confirmed.
-	- Regression test: one corpus case per sentence, pinning whichever side was kept (the code or the sentence), with the sentence quoted in the case's notes, so the next edit to either side fails the case.
-	- Estimated effort: Low
-
 - A document at the 512 depth cap needs about 190 KB of stack in C
 	- ID: 2026110613470315
 	- Type: Bug
@@ -242,62 +253,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: either the spec gives the stack a full-depth document needs, or the recursion uses less.
 	- Regression test: a C test that parses a document at the depth cap on a thread with a 64 KB stack (`pthread_attr_setstacksize`, `CreateThread`'s size on Windows), asserting a clean parse; watched to fail on `343334df`.
 	- Estimated effort: Avg
-
-- The setup's PATH removal rewrites a machine PATH that doesn't have the folder
-	- ID: 2026110613470316
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Target version: v3.0.0
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 16
-	- Target OS: Windows
-	- Version and build: dev at `343334df`
-	- Steps to reproduce: `cicd/packaging/shclpath.ps1 -Remove` with the folder missing from a machine PATH that ends in `;`.
-	- Incorrect behavior: it writes the machine PATH anyway, with the empty parts dropped.
-	- Expected behavior: no write, the way install.ps1 does since `a30d9b91`, where absent is no write.
-	- Reproduced: 20261106, the same expressions under pwsh on Linux.
-	- Origin: `f66b81f5` (2026-09-17). A missed twin of `a30d9b91` (2026-09-27). Confirmed.
-	- Regression test: a winpath-regress.ps1 row: `-Remove` on a machine PATH that lacks the folder leaves the machine PATH byte for byte as it was; runs in win-runners on b29w, and its logic row under pwsh on Linux through the sandbox.
-	- Estimated effort: Low
-
-- install.ps1 calls `tar` by name, so a GNU tar ahead of System32 can't unpack the payload
-	- ID: 2026110613470317
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Target version: v3.0.0
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 17
-	- Target OS: Windows
-	- Needs external testing: b29w, with Git for Windows' `usr\bin` ahead of System32 on PATH.
-	- Version and build: dev at `343334df`
-	- Steps to reproduce: a PATH with Git for Windows' `usr\bin`, MSYS2 or Cygwin ahead of System32, then install.ps1.
-	- Incorrect behavior: GNU tar reads `C:\...` as a remote host and file unless given `--force-local`, so the unpack fails.
-	- Expected behavior: the install works with any PATH order.
-	- Reproduced: no. A probe for b29w is ready.
-	- Possible cause: `tar -xzf ... -C ...` at the unpack, found through `Get-Command tar`.
-	- Origin: Plausible.
-	- Regression test: a win-runners row on b29w that puts a `tar` stub ahead of System32 on PATH and runs install.ps1's unpack; the stub recording a call fails the row. Batched with 2026110408432594's visit.
-	- Estimated effort: Low
-
-- install.bash fails when a temp folder's name has `..` in it, and the tag filter isn't anchored
-	- ID: 2026110613470318
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Target version: v3.0.0
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 18
-	- Version and build: dev at `343334df`
-	- Steps to reproduce: `TMPDIR` set to a folder named `tmp sp..x`, then install.bash.
-	- Incorrect behavior: the install finishes, then prints `safe-rm: refused, bad path` and exits 1. The temp folder with the binary and payload stays.
-		- The "only vX.Y.Z tags" filter in both installers isn't anchored at the end, so install.bash would take a tag `v2.0.0x`, and install.ps1 throws on it.
-	- Expected behavior: exit 0 and the folder removed. `..` is only unsafe as a whole path part, which is how install.ps1's `Remove-SafeTree` checks it.
-	- Reproduced: 20261106, install.bash in a sandbox, and both tag pickers run on lists of tags.
-	- Origin: `fRmTmp`'s match is `ae548339` (2026-10-31), the tag filter `ce64bbea`. Confirmed.
-	- Regression test: shell-regress rows: install.bash run from a temp folder whose name has `..` in it, and a tag list where a longer tag contains the wanted one, asserting the anchored match; both watched to fail on `343334df`.
-	- Estimated effort: Low
+	- Children: 2026110713595389 (emit, Done), 2026110713595411 (overlay and clone, Done), 2026110713595434 (validate, generate, paths), 2026110713595457 (spec and Rust). The C walks go iterative, as Python's did, since 128 bytes a level is all a 64 KB stack leaves at the cap.
 
 - comparison.md's peak memory row comes from the 2026-10-02 run
 	- ID: 2026110613470320
@@ -315,6 +271,47 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: the memory row is `b30d70a8` (2026-10-14), the read row `ae8540e9` (2026-11-05). Confirmed.
 	- Regression test: a check-docs row that refuses a comparison.md row dated older than the table's run date, and the comparison run writes the memory row itself so the two can't drift.
 	- Estimated effort: Low
+
+- Removes, folds, merges and the banner toggle hand lines on through `adopt`
+	- ID: 2026110712372281
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0
+	- Opened: 20261107-123722
+	- Opened by: split from 2026110616475902
+	- Parent ID: 2026110616475902
+	- Prereq IDs: 2026110616475903, 2026110712372276
+	- Related IDs: 2026110712372271, 2026110613470302, 2026110613470312, 2026110312163204, 2026110315051536
+	- Problem description: `adopt` is in, and a replaced item list goes through it (2026110712372271). The other edits still move the lines around what they take away in their own code: the remove's own path, `beside_kept` with `leave_above` and `leave_last` for a merged duplicate, `refile_folded` and `settle_first_blank` for a fold at load, and `drop_banners` for the info block.
+	- Requirements:
+		- Each of them calls `adopt`, with the same call sites in all 4 bindings, per design.md's "Lines an edit takes from their node". The heir is what takes the node's place, else the next sibling, else the parent's trailing lines.
+		- The old helpers go in the same commit, once the placement suite 2026110616475903 passes with both in place. A grep for them then finds only `adopt`.
+		- The kept-line rules stay as they are: design.md's table for kept lines under edits, a misplaced line keeping its space indent, `E001` and `E008` lines as built.
+		- design.md's "Where the code still differs" bullet loses its second half.
+	- Regression test: 2026110616475903's property and table, run against both the old helpers and `adopt` before the old ones go; plus a check-docs row that greps the 4 bindings for the retired helper names.
+	- Estimated effort: High
+
+- A node's blank above its comments, from the parse on
+	- ID: 2026110712372276
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0
+	- Opened: 20261107-123722
+	- Opened by: split from 2026110616475902
+	- Parent ID: 2026110616475902
+	- Prereq IDs: 2026110616475903
+	- Related IDs: 2026110712372271
+	- Problem description: design.md's "Lines an edit takes from their node" has the emitter write a node's lines in one fixed order: the blank, the comments, the line, the children, the trailing lines. The parse still gives a node the blank between its comments and its line, so in `# c`, a blank, `b: 2`, the comment is `b`'s, and a remove of `b` takes it.
+	- Requirements:
+		- Every comment line and blank line belongs to one node from the parse on, as its leading lines or its trailing lines, in that order, in all 4 bindings.
+		- A comment run set off from the next line by a blank is the trailing lines of the node above it, or of its parent. So a remove of `b` above leaves `# c`.
+		- The line-keeping save and every corpus golden agree. A golden that changes is named on this item with why.
+		- design.md's "Where the code still differs" bullet loses its first half, and spec.md's Remove sentence says which comment lines go.
+	- Note: a remove that leaves a comment it used to take changes what a user sees. That is the rule's point, and it goes in the changelog.
+	- Regression test: 2026110616475903's table gets rows for a comment run set off by a blank, through a remove, a set and a reload, in all 4 bindings.
+	- Estimated effort: High
 
 - The fuzz counts inputs where comment and kept lines take the node cap
 	- ID: 2026110707441268
@@ -380,6 +377,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fix `unstack` alone. Closes 2026110613470311 and leaves the class open, as every fix before it did.
 	- Regression test: 2026110616475903's property and table are the gate, run against both the old helpers and `adopt` before the old ones go; plus a check-docs row that greps the 4 bindings for the retired helper names, so a second mover can't come back.
 	- Estimated effort: High
+	- Progress log:
+		- 20261107: split in 3. The design and `adopt`, with the item list replace through it, are child 2026110712372271. A node's blank above its comments from the parse on is child 2026110712372276. The other edits through `adopt`, and the old helpers gone, are child 2026110712372281, after 2026110616475903.
 
 - An exhaustive comment placement suite, with a placement property in the fuzz
 	- ID: 2026110616475903
@@ -462,6 +461,45 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: `8bca69bd` (2026-07-12). Not in the v4 design. Confirmed.
 	- Regression test: a Go test that calls every public method on a zero-value `Document` and asserts the chosen behavior for each, a working call or the `New()` message; a doc check that the message names `New()`.
 	- Estimated effort: Low
+
+- Fuzz `dd3t9` fails at iteration 863179: a remove puts a kept line below the next kept line, and the reload gets a new `E018`
+	- ID: 2026110714552634
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261107-145526
+	- Opened by: found while working 2026110613470311
+	- Related IDs: 2026110613470311, 2026110407313888, 2026110315051536, 2026110712372281
+	- Version and build: `r1107c` at `217bff58`, and dev at `c9f4bc4b`
+	- Steps to reproduce:
+		- `SHCL_FUZZ_ITERS=2000000 cargo test --release --test fuzz_smoke keeping_lines_reloads_as_the_document`, on a corpus holding 220 and 221.
+		- Load this with `parse_keep_lines` (a Rust literal): `"window:\n\topacity: 1.0\n    m_argin: 4\n\n\tcol\tmns: 160\n\trows: 48\nfont:\n\tface:\n\t\tsize: 12\n    bad:\t 1\n\t\tfamily: mono\n\thint:\n  ~ bad: 2\n\t\tfist: 1\n\t\tsecond: 2\\a:\n    b: 1\n  c: 2\n     d 3\n    h: 6\nz: 9\n"`.
+		- Remove `font.hint.fist`, remove `window`, set `font.face.family.kid2` to 3, then `to_text_keep_lines`. The swap is there after the first remove.
+	- Incorrect behavior: the first remove writes the kept `  ~ bad: 2`, which sat above `fist: 1`, below the kept `second: 2\a:` (`E025`), so 2 kept lines swap places. The reload reads the line after them, `    b: 1`, as `E018` where the base read it as `E012`, so the property sees an `E018` the base did not have. The reload is the same document.
+	- Expected behavior: a remove leaves the kept lines beside the node where they were, in file order (design.md "Kept lines under edits"). Or, to be judged, the property takes an `E012` turning into `E018` once the kept line above it moved.
+	- Reproduced: 20261107, Rust library, on `r1107c` at `217bff58` and on dev at `c9f4bc4b`, with the same text after each op. The round's new corpus cases 220 and 221 shifted the seeds onto it. The other 3 bindings not tried.
+	- Possible cause: `second: 2\a:` is refused, so `fist` is the only child of `hint`. The remove hands its kept leading line to `leave_last`, which appends it after the kept lines already at the end of the block, with no look at source order. `refile_folded` places by source line for this reason (2026110315051536).
+	- Estimated effort: Avg
+	- Test case: none yet. The fix adds this base and these ops as a fixed test, in all 4.
+
+- Schema check costs the square of the nesting depth in all 4 bindings
+	- ID: 2026110711492228
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261107-114922
+	- Opened by: me, from 2026110613470309
+	- Related IDs: 2026110613470309
+	- Version and build: dev at `c9f4bc4b`
+	- Steps to reproduce:
+		- The schema and document of 2026110613470309, and the same document at half the depth.
+	- Incorrect behavior: twice the depth costs about 4 times as much in all 4. Python takes 6.3 s on the 41 KB document.
+	- Expected behavior: spec.md says the check's cost is proportional to the document.
+	- Reproduced: 20261107, C and Python.
+	- Possible cause: the unknown-field sweep builds each node's chain from the root and matches it from the top, so a node at depth d costs d. Carrying each node's match states down from its parent would make it a constant per node.
+	- Regression test: the `df080` fixture in every runner, with four times the depth under 8 times the time.
+	- Estimated effort: Avg
 
 - The default run takes over an hour
 	- ID: 2026110215285706
@@ -934,6 +972,239 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- C's overlay and clone walks need stack in proportion to the depth
+	- ID: 2026110713595411
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Target version: v3.0.0
+	- Opened: 20261107-135954
+	- Opened by: Child of 2026110613470315
+	- Parent ID: 2026110613470315
+	- Steps to reproduce: `shcl_merge` of two documents at the depth cap on a thread with a 64 KB stack.
+	- Incorrect behavior: it overflows the stack. `w_overlay` takes 1104 bytes a level at -O2, and `w_clone_subtree` 400.
+	- Expected behavior: merge and clone at the depth cap fit a small thread stack, as Python's walks already do.
+	- Estimated effort: Avg
+	- Note: the 64 KB thread test and the harness in the tools folder's `deepstack/` come from the first child; add `merge` to the test.
+	- Reproduced: 20261107, `shcl_merge` of two documents at the cap on a 64 KB pthread segfaults on `528ade2c`.
+	- Actual cause: `w_overlay` recurses once per matched level, and `w_clone_subtree` once per level of what it copies.
+	- Actual fix: the overlay does one level at a time and queues the matched pairs below it, and the clone copies one node at a time from its own stack, both in the scratch arena, as Python's walks do. A level's rebuild reads nothing the deeper levels change, and a bracket reads only its own node, so the output is unchanged.
+	- Decisions: same pattern as Python's `_overlay` and `_clone_subtree`, so the two bindings that iterate agree in shape. The style guide's C deviation names all three walks.
+	- Test case: C runner `merge_at_the_depth_cap_fits_a_64_kb_stack` (`df0d5`): the capped document laid over an empty one (the clone) and a bare copy laid over that (the overlay), on a 64 KB thread, same bytes back. It crashed the runner on `528ade2c` and passes now.
+	- Verified: C runner, crosscheck with a fuzz dump (22 layered corpus cases among them), and `fmt --layer` of the capped document byte-identical to the recursive build.
+	- Swept: every caller of `w_clone_subtree` (the overlay's two and `shcl_compact`'s copy) and of `w_overlay` (`shcl_merge`). Python already iterates, Go grows its stack, Rust is 2026110713595457.
+	- Branch: `r1107c`
+	- Acceptance signoff: Self-closed: output unchanged across the crosscheck, and the test was seen to fail first.
+	- Closed: 20261107-143247
+
+- C's emit walk needs stack in proportion to the depth
+	- ID: 2026110713595389
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Target version: v3.0.0
+	- Opened: 20261107-135953
+	- Opened by: Child of 2026110613470315
+	- Parent ID: 2026110613470315
+	- Steps to reproduce: a 511-deep document with a comment at each level, and `shcl_to_canonical` on a thread with a 64 KB stack.
+	- Incorrect behavior: it overflows the stack. `emit_children` takes 368 bytes a level at -O2, so the cap needs about 190 KB.
+	- Expected behavior: emit at the depth cap fits a small thread stack.
+	- Estimated effort: Avg
+	- Reproduced: 20261107, a 64 KB pthread running `shcl_to_canonical` at the cap segfaults on `a6e28dfd`, and the CLI's `fmt` needs more than 160 KB under `ulimit -s`.
+	- Actual cause: `emit_children` and `emit_node` recurse once per level.
+	- Actual fix: the emit walk keeps its own stack of steps in the scratch arena, children queued last first and a post step under them for what a node writes after its children, as Python's walk does. Output is unchanged.
+	- Decisions: iterative rather than smaller frames, since a 64 KB stack leaves 128 bytes a level at the cap. A deliberate deviation in the style guide's C section. The CLI's own 64 KB read buffer keeps its `ulimit -s 64` run from starting at all, so the test runs the library on a thread.
+	- Test case: C runner `canonical_at_the_depth_cap_fits_a_64_kb_stack` (`df0c9`), parse and format at the cap on a 64 KB thread (CreateThread's size on Windows), same bytes back. It crashed the runner on the old header and passes now.
+	- Branch: `r1107c`
+	- Acceptance signoff: Self-closed: output unchanged across the crosscheck, and the test was seen to fail first.
+	- Closed: 20261107-142536
+	- Verified: C runner, crosscheck with a fuzz dump, cli-regress, sanitize-c, analyze-c, perf-gate and `--backlog-run-quick c` passed. The Windows branch of the test cross-compiles with mingw.
+	- Swept: the other depth-linear C walks are in 2026110713595411 and 2026110713595434. Python's emit already iterates, Go grows its stack, and Rust is 2026110713595457.
+
+- C checks a recursive schema in time cubic in the nesting depth
+	- ID: 2026110613470309
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Target version: v3.0.0
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 9
+	- Version and build: dev at `343334df`
+	- Steps to reproduce:
+		- A schema with `fragment: f` with a `field: a` that inherits `f` and an int `field: leaf`, plus a top-level `field: a` that inherits `f`.
+		- A 41 KB document of 40 lines, each `a(vN).`, then `a.` 509 times, then `leaf: 1`.
+		- `shcl check --schema=SCHEMA FILE`.
+	- Incorrect behavior: C 4.0 s, Python 7.4, Rust 0.56, Go 0.33. Twice the depth costs C 7 times as much, and the others 4 times.
+	- Expected behavior: spec.md says the check's cost is proportional to the document, never the schema's unfolding.
+	- Reproduced: 20261106, all 4 CLIs.
+	- Possible cause: C's candidate loop in `chain_parts_legal` walks to the end of the chain for each candidate at every level, where Rust stops at the path's length. That bound took C to 0.21 s, with the same results over the corpus schema cases. All 4 also rebuild each node's chain from the root in the unknown-field check, which is the square.
+	- Origin: `d61bfc8c` (2026-09-17). Code review 20260905 item 4 removed the doubling per level. perf-gate's `recurse` (`dc81v`) times one 60-level chain. Confirmed.
+	- Regression test: a scaling test in the C suite, a recursive schema 8 levels deeper checked in under 3 times the time, and a shared schema case all 4 suites run so the answer at depth is pinned too.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Related IDs: 2026110711492228
+	- Actual cause: confirmed. The candidate loop counted the chain's parts to its end to learn whether any were left past the path, once per candidate at every mount level.
+	- Actual fix: the loop compares only as far as the path goes, and reads what is left from the part count it already has. Python sliced the rest of the chain per level, a copy of the chain's length each time, and now indexes into it. On the issue's document C went from 4.1 s to 0.26 s, Python from 7.8 s to 6.3 s.
+		- Swept: Rust and Go take a view of the rest, not a copy. C's `star_legal` stops one part past its pattern. The square left in all 4 is 2026110711492228.
+	- Decisions:
+		- The scaling test times four times the depth, 120 against 480 levels, and allows 32 times the time. The square that stays makes 8 more levels or twice the depth too close a call against the cube. It measured 14 times on the fix and 49 times on the old code.
+		- The square, each node's chain built from the root, is its own Bug, since it is in all 4 and needs the matcher to carry its state down the tree.
+	- Test case: `mem_bounds` `df080` (`recursive_mount_check_is_not_cubic_in_depth`), which fails on the old code and passes now, and corpus `220-deep-fragment-chain` (`df07z`) in all 4 suites.
+	- Closed: 20261107-120026
+
+- `set_literal` leaves `quoted` false on a value the save writes quoted
+	- ID: 2026110613470310
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Target version: v3.0.0
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 10
+	- Version and build: dev at `343334df`
+	- Steps to reproduce:
+		- `set_literal("k", "10:00")`, read the `quoted` flag on `k`, save, reload, and read it again.
+		- The same for `(5)`, `- 5`, `1 200`, `1,2` and `2026-01-01T10:00`.
+	- Incorrect behavior: false before the save and true after it. `set_string` with the same text gives true both times.
+	- Expected behavior: spec.md says a value a setter wrote counts as quoted when a save would quote it, so the flag reads the same before and after the save.
+	- Reproduced: 20261106, Rust, Go, Python and the C++ interface. No typed read differed for these values.
+	- Possible cause: `set_literal` builds its cell from the tokens, not through `new_element`, which every other setter uses since Code review 20260909 item 13.
+	- Origin: `58d8e81e` (2026-09-09). A missed twin of Code review 20260909 item 13. Confirmed.
+	- Regression test: an ops-script case for all 4 suites: `set_literal` with each listed value, the `quoted` flag read before the save and after a reload, both true; watched to fail on `343334df`.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: confirmed. `literal_value` returned the cell the tokens gave, so a bare piece kept its bare mark even where the writer quotes it.
+	- Actual fix: a bare element from `literal_value` is rebuilt the way the other setters build theirs, a value by `new_scalar` and an array element by `new_element`, in Rust, Go, Python and C. The author's quotes and a backtick value stay as given, and a bare thousands number stays bare, as the save writes it. The changelog says so. spec.md already stated the rule.
+		- Swept: every `cell_of_tokens` and `element_of` caller in all 4. The others are the parser's, for text a source wrote. `set_literal_default` and every CLI's `--set-literal` go through `set_literal`, and the C++ `set_literal` wraps C's.
+	- Decisions:
+		- me, 20261107: the test is a runner fixture in all 4 suites, not a write-ops case, since the ops dimension reads no `quoted` flag. Adding one to all 4 runners and the CLI replay is more than this needs.
+	- Verified: the new fixture fails on the old code in all 4 and passes after. The 4 conformance suites (220 cases), `cargo test`, both Go modules, gofmt, go vet, rustfmt, ruff, mypy, `cicd/cicd.bash --backlog-run-quick rust go python c cli`, cli-regress (658 rows) and crosscheck over the corpus.
+	- Test case: `set_literal_quoted_flag_survives_a_save`, Rust `df08k`, Go `df08m`, Python `df08n`, C `df08p`: each listed value read before the save and after a reload, both true, with a bare word, a bare thousands number, a quoted value and a one-element array beside them.
+	- Acceptance signoff: Self-closed 20261107: the expected behavior on the item; the tests fail before and pass after.
+	- Closed: 20261107-122414
+
+- Some spec sentences don't match what all 4 bindings do
+	- ID: 2026110613470314
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Target version: v3.0.0
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 14
+	- Related IDs: 2026100717500001, 2026100717500010
+	- Version and build: dev at `343334df`
+	- Steps to reproduce: run each case below through the 4 CLIs.
+	- Incorrect behavior:
+		- A lookup path whose bare selector body starts with `#`, or has `E017` or `E023` in it, "finds nothing" in spec.md's Paths section, its `E023` row and its selector bullet, and in grammar.abnf and design.md. Every binding refuses it as `BadPath` at exit 1, since 2026100717500001.
+		- The indent rule says "a proper prefix of the open one is a child". It's the other way round: the open level's indent is a proper prefix of the child's.
+		- The init annotation line is "ASCII only", with a newline written as `\n`. It writes `◉` escapes and other non-ASCII text, such as `a◉NEWLINE◉b`. Rust's `gen_annotation` comment says ASCII too.
+		- A set with no selector over repeated instances is refused "since a read of the path would answer `Multiple` too". With `srv: a`, `srv: b` and `srv.port: 80` the read gives 80 and the set is refused. The refusal is by step, per 2026100717500010, so only the reason is wrong.
+		- `allowed` on a datetime compares in "the coerced space", the moment. `12:00` and `12:00:00` are 2 values to it, on purpose since Code review 20260905 item 8, and the spec doesn't say so.
+	- Expected behavior: the docs say what the code does.
+	- Reproduced: 20261106, all 4 CLIs.
+	- Origin: the "finds nothing" lines are `df0eab64` (2026-10-06), a day before `BadPath`. The indent line is `d5978c0d` (2026-09-20), the annotation line `dd004f13` (2026-09-08, before `◉`), and the set line `a4d2d6b0` (2026-10-08). Confirmed.
+	- Regression test: one corpus case per sentence, pinning whichever side was kept (the code or the sentence), with the sentence quoted in the case's notes, so the next edit to either side fails the case.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause [Bug]: each sentence predates the code change it describes, and no test reads the spec's wording.
+	- Decisions:
+		- me, 20261107: the code is kept in all 5. Each behavior was chosen on purpose, by 2026100717500001, 2026100717500010 and Code review 20260905 item 8, or is how every file nests.
+		- me, 20261107: the pins are rows in existing corpus cases and 2 cli-regress rows, not 5 new corpus cases. A new or changed `input.shcl` or `init-schema.shcl` shifts the fuzz seeds and asks for a 2M fuzz, and these pin nothing new in the parser. The sentences are quoted in the conformance README's case notes and the cli-regress comments.
+		- me, 20261107: the indent rule has no test of its own. No test reads spec.md's wording, and every nested case in the corpus already pins the direction. Case 147's note quotes it.
+		- me, 20261107: spec.md's `E023` row and its escape bullet already said a lookup path holding one is refused, so they are unchanged.
+	- Actual fix [Bug]: spec.md's comment bullet, selector bullet and selector forms say such a path is refused as `BadPath`, as grammar.abnf and design.md now do. The indent rule says a line whose indent has the open one's as a proper prefix is a child. The annotation sentence drops "ASCII only" and says a line break is written as `◉NEWLINE◉` and other text as it is, and the annotation comment in all 4 bindings says the same. The set rule's reason is that the write would have to pick an instance, which holds even where the read finds one node. `allowed` on a datetime says written seconds count, so `12:00` and `12:00:00` are 2 values.
+	- Swept: `git grep -n -i 'finds nothing\|proper prefix\|ASCII only\|answer .Multiple. too\|coerced space'` over the tree: what is left is about other things (an index past every int width, a link to nowhere, the code style guide's comment rule).
+	- Verified: the 4 conformance suites, cli-regress (660 rows), crosscheck (23751 comparisons), check-docs, check-abnf, test-ids, shellcheck, ruff, go vet, gofmt, rustfmt, markdownlint, mdcheck. The new corpus rows fail in Python with a wrong expected status and an index-picked set put in `write-bad.ops`, and pass as committed.
+	- Test case: corpus `216-hash-in-path` (`dez5a`, selector bodies with `#`, `E017` and `E023` are `BadPath`), `037-star-name` (`dact1`, `server.host` reads one node and its setter is refused), `147-indent-styles` (`dd2qd`, the indent direction), cli-regress `allowed-datetime-seconds` (`df0bt`) and `init-annotation-escape` (`df0bv`).
+	- Acceptance signoff: Self-closed: docs now say what all 4 bindings do, with the code unchanged.
+	- Branch: `r1107c`
+	- Closed: 20261107-135444
+
+- The setup's PATH removal rewrites a machine PATH that doesn't have the folder
+	- ID: 2026110613470316
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Target version: v3.0.0
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 16
+	- Target OS: Windows
+	- Version and build: dev at `343334df`
+	- Steps to reproduce: `cicd/packaging/shclpath.ps1 -Remove` with the folder missing from a machine PATH that ends in `;`.
+	- Incorrect behavior: it writes the machine PATH anyway, with the empty parts dropped.
+	- Expected behavior: no write, the way install.ps1 does since `a30d9b91`, where absent is no write.
+	- Reproduced: 20261106, the same expressions under pwsh on Linux.
+	- Origin: `f66b81f5` (2026-09-17). A missed twin of `a30d9b91` (2026-09-27). Confirmed.
+	- Regression test: a winpath-regress.ps1 row: `-Remove` on a machine PATH that lacks the folder leaves the machine PATH byte for byte as it was; runs in win-runners on b29w, and its logic row under pwsh on Linux through the sandbox.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: confirmed. shclpath.ps1 rebuilt the value from its non-empty segments and wrote it whenever that differed from what it read, so an empty segment alone made a remove write. Its add rebuilt the value the same way.
+	- Actual fix: shclpath.ps1 writes only when its own segment changes, as install.ps1's `Update-ShclPath` does. A remove of a folder that isn't there writes nothing, and an add appends to the value as it was. The changelog says so.
+		- Swept: install.ps1's `Update-ShclPath`, already right for both. The NSIS script calls shclpath.ps1 and edits no PATH itself.
+	- Decisions:
+		- me, 20261107: the add half gets the same fix, since it rewrote a PATH with empty segments the same way. A remove that does take our segment still drops empty ones, as install.ps1's does (`dc52t`).
+	- Verified: on b29w, winpath-regress.ps1 `df0af` and `df0ag` fail with the old shclpath.ps1 and pass with the new one, and every other row passes; the machine PATH was back as it was after. shell-regress `df0ah` fails on the old script and passes on the new one.
+	- Test case: winpath-regress.ps1 `df0af` (a remove of an absent folder leaves a machine PATH ending in `;;` byte for byte) and `df0ag` (an add keeps the empty segments), in win-runners on Windows; shell-regress `df0ah`, the shipped script against a stand-in registry key on Linux.
+	- Acceptance signoff: Self-closed 20261107: the expected behavior on the item; the tests fail before and pass after.
+	- Closed: 20261107-134129
+
+- install.ps1 calls `tar` by name, so a GNU tar ahead of System32 can't unpack the payload
+	- ID: 2026110613470317
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Target version: v3.0.0
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 17
+	- Target OS: Windows
+	- Version and build: dev at `343334df`
+	- Steps to reproduce: a PATH with Git for Windows' `usr\bin`, MSYS2 or Cygwin ahead of System32, then install.ps1.
+	- Incorrect behavior: GNU tar reads `C:\...` as a remote host and file unless given `--force-local`, so the unpack fails.
+	- Expected behavior: the install works with any PATH order.
+	- Reproduced: 20261107, b29w, Windows PowerShell 5.1 with Git's `usr\bin` first on PATH: `tar -xzf C:\...` says "Cannot connect to C: resolve failed" and exits 2.
+	- Possible cause: `tar -xzf ... -C ...` at the unpack, found through `Get-Command tar`.
+	- Origin: Plausible.
+	- Regression test: a win-runners row on b29w that puts a `tar` stub ahead of System32 on PATH and runs install.ps1's unpack; the stub recording a call fails the row. Batched with 2026110408432594's visit.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: confirmed, as above.
+	- Actual fix: install.ps1 unpacks through `%SystemRoot%\System32\tar.exe` by full path (`Get-ShclTar`, `Expand-ShclPayload`), and the check before the download looks for that file rather than any `tar` on PATH. A 32-bit PowerShell finds it too, through SysWOW64. The changelog says so.
+		- Swept: install.ps1 runs no other native tool by name except the shcl.exe it downloaded. shell-regress `dd51t`'s line for the tar check now names `Get-ShclTar`, and `dd2rm` gives its whole-script run a stand-in SystemRoot.
+	- Decisions:
+		- me, 20261107: Windows' own tar by path, not `--force-local` or a relative path, so the unpack doesn't depend on which tar a PATH has. A Windows older than 1803 with only a GNU tar on PATH now gets the "needs tar" message before the download, rather than a failed unpack after it.
+		- me, 20261107: shell-regress `dd51t` looks for `Test-Path -LiteralPath (Get-ShclTar)` before the first download, in place of `Get-Command -Name tar`. The rest of the row is as it was.
+	- Verified: on b29w, win-runners' `df0ap` row passes with a recording `tar.cmd` first on PATH, and the stub was never called. shell-regress `df0aj` passes, and fails on the old install.ps1.
+	- Test case: win-runners `df0ap` (a `tar` ahead of System32 on PATH is never called, and the payload unpacks), shell-regress `df0aj` (the same with a stand-in System32 on Linux).
+	- Acceptance signoff: Self-closed 20261107: reproduced, and the tests fail before and pass after.
+	- Closed: 20261107-134129
+
+- install.bash fails when a temp folder's name has `..` in it, and the tag filter isn't anchored
+	- ID: 2026110613470318
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Target version: v3.0.0
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 18
+	- Version and build: dev at `343334df`
+	- Steps to reproduce: `TMPDIR` set to a folder named `tmp sp..x`, then install.bash.
+	- Incorrect behavior: the install finishes, then prints `safe-rm: refused, bad path` and exits 1. The temp folder with the binary and payload stays.
+		- The "only vX.Y.Z tags" filter in both installers isn't anchored at the end, so install.bash would take a tag `v2.0.0x`, and install.ps1 throws on it.
+	- Expected behavior: exit 0 and the folder removed. `..` is only unsafe as a whole path part, which is how install.ps1's `Remove-SafeTree` checks it.
+	- Reproduced: 20261106, install.bash in a sandbox, and both tag pickers run on lists of tags.
+	- Origin: `fRmTmp`'s match is `ae548339` (2026-10-31), the tag filter `ce64bbea`. Confirmed.
+	- Regression test: shell-regress rows: install.bash run from a temp folder whose name has `..` in it, and a tag list where a longer tag contains the wanted one, asserting the anchored match; both watched to fail on `343334df`.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: confirmed. `fRmTmp` refused `*..*` anywhere in the path, and both tag filters matched only the start of the tag.
+	- Actual fix: install.bash's `fRmTmp` refuses `..` only as a whole path part. Both installers take a tag only when it is all of `vX.Y.Z`, with an optional `-suffix` of letters, digits, dots and dashes. The changelog says so.
+		- Swept: the same `*..*` test was in the repo's own guard, `fSafeRm` and `fSafeRmUnder` in `cicd/utility/include/safe-rm.bash`, and in check-boxes' guard on a box. All 3 take the same fix. install.ps1's `Remove-SafeTree` already checked by part. No other tag filter in the tree.
+	- Decisions:
+		- me, 20261107: the suffix allows `.` and `-`, so `v2.1.0-alpha.10` still counts. A `+build` tag or a 4-part version doesn't.
+	- Verified: shell-regress `df0ak` and `df0am` and check-push-gate `df0an` fail on the old code and pass on the new. check-push-gate's guard rows `dephf` and `depk3` still pass, so `..` as a part is still refused.
+	- Test case: shell-regress `df0ak` (install.bash under a TMPDIR named `tmp sp..x` exits 0 and leaves nothing), `df0am` (both pickers drop `v2.0.0x`, `v2.0.1.4`, `v2.0.1+build`); check-push-gate `df0an` (`fSafeRm`, `fSafeRmUnder` and `fRmTmp` take a folder with `..` in a name, and no guard tests `*..*`).
+	- Acceptance signoff: Self-closed 20261107: the expected behavior on the item; the tests fail before and pass after.
+	- Closed: 20261107-134129
 
 - A load that re-opens many blocks takes time in the square of their count since 2026-11-04
 	- ID: 2026110613470305

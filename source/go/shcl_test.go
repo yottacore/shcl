@@ -2019,6 +2019,50 @@ func TestFieldsGiveEachInstanceItsOwnPath(t *testing.T) {
 	}
 }
 
+// A bare value SetLiteral stores counts as quoted when a save quotes it, as
+// from every other setter, so the flag reads the same after a reload
+// (2026110613470310). Same fixture in every runner.
+func TestSetLiteralQuotedFlagSurvivesASave(t *testing.T) {
+	defer testID(t, "df08m")
+	cases := []struct {
+		path, text string
+		quoted     bool
+	}{
+		{"a", "10:00", true},
+		{"b", "(5)", true},
+		{"c", "- 5", true},
+		{"d", "1 200", true},
+		{"e", "1,2", true},
+		{"f", "2026-01-01T10:00", true},
+		{"g", "abc", false},
+		{"h", "1,200", false},
+		{"i", "'x'", true},
+	}
+	doc := Parse("")
+	for _, c := range cases {
+		if st := doc.SetLiteral(c.path, c.text); st != SetOk {
+			t.Fatalf("SetLiteral %q: %v", c.text, st)
+		}
+	}
+	if st := doc.SetLiteral("j", "[10:00]"); st != SetOk {
+		t.Fatalf("SetLiteral [10:00]: %v", st)
+	}
+	back := Parse(doc.ToCanonical())
+	for _, d := range []struct {
+		name string
+		doc  *Document
+	}{{"set", doc}, {"reload", back}} {
+		for _, c := range cases {
+			if got := d.doc.ReadString(c.path).Quoted; got != c.quoted {
+				t.Errorf("%s %q: quoted %v", d.name, c.text, got)
+			}
+		}
+		if !d.doc.ReadStringArray("j").Quoted {
+			t.Errorf("%s [10:00]: reads unquoted", d.name)
+		}
+	}
+}
+
 func TestReadSurfaceLineQuotedChildren(t *testing.T) {
 	defer testID(t, "daqt0")
 	// Line/Quoted on the read result, Line(path), Children(path). Same

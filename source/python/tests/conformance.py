@@ -2391,6 +2391,34 @@ def main():
 		raise SystemExit(f"read_child_fields shard(1) got {fr.value} {fr.line}")
 	if fdoc.read_child_fields("nope").status != shcl.Status.NotFound or fdoc.read_child_fields("a..b").status != shcl.Status.BadPath:
 		raise SystemExit("read_child_fields status")
+	test_id("df08n", "set_literal_quoted_flag_survives_a_save")
+	# A bare value set_literal stores counts as quoted when a save quotes it,
+	# as from every other setter, so the flag reads the same after a reload
+	# (2026110613470310). Same fixture in every runner.
+	qcases = [
+		("a", "10:00", True),
+		("b", "(5)", True),
+		("c", "- 5", True),
+		("d", "1 200", True),
+		("e", "1,2", True),
+		("f", "2026-01-01T10:00", True),
+		("g", "abc", False),
+		("h", "1,200", False),
+		("i", "'x'", True),
+	]
+	qdoc = shcl.Document.parse("")
+	for path, text, _ in qcases:
+		if qdoc.set_literal(path, text) != shcl.SetStatus.Ok:
+			raise SystemExit(f"set_literal {text!r} refused")
+	if qdoc.set_literal("j", "[10:00]") != shcl.SetStatus.Ok:
+		raise SystemExit("set_literal [10:00] refused")
+	qback = shcl.Document.parse(qdoc.to_canonical())
+	for name, qd in (("set", qdoc), ("reload", qback)):
+		for path, text, quoted in qcases:
+			if qd.read_string(path).quoted != quoted:
+				raise SystemExit(f"set_literal {name} {text!r}: quoted {not quoted}")
+		if not qd.read_string_array("j").quoted:
+			raise SystemExit(f"set_literal {name} [10:00]: reads unquoted")
 	test_id("dbxkn", "read_surface_line_quoted_children")
 	# line/quoted on the read result, line(path), children(path). Same
 	# fixture in every runner (C pins the same answers on shcl_quoted and

@@ -1,0 +1,6 @@
+query	type	expected	status
+-	load	ok	-
+-	lost	0	-
+a	count	7	-
+a(v0).a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.leaf	int	1	Good
+a(v4).p.q.a.p.q.a.p.q.a.p.q.a.p.q.a.p.q.a.p.q.a.p.q.a.p.q.a.p.q.a.p.q.a.p.q.a.p.q.a.p.q.a.p.q.a.p.q.a.p.q.a.p.q.a.p.q.a.p.q.a.leaf	int	4	Good

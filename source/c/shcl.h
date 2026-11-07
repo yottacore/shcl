@@ -5190,6 +5190,17 @@ static int stacks(const ShclNode *nd) {
 	return nd->star_list || triv_among(nd).len || triv_notes(nd).len;
 }
 
+/* Lines an edit took off a node or a list item it took away go to heir:
+   right above its line, after its own comments, with its blank above them
+   (design.md, Lines an edit takes from their node). */
+static void adopt(shcl_doc *d, ShclNode *heir, ShclVecLead lines) {
+	if (!lines.len) return;
+	lines.data[0].blank_before = heir->blank_before;
+	heir->blank_before = 0;
+	ShclTrivia *t = triv_mut(&d->arena, heir);
+	for (size_t i = 0; i < lines.len; i++) ShclVecLead_push(&d->arena, &t->leading, lines.data[i]);
+}
+
 /* A list after an empty binding of its name cannot be written stacked: its
    bare header would merge into that binding on a reload. It goes in
    brackets, and the lines among its elements and the comments on them go
@@ -5204,15 +5215,17 @@ static void unstack(shcl_doc *d, ShclNode *nd) {
 	ShclTrivia *t = nd->trivia;
 	if (!t) return;
 	ShclArena *a = &d->arena;
+	ShclVecLead orphans = {0};
 	size_t k = 0;
 	for (size_t i = 0; i < t->among.len; i++) {
 		for (; k < t->notes.len && t->notes.data[k].at < t->among.data[i].before; k++)
-			ShclVecLead_push(a, &t->leading, lead_plain(t->notes.data[k].text));
-		ShclVecLead_push(a, &t->leading, t->among.data[i].lead);
+			ShclVecLead_push(a, &orphans, lead_plain(t->notes.data[k].text));
+		ShclVecLead_push(a, &orphans, t->among.data[i].lead);
 	}
-	for (; k < t->notes.len; k++) ShclVecLead_push(a, &t->leading, lead_plain(t->notes.data[k].text));
+	for (; k < t->notes.len; k++) ShclVecLead_push(a, &orphans, lead_plain(t->notes.data[k].text));
 	t->among.len = 0;
 	t->notes.len = 0;
+	adopt(d, nd, orphans);
 }
 
 /* A merge writes a list in brackets. */
@@ -8895,6 +8908,12 @@ static int literal_value(ShclArena *a, ShclArena *tmp, ShclStr text, ShclValue *
 	ShclFault f;
 	if (array_fault(tmp, &tok, &f) || (tok.nelem > 1 && !tok.has_array) || (!fence && value_fault(tmp, &tok, line, &f))) return 0;
 	*out = cell_of_tokens(a, tmp, &tok, line);
+	/* No source wrote it either, so bare text the save quotes counts as
+	   quoted, as from the other setters. The author's quotes stay. */
+	for (size_t i = 0; i < out->nels; i++) {
+		if (out->els[i].mark != MARK_BARE) continue;
+		out->els[i] = out->kind == V_CELL ? new_scalar(out->els[i].text) : new_element(out->els[i].text);
+	}
 	return 1;
 }
 
@@ -9136,8 +9155,12 @@ static ShclTrivia *w_clone_trivia(ShclArena *a, const ShclTrivia *st) {
 	}
 	return nt;
 }
-/* merged: the copy is a merge's, which writes every list in brackets. */
-static size_t w_clone_subtree(shcl_doc *d, const shcl_doc *over, size_t oi, size_t parent, int merged) { // NOLINT(bugprone-easily-swappable-parameters): source node, then the parent it goes under
+/* A node and the node it came from, for the walks that keep their own stack. */
+typedef struct { size_t node, from; } ShclNodePair;
+DEFINE_VEC(ShclVecNodePair, ShclNodePair)
+
+/* One node of w_clone_subtree: everything but the children. */
+static size_t w_clone_node(shcl_doc *d, const shcl_doc *over, size_t oi, size_t parent) { // NOLINT(bugprone-easily-swappable-parameters): source node, then the parent it goes under
 	ShclArena *a = &d->arena;
 	const ShclNode *src = &over->nodes.data[oi];
 	ShclNode n; memset(&n, 0, sizeof n);
@@ -9153,15 +9176,38 @@ static size_t w_clone_subtree(shcl_doc *d, const shcl_doc *over, size_t oi, size
 	if (src->trivia) n.trivia = w_clone_trivia(a, src->trivia);
 	size_t idx = d->nodes.len;
 	nodes_push(d, n);
-	// Snapshot the source children (const, stable) before recursing.
-	size_t nk = over->nodes.data[oi].children.len;
-	for (size_t i = 0; i < nk; i++) {
-		size_t ok = over->nodes.data[oi].children.data[i];
-		size_t c = w_clone_subtree(d, over, ok, idx, merged);
-		ShclVecSize_push(a, &NODE(d, idx).children, c);
-	}
-	if (merged) bracket(d, &NODE(d, idx));
 	return idx;
+}
+
+/* merged: the copy is a merge's, which writes every list in brackets. The
+   reference recurses once per level; this keeps its own stack, as Python's
+   does, so a subtree at the nesting cap fits a small thread stack. Children
+   are queued last first so they pop in source order, and each appends to its
+   own parent, so sibling order holds. */
+static size_t w_clone_subtree(shcl_doc *d, const shcl_doc *over, size_t oi, size_t parent, int merged) { // NOLINT(bugprone-easily-swappable-parameters): source node, then the parent it goes under
+	ShclArena *a = &d->arena;
+	size_t root = w_clone_node(d, over, oi, parent);
+	ShclVecNodePair todo; memset(&todo, 0, sizeof todo);
+	ShclNodePair top; top.node = root; top.from = oi;
+	ShclVecNodePair_push(&d->scratch, &todo, top);
+	while (todo.len) {
+		ShclNodePair p = todo.data[--todo.len];
+		size_t first = todo.len;
+		size_t nk = over->nodes.data[p.from].children.len; // const doc: stable
+		for (size_t i = 0; i < nk; i++) {
+			size_t ok = over->nodes.data[p.from].children.data[i];
+			size_t c = w_clone_node(d, over, ok, p.node);
+			ShclVecSize_push(a, &NODE(d, p.node).children, c);
+			ShclNodePair q; q.node = c; q.from = ok;
+			ShclVecNodePair_push(&d->scratch, &todo, q);
+		}
+		for (size_t lo = first, hi = todo.len; lo + 1 < hi; lo++, hi--) {
+			ShclNodePair t = todo.data[lo]; todo.data[lo] = todo.data[hi - 1]; todo.data[hi - 1] = t;
+		}
+		/* Its child list is final now, and bracketing reads only the node. */
+		if (merged) bracket(d, &NODE(d, p.node));
+	}
+	return root;
 }
 
 /* A matched instance keeps the base node, so the over side's comments have to
@@ -9200,9 +9246,10 @@ static void adopt_trivia(shcl_doc *d, size_t base, const shcl_doc *over, size_t 
 // shape re-filtered the over side per distinct name and re-scanned (and
 // re-keyed) the base side per over node - three O(K^2) terms at one parent,
 // plus a fresh children vector per replaced name.
+// One level of the overlay. The pairs whose subtrees still have to be merged
+// go on pending, in order.
 // codeql[cpp/complex-block] laid out as the Rust reference's w_overlay is, for parity
-static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, ShclVecSize *touched) {
-	ShclVecSize_push(&d->scratch, touched, bp);
+static void w_overlay_level(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, ShclVecNodePair *pending) {
 	ShclArena *a = &d->arena;
 	ShclArena *t = &d->scratch;
 	ShclVecSize okids = over->nodes.data[op].children; // const doc: stable
@@ -9388,10 +9435,8 @@ static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, S
 				}
 				if (b != (size_t)-1) {
 					adopt_trivia(d, b, over, ok);
-					w_overlay(d, b, over, ok, touched);
-					/* A merge writes a list in brackets, once its child list
-					   is final. */
-					bracket(d, &NODE(d, b));
+					ShclNodePair pr; pr.node = b; pr.from = ok;
+					ShclVecNodePair_push(t, pending, pr);
 				}
 				else { app_at[pos] = w_clone_subtree(d, over, ok, bp, 1); nappended++; }
 			}
@@ -9437,6 +9482,28 @@ static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, S
 	for (size_t k = 0; k < nw.len; k++) kept.data[k] = nw.data[k];
 	kept.len = nw.len;
 	NODE(d, bp).children = kept;
+}
+
+/* The reference recurses once per level here. This keeps its own stack, as
+   Python's does, so a merge at the nesting cap fits a small thread stack. A
+   level's rebuild reads nothing the deeper levels change, so deferring them
+   changes no result, and the walk stays depth-first and in order. touched
+   gets the base blocks it visits, which are the ones a merge settles. */
+static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, ShclVecSize *touched) {
+	ShclVecNodePair todo; memset(&todo, 0, sizeof todo);
+	ShclNodePair top; top.node = bp; top.from = op;
+	ShclVecNodePair_push(&d->scratch, &todo, top);
+	while (todo.len) {
+		ShclNodePair p = todo.data[--todo.len];
+		ShclVecSize_push(&d->scratch, touched, p.node);
+		size_t first = todo.len;
+		w_overlay_level(d, p.node, over, p.from, &todo);
+		for (size_t lo = first, hi = todo.len; lo + 1 < hi; lo++, hi--) {
+			ShclNodePair t = todo.data[lo]; todo.data[lo] = todo.data[hi - 1]; todo.data[hi - 1] = t;
+		}
+		/* A merge writes a list in brackets, once its child list is final. */
+		if (p.node != bp) bracket(d, &NODE(d, p.node));
+	}
 }
 
 void shcl_merge(shcl_doc *d, const shcl_doc *over) {
@@ -10711,12 +10778,18 @@ static void push_leads(shcl_doc *d, ShclEmit *e, const ShclLead *leads, size_t n
 	}
 }
 
-// Emit a sibling run. The parent walk already knows whether an earlier
-// same-name sibling is empty (the raw same-line-fence hazard), so one
-// seen-empties set here replaces a per-child rescan of the whole run.
-static void emit_node(shcl_doc *d, size_t idx, size_t pos, size_t depth, int would_merge, ShclEmit *e);
-static void emit_children(shcl_doc *d, const ShclVecSize *kids, size_t depth, ShclEmit *e) {
+/* One step of the emit walk: a node's line, then its children, or with post
+   set, what the node writes after its children. */
+typedef struct { size_t idx, pos, depth; int would_merge, post; } ShclEmitStep;
+DEFINE_VEC(ShclVecEmitStep, ShclEmitStep)
+
+// Queue a sibling run, last first so the first pops first. The parent walk
+// already knows whether an earlier same-name sibling is empty (the raw
+// same-line-fence hazard), so one seen-empties set here replaces a per-child
+// rescan of the whole run.
+static void emit_children(shcl_doc *d, const ShclVecSize *kids, size_t depth, ShclEmit *e, ShclVecEmitStep *todo) {
 	ShclCMap empties; memset(&empties, 0, sizeof empties);
+	size_t first = todo->len;
 	for (size_t i = 0; i < kids->len; i++) {
 		size_t c = kids->data[i];
 		ShclNode *n = &NODE(d, c);
@@ -10727,27 +10800,43 @@ static void emit_children(shcl_doc *d, const ShclVecSize *kids, size_t depth, Sh
 		int wm = n->value.kind == V_RAW && seen;
 		if (v_is_empty(&n->value) && !seen)
 			cmap_put(&d->scratch, &empties, h, c);
-		emit_node(d, c, i, depth, wm, e);
+		ShclEmitStep s; s.idx = c; s.pos = i; s.depth = depth; s.would_merge = wm; s.post = 0;
+		ShclVecEmitStep_push(e->a, todo, s);
+	}
+	for (size_t lo = first, hi = todo->len; lo + 1 < hi; lo++, hi--) {
+		ShclEmitStep t = todo->data[lo]; todo->data[lo] = todo->data[hi - 1]; todo->data[hi - 1] = t;
 	}
 }
 
 static void emit_line(shcl_doc *d, size_t idx, size_t pos, size_t depth, int would_merge, ShclEmit *e);
-static void emit_node(shcl_doc *d, size_t idx, size_t pos, size_t depth, int would_merge, ShclEmit *e) {
-	emit_line(d, idx, pos, depth, would_merge, e);
-	ShclVecSize ch = NODE(d, idx).children;
-	emit_children(d, &ch, depth + 1, e);
-	emit_near(e, idx, pos);
-	/* Comments this block owns with no child to take them, one deeper. */
-	ShclVecLead ins = triv_inside(&NODE(d, idx));
-	push_leads(d, e, ins.data, ins.len, depth + 1, idx, SITE_INSIDE, 0);
-	/* Comments that hung on this block after its last child. */
-	ShclVecLead aft = triv_after(&NODE(d, idx));
-	push_leads(d, e, aft.data, aft.len, depth, idx, SITE_AFTER, 0);
+/* The reference recurses once per level here. This walks its own stack in
+   the same order, since at the nesting cap the recursion wanted about 190 KB
+   of stack, more than a small thread has. */
+static void emit_tree(shcl_doc *d, ShclEmit *e) {
+	ShclVecEmitStep todo; memset(&todo, 0, sizeof todo);
+	ShclVecSize rc = NODE(d, ROOT).children;
+	emit_children(d, &rc, 0, e, &todo);
+	while (todo.len) {
+		ShclEmitStep s = todo.data[--todo.len];
+		if (s.post) {
+			emit_near(e, s.idx, s.pos);
+			/* Comments this block owns with no child to take them, one deeper. */
+			ShclVecLead ins = triv_inside(&NODE(d, s.idx));
+			push_leads(d, e, ins.data, ins.len, s.depth + 1, s.idx, SITE_INSIDE, 0);
+			/* Comments that hung on this block after its last child. */
+			ShclVecLead aft = triv_after(&NODE(d, s.idx));
+			push_leads(d, e, aft.data, aft.len, s.depth, s.idx, SITE_AFTER, 0);
+			continue;
+		}
+		emit_line(d, s.idx, s.pos, s.depth, s.would_merge, e);
+		/* Under the children, so it pops after them. */
+		s.post = 1;
+		ShclVecEmitStep_push(e->a, &todo, s);
+		ShclVecSize ch = NODE(d, s.idx).children;
+		emit_children(d, &ch, s.depth + 1, e, &todo);
+	}
 }
 
-/* Kept out of emit_node, which recurses once per level: its locals would
-   otherwise sit in every frame, and a document at the nesting cap ran past a
-   1 MB stack in the reference's debug build. */
 static void emit_line(shcl_doc *d, size_t idx, size_t pos, size_t depth, int would_merge, ShclEmit *e) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	/* The whole emit - the output buffer and the quoted/escaped spellings both -
 	   is built in scratch; shcl_to_canonical copies the finished bytes into the
@@ -10846,8 +10935,7 @@ static void emit_line(shcl_doc *d, size_t idx, size_t pos, size_t depth, int wou
 }
 
 static void emit_all(shcl_doc *d, ShclEmit *e) {
-	ShclVecSize rc = NODE(d, ROOT).children;
-	emit_children(d, &rc, 0, e);
+	emit_tree(d, e);
 	/* Comments that never found a following line re-emit at the end. */
 	emit_near(e, ROOT, 0);
 	push_leads(d, e, d->orphans.data, d->orphans.len, 0, ROOT, SITE_ORPHANS, 0);
@@ -13348,21 +13436,22 @@ static int chain_parts_legal(const ShclVecVCons *cons, size_t set, const ShclVSc
 		for (size_t bi = 0; bi < list->len; bi++) {
 			const ShclVCons *c = &cons->data[list->data[bi]];
 			size_t n = c->segs.len;
-			size_t part = 0, i = from, rem = from;
+			// Compare only as far as the path goes. Walking the rest of the
+			// chain per candidate made every level cost the chain's length,
+			// which is cubic in the depth of a recursive mount.
+			size_t part = 0, i = from;
 			int match = 1;
 			ShclStr nm;
-			while (match && chain_next(chain, &i, &nm)) {
-				if (part < n) {
-					if (!c->segs.data[part].star && !s_eq(c->segs.data[part].name, nm)) match = 0;
-					if (part + 1 == n) rem = i; // remainder starts past the matched prefix
-				}
+			while (match && part < n && chain_next(chain, &i, &nm)) {
+				if (!c->segs.data[part].star && !s_eq(c->segs.data[part].name, nm)) match = 0;
 				part++;
 			}
 			if (!match) continue;
-			if (part <= n) return 1; // a prefix of a legal path
+			if (nparts - at <= n) return 1; // a prefix of a legal path
 			if (c->inherits.n) {
 				size_t fi = v_frag_index(def, c->inherits);
-				if (fi != SIZE_MAX && chain_parts_legal(&def->frags.data[fi].fields, fi + 1, def, set_idx, chain, rem, at + n, nparts, dead)) return 1;
+				// i is past the matched path, where the remainder starts.
+				if (fi != SIZE_MAX && chain_parts_legal(&def->frags.data[fi].fields, fi + 1, def, set_idx, chain, i, at + n, nparts, dead)) return 1;
 			}
 		}
 	}
@@ -15364,7 +15453,8 @@ static ShclStr v_allowed_join(ShclArena *a, const ShclVCons *c) {
 	return sb_S(&s);
 }
 
-// The `# type, ...` annotation line summarizing a constraint, ASCII only.
+// The `## type, ...` annotation line summarizing a constraint. Values keep
+// their text, with a line break written as its escape.
 static ShclStr v_gen_annotation(ShclArena *a, const ShclVCons *c, ShclStr tyname) {
 	ShclSB s = {0, 0, 0};
 	char nb[80];

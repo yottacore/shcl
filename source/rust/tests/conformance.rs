@@ -2320,6 +2320,37 @@ fn setters_refuse_a_value_the_reader_refuses() {
 	);
 }
 
+// A bare value `set_literal` stores counts as quoted when a save quotes it,
+// as from every other setter, so the flag reads the same after a reload
+// (2026110613470310). Same fixture in every runner.
+#[test]
+fn set_literal_quoted_flag_survives_a_save() {
+	let _id = test_id("df08k");
+	let cases = [
+		("a", "10:00", true),
+		("b", "(5)", true),
+		("c", "- 5", true),
+		("d", "1 200", true),
+		("e", "1,2", true),
+		("f", "2026-01-01T10:00", true),
+		("g", "abc", false),
+		("h", "1,200", false),
+		("i", "'x'", true),
+	];
+	let mut doc = Document::parse("");
+	for (path, text, _) in cases {
+		assert_eq!(doc.set_literal(path, text), shcl::SetStatus::Ok, "{text:?}");
+	}
+	assert_eq!(doc.set_literal("j", "[10:00]"), shcl::SetStatus::Ok);
+	let back = Document::parse(&doc.to_canonical());
+	for (name, d) in [("set", &doc), ("reload", &back)] {
+		for (path, text, quoted) in cases {
+			assert_eq!(d.read_string(path).quoted, quoted, "{name} {text:?}");
+		}
+		assert!(d.read_string_array("j").quoted, "{name} [10:00]");
+	}
+}
+
 // A backtick value is raw text the program decodes itself: read as written,
 // with its own flag beside `quoted`. A setter keeps the backticks when the new
 // text fits in them, and the writer picks quotes when it does not.
