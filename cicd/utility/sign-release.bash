@@ -12,7 +12,8 @@
 ##		in CI would be reachable by exactly the compromise this defends against.
 ##
 ##		Checks first, signs last: the sums file has to be named for the version
-##		being cut and match the files beside it, and the key has to be the one
+##		being cut and match the files beside it, the binaries have to be that
+##		version's undated release build, and the key has to be the one
 ##		the shipped installers actually trust - a signature made with the wrong
 ##		key verifies perfectly on its own and fails for every user. Nothing is
 ##		written until every check has passed, so a failed run leaves no .sig
@@ -52,7 +53,8 @@ fUsage(){
 ##		in CI would be reachable by exactly the compromise this defends against.
 ##
 ##		Checks first, signs last: the sums file has to be named for the version
-##		being cut and match the files beside it, and the key has to be the one
+##		being cut and match the files beside it, the binaries have to be that
+##		version's undated release build, and the key has to be the one
 ##		the shipped installers actually trust - a signature made with the wrong
 ##		key verifies perfectly on its own and fails for every user. Nothing is
 ##		written until every check has passed, so a failed run leaves no .sig
@@ -126,6 +128,42 @@ sigfile="${sumsfile}.sig"
 (cd "${dir}" && sha256sum -c --quiet --strict "${sumsfile##*/}") \
 	|| fDie "${sumsfile##*/} does not match the files in ${dir}; rebuild the artifacts before signing"
 
+## The sums only say the files are the ones beside them. Every pipeline run
+## writes this dir, so the bytes have to be the cut's too: a release build of
+## the tag's version, with no date (release-table.bash --version-of reads the
+## same line). The one this box can run is asked; every bare binary has to hold
+## that same line, so one of another version or build can't ride along.
+case "$(uname -s)" in
+	Linux)                  hostOs=linux ;;
+	Darwin)                 hostOs=macos ;;
+	FreeBSD)                hostOs=freebsd ;;
+	MINGW*|MSYS*|CYGWIN*)   hostOs=windows ;;
+	*)                      hostOs="$(uname -s)" ;;
+esac
+case "$(uname -m)" in
+	x86_64|amd64)  hostArch=x86_64 ;;
+	aarch64|arm64) hostArch=arm64 ;;
+	*)             hostArch="$(uname -m)" ;;
+esac
+if   [[ "${hostOs}" == macos   ]]; then hostBin="shcl-${ver}-macos-universal"
+elif [[ "${hostOs}" == windows ]]; then hostBin="shcl-${ver}-windows-${hostArch}.exe"
+else                                    hostBin="shcl-${ver}-${hostOs}-${hostArch}"
+fi
+[[ -f "${dir}/${hostBin}" && -x "${dir}/${hostBin}" ]] \
+	|| fDie "no ${hostBin} in ${dir} to ask for its version; sign on a box that can run one of the binaries"
+verText="$("${dir}/${hostBin}" --version 2>/dev/null)" || fDie "${hostBin} --version failed"
+verText="${verText//$'\r'/}"; verLine="${verText%%$'\n'*}"
+[[ "${verLine}" =~ ^shcl\ v([^ ]+)\ build\ [0-9a-z]+$ && "${BASH_REMATCH[1]}" == "${ver}" ]] \
+	|| fDie "${hostBin} is not a ${ver} release build: ${verLine@Q}; a dated build is a dev build, not the cut"
+mapfile -t names < <(sed -n 's/^[0-9a-f]\{64\}  \*\{0,1\}//p' "${sumsfile}")
+for name in "${names[@]}"; do
+	case "${name}" in *.deb|*.rpm|*.pkg|*.tar.gz|*-setup.exe) continue ;; esac
+	## LC_ALL=C: a binary isn't text in any locale.
+	mapfile -t found < <(LC_ALL=C grep -aoE 'shcl v[0-9][0-9A-Za-z.+-]* build [0-9a-z]+' "${dir}/${name}" | sort -u || true)
+	[[ "${#found[@]}" == 1 && "${found[0]}" == "${verLine}" ]] \
+		|| fDie "${name} is not the same build as ${hostBin} (${verLine}): it holds ${found[*]:-no version line}"
+done
+
 ## The public half of the key, for the identity checks and the verify.
 pub="$(mktemp)"; tmppub="$(mktemp)"; trap 'rm -f "${pub}" "${tmppub}"' EXIT
 openssl pkey -in "${key}" -pubout -out "${pub}" 2>/dev/null || fDie "cannot derive the public key"
@@ -139,7 +177,9 @@ openssl pkey -in "${key}" -pubout -out "${pub}" 2>/dev/null || fDie "cannot deri
 ## `|| true` inside the substitutions below: under pipefail a pipe that finds
 ## nothing fails the assignment and errexit ends the script with no message, so
 ## the guard after it would never run.
-fFp(){ openssl pkey -pubin -in "$1" -outform DER -pubout 2>/dev/null | sha256sum | cut -d' ' -f1 || true; }
+## sha256sum hashes empty input too, so the pipe's status is what says openssl
+## read the key. Nothing comes back when it didn't.
+fFp(){ local h; h="$(openssl pkey -pubin -in "$1" -outform DER -pubout 2>/dev/null | sha256sum)" || return 0; printf '%s\n' "${h%% *}"; }
 want="$(fFp "${pub}")"
 [[ -n "${want}" ]] || fDie "cannot fingerprint the signing key"
 ## A copy that cannot be read is a check that did not run, not a pass.
@@ -176,7 +216,7 @@ openssl dgst -sha256 -verify "${pub}" -signature "${sigfile}" "${sumsfile}" >/de
 
 printf 'signed  %s\n' "${sumsfile##*/}"
 printf 'wrote   %s\n' "${sigfile##*/}"
-printf 'key fp  %s\n' "$(openssl pkey -in "${key}" -pubout 2>/dev/null | openssl pkey -pubin -outform DER -pubout 2>/dev/null | sha256sum | cut -d' ' -f1)"
+printf 'key fp  %s\n' "${want}"
 printf 'attach both the sums file and its .sig to the release.\n'
 
 ##	History:
@@ -191,3 +231,6 @@ printf 'attach both the sums file and its .sig to the release.\n'
 ##		  contents, then the key, and only then the write; a failed run leaves no .sig.
 ##		- 2026-09-16 JC: A key copy that cannot be read refuses the run; it used
 ##		  to skip that check and sign.
+##		- 2026-11-06 JC: A key openssl can't read gives no fingerprint; it used
+##		  to give the hash of nothing. Refuses a dated build, one of another
+##		  version, and a binary from another build than the one it asks.

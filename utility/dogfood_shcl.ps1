@@ -124,6 +124,7 @@ $StampFormat = 'yyyyMMdd-HHmmss'
 ## with another calendar wrote a year the invariant read took as a different
 ## one. A DST change or a new time zone can put a stamp out of order once.
 $Invariant = [Globalization.CultureInfo]::InvariantCulture
+$RetiredNames = @()
 
 #==============================================================================
 # Functions
@@ -195,8 +196,9 @@ function Find-HeldTwin {
 }
 
 ## Copy the source build in when nothing held matches it. Written to a temp
-## name and renamed, so a copy that dies partway never passes for a version.
-## True when it took one.
+## name of this process's own and renamed, so a copy that dies partway never
+## passes for a version, and two runs as a build arrives can't cut one file
+## under each other's rename. True when it took one.
 function Copy-NewBuild {
 	[CmdletBinding()]
 	param()
@@ -209,18 +211,60 @@ function Copy-NewBuild {
 
 	$null = New-Item -ItemType Directory -Force -Path $PoolDir
 	$dest = Join-Path -Path $PoolDir -ChildPath "${ProgramName}_$stamp$ExeExt"
-	$partial = "$dest.partial"
+	$partial = "$dest.$PID.partial"
 	try {
 		Copy-Item -LiteralPath $src.FullName -Destination $partial -Force
 		if (-not $OnWindows) { & chmod 755 $partial }
+		## Another run got there first, with the same bytes.
+		if (Test-Path -LiteralPath $dest) { return $false }
 		Move-Item -LiteralPath $partial -Destination $dest -Force
 		Write-Note "new build $stamp from $($src.DirectoryName)"
 		return $true
 	} catch {
-		Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue
 		Write-Note "could not copy the new build: $($_.Exception.Message)"
 		return $false
+	} finally {
+		Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue
 	}
+}
+
+## A run killed partway leaves its temp file behind: a copy in the pool, or a
+## new fixed name beside the old one. One whose process is gone, or that is a
+## day old, is nobody's. A name without a process ID is from before they had one.
+function Remove-StaleTemp {
+	[CmdletBinding()]
+	[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+	param()
+	$name = [regex]::Escape($ProgramName)
+	$ext = [regex]::Escape($ExeExt)
+	$spots = @(
+		@{ Dir = $PoolDir; Rx = '^' + $name + '_\d{8}-\d{6}' + $ext + '(\.(?<id>\d+))?\.partial$' }
+		@{ Dir = $LinkDir; Rx = '^' + $name + $ext + '\.(?<id>\d+)\.new$' }
+	)
+	$dayAgo = (Get-Date).AddDays(-1)
+	foreach ($spot in $spots) {
+		if (-not (Test-Path -LiteralPath $spot.Dir)) { continue }
+		foreach ($f in @(Get-ChildItem -LiteralPath $spot.Dir -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -match $spot.Rx })) {
+			$null = $f.Name -match $spot.Rx
+			$id = if ($Matches['id']) { [int]$Matches['id'] } else { 0 }
+			if ($id -and $f.LastWriteTime -gt $dayAgo -and (Get-Process -Id $id -ErrorAction SilentlyContinue)) { continue }
+			Remove-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue
+		}
+	}
+}
+
+## Rename From over To, replacing it in one step where .NET can. Windows
+## PowerShell 5.1's has no replacing rename, so there To goes first.
+function Move-Over {
+	[CmdletBinding()]
+	[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+	param([string]$From, [string]$To)
+	if ([IO.File].GetMethod('Move', [type[]]@([string], [string], [bool]))) {
+		[IO.File]::Move($From, $To, $true)
+		return
+	}
+	if (Get-Item -LiteralPath $To -Force -ErrorAction SilentlyContinue) { Remove-Item -LiteralPath $To -Force -ErrorAction Stop }
+	[IO.File]::Move($From, $To)
 }
 
 function Get-PeriodKey {
@@ -333,8 +377,32 @@ function Invoke-Rotation {
 		if ($v.Name -eq $want) { continue }
 		$wantPath = Join-Path -Path $PoolDir -ChildPath $want
 		if (Test-Path -LiteralPath $wantPath) { continue }
+		## A rename of the version the fixed name points at, from this run or
+		## another, would leave shcl on PATH dangling until the link moves. So the
+		## new name comes as a second link, and the old one goes once nothing
+		## points at it. Not on Windows, where a running image keeps its old
+		## name, and the twin would hold a place in the pool.
+		if (-not $OnWindows) {
+			try {
+				$null = New-Item -ItemType HardLink -Path $wantPath -Target $v.File.FullName -ErrorAction Stop
+				$script:RetiredNames += $v.File.FullName
+				continue
+			} catch { $null = $_ }
+		}
 		## A running image refuses the rename on Windows. The next run tries again.
 		try { Move-Item -LiteralPath $v.File.FullName -Destination $wantPath -ErrorAction Stop } catch { $null = $_ }
+	}
+}
+
+## The old names rotation left behind, once the fixed name points elsewhere.
+function Remove-RetiredName {
+	[CmdletBinding()]
+	[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+	param()
+	$cur = Get-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue
+	$linked = if ($cur -and $cur.LinkType -eq 'SymbolicLink') { "$($cur.Target)" } else { '' }
+	foreach ($old in $script:RetiredNames) {
+		if ($old -ne $linked) { Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue }
 	}
 }
 
@@ -358,28 +426,33 @@ function Update-FixedName {
 	if ($cur -and $OnWindows -and $cur.LinkType -ne 'SymbolicLink' -and $cur.Length -eq $versions[-1].File.Length) {
 		if ((Get-FileHash -LiteralPath $LinkPath).Hash -eq (Get-FileHash -LiteralPath $target).Hash) { return }
 	}
-	try {
-		if ($cur) { Remove-Item -LiteralPath $LinkPath -Force -ErrorAction Stop }
-	} catch {
-		if ($Fresh) { Write-Note "$LinkPath is in use, so it still names the older build" }
-		return
-	}
+	## Made beside the fixed name and renamed over it, so shcl on PATH is never
+	## missing for a moment.
 	$null = New-Item -ItemType Directory -Force -Path $LinkDir
+	$next = "$LinkPath.$PID.new"
 	$made = $false
 	foreach ($kind in @('SymbolicLink', 'HardLink')) {
 		try {
-			$null = New-Item -ItemType $kind -Path $LinkPath -Target $target -Force -ErrorAction Stop
+			$null = New-Item -ItemType $kind -Path $next -Target $target -Force -ErrorAction Stop
 			$made = $true
 			break
 		} catch { $null = $_ }
 	}
 	if (-not $made) {
 		try {
-			Copy-Item -LiteralPath $target -Destination $LinkPath -Force -ErrorAction Stop
+			Copy-Item -LiteralPath $target -Destination $next -Force -ErrorAction Stop
 		} catch {
+			Remove-Item -LiteralPath $next -Force -ErrorAction SilentlyContinue
 			Write-Note "could not update ${LinkPath}: $($_.Exception.Message)"
 			return
 		}
+	}
+	try {
+		Move-Over -From $next -To $LinkPath
+	} catch {
+		Remove-Item -LiteralPath $next -Force -ErrorAction SilentlyContinue
+		if ($Fresh) { Write-Note "$LinkPath is in use, so it still names the older build" }
+		return
 	}
 	Write-Note "$LinkPath -> $($versions[-1].Name)"
 }
@@ -520,9 +593,11 @@ foreach ($arg in $given) {
 if ($printPath -and $passArgs.Count -gt 0) { Exit-Launcher "--print-path runs nothing, so it takes no argument for $ProgramName, such as '$($passArgs[0])'" }
 
 if (-not $noUpdate) {
+	Remove-StaleTemp
 	$fresh = Copy-NewBuild
 	Invoke-Rotation
 	Update-FixedName -Fresh:$fresh
+	Remove-RetiredName
 }
 
 $exe = Get-RunTarget
@@ -542,3 +617,4 @@ exit $LASTEXITCODE
 ##		- 2026-10-04 JC: Takes its arguments from the process when started by -File, which split a `-x:y` one. Quotes them for 5.1 the way shcl.ps1 does.
 ##		- 2026-10-04 JC: Called from a session, keeps an unquoted `-x:y` whole rather than passing on only the `y`.
 ##		- 2026-11-02 JC: --print-path, for the bash launcher to run the build itself. Passes each argument as a quoted literal, so pwsh on Linux and macOS no longer expands wildcards and ~ in them.
+##		- 2026-11-06 JC: Each run copies a new build through a temp name of its own, and a killed run's is cleared by the next. The fixed name is replaced by a rename, and rotation gives a version its new name before taking the old one, so the fixed name never dangles.
