@@ -4563,6 +4563,10 @@ func pathOf(tok *Tokens, text string) (pathScan, error) {
 // bracketLookup is why a lookup path with a selector in brackets is refused.
 const bracketLookup = "selector in brackets; write it in parens, name(value)"
 
+// commentLookup is why a lookup path with a `#` outside quotes and selectors
+// is refused.
+const commentLookup = "a '#' opens a comment; quote a name that holds one"
+
 // scanLookup scans a lookup path `a . b (sel) . c`: the document-line
 // spelling plus the bare `*` segment (the name wildcard - any child name),
 // which document lines never take; only lookups (reads, the writer probe,
@@ -4570,12 +4574,17 @@ const bracketLookup = "selector in brackets; write it in parens, name(value)"
 // insignificant. A path a file line could not hold is refused the same: a
 // selector in brackets (E029), a bad escape, or a bare selector body with
 // whitespace, a quote, a colon, a comma, a bracket, a paren or a leading `#`
-// in it (E025).
+// in it (E025). A `#` anywhere else opens a comment, as it does on a file
+// line, where `a#b: 1` binds nothing; a path cut there would name the field
+// above.
 func scanLookup(input string) (pathScan, error) {
 	var tok Tokens
 	Tokenize(input, ':', true, RulesCurrent, &tok)
 	if tok.BracketSelector >= 0 {
 		return pathScan{}, errors.New(bracketLookup)
+	}
+	if tok.Sep < 0 && tok.Comment >= 0 {
+		return pathScan{}, errors.New(commentLookup)
 	}
 	if f := pathFault(&tok, input); f != nil {
 		return pathScan{}, errors.New(f.msg)
@@ -5460,14 +5469,14 @@ func (p *parser) heldNode(parent int) (int, bool) {
 // among those bound before it (E003), walked as attachPath will walk it,
 // creating nothing. A step that would create a field leaves every index
 // after it nothing to select. Judged before anything opens, so a kept line
-// opens none of its path's fields.
-func (p *parser) indexMiss(parent int, segs []segment) (uint64, string, bool) {
+// opens none of its path's fields. The segment's position.
+func (p *parser) indexMiss(parent int, segs []segment) (int, bool) {
 	indexed := false
 	for _, s := range segs {
 		indexed = indexed || byIndex(s)
 	}
 	if !indexed {
-		return 0, "", false
+		return 0, false
 	}
 	node, ok := p.heldNode(parent)
 	if ok {
@@ -5483,14 +5492,25 @@ func (p *parser) indexMiss(parent int, segs []segment) (uint64, string, bool) {
 			continue
 		}
 		if !hit {
-			return seg.sel.index, seg.name, true
+			return i, true
 		}
 		node, ok = found, true
 		if i+1 < len(segs) {
 			node, ok = p.arrayOpens(found)
 		}
 	}
-	return 0, "", false
+	return 0, false
+}
+
+// noInstance is the E003 text for the index segment at `at`: the index as
+// written, as H006 quotes a Format number, since one past u64 reads as the
+// largest.
+func noInstance(tok *Tokens, text string, segs []segment, at int) string {
+	digits := ""
+	if sel := tok.Segments[at].Selector; sel != nil {
+		digits = text[sel.Start:sel.End]
+	}
+	return fmt.Sprintf("no instance %s of '%s'", oneLine(digits), diagName(segs[at].name))
 }
 
 // arrayOpens is the node arrayUnder leaves a field under node to bind in,
@@ -6409,8 +6429,8 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		}
 		// An index that selects no instance bound before it: kept the same
 		// way, since an instance written above it later would make it bind.
-		if k, name, miss := p.indexMiss(parent, scan.segments); miss {
-			msg := fmt.Sprintf("no instance %d of '%s'", k, diagName(name))
+		if at, miss := p.indexMiss(parent, scan.segments); miss {
+			msg := noInstance(&tok, rest, scan.segments, at)
 			if _, _, _, raw := lineFence(&tok, rest); raw {
 				p.refuse(lineno, "E003", msg, outDropped, indent)
 				i = p.skipFieldLine(lines, i, indent, &tok, rest)

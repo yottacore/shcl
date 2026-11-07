@@ -3829,8 +3829,19 @@ def _path_of(tok, s):
 	return segments, s[tok.value[0]:tok.value[1]].decode("utf-8", "surrogatepass")
 
 
+def _no_instance(tok, segs, at):
+	"""The E003 text for the index segment at `at`: the index as written, as
+	H006 quotes a Format number, since one past u64 reads as the largest."""
+	sel = tok.segments[at].selector
+	digits = "" if sel is None else tok.src[sel.start:sel.end].decode("utf-8", "surrogatepass")
+	return f"no instance {_one_line(digits)} of '{_diag_name(segs[at].name)}'"
+
+
 # Why a lookup path with a selector in brackets is refused.
 _BRACKET_LOOKUP = "selector in brackets; write it in parens, name(value)"
+
+# Why a lookup path with a `#` outside quotes and selectors is refused.
+_COMMENT_LOOKUP = "a '#' opens a comment; quote a name that holds one"
 
 
 def _scan_lookup(inp):
@@ -3840,11 +3851,15 @@ def _scan_lookup(inp):
 	do. Whitespace around dots, colons and parens is insignificant. A path
 	a file line could not hold is refused the same: a selector in brackets
 	(E029), a bad escape, or a bare selector body with whitespace, a quote, a
-	colon, a comma, a bracket, a paren or a leading `#` in it (E025)."""
+	colon, a comma, a bracket, a paren or a leading `#` in it (E025). A `#`
+	anywhere else opens a comment, as it does on a file line, where `a#b: 1`
+	binds nothing; a path cut there would name the field above."""
 	tok = Tokens()
 	tokenize(inp, ":", True, Rules.Current, tok)
 	if tok.bracket_selector is not None:
 		raise _PathError(_BRACKET_LOOKUP)
+	if tok.sep is None and tok.comment is not None:
+		raise _PathError(_COMMENT_LOOKUP)
 	f = _path_fault(tok, tok.src)
 	if f is not None:
 		raise _PathError(f.msg)
@@ -4478,7 +4493,7 @@ class _Parser:
 	def _index_miss(self, parent, segs):
 		"""The index segment of a line's path that selects no instance among
 		those bound before it (E003), walked as _attach_path() will walk it,
-		creating nothing, as (index, name). A step that would create a field
+		creating nothing, as its position. A step that would create a field
 		leaves every index after it nothing to select. Judged before anything
 		opens, so a kept line opens none of its path's fields."""
 		if not any(_by_index(s) for s in segs):
@@ -4492,7 +4507,7 @@ class _Parser:
 				node = found
 				continue
 			if found is None:
-				return (seg.selector[1], seg.name)
+				return i
 			node = self._array_opens(found) if i + 1 < len(segs) else found
 		return None
 
@@ -5155,7 +5170,7 @@ class _Parser:
 			# way, since an instance written above it later would make it bind.
 			miss = self._index_miss(parent, segments)
 			if miss is not None:
-				msg = f"no instance {miss[0]} of '{_diag_name(miss[1])}'"
+				msg = _no_instance(tok, segments, miss)
 				if _line_fence(tok) is not None:
 					self._refuse(lineno, "E003", msg, _OUT_DROPPED, indent)
 					i = self._skip_field_line(lines, i, indent, tok)

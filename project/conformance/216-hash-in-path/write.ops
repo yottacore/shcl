@@ -1,0 +1,5 @@
+remove	colors#primary
+remove	colors #primary
+clear-comments	colors#primary
+string	"colors#primary"	y
+remove	"a.b#c"

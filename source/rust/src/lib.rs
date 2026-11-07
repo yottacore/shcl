@@ -3842,6 +3842,20 @@ fn index_usize(k: u64) -> Option<usize> {
 	usize::try_from(k).ok()
 }
 
+/// The `E003` text for the index segment at `at`: the index as written, as
+/// `H006` quotes a Format number, since one past u64 reads as the largest.
+fn no_instance(tok: &Tokens, text: &str, segs: &[Segment], at: usize) -> String {
+	let digits = tok.segments[at]
+		.selector
+		.as_ref()
+		.map_or("", |p| &text[p.start..p.end]);
+	format!(
+		"no instance {} of '{}'",
+		one_line(digits),
+		diag_name(&segs[at].name)
+	)
+}
+
 /// What a selector body means: `*` the wildcard, an index shape an index, a
 /// quoted body a value match, anything else a bare value match.
 fn selector_of(p: &Piece, text: &str) -> Selector {
@@ -4305,6 +4319,9 @@ fn path_of(tok: &Tokens, text: &str) -> Result<PathScan, String> {
 /// Why a lookup path with a selector in brackets is refused.
 const BRACKET_LOOKUP: &str = "selector in brackets; write it in parens, name(value)";
 
+/// Why a lookup path with a `#` outside quotes and selectors is refused.
+const COMMENT_LOOKUP: &str = "a '#' opens a comment; quote a name that holds one";
+
 /// Scan a lookup path `a . b (sel) . c`: the document-line spelling plus
 /// the bare `*` segment (the name wildcard - any child name), which document
 /// lines never take; only lookups (reads, the writer probe, schema paths)
@@ -4312,11 +4329,16 @@ const BRACKET_LOOKUP: &str = "selector in brackets; write it in parens, name(val
 /// a file line could not hold is refused the same: a selector in brackets
 /// (`E029`), a bad escape, or a bare selector body with whitespace, a quote,
 /// a colon, a comma, a bracket, a paren or a leading `#` in it (`E025`).
+/// A `#` anywhere else opens a comment, as it does on a file line, where
+/// `a#b: 1` binds nothing; a path cut there would name the field above.
 fn scan_lookup(input: &str) -> Result<PathScan, String> {
 	let mut tok = Tokens::default();
 	tokenize(input, b':', true, Rules::Current, &mut tok);
 	if tok.bracket_selector.is_some() {
 		return Err(BRACKET_LOOKUP.to_string());
+	}
+	if tok.sep.is_none() && tok.comment.is_some() {
+		return Err(COMMENT_LOOKUP.to_string());
 	}
 	if let Some(f) = path_fault(&tok, input) {
 		return Err(f.msg);
@@ -5267,20 +5289,20 @@ impl<'a> Parser<'a> {
 	/// those bound before it (E003), walked as attach_path() will walk it,
 	/// creating nothing. A step that would create a field leaves every
 	/// index after it nothing to select. Judged before anything opens, so a
-	/// kept line opens none of its path's fields.
-	fn index_miss<'s>(&self, parent: usize, segs: &'s [Segment]) -> Option<(u64, &'s str)> {
+	/// kept line opens none of its path's fields. The segment's position.
+	fn index_miss(&self, parent: usize, segs: &[Segment]) -> Option<usize> {
 		if !segs.iter().any(by_index) {
 			return None;
 		}
 		let mut node = self.held_node(parent).and_then(|n| self.array_opens(n));
 		for (i, seg) in segs.iter().enumerate() {
 			let found = node.and_then(|n| self.found_step(n, seg));
-			let Some(Selector::ByIndex(k)) = seg.selector else {
+			if !by_index(seg) {
 				node = found;
 				continue;
-			};
+			}
 			let Some(n) = found else {
-				return Some((k, &seg.name));
+				return Some(i);
 			};
 			node = if i + 1 < segs.len() {
 				self.array_opens(n)
@@ -6380,8 +6402,8 @@ impl<'a> Parser<'a> {
 			}
 			// An index that selects no instance bound before it: kept the same
 			// way, since an instance written above it later would make it bind.
-			if let Some((k, name)) = self.index_miss(parent, &scan.segments) {
-				let msg = format!("no instance {} of '{}'", k, diag_name(name));
+			if let Some(at) = self.index_miss(parent, &scan.segments) {
+				let msg = no_instance(&tok, rest, &scan.segments, at);
 				if line_fence(&tok, rest).is_some() {
 					self.refuse(lineno, "E003", msg, Outcome::Dropped, indent);
 					i = self.skip_field_line(&lines, i, indent, &tok, rest);

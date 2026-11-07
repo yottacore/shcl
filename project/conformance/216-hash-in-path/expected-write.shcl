@@ -1,0 +1,7 @@
+# A '#' outside quotes in a lookup path opens a comment, so the path is refused.
+colors:
+	primary: red
+	secondary: blue
+"colors#primary": y
+a:
+	b: 1

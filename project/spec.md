@@ -568,7 +568,7 @@ Materialization is idempotent and order-stable, so two traversals of the same do
 
 ### Paths, selectors, and traversal
 
-- A lookup path uses the same syntax and tolerances as the file: case-insensitive field names, dots to descend, `(sel)` to select an instance, whitespace ignored (`base ( Boston ) . population`). A selector in brackets is refused, as `E029` is on a file line.
+- A lookup path uses the same syntax and tolerances as the file: case-insensitive field names, dots to descend, `(sel)` to select an instance, whitespace ignored (`base ( Boston ) . population`). A selector in brackets is refused, as `E029` is on a file line. A `#` outside quotes and outside a selector body opens a comment, as it does on a file line, where `a#b: 1` binds nothing, so a path holding one is refused rather than cut there. A name holding a `#` is quoted, `"a#b"`.
 
 - Selector forms: `(Boston)` (bare non-numeric = value), `(0)` (bare numeric = index), `("2020")` (quoted = value even if numeric), `(*)` (wildcard, below). The old `[#2]` index is gone, and a bare body that starts with `#` finds nothing.
 
@@ -614,7 +614,7 @@ Materialization is idempotent and order-stable, so two traversals of the same do
 | :--: | :--
 | `E001` | field line under a parent already holding stacked `- ` list items. The line is kept as written and binds nothing, the other items still load, and what is written under it goes with it. One that opens a raw block is dropped with the block. A dotted line that reaches the items through an index, such as a `srv(0).tls` line after items under `srv`, is a field line there too
 | `E002` | value after a last-segment selector (`a.b(X): v`) - the value is ignored
-| `E003` | selector names an instance that does not exist: `a(5).b` where there is one `a`. An index selects an existing instance by position and never creates one, which is why a binding line should select by value. The line is kept as written and binds nothing, and none of its path's fields are opened. One that opens a raw block is dropped with the block. On a write path the same situation comes back as the `NoSuchIndex` set-path check rather than as a diagnostic
+| `E003` | selector names an instance that does not exist: `a(5).b` where there is one `a`. The message names the index as written. An index selects an existing instance by position and never creates one, which is why a binding line should select by value. The line is kept as written and binds nothing, and none of its path's fields are opened. One that opens a raw block is dropped with the block. On a write path the same situation comes back as the `NoSuchIndex` set-path check rather than as a diagnostic
 | `E004` | wildcard selector on a binding line (wildcards are query-only). The line is kept as written and binds nothing, none of its path's fields are opened, and what is written under it goes with it. A raw block it opens is kept with it
 | `E005` | unterminated raw block (closing fence never found)
 | `E006` | raw-block fence with no parent field to bind to

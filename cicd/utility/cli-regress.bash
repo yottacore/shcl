@@ -858,6 +858,14 @@ rows=(
 	'ddkcw|remove-bracket-path-named|set --remove=a[0] %F2%|-|1||^bad --remove value \(a selector is written in parens now, name\(value\)\): a\[0\] \(see --help\)$'
 	'ddkcx|ops-remove-bracket-path-named|set %F2%|remove\ta[0]\n|1||^op line 1: cannot remove a\[0\]: a selector is written in parens now, name\(value\) \(see --help\)$'
 	'ddkcy|schema-bracket-path-named|check --schema=- %F%|field: "a[*].b"\n|6|line 1: Error: V093\nfailed: 1 diagnostic(s), 1 error(s)\n|V093 bad schema path: a\[\*\]\.b; selector in brackets; write it in parens'
+	## 2026110613470301: a '#' outside quotes in a path opens a comment, as on a
+	## file line, so the path is refused. Cut at the '#', --remove used to take
+	## out the whole section above at exit 0.
+	'dez5f|remove-hash-path-refused|set --remove=colors#primary -|colors:\n\tprimary: red\n\tsecondary: blue\n"colors#primary": x\n|1||^bad --remove value \(not a usable path\): colors#primary \(see --help\)$'
+	'dez5g|remove-quoted-hash-path|set --remove="colors#primary" -|colors:\n\tprimary: red\n\tsecondary: blue\n"colors#primary": x\n|0|colors:\n\tprimary: red\n\tsecondary: blue\n|-'
+	'dez5h|ops-set-hash-path-refused|set %F2%|string\tcolors#primary\tz\n|1||^op line 1: cannot write colors#primary: not a usable path \(see --help\)$'
+	## 2026110613470313: E003 names the index as written, not the u64 cap.
+	'dez5j|e003-index-as-written|check -|c: x\nc(99999999999999999999999).d: 2\n|6|line 2: Error: E003\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E003 no instance 99999999999999999999999 of .c.$'
 	## Exit 1 since 2026100717500001; ddnzf below.
 	#'ddkd7|get-hash-index-refused|get %F% a(#0)|-|3|\n|no value at that path'
 	'ddkd3|set-hash-index-refused|set --set=a(#0)=2 %F%|-|1||not a usable path'

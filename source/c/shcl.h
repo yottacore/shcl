@@ -4418,19 +4418,25 @@ static ShclPathScan path_of(ShclArena *a, const ShclTokens *tok, ShclStr text) {
 /* Why a lookup path with a selector in brackets is refused. */
 #define BRACKET_LOOKUP "selector in brackets; write it in parens, name(value)"
 
+/* Why a lookup path with a `#` outside quotes and selectors is refused. */
+#define COMMENT_LOOKUP "a '#' opens a comment; quote a name that holds one"
+
 /* Scan a lookup path `a . b (sel) . c`: the document-line spelling plus the
    bare `*` segment (the name wildcard - any child name), which document lines
    never take; only lookups (reads, the writer probe, schema paths) do.
    Whitespace around dots, colons and parens is insignificant. A path a file
    line could not hold is refused the same: a selector in brackets (E029), a
    bad escape, or a bare selector body with whitespace, a quote, a colon, a
-   comma, a bracket, a paren or a leading `#` in it (E025). */
+   comma, a bracket, a paren or a leading `#` in it (E025). A `#` anywhere
+   else opens a comment, as it does on a file line, where `a#b: 1` binds
+   nothing; a path cut there would name the field above. */
 static ShclPathScan scan_lookup(ShclArena *a, ShclStr input) {
 	ShclTokens tok; memset(&tok, 0, sizeof tok);
 	tokenize(a, input, ':', 1, SHCL_RULES_CURRENT, &tok);
 	ShclFault f;
-	if (tok.has_bracket_selector) {
-		ShclPathScan ps; ps.ok = 0; memset(&ps.segs, 0, sizeof ps.segs); ps.has_value = 0; ps.value_text = s_empty(); ps.err = s_lit(BRACKET_LOOKUP);
+	if (tok.has_bracket_selector || (!tok.has_sep && tok.has_comment)) {
+		ShclPathScan ps; ps.ok = 0; memset(&ps.segs, 0, sizeof ps.segs); ps.has_value = 0; ps.value_text = s_empty();
+		ps.err = s_lit(tok.has_bracket_selector ? BRACKET_LOOKUP : COMMENT_LOOKUP);
 		return ps;
 	}
 	if (path_fault(a, &tok, input, &f)) {
@@ -6852,8 +6858,11 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 		{
 			size_t miss = index_miss(&P, parent, scan.segs.data, scan.segs.len);
 			if (miss < scan.segs.len) {
+				/* The index as written, as H006 quotes a Format number, since
+				   one past u64 reads as the largest. */
 				const ShclSegment *seg = &scan.segs.data[miss];
-				ShclSB m = {0}; sb_puts(P.line, &m, "no instance "); sb_put_u64(P.line, &m, seg->sel.index); sb_puts(P.line, &m, " of '"); sb_putS(P.line, &m, diag_name(P.line, seg->name)); sb_putc(P.line, &m, '\'');
+				const ShclPiece *sel = &tok.segments[miss].selector;
+				ShclSB m = {0}; sb_puts(P.line, &m, "no instance "); sb_putS(P.line, &m, v_one_line_in(P.line, s_slice(rest, sel->start, sel->end), "", "")); sb_puts(P.line, &m, " of '"); sb_putS(P.line, &m, diag_name(P.line, seg->name)); sb_putc(P.line, &m, '\'');
 				if (line_fence(P.tmp, &tok, rest).ok) {
 					p_refuse(&P, lineno, "E003", sb_S(&m), out_kind(OUT_DROPPED), indent);
 					i = skip_field_line(&P, lines.data, lines.len, i, indent, &tok, rest); continue;
