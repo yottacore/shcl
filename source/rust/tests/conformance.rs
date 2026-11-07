@@ -3238,6 +3238,51 @@ fn a_far_kept_line_costs_an_edit_nothing() {
 	);
 }
 
+/// A load that re-opens every block after a kept line looked for each
+/// re-opened node in its parent's list, and walked the siblings between it
+/// and the kept line, so the time went with the square of the blocks
+/// (2026110613470305). Eight times the blocks has to take under 24 times the
+/// time, 3 times the linear growth, where the old walk took 40 times and more.
+/// Best of 3 each, against noise on the small side. Same fixture in every
+/// runner.
+#[cfg_attr(
+	miri,
+	ignore = "times a ratio, which means nothing under Miri, and never finishes there (2026102106592600)"
+)]
+#[cfg_attr(
+	shcl_tsan,
+	ignore = "times a ratio, which means nothing under ThreadSanitizer"
+)]
+#[test]
+fn reopened_blocks_load_in_linear_time() {
+	let _id = test_id("df010");
+	let mut ms = [0.0f64; 2];
+	for (slot, n) in ms.iter_mut().zip([6000, 48_000]) {
+		let mut text = String::new();
+		for i in 0..n {
+			text.push_str(&format!("srv: v{i}\n\ta: 1\n"));
+		}
+		for i in 0..n {
+			text.push_str(&format!("q{i}: [1\nsrv: v{i}\n\tb: 1\n"));
+		}
+		*slot = f64::INFINITY;
+		for _ in 0..3 {
+			let t0 = std::time::Instant::now();
+			let d = Document::parse(&text);
+			*slot = slot.min(t0.elapsed().as_secs_f64() * 1000.0);
+			assert!(d.to_canonical().ends_with(&format!("\nq{}: [1\n", n - 1)));
+		}
+	}
+	let bound = ms[0].max(1.0) * 24.0;
+	assert!(
+		ms[1] <= bound,
+		"48000 re-opened blocks {:.1} ms against {:.1} ms for 6000 (bound {:.1} ms) - the load's refile is not linear",
+		ms[1],
+		ms[0],
+		bound
+	);
+}
+
 #[test]
 fn standard_trait_surface() {
 	let _id = test_id("dbegt");

@@ -5051,7 +5051,8 @@ typedef struct { ShclArena line, hints; ShclVecMapPtr cmaps, dmaps; } ShclParseO
    verifies its hit against the arena; same first-wins discipline, same
    mutation sites. */
 // reent_node/reent_line pair up node -> line of the re-open that H002-hinted
-// it (linear scan; re-opens are rare). A merge under a hinted container
+// it, found through reent_at by the node's hash: a file can re-open every
+// block, and a scan made that the square of the count. A merge under a hinted container
 // combines the same two textual regions, so it hints too even when it ends up on
 // the newest child at its own scope - that is how every merged level reports,
 // not just the outermost. The stored line splits old children (hint) from ones
@@ -5063,7 +5064,7 @@ typedef struct { ShclArena line, hints; ShclVecMapPtr cmaps, dmaps; } ShclParseO
    per node. Everything a node keeps (name, value, trivia text) is still dup'd
    into the document arena. Nothing resets scratch during a parse; the first
    read after it does. */
-typedef struct { shcl_doc *d; ShclArena *tmp; ShclArena *line; ShclArena *hints; ShclStr src; ShclVecStack stack; ShclVecMapPtr *cmaps; ShclVecMapPtr *dmaps; ShclVecPend pending; ShclVecPendMark pend_marks; ShclVecDepth depth_chain; ShclVecDepth held_chain; int star_open; size_t star_node; uint64_t star_key; uint64_t star_disp; int saw_blank; ShclVecSize reent_node; ShclVecSize reent_line;
+typedef struct { shcl_doc *d; ShclArena *tmp; ShclArena *line; ShclArena *hints; ShclStr src; ShclVecStack stack; ShclVecMapPtr *cmaps; ShclVecMapPtr *dmaps; ShclVecPend pending; ShclVecPendMark pend_marks; ShclVecDepth depth_chain; ShclVecDepth held_chain; int star_open; size_t star_node; uint64_t star_key; uint64_t star_disp; int saw_blank; ShclVecSize reent_node; ShclVecSize reent_line; ShclCMap reent_at;
 	/* Parents where a remap ended up on a key a sibling already held: the only
 	   places a duplicate can survive the keyed lookup, so the fold starts here. */
 	ShclVecSize late_dups;
@@ -5763,14 +5764,18 @@ static ShclStr h002_head(ShclArena *a, ShclStr name) {
 	sb_puts(a, &s, "merged with '"); sb_putS(a, &s, diag_name(a, name)); sb_puts(a, &s, "' at ");
 	return sb_S(&s);
 }
+static uint64_t array_mark_hash(size_t node) { return fnv_dec(14695981039346656037ull, node); }
 static size_t reent_get(const ShclParser *P, size_t node) {
-	for (size_t i = 0; i < P->reent_node.len; i++)
-		if (P->reent_node.data[i] == node) return P->reent_line.data[i];
+	uint64_t h = array_mark_hash(node);
+	for (ShclCMapEnt *e = cmap_first(&P->reent_at, h); e; e = cmap_next(e, h))
+		if (P->reent_node.data[e->val] == node) return P->reent_line.data[e->val];
 	return 0;
 }
 static void reent_set(ShclParser *P, size_t node, size_t line) {
-	for (size_t i = 0; i < P->reent_node.len; i++)
-		if (P->reent_node.data[i] == node) { P->reent_line.data[i] = line; return; }
+	uint64_t h = array_mark_hash(node);
+	for (ShclCMapEnt *e = cmap_first(&P->reent_at, h); e; e = cmap_next(e, h))
+		if (P->reent_node.data[e->val] == node) { P->reent_line.data[e->val] = line; return; }
+	cmap_put(P->tmp, &P->reent_at, h, P->reent_node.len);
 	ShclVecSize_push(P->tmp, &P->reent_node, node); ShclVecSize_push(P->tmp, &P->reent_line, line);
 }
 static void hint_fold(ShclParser *P, size_t parent, size_t kept, size_t gone, int apart) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order, kept before gone as in fold_node_into
@@ -5786,7 +5791,6 @@ static void hint_fold(ShclParser *P, size_t parent, size_t kept, size_t gone, in
 		reent_set(P, kept, line);
 	}
 }
-static uint64_t array_mark_hash(size_t node) { return fnv_dec(14695981039346656037ull, node); }
 static void array_mark_set(ShclParser *P, ShclArrayMark mark) {
 	uint64_t h = array_mark_hash(mark.node);
 	for (ShclCMapEnt *e = cmap_first(&P->array_at, h); e; e = cmap_next(e, h))
@@ -6579,7 +6583,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 	P.max_nodes = max_nodes; P.held = 0; P.max_elements = max_elements; P.max_diags = max_diags; P.unlisted_errors = 0; P.unlisted_hints = 0;
 	P.has_kept_hold = 0; P.kept_hold = s_empty(); P.kept_any = 0; memset(&P.lazies, 0, sizeof P.lazies);
 	P.kept_arrays = 0; memset(&P.src_lines, 0, sizeof P.src_lines); memset(&P.array_marks, 0, sizeof P.array_marks); memset(&P.array_at, 0, sizeof P.array_at);
-	memset(&P.reent_node, 0, sizeof P.reent_node); memset(&P.reent_line, 0, sizeof P.reent_line); memset(&P.late_dups, 0, sizeof P.late_dups); memset(&P.folded, 0, sizeof P.folded);
+	memset(&P.reent_node, 0, sizeof P.reent_node); memset(&P.reent_line, 0, sizeof P.reent_line); memset(&P.reent_at, 0, sizeof P.reent_at); memset(&P.late_dups, 0, sizeof P.late_dups); memset(&P.folded, 0, sizeof P.folded);
 	ShclStackEnt e0; e0.indent = s_empty(); e0.node = ROOT; ShclVecStack_push(P.tmp, &P.stack, e0);
 	maps_push(d->panic, P.cmaps, NULL);
 	maps_push(d->panic, P.dmaps, NULL);
@@ -8232,17 +8236,27 @@ static void beside_kept(shcl_doc *d, ShclNode *nd, ShclVecLead *left) {
    with the comments before them, onto the end of left: what beside_kept
    takes, from the first line read after the node's own. Only a fold puts
    those there. */
-static void folded_kept(shcl_doc *d, ShclNode *nd, ShclVecLead *left) {
-	int heads = heads_block(&d->scratch, nd);
+/* Where folded_kept would take its lines from in the node's leading list,
+   0 when it would take nothing. */
+static int folded_span(shcl_doc *d, ShclNode *nd, size_t *from_out, size_t *end_out) { // NOLINT(bugprone-easily-swappable-parameters): from, then end, as the Rust twin returns them
 	ShclTrivia *t = nd->trivia;
-	if (!t) return;
+	if (!t) return 0;
 	size_t from = t->leading.len;
 	for (size_t k = 0; k < t->leading.len; k++)
 		if (t->leading.data[k].line > nd->line) { from = k; break; }
+	if (from == t->leading.len) return 0;
+	int heads = heads_block(&d->scratch, nd);
 	size_t end = 0;
 	for (size_t k = t->leading.len - (heads ? 1 : 0); k > 0; k--)
 		if (lead_is_kept_line(&t->leading.data[k - 1])) { end = k; break; }
-	if (end <= from) return;
+	*from_out = from; *end_out = end;
+	return end > from;
+}
+
+static void folded_kept(shcl_doc *d, ShclNode *nd, ShclVecLead *left) {
+	size_t from, end;
+	if (!folded_span(d, nd, &from, &end)) return;
+	ShclTrivia *t = nd->trivia;
 	for (size_t k = from; k < end; k++) ShclVecLead_push(&d->arena, left, t->leading.data[k]);
 	memmove(t->leading.data + from, t->leading.data + end, (t->leading.len - end) * sizeof *t->leading.data);
 	t->leading.len -= end - from;
@@ -8292,39 +8306,95 @@ static int refile_cmp(const void *pa, const void *pb) {
 	if (x->line != y->line) return x->line < y->line ? -1 : 1;
 	return x->seq < y->seq ? -1 : x->seq > y->seq;
 }
+/* For each move of refile_folded, at holds the first child it may go above.
+   Set it to the child the line goes above: the first at or past that one read
+   after the line, or past the last. One sweep per parent from its end,
+   keeping only the children no earlier one hides, so a fold far from its
+   later instance doesn't walk every sibling between them. */
+static int place_cmp(const void *pa, const void *pb) {
+	const ShclRefile *x = *(const ShclRefile *const *)pa, *y = *(const ShclRefile *const *)pb;
+	if (x->parent != y->parent) return x->parent < y->parent ? -1 : 1;
+	if (x->at != y->at) return x->at > y->at ? -1 : 1;
+	return 0;
+}
+static void place_folded(shcl_doc *d, ShclRefile *moves, size_t n) {
+	ShclRefile **order = (ShclRefile **)arena_alloc(&d->scratch, n * sizeof *order);
+	for (size_t m = 0; m < n; m++) order[m] = &moves[m];
+	qsort((void *)order, n, sizeof *order, place_cmp);
+	/* Child places, their lines rising toward the bottom. */
+	for (size_t k = 0; k < n;) {
+		size_t p = order[k]->parent;
+		ShclVecSize kids = NODE(d, p).children;
+		size_t *seen = (size_t *)arena_alloc(&d->scratch, (kids.len ? kids.len : 1) * sizeof *seen), nseen = 0;
+		size_t next = kids.len;
+		for (; k < n && order[k]->parent == p; k++) {
+			ShclRefile *m = order[k];
+			while (next > m->at) {
+				next--;
+				size_t line = NODE(d, kids.data[next]).line;
+				while (nseen && NODE(d, kids.data[seen[nseen - 1]]).line <= line) nseen--;
+				seen[nseen++] = next;
+			}
+			size_t lo = 0, hi = nseen;
+			while (lo < hi) {
+				size_t mid = lo + (hi - lo) / 2;
+				if (NODE(d, kids.data[seen[mid]]).line > m->line) lo = mid + 1;
+				else hi = mid;
+			}
+			m->at = lo ? seen[lo - 1] : kids.len;
+		}
+	}
+}
+
 static void refile_folded(shcl_doc *d, ShclVecSize *folded) {
 	if (!folded->len) return;
 	qsort(folded->data, folded->len, sizeof *folded->data, size_cmp);
+	/* Every line that binds to a node already there is in folded, so a file
+	   that re-opens many blocks has many with nothing to move, and those may
+	   cost no more than this test. */
+	size_t nkeep = 0;
+	for (size_t x = 0; x < folded->len; x++) {
+		size_t c = folded->data[x], from, end;
+		if (x > 0 && folded->data[x - 1] == c) continue;
+		if (folded_span(d, &NODE(d, c), &from, &end)) folded->data[nkeep++] = c;
+	}
+	if (!nkeep) return;
+	/* Each node's place among its siblings, for the parents of these. */
+	size_t nn = d->nodes.len;
+	size_t *at_of = (size_t *)arena_alloc(&d->scratch, nn * sizeof *at_of);
+	unsigned char *indexed = (unsigned char *)arena_alloc(&d->scratch, nn);
+	for (size_t k = 0; k < nn; k++) at_of[k] = (size_t)-1;
+	memset(indexed, 0, nn);
 	/* Parent, the child they go above (past the last, the block's end), line,
 	   the line. All first, since 2 folds can fill one place. */
 	ShclRefile *moves = NULL;
 	size_t n = 0, cap = 0;
-	for (size_t x = 0; x < folded->len; x++) {
+	for (size_t x = 0; x < nkeep; x++) {
 		size_t c = folded->data[x];
-		if (x > 0 && folded->data[x - 1] == c) continue;
 		size_t p = NODE(d, c).parent;
 		ShclVecSize kids = NODE(d, p).children;
-		size_t at = kids.len;
-		for (size_t k = 0; k < kids.len; k++)
-			if (kids.data[k] == c) { at = k; break; }
-		if (at == kids.len) continue;
+		if (!indexed[p]) {
+			indexed[p] = 1;
+			for (size_t k = 0; k < kids.len; k++) at_of[kids.data[k]] = k;
+		}
+		if (at_of[c] == (size_t)-1) continue;
 		ShclVecLead left = {0};
 		folded_kept(d, &NODE(d, c), &left);
-		size_t j = at + 1, line = 0;
+		size_t line = 0;
 		for (size_t k = 0; k < left.len; k++) {
 			if (left.data[k].line > line) line = left.data[k].line;
-			while (j < kids.len && NODE(d, kids.data[j]).line <= line) j++;
 			if (n == cap) {
 				size_t ncap = cap ? 2 * cap : 8;
 				ShclRefile *grown = (ShclRefile *)arena_alloc(&d->scratch, ncap * sizeof *grown);
 				if (n) memcpy(grown, moves, n * sizeof *moves);
 				moves = grown; cap = ncap;
 			}
-			moves[n].parent = p; moves[n].at = j; moves[n].line = line; moves[n].seq = n; moves[n].l = left.data[k];
+			moves[n].parent = p; moves[n].at = at_of[c] + 1; moves[n].line = line; moves[n].seq = n; moves[n].l = left.data[k];
 			n++;
 		}
 	}
 	if (!n) return;
+	place_folded(d, moves, n);
 	/* seq keeps the lines of one fold in their order. */
 	qsort(moves, n, sizeof *moves, refile_cmp);
 	for (size_t k = 0; k < n;) {

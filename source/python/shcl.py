@@ -5464,22 +5464,63 @@ def _folded_kept(nd):
 	"""The kept lines a load's fold gave this node from a later instance of
 	it, with the comments before them: what _beside_kept() takes, from the
 	first line read after the node's own. Only a fold puts those there."""
-	heads = _heads_block(nd)
-	t = nd.trivia
-	if t is None:
+	span = _folded_span(nd)
+	if span is None:
 		return []
-	lead = t.leading
-	start = next((k for k, c in enumerate(lead) if c.line > nd.line), None)
-	if start is None:
-		return []
-	last = len(lead) - 1 if heads else len(lead)
-	end = next((k + 1 for k in range(last - 1, -1, -1) if lead[k].is_kept_line()), 0)
-	if end <= start:
-		return []
+	start, end = span
+	lead = nd.trivia.leading
 	left = lead[start:end]
 	del lead[start:end]
 	_restep(lead)
 	return left
+
+
+def _folded_span(nd):
+	"""Where _folded_kept() would take its lines from in the node's leading
+	list, or None when it would take nothing."""
+	t = nd.trivia
+	if t is None:
+		return None
+	lead = t.leading
+	start = next((k for k, c in enumerate(lead) if c.line > nd.line), None)
+	if start is None:
+		return None
+	last = len(lead) - 1 if _heads_block(nd) else len(lead)
+	end = next((k + 1 for k in range(last - 1, -1, -1) if lead[k].is_kept_line()), 0)
+	return (start, end) if end > start else None
+
+
+def _place_folded(arena, moves):
+	"""For each move of _refile_folded(), [parent, first child, line, the
+	line], the child the line goes above: the first at or past that one read
+	after the line, or past the last. One sweep per parent from its end,
+	keeping only the children no earlier one hides, so a fold far from its
+	later instance doesn't walk every sibling between them."""
+	order = sorted(range(len(moves)), key=lambda m: (moves[m][0], -moves[m][1]))
+	k = 0
+	while k < len(order):
+		p = moves[order[k]][0]
+		kids = arena[p].children
+		# Child places, their lines rising toward the bottom.
+		seen: list[int] = []
+		nxt = len(kids)
+		while k < len(order) and moves[order[k]][0] == p:
+			m = moves[order[k]]
+			while nxt > m[1]:
+				nxt -= 1
+				line = arena[kids[nxt]].line
+				while seen and arena[kids[seen[-1]]].line <= line:
+					seen.pop()
+				seen.append(nxt)
+			lo, hi = 0, len(seen)
+			while lo < hi:
+				mid = (lo + hi) // 2
+				if arena[kids[seen[mid]]].line > m[2]:
+					lo = mid + 1
+				else:
+					hi = mid
+			m[1] = seen[lo - 1] if lo else len(kids)
+			k += 1
 
 
 def _beside_kept(nd):
@@ -8408,20 +8449,32 @@ class Document:
 		the later one where they were, as a setter's fold does: above the
 		next sibling read after them, or at the end of the block. `folded`
 		holds the nodes a fold or a re-mention gave lines to."""
+		# Every line that binds to a node already there is in `folded`, so a
+		# file that re-opens many blocks has many with nothing to move, and
+		# those may cost no more than this test.
+		folded = [c for c in sorted(set(folded)) if _folded_span(self.arena[c]) is not None]
+		if not folded:
+			return
+		# Each node's place among its siblings, for the parents of these.
+		at_of: dict[int, int] = {}
+		indexed: set[int] = set()
 		# Parent, the child they go above (past the last, the block's end),
 		# line, the line. All first, since 2 folds can fill one place.
-		moves: list[tuple[int, int, int, _Lead]] = []
-		for c in sorted(set(folded)):
+		moves: list[list] = []
+		for c in folded:
 			p = self.arena[c].parent
-			kids = self.arena[p].children
-			if c not in kids:
+			if p not in indexed:
+				indexed.add(p)
+				at_of.update((kid, k) for k, kid in enumerate(self.arena[p].children))
+			if c not in at_of:
 				continue
-			j, line = kids.index(c) + 1, 0
+			line = 0
 			for x in _folded_kept(self.arena[c]):
 				line = max(line, x.line)
-				while j < len(kids) and self.arena[kids[j]].line <= line:
-					j += 1
-				moves.append((p, j, line, x))
+				moves.append([p, at_of[c] + 1, line, x])
+		if not moves:
+			return
+		_place_folded(self.arena, moves)
 		# Stable, so the lines of one fold keep their order.
 		moves.sort(key=lambda m: m[:3])
 		for (p, j), run in itertools.groupby(moves, key=lambda m: m[:2]):
@@ -8435,8 +8488,7 @@ class Document:
 			_settle_block(self.arena, p, 1)
 		# The first node can have lost the lines above it, and with them the
 		# room for a blank a re-mention left it.
-		if moves:
-			_settle_first_blank(self.arena, self.orphans)
+		_settle_first_blank(self.arena, self.orphans)
 
 	def _leave_above(self, node: int, left: list[_Lead]) -> None:
 		"""Lines a remove left, put above the sibling that followed them."""

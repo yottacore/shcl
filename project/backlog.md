@@ -114,7 +114,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A load that re-opens many blocks takes time in the square of their count since 2026-11-04
 	- ID: 2026110613470305
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: High
 	- Target version: v3.0.0
 	- Opened: 20261106-134703
@@ -132,6 +132,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: the fix needs a perf-gate workload with a numeric threshold.
 	- Regression test: a scaling test in all 4 suites, as `dep84` does for the CLI: 8 times the re-opened blocks reads in under 3 times the time, skipped under TSan and Miri like the other timing tests; watched to fail on `5922ef64`.
 	- Estimated effort: Low
+	- Actual cause [Bug]: as above. Each re-opened node was looked for in its parent's child list, and one with a kept line before it walked every sibling between it and that line. C also kept the re-open hint's lines in a list it scanned, so it was quadratic with no kept line too.
+	- Actual effort: Low
+	- Progress log:
+		- 20261107, all 4 bindings: the refile skips a node with no kept line to move, finds each node's place from one pass over each parent's list, and finds the sibling a line goes above by one sweep per parent from its end. C's re-open lines are in a hash map, as in the other 3.
+		- 100,000 blocks with a kept line before each re-open: Rust 59 s to 4.1 s (debug), Go 13 s to 0.96 s, C 9.9 s to 0.47 s, Python out of reach to 17 s, each linear. Output the same as before over the corpus and both shapes.
+	- Decisions:
+		- me, 20261107: the scaling bound is 8 times the blocks in under 24 times the time, 3 times linear growth. 8 times the work can't take under 3 times the time. The old code took 40 to 50 times.
+		- me, 20261107: the perf-gate workload is judged against a twin with new values in the second half, so nothing re-opens, as fills is. A fold and its hint cost more than a parsed line. New code runs at about the twin's time, the old at 4 to 6 times it.
+		- me, 20261107: Python's test uses 3,000 and 24,000 blocks, best of 2 on the big side, where the others use 6,000 and 48,000. The old code is still past 10 times over there.
+	- Actual fix [Bug]: `refile_folded` with `folded_span` and `place_folded` (Go `refileFolded`, `foldedSpan`, `placeFolded`; Python `_refile_folded`, `_folded_span`, `_place_folded`), in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`, and C's `reent_get` / `reent_set` through a hash map.
+	- Swept: the other 3 bindings' re-open lines (maps already), the 2 sites that feed the fold list, and the rest of the refile (sort and settle, linear).
+	- Verified: the 4 conformance suites, Go under `-race`, Rust's lib, cli_pipe and 20,000-iteration fuzz, C's mem_bounds, veneer, oom_hook and oom_recover, cli-regress (655 rows), crosscheck (54873 comparisons), perf-gate over the 4 CLIs, analyze-c, clippy, go vet, staticcheck, ruff, mypy, shellcheck, test-ids check, and the C CLI at `-Werror` under cc, gcc 15 and clang.
+	- Verified: `df010`, `df011`, `df012` and `df013` fail on the code before the fix and pass after, and perf-gate `df014` failed for the old Rust, Go and C CLIs (4, 5 and 6 times the twin).
+	- Branch: `r1107b`
+	- Test case: conformance `reopened_blocks_load_in_linear_time` (`df010` Rust, `df011` Go, `df012` Python), C mem_bounds `df013`, perf-gate `reopens` (`df014`).
+	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new tests failed before and pass after, and the named gates pass.
+	- Closed: 20261107-083437
 
 - Python decodes escapes in time in the square of their count
 	- ID: 2026110613470306

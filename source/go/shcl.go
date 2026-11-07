@@ -6762,12 +6762,25 @@ func restep(leads []lead) {
 // instance of it, with the comments before them: what besideKept takes, from
 // the first line read after the node's own. Only a fold puts those there.
 func foldedKept(nd *nodeData) []lead {
-	heads := headsBlock(nd)
-	t := nd.trivia
-	if t == nil {
+	from, end, ok := foldedSpan(nd)
+	if !ok {
 		return nil
 	}
-	from := -1
+	t := nd.trivia
+	left := append([]lead(nil), t.leading[from:end]...)
+	t.leading = append(t.leading[:from], t.leading[end:]...)
+	restep(t.leading)
+	return left
+}
+
+// foldedSpan is where foldedKept would take its lines from in the node's
+// leading list, with ok false when it would take nothing.
+func foldedSpan(nd *nodeData) (from, end int, ok bool) {
+	t := nd.trivia
+	if t == nil {
+		return 0, 0, false
+	}
+	from = -1
 	for k := range t.leading {
 		if t.leading[k].line > nd.line {
 			from = k
@@ -6775,26 +6788,71 @@ func foldedKept(nd *nodeData) []lead {
 		}
 	}
 	if from < 0 {
-		return nil
+		return 0, 0, false
 	}
 	last := len(t.leading)
-	if heads {
+	if headsBlock(nd) {
 		last--
 	}
-	end := 0
 	for k := last - 1; k >= 0; k-- {
 		if t.leading[k].isKeptLine() {
 			end = k + 1
 			break
 		}
 	}
-	if end <= from {
-		return nil
+	return from, end, end > from
+}
+
+// refileMove is one line refileFolded moves: the parent, the child it goes
+// above (past the last, the block's end), the line it was read at, the line.
+type refileMove struct {
+	parent, at, line int
+	l                lead
+}
+
+// placeFolded sets each move's at, which holds the first child it may go
+// above, to the child the line goes above: the first at or past that one read
+// after the line, or past the last. One sweep per parent from its end,
+// keeping only the children no earlier one hides, so a fold far from its
+// later instance doesn't walk every sibling between them.
+func placeFolded(arena []nodeData, moves []refileMove) {
+	order := make([]int, len(moves))
+	for m := range order {
+		order[m] = m
 	}
-	left := append([]lead(nil), t.leading[from:end]...)
-	t.leading = append(t.leading[:from], t.leading[end:]...)
-	restep(t.leading)
-	return left
+	sort.Slice(order, func(a, b int) bool {
+		x, y := moves[order[a]], moves[order[b]]
+		if x.parent != y.parent {
+			return x.parent < y.parent
+		}
+		return x.at > y.at
+	})
+	// Child places, their lines rising toward the bottom.
+	var seen []int
+	for k := 0; k < len(order); {
+		p := moves[order[k]].parent
+		kids := arena[p].children
+		seen = seen[:0]
+		next := len(kids)
+		for ; k < len(order) && moves[order[k]].parent == p; k++ {
+			m := order[k]
+			for next > moves[m].at {
+				next--
+				line := arena[kids[next]].line
+				for len(seen) > 0 && arena[kids[seen[len(seen)-1]]].line <= line {
+					seen = seen[:len(seen)-1]
+				}
+				seen = append(seen, next)
+			}
+			line := moves[m].line
+			q := sort.Search(len(seen), func(s int) bool { return arena[kids[seen[s]]].line <= line })
+			if q == 0 {
+				moves[m].at = len(kids)
+			} else {
+				moves[m].at = seen[q-1]
+			}
+		}
+	}
 }
 
 // besideKept is what a remove of this node leaves of its lines, by
@@ -12421,38 +12479,49 @@ func (d *Document) TryRemove(path string) Read[int] {
 // nodes a fold or a re-mention gave lines to.
 func (d *Document) refileFolded(folded []int) {
 	sort.Ints(folded)
-	// Parent, the child they go above (past the last, the block's end), line,
-	// the line. All first, since 2 folds can fill one place.
-	type move struct {
-		parent, at, line int
-		l                lead
-	}
-	var moves []move
+	// Every line that binds to a node already there is in folded, so a file
+	// that re-opens many blocks has many with nothing to move, and those may
+	// cost no more than this test.
+	keep := folded[:0]
 	for x, c := range folded {
 		if x > 0 && folded[x-1] == c {
 			continue
 		}
-		p := d.arena[c].parent
-		at := -1
-		for k, kid := range d.arena[p].children {
-			if kid == c {
-				at = k
-				break
-			}
-		}
-		if at < 0 {
-			continue
-		}
-		j, line := at+1, 0
-		for _, l := range foldedKept(&d.arena[c]) {
-			line = maxInt(line, l.line)
-			kids := d.arena[p].children
-			for j < len(kids) && d.arena[kids[j]].line <= line {
-				j++
-			}
-			moves = append(moves, move{p, j, line, l})
+		if _, _, ok := foldedSpan(&d.arena[c]); ok {
+			keep = append(keep, c)
 		}
 	}
+	if len(keep) == 0 {
+		return
+	}
+	// Each node's place among its siblings, for the parents of these.
+	atOf, indexed := make([]int, len(d.arena)), make([]bool, len(d.arena))
+	for k := range atOf {
+		atOf[k] = -1
+	}
+	// All first, since 2 folds can fill one place.
+	var moves []refileMove
+	for _, c := range keep {
+		p := d.arena[c].parent
+		if !indexed[p] {
+			indexed[p] = true
+			for k, kid := range d.arena[p].children {
+				atOf[kid] = k
+			}
+		}
+		if atOf[c] < 0 {
+			continue
+		}
+		line := 0
+		for _, l := range foldedKept(&d.arena[c]) {
+			line = maxInt(line, l.line)
+			moves = append(moves, refileMove{p, atOf[c] + 1, line, l})
+		}
+	}
+	if len(moves) == 0 {
+		return
+	}
+	placeFolded(d.arena, moves)
 	// Stable, so the lines of one fold keep their order.
 	sort.SliceStable(moves, func(a, b int) bool {
 		if moves[a].parent != moves[b].parent {
@@ -12480,9 +12549,7 @@ func (d *Document) refileFolded(folded []int) {
 	}
 	// The first node can have lost the lines above it, and with them the room
 	// for a blank a re-mention left it.
-	if len(moves) > 0 {
-		settleFirstBlank(d.arena, d.orphans)
-	}
+	settleFirstBlank(d.arena, d.orphans)
 }
 
 // leaveAbove puts lines a remove left above the sibling that followed them.

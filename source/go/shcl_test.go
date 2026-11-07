@@ -3043,6 +3043,43 @@ func TestAFarKeptLineCostsAnEditNothing(t *testing.T) {
 	}
 }
 
+// A load that re-opens every block after a kept line looked for each
+// re-opened node in its parent's list, and walked the siblings between it and
+// the kept line, so the time went with the square of the blocks
+// (2026110613470305). Eight times the blocks has to take under 24 times the
+// time, 3 times the linear growth, where the old walk took 40 times and more.
+// Best of 3 each, against noise on the small side. Same fixture in every
+// runner.
+func TestReopenedBlocksLoadInLinearTime(t *testing.T) {
+	defer testID(t, "df011")
+	if raceOn {
+		t.Skip("not timed under -race")
+	}
+	var ms [2]float64
+	for slot, n := range []int{6000, 48000} {
+		var text strings.Builder
+		for i := 0; i < n; i++ {
+			fmt.Fprintf(&text, "srv: v%d\n\ta: 1\n", i)
+		}
+		for i := 0; i < n; i++ {
+			fmt.Fprintf(&text, "q%d: [1\nsrv: v%d\n\tb: 1\n", i, i)
+		}
+		ms[slot] = math.Inf(1)
+		for r := 0; r < 3; r++ {
+			t0 := time.Now()
+			d := Parse(text.String())
+			ms[slot] = math.Min(ms[slot], float64(time.Since(t0).Microseconds())/1000.0)
+			if !strings.HasSuffix(d.ToCanonical(), fmt.Sprintf("\nq%d: [1\n", n-1)) {
+				t.Fatalf("the kept lines did not go to the end of the file")
+			}
+		}
+	}
+	bound := math.Max(ms[0], 1) * 24
+	if ms[1] > bound {
+		t.Errorf("48000 re-opened blocks %.1f ms against %.1f ms for 6000 (bound %.1f ms) - the load's refile is not linear", ms[1], ms[0], bound)
+	}
+}
+
 func TestLostAndSaveGate(t *testing.T) {
 	defer testID(t, "dbcxf")
 	// Content-malformed lines are retained as trivia (LostCount 0, the line

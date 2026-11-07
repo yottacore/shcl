@@ -7686,23 +7686,61 @@ fn restep(leads: &mut [Lead]) {
 /// it, with the comments before them: what beside_kept() takes, from the
 /// first line read after the node's own. Only a fold puts those there.
 fn folded_kept(nd: &mut NodeData) -> Vec<Lead> {
-	let (line, heads) = (nd.line, heads_block(nd));
+	let Some((from, end)) = folded_span(nd) else {
+		return Vec::new();
+	};
 	let Some(t) = nd.trivia.as_deref_mut() else {
 		return Vec::new();
 	};
-	let Some(from) = t.leading.iter().position(|l| l.line > line) else {
-		return Vec::new();
-	};
-	let end = t.leading[..t.leading.len() - usize::from(heads)]
-		.iter()
-		.rposition(Lead::is_kept_line)
-		.map_or(0, |k| k + 1);
-	if end <= from {
-		return Vec::new();
-	}
 	let left = t.leading.drain(from..end).collect();
 	restep(&mut t.leading);
 	left
+}
+
+/// Where folded_kept() would take its lines from in the node's leading
+/// list, or None when it would take nothing.
+fn folded_span(nd: &NodeData) -> Option<(usize, usize)> {
+	let t = nd.trivia.as_deref()?;
+	let from = t.leading.iter().position(|l| l.line > nd.line)?;
+	let end = t.leading[..t.leading.len() - usize::from(heads_block(nd))]
+		.iter()
+		.rposition(Lead::is_kept_line)
+		.map_or(0, |k| k + 1);
+	(end > from).then_some((from, end))
+}
+
+/// For each move of refile_folded(), (parent, first child, line, the line),
+/// the child the line goes above: the first at or past that one read after
+/// the line, or past the last. One sweep per parent from its end, keeping only
+/// the children no earlier one hides, so a fold far from its later instance
+/// doesn't walk every sibling between them.
+fn place_folded(arena: &[NodeData], moves: &mut [(usize, usize, usize, Lead)]) {
+	let mut order: Vec<usize> = (0..moves.len()).collect();
+	order.sort_by_key(|&m| (moves[m].0, std::cmp::Reverse(moves[m].1)));
+	// Child places, their lines rising toward the bottom.
+	let mut seen: Vec<usize> = Vec::new();
+	let mut k = 0;
+	while k < order.len() {
+		let p = moves[order[k]].0;
+		let kids = &arena[p].children;
+		seen.clear();
+		let mut next = kids.len();
+		while k < order.len() && moves[order[k]].0 == p {
+			let m = order[k];
+			while next > moves[m].1 {
+				next -= 1;
+				let line = arena[kids[next]].line;
+				while seen.last().is_some_and(|&s| arena[kids[s]].line <= line) {
+					seen.pop();
+				}
+				seen.push(next);
+			}
+			let line = moves[m].2;
+			let q = seen.partition_point(|&s| arena[kids[s]].line > line);
+			moves[m].1 = if q == 0 { kids.len() } else { seen[q - 1] };
+			k += 1;
+		}
+	}
 }
 
 /// What a remove of this node leaves of its lines, by design.md's kept-lines
@@ -12681,27 +12719,40 @@ impl Document {
 	fn refile_folded(&mut self, mut folded: Vec<usize>) {
 		folded.sort_unstable();
 		folded.dedup();
+		// Every line that binds to a node already there is in `folded`, so a
+		// file that re-opens many blocks has many with nothing to move, and
+		// those may cost no more than this test.
+		folded.retain(|&c| folded_span(&self.arena[c]).is_some());
+		if folded.is_empty() {
+			return;
+		}
+		// Each node's place among its siblings, for the parents of these.
+		let n = self.arena.len();
+		let (mut at_of, mut indexed) = (vec![usize::MAX; n], vec![false; n]);
 		// Parent, the child they go above (past the last, the block's end),
 		// line, the line. All first, since 2 folds can fill one place.
 		let mut moves: Vec<(usize, usize, usize, Lead)> = Vec::new();
 		for c in folded {
 			let p = self.arena[c].parent;
-			let Some(at) = self.arena[p].children.iter().position(|&k| k == c) else {
+			if !indexed[p] {
+				indexed[p] = true;
+				for (k, &kid) in self.arena[p].children.iter().enumerate() {
+					at_of[kid] = k;
+				}
+			}
+			if at_of[c] == usize::MAX {
 				continue;
-			};
-			let (mut j, mut line) = (at + 1, 0);
+			}
+			let mut line = 0;
 			for l in folded_kept(&mut self.arena[c]) {
 				line = line.max(l.line);
-				let kids = &self.arena[p].children;
-				while j < kids.len() && self.arena[kids[j]].line <= line {
-					j += 1;
-				}
-				moves.push((p, j, line, l));
+				moves.push((p, at_of[c] + 1, line, l));
 			}
 		}
 		if moves.is_empty() {
 			return;
 		}
+		place_folded(&self.arena, &mut moves);
 		// Stable, so the lines of one fold keep their order.
 		moves.sort_by_key(|m| (m.0, m.1, m.2));
 		let mut moves = moves.into_iter().peekable();

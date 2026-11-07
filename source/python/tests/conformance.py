@@ -2618,6 +2618,29 @@ def main():
 	bound = 3000.0 if ms[0] <= 0 else ms[0] * 25 + 1000
 	if ms[1] > bound:
 		raise SystemExit(f"50 edits and merges beside a kept line {ms[1]:.1f} ms against {ms[0]:.1f} ms without it (bound {bound:.1f} ms) - each one settles the whole document")
+	test_id("df012", "reopened_blocks_load_in_linear_time")
+	# A load that re-opens every block after a kept line looked for each
+	# re-opened node in its parent's list, and walked the siblings between it
+	# and the kept line, so the time went with the square of the blocks
+	# (2026110613470305). Eight times the blocks has to take under 24 times the
+	# time, 3 times the linear growth, where the old walk took 40 times and
+	# more. Same fixture in every runner, at half the blocks here and best of 2
+	# on the big side rather than 3: the old walk is still past 10 times over.
+	ms = []
+	for n, runs in ((3000, 3), (24000, 2)):
+		text = "".join(f"srv: v{i}\n\ta: 1\n" for i in range(n))
+		text += "".join(f"q{i}: [1\nsrv: v{i}\n\tb: 1\n" for i in range(n))
+		best = float("inf")
+		for _ in range(runs):
+			t0 = time.perf_counter()
+			rdoc = shcl.Document.parse(text)
+			best = min(best, (time.perf_counter() - t0) * 1000.0)
+			if not rdoc.to_canonical().endswith(f"\nq{n - 1}: [1\n"):
+				raise SystemExit("re-opened fixture: the kept lines did not go to the end of the file")
+		ms.append(best)
+	bound = max(ms[0], 1.0) * 24
+	if ms[1] > bound:
+		raise SystemExit(f"24000 re-opened blocks {ms[1]:.1f} ms against {ms[0]:.1f} ms for 3000 (bound {bound:.1f} ms) - the load's refile is not linear")
 	test_id("ddes7", "a_kept_line_gone_from_the_tree_refuses_the_save")
 	# The save gate on kept lines, from inside: once the edits that lose one
 	# are fixed, no public call reaches the gate, so this takes a line out by

@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The Go library builds for wasm again, `js` and `wasip1`. beta1 used a system constant those targets don't have.
 
+- A file that re-opens many blocks loads in linear time again. In beta1, 100,000 blocks each named twice took 4 to 5.5 s to load in Go and C, and a kept line before each second instance made it 10 s and more.
+
 - A `#` outside quotes in a lookup path is refused, as `BadPath`. The path used to end there, so `set --remove='colors#primary'` removed all of `colors` at exit 0. Quote a name that holds one, `"colors#primary"`.
 
 - `E003` names the index as written. One past the 64-bit range was shown as 18446744073709551615.
