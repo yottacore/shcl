@@ -1035,6 +1035,25 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: every case in the requirements ran on b29w.
 	- Closed: 20261106-093500
 
+- The Go binding doesn't build for wasm: "undefined: syscall.O_NONBLOCK"
+	- ID: 2026110611562400
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20261106-115624
+	- Opened by: convert-base-v2 (its 2026110610591137), moving to beta1
+	- Version and build: `v3.0.0-beta1` at `99a9f7b6`
+	- Target OS: WASI, browser
+	- Problem description: `openNoWait` in `shcl.go` and the Go CLI used `syscall.O_NONBLOCK` everywhere but Windows. js and wasip1 have no such constant, so `shcl.go` failed to build there, and every wasm build of a program that vendors it failed. The lint stage only vets the host's GOOS, so nothing built it for wasm.
+	- Progress log:
+		- 20261106: `noWaitFlag` writes the flag out per GOOS, as Rust does, and gives 0 (a plain open) on Windows, wasm, plan9 and anything not listed. `shcl.go` stays one file. The CLI has the same table. New cross check `check-go-alone.bash` builds `shcl.go` alone and the CLI for one 64-bit arch of every GOOS.
+		- 20261106: convert-base-v2's 3 wasm builds (WASI command, reactor, browser module) fail on beta1's `shcl.go` and build on this one.
+	- Swept: every `syscall.` name in `shcl.go` and the CLI, by building for every GOOS. Python reads `os.O_NONBLOCK` with a fallback of 0. C uses `O_NONBLOCK` from the C library, which wasi-libc and emscripten define. Rust's open is `cfg(unix)`, so wasm takes a plain open. Rust's table is off for Linux on mips and for solaris, where `0x4` is `O_NDELAY` and still doesn't wait; left as it is, since nothing is released for either. plan9 lacks the errno names the write status reads, and 32-bit targets overflow the version cap. Both are out of scope.
+	- Branch: `wasmopen`
+	- Test case: Go `deyvb` TestNoWaitFlagIsNonblock (the table against `syscall.O_NONBLOCK` on every unix it runs on), `deyvc` and `deyvd` in check-go-alone. `deyvc` and `deyvd` failed on dev's `shcl.go` for js and wasip1, and `deyvb` failed with a wrong Linux value.
+	- Acceptance signoff: Self-closed: the checks fail without the fix and pass with it, and convert-base-v2's wasm builds pass with it.
+	- Closed: 20261106-120800
+
 - `sign-release.bash` refuses the right key: "install.ps1 has a different key"
 	- ID: 2026110607341200
 	- Type: Bug
