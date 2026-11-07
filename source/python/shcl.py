@@ -13280,17 +13280,19 @@ def _chain_parts_legal(cons, frags, set_idx, parts):
 		if (name, at) in seen:
 			continue
 		seen.add((name, at))
-		rest = parts[at:]
-		# The stack only descends with parts left over, and the sweep never
-		# asks about an empty chain, so rest always has a first part to look up.
+		# Indexes into parts rather than a slice of the rest: a copy per
+		# level is the chain's length per level, cubic in a recursive mount's
+		# depth. The stack only descends with parts left over, and the sweep
+		# never asks about an empty chain, so parts[at] is always there.
+		left = len(parts) - at
 		idx = set_idx.get(name)
-		order = range(len(cons)) if idx is None else _candidates(idx, rest[0])
+		order = range(len(cons)) if idx is None else _candidates(idx, parts[at])
 		for ci in order:
 			c = cons[ci]
 			n = len(c.segs)
-			k = min(len(rest), n)
-			if all(c.segs[i].star or c.segs[i].name == rest[i] for i in range(k)):
-				if len(rest) <= n:
+			k = min(left, n)
+			if all(c.segs[i].star or c.segs[i].name == parts[at + i] for i in range(k)):
+				if left <= n:
 					return True
 				if c.inherits is not None:
 					fcs = frags.get(c.inherits)

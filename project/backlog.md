@@ -140,7 +140,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - C checks a recursive schema in time cubic in the nesting depth
 	- ID: 2026110613470309
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: High
 	- Target version: v3.0.0
 	- Opened: 20261106-134703
@@ -157,6 +157,35 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: `d61bfc8c` (2026-09-17). Code review 20260905 item 4 removed the doubling per level. perf-gate's `recurse` (`dc81v`) times one 60-level chain. Confirmed.
 	- Regression test: a scaling test in the C suite, a recursive schema 8 levels deeper checked in under 3 times the time, and a shared schema case all 4 suites run so the answer at depth is pinned too.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Related IDs: 2026110711492228
+	- Actual cause: confirmed. The candidate loop counted the chain's parts to its end to learn whether any were left past the path, once per candidate at every mount level.
+	- Actual fix: the loop compares only as far as the path goes, and reads what is left from the part count it already has. Python sliced the rest of the chain per level, a copy of the chain's length each time, and now indexes into it. On the issue's document C went from 4.1 s to 0.26 s, Python from 7.8 s to 6.3 s.
+		- Swept: Rust and Go take a view of the rest, not a copy. C's `star_legal` stops one part past its pattern. The square left in all 4 is 2026110711492228.
+	- Decisions:
+		- The scaling test times four times the depth, 120 against 480 levels, and allows 32 times the time. The square that stays makes 8 more levels or twice the depth too close a call against the cube. It measured 14 times on the fix and 49 times on the old code.
+		- The square, each node's chain built from the root, is its own Bug, since it is in all 4 and needs the matcher to carry its state down the tree.
+	- Test case: `mem_bounds` `df080` (`recursive_mount_check_is_not_cubic_in_depth`), which fails on the old code and passes now, and corpus `220-deep-fragment-chain` (`df07z`) in all 4 suites.
+	- Closed: 20261107-120026
+
+- Schema check costs the square of the nesting depth in all 4 bindings
+	- ID: 2026110711492228
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261107-114922
+	- Opened by: me, from 2026110613470309
+	- Related IDs: 2026110613470309
+	- Version and build: dev at `c9f4bc4b`
+	- Steps to reproduce:
+		- The schema and document of 2026110613470309, and the same document at half the depth.
+	- Incorrect behavior: twice the depth costs about 4 times as much in all 4. Python takes 6.3 s on the 41 KB document.
+	- Expected behavior: spec.md says the check's cost is proportional to the document.
+	- Reproduced: 20261107, C and Python.
+	- Possible cause: the unknown-field sweep builds each node's chain from the root and matches it from the top, so a node at depth d costs d. Carrying each node's match states down from its parent would make it a constant per node.
+	- Regression test: the `df080` fixture in every runner, with four times the depth under 8 times the time.
+	- Estimated effort: Avg
 
 - `set_literal` leaves `quoted` false on a value the save writes quoted
 	- ID: 2026110613470310

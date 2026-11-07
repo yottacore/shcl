@@ -13348,21 +13348,22 @@ static int chain_parts_legal(const ShclVecVCons *cons, size_t set, const ShclVSc
 		for (size_t bi = 0; bi < list->len; bi++) {
 			const ShclVCons *c = &cons->data[list->data[bi]];
 			size_t n = c->segs.len;
-			size_t part = 0, i = from, rem = from;
+			// Compare only as far as the path goes. Walking the rest of the
+			// chain per candidate made every level cost the chain's length,
+			// which is cubic in the depth of a recursive mount.
+			size_t part = 0, i = from;
 			int match = 1;
 			ShclStr nm;
-			while (match && chain_next(chain, &i, &nm)) {
-				if (part < n) {
-					if (!c->segs.data[part].star && !s_eq(c->segs.data[part].name, nm)) match = 0;
-					if (part + 1 == n) rem = i; // remainder starts past the matched prefix
-				}
+			while (match && part < n && chain_next(chain, &i, &nm)) {
+				if (!c->segs.data[part].star && !s_eq(c->segs.data[part].name, nm)) match = 0;
 				part++;
 			}
 			if (!match) continue;
-			if (part <= n) return 1; // a prefix of a legal path
+			if (nparts - at <= n) return 1; // a prefix of a legal path
 			if (c->inherits.n) {
 				size_t fi = v_frag_index(def, c->inherits);
-				if (fi != SIZE_MAX && chain_parts_legal(&def->frags.data[fi].fields, fi + 1, def, set_idx, chain, rem, at + n, nparts, dead)) return 1;
+				// i is past the matched path, where the remainder starts.
+				if (fi != SIZE_MAX && chain_parts_legal(&def->frags.data[fi].fields, fi + 1, def, set_idx, chain, i, at + n, nparts, dead)) return 1;
 			}
 		}
 	}

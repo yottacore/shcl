@@ -711,6 +711,52 @@ int main(void) {
 #endif
 	}
 
+	/* The chain matcher compared each candidate path against the whole rest
+	   of the chain at every mount it went through, so a fragment that mounts
+	   itself cost the cube of the document's depth (2026110613470309). Each
+	   node still builds its chain from the root, which is the square, so four
+	   times the depth has to take under 32 times the time, twice the square's
+	   growth, where the old walk took 64 times. Best of 3 each. Corpus case
+	   220 pins the answers at depth. */
+	test_id("df080", "recursive_mount_check_is_not_cubic_in_depth");
+	{
+		static const char rschema[] = "fragment: f\n\tfield: a\n\t\tinherits: f\n\tfield: leaf\n\t\ttype: int\nfield: a\n\tinherits: f\n";
+		shcl_doc *rs = shcl_parse(rschema, sizeof rschema - 1);
+		double t[2];
+		size_t depths[2] = {120, 480}, lines = 20, cap = lines * (480 * 2 + 32) + 1;
+		char *rtext = (char *)malloc(cap);
+		if (!rs || !rtext) { fail("recursive mount fixture: no memory"); free(rtext); shcl_free(rs); return test_id_end(1); }
+		for (int side = 0; side < 2; side++) {
+			size_t len = 0;
+			for (size_t ln = 0; ln < lines; ln++) {
+				// codeql[cpp/overflowing-snprintf] cap holds every line at the deeper side
+				len += (size_t)snprintf(rtext + len, cap - len, "a(v%zu).", ln);
+				for (size_t k = 0; k < depths[side]; k++) { memcpy(rtext + len, "a.", 2); len += 2; }
+				memcpy(rtext + len, "leaf: 1\n", 8); len += 8;
+			}
+			shcl_doc *rd = shcl_parse(rtext, len);
+			if (!rd) { fail("recursive mount fixture: no memory"); free(rtext); shcl_free(rs); return test_id_end(1); }
+			t[side] = 1e300;
+			for (int r = 0; r < 3; r++) {
+				double c0 = wall_ms();
+				shcl_validation *v = shcl_validate(rd, rs);
+				double ms = wall_ms() - c0;
+				if (ms < t[side]) t[side] = ms;
+				if (!v || shcl_validation_count(v) != 0) fail("recursive mount fixture: a legal chain was refused");
+				shcl_validation_free(v);
+			}
+			shcl_free(rd);
+		}
+		free(rtext);
+		shcl_free(rs);
+		printf("mem_bounds: recursive mount check: %.1f ms at depth 120, %.1f ms at depth 480\n", t[0], t[1]);
+#ifdef SHCL_UNDER_ASAN
+		printf("mem_bounds: recursive mount ratio not judged under a sanitizer\n");
+#else
+		if (t[1] > (t[0] > 1.0 ? t[0] : 1.0) * 32) fail("the recursive mount check is cubic in the depth");
+#endif
+	}
+
 	int last_failed = failures > open_base;
 	if (!failures) printf("mem_bounds: OK\n");
 	test_id_end(last_failed);

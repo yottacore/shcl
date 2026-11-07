@@ -1,0 +1,9 @@
+fragment: f
+	field: a
+		inherits: f
+	field: p.q
+		inherits: f
+	field: leaf
+		type: int
+field: a
+	inherits: f
