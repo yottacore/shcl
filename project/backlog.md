@@ -52,7 +52,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026110613470301
 	- Type: Bug
 	- Status: Queued
-	- Severity: Avg
+	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 1
 	- Version and build: dev at `343334df`
@@ -71,7 +71,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026110613470302
 	- Type: Bug
 	- Status: Queued
-	- Severity: Avg
+	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 2
 	- Related IDs: 2026100307163904
@@ -91,7 +91,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026110613470303
 	- Type: Bug
 	- Status: Queued
-	- Severity: Avg
+	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 3
 	- Version and build: dev at `343334df`
@@ -109,7 +109,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026110613470304
 	- Type: Bug
 	- Status: Queued
-	- Severity: Avg
+	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 4
 	- Version and build: dev at `343334df`
@@ -129,7 +129,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026110613470305
 	- Type: Bug
 	- Status: Queued
-	- Severity: Avg
+	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 5
 	- Related IDs: 2026110315051536
@@ -149,7 +149,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026110613470306
 	- Type: Bug
 	- Status: Queued
-	- Severity: Avg
+	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 6
 	- Version and build: dev at `343334df`
@@ -164,97 +164,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: `f2b97394` (2026-10-06) for `_resolve_marks`, `1d5f3f2b` (2026-10-10) for `_shown`, `81943546` (2026-10-09) for the text built every time. A drift from the Rust reference. Not seen by an earlier round. Confirmed.
 	- Estimated effort: Low
 
-- Make sign-release.bash refuse a dated build
-	- ID: 2026110613470321
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 21
-	- Problem description: the signer checks that the sums match the files beside them, then signs. Every pipeline run writes the local release folder, and today it has a dated build from a later run, not the beta1 bytes. Signing it with `--no-tag-check`, as beta1 was signed, passes and makes a good signature over bytes that aren't the cut. `release-table.bash --version-of` already refuses a dated build.
-	- Requirements:
-		- Refuse a dated build, or a version other than the tag's, the way release-table does.
-		- Check the binaries, not only the source HEAD.
-	- Reason: a re-sign and re-upload would put a build that isn't the cut behind a valid signature.
-	- Origin: `6d29ef3a` (2026-09-02). Confirmed with a copy of the script and a test key.
-	- Estimated effort: Low
-
-- The default run takes over an hour
-	- ID: 2026110215285706
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261102-152857
-	- Opened by: Code review 20261102 item 6
-	- Related IDs: 2026102515494614
-	- Problem description: `run_20261101-103838` took 76 minutes and `run_20261101-120609` 72, with tests 49 of them. The run lengths item closed on a 59-minute run, before the box step and the hosted job were added.
-	- Requirements:
-		- Time each step over 2 runs, then move what pushes the run past an hour to `--long`.
-	- Estimated effort: Avg
-
-- A filesystem property test for the save's checks, over every past path bug
-	- ID: 2026110616475901
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261106-164759
-	- Opened by: Code review 20261106 follow-up (JC)
-	- Related IDs: 2026102910482342, 2026110312163201, 2026110312163202, 2026110312163207, 2026110313211991, 2026110314064292, 2026110314240418, 2026110408432594, 2026110613470307, 2026110613470308
-	- Problem description: every test of the changed, create-only and FIFO checks is a list of examples (`detpn`, `detpp`, `detpq`, `detpr`, `detps`, `dekm5`, `dekmf`, `dd5h4`), each case added after its own bug. The fuzz suite runs on text in memory and never opens a file, so no generated case has a folder, a link or a file appear between the load and the save. 8 items in 2 weeks came from this one class, and each closed one spelling.
-	- Requirements:
-		- A seeded property test that works in a temp folder, each case a pure function of its seed, with a wall-clock budget from an env var, the way the text fuzz does. It runs in all 4 bindings beside the conformance suites, from one set of generator rules, and the cross-binding check holds them to the same answer. A dump of the cases a run drew, as `SHCL_FUZZ_DUMP` does for the kept fuzz, so a failure can be replayed.
-		- The load spelling and the save spelling each come from a small grammar: bare name, `./x`, absolute, `//`, `/./`, `dir/../x`, through a link to the folder, a link to the file, a dangling link, a link cycle, from another working folder, a trailing `.` or `..`, and on Windows `\`, mixed separators, an 8.3 short name and a `\\?\` prefix, and on macOS a case variant.
-		- An event between the load and the save, drawn from: nothing, the file rewritten, removed, swapped for a FIFO, made where the load found nothing, a folder on the path made, a link on the path made or pointed elsewhere, the working folder changed, the read bit taken off.
-		- An oracle that doesn't ask the library. Write a marker through the save spelling and read through the load spelling to learn whether the 2 name one file. Then: the save refuses as Changed iff they name one file and its bytes differ from what the load read; refuses as Exists iff create-only and anything is at the path; refuses a FIFO as not regular; and a refused save writes nothing anywhere.
-		- Every case in the Related list is a fixed row the generator also has to be able to draw, and a run fails when the generator didn't draw each kind at least once, as the fuzz guards do.
-		- Windows and macOS rows run on b29w with a short-name TEMP and on vmKt6m or b26, through the box step. Until a box runs them, they're skipped by platform, never dropped.
-		- Watched to fail: run it on `343334df` and see the `nodir/..` row and 2026110613470308's folder row go red before 2026110613470307's fix.
-	- Reason: a property over the whole space of spellings and events is the only test that finds the next member of the class before a user does. The example lists found none of the 8.
-	- Estimated effort: Avg
-
-- One helper reattaches the lines around a node an edit takes away
-	- ID: 2026110616475902
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261106-164759
-	- Opened by: Code review 20261106 follow-up (JC)
-	- Related IDs: 2026110613470311, 2026110613470302, 2026110613470312, 2026100307163904, 2026100218185700, 2026092718195400, 2026110312163204, 2026110315051536
-	- Problem description: when an edit removes, replaces, folds or merges a node, the comments and blank lines around it are moved by that edit's own code: `unstack` for a replaced item list, `beside_kept` with `leave_above` and `leave_last` for a merged duplicate, `refile_folded` and `settle_first_blank` for a fold at load, `drop_banners` for the info block, and the remove's own path. Each is a separate answer to one question, where do the lines around a node go when the node goes, and each has got the blank line wrong at least once. This review found one more (2026110613470311), and the setter and fold ones were 2026110312163204 and 2026110315051536 this month. Fixing the site at hand has closed one case per round since Code review 20260802.
-	- Requirements:
-		- Design first, in design.md: one ownership rule. Every comment line and blank line belongs to one node from the parse on, as its leading lines or its trailing lines, and the emitter writes a node's lines in one fixed order: the blank, the comments, the line, the children, the trailing lines. spec.md names the rule where the SetComment rule is.
-		- One function, say `adopt`, takes a node that is going away and gives its leading lines to the node that takes its place, else the next sibling, else the parent's trailing lines, with the blank staying above the comments. Removes, item list replaces, setter folds, load folds, merges and the banner toggle all call it. After the change no edit moves a comment or a blank any other way, and a grep for the old helpers finds only `adopt`.
-		- Same name and the same call sites in all 4 bindings. The old helpers go in the same commit, once the placement suite 2026110616475903 passes with both in place.
-		- The kept-line rules stay as they are: design.md's table for kept lines under edits, a misplaced line keeping its space indent, `E001` and `E008` lines as built.
-		- The placement suite 2026110616475903 is the gate. 2026110613470311 closes through this item.
-	- Reason: one place that answers the question can be tested once, and a new edit kind can't get the blank line wrong on its own.
-	- Alternatives:
-		- Fix `unstack` alone. Closes 2026110613470311 and leaves the class open, as every fix before it did.
-	- Estimated effort: High
-
-- An exhaustive comment placement suite, with a placement property in the fuzz
-	- ID: 2026110616475903
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261106-164759
-	- Opened by: Code review 20261106 follow-up (JC)
-	- Related IDs: 2026110616475902, 2026110613470311, 2026110613470302, 2026100307163904, 2026100218185700, 2026092718195400
-	- Problem description: no test says where a comment must be after an edit. The kept-lines fuzz's `setter_moved` returns early when there are no kept lines, and a parsed comment isn't one. Its `stretches` helper anchors on non-blank lines only, so a comment that crossed a blank line passes it. `dd3t9` checks that the edited text reloads as the document, and a wrong placement that reloads the same is a fixpoint, so it passes too. The corpus goldens fix the placement after a load, not after an edit. Each past bug got one example test, and the next site had none. Past cases, old format: Code review 20260802 items 8 and 20 (comments dropped on merge, end-of-file comments multiply), 20260830 item 19 (a blank between a new node's comment and the node), 20260901b item 7 (footer comments collapse), 20260904 item 18 (`SetComment` leaves the blank between comment and node), 20260923 item 3 (filed differently after an edit than after a reload), 20260925b item 2 (a comment above a dotted line moves on any edit), the 2 `to_canonical()` items from the SilkTerm devs (blanks between comment regions dropped, a trailing run re-attaching to the next node), and the ones in the Related list.
-	- Requirements:
-		- A placement property computed from text alone, so it needs nothing from the library. For each comment line of the input, its anchor is the next line below that isn't blank or a comment, plus a flag for a blank directly above the comment run. After an edit that didn't remove or replace the anchor, the run sits directly above the same anchor, the blank above the run, and nothing between the run and the anchor. When the anchor went, the run sits above what took its place, by 2026110616475902's rule. A trailing comment stays on its line with the same text after the `#`.
-		- It runs in `dd3t9` and `dderx` both, since one has removes and the other the list-replacing `set_literal`, and at the merge step. `dd3t9` gets a `set_literal` with a bracket list over an item list. The generators have to make item lists with per-item comments and blanks between siblings, with a guard that counts the shape in each run, as the fuzz guards do.
-		- The 4-binding cross check replays the dumps, as it does for the kept fuzz.
-		- A fixed table, one row per past case above and each new one, as a before text, an edit and the exact expected text, in one file all 4 conformance suites read, as the corpus is. Watch each row fail in a worktree at the commit before its fix.
-		- Watch the property fail: on `343334df`, 2026110613470311's case goes red.
-	- Reason: an example per bug has found none of the next ones. A property over every comment in every generated edit finds the next site before a review does.
-	- Estimated effort: Avg
-
 - The changed check misses a file reached through a second spelling of its path
 	- ID: 2026110613470307
 	- Type: Bug
 	- Status: Queued
-	- Severity: Low
+	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 7
 	- Related IDs: 2026110312163201, 2026110314064292, 2026110314240418, 2026110408432594
@@ -272,18 +186,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- macOS Go and Python: on a volume that ignores case, a load of `Conf.shcl` and a save to `conf.shcl` skip the check, since `EvalSymlinks` and `realpath` keep the case given. Rust and C get the case on disk from Darwin's `realpath`.
 	- Origin: `2c878191` (2026-11-03) in Go and Python, `2f38f68b` (2026-11-03) in Rust, `0710c634` (2026-11-04) in C. A missed twin of 2026110314240418, which kept `..` as written without the folder showing up later. Confirmed on Linux, Plausible on Windows and macOS.
 	- Requirements (JC, 2026-11-06, after the review's recurring-problems question):
-		- Decide "same file" at save time, under one filesystem state. The load records the path as given and the working folder of the moment, nothing resolved. The save resolves that record and its own path with the same call, so `nodir/..` cancels for both or for neither, and the Windows twin goes with it.
-		- Where the file exists at save time, the OS decides identity, not a string: device and inode on unix, volume serial and file index on Windows (`os.SameFile` in Go, `os.path.samefile` in Python). That covers links, short names and the macOS case twin, since the OS already knows. The string compare stays only for a file that isn't there yet, and both strings then come from one state.
-		- Same call flow in all 4 bindings.
+		- Stop asking whether the save path is the file the load read. Check the destination every time, by its bytes, the way an editor checks the file at its one path: at save time read what sits at the save path as given, right now. Nothing there and the load found nothing: write. Nothing there and the load read a file: refuse as Changed. Bytes equal to what the load read, or to what this document's last save wrote: write. Other bytes: refuse as Changed, unless `force`. The byte compare is `holds` as it is today.
+		- No path compare is left. The recorded resolved path and `real_nearest` go, in all 4 bindings. `resolve_target` stays for the write alone, to follow a link and rename the temp file in place, resolved once at save time and compared against nothing later.
+		- Behavior change, into spec.md's save section: a save onto an existing file the document never read, a save-as, is refused unless `force`, where today it's written when the path happens to resolve apart. `detpn`'s "same name from another working folder" case flips to a refusal. Nobody read those bytes, so writing over them is the bug, and the overwrite prompt every editor shows is the precedent.
+		- A hard link comes right for free: 2 names, 2 real paths, one set of bytes.
 		- The filesystem property test 2026110616475901 is the proof. This item closes when that test runs in all 4 bindings and passes every case it lists, and the Windows and macOS rows ran on their boxes.
-	- Note: this class has come back in 4 rounds in a row. Each fix since 2026110312163201 closed one spelling with a hand rule in `real_nearest`, in 4 languages, and the compare of 2 strings resolved at 2 different times breaks on the next event nobody listed. A test over spellings alone won't hold it.
+	- Why not the alternatives (JC's questions, 2026-11-06):
+		- A save-time re-resolve of both paths plus an OS identity check (inode, Windows file index): works, but needs Windows FFI in Rust and C, and only tells "same file edited" from "different file", a distinction the bytes rule doesn't need.
+		- A property test over spellings alone: finds the next spelling, holds nothing. Each fix since 2026110312163201 closed one spelling with a hand rule in `real_nearest`, in 4 languages, and a compare of 2 strings resolved at 2 different times breaks on the next event nobody listed.
+		- Canonicalize with realpath and write temp-and-rename over it: already done for the write. It can't help the check, since realpath has no answer for a path that doesn't fully exist yet, which every case in this class is, and a canonical path taken at load isn't canonical at save once a component becomes a link.
+	- Note: still a check, not a lock. An edit between the read and the rename is lost either way, and only a file lock would close that, which is a separate call.
 	- Estimated effort: Avg
 
 - A path that names a folder gets the wrong refusal in Rust and C, and from the CLIs' own changed check
 	- ID: 2026110613470308
 	- Type: Bug
 	- Status: Queued
-	- Severity: Low
+	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 8
 	- Version and build: dev at `343334df`
@@ -302,7 +221,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026110613470309
 	- Type: Bug
 	- Status: Queued
-	- Severity: Low
+	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 9
 	- Version and build: dev at `343334df`
@@ -321,7 +240,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026110613470310
 	- Type: Bug
 	- Status: Queued
-	- Severity: Low
+	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 10
 	- Version and build: dev at `343334df`
@@ -339,7 +258,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026110613470311
 	- Type: Bug
 	- Status: Queued
-	- Severity: Low
+	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 11
 	- Version and build: dev at `343334df`
@@ -361,7 +280,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026110613470312
 	- Type: Bug
 	- Status: Queued
-	- Severity: Low
+	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 12
 	- Version and build: dev at `343334df`
@@ -377,7 +296,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026110613470313
 	- Type: Bug
 	- Status: Queued
-	- Severity: Low
+	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 13
 	- Related IDs: 2026101514324705
@@ -393,7 +312,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026110613470314
 	- Type: Bug
 	- Status: Queued
-	- Severity: Low
+	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 14
 	- Related IDs: 2026100717500001, 2026100717500010
@@ -414,7 +333,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026110613470315
 	- Type: Bug
 	- Status: Queued
-	- Severity: Low
+	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 15
 	- Version and build: dev at `343334df`
@@ -430,7 +349,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026110613470316
 	- Type: Bug
 	- Status: Queued
-	- Severity: Low
+	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 16
 	- Target OS: Windows
@@ -446,7 +365,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026110613470317
 	- Type: Bug
 	- Status: Queued
-	- Severity: Low
+	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 17
 	- Target OS: Windows
@@ -464,7 +383,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026110613470318
 	- Type: Bug
 	- Status: Queued
-	- Severity: Low
+	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 18
 	- Version and build: dev at `343334df`
@@ -480,7 +399,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026110613470319
 	- Type: Bug
 	- Status: Queued
-	- Severity: Low
+	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 19
 	- Version and build: dev at `343334df`
@@ -495,7 +414,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026110613470320
 	- Type: Bug
 	- Status: Queued
-	- Severity: Low
+	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 20
 	- Version and build: dev at `343334df`
@@ -505,6 +424,159 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261106, both runs pulled out of results.shcl.
 	- Origin: the memory row is `b30d70a8` (2026-10-14), the read row `ae8540e9` (2026-11-05). Confirmed.
 	- Estimated effort: Low
+
+- Make sign-release.bash refuse a dated build
+	- ID: 2026110613470321
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 21
+	- Problem description: the signer checks that the sums match the files beside them, then signs. Every pipeline run writes the local release folder, and today it has a dated build from a later run, not the beta1 bytes. Signing it with `--no-tag-check`, as beta1 was signed, passes and makes a good signature over bytes that aren't the cut. `release-table.bash --version-of` already refuses a dated build.
+	- Requirements:
+		- Refuse a dated build, or a version other than the tag's, the way release-table does.
+		- Check the binaries, not only the source HEAD.
+	- Reason: a re-sign and re-upload would put a build that isn't the cut behind a valid signature.
+	- Origin: `6d29ef3a` (2026-09-02). Confirmed with a copy of the script and a test key.
+	- Estimated effort: Low
+
+- A filesystem property test for the save's checks, over every past path bug
+	- ID: 2026110616475901
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261106-164759
+	- Opened by: Code review 20261106 follow-up (JC)
+	- Related IDs: 2026102910482342, 2026110312163201, 2026110312163202, 2026110312163207, 2026110313211991, 2026110314064292, 2026110314240418, 2026110408432594, 2026110613470307, 2026110613470308
+	- Problem description: every test of the changed, create-only and FIFO checks is a list of examples (`detpn`, `detpp`, `detpq`, `detpr`, `detps`, `dekm5`, `dekmf`, `dd5h4`), each case added after its own bug. The fuzz suite runs on text in memory and never opens a file, so no generated case has a folder, a link or a file appear between the load and the save. 8 items in 2 weeks came from this one class, and each closed one spelling.
+	- Requirements:
+		- A seeded property test that works in a temp folder, each case a pure function of its seed, with a wall-clock budget from an env var, the way the text fuzz does. It runs in all 4 bindings beside the conformance suites, from one set of generator rules, and the cross-binding check holds them to the same answer. A dump of the cases a run drew, as `SHCL_FUZZ_DUMP` does for the kept fuzz, so a failure can be replayed.
+		- The load spelling and the save spelling each come from a small grammar: bare name, `./x`, absolute, `//`, `/./`, `dir/../x`, through a link to the folder, a link to the file, a dangling link, a link cycle, from another working folder, a trailing `.` or `..`, and on Windows `\`, mixed separators, an 8.3 short name and a `\\?\` prefix, and on macOS a case variant.
+		- An event between the load and the save, drawn from: nothing, the file rewritten, removed, swapped for a FIFO, made where the load found nothing, a folder on the path made, a link on the path made or pointed elsewhere, the working folder changed, the read bit taken off.
+		- An oracle that doesn't ask the library. Write a marker through the save spelling and read through the load spelling to learn whether the 2 name one file. Then: the save refuses as Changed iff they name one file and its bytes differ from what the load read; refuses as Exists iff create-only and anything is at the path; refuses a FIFO as not regular; and a refused save writes nothing anywhere.
+		- Every case in the Related list is a fixed row the generator also has to be able to draw, and a run fails when the generator didn't draw each kind at least once, as the fuzz guards do.
+		- Windows and macOS rows run on b29w with a short-name TEMP and on vmKt6m or b26, through the box step. Until a box runs them, they're skipped by platform, never dropped.
+		- Watched to fail: run it on `343334df` and see the `nodir/..` row and 2026110613470308's folder row go red before 2026110613470307's fix.
+	- Reason: a property over the whole space of spellings and events is the only test that finds the next member of the class before a user does. The example lists found none of the 8.
+	- Estimated effort: Avg
+
+- One helper reattaches the lines around a node an edit takes away
+	- ID: 2026110616475902
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261106-164759
+	- Opened by: Code review 20261106 follow-up (JC)
+	- Related IDs: 2026110613470311, 2026110613470302, 2026110613470312, 2026100307163904, 2026100218185700, 2026092718195400, 2026110312163204, 2026110315051536
+	- Problem description: when an edit removes, replaces, folds or merges a node, the comments and blank lines around it are moved by that edit's own code: `unstack` for a replaced item list, `beside_kept` with `leave_above` and `leave_last` for a merged duplicate, `refile_folded` and `settle_first_blank` for a fold at load, `drop_banners` for the info block, and the remove's own path. Each is a separate answer to one question, where do the lines around a node go when the node goes, and each has got the blank line wrong at least once. This review found one more (2026110613470311), and the setter and fold ones were 2026110312163204 and 2026110315051536 this month. Fixing the site at hand has closed one case per round since Code review 20260802.
+	- Requirements:
+		- Design first, in design.md: one ownership rule. Every comment line and blank line belongs to one node from the parse on, as its leading lines or its trailing lines, and the emitter writes a node's lines in one fixed order: the blank, the comments, the line, the children, the trailing lines. spec.md names the rule where the SetComment rule is.
+		- One function, say `adopt`, takes a node that is going away and gives its leading lines to the node that takes its place, else the next sibling, else the parent's trailing lines, with the blank staying above the comments. Removes, item list replaces, setter folds, load folds, merges and the banner toggle all call it. After the change no edit moves a comment or a blank any other way, and a grep for the old helpers finds only `adopt`.
+		- Same name and the same call sites in all 4 bindings. The old helpers go in the same commit, once the placement suite 2026110616475903 passes with both in place.
+		- The kept-line rules stay as they are: design.md's table for kept lines under edits, a misplaced line keeping its space indent, `E001` and `E008` lines as built.
+		- The placement suite 2026110616475903 is the gate. 2026110613470311 closes through this item.
+	- Reason: one place that answers the question can be tested once, and a new edit kind can't get the blank line wrong on its own.
+	- Alternatives:
+		- Fix `unstack` alone. Closes 2026110613470311 and leaves the class open, as every fix before it did.
+	- Estimated effort: High
+
+- An exhaustive comment placement suite, with a placement property in the fuzz
+	- ID: 2026110616475903
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261106-164759
+	- Opened by: Code review 20261106 follow-up (JC)
+	- Related IDs: 2026110616475902, 2026110613470311, 2026110613470302, 2026100307163904, 2026100218185700, 2026092718195400
+	- Problem description: no test says where a comment must be after an edit. The kept-lines fuzz's `setter_moved` returns early when there are no kept lines, and a parsed comment isn't one. Its `stretches` helper anchors on non-blank lines only, so a comment that crossed a blank line passes it. `dd3t9` checks that the edited text reloads as the document, and a wrong placement that reloads the same is a fixpoint, so it passes too. The corpus goldens fix the placement after a load, not after an edit. Each past bug got one example test, and the next site had none. Past cases, old format: Code review 20260802 items 8 and 20 (comments dropped on merge, end-of-file comments multiply), 20260830 item 19 (a blank between a new node's comment and the node), 20260901b item 7 (footer comments collapse), 20260904 item 18 (`SetComment` leaves the blank between comment and node), 20260923 item 3 (filed differently after an edit than after a reload), 20260925b item 2 (a comment above a dotted line moves on any edit), the 2 `to_canonical()` items from the SilkTerm devs (blanks between comment regions dropped, a trailing run re-attaching to the next node), and the ones in the Related list.
+	- Requirements:
+		- A placement property computed from text alone, so it needs nothing from the library. For each comment line of the input, its anchor is the next line below that isn't blank or a comment, plus a flag for a blank directly above the comment run. After an edit that didn't remove or replace the anchor, the run sits directly above the same anchor, the blank above the run, and nothing between the run and the anchor. When the anchor went, the run sits above what took its place, by 2026110616475902's rule. A trailing comment stays on its line with the same text after the `#`.
+		- It runs in `dd3t9` and `dderx` both, since one has removes and the other the list-replacing `set_literal`, and at the merge step. `dd3t9` gets a `set_literal` with a bracket list over an item list. The generators have to make item lists with per-item comments and blanks between siblings, with a guard that counts the shape in each run, as the fuzz guards do.
+		- The 4-binding cross check replays the dumps, as it does for the kept fuzz.
+		- A fixed table, one row per past case above and each new one, as a before text, an edit and the exact expected text, in one file all 4 conformance suites read, as the corpus is. Watch each row fail in a worktree at the commit before its fix.
+		- Watch the property fail: on `343334df`, 2026110613470311's case goes red.
+	- Reason: an example per bug has found none of the next ones. A property over every comment in every generated edit finds the next site before a review does.
+	- Estimated effort: Avg
+
+- Say so when an installer moves a beta install back to the older stable
+	- ID: 2026110613470322
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 22
+	- Related IDs: 2026110215285718
+	- Problem description: after `--release dev`, a plain run of the one-liner installs 2.0.0, says "updates the existing install" and exits 0. Where 2.0.0 has no drop-in payload, 3.0's `code/`, man page and completions stay next to the older binary. install.md calls a rerun idempotent and tells beta users to add `--release dev`.
+	- Requirements:
+		- Say when an install goes to an older version.
+		- Remove what the older release doesn't have.
+	- Reason: a 3.0 user who reruns the plain one-liner gets 2.x read rules with no word.
+	- Origin: `74c3a5a0` (2026-07-22), `c52fa077` (2026-09-22). Confirmed for install.bash in a sandbox. install.ps1 has the same logic.
+	- Estimated effort: Low
+
+- Make `children` and `instances` exit 3 on a path that isn't there
+	- ID: 2026110613470323
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 23
+	- Related IDs: 2026100818140260
+	- Problem description: the CLI exits 0 with no output both for a missing path and for an empty section, so a script can't tell them apart. The library's `read_children` and `read_instances` give `NotFound` for one and `Good` for the other since 2026100818140260, and `get` exits 3 on a miss.
+	- Requirements: exit 3 on `NotFound`, as `get` does. `count` could do the same.
+	- Origin: Confirmed in all 4 CLIs.
+	- Estimated effort: Low
+
+- Quote the other line breaks in `instances` and `get --array` output
+	- ID: 2026110613470324
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 24
+	- Problem description: spec.md quotes an instance value with a line break in it, because a consumer splits the output on newlines. U+2028, U+2029, U+0085, VT and FF print as they are, though Python's `splitlines()` splits on them and `fmt` escapes them. A list of 3 values came out as 5 lines.
+	- Requirements: quote a value with any character `fmt` escapes as a line break.
+	- Origin: Confirmed in all 4 CLIs.
+	- Estimated effort: Low
+
+- Make a Go zero-value `Document` usable, or say to use `New()`
+	- ID: 2026110613470325
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 25
+	- Problem description: `var d shcl.Document`, then `d.SetString("a", "b")` or `d.GetStringOr(...)`, panics with an index out of range, and so does `d.Merge(nil)`. Rust has `Default`, Python's `Document()` works, and the C++ comment says a default Document is usable. Go's `Document` doc doesn't say to use `New()`.
+	- Requirements: a usable zero value, or a line on the type that says to use `New()`.
+	- Reason: the same interface in every binding unless idiom makes it surprising, and in Go a usable zero value is the idiom.
+	- Origin: `8bca69bd` (2026-07-12). Not in the v4 design. Confirmed.
+	- Estimated effort: Low
+
+- Give the dogfood launcher's copy its own temp name, and swap its link by rename
+	- ID: 2026110613470326
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 26
+	- Related IDs: 2026110215285714
+	- Problem description: `dogfood_shcl.ps1` copies each new build through one fixed `.partial` name per build stamp, so 2 runs as a build arrives can cut the file under the other's rename. `Update-FixedName` removes the link before it makes the new one, so for a moment there's no `shcl` on PATH.
+	- Requirements: a temp name per process, and the link replaced by a rename.
+	- Origin: `eefd1dba`. Plausible, read only.
+	- Estimated effort: Low
+
+- The default run takes over an hour
+	- ID: 2026110215285706
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 6
+	- Related IDs: 2026102515494614
+	- Problem description: `run_20261101-103838` took 76 minutes and `run_20261101-120609` 72, with tests 49 of them. The run lengths item closed on a 59-minute run, before the box step and the hosted job were added.
+	- Requirements:
+		- Time each step over 2 runs, then move what pushes the run past an hour to `--long`.
+	- Estimated effort: Avg
 
 - On Windows a create-only save through a link to nowhere, and `.` under a missing folder, are unchecked
 	- ID: 2026110408432594
@@ -637,73 +709,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A perf-gate workload with a kept index line and bulk writes. None of today's has a kept line and writes together, so nothing failed.
 	- Origin: Confirmed. `90870748`, 2026-10-29, round r1029b. No earlier round saw it.
 	- Estimated effort: Avg
-
-- Say so when an installer moves a beta install back to the older stable
-	- ID: 2026110613470322
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Low
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 22
-	- Related IDs: 2026110215285718
-	- Problem description: after `--release dev`, a plain run of the one-liner installs 2.0.0, says "updates the existing install" and exits 0. Where 2.0.0 has no drop-in payload, 3.0's `code/`, man page and completions stay next to the older binary. install.md calls a rerun idempotent and tells beta users to add `--release dev`.
-	- Requirements:
-		- Say when an install goes to an older version.
-		- Remove what the older release doesn't have.
-	- Reason: a 3.0 user who reruns the plain one-liner gets 2.x read rules with no word.
-	- Origin: `74c3a5a0` (2026-07-22), `c52fa077` (2026-09-22). Confirmed for install.bash in a sandbox. install.ps1 has the same logic.
-	- Estimated effort: Low
-
-- Make `children` and `instances` exit 3 on a path that isn't there
-	- ID: 2026110613470323
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Low
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 23
-	- Related IDs: 2026100818140260
-	- Problem description: the CLI exits 0 with no output both for a missing path and for an empty section, so a script can't tell them apart. The library's `read_children` and `read_instances` give `NotFound` for one and `Good` for the other since 2026100818140260, and `get` exits 3 on a miss.
-	- Requirements: exit 3 on `NotFound`, as `get` does. `count` could do the same.
-	- Origin: Confirmed in all 4 CLIs.
-	- Estimated effort: Low
-
-- Quote the other line breaks in `instances` and `get --array` output
-	- ID: 2026110613470324
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Low
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 24
-	- Problem description: spec.md quotes an instance value with a line break in it, because a consumer splits the output on newlines. U+2028, U+2029, U+0085, VT and FF print as they are, though Python's `splitlines()` splits on them and `fmt` escapes them. A list of 3 values came out as 5 lines.
-	- Requirements: quote a value with any character `fmt` escapes as a line break.
-	- Origin: Confirmed in all 4 CLIs.
-	- Estimated effort: Low
-
-- Make a Go zero-value `Document` usable, or say to use `New()`
-	- ID: 2026110613470325
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Low
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 25
-	- Problem description: `var d shcl.Document`, then `d.SetString("a", "b")` or `d.GetStringOr(...)`, panics with an index out of range, and so does `d.Merge(nil)`. Rust has `Default`, Python's `Document()` works, and the C++ comment says a default Document is usable. Go's `Document` doc doesn't say to use `New()`.
-	- Requirements: a usable zero value, or a line on the type that says to use `New()`.
-	- Reason: the same interface in every binding unless idiom makes it surprising, and in Go a usable zero value is the idiom.
-	- Origin: `8bca69bd` (2026-07-12). Not in the v4 design. Confirmed.
-	- Estimated effort: Low
-
-- Give the dogfood launcher's copy its own temp name, and swap its link by rename
-	- ID: 2026110613470326
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Low
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 26
-	- Related IDs: 2026110215285714
-	- Problem description: `dogfood_shcl.ps1` copies each new build through one fixed `.partial` name per build stamp, so 2 runs as a build arrives can cut the file under the other's rename. `Update-FixedName` removes the link before it makes the new one, so for a moment there's no `shcl` on PATH.
-	- Requirements: a temp name per process, and the link replaced by a rename.
-	- Origin: `eefd1dba`. Plausible, read only.
-	- Estimated effort: Low
 
 - check-migrate compares 2.x reads with the pinned dev build, not 2.0.0
 	- ID: 2026110409565662
