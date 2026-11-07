@@ -1,0 +1,4 @@
+query	type	expected	status
+-	load	ok	-
+a	int	1	Good
+b	int	2	Good

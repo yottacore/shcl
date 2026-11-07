@@ -2902,6 +2902,41 @@ for bc in 'ddf5t|stamp|p: 1\n## Owner: ops team\n' 'ddf5v|stamp-note|base:[Bosto
 	done
 done
 
+## 2026110613470302: upgrade took a line an author added inside 2.x's info
+## block along with the block. The line stays where the block was.
+fTest "dez6e" "upgrade-keeps-author-line"
+upText='key: a, b\n\n#\n# This config file format is SHCL.\n# "Simple Hierarchical Config Language"\n#    Home     https://example.invalid/shcl\n#    Owner    ops team, call x1234 before changing\n#    Syntax   https://example.invalid/shcl/spec.md\n#    Legal    SHCL is Copyright \xc2\xa9 2026 Jim Collier. License: MIT. No warranty.\n#\n'
+for b in "${bindings[@]}"; do
+	name="${b%%|*}"; cli="${b#*|}"
+	fSafeRmUnder_IfThere "${tmpDir}" "${banDir}"; mkdir -p "${banDir}"
+	printf '%b' "${upText}" > "${banDir}/f.shcl"
+	rc=0
+	"${cli}" upgrade --from-2x --write "${banDir}/f.shcl" >/dev/null 2>"${tmpDir}/err" </dev/null || rc=$?
+	nRun+=1
+	if ((rc != 0)); then
+		echo "cli-regress: upgrade-keeps-author-line [${name}]: exit ${rc}: $(head -c 200 "${tmpDir}/err")" >&2; nBad+=1
+	elif [[ "$(cat "${banDir}/f.shcl"; echo .)" != "key: [a, b]"$'\n\n'"#    Owner    ops team, call x1234 before changing"$'\n\n'"${infoBlock}"$'\n.' ]]; then
+		echo "cli-regress: upgrade-keeps-author-line [${name}]: the file afterwards: $(head -c 300 "${banDir}/f.shcl")" >&2; nBad+=1
+	fi
+done
+
+## 2026110613470312: a remove of one field of a dotted pair wrote a bare line
+## for the names the pair shared. The line left names them again.
+fTest "dez6f" "remove-dotted-pair-write"
+for b in "${bindings[@]}"; do
+	name="${b%%|*}"; cli="${b#*|}"
+	fSafeRmUnder_IfThere "${tmpDir}" "${banDir}"; mkdir -p "${banDir}"
+	printf 'x: 0\na.b: 1\na.c: 2\nsrv.web.port: 1\nsrv.web.host: h\n' > "${banDir}/f.shcl"
+	rc=0
+	"${cli}" set --write --remove=a.b --remove=srv.web.port "${banDir}/f.shcl" >/dev/null 2>"${tmpDir}/err" </dev/null || rc=$?
+	nRun+=1
+	if ((rc != 0)); then
+		echo "cli-regress: remove-dotted-pair-write [${name}]: exit ${rc}: $(head -c 200 "${tmpDir}/err")" >&2; nBad+=1
+	elif [[ "$(cat "${banDir}/f.shcl"; echo .)" != $'x: 0\na.c: 2\nsrv.web.host: h\n.' ]]; then
+		echo "cli-regress: remove-dotted-pair-write [${name}]: the file afterwards: $(head -c 300 "${banDir}/f.shcl")" >&2; nBad+=1
+	fi
+done
+
 ## migrate --write makes its copy, then the save fails. The file still holds
 ## the original, so the copy goes too, or it would refuse the next run at 8.
 ## The copy fits under a 1 KiB file-size cap and the migrated text, two stamp

@@ -456,6 +456,12 @@ Case `215` pins how `migrate` trims a 2.x piece. 2.x trimmed every whitespace ch
 
 Case `216` pins a `#` outside quotes in a lookup path. It opens a comment, as on a file line, so `colors#primary` and `colors #primary` are `BadPath` on a read, a remove, a comment clear and every setter, and nothing changes: `colors` and its fields stay. Quoted, `"colors#primary"` names the field that holds the `#`, and a setter and a remove act on that field alone.
 
+Case `217` pins `banner on` over an info block that already reads as the block this release writes, with a line its author added in it. The block stays as it is, the line in it, so the save changes nothing.
+
+Case `218` pins `banner off` keeping a line an author added inside an info block, in an older block above a field and in the one at the end. Each line stays where its block was. Only the lines the block writes come off.
+
+Case `219` pins a remove of one field of a dotted pair. The other line stays as written, and the names the two shared get no line of their own, since the line left names them again. That holds through two names, for an instance named by its value, and under a block.
+
 Beyond the fixed corpus, the differential harness (`cicd/utility/crosscheck.bash`) also derives accessor coverage over the fuzz set: the reference's fuzz dump writes a `<name>.reads.tsv` beside each dumped input (paths it knows exist, cycling type and strictness), which the `--extra` replay runs through the same row machinery. Every scalar read row - corpus and fuzz-derived - is additionally replayed under `--on-bad=error` (an exit-code differential) and `--default=<x>` (a stdout differential), so the on-bad/default policy surface is pinned cross-binding too. It also runs three `set` edits (a changed value, a new child, a removal) on the first paths of every input, corpus and fuzz alike, so the save that keeps lines is compared well past the goldens. The reference's line-ending fuzz dumps up to 100 more inputs, each mixing LF and CRLF with its edits as a write-ops script, into an `eol/` folder beside the rest. Each goes through `set --write` in every binding, and the files left on disk must match byte for byte.
 
 Not yet modeled natively (as golden files): the on-bad/default outputs (covered cross-binding via the harness above, not by per-row `expected`). Diagnostic expectations are modeled natively via `expected-diags.txt` (above) and cross-binding via the `load` rows.

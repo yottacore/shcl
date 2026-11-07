@@ -1,0 +1,8 @@
+# A line an author added inside an info block stays when banner off takes
+# the block away, where the block was: in an older block above a field, and
+# in the one at the end.
+a: 1
+##    Pager    555-0100
+b: 2
+
+##    Owner    ops team, call x1234 before changing

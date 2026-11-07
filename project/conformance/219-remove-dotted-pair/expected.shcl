@@ -1,0 +1,17 @@
+# A remove of one field of a dotted pair leaves the other line as it was,
+# and writes no line for the names the two shared.
+x: 0
+a:
+	b: 1
+	c: 2
+srv:
+	web:
+		port: 1
+		host: h
+db: main
+	host: a
+	port: 5
+p:
+	q:
+		r: 1
+		s: 2

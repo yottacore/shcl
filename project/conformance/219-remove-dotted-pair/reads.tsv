@@ -1,0 +1,7 @@
+query	type	expected	status
+-	load	ok	-
+a.b	int	1	Good
+a.c	int	2	Good
+srv.web.host	string	h	Good
+p.q.s	int	2	Good
+db(main).port	int	5	Good

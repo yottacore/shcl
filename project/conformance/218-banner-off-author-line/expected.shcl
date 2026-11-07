@@ -1,0 +1,20 @@
+# A line an author added inside an info block stays when banner off takes
+# the block away, where the block was: in an older block above a field, and
+# in the one at the end.
+a: 1
+##
+## This config file format is SHCL.
+##    Format   3
+##    Pager    555-0100
+##
+b: 2
+
+##
+## This config file format is SHCL.
+## "Simple Hierarchical Config Language"
+##    Format   3
+##    Owner    ops team, call x1234 before changing
+##    Home     https://github.com/yottacore/shcl
+##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md
+##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.
+##

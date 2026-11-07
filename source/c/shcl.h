@@ -1006,11 +1006,14 @@ shcl_read_usize shcl_try_clear_comments(shcl_doc *d, const char *path, size_t pl
 // against it. A version line shcl_migrate stamped comes off too, with the note
 // under it. Both are looked for in the footer and above every field but the
 // first one and its first child down, since a field added below one by hand
-// takes it as its comment. A block at the top of the file is left alone. A
-// dotted first line hangs it on its last name, which a saved file writes as the
-// first field's first child, so a block there is left alone too, however it got
-// there. A lone Format line there comes off with on, since the new block names
-// the format. A kept block's Format line is set to this format too, since it
+// takes it as its comment. A line in an old block that the block does not
+// write is the author's, such as a Schema line, and stays where the block was.
+// With on, a block that already ends the file as this release writes it stays
+// as it is, the author's lines in it too. A block at the top of the file is
+// left alone. A dotted first line hangs it on its last name, which a saved
+// file writes as the first field's first child, so a block there is left alone
+// too, however it got there. A lone Format line there comes off with on, since
+// the new block names the format. A kept block's Format line is set to this format too, since it
 // reads first. The library save never adds the block by itself; this is for a
 // program that wants it in a file it writes. Returns how many old blocks came
 // off.
@@ -8602,12 +8605,57 @@ static const char banner_name[] = "## \"Simple Hierarchical Config Language\"";
 
 static int banner_in_run(const ShclLead *l, const char *mark) { return s_starts(l->text, mark) && !l->blank_before; }
 
+/* The names on the info block's own lines, in any release. An old block's
+   other lines are kept. */
+static const char *const banner_fields[] = { "Format", "Home", "Syntax", "Legal" };
+
+/* Whether t is a line the info block writes, in mark comments: a lone mark,
+   the block's two text lines, one of its named lines, or the note
+   shcl_migrate writes under the Format line. Any other line in a block is the
+   author's. */
+static int banner_own(ShclStr t, const char *mark) {
+	size_t mn = strlen(mark);
+	if (!s_starts(t, mark)) return 0;
+	ShclStr r = { t.p + mn, t.n - mn };
+	if (!r.n || s_eq(r, s_lit(banner_title + 2)) || s_eq(r, s_lit(banner_name + 2)) || s_eq(t, s_lit(SHCL_MIGRATED_LINE))) return 1;
+	if (!s_starts(r, "    ")) return 0;
+	r.p += 4;
+	r.n -= 4;
+	for (size_t f = 0; f < sizeof banner_fields / sizeof banner_fields[0]; f++) {
+		size_t n = strlen(banner_fields[f]);
+		if (s_starts(r, banner_fields[f]) && (r.n == n || r.p[n] == ' ')) return 1;
+	}
+	return 0;
+}
+
+/* Where the info block starts in v when it ends v and reads as this release
+   writes it, the author's lines in it aside; v->len when it does not. */
+static size_t current_footer(const ShclVecLead *v) {
+	size_t t = v->len;
+	while (t > 0 && !s_eq(v->data[t - 1].text, s_lit(banner_title))) t--;
+	if (t < 2 || !s_eq(v->data[t - 2].text, s_lit("##"))) return v->len;
+	t--;
+	for (size_t k = t; k < v->len; k++)
+		if (!s_starts(v->data[k].text, "##") || v->data[k].blank_before) return v->len;
+	const char *b = SHCL_GEN_BANNER;
+	for (size_t k = t - 1; k < v->len; k++) {
+		if (!banner_own(v->data[k].text, "##")) continue;
+		const char *nl = strchr(b, '\n');
+		if (!nl) return v->len;
+		ShclStr line = { b, (size_t)(nl - b) };
+		if (!s_eq(v->data[k].text, line)) return v->len;
+		b = nl + 1;
+	}
+	return *b ? v->len : t - 1;
+}
+
 /* Take the info block out of v, from the lone "##" above its "This config
    file format is SHCL." line to the next lone "##", and each version line
    shcl_migrate stamped, with the note under it. A block with no closing "##"
-   ends after its last line written the block's way. A Schema line in a block
-   stays, and so does any other comment around one, even written right against
-   it. Returns how many came off; *owed says whether the last one had a blank
+   ends after its last line written the block's way. A line in a block that
+   the block does not write stays, as a Schema line or an author's own
+   "##    Owner" line does, and so does any other comment around one, even
+   written right against it. Returns how many came off; *owed says whether the last one had a blank
    above it with no line after it to take that blank. A mark of "#" takes
    2.x's block instead, which had no version line. With blocks 0 a block stays
    whole, and only a Format line outside one comes off. */
@@ -8647,12 +8695,12 @@ static size_t drop_banners(ShclVecLead *v, const char *mark, int blocks, int *ow
 			continue;
 		}
 		/* The blank that set the block off moves to whatever followed it, so
-		   the lines around it stay apart. A Schema line in the block is the
-		   author's and stays, with the blank. */
+		   the lines around it stay apart. The author's lines in the block,
+		   such as a Schema line, stay, with the blank. */
 		int blank = v->data[start].blank_before;
 		size_t at = w;
 		for (size_t k = start; k < end; k++)
-			if (s_starts(v->data[k].text, SHCL_SCHEMA_LINE_HEAD)) v->data[w++] = v->data[k];
+			if (!banner_own(v->data[k].text, mark)) v->data[w++] = v->data[k];
 		if (at < w) v->data[at].blank_before = blank;
 		else if (end < v->len) v->data[end].blank_before |= blank;
 		else *owed = blank;
@@ -8703,7 +8751,14 @@ static size_t swap_banner(shcl_doc *d, int on, int v2) { // NOLINT(bugprone-easi
 		}
 	}
 	ShclVecLead *o = &d->orphans;
-	for (size_t k = 0; k < nmarks; k++) removed += drop_banners(o, marks[k], 1, &owed);
+	/* A block that already ends the file as this release writes it stays as
+	   it is, and so do the author's lines in it. */
+	size_t current = on ? current_footer(o) : o->len, tail = o->len - current;
+	ShclVecLead head = *o;
+	head.len = current;
+	for (size_t k = 0; k < nmarks; k++) removed += drop_banners(&head, marks[k], 1, &owed);
+	if (tail) memmove(o->data + head.len, o->data + current, tail * sizeof *o->data);
+	o->len = head.len + tail;
 	if (on) {
 		/* A block kept at the top reads before the new one, so it names this
 		   format too (2026102309053667). */
@@ -8714,6 +8769,8 @@ static size_t swap_banner(shcl_doc *d, int on, int v2) { // NOLINT(bugprone-easi
 				if (s_starts(l->text, SHCL_FORMAT_LINE_HEAD) && !s_eq(l->text, s_lit(SHCL_FORMAT_LINE))) { l->text = s_lit(SHCL_FORMAT_LINE); l->line = 0; }
 			}
 		}
+	}
+	if (on && !tail) {
 		int open = o->len || NODE(d, ROOT).children.len;
 		/* The lines point into the literal, which outlives any document. */
 		const char *b = SHCL_GEN_BANNER;
@@ -11269,7 +11326,36 @@ static void kl_flush(ShclArena *a, ShclSB *ob, const ShclVecS *lines, unsigned c
 	}
 }
 
-static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *out) {
+/* Whether line k is one of the names' lines left out, from cut, the first
+   blank line above them, through the end of their group. */
+static int kl_skip(size_t k, size_t took, size_t cut, const size_t *end) { return took && k >= cut && k <= end[took]; } // NOLINT(bugprone-easily-swappable-parameters): a line, then the range it is tested against
+
+/* Whether every line from start to end of canonical out heads a block, a name
+   alone or an instance's: the next line not blank sits deeper, and it is no
+   comment. */
+static int heads_only(ShclStr out, size_t start, size_t end) {
+	size_t pos = start, heads = 0;
+	while (pos < end) {
+		size_t next = line_end(out, pos), k = pos;
+		while (k < next && out.p[k] == '\t') k++;
+		if (k < next && out.p[k] == '\n') { pos = next; continue; }
+		if (k < next && out.p[k] == '#') return 0;
+		size_t depth = k - pos, at = next;
+		while (at < out.n && out.p[at] == '\n') at++;
+		size_t d = 0;
+		while (at + d < out.n && out.p[at + d] == '\t') d++;
+		if (at >= out.n || d <= depth) return 0;
+		heads++;
+		pos = next;
+	}
+	return heads > 0;
+}
+
+/* With drop_bare the names a dotted line opened go with the line when what is
+   under them now comes from the next line, which names them again. *bare says
+   whether any went. A reload that differs, as when the names had a comment,
+   has the caller write them. */
+static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *out, int drop_bare, int *bare) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	/* A text that was canonical keeps its lines as the canonical form. */
 	if (d->source.n == 0) { *out = emit_canonical(d); return 1; }
 	ShclArena *a = &d->scratch;
@@ -11318,7 +11404,9 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 	/* Each source line's group in the loaded text, and the lines it stands
 	   for, through its last run's. */
 	size_t *at = (size_t *)arena_alloc(a, (n + 2) * sizeof(size_t));
-	for (size_t k = 0; k < n + 2; k++) at[k] = NIL;
+	/* The group each source line's runs are in, by its first line. */
+	size_t *group_of = (size_t *)arena_alloc(a, (n + 2) * sizeof(size_t));
+	for (size_t k = 0; k < n + 2; k++) { at[k] = NIL; group_of[k] = 0; }
 	for (size_t i = 0; i < wasU.len; i++) {
 		const ShclUnit *g = &wasU.data[i];
 		if (g->line == 0 || g->line > n) continue;
@@ -11326,6 +11414,7 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 		for (size_t r = g->part_from; r < g->part_to; r++) {
 			size_t rl = wasR.data[r].line;
 			if (rl != 0 && rl <= n && end[owner[rl]] > end[g->line]) end[g->line] = end[owner[rl]];
+			if (rl != 0 && rl <= n) group_of[rl] = g->line;
 		}
 	}
 	ShclVecSize claimed = {0};
@@ -11431,10 +11520,15 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 	size_t prev = 0, reach = 0;
 	/* The last kept group whose following lines are still to go out. */
 	size_t owed = 0;
+	/* The first group written, and the source line of names left out, whose
+	   place the next group takes. */
+	size_t lead = 0, gone = 0;
 	for (size_t i = 0; i < isU.len; i++) {
 		const ShclUnit *u = &isU.data[i];
 		size_t l = u->line;
 		int known = l != 0 && l <= n && at[l] != NIL;
+		size_t took = gone;
+		gone = 0;
 		if (known) {
 			/* The canonical form writes this above a source line that sat above
 			   it: blocks folded together from two places, or a selector's child
@@ -11445,6 +11539,26 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 		}
 		const ShclUnit *from = known ? &wasU.data[at[l]] : NULL;
 		int same = from && s_eq(s_slice(wasS, from->start, from->end), s_slice(nowS, u->start, u->end));
+		/* An edit that takes a dotted line's last name leaves the names
+		   before it with nothing of their own. When the next source line is
+		   what is under them now, it names them again, so the names go with
+		   the line, from the group it was in: a remove writes no line the
+		   document did not write. */
+		size_t names = 0;
+		if (drop_bare && !same && !took && l != 0 && l <= n && heads_only(nowS, u->start, u->end)) {
+			names = group_of[l];
+			if (names && !(i + 1 < isU.len && isU.data[i + 1].line != 0 && isU.data[i + 1].line == next[names])) names = 0;
+		}
+		if (names) {
+			gone = names;
+			*bare = 1;
+			if (lead == i) lead = i + 1;
+			continue;
+		}
+		/* The next group stands where the names' line was. The blank lines
+		   above that line go with it, as above any line a remove takes. */
+		size_t at_l = took ? took : l, cut = took;
+		while (cut > 1 && kl_blank(KL_LINE(cut - 1))) cut--;
 		ShclStr spliced = s_empty();
 		size_t splice_at = 0;
 		int has_splice = from && !same && splice_group(a, &lines, &was, &wasR, from, &now, &isR, u, &splice_at, &spliced);
@@ -11462,7 +11576,7 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 		size_t depth = tabs_of(s_slice(nowS, u->start, u->end));
 		if (owed != 0) {
 			int pay;
-			if (known) pay = !(kept && prev == owed && next[prev] == l);
+			if (known) pay = !(kept && prev == owed && next[prev] == at_l);
 			else {
 				ShclStr ind = indent_for(a, &indents, depth, step);
 				size_t k = end[owed] + 1;
@@ -11480,21 +11594,23 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 			}
 		}
 		if (known) owed = 0;
-		if (i == 0) {
-			if (kept && claimed.len && claimed.data[0] == l)
-				for (size_t k = 1; k < l; k++) { sb_putS(a, &ob, KL_LINE(k)); wrote[k] = 1; left[k] = 0; }
-		} else if (kept && prev != 0 && next[prev] == l) {
+		if (i == lead) {
+			if (kept && claimed.len && claimed.data[0] == at_l)
+				for (size_t k = 1; k < l; k++)
+					if (!kl_skip(k, took, cut, end)) { sb_putS(a, &ob, KL_LINE(k)); wrote[k] = 1; left[k] = 0; }
+		} else if (kept && prev != 0 && next[prev] == at_l) {
 			int blanks = 0;
 			/* A blank line above a source line written here stays with it. */
 			size_t last = 0;
 			for (size_t k = end[prev] + 1; k < l; k++) {
+				if (kl_skip(k, took, cut, end)) continue;
 				if (kl_blank(KL_LINE(k))) blanks = 1;
 				else last = k;
 			}
 			for (size_t k = end[prev] + 1; k < l; k++)
-				if (blanks_stay || !kl_blank(KL_LINE(k)) || k < last) { sb_putS(a, &ob, KL_LINE(k)); wrote[k] = 1; left[k] = 0; }
+				if (!kl_skip(k, took, cut, end) && (blanks_stay || !kl_blank(KL_LINE(k)) || k < last)) { sb_putS(a, &ob, KL_LINE(k)); wrote[k] = 1; left[k] = 0; }
 			if (!blanks) for (size_t k = 0; k < u->blanks; k++) sb_puts(a, &ob, eol);
-		} else if (known && blanks_stay && l > 1 && kl_blank(KL_LINE(l - 1))) {
+		} else if (known && blanks_stay && l > 1 && kl_blank(KL_LINE(l - 1)) && !kl_skip(l - 1, took, cut, end)) {
 			size_t k = l - 1;
 			while (k > 1 && kl_blank(KL_LINE(k - 1))) k--;
 			for (; k < l; k++) sb_putS(a, &ob, KL_LINE(k));
@@ -11594,7 +11710,15 @@ static int keep_text(shcl_doc *d, ShclStr *out) {
 		abort();
 	}
 	doc_guard(d, &panic);
-	int kept = keep_lines(d, own, &panic, out);
+	int bare = 0;
+	int kept = keep_lines(d, own, &panic, out, 1, &bare);
+	if (!kept && bare) {
+		/* Names left out that no later line named again are written. */
+		shcl_free(own->loaded);
+		shcl_free(own->back);
+		own->loaded = own->back = NULL;
+		kept = keep_lines(d, own, &panic, out, 0, &bare);
+	}
 	doc_guard(d, NULL);
 	ShclKeepOwn *done = own;
 	shcl_free(done->loaded); shcl_free(done->back); free(done);

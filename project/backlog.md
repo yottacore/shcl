@@ -83,7 +83,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `banner on` and `upgrade` drop an author's line inside the info block
 	- ID: 2026110613470302
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 2
@@ -100,6 +100,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: `banner on` on a block that's already current could write nothing.
 	- Regression test: an ops-script case for all 4 suites: an info block with an author's line, then `banner on`, `banner off` and `upgrade`, expected text exact with the line in place; plus a cli-regress row for `upgrade` on the same file.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: confirmed. `drop_banners` kept only a Schema line out of a block it took off, and `banner on` took off a block that was already current.
+	- Actual fix: a block comes off without the lines it does not write, which stay where it was. Its own lines are the lone `##`, the two text lines, the lines named Format, Home, Syntax and Legal, and the migrated note. `banner on` leaves a block at the end that already reads as the current one, the author's lines aside, as it is. All 4 bindings, their doc comments, spec.md and design.md.
+	- Decisions:
+		- me, 20261106: the block's own lines are found by their names, not their text, since the links and the Legal line change between releases. A later release that adds a named line adds it to the list.
+		- me, 20261106: over an older block, the author's line stays where the block was and the new block goes under it, as a Schema line did (corpus `175`). Carrying it into the new block was the other option. Filed as a `Check:` in questions.md.
+	- Swept: `drop_banners` / `dropBanners` / `_drop_banners` / `drop_banners` and `swap_banner` in each, the only code that takes the block off; `upgrade` and the CLIs' `banner` op go through `swap_banner`. The C++ veneer wraps `shcl_set_banner` and says nothing about the lines.
+	- Test case: corpus `dez6b` (`217-banner-author-line`, `banner on` over a current block), `dez6c` (`218-banner-off-author-line`), cli-regress `dez6e` (`upgrade --from-2x --write`).
+	- Verified: `dez6b`, `dez6c` fail on the old C and Python libraries and `dez6e` on the old C CLI, and all pass on the fix. The 4 conformance suites, the whole Rust suite with the quick fuzz, the Go tests, cli-regress (655 rows, 4 bindings), crosscheck (54873 comparisons), analyze-c, check-docs, test-ids, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, shellcheck, markdownlint.
+	- Acceptance signoff: Self-closed
+	- Branch: `r1107`
+	- Closed: 20261106-182500
 
 - The publish script tells the user to drop a stash that has the only copy of their untracked files
 	- ID: 2026110613470303
@@ -302,7 +314,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Removing one field of a dotted pair writes a bare header line
 	- ID: 2026110613470312
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 12
@@ -315,6 +327,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: not blamed. Not seen by an earlier round. Confirmed.
 	- Regression test: an ops-script case for all 4 suites: remove one field of a dotted pair, expected text exact and the reload equal to the document; plus a cli-regress row for `--remove` on the same file.
 	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Actual cause: confirmed. The canonical form writes `a:` from the removed line, and with that line gone the line-keeping save wrote it fresh.
+	- Actual fix: the line-keeping save leaves out a group of block heads whose line went, when the next source line is what sits under them now, since that line names them again. A head with an instance's value, as `db(main).port: 5` has, goes the same way. When the text then doesn't reload as the document, such as when a head had a comment, the save is run again and writes them as before. `keep_lines` in Rust and C, `keepLines` in Go, `_keep_lines` in Python, with design.md.
+	- Decisions:
+		- me, 20261106: the blank line above the removed line still goes with it, as for any removed field, since the document hangs it on the removed name. Keeping it is a remove handing the blank on, which is what 2026110616475902 decides. Filed as a `Check:` in questions.md.
+		- me, 20261106: a second run, rather than a stricter test up front, catches the cases where leaving the heads out doesn't reload, so the save is never worse than before.
+		- me, 20261106: removing the only field under `a.b: 1` still writes `a:`, since the document keeps `a` as an empty field.
+	- Swept: `keep_lines` and its twins are the one line-keeping save; `set`, `fmt --write` keeping lines and `upgrade` all go through it. The other block heads it writes fresh were checked: a selector head (`db(main)`, fixed with the rest) and a head inside a block (`p.q.r`).
+	- Test case: corpus `dez6d` (`219-remove-dotted-pair`, a pair, a pair through 2 names, an instance by value and a pair under a block), cli-regress `dez6f` (`set --write --remove`).
+	- Verified: `dez6d` fails on the old C and Python libraries and `dez6f` on the old C CLI, and both pass on the fix. The same suites and checks as 2026110613470302.
+	- Acceptance signoff: Self-closed
+	- Branch: `r1107`
+	- Closed: 20261106-182500
 
 - `E003` names the capped number, not the index as written
 	- ID: 2026110613470313
