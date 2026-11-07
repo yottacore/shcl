@@ -15835,7 +15835,8 @@ fn allowed_join(a: &AllowedSet) -> String {
 	}
 }
 
-/// The `# type, ...` annotation line summarizing a constraint, ASCII only.
+/// The `## type, ...` annotation line summarizing a constraint. Values keep
+/// their text, with a line break written as its escape.
 fn gen_annotation(c: &Constraint, tyname: &str) -> String {
 	let mut parts: Vec<String> = vec![tyname.to_string()];
 	if let Some(u) = c.unit_d {

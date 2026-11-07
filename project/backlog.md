@@ -323,7 +323,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Some spec sentences don't match what all 4 bindings do
 	- ID: 2026110613470314
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: High
 	- Target version: v3.0.0
 	- Opened: 20261106-134703
@@ -342,6 +342,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: the "finds nothing" lines are `df0eab64` (2026-10-06), a day before `BadPath`. The indent line is `d5978c0d` (2026-09-20), the annotation line `dd004f13` (2026-09-08, before `◉`), and the set line `a4d2d6b0` (2026-10-08). Confirmed.
 	- Regression test: one corpus case per sentence, pinning whichever side was kept (the code or the sentence), with the sentence quoted in the case's notes, so the next edit to either side fails the case.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause [Bug]: each sentence predates the code change it describes, and no test reads the spec's wording.
+	- Decisions:
+		- me, 20261107: the code is kept in all 5. Each behavior was chosen on purpose, by 2026100717500001, 2026100717500010 and Code review 20260905 item 8, or is how every file nests.
+		- me, 20261107: the pins are rows in existing corpus cases and 2 cli-regress rows, not 5 new corpus cases. A new or changed `input.shcl` or `init-schema.shcl` shifts the fuzz seeds and asks for a 2M fuzz, and these pin nothing new in the parser. The sentences are quoted in the conformance README's case notes and the cli-regress comments.
+		- me, 20261107: the indent rule has no test of its own. No test reads spec.md's wording, and every nested case in the corpus already pins the direction. Case 147's note quotes it.
+		- me, 20261107: spec.md's `E023` row and its escape bullet already said a lookup path holding one is refused, so they are unchanged.
+	- Actual fix [Bug]: spec.md's comment bullet, selector bullet and selector forms say such a path is refused as `BadPath`, as grammar.abnf and design.md now do. The indent rule says a line whose indent has the open one's as a proper prefix is a child. The annotation sentence drops "ASCII only" and says a line break is written as `◉NEWLINE◉` and other text as it is, and the annotation comment in all 4 bindings says the same. The set rule's reason is that the write would have to pick an instance, which holds even where the read finds one node. `allowed` on a datetime says written seconds count, so `12:00` and `12:00:00` are 2 values.
+	- Swept: `git grep -n -i 'finds nothing\|proper prefix\|ASCII only\|answer .Multiple. too\|coerced space'` over the tree: what is left is about other things (an index past every int width, a link to nowhere, the code style guide's comment rule).
+	- Verified: the 4 conformance suites, cli-regress (660 rows), crosscheck (23751 comparisons), check-docs, check-abnf, test-ids, shellcheck, ruff, go vet, gofmt, rustfmt, markdownlint, mdcheck. The new corpus rows fail in Python with a wrong expected status and an index-picked set put in `write-bad.ops`, and pass as committed.
+	- Test case: corpus `216-hash-in-path` (`dez5a`, selector bodies with `#`, `E017` and `E023` are `BadPath`), `037-star-name` (`dact1`, `server.host` reads one node and its setter is refused), `147-indent-styles` (`dd2qd`, the indent direction), cli-regress `allowed-datetime-seconds` (`df0bt`) and `init-annotation-escape` (`df0bv`).
+	- Acceptance signoff: Self-closed: docs now say what all 4 bindings do, with the code unchanged.
+	- Branch: `r1107c`
+	- Closed: 20261107-135444
 
 - A document at the 512 depth cap needs about 190 KB of stack in C
 	- ID: 2026110613470315

@@ -15384,7 +15384,8 @@ static ShclStr v_allowed_join(ShclArena *a, const ShclVCons *c) {
 	return sb_S(&s);
 }
 
-// The `# type, ...` annotation line summarizing a constraint, ASCII only.
+// The `## type, ...` annotation line summarizing a constraint. Values keep
+// their text, with a line break written as its escape.
 static ShclStr v_gen_annotation(ShclArena *a, const ShclVCons *c, ShclStr tyname) {
 	ShclSB s = {0, 0, 0};
 	char nb[80];

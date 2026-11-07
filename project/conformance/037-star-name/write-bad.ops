@@ -1,3 +1,5 @@
 string	*.x	v
 int	a.*	5
 empty	*
+string	server.host	b.example
+string	server.port	1

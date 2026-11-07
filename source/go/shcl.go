@@ -15693,7 +15693,8 @@ func allowedJoin(a *allowedSet) string {
 	return strings.Join(parts, ", ")
 }
 
-// genAnnotation is the `# type, ...` line summarizing a constraint, ASCII only.
+// genAnnotation is the `## type, ...` line summarizing a constraint. Values
+// keep their text, with a line break written as its escape.
 func genAnnotation(c *constraint, tyname string) string {
 	parts := []string{tyname}
 	if c.unitD != DurationNone {

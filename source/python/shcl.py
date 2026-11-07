@@ -12609,7 +12609,8 @@ def _allowed_join(a):
 
 
 def _gen_annotation(c, tyname):
-	# The `# type, ...` line summarizing a constraint, ASCII only.
+	# The `## type, ...` line summarizing a constraint. Values keep their
+	# text, with a line break written as its escape.
 	parts = [tyname]
 	if c.unit_d is not None:
 		parts[0] = tyname + " in " + c.unit_d.value

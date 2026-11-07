@@ -376,6 +376,13 @@ printf 'field: a\n\tbogus: 1\n' > "${tmpDir}/unkey.shcl"
 printf -- '"-h": 7\n' > "${tmpDir}/-dash.shcl"
 ## A value outside ASCII, for a stdout whose locale cannot write it.
 printf 'n: "caf\303\251 \342\202\254"\n' > "${tmpDir}/nonascii.shcl"
+## spec.md: "Written seconds count, unlike a zero fraction: `12:00` and
+## `12:00:00` are 2 values".
+printf 'field: t\n\ttype: datetime\n\tallowed: "12:00:00"\n' > "${tmpDir}/dtsecs.schema.shcl"
+printf 't: "12:00"\n' > "${tmpDir}/dtsecs.shcl"
+## spec.md: the annotation writes "a line break inside a rendered value ... as
+## its escape" and "other text, non-ASCII included, ... as it is".
+printf 'field: e\n\tallowed: ["a%sNEWLINE%sb", "caf\303\251", x]\n\trequired: yes\n\tdefault: x\n' "${mark}" "${mark}" > "${tmpDir}/annot.schema.shcl"
 ## Seventy of each: the C CLI once held these in fixed arrays of 64.
 manyLayers="$(printf -- '--layer=%%F%% %.0s' {1..70})"
 manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
@@ -437,7 +444,9 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	names another instance than its path selects, %SI% the %SE% schema with a
 ##	default that names its instance, %SJ% an optional selector with no
 ##	default whose value breaks its type, %SK% a valued parent whose array
-##	default has no selector spelling,
+##	default has no selector spelling, %SDT%/%FDT% a datetime allowed set
+##	with seconds and a time without, %SAN% an allowed set with a line break
+##	and a value outside ASCII,
 ##	%C% a path with nothing at it, cleared before every binding's run, %E% an
 ##	empty argument, %DB% a --default with a line break, %LS% a long s
 ##	(U+017F), which Unicode upper-cases to S,
@@ -1710,6 +1719,10 @@ rows=(
 	'dd50z|check-schema-line-v091|check --schema=%S3% %F%|-|6|line 5: Error: V091\nfailed: 1 diagnostic(s), 1 error(s)\n|^schema line 5: Error: V091 unknown schema type .nope.$'
 	'dd510|check-schema-line-v092|check --schema=%S8% %F%|-|6|-|^schema line 3: Error: V092 bad schema constraint .default.$'
 	'dd511|check-schema-line-v093|check --schema=%SM% %F%|-|6|-|^schema line 3: Error: V093 bad schema path'
+	## 2026110613470314: allowed on a datetime counts written seconds, and the
+	## init annotation writes a line break as its escape and non-ASCII as is.
+	'df0bt|allowed-datetime-seconds|check --schema=%SDT% %FDT%|-|6|line 1: Error: V004\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
+	'df0bv|init-annotation-escape|init --no-banner --schema=%SAN%|-|0|## any, one of: a◉NEWLINE◉b, café, x, required\ne: x\n|-'
 	## 2026101514324711: V094 and V095 count schema lines too.
 	'de13a|check-schema-line-v094|check --schema=- %F%|field: a\nfragment:\n\tfield: y\n|6|line 2: Error: V094\nfailed: 1 diagnostic(s), 1 error(s)\n|^schema line 2: Error: V094 bad schema fragment$'
 	'de13b|check-schema-line-v095|check --schema=- %F%|field: a\nfield: x\n\tinherits: nosuch\n|6|line 3: Error: V095\nfailed: 1 diagnostic(s), 1 error(s)\n|^schema line 3: Error: V095 unknown schema fragment .nosuch.$'
@@ -1808,6 +1821,9 @@ for row in "${rows[@]}"; do
 	argv="${argv//%SB%/${tmpDir}/seldefbad.shcl}"
 	argv="${argv//%SC%/${tmpDir}/seldefok.shcl}"
 	argv="${argv//%SD%/${tmpDir}/optdefbad.shcl}"
+	argv="${argv//%SDT%/${tmpDir}/dtsecs.schema.shcl}"
+	argv="${argv//%FDT%/${tmpDir}/dtsecs.shcl}"
+	argv="${argv//%SAN%/${tmpDir}/annot.schema.shcl}"
 	argv="${argv//%SE%/${tmpDir}/optdefok.shcl}"
 	argv="${argv//%SH%/${tmpDir}/optselbad.shcl}"
 	argv="${argv//%SI%/${tmpDir}/optdefok2.shcl}"
