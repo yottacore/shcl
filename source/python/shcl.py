@@ -6097,7 +6097,18 @@ def _heads_only(out, start, end):
 	block, a name alone or an instance's: the next line not blank sits deeper,
 	and it is no comment."""
 	own = [ln for ln in out[start:end].split("\n") if ln]
-	after = next((ln for ln in out[end:].split("\n") if ln), None)
+	# Line by line, since a split of the rest of out for each group is
+	# quadratic in the file.
+	after = None
+	pos = end
+	while pos < len(out):
+		nl = out.find("\n", pos)
+		if nl < 0:
+			nl = len(out)
+		if nl > pos:
+			after = out[pos:nl]
+			break
+		pos = nl + 1
 	for k, ln in enumerate(own):
 		nx = own[k + 1] if k + 1 < len(own) else after
 		t = ln.lstrip("\t")

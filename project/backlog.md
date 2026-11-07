@@ -358,6 +358,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1107`
 	- Closed: 20261106-182500
 	- 20261107: Verified: SHCL_FUZZ_ITERS=2000000 release fuzz_smoke passed (31 tests) and check-migrate.bash passed on e7e7af3a, log /mnt/ext/wip2/wip/tmp/shcl/20261107-010737_001/fuzzmig2.log.
+	- 20261107: hosted ci.yml 42332336973 failed perf-gate `dd3w8` (keeps) in Go and Python. Cause: the head check split all the text after each group to find the next line, which is quadratic in the file. Fixed: `headsOnly` and `_heads_only` read only up to the next line, as Rust and C already did.
+		- Verified: perf-gate passes for all 4 CLIs, keeps at rust 844, go 171, python 2818 and c 98 ms. On 20,000 keys, user CPU went from 3.04 to 0.14 s in Go and 7.23 to 2.92 s in Python, with the same output. Go and Python conformance pass, `dez6d` included.
+		- Swept: the rest of the e7e7af3a change in all 4 bindings; no other scan per group reaches past its own lines.
 
 - `E003` names the capped number, not the index as written
 	- ID: 2026110613470313

@@ -8155,12 +8155,16 @@ func headsOnly(out string, start, end int) bool {
 			own = append(own, l)
 		}
 	}
+	// Line by line, since a split of the rest of out for each group is
+	// quadratic in the file.
 	after, found := "", false
-	for _, l := range strings.Split(out[end:], "\n") {
+	for rest := out[end:]; rest != ""; {
+		l, r, _ := strings.Cut(rest, "\n")
 		if l != "" {
 			after, found = l, true
 			break
 		}
+		rest = r
 	}
 	for k, l := range own {
 		if strings.HasPrefix(strings.TrimLeft(l, "\t"), "#") {
