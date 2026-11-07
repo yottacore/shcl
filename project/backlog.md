@@ -119,7 +119,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The publish script tells the user to drop a stash that has the only copy of their untracked files
 	- ID: 2026110613470303
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 3
@@ -134,6 +134,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: the script is a copy of the shared one. The fix goes in the shared copy first.
 	- Regression test: a shell-regress row that runs the helper in a scratch repo with an untracked file and the stash path taken, and refuses any advice line that says to drop the stash; the row runs against the repo's copy, and the shared n8git copy takes the same fix.
 	- Estimated effort: Low
+	- Actual cause [Bug]: git puts back every untracked file it can and leaves out one whose name the pull took, keeping the stash. The script gave the drop advice for any failed pop.
+	- Decisions:
+		- After a failed pop the script compares each untracked file in the stash with the tree. When any is missing or different, it names them, says the stash is their only copy, and says how to copy one out. The drop advice stays only for a pop where every untracked file is back, which is a plain tracked conflict.
+		- The failed-pull branch goes through the same check.
+		- The shared copy of the script lives outside this repo, so the same change there is left to its own project.
+	- Actual fix [Bug]: `fStashLeftBehind` and `fStashPopFailed` in `cicd/utility/n8git_backup-and-publish`, used by both pop sites.
+	- Swept: both `git stash pop` sites in the publish script. cicd.bash's sync stage pops a stash of tracked edits only, so it has no untracked file to lose.
+	- Verified: shell-regress `dez7m` failed on the old script (drop advice, no file named) and passes now. The whole shell-regress (190 rows), and `cicd.bash --backlog-run-quick cicd`.
+	- Branch: `r1107`
+	- Commit: `873010a3`
+	- Test case: shell-regress `dez7m`.
+	- Acceptance signoff: Self-closed: the row runs the script itself and failed before the fix.
+	- Closed: 20261106-190311
 
 - The parse caps don't count comment lines or kept lines, so a capped parse can still use 100 times the file's size
 	- ID: 2026110613470304
@@ -469,7 +482,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - sign-release.bash's key fingerprint check can't fail
 	- ID: 2026110613470319
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 19
@@ -481,6 +494,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: `7fb1645b` (2026-07-28). Confirmed.
 	- Regression test: a shell-regress row that signs with a test key whose fingerprint differs from the one the script expects and asserts a non-zero exit; it passes today, so it's watched to fail first.
 	- Estimated effort: Low
+	- Actual cause [Bug]: the `|| true` after the pipe hid openssl's failure, and the hash of the empty output came back as the print.
+	- Decisions:
+		- The issue's row, a test key whose print differs, passes either way, so it can't watch this fail. The row uses an openssl that fails every DER read instead, in a tree where every key copy holds the test key. The old script signed there, since every print was the empty hash.
+		- The closing `key fp` line prints the checked print rather than working it out again.
+	- Actual fix [Bug]: `fFp` returns nothing when the pipe fails, so the empty check and every compare after it refuse.
+	- Swept: every `fFp` call (the signing key, `shcl-signing.pub`, install.bash's PEM), the modulus pipe, which already had its own empty check, and the `key fp` line.
+	- Verified: shell-regress `dez7n` failed on the old script (it signed) and passes now, with `dc3b6`, `dd5hb`, `dd51p`, `deyk6` and `dd5gv`.
+	- Branch: `r1107`
+	- Commit: `873010a3`
+	- Test case: shell-regress `dez7n`.
+	- Acceptance signoff: Self-closed: the row failed before the fix.
+	- Closed: 20261106-190311
 
 - comparison.md's peak memory row comes from the 2026-10-02 run
 	- ID: 2026110613470320
@@ -501,7 +526,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Make sign-release.bash refuse a dated build
 	- ID: 2026110613470321
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 21
@@ -513,6 +538,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: `6d29ef3a` (2026-09-02). Confirmed with a copy of the script and a test key.
 	- Regression test: shell-regress rows: the signer on a dated build exits non-zero with the reason, on an undated tag build passes, and on a binary of another version exits non-zero.
 	- Estimated effort: Low
+	- Decisions:
+		- The signer runs the binary this box can run with `--version`, and refuses unless the line is `shcl v<version> build <n>` with no date, as `release-table.bash --version-of` reads it. With no binary for this box in the folder it refuses too, since the date can't be read any other way.
+		- Every other bare binary in the sums file has to hold that same version line in its bytes, and nothing else like it. That catches another version or another build. The date isn't in a binary's bytes, so a cross binary's date rides on the native one's, which one run builds with the same setting.
+		- Packages, setups and the tarball aren't opened. They're built from those binaries in the same run, and the sums still cover them.
+		- The check runs before the key checks, after the sums check, so a refusal still leaves no `.sig`.
+	- Progress log:
+		- 20261106: the signer on the dated build in `cicd/artifacts/release/` now refuses at the native binary's dated line.
+	- Swept: the existing signer rows got a stand-in binary that prints a version line, named for the box running them, since a bare file named like a binary no longer passes.
+	- Verified: shell-regress `dez7p` failed on the old script (it signed a dated build and one beside a binary of another version) and passes now, and an undated build signs. The rest of the signer rows pass.
+	- Branch: `r1107`
+	- Commit: `873010a3`
+	- Test case: shell-regress `dez7p`.
+	- Acceptance signoff: Self-closed: each requirement has a row that failed before.
+	- Closed: 20261106-190311
 
 - A filesystem property test for the save's checks, over every past path bug
 	- ID: 2026110616475901
@@ -643,7 +682,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Give the dogfood launcher's copy its own temp name, and swap its link by rename
 	- ID: 2026110613470326
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs external testing: hosted ci.yml windows job, win-runners `dd71z` under both shells, for the rename of the fixed name on Windows (pwsh 7 and the 5.1 fallback).
 	- Priority: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 26
@@ -653,6 +693,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: `eefd1dba`. Plausible, read only.
 	- Regression test: a shell-regress row that starts 2 launchers at once against a slow copy stub, as `desp5` does, and asserts one whole copy at the end and a link that at every poll points at a whole file; a second row for a copy killed midway leaving no `.partial` behind.
 	- Estimated effort: Low
+	- Decisions:
+		- The temp copy is `<version>.<pid>.partial`. A run that finds the version already there after its copy drops its own rather than renaming over it.
+		- A run killed partway leaves its temp file. Each run clears one whose process is gone or that is a day old, and one with no process ID from before.
+		- The new fixed name is made at `shcl.<pid>.new` beside the old one and renamed over it. pwsh 7 does it in one rename. Windows PowerShell 5.1 has no replacing rename, so there the old name goes first, as before.
+		- Rotation renaming the version the fixed name points at left it dangling the same way, until the link moved. On Linux and macOS rotation now adds the new name as a hard link and drops the old one once the fixed name points elsewhere. Windows keeps the plain rename, since a running image keeps its name there and a twin would hold a place in the pool.
+		- The concurrent row holds each copy at a gate in a Copy-Item stand-in rather than timing a slow copy. Timed, the second copy caught up and the old script passed.
+	- Swept: the pool copy, the fixed name in Update-FixedName, and rotation's rename. The bash launcher only runs what `--print-path` gives.
+	- Verified: shell-regress `dez7q` failed on the old script (the fixed name named a part-written build) and passes now, 4 runs. `dez7r` fails with the stale sweep taken out and passes with it. The other launcher rows (`dd2gn`, `desp5` and 7 more) and PSScriptAnalyzer pass.
+	- Branch: `r1107`
+	- Commit: `873010a3`
+	- Test case: shell-regress `dez7q`, `dez7r`; win-runners `dd71z` for Windows.
 
 - The default run takes over an hour
 	- ID: 2026110215285706
