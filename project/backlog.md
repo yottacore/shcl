@@ -146,6 +146,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the 4 conformance suites, Go under `-race`, Rust's lib, cli_pipe and 20,000-iteration fuzz, C's mem_bounds, veneer, oom_hook and oom_recover, cli-regress (655 rows), crosscheck (54873 comparisons), perf-gate over the 4 CLIs, analyze-c, clippy, go vet, staticcheck, ruff, mypy, shellcheck, test-ids check, and the C CLI at `-Werror` under cc, gcc 15 and clang.
 	- Verified: `df010`, `df011`, `df012` and `df013` fail on the code before the fix and pass after, and perf-gate `df014` failed for the old Rust, Go and C CLIs (4, 5 and 6 times the twin).
 	- Branch: `r1107b`
+	- Commit: `49afec33`
 	- Test case: conformance `reopened_blocks_load_in_linear_time` (`df010` Rust, `df011` Go, `df012` Python), C mem_bounds `df013`, perf-gate `reopens` (`df014`).
 	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new tests failed before and pass after, and the named gates pass.
 	- Closed: 20261107-083437
