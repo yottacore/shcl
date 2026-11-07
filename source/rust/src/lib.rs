@@ -160,8 +160,9 @@ pub enum SaveError {
 	Refused { path: String, lost: usize },
 	/// The write itself failed: why, and the message.
 	Io(WriteError),
-	/// The file the document was loaded from no longer holds what the load
-	/// read, or what this document's last save there wrote. Nothing written.
+	/// What is at the path now is neither what the load read nor what this
+	/// document's last save wrote: another program's edit, a file gone since
+	/// the load, or a file this document never read. Nothing written.
 	Changed { path: String },
 	/// `SaveOptions::create` found a file already there, or another save made
 	/// it first. Nothing written.
@@ -183,7 +184,7 @@ impl std::fmt::Display for SaveError {
 			SaveError::Io(e) => std::fmt::Display::fmt(e, f),
 			SaveError::Changed { path } => write!(
 				f,
-				"{}: refusing to save: the file changed since it was loaded; nothing written (force overrides)",
+				"{}: refusing to save: what is there is not what this document read or wrote; nothing written (force overrides)",
 				path
 			),
 			SaveError::Exists { path } => write!(
@@ -208,8 +209,8 @@ pub struct SaveOptions {
 	pub lossy: bool,
 	/// Keep the lines no edit touched, as `save_file_keep_lines` does.
 	pub keep_lines: bool,
-	/// Write over the file the document was loaded from even when it changed
-	/// since, for a caller that means to replace whatever is there.
+	/// Write over whatever is at the path, even a file this document never
+	/// read or one changed since, for a caller that means to replace it.
 	pub force: bool,
 	/// Only make a new file: refuse with `SaveError::Exists` when one is
 	/// there, even one another save makes at the same time.
@@ -220,36 +221,59 @@ pub struct SaveOptions {
 	pub mode: u32,
 }
 
-/// The file a load read, for the save's changed check: where the path
-/// resolved to, and its text, or None when nothing was there.
-#[derive(Debug, Clone)]
-struct LoadedFile {
-	target: std::path::PathBuf,
-	text: Option<String>,
+/// What a save checks the bytes at its path against: what the load read, and
+/// what this document's last save wrote. No path is kept, since a path taken
+/// at the load names another file by the save once a folder or a link on it
+/// changes, and every spelling of one file reads the same bytes.
+#[derive(Debug, Clone, Default)]
+struct Seen {
+	/// None when the load found nothing there, or no load read a file.
+	read: Option<String>,
+	saved: Option<String>,
 }
 
-impl LoadedFile {
-	/// A path that resolves to no target, a link cycle, is a save's error
-	/// already, so it gets no check.
-	fn at(path: &str, text: Option<String>) -> Option<Box<LoadedFile>> {
-		let target = resolve_target(path).ok()?;
-		Some(Box::new(LoadedFile { target, text }))
-	}
-
-	/// The file at PATH still holds the text, byte for byte, or is still
-	/// not there. Content only, so a touch alone is no change. Something
-	/// that isn't a regular file is left to the write, which refuses it. A
-	/// file that can't be read is a change, since the rename that replaces it
-	/// needs no read access.
+impl Seen {
+	/// PATH, as given and read now, holds what the load read or the last save
+	/// wrote, or nothing, where the load read no file. Content only, so a
+	/// touch alone is no change. Something that isn't a regular file is left
+	/// to the write, which refuses it, and so is a path the write can't reach
+	/// a file through: part of it a file, a folder not there, or a link
+	/// cycle. A file that can't
+	/// be read is a change, since the rename that replaces it needs no read
+	/// access.
 	fn holds(&self, path: &str) -> bool {
+		use std::io::ErrorKind;
 		match read_regular(path) {
-			Ok(Some(now)) => self.text.as_deref().is_some_and(|t| t.as_bytes() == now),
+			Ok(Some(now)) => [&self.read, &self.saved]
+				.into_iter()
+				.flatten()
+				.any(|t| t.as_bytes() == now),
 			Ok(None) => true,
-			Err(e) if e.kind() == std::io::ErrorKind::NotFound => self.text.is_none(),
+			Err(e) if e.kind() == ErrorKind::NotFound => self.read.is_none() || !folder_there(path),
+			Err(e) if e.kind() == ErrorKind::NotADirectory || e.raw_os_error() == ELOOP => true,
 			Err(_) => false,
 		}
 	}
 }
+
+/// The folder PATH names its file in is there. A file gone with its folder
+/// is left to the write, which says the folder is missing.
+fn folder_there(path: &str) -> bool {
+	std::path::Path::new(path)
+		.parent()
+		.filter(|d| !d.as_os_str().is_empty())
+		.unwrap_or(std::path::Path::new("."))
+		.is_dir()
+}
+
+/// A link cycle on the path, which the write refuses by name. std has no
+/// stable kind for it.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const ELOOP: Option<i32> = Some(40);
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
+const ELOOP: Option<i32> = Some(62);
+#[cfg(not(unix))]
+const ELOOP: Option<i32> = None;
 
 impl std::error::Error for SaveError {}
 
@@ -954,9 +978,9 @@ pub struct Document {
 	// was already canonical, since the canonical form is then the one that
 	// keeps its lines. A merge drops it: the layer's lines are not this text's.
 	source: Option<String>,
-	// The file a load read, which a save over it checks first. A merge keeps
-	// it, since the file under the merged document is still that one.
-	file: Option<Box<LoadedFile>>,
+	// What a save checks the bytes at its path against. A merge keeps it,
+	// since the file under the merged document is still the one the load read.
+	seen: Box<Seen>,
 	// The text named a newer format than this one (H006), so its lines may
 	// read differently there, and a save refuses. A merge takes a layer's.
 	newer: bool,
@@ -4408,10 +4432,15 @@ struct Parser<'a> {
 	src: Vec<&'a str>,
 	array_line: HashMap<usize, ArrayLine>,
 	// parse_limited's caps, 0 = uncapped: nodes counted against the arena
-	// (root excluded), elements against a single value's cell, diagnostics
-	// against the list. Past the diagnostic cap nothing is listed, only
-	// counted (errors, hints), for the one tail entry the parse ends with.
+	// (root excluded) plus `held`, elements against a single value's cell,
+	// diagnostics against the list. Past the diagnostic cap nothing is
+	// listed, only counted (errors, hints), for the one tail entry the parse
+	// ends with.
 	max_nodes: usize,
+	// Comment lines and kept lines taken so far. They cost about what a node
+	// does and build none, so a file of nothing else would pass the node cap
+	// untouched.
+	held: usize,
 	max_elements: usize,
 	max_diags: usize,
 	unlisted: (usize, usize),
@@ -4527,6 +4556,7 @@ impl<'a> Parser<'a> {
 			src: Vec::new(),
 			array_line: HashMap::new(),
 			max_nodes: 0,
+			held: 0,
 			max_elements: 0,
 			max_diags: 0,
 			unlisted: (0, 0),
@@ -4611,6 +4641,7 @@ impl<'a> Parser<'a> {
 			// that files a retained line nowhere breaks that, and the save
 			// gate then refuses even a plain fmt --write, as it should.
 			self.kept_owed += 1;
+			self.held += 1;
 			// A line kept as written never hangs on a block: its indent is not
 			// one the output's levels are written with, so the block it would
 			// match here is not the one it matches on a reload. It waits for
@@ -5965,7 +5996,6 @@ impl<'a> Parser<'a> {
 			self.diag(d);
 		}
 		let mut i = 0usize;
-		let mut node_capped = false;
 		let mut tok = Tokens {
 			cap: self.max_elements,
 			..Tokens::default()
@@ -5974,16 +6004,18 @@ impl<'a> Parser<'a> {
 			// Node cap: reported at the first line not parsed, so the count can
 			// overshoot by at most one line's path. The unparsed remainder counts
 			// as lost, which is what keeps save_file from writing a silently
-			// truncated document.
-			if self.max_nodes != 0 && self.arena.len() - 1 > self.max_nodes {
-				self.refuse(
-					i + 1,
-					"E020",
-					format!("node cap of {} exceeded; parse stopped", self.max_nodes),
-					Outcome::Stopped(&lines[i..]),
-					"",
-				);
-				node_capped = true;
+			// truncated document. With only blanks left nothing stopped, so
+			// nothing reports.
+			if self.max_nodes != 0 && self.arena.len() - 1 + self.held > self.max_nodes {
+				if lines[i..].iter().any(|l| !trim_wsp(l).is_empty()) {
+					self.refuse(
+						i + 1,
+						"E020",
+						format!("node cap of {} exceeded; parse stopped", self.max_nodes),
+						Outcome::Stopped(&lines[i..]),
+						"",
+					);
+				}
 				break;
 			}
 			let lineno = i + 1;
@@ -6007,6 +6039,7 @@ impl<'a> Parser<'a> {
 			// It consumes a pending blank into its own flag, so a blank between
 			// comment-only regions survives the round-trip.
 			if rest.starts_with('#') {
+				self.held += 1;
 				self.pending.push(Pend {
 					text: rest.to_string(),
 					indent,
@@ -6510,17 +6543,6 @@ impl<'a> Parser<'a> {
 			}
 			i = next;
 		}
-		// A cap crossed on the document's last line still reports, with nothing
-		// left to skip.
-		if !node_capped && self.max_nodes != 0 && self.arena.len() - 1 > self.max_nodes {
-			self.refuse(
-				lines.len(),
-				"E020",
-				format!("node cap of {} exceeded; parse stopped", self.max_nodes),
-				Outcome::Stopped(&[]),
-				"",
-			);
-		}
 		self.star_flush();
 		// Indented tail comments keep their block; only top-level ones orphan.
 		// Before the fold, which moves a dropped instance's comments over to
@@ -6589,7 +6611,7 @@ impl<'a> Parser<'a> {
 			ends: self.ends,
 			dropped: self.dropped,
 			source: None,
-			file: None,
+			seen: Box::default(),
 			newer,
 		};
 		doc.refile_folded(folded);
@@ -6636,9 +6658,11 @@ impl Document {
 	/// Parse with resource caps beside the strictness, for input the consumer
 	/// does not control: a document amplifies to many times its byte size in
 	/// memory, so a size cap alone cannot bound what a load allocates.
-	/// `max_nodes` stops the parse once a line takes the node count past it -
-	/// one `E020` error, and the unparsed remainder counts as lost so a save
-	/// cannot silently truncate. `max_elements` refuses any line whose array
+	/// `max_nodes` stops the parse once a line takes the count past it - one
+	/// `E020` error on the first line not parsed, and the unparsed remainder
+	/// counts as lost so a save cannot silently truncate. The count is the
+	/// nodes built plus the comment lines and kept lines held, since each
+	/// costs about what a node does. `max_elements` refuses any line whose array
 	/// would hold more elements (`E021`, that line alone is skipped).
 	/// `max_diags` bounds the diagnostics list itself - a document of nothing
 	/// but bad lines costs a diagnostic per line - by listing the first that
@@ -6827,14 +6851,9 @@ impl Document {
 	fn load_file_any(path: &str, level: Strictness, keep: bool) -> (Document, FileStatus) {
 		let text = match read_file(path, 0) {
 			Ok(t) => t,
-			Err(st) => {
-				let mut doc = Parser::new().parse("", level);
-				// A file that could not be read gives a save nothing to compare.
-				if st == FileStatus::NotFound {
-					doc.file = LoadedFile::at(path, None);
-				}
-				return (doc, st);
-			}
+			// A file that could not be read gives a save nothing to compare,
+			// so its bytes are as unread as a parsed document's.
+			Err(st) => return (Parser::new().parse("", level), st),
 		};
 		let mut doc = Parser::new().parse(&text, level);
 		let st = if doc.error_count() > 0 {
@@ -6845,7 +6864,7 @@ impl Document {
 		if keep {
 			doc.keep_source(&text);
 		}
-		doc.file = LoadedFile::at(path, Some(text));
+		doc.seen.read = Some(text);
 		(doc, st)
 	}
 
@@ -6854,10 +6873,10 @@ impl Document {
 	/// interrupted save can never truncate the config it rewrites - the same
 	/// mechanics the CLI's `--write` uses. Refuses when the write would delete
 	/// content from the file (see lost_count); save_file_lossy writes
-	/// anyway. Over the file a load read, refuses when that file no longer
-	/// holds what the load read, or what this document's last save there
-	/// wrote, so another program's edit is not lost; `SaveOptions::force`
-	/// writes anyway. The Err tells them apart without matching on prose:
+	/// anyway. Refuses when what is at PATH now is neither what the load read
+	/// nor what this document's last save wrote, so another program's edit,
+	/// or a file nobody read, is not lost; `SaveOptions::force` writes
+	/// anyway. The Err tells them apart without matching on prose:
 	/// SaveError::Refused is the gate, SaveError::Changed the other program's
 	/// edit, SaveError::TooNew a document from a newer format (see
 	/// newer_format), SaveError::Io the write failing.
@@ -6899,39 +6918,28 @@ impl Document {
 				lost,
 			});
 		}
-		// The file the load read has to be as the load or this document's last
-		// save there left it. That's a check and not a lock: an edit between it
-		// and the rename is still lost.
-		let target = resolve_target(path).ok();
+		// The is-a-directory rows of Save outcomes answer before the checks,
+		// which would read such a path as a change or as something there.
+		if names_a_directory(path) {
+			return Err(SaveError::Io(is_a_directory(path)));
+		}
 		// Before the changed check, so a create that loses to another program
 		// is told the file is there.
-		if opts.create
-			&& (link_at(path)
-				|| target
-					.as_ref()
-					.is_some_and(|t| std::fs::symlink_metadata(t).is_ok()))
-		{
+		if opts.create && (link_at(path) || std::fs::symlink_metadata(path).is_ok()) {
 			return Err(SaveError::Exists {
 				path: path.to_string(),
 			});
 		}
-		let over = self
-			.file
-			.as_deref()
-			.filter(|f| target.as_ref().is_some_and(|t| *t == f.target));
-		if let Some(f) = over
-			&& !opts.force
-			&& !f.holds(path)
-		{
+		// The bytes at the path have to be ones this document has seen there,
+		// whatever file the path names now. That's a check and not a lock: an
+		// edit between it and the rename is still lost.
+		if !opts.force && !self.seen.holds(path) {
 			return Err(SaveError::Changed {
 				path: path.to_string(),
 			});
 		}
-		let over = over.is_some();
 		write_file_how(path, &text, opts.create, opts.mode)?;
-		if over && let Some(f) = self.file.as_deref_mut() {
-			f.text = Some(text);
-		}
+		self.seen.saved = Some(text);
 		Ok(kept)
 	}
 
@@ -7686,23 +7694,61 @@ fn restep(leads: &mut [Lead]) {
 /// it, with the comments before them: what beside_kept() takes, from the
 /// first line read after the node's own. Only a fold puts those there.
 fn folded_kept(nd: &mut NodeData) -> Vec<Lead> {
-	let (line, heads) = (nd.line, heads_block(nd));
+	let Some((from, end)) = folded_span(nd) else {
+		return Vec::new();
+	};
 	let Some(t) = nd.trivia.as_deref_mut() else {
 		return Vec::new();
 	};
-	let Some(from) = t.leading.iter().position(|l| l.line > line) else {
-		return Vec::new();
-	};
-	let end = t.leading[..t.leading.len() - usize::from(heads)]
-		.iter()
-		.rposition(Lead::is_kept_line)
-		.map_or(0, |k| k + 1);
-	if end <= from {
-		return Vec::new();
-	}
 	let left = t.leading.drain(from..end).collect();
 	restep(&mut t.leading);
 	left
+}
+
+/// Where folded_kept() would take its lines from in the node's leading
+/// list, or None when it would take nothing.
+fn folded_span(nd: &NodeData) -> Option<(usize, usize)> {
+	let t = nd.trivia.as_deref()?;
+	let from = t.leading.iter().position(|l| l.line > nd.line)?;
+	let end = t.leading[..t.leading.len() - usize::from(heads_block(nd))]
+		.iter()
+		.rposition(Lead::is_kept_line)
+		.map_or(0, |k| k + 1);
+	(end > from).then_some((from, end))
+}
+
+/// For each move of refile_folded(), (parent, first child, line, the line),
+/// the child the line goes above: the first at or past that one read after
+/// the line, or past the last. One sweep per parent from its end, keeping only
+/// the children no earlier one hides, so a fold far from its later instance
+/// doesn't walk every sibling between them.
+fn place_folded(arena: &[NodeData], moves: &mut [(usize, usize, usize, Lead)]) {
+	let mut order: Vec<usize> = (0..moves.len()).collect();
+	order.sort_by_key(|&m| (moves[m].0, std::cmp::Reverse(moves[m].1)));
+	// Child places, their lines rising toward the bottom.
+	let mut seen: Vec<usize> = Vec::new();
+	let mut k = 0;
+	while k < order.len() {
+		let p = moves[order[k]].0;
+		let kids = &arena[p].children;
+		seen.clear();
+		let mut next = kids.len();
+		while k < order.len() && moves[order[k]].0 == p {
+			let m = order[k];
+			while next > moves[m].1 {
+				next -= 1;
+				let line = arena[kids[next]].line;
+				while seen.last().is_some_and(|&s| arena[kids[s]].line <= line) {
+					seen.pop();
+				}
+				seen.push(next);
+			}
+			let line = moves[m].2;
+			let q = seen.partition_point(|&s| arena[kids[s]].line > line);
+			moves[m].1 = if q == 0 { kids.len() } else { seen[q - 1] };
+			k += 1;
+		}
+	}
 }
 
 /// What a remove of this node leaves of its lines, by design.md's kept-lines
@@ -9618,10 +9664,7 @@ fn write_file_how(file: &str, data: &str, new_only: bool, mode: u32) -> Result<(
 		path: file.to_string(),
 	};
 	if names_a_directory(file) {
-		return Err(SaveError::Io(WriteError::new(
-			WriteStatus::IsDirectory,
-			format!("{}: Is a directory", file),
-		)));
+		return Err(SaveError::Io(is_a_directory(file)));
 	}
 	let target = resolve_target(file)
 		.map_err(|(status, why)| WriteError::new(status, format!("{}: {}", file, why)))
@@ -9672,10 +9715,7 @@ fn write_file_how(file: &str, data: &str, new_only: bool, mode: u32) -> Result<(
 		&& !m.is_file()
 	{
 		return Err(SaveError::Io(if m.is_dir() {
-			WriteError::new(
-				WriteStatus::IsDirectory,
-				format!("{}: Is a directory", file),
-			)
+			is_a_directory(file)
 		} else {
 			not_regular(file)
 		}));
@@ -10114,29 +10154,14 @@ fn resolve_target(file: &str) -> Result<std::path::PathBuf, (WriteStatus, &'stat
 	if std::fs::read_link(&p).is_ok() {
 		return Err((WriteStatus::Other, "too many levels of symbolic links"));
 	}
-	Ok(real_nearest(p))
+	Ok(p)
 }
 
-/// P, with nothing at it, made absolute through the real path of the nearest
-/// folder above it that is there, the rest as written. So one file has one
-/// spelling whether it's there or not, and however the path names it: bare,
-/// `./`, absolute, through a link, or relative to another working folder.
-fn real_nearest(p: std::path::PathBuf) -> std::path::PathBuf {
-	let mut rest = Vec::new();
-	let mut at = p.as_path();
-	while let (Some(d), Some(n)) = (at.parent(), at.file_name()) {
-		rest.push(n);
-		let dir = if d.as_os_str().is_empty() {
-			std::path::Path::new(".")
-		} else {
-			d
-		};
-		if let Ok(real) = std::fs::canonicalize(dir) {
-			return rest.iter().rev().fold(real, |a, n| a.join(n));
-		}
-		at = d;
-	}
-	std::path::absolute(&p).unwrap_or(p)
+fn is_a_directory(file: &str) -> WriteError {
+	WriteError::new(
+		WriteStatus::IsDirectory,
+		format!("{}: Is a directory", file),
+	)
 }
 
 #[cfg(windows)]
@@ -12681,27 +12706,40 @@ impl Document {
 	fn refile_folded(&mut self, mut folded: Vec<usize>) {
 		folded.sort_unstable();
 		folded.dedup();
+		// Every line that binds to a node already there is in `folded`, so a
+		// file that re-opens many blocks has many with nothing to move, and
+		// those may cost no more than this test.
+		folded.retain(|&c| folded_span(&self.arena[c]).is_some());
+		if folded.is_empty() {
+			return;
+		}
+		// Each node's place among its siblings, for the parents of these.
+		let n = self.arena.len();
+		let (mut at_of, mut indexed) = (vec![usize::MAX; n], vec![false; n]);
 		// Parent, the child they go above (past the last, the block's end),
 		// line, the line. All first, since 2 folds can fill one place.
 		let mut moves: Vec<(usize, usize, usize, Lead)> = Vec::new();
 		for c in folded {
 			let p = self.arena[c].parent;
-			let Some(at) = self.arena[p].children.iter().position(|&k| k == c) else {
+			if !indexed[p] {
+				indexed[p] = true;
+				for (k, &kid) in self.arena[p].children.iter().enumerate() {
+					at_of[kid] = k;
+				}
+			}
+			if at_of[c] == usize::MAX {
 				continue;
-			};
-			let (mut j, mut line) = (at + 1, 0);
+			}
+			let mut line = 0;
 			for l in folded_kept(&mut self.arena[c]) {
 				line = line.max(l.line);
-				let kids = &self.arena[p].children;
-				while j < kids.len() && self.arena[kids[j]].line <= line {
-					j += 1;
-				}
-				moves.push((p, j, line, l));
+				moves.push((p, at_of[c] + 1, line, l));
 			}
 		}
 		if moves.is_empty() {
 			return;
 		}
+		place_folded(&self.arena, &mut moves);
 		// Stable, so the lines of one fold keep their order.
 		moves.sort_by_key(|m| (m.0, m.1, m.2));
 		let mut moves = moves.into_iter().peekable();

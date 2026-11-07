@@ -46,6 +46,47 @@ func allocatedBy(f func() any) uint64 {
 	return after.TotalAlloc - before.TotalAlloc
 }
 
+// A file of comment lines and kept lines builds no node, so the node cap never
+// fired and each line was held: 100 times the file at 4 MB. Set against the
+// same number of field lines, which stop at the cap and cost only the
+// per-line split.
+func TestNodeCapBoundsCommentAndKeptLines(t *testing.T) {
+	defer testID(t, "df008")
+	const lines, capAt = 200000, 1000
+	var held, fields strings.Builder
+	for i := 0; i < lines; i++ {
+		if i%2 == 0 {
+			held.WriteString("# a comment line\n")
+		} else {
+			held.WriteString("kept line\n")
+		}
+		fields.WriteString("k" + strconv.Itoa(i) + ": 1\n")
+	}
+	ht, ft := held.String(), fields.String()
+	base := allocatedBy(func() any {
+		doc, _ := ParseLimited(ft, Standard, capAt, 0, 0)
+		return doc
+	})
+	var at []int
+	lost := 0
+	capped := allocatedBy(func() any {
+		doc, _ := ParseLimited(ht, Standard, capAt, 0, 0)
+		for _, g := range doc.Diagnostics() {
+			if g.Code == "E020" {
+				at = append(at, g.Line)
+			}
+		}
+		lost = doc.LostCount()
+		return doc
+	})
+	if capped >= base*2 {
+		t.Fatalf("a capped parse held its comment and kept lines: %d bytes against %d for as many field lines", capped, base)
+	}
+	if len(at) != 1 || at[0] != capAt+2 || lost != lines-capAt-1 {
+		t.Fatalf("E020 at %v, lost %d", at, lost)
+	}
+}
+
 func TestElementCapBoundsTheParse(t *testing.T) {
 	defer testID(t, "dc25f")
 	text := "arr: " + strings.Repeat("1, ", 200000) + "\nok: 5\n"

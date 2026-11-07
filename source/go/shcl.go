@@ -990,10 +990,11 @@ type Document struct {
 	// its lines. A merge drops it: the layer's lines are not this text's. Nil
 	// when none was kept.
 	source *string
-	// The file a load read, which a save over it checks first. A merge keeps
-	// it, since the file under the merged document is still that one. A save
-	// there records what it wrote, so a save is a write like any edit.
-	file *loadedFile
+	// What a save checks the bytes at its path against. A merge keeps it,
+	// since the file under the merged document is still the one the load
+	// read. A save records what it wrote, so a save is a write like any edit.
+	// Nil until a load reads a file or a save writes one.
+	file *seenBytes
 	// newer: the text named a newer format than this one (H006), so its lines
 	// may read differently there, and a save refuses. A merge takes a layer's.
 	newer bool
@@ -2345,7 +2346,9 @@ func resolveMarks(raw string) (string, error) {
 // either case, or a code point prefix and one to six hex digits.
 func escapeText(name string) (string, error) {
 	m := string(escapeMark)
-	shown := oneLineIn(name, "'"+m, m+"'")
+	// Built only for an error, since a good escape never reads it
+	// (2026110613470306).
+	shown := func() string { return oneLineIn(name, "'"+m, m+"'") }
 	nameChars := name != ""
 	for i := 0; i < len(name) && nameChars; i++ {
 		b := name[i]
@@ -2376,12 +2379,12 @@ func escapeText(name string) (string, error) {
 				continue
 			}
 			if v > unicode.MaxRune || (v >= 0xD800 && v <= 0xDFFF) {
-				return "", errors.New("escape " + shown + " names no Unicode character")
+				return "", errors.New("escape " + shown() + " names no Unicode character")
 			}
 			return string(rune(v)), nil
 		}
 	}
-	return "", errors.New("unknown escape " + shown + "; an escape is a name from the escape list, and a real " + m + " is " + m + "ESCAPE_CHAR" + m)
+	return "", errors.New("unknown escape " + shown() + "; an escape is a name from the escape list, and a real " + m + " is " + m + "ESCAPE_CHAR" + m)
 }
 
 // gen-escapes.py: begin
@@ -4680,10 +4683,15 @@ type parser struct {
 	src        []string
 	arrayLines map[int]arrayLine
 	// ParseLimited's caps, 0 = uncapped: nodes counted against the arena
-	// (root excluded), elements against a single value's cell, diagnostics
-	// against the list. Past the diagnostic cap nothing is listed, only
-	// counted (errors, hints), for the one tail entry the parse ends with.
-	maxNodes       int
+	// (root excluded) plus held, elements against a single value's cell,
+	// diagnostics against the list. Past the diagnostic cap nothing is
+	// listed, only counted (errors, hints), for the one tail entry the parse
+	// ends with.
+	maxNodes int
+	// Comment lines and kept lines taken so far. They cost about what a node
+	// does and build none, so a file of nothing else would pass the node cap
+	// untouched.
+	held           int
 	maxElements    int
 	maxDiags       int
 	unlistedErrors int
@@ -5262,6 +5270,7 @@ func (p *parser) refuse(line int, code, msg string, out outcome, indent string) 
 		// files a retained line nowhere breaks that, and the save gate then
 		// refuses even a plain fmt --write, as it should.
 		p.keptOwed++
+		p.held++
 		// A line kept as written never hangs on a block: its indent is not
 		// one the output's levels are written with, so the block it would
 		// match here is not the one it matches on a reload. It waits for the
@@ -6112,16 +6121,20 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 	p.childMap = append(make([]map[uint64]slot, 0, want), p.childMap...)
 	p.dispMap = append(make([]map[uint64]int, 0, want), p.dispMap...)
 	i := 0
-	nodeCapped := false
 	tok := Tokens{Cap: p.maxElements}
 	for i < len(lines) {
 		// Node cap: reported at the first line not parsed, so the count can
 		// overshoot by at most one line's path. The unparsed remainder counts
 		// as lost, which is what keeps SaveFile from writing a silently
-		// truncated document.
-		if p.maxNodes != 0 && len(p.arena)-1 > p.maxNodes {
-			p.refuse(i+1, "E020", fmt.Sprintf("node cap of %d exceeded; parse stopped", p.maxNodes), outStopped(lines[i:]), "")
-			nodeCapped = true
+		// truncated document. With only blanks left nothing stopped, so
+		// nothing reports.
+		if p.maxNodes != 0 && len(p.arena)-1+p.held > p.maxNodes {
+			for _, l := range lines[i:] {
+				if trimWsp(l) != "" {
+					p.refuse(i+1, "E020", fmt.Sprintf("node cap of %d exceeded; parse stopped", p.maxNodes), outStopped(lines[i:]), "")
+					break
+				}
+			}
 			break
 		}
 		lineno := i + 1
@@ -6140,6 +6153,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		// It consumes a pending blank into its own flag, so a blank between
 		// comment-only regions survives the round-trip.
 		if strings.HasPrefix(rest, "#") {
+			p.held++
 			p.pending = append(p.pending, pend{text: rest, indent: indent, blankBefore: p.sawBlank, ceiling: len(indent), line: lineno})
 			p.sawBlank = false
 			i++
@@ -6527,11 +6541,6 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		}
 		i = next
 	}
-	// A cap crossed on the document's last line still reports, with nothing
-	// left to skip.
-	if !nodeCapped && p.maxNodes != 0 && len(p.arena)-1 > p.maxNodes {
-		p.refuse(len(lines), "E020", fmt.Sprintf("node cap of %d exceeded; parse stopped", p.maxNodes), outStopped(nil), "")
-	}
 	p.starFlush()
 	// Indented tail comments keep their block; only top-level ones orphan.
 	// Before the fold, which moves a dropped instance's comments over to the
@@ -6612,9 +6621,11 @@ func (d *Document) strictGate() (*Document, error) {
 // ParseLimited parses with resource caps beside the strictness, for input the
 // consumer does not control: a document amplifies to many times its byte size
 // in memory, so a size cap alone cannot bound what a load allocates. maxNodes
-// stops the parse once a line takes the node count past it - one E020 error,
-// and the unparsed remainder counts as lost so a save cannot silently
-// truncate. maxElements refuses any line whose array would hold more elements
+// stops the parse once a line takes the count past it - one E020 error on the
+// first line not parsed, and the unparsed remainder counts as lost so a save
+// cannot silently truncate. The count is the nodes built plus the comment
+// lines and kept lines held, since each costs about what a node does.
+// maxElements refuses any line whose array would hold more elements
 // (E021, that line alone is skipped). maxDiags bounds the diagnostics list
 // itself - a document of nothing but bad lines costs a diagnostic per line -
 // by listing the first that many and ending with one E022 that counts the
@@ -6754,12 +6765,25 @@ func restep(leads []lead) {
 // instance of it, with the comments before them: what besideKept takes, from
 // the first line read after the node's own. Only a fold puts those there.
 func foldedKept(nd *nodeData) []lead {
-	heads := headsBlock(nd)
-	t := nd.trivia
-	if t == nil {
+	from, end, ok := foldedSpan(nd)
+	if !ok {
 		return nil
 	}
-	from := -1
+	t := nd.trivia
+	left := append([]lead(nil), t.leading[from:end]...)
+	t.leading = append(t.leading[:from], t.leading[end:]...)
+	restep(t.leading)
+	return left
+}
+
+// foldedSpan is where foldedKept would take its lines from in the node's
+// leading list, with ok false when it would take nothing.
+func foldedSpan(nd *nodeData) (from, end int, ok bool) {
+	t := nd.trivia
+	if t == nil {
+		return 0, 0, false
+	}
+	from = -1
 	for k := range t.leading {
 		if t.leading[k].line > nd.line {
 			from = k
@@ -6767,26 +6791,71 @@ func foldedKept(nd *nodeData) []lead {
 		}
 	}
 	if from < 0 {
-		return nil
+		return 0, 0, false
 	}
 	last := len(t.leading)
-	if heads {
+	if headsBlock(nd) {
 		last--
 	}
-	end := 0
 	for k := last - 1; k >= 0; k-- {
 		if t.leading[k].isKeptLine() {
 			end = k + 1
 			break
 		}
 	}
-	if end <= from {
-		return nil
+	return from, end, end > from
+}
+
+// refileMove is one line refileFolded moves: the parent, the child it goes
+// above (past the last, the block's end), the line it was read at, the line.
+type refileMove struct {
+	parent, at, line int
+	l                lead
+}
+
+// placeFolded sets each move's at, which holds the first child it may go
+// above, to the child the line goes above: the first at or past that one read
+// after the line, or past the last. One sweep per parent from its end,
+// keeping only the children no earlier one hides, so a fold far from its
+// later instance doesn't walk every sibling between them.
+func placeFolded(arena []nodeData, moves []refileMove) {
+	order := make([]int, len(moves))
+	for m := range order {
+		order[m] = m
 	}
-	left := append([]lead(nil), t.leading[from:end]...)
-	t.leading = append(t.leading[:from], t.leading[end:]...)
-	restep(t.leading)
-	return left
+	sort.Slice(order, func(a, b int) bool {
+		x, y := moves[order[a]], moves[order[b]]
+		if x.parent != y.parent {
+			return x.parent < y.parent
+		}
+		return x.at > y.at
+	})
+	// Child places, their lines rising toward the bottom.
+	var seen []int
+	for k := 0; k < len(order); {
+		p := moves[order[k]].parent
+		kids := arena[p].children
+		seen = seen[:0]
+		next := len(kids)
+		for ; k < len(order) && moves[order[k]].parent == p; k++ {
+			m := order[k]
+			for next > moves[m].at {
+				next--
+				line := arena[kids[next]].line
+				for len(seen) > 0 && arena[kids[seen[len(seen)-1]]].line <= line {
+					seen = seen[:len(seen)-1]
+				}
+				seen = append(seen, next)
+			}
+			line := moves[m].line
+			q := sort.Search(len(seen), func(s int) bool { return arena[kids[seen[s]]].line <= line })
+			if q == 0 {
+				moves[m].at = len(kids)
+			} else {
+				moves[m].at = seen[q-1]
+			}
+		}
+	}
 }
 
 // besideKept is what a remove of this node leaves of its lines, by
@@ -9899,7 +9968,7 @@ func linkAt(file string) bool {
 // would be the exact replacement the symlink walk exists to avoid.
 func resolveTarget(file string) (string, error) {
 	if p, err := filepath.EvalSymlinks(file); err == nil {
-		return absReal(p), nil
+		return p, nil
 	}
 	p := file
 	for hop := 0; hop < 40; hop++ {
@@ -9921,92 +9990,7 @@ func resolveTarget(file string) (string, error) {
 	if _, err := os.Readlink(p); err == nil {
 		return "", errors.New("too many levels of symbolic links")
 	}
-	return realNearest(p), nil
-}
-
-// realNearest is p, with nothing at it, made absolute through the real path of
-// the nearest folder above it that is there, the rest as written. So one file
-// has one spelling whether it's there or not, and however the path names it:
-// bare, `./`, absolute, through a link, or relative to another working folder.
-// The rest isn't cleaned, since a clean cancels `nodir/..` as text where the
-// kernel refuses the missing folder, and the save would create the file.
-func realNearest(p string) string {
-	at := p
-	for {
-		dir := rawDir(at)
-		if dir == at {
-			break
-		}
-		if real, err := filepath.EvalSymlinks(dir); err == nil {
-			// at is p up to some separator, so its last part starts the rest.
-			// FromSlash so it reads as EvalSymlinks writes a file that's there.
-			rest := filepath.FromSlash(p[len(at)-len(rawBase(at)):])
-			if runtime.GOOS != "windows" {
-				rest = tidyRest(rest)
-			}
-			out := absReal(real)
-			if !os.IsPathSeparator(out[len(out)-1]) {
-				out += string(filepath.Separator)
-			}
-			return out + rest
-		}
-		at = dir
-	}
-	if abs, err := filepath.Abs(p); err == nil {
-		return abs
-	}
-	return p
-}
-
-// tidyRest is the rest of a path under a missing folder, less its `.` and empty
-// parts. Neither changes what the kernel reaches, and a file that's there
-// resolves with neither, so a load of `new/./n.shcl` and a save to
-// `new/n.shcl` name one file. `..` stays, since the kernel refuses it through a
-// missing folder. Windows is left as it was (2026110314240418).
-func tidyRest(rest string) string {
-	parts := strings.Split(rest, "/")
-	kept := parts[:0]
-	for _, n := range parts {
-		if n != "" && n != "." {
-			kept = append(kept, n)
-		}
-	}
-	return strings.Join(kept, "/")
-}
-
-// absReal makes a path EvalSymlinks gave absolute. Getwd can answer with $PWD,
-// which may run through a link, so the working folder is resolved too, or a
-// file named relative and absolute would get 2 spellings. On windows the
-// working folder can be a short name, and EvalSymlinks of the absolute path
-// gives the long one, as it does for a file that's there.
-func absReal(p string) string {
-	if filepath.IsAbs(p) {
-		return p
-	}
-	if runtime.GOOS != "windows" {
-		if wd, err := os.Getwd(); err == nil {
-			if real, err := filepath.EvalSymlinks(wd); err == nil {
-				return filepath.Join(real, p)
-			}
-		}
-	}
-	if abs, err := filepath.Abs(p); err == nil {
-		if real, err := filepath.EvalSymlinks(abs); err == nil {
-			return real
-		}
-		return abs
-	}
-	return p
-}
-
-// rawBase is the last part of p as written, the half rawDir leaves.
-func rawBase(p string) string {
-	vol := filepath.VolumeName(p)
-	i := len(p)
-	for i > len(vol) && !os.IsPathSeparator(p[i-1]) {
-		i--
-	}
-	return p[i:]
+	return p, nil
 }
 
 // rawDir is the directory half of p as written. filepath.Dir cleans it, and a
@@ -10197,17 +10181,15 @@ func loadFileAny(path string, level Strictness, keep bool) (*Document, FileStatu
 	text, st := ReadFile(path, 0)
 	if st != FileClean {
 		doc := newParser().parse("", level)
-		// A file that could not be read gives a save nothing to compare.
-		if st == FileNotFound {
-			doc.file = loadedFileAt(path, nil)
-		}
+		// A file that could not be read gives a save nothing to compare, so
+		// its bytes are as unread as a parsed document's.
 		return doc, st
 	}
 	doc := newParser().parse(text, level)
 	if keep {
 		doc.keepSource(text)
 	}
-	doc.file = loadedFileAt(path, &text)
+	doc.file = &seenBytes{read: &text}
 	if doc.ErrorCount() > 0 {
 		return doc, FileHadErrors
 	}
@@ -10231,17 +10213,18 @@ func (e *SaveRefused) Error() string {
 		"from the file (see diagnostics; SaveFileLossy overrides)", e.Path, e.Lost)
 }
 
-// SaveChanged is the error a save returns when the file the document was
-// loaded from no longer holds what the load read, or what this document's
-// last save there wrote. Nothing is written. Another program's edit is not
-// the caller's to undo by accident, so SaveOptions.Force is the override.
+// SaveChanged is the error a save returns when what is at the path now is
+// neither what the load read nor what this document's last save wrote:
+// another program's edit, a file gone since the load, or a file this document
+// never read. Nothing is written. Those bytes are not the caller's to undo by
+// accident, so SaveOptions.Force is the override.
 type SaveChanged struct {
 	Path string
 }
 
 // Error names the file and the override.
 func (e *SaveChanged) Error() string {
-	return e.Path + ": refusing to save: the file changed since it was loaded; nothing written (force overrides)"
+	return e.Path + ": refusing to save: what is there is not what this document read or wrote; nothing written (force overrides)"
 }
 
 // SaveExists is the error a save returns when SaveOptions.Create found a file
@@ -10286,42 +10269,39 @@ type SaveOptions struct {
 	Mode os.FileMode
 }
 
-// loadedFile is the file a load read, for the save's changed check: where the
-// path resolved to, and its text, or nil when nothing was there.
-type loadedFile struct {
-	target string
-	text   *string
+// seenBytes is what a save checks the bytes at its path against: what the
+// load read, nil when it found nothing there or no load read a file, and what
+// this document's last save wrote. No path is kept, since a path taken at the
+// load names another file by the save once a folder or a link on it changes,
+// and every spelling of one file reads the same bytes.
+type seenBytes struct {
+	read  *string
+	saved *string
 }
 
-// loadedFileAt gives nil for a path that resolves to no target, a link cycle,
-// since that is a save's error already and gets no check.
-func loadedFileAt(path string, text *string) *loadedFile {
-	target, err := resolveTarget(path)
-	if err != nil {
-		return nil
-	}
-	return &loadedFile{target: target, text: text}
-}
-
-func (f *loadedFile) over(path string) bool {
-	target, err := resolveTarget(path)
-	return err == nil && target == f.target
-}
-
-// holds is true when the file at path still holds the text, byte for byte, or
-// is still not there. Content only, so a touch alone is no change. Something
-// that isn't a regular file is left to the write, which refuses it. A file
-// that can't be read is a change, since the rename that replaces it needs no
-// read access.
-func (f *loadedFile) holds(path string) bool {
+// holds is true when path, as given and read now, holds what the load read or
+// the last save wrote, or nothing, where the load read no file. Content only,
+// so a touch alone is no change. Something that isn't a regular file is left
+// to the write, which refuses it, and so is a path the write can't reach a
+// file through: part of it a file, a folder not there, or a link cycle. A file that can't be read
+// is a change, since the rename that replaces it needs no read access.
+func (s *seenBytes) holds(path string) bool {
 	now, regular, err := readRegular(path)
 	switch {
 	case err == nil && !regular:
 		return true
 	case err == nil:
-		return f.text != nil && *f.text == string(now)
+		return (s.read != nil && *s.read == string(now)) || (s.saved != nil && *s.saved == string(now))
 	case errors.Is(err, os.ErrNotExist):
-		return f.text == nil
+		// A file gone with its folder is left to the write, which says the
+		// folder is missing.
+		if s.read == nil {
+			return true
+		}
+		st, serr := os.Stat(rawDir(path))
+		return serr != nil || !st.IsDir()
+	case errors.Is(err, syscall.ENOTDIR), errors.Is(err, syscall.ELOOP):
+		return true
 	}
 	return false
 }
@@ -10349,9 +10329,9 @@ func readRegular(path string) ([]byte, bool, error) {
 // to path through WriteFileAtomic, so an interrupted save can never truncate
 // the config it rewrites - the same mechanics the CLI's `--write` uses.
 // Refuses when the write would delete content from the file (see
-// LostCount); SaveFileLossy writes anyway. Over the file a load read, refuses
-// when that file no longer holds what the load read, or what this document's
-// last save there wrote, so another program's edit is not lost;
+// LostCount); SaveFileLossy writes anyway. Refuses when what is at path now is
+// neither what the load read nor what this document's last save wrote, so
+// another program's edit, or a file nobody read, is not lost;
 // SaveOptions.Force writes anyway. A refusal comes back as *SaveRefused,
 // another program's edit as *SaveChanged, a document from a newer format as
 // *SaveTooNew (see NewerFormat), a write failure as
@@ -10390,31 +10370,31 @@ func (d *Document) SaveFileWith(path string, opts SaveOptions) (bool, error) {
 	if !opts.Lossy && !kept && lost > 0 {
 		return false, &SaveRefused{Path: path, Lost: lost}
 	}
-	// The file the load read has to be as the load or this document's last
-	// save there left it. That's a check and not a lock: an edit between it
-	// and the rename is still lost.
+	// The is-a-directory rows of Save outcomes answer before the checks,
+	// which would read such a path as a change or as something there.
+	if namesADirectory(path) {
+		return false, &WriteError{Status: WriteIsDirectory, Err: fmt.Errorf("%s: is a directory", path)}
+	}
 	// Before the changed check, so a create that loses to another program is
 	// told the file is there.
 	if opts.Create {
-		if linkAt(path) {
+		if _, err := os.Lstat(path); err == nil || linkAt(path) {
 			return false, &SaveExists{Path: path}
 		}
-		if target, err := resolveTarget(path); err == nil {
-			if _, err := os.Lstat(target); err == nil {
-				return false, &SaveExists{Path: path}
-			}
-		}
 	}
-	over := d.file != nil && d.file.over(path)
-	if over && !opts.Force && !d.file.holds(path) {
+	if d.file == nil {
+		d.file = &seenBytes{}
+	}
+	// The bytes at the path have to be ones this document has seen there,
+	// whatever file the path names now. That's a check and not a lock: an
+	// edit between it and the rename is still lost.
+	if !opts.Force && !d.file.holds(path) {
 		return false, &SaveChanged{Path: path}
 	}
 	if err := writeFileHow(path, text, opts.Create, opts.Mode); err != nil {
 		return false, err
 	}
-	if over {
-		d.file.text = &text
-	}
+	d.file.saved = &text
 	return kept, nil
 }
 
@@ -12413,38 +12393,49 @@ func (d *Document) TryRemove(path string) Read[int] {
 // nodes a fold or a re-mention gave lines to.
 func (d *Document) refileFolded(folded []int) {
 	sort.Ints(folded)
-	// Parent, the child they go above (past the last, the block's end), line,
-	// the line. All first, since 2 folds can fill one place.
-	type move struct {
-		parent, at, line int
-		l                lead
-	}
-	var moves []move
+	// Every line that binds to a node already there is in folded, so a file
+	// that re-opens many blocks has many with nothing to move, and those may
+	// cost no more than this test.
+	keep := folded[:0]
 	for x, c := range folded {
 		if x > 0 && folded[x-1] == c {
 			continue
 		}
-		p := d.arena[c].parent
-		at := -1
-		for k, kid := range d.arena[p].children {
-			if kid == c {
-				at = k
-				break
-			}
-		}
-		if at < 0 {
-			continue
-		}
-		j, line := at+1, 0
-		for _, l := range foldedKept(&d.arena[c]) {
-			line = maxInt(line, l.line)
-			kids := d.arena[p].children
-			for j < len(kids) && d.arena[kids[j]].line <= line {
-				j++
-			}
-			moves = append(moves, move{p, j, line, l})
+		if _, _, ok := foldedSpan(&d.arena[c]); ok {
+			keep = append(keep, c)
 		}
 	}
+	if len(keep) == 0 {
+		return
+	}
+	// Each node's place among its siblings, for the parents of these.
+	atOf, indexed := make([]int, len(d.arena)), make([]bool, len(d.arena))
+	for k := range atOf {
+		atOf[k] = -1
+	}
+	// All first, since 2 folds can fill one place.
+	var moves []refileMove
+	for _, c := range keep {
+		p := d.arena[c].parent
+		if !indexed[p] {
+			indexed[p] = true
+			for k, kid := range d.arena[p].children {
+				atOf[kid] = k
+			}
+		}
+		if atOf[c] < 0 {
+			continue
+		}
+		line := 0
+		for _, l := range foldedKept(&d.arena[c]) {
+			line = maxInt(line, l.line)
+			moves = append(moves, refileMove{p, atOf[c] + 1, line, l})
+		}
+	}
+	if len(moves) == 0 {
+		return
+	}
+	placeFolded(d.arena, moves)
 	// Stable, so the lines of one fold keep their order.
 	sort.SliceStable(moves, func(a, b int) bool {
 		if moves[a].parent != moves[b].parent {
@@ -12472,9 +12463,7 @@ func (d *Document) refileFolded(folded []int) {
 	}
 	// The first node can have lost the lines above it, and with them the room
 	// for a blank a re-mention left it.
-	if len(moves) > 0 {
-		settleFirstBlank(d.arena, d.orphans)
-	}
+	settleFirstBlank(d.arena, d.orphans)
 }
 
 // leaveAbove puts lines a remove left above the sibling that followed them.

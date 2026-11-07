@@ -12,10 +12,12 @@ use shcl::{Document, FileStatus, SaveError};
 use std::path::Path;
 
 /// One file gives one answer however its path is spelled: bare, `./`,
-/// absolute, through a link, in a folder made after the load, or from another
-/// working folder. A FIFO swapped in gets the write's own refusal rather than
-/// a wait, and a file the check can't read is a change (2026110312163201,
-/// 2026110312163202).
+/// absolute, through a link, in a folder made after the load, through `..`
+/// under a folder made after it, or by another hard link. The check reads the
+/// bytes at the save path, so a file the document never read, such as the same
+/// name from another working folder, is refused too. A FIFO swapped in gets
+/// the write's own refusal rather than a wait, and a file the check can't read
+/// is a change (2026110312163201, 2026110312163202, 2026110613470307).
 #[cfg_attr(
 	miri,
 	ignore = "saves to disk, and Miri has no fchown or directory fsync"
@@ -86,14 +88,14 @@ fn a_changed_check_knows_its_file_by_any_spelling() {
 		assert_eq!(read("sub/k.shcl"), "b: 2\n");
 	}
 
-	// The same name from another working folder is another file, so it isn't
-	// checked.
+	// The same name from another working folder is another file, one the
+	// document never read, so a save over it is refused.
 	std::fs::write("m.shcl", "a: 1\n").unwrap();
 	let (mut moved, _) = Document::load_file("m.shcl");
 	std::env::set_current_dir("sub").unwrap();
 	std::fs::write("m.shcl", "z: 0\n").unwrap();
-	assert_eq!(moved.save_file("m.shcl"), Ok(()));
-	assert_eq!(read("m.shcl"), "a: 1\n");
+	assert_eq!(moved.save_file("m.shcl"), changed("m.shcl"));
+	assert_eq!(read("m.shcl"), "z: 0\n");
 	std::env::set_current_dir(&dir).unwrap();
 
 	#[cfg(unix)]
@@ -117,6 +119,24 @@ fn a_changed_check_knows_its_file_by_any_spelling() {
 		let (mut through, _) = Document::load_file("q2.shcl");
 		assert!(through.save_file("nodir/../q.shcl").is_err());
 		assert!(!std::path::Path::new("q.shcl").exists());
+		// Loaded through it while it's missing, saved through it once another
+		// program made the folder and the file.
+		let (mut later_up, st) = Document::load_file("nodir/../q.shcl");
+		assert_eq!(st, FileStatus::NotFound);
+		std::fs::create_dir("nodir").unwrap();
+		std::fs::write("q.shcl", "b: 2\n").unwrap();
+		assert_eq!(
+			later_up.save_file("nodir/../q.shcl"),
+			changed("nodir/../q.shcl")
+		);
+		assert_eq!(read("q.shcl"), "b: 2\n");
+		// 2 hard links are 2 paths to one set of bytes.
+		std::fs::write("h1.shcl", "a: 1\n").unwrap();
+		std::fs::hard_link("h1.shcl", "h2.shcl").unwrap();
+		let (mut hard, _) = Document::load_file("h1.shcl");
+		std::fs::write("h2.shcl", "a: 9\n").unwrap();
+		assert_eq!(hard.save_file("h1.shcl"), changed("h1.shcl"));
+		assert_eq!(read("h1.shcl"), "a: 9\n");
 		// A FIFO swapped in is refused as the write refuses it, with no wait.
 		std::fs::write("f.shcl", "a: 1\n").unwrap();
 		let (mut fifo, _) = Document::load_file("./f.shcl");

@@ -4,13 +4,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## Unreleased
 
+### Changed
+
+- A save checks the bytes at the path it writes, every time, whatever file the path names now. It writes when they are what the load read or what this document's last save wrote, or when nothing is there and the load found nothing. So a save onto a file the document never read, a save-as or a document from `parse` over an existing file, is refused as changed unless `force` is set, where it used to write. A save to the same relative name from another working folder is refused the same way.
+
 ### Fixed
 
+- A save through `nodir/../f.shcl`, loaded while `nodir` wasn't there, wrote over a file another program made there since. The check compared 2 paths resolved at 2 different times, and now compares bytes.
+
+- A save to `f.shcl/`, `f.shcl/.` or `f.shcl/..`, or a create-only one, says it is a directory in Rust and C, as in Go and Python. They said the file changed, or that it was there. `set --write` says the same for a folder swapped in during its wait as for one there from the start, and the C CLI no longer says `Not a directory` for `f.shcl/`.
+
 - The Go library builds for wasm again, `js` and `wasip1`. beta1 used a system constant those targets don't have.
+
+- A file that re-opens many blocks loads in linear time again. In beta1, 100,000 blocks each named twice took 4 to 5.5 s to load in Go and C, and a kept line before each second instance made it 10 s and more.
 
 - A `#` outside quotes in a lookup path is refused, as `BadPath`. The path used to end there, so `set --remove='colors#primary'` removed all of `colors` at exit 0. Quote a name that holds one, `"colors#primary"`.
 
 - `E003` names the index as written. One past the 64-bit range was shown as 18446744073709551615.
+
+- The node cap of `parse_limited` counts comment lines and kept lines too. A file of nothing else built no node, so a capped parse of it held 100 times the file. A cap crossed on the last line no longer reports `E020`, since nothing was left to stop.
 
 ## v3.0.0-beta1 - 2026-11-05
 

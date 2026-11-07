@@ -323,9 +323,10 @@ std::string_view spelling(SizeUnit u);
 enum class FileStatus { Clean, HadErrors, NotFound, Unreadable };
 // Not a bool: Refused is the lost-content gate, which save_file_lossy
 // overrides, and folding it into a failed write leaves the caller with an
-// override they cannot tell they need. Changed is the file the load read
-// changed since, by another program; nothing was written, and
-// SaveOptions::force overrides. Exists is a file SaveOptions::create found
+// override they cannot tell they need. Changed is what is at the path now
+// being neither what the load read nor what the last save wrote: another
+// program's edit, a file gone since the load, or one the document never read;
+// nothing was written, and SaveOptions::force overrides. Exists is a file SaveOptions::create found
 // there, or another save made first; nothing was written. TooNew is a document
 // from a newer format (newer_format); nothing was written, and nothing
 // overrides it.
@@ -334,7 +335,7 @@ enum class SaveResult { Ok, Refused, Failed, Changed, Exists, TooNew };
 struct SaveOptions {
 	bool lossy{};      // write even when the save deletes content, as save_file_lossy
 	bool keep_lines{}; // keep the lines no edit touched, as save_file_keep_lines
-	bool force{};      // write over the file the load read even when it changed since
+	bool force{};      // write over whatever is at the path, even a file never read or one changed since
 	bool create{};     // only make a new file: Exists when one is there, even one another save makes at the same time
 	unsigned mode{};   // the permission bits (0777) a file this save makes gets, exactly, whatever the umask; 0 is an ordinary create's; a file already there keeps its own, and windows has no such bits
 };

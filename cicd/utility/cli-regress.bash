@@ -457,8 +457,8 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	stdin: printf %b text, '-' none, '@closedin' / '@closedout' close that
 ##	stream, '@wronlyin' opens stdin for writing only, '@fullout' / '@fullerr'
 ##	point it at a device that is always full, '@appear' / '@change' / '@fifo'
-##	make %C%, change it or turn it into a FIFO while the command waits on
-##	stdin for its ops, '@asciilocale'
+##	/ '@dir' make %C%, change it, or turn it into a FIFO or a folder while the
+##	command waits on stdin for its ops, '@asciilocale'
 ##	none, with an ASCII-only locale and PYTHONIOENCODING, '@memcap' none,
 ##	under a 2 GB address-space cap so a read that never ends fails fast.
 ##	stdout and stderr: '-' means unchecked; an empty stdout field means exactly empty.
@@ -1626,6 +1626,13 @@ rows=(
 	## with a plain open, which waits for a writer, before the save could
 	## refuse it.
 	'devy8|write-fifo-during-wait|set --write %C%|@fifo|8|-|created\.shcl: not a regular file$|-'
+	## 2026110613470308: a folder swapped in during the wait got the FIFO's
+	## words, where a folder there from the start is a directory. And a path
+	## that names a directory is the save's is-a-directory refusal, where C
+	## gave the read's "Not a directory".
+	'df03q|write-dir-during-wait|set --write %C%|@dir|8|-|created\.shcl: [Ii]s a directory$|-'
+	'df03r|write-dir-shaped|set --write --set=a=2 %F%/|-|8|-|/: [Ii]s a directory$'
+	'df03s|write-dir-shaped-dot|set --write --set=a=2 %F%/.|-|8|-|/\.: [Ii]s a directory$'
 	## Literal text is read the way a file line is, so a # opens a comment
 	## there too and only what comes before it is written.
 	'dcegf|literal-hash|set --write --no-banner %C% --set-literal=color=red#ff0000|-|0|-|-|color: red\n'
@@ -2006,7 +2013,7 @@ for row in "${rows[@]}"; do
 		echo "cli-regress ${id}" >> "${SHCL_GATE_SKIPS:-/dev/null}"
 		fTestSkip; continue
 	fi
-	if [[ "${onWindows}" == 1 && ( "${stdinSpec}" == @full* || "${stdinSpec}" == @memcap || "${stdinSpec}" == @closedout || "${stdinSpec}" == @wronlyin || "${stdinSpec}" == @appear || "${stdinSpec}" == @change || "${stdinSpec}" == @fifo || "${argv}" == *%XF%* || "${argv}" == *"${tmpDir}/sp/zero"* || "${argv}" == *"${tmpDir}/sp/fifo"* || "${argv}" == *"${tmpDir}/sp/back"* ) ]]; then
+	if [[ "${onWindows}" == 1 && ( "${stdinSpec}" == @full* || "${stdinSpec}" == @memcap || "${stdinSpec}" == @closedout || "${stdinSpec}" == @wronlyin || "${stdinSpec}" == @appear || "${stdinSpec}" == @change || "${stdinSpec}" == @fifo || "${stdinSpec}" == @dir || "${argv}" == *%XF%* || "${argv}" == *"${tmpDir}/sp/zero"* || "${argv}" == *"${tmpDir}/sp/fifo"* || "${argv}" == *"${tmpDir}/sp/back"* ) ]]; then
 		echo "cli-regress: skipping ${id} (POSIX fixture; not judged on windows)"
 		fTestSkip; continue
 	fi
@@ -2080,8 +2087,9 @@ for row in "${rows[@]}"; do
 			## 2026100717500018. A write of more script comments than any pipe
 			## holds returns only once the command is reading them. @fifo: the
 			## file is there first and turns into a FIFO during the wait, which
-			## nothing writes to, and it goes before the next row.
-			@appear|@change|@fifo)
+			## nothing writes to, and it goes before the next row. @dir: the
+			## same with a folder.
+			@appear|@change|@fifo|@dir)
 				[[ "${stdinSpec}" != @appear ]] && printf 'a: 1\n' >"${tmpDir}/created.shcl"
 				rm -f "${tmpDir}/in.fifo"; mkfifo "${tmpDir}/in.fifo"
 				timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" <"${tmpDir}/in.fifo" &
@@ -2092,6 +2100,8 @@ for row in "${rows[@]}"; do
 					printf 'a: 1\nb: 2\n' >"${tmpDir}/created.shcl"
 				elif [[ "${stdinSpec}" == @fifo ]]; then
 					rm -f "${tmpDir}/created.shcl"; mkfifo "${tmpDir}/created.shcl"
+				elif [[ "${stdinSpec}" == @dir ]]; then
+					rm -f "${tmpDir}/created.shcl"; mkdir "${tmpDir}/created.shcl"
 				else
 					printf 'b: 2\n' >"${tmpDir}/created.shcl"
 				fi
@@ -2099,6 +2109,7 @@ for row in "${rows[@]}"; do
 				exec {fifoFd}>&-
 				wait "${appearPid}" || rc=$?
 				[[ "${stdinSpec}" == @fifo ]] && rm -f "${tmpDir}/created.shcl"
+				[[ "${stdinSpec}" == @dir ]] && { rmdir "${tmpDir}/created.shcl" || true; }
 				;;
 			*)          printf '%b' "${stdinSpec}" | timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" || rc=$? ;;
 		esac
@@ -3375,3 +3386,4 @@ echo "cli-regress: OK: ${#rows[@]} row(s) across ${#bindings[@]} binding(s), ${n
 ##		            the code texts, the man page and every row's output.
 ##		2026-11-01  --version is the version line, then the copyright line.
 ##		2026-11-01  version-then-copyright counts lines on BSD wc, which pads.
+##		2026-11-07  @dir, and set --write to a folder or a directory-shaped path.

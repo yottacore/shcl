@@ -10,7 +10,7 @@
 mod common;
 
 use common::test_id;
-use shcl::{Document, Strictness};
+use shcl::{Document, SaveOptions, Strictness};
 use std::path::{Path, PathBuf};
 
 #[global_allocator]
@@ -53,8 +53,19 @@ fn round(cases: &[Case], save_to: &str) {
 		}
 		let _ = doc.set_string("soak.name", "round");
 		let _ = doc.set_int("soak.count", 42);
-		let _ = doc.save_file(save_to);
-		let _ = doc.save_file_keep_lines(save_to);
+		// Each case's document never read what the last one saved there.
+		let force = SaveOptions {
+			force: true,
+			..SaveOptions::default()
+		};
+		let _ = doc.save_file_with(save_to, &force);
+		let _ = doc.save_file_with(
+			save_to,
+			&SaveOptions {
+				keep_lines: true,
+				..force
+			},
+		);
 		if let Some(layer) = &case.layer {
 			doc.merge(&Document::parse(layer));
 		}

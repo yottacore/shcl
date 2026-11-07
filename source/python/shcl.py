@@ -369,14 +369,15 @@ class SaveFailed(SaveError):
 
 
 class SaveChanged(SaveError):
-	"""The file the document was loaded from no longer holds what the load
-	read, or what this document's last save there wrote. Nothing was written;
+	"""What is at the path now is neither what the load read nor what this
+	document's last save wrote: another program's edit, a file gone since the
+	load, or a file this document never read. Nothing was written;
 	SaveOptions.force is the override."""
 	path: str | os.PathLike[str]
 
 	def __init__(self, path: str | os.PathLike[str]):
 		self.path = path
-		super().__init__(f"{path}: refusing to save: the file changed since it was loaded; nothing written (force overrides)")
+		super().__init__(f"{path}: refusing to save: what is there is not what this document read or wrote; nothing written (force overrides)")
 
 
 class SaveExists(SaveError):
@@ -422,48 +423,42 @@ class SaveOptions:
 		self.mode = mode
 
 
-class _LoadedFile:
-	"""The file a load read, for the save's changed check: where the path
-	resolved to, and its text, or None when nothing was there."""
-	__slots__ = ("target", "text")
+class _Seen:
+	"""What a save checks the bytes at its path against: what the load read,
+	and what this document's last save wrote. No path is kept, since a path
+	taken at the load names another file by the save once a folder or a link
+	on it changes, and every spelling of one file reads the same bytes."""
+	__slots__ = ("read", "saved")
 
-	def __init__(self, target: str, text: str | None) -> None:
-		self.target = target
-		self.text = text
-
-	@staticmethod
-	def at(path: str | os.PathLike[str], text: str | None) -> _LoadedFile | None:
-		# A path that resolves to no target, a link cycle, is a save's error
-		# already, so it gets no check.
-		try:
-			return _LoadedFile(_resolve_target(os.fspath(path)), text)
-		except (OSError, ValueError):
-			return None
-
-	def over(self, path: str | os.PathLike[str]) -> bool:
-		try:
-			return _resolve_target(os.fspath(path)) == self.target
-		except (OSError, ValueError):
-			return False
+	def __init__(self) -> None:
+		# None when the load found nothing there, or no load read a file.
+		self.read: str | None = None
+		self.saved: str | None = None
 
 	def holds(self, path: str | os.PathLike[str]) -> bool:
-		"""The file at path still holds the text, byte for byte, or is still
-		not there. Content only, so a touch alone is no change. Something that
-		isn't a regular file is left to the write, which refuses it. A file
-		that can't be read is a change, since the rename that replaces it needs
-		no read access."""
+		"""path, as given and read now, holds what the load read or the last
+		save wrote, or nothing, where the load read no file. Content only, so a
+		touch alone is no change. Something that isn't a regular file is left
+		to the write, which refuses it, and so is a path the write can't reach
+		a file through: part of it a file, a folder not there, or a link
+		cycle. A file that can't
+		be read is a change, since the rename that replaces it needs no read
+		access."""
 		try:
 			now = _read_regular(os.fspath(path))
 		except FileNotFoundError:
-			return self.text is None
-		except ValueError:
-			# A NUL in the path, which the write refuses the same way.
+			# A file gone with its folder is left to the write, which says the
+			# folder is missing.
+			return self.read is None or not os.path.isdir(os.path.dirname(os.fspath(path)) or ".")
+		except (NotADirectoryError, ValueError):
+			# ValueError is a NUL in the path, which the write refuses the
+			# same way.
 			return True
-		except OSError:
-			return False
+		except OSError as e:
+			return e.errno == errno.ELOOP
 		if now is None:
 			return True
-		return self.text is not None and self.text.encode("utf-8") == now
+		return any(t is not None and t.encode("utf-8") == now for t in (self.read, self.saved))
 
 
 def _read_regular(path: str) -> bytes | None:
@@ -2146,20 +2141,23 @@ def _shown(s, mark):
 	# `"` is itself, and a real escape mark is mark. The writer's own output is
 	# taken apart rather than a second list kept here, so a message can't drift
 	# from fmt.
+	# Walked by index, since a slice of the rest at each escape went with the
+	# square of their count (2026110613470306).
 	m = _ESCAPE_MARK
-	rest = _quote_with(s, '"')[1:-1]
+	text_in = _quote_with(s, '"')
+	stop = len(text_in) - 1
 	out = []
+	pos = 1
 	while True:
-		at = rest.find(m)
+		at = text_in.find(m, pos, stop)
 		if at < 0:
 			break
-		out.append(rest[:at])
-		after = rest[at + 1:]
+		out.append(text_in[pos:at])
 		# The writer closes every escape it opens.
-		end = after.find(m)
+		end = text_in.find(m, at + 1, stop)
 		if end < 0:
-			end = len(after)
-		name = after[:end]
+			end = stop
+		name = text_in[at + 1:end]
 		text = _ESCAPE_TEXT_OF.get(name)
 		if text == '"':
 			out.append('"')
@@ -2167,8 +2165,8 @@ def _shown(s, mark):
 			out.append(mark)
 		else:
 			out.append(f"{m}{name}{m}")
-		rest = after[end + 1:]
-	out.append(rest)
+		pos = end + 1
+	out.append(text_in[pos:stop])
 	return "".join(out)
 
 
@@ -2193,23 +2191,24 @@ def _resolve_marks(raw):
 	The marks pair up left to right, and the text between each pair must be a
 	name on the list or a code point. (None, message) for the first one that
 	is not (E023)."""
+	# Walked by index, since a slice of the rest at each escape went with the
+	# square of their count (2026110613470306).
 	m = _ESCAPE_MARK
 	out = []
-	rest = raw
-	at = rest.find(m)
+	pos = 0
+	at = raw.find(m)
 	while at >= 0:
-		out.append(rest[:at])
-		after = rest[at + 1:]
-		close = after.find(m)
+		out.append(raw[pos:at])
+		close = raw.find(m, at + 1)
 		if close < 0:
 			return None, f"a '{m}' with no partner; an escape is {m}NAME{m}, and a real {m} is {m}ESCAPE_CHAR{m}"
-		text, why = _escape_text(after[:close])
+		text, why = _escape_text(raw[at + 1:close])
 		if text is None:
 			return None, why
 		out.append(text)
-		rest = after[close + 1:]
-		at = rest.find(m)
-	out.append(rest)
+		pos = close + 1
+		at = raw.find(m, pos)
+	out.append(raw[pos:])
 	return "".join(out), None
 
 
@@ -2222,7 +2221,6 @@ def _escape_text(name):
 	list, either case, or a code point prefix and one to six hex digits.
 	(None, message) when it is neither."""
 	m = _ESCAPE_MARK
-	shown = _one_line_in(name, f"'{m}", f"{m}'")
 	if name and _ESCAPE_NAME_CHARS.issuperset(name):
 		upper = name.upper()
 		for n, text in _ESCAPE_NAMES:
@@ -2235,9 +2233,15 @@ def _escape_text(name):
 				continue
 			v = int(digits, 16)
 			if v > 0x10FFFF or 0xD800 <= v <= 0xDFFF:
-				return None, f"escape {shown} names no Unicode character"
+				return None, f"escape {_escape_name_shown(name)} names no Unicode character"
 			return chr(v), None
-	return None, f"unknown escape {shown}; an escape is a name from the escape list, and a real {m} is {m}ESCAPE_CHAR{m}"
+	return None, f"unknown escape {_escape_name_shown(name)}; an escape is a name from the escape list, and a real {m} is {m}ESCAPE_CHAR{m}"
+
+
+def _escape_name_shown(name):
+	# An escape name for an E023 message, built only for the error, since a
+	# good escape never reads it (2026110613470306).
+	return _one_line_in(name, f"'{_ESCAPE_MARK}", f"{_ESCAPE_MARK}'")
 
 
 _HEX_CHARS = frozenset("0123456789abcdefABCDEF")
@@ -3993,10 +3997,15 @@ class _Parser:
 		self.src: list[str] = []
 		self.array_lines: dict[int, tuple[int, int, bool, bool]] = {}
 		# parse_limited's caps, 0 = uncapped: nodes counted against the arena
-		# (root excluded), elements against a single value's cell, diagnostics
-		# against the list. Past the diagnostic cap nothing is listed, only
-		# counted (errors, hints), for the one tail entry the parse ends with.
+		# (root excluded) plus held, elements against a single value's cell,
+		# diagnostics against the list. Past the diagnostic cap nothing is
+		# listed, only counted (errors, hints), for the one tail entry the
+		# parse ends with.
 		self.max_nodes = 0
+		# Comment lines and kept lines taken so far. They cost about what a
+		# node does and build none, so a file of nothing else would pass the
+		# node cap untouched.
+		self.held = 0
 		self.max_elements = 0
 		self.max_diags = 0
 		self.unlisted_errors = 0
@@ -4349,6 +4358,7 @@ class _Parser:
 			# that files a retained line nowhere breaks that, and the save gate
 			# then refuses even a plain fmt --write, as it should.
 			self.kept_owed += 1
+			self.held += 1
 			p = _Pend(outcome.text, indent, outcome.blank_before, line)
 			# A line kept as written never hangs on a block: its indent is not
 			# one the output's levels are written with, so the block it would
@@ -4908,17 +4918,17 @@ class _Parser:
 			self._diag(hint)
 		i = 0
 		nlines = len(lines)
-		node_capped = False
 		tok = Tokens(self.max_elements)
 		locate = _locate_in  # a local, once per line
 		while i < nlines:
 			# Node cap: reported at the first line not parsed, so the count can
 			# overshoot by at most one line's path. The unparsed remainder
 			# counts as lost, which is what keeps save_file from writing a
-			# silently truncated document.
-			if self.max_nodes and len(self.arena) - 1 > self.max_nodes:
-				self._refuse(i + 1, "E020", f"node cap of {self.max_nodes} exceeded; parse stopped", _out_stopped(lines[i:]), "")
-				node_capped = True
+			# silently truncated document. With only blanks left nothing
+			# stopped, so nothing reports.
+			if self.max_nodes and len(self.arena) - 1 + self.held > self.max_nodes:
+				if any(_trim_wsp(rl) for rl in lines[i:]):
+					self._refuse(i + 1, "E020", f"node cap of {self.max_nodes} exceeded; parse stopped", _out_stopped(lines[i:]), "")
 				break
 			lineno = i + 1
 			line = _trim_wsp_end(lines[i])
@@ -4936,6 +4946,7 @@ class _Parser:
 			# It consumes a pending blank into its own flag, so a blank between
 			# comment-only regions survives the round-trip.
 			if rest.startswith("#"):
+				self.held += 1
 				self.pending.append(_Pend(rest, indent, self.saw_blank, lineno))
 				self.saw_blank = False
 				i += 1
@@ -5242,10 +5253,6 @@ class _Parser:
 				if tok.array is not None:
 					self.array_lines[node] = mark
 			i = nxt
-		# A cap crossed on the document's last line still reports, with nothing
-		# left to skip.
-		if not node_capped and self.max_nodes and len(self.arena) - 1 > self.max_nodes:
-			self._refuse(nlines, "E020", f"node cap of {self.max_nodes} exceeded; parse stopped", _out_stopped(()), "")
 		self._star_flush()
 		# Indented tail comments keep their block; only top-level ones orphan.
 		# Before the fold, which moves a dropped instance's comments over to
@@ -5461,22 +5468,63 @@ def _folded_kept(nd):
 	"""The kept lines a load's fold gave this node from a later instance of
 	it, with the comments before them: what _beside_kept() takes, from the
 	first line read after the node's own. Only a fold puts those there."""
-	heads = _heads_block(nd)
-	t = nd.trivia
-	if t is None:
+	span = _folded_span(nd)
+	if span is None:
 		return []
-	lead = t.leading
-	start = next((k for k, c in enumerate(lead) if c.line > nd.line), None)
-	if start is None:
-		return []
-	last = len(lead) - 1 if heads else len(lead)
-	end = next((k + 1 for k in range(last - 1, -1, -1) if lead[k].is_kept_line()), 0)
-	if end <= start:
-		return []
+	start, end = span
+	lead = nd.trivia.leading
 	left = lead[start:end]
 	del lead[start:end]
 	_restep(lead)
 	return left
+
+
+def _folded_span(nd):
+	"""Where _folded_kept() would take its lines from in the node's leading
+	list, or None when it would take nothing."""
+	t = nd.trivia
+	if t is None:
+		return None
+	lead = t.leading
+	start = next((k for k, c in enumerate(lead) if c.line > nd.line), None)
+	if start is None:
+		return None
+	last = len(lead) - 1 if _heads_block(nd) else len(lead)
+	end = next((k + 1 for k in range(last - 1, -1, -1) if lead[k].is_kept_line()), 0)
+	return (start, end) if end > start else None
+
+
+def _place_folded(arena, moves):
+	"""For each move of _refile_folded(), [parent, first child, line, the
+	line], the child the line goes above: the first at or past that one read
+	after the line, or past the last. One sweep per parent from its end,
+	keeping only the children no earlier one hides, so a fold far from its
+	later instance doesn't walk every sibling between them."""
+	order = sorted(range(len(moves)), key=lambda m: (moves[m][0], -moves[m][1]))
+	k = 0
+	while k < len(order):
+		p = moves[order[k]][0]
+		kids = arena[p].children
+		# Child places, their lines rising toward the bottom.
+		seen: list[int] = []
+		nxt = len(kids)
+		while k < len(order) and moves[order[k]][0] == p:
+			m = moves[order[k]]
+			while nxt > m[1]:
+				nxt -= 1
+				line = arena[kids[nxt]].line
+				while seen and arena[kids[seen[-1]]].line <= line:
+					seen.pop()
+				seen.append(nxt)
+			lo, hi = 0, len(seen)
+			while lo < hi:
+				mid = (lo + hi) // 2
+				if arena[kids[seen[mid]]].line > m[2]:
+					lo = mid + 1
+				else:
+					hi = mid
+			m[1] = seen[lo - 1] if lo else len(kids)
+			k += 1
 
 
 def _beside_kept(nd):
@@ -6640,9 +6688,10 @@ class Document:
 		# that keeps its lines. A merge drops it: the layer's lines are not
 		# this text's.
 		self._source: str | None = None
-		# The file a load read, which a save over it checks first. A merge
-		# keeps it, since the file under the merged document is still that one.
-		self._file: _LoadedFile | None = None
+		# What a save checks the bytes at its path against. A merge keeps it,
+		# since the file under the merged document is still the one the load
+		# read.
+		self._file = _Seen()
 		# The text named a newer format than this one (H006), so its lines may
 		# read differently there, and a save refuses. A merge takes a layer's.
 		self._newer = False
@@ -6676,9 +6725,11 @@ class Document:
 		"""Parse with resource caps beside the strictness, for input the
 		consumer does not control: a document amplifies to many times its byte
 		size in memory, so a size cap alone cannot bound what a load
-		allocates. max_nodes stops the parse once a line takes the node count
-		past it - one E020 error, and the unparsed remainder counts as lost so
-		a save cannot silently truncate. max_elements refuses any line whose
+		allocates. max_nodes stops the parse once a line takes the count past
+		it - one E020 error on the first line not parsed, and the unparsed
+		remainder counts as lost so a save cannot silently truncate. The count
+		is the nodes built plus the comment lines and kept lines held, since
+		each costs about what a node does. max_elements refuses any line whose
 		array would hold more elements (E021, that line alone is skipped).
 		max_diags bounds the diagnostics list itself - a document of nothing
 		but bad lines costs a diagnostic per line - by listing the first that
@@ -6727,14 +6778,13 @@ class Document:
 		text, st = read_file(path, 0)
 		if text is None:
 			doc = _Parser().parse("", strictness)
-			# A file that could not be read gives a save nothing to compare.
-			if st == FileStatus.NotFound:
-				doc._file = _LoadedFile.at(path, None)
+			# A file that could not be read gives a save nothing to compare,
+			# so its bytes are as unread as a parsed document's.
 			return doc, st
 		doc = _Parser().parse(text, strictness)
 		if keep:
 			doc._keep_source(text)
-		doc._file = _LoadedFile.at(path, text)
+		doc._file.read = text
 		if doc.error_count() > 0:
 			return doc, FileStatus.HadErrors
 		return doc, FileStatus.Clean
@@ -6776,20 +6826,21 @@ class Document:
 			text, kept = self.to_canonical(), False
 		if not opts.lossy and not kept and lost > 0:
 			raise SaveRefused(path, lost)
-		# The file the load read has to be as the load or this document's last
-		# save there left it. That's a check and not a lock: an edit between it
-		# and the rename is still lost.
+		# The is-a-directory rows of Save outcomes answer before the checks,
+		# which would read such a path as a change or as something there.
+		if _names_a_directory(os.fspath(path)):
+			raise SaveFailed(f"{os.fspath(path)}: is a directory", WriteStatus.IsDirectory)
 		# Before the changed check, so a create that loses to another program
 		# is told the file is there.
 		if opts.create and _something_at(path):
 			raise SaveExists(path)
-		f = self._file
-		over = f is not None and f.over(path)
-		if f is not None and over and not opts.force and not f.holds(path):
+		# The bytes at the path have to be ones this document has seen there,
+		# whatever file the path names now. That's a check and not a lock: an
+		# edit between it and the rename is still lost.
+		if not opts.force and not self._file.holds(path):
 			raise SaveChanged(path)
 		_save_text(path, text, opts.create, opts.mode)
-		if f is not None and over:
-			f.text = text
+		self._file.saved = text
 		return kept
 
 	def diagnostics(self) -> list[Diagnostic]:
@@ -8403,20 +8454,32 @@ class Document:
 		the later one where they were, as a setter's fold does: above the
 		next sibling read after them, or at the end of the block. `folded`
 		holds the nodes a fold or a re-mention gave lines to."""
+		# Every line that binds to a node already there is in `folded`, so a
+		# file that re-opens many blocks has many with nothing to move, and
+		# those may cost no more than this test.
+		folded = [c for c in sorted(set(folded)) if _folded_span(self.arena[c]) is not None]
+		if not folded:
+			return
+		# Each node's place among its siblings, for the parents of these.
+		at_of: dict[int, int] = {}
+		indexed: set[int] = set()
 		# Parent, the child they go above (past the last, the block's end),
 		# line, the line. All first, since 2 folds can fill one place.
-		moves: list[tuple[int, int, int, _Lead]] = []
-		for c in sorted(set(folded)):
+		moves: list[list] = []
+		for c in folded:
 			p = self.arena[c].parent
-			kids = self.arena[p].children
-			if c not in kids:
+			if p not in indexed:
+				indexed.add(p)
+				at_of.update((kid, k) for k, kid in enumerate(self.arena[p].children))
+			if c not in at_of:
 				continue
-			j, line = kids.index(c) + 1, 0
+			line = 0
 			for x in _folded_kept(self.arena[c]):
 				line = max(line, x.line)
-				while j < len(kids) and self.arena[kids[j]].line <= line:
-					j += 1
-				moves.append((p, j, line, x))
+				moves.append([p, at_of[c] + 1, line, x])
+		if not moves:
+			return
+		_place_folded(self.arena, moves)
 		# Stable, so the lines of one fold keep their order.
 		moves.sort(key=lambda m: m[:3])
 		for (p, j), run in itertools.groupby(moves, key=lambda m: m[:2]):
@@ -8430,8 +8493,7 @@ class Document:
 			_settle_block(self.arena, p, 1)
 		# The first node can have lost the lines above it, and with them the
 		# room for a blank a re-mention left it.
-		if moves:
-			_settle_first_blank(self.arena, self.orphans)
+		_settle_first_blank(self.arena, self.orphans)
 
 	def _leave_above(self, node: int, left: list[_Lead]) -> None:
 		"""Lines a remove left, put above the sibling that followed them."""
@@ -10069,10 +10131,8 @@ def _link_at(path) -> bool:
 
 
 def _something_at(path) -> bool:
-	if _link_at(path):
-		return True
 	try:
-		return os.path.lexists(_resolve_target(os.fspath(path)))
+		return _link_at(path) or os.path.lexists(path)
 	except (OSError, ValueError):
 		return False
 
@@ -10978,40 +11038,7 @@ def _resolve_target(file):
 			p = os.path.join(os.path.dirname(p) or ".", nxt)
 	if os.path.islink(p):
 		raise OSError("too many levels of symbolic links")
-	return _real_nearest(p)
-
-
-def _real_nearest(p):
-	"""P, with nothing at it, made absolute through the real path of the
-	nearest folder above it that is there, the rest as written. So one file
-	has one spelling whether it's there or not, and however the path names it:
-	bare, `./`, absolute, through a link, or relative to another working
-	folder. realpath alone would cancel `nodir/..` as text where the kernel
-	refuses the missing folder, and the save would create the file."""
-	at = p
-	while True:
-		d = os.path.dirname(at)
-		if os.path.exists(d or "."):
-			# at is p up to some separator, so its last part starts the rest.
-			# On windows with the separator realpath gives a file that's there.
-			rest = p[len(at) - len(os.path.basename(at)):]
-			if os.altsep:
-				rest = rest.replace(os.altsep, os.sep)
-			if os.name != "nt":
-				rest = _tidy_rest(rest)
-			return os.path.join(os.path.realpath(d or "."), rest)
-		if not d or d == at:
-			return p
-		at = d
-
-
-def _tidy_rest(rest):
-	"""The rest of a path under a missing folder, less its `.` and empty
-	parts. Neither changes what the kernel reaches, and a file that's there
-	resolves with neither, so a load of `new/./n.shcl` and a save to
-	`new/n.shcl` name one file. `..` stays, since the kernel refuses it through
-	a missing folder. Windows is left as it was (2026110314240418)."""
-	return "/".join(n for n in rest.split("/") if n not in ("", "."))
+	return p
 
 
 def _set_read_only(path, on):

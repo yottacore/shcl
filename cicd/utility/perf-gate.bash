@@ -13,9 +13,9 @@
 ##		unknown field, must stay small beside reading a well-formed document
 ##		of the same size. A per-op index rebuild, a scan of every sibling, a
 ##		rewalk of the retained lines, or a full edit-distance table per name
-##		pair breaks that ratio by more than an order of magnitude. One
-##		workload, fills, is timed against a spread-out twin of itself
-##		instead, since its per-op cost is too far from a parsed line's.
+##		pair breaks that ratio by more than an order of magnitude. Two
+##		workloads, fills and reopens, are timed against a twin of themselves
+##		instead, since their per-line cost is too far from a parsed line's.
 ##	Syntax:
 ##		perf-gate.bash [--keys N] [--factor F] NAME|CLI [NAME|CLI ...]
 ##		  --keys N    flat keys in the generated document (default 40000)
@@ -183,6 +183,19 @@ awk -v n="${keys}" 'BEGIN{ for (i = 0; i < n; i++) printf "int-default\tk%d\t0\n
 awk -v n="${keys}" 'BEGIN{ for (i = 0; i < n; i++) printf "g%d:\n\tk: x\n", i }' > "${apartDoc}"
 awk -v n="${keys}" 'BEGIN{ for (i = 0; i < n; i++) printf "int-default\tg%d.k\t0\n", i }' > "${tmpDir}/apart.ops"
 
+## Every block re-opened after a kept line, against the same file with new
+## values in the second half, so nothing re-opens. The load looked for each
+## re-opened node in its parent's list and walked the siblings between it and
+## the kept line, so the time went with the square of the blocks
+## (2026110613470305). A fold and its hint cost more than a parsed line, so this
+## one is judged against the twin. Linear code runs at about the twin's time in
+## every binding, and the old walk at 4 to 6 times it.
+reopenDoc="${tmpDir}/reopen.shcl"; reopenTwin="${tmpDir}/reopen-twin.shcl"
+awk -v n="${keys}" 'BEGIN{ for (i = 0; i < n; i++) printf "srv: v%d\n\ta: 1\n", i
+	for (i = 0; i < n; i++) printf "q%d: [1\nsrv: v%d\n\tb: 1\n", i, i }' > "${reopenDoc}"
+awk -v n="${keys}" 'BEGIN{ for (i = 0; i < n; i++) printf "srv: v%d\n\ta: 1\n", i
+	for (i = 0; i < n; i++) printf "q%d: [1\nsrv: w%d\n\tb: 1\n", i, i }' > "${reopenTwin}"
+
 ##	A run that never comes back is a failure, not a wait. Without this a binding
 ##	that stopped terminating hung the gate until whatever was running it gave up,
 ##	and on hosted CI that is the job's own timeout with no workload named. The cap
@@ -238,7 +251,7 @@ fTimeMs(){
 				fRun "${cli}" check --schema "${unkSchema}" "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
 			elif [[ "${mode}" == merge ]]; then
 				fRun "${cli}" fmt --layer "${mergeBase}" "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
-			elif [[ "${mode}" == raws ]]; then
+			elif [[ "${mode}" == raws || "${mode}" == reopens ]]; then
 				fRun "${cli}" fmt "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
 			elif [[ "${mode}" == removes ]]; then
 				fRun "${cli}" set "${input}" < "${tmpDir}/removes.ops" > "${tmpDir}/out" 2>/dev/null || rc=$?
@@ -298,16 +311,18 @@ fWorkMs(){
 		removes)   fTimeMs "${cli}" "${rmDoc}" removes 6 ;;
 		raws)      fTimeMs "${cli}" "${rawDoc}" raws "$((keys * 2))" ;;
 		fills)     fTimeMs "${cli}" "${fillDoc}" fills "$((keys * 2))" ;;
+		reopens)   fTimeMs "${cli}" "${reopenDoc}" reopens "$((keys * 4))" ;;
 		*)         fTimeMs "${cli}" "${tmpDir}/${w}.ops" set "${keys}" ;;
 	esac
 }
 
 ## What workload $2 is judged against: the parse-only run, or for fills a
-## spread-out twin of itself. Each default leaves a note line above its field,
+## spread-out twin of itself, and for reopens the same blocks under new values. Each default leaves a note line above its field,
 ## and the spread-out one a parent line too. Linear code runs at about three
 ## quarters of the twin, and the old scan at 1.4 to 4 times, in every binding.
 fBaseMs(){
 	if [[ "$2" == fills ]]; then fTimeMs "$1" "${apartDoc}" apart "$((keys * 3))"
+	elif [[ "$2" == reopens ]]; then fTimeMs "$1" "${reopenTwin}" reopens "$((keys * 5))"
 	else fTimeMs "$1" "${tmpDir}/base.ops" set "${keys}"; fi
 }
 fBudget(){
@@ -348,6 +363,7 @@ fJudge(){
 		judgeBudget="$(fBudget "${w}" "${base}")"
 	fi
 	if [[ "${w}" == fills ]]; then judgeAgainst="the same defaults one per parent"
+	elif [[ "${w}" == reopens ]]; then judgeAgainst="the same blocks under new values"
 	else judgeAgainst="parse-only baseline ${base} ms"; fi
 	((judgeMs <= judgeBudget)) || return 1
 }
@@ -481,6 +497,7 @@ workloads=(
 	'dcwn7|removes'
 	'dd5h7|raws'
 	'de18z|fills'
+	'df014|reopens'
 )
 for row in "${workloads[@]}"; do
 	IFS='|' read -r tid w <<<"${row}"
@@ -491,7 +508,7 @@ for row in "${workloads[@]}"; do
 		[[ -n "${baseOf[${name}]:-}" ]] || continue
 		ran=$((ran + 1))
 		base="${baseOf[${name}]}"
-		[[ "${w}" == fills ]] && base=-1
+		[[ "${w}" == fills || "${w}" == reopens ]] && base=-1
 		jrc=0; fJudge "${name}" "${cli}" "${w}" "${base}" || jrc=$?
 		if ((jrc == 2)); then
 			nBad+=1
@@ -591,3 +608,5 @@ echo "perf-gate: OK: ${keys} keys, ${#bindings[@]} binding(s) within ${factor}x 
 ##		2026-10-31  A .exe on Windows is timed through cpu-time.ps1, for 2026103016433965.
 ##		2026-11-01  A workload over budget is timed again with its baseline,
 ##		            since a spike on the other hyperthread moves CPU time too.
+##		2026-11-07  reopens workload: every block re-opened after a kept line,
+##		            which looked for each one in its parent's list.

@@ -600,6 +600,117 @@ int main(void) {
 		shcl_free(d); free(txt);
 	}
 
+	// A file of comment lines and kept lines builds no node, so the node cap
+	// never fired and each line was held: 100 times the file at 4 MB. Set
+	// against the same number of field lines, which stop at the cap and cost
+	// only the per-line split.
+	test_id("df009", "mem_bounds_comment_and_kept_lines");
+	{
+		size_t nl = 200000, ncap = 1000, hl = 0, fl = 0;
+		char *ht = (char *)malloc(nl * 17 + 1), *ft = (char *)malloc(nl * 12 + 1);
+		if (!ht || !ft) { fail("out of memory"); return test_id_end(1); }
+		for (size_t i = 0; i < nl; i++) {
+			const char *one = i % 2 == 0 ? "# a comment line\n" : "kept line\n";
+			size_t n = strlen(one);
+			memcpy(ht + hl, one, n); hl += n;
+			fl += (size_t)sprintf(ft + fl, "k%zu: 1\n", i);
+		}
+		before = allocated;
+		d = shcl_parse_limited(ft, fl, SHCL_STANDARD, ncap, 0, 0);
+		size_t base = allocated - before;
+		shcl_free(d);
+		before = allocated;
+		d = shcl_parse_limited(ht, hl, SHCL_STANDARD, ncap, 0, 0);
+		size_t hcost = allocated - before;
+		size_t ncap020 = 0, at = 0;
+		for (size_t k = 0; d && k < shcl_diag_count(d); k++)
+			if (strcmp(shcl_diag_code(d, k), "E020") == 0) { ncap020++; at = shcl_diag_line(d, k); }
+		printf("mem_bounds: comment and kept lines: capped %zu, as many field lines %zu\n", hcost, base);
+		if (hcost >= base * 2) fail("a capped parse held its comment and kept lines");
+		if (!d || ncap020 != 1 || at != ncap + 2 || shcl_lost_count(d) != nl - ncap - 1) fail("held lines: E020 not on the first line not parsed");
+		shcl_free(d); free(ht); free(ft);
+	}
+
+	/* A load that re-opens every block after a kept line looked for each
+	   re-opened node in its parent's list, and walked the siblings between it
+	   and the kept line, so the time went with the square of the blocks
+	   (2026110613470305). Here the re-open hint's own lookup was a scan too.
+	   Eight times the blocks has to take under 24 times the time, 3 times the
+	   linear growth, where the old walk took 40 times and more. Best of 3
+	   each, against noise on the small side. Same fixture in every runner. */
+	test_id("df013", "reopened_blocks_load_in_linear_time");
+	{
+		double t[2];
+		size_t sizes[2] = {6000, 48000}, cap = 48000 * 96 + 1;
+		char *rtext = (char *)malloc(cap), rtail[32];
+		if (!rtext) { fail("re-opened fixture: no memory"); return test_id_end(1); }
+		for (int side = 0; side < 2; side++) {
+			size_t n = sizes[side], len = 0;
+			// codeql[cpp/overflowing-snprintf] cap is 96 bytes a block, about twice what one takes
+			for (size_t i = 0; i < n; i++) len += (size_t)snprintf(rtext + len, cap - len, "srv: v%zu\n\ta: 1\n", i);
+			for (size_t i = 0; i < n; i++) len += (size_t)snprintf(rtext + len, cap - len, "q%zu: [1\nsrv: v%zu\n\tb: 1\n", i, i);
+			int rtn = snprintf(rtail, sizeof rtail, "\nq%zu: [1\n", n - 1);
+			t[side] = 1e300;
+			for (int r = 0; r < 3; r++) {
+				double c0 = wall_ms();
+				shcl_doc *rd = shcl_parse(rtext, len);
+				double ms = wall_ms() - c0;
+				if (ms < t[side]) t[side] = ms;
+				shcl_str canon = shcl_to_canonical(rd);
+				if (canon.n < (size_t)rtn || memcmp(canon.p + canon.n - (size_t)rtn, rtail, (size_t)rtn) != 0) fail("re-opened fixture: the kept lines did not go to the end of the file");
+				shcl_free(rd);
+			}
+		}
+		free(rtext);
+		printf("mem_bounds: re-opened blocks: %.1f ms for 6000, %.1f ms for 48000\n", t[0], t[1]);
+#ifdef SHCL_UNDER_ASAN
+		printf("mem_bounds: re-opened blocks ratio not judged under a sanitizer\n");
+#else
+		if (t[1] > (t[0] > 1.0 ? t[0] : 1.0) * 24) fail("the load's refile is not linear");
+#endif
+	}
+
+	/* Decoding a value's escapes cut the rest of the text off at each one in
+	   Python, so the time went with the square of their count
+	   (2026110613470306). Eight times the escapes has to take under 24 times
+	   the time, 3 times the linear growth. Best of 3 each. Same fixture in
+	   every runner. */
+	test_id("df02b", "escapes_decode_in_linear_time");
+	{
+		static const char esc[] = "\xe2\x97\x89TAB\xe2\x97\x89";
+		const size_t el = sizeof esc - 1;
+		double t[2];
+		size_t sizes[2] = {10000, 80000}, cap = 80000 * el + 8;
+		char *etext = (char *)malloc(cap);
+		if (!etext) { fail("escape fixture: no memory"); return test_id_end(1); }
+		for (int side = 0; side < 2; side++) {
+			size_t n = sizes[side], len = 0;
+			memcpy(etext, "a: \"", 4); len = 4;
+			for (size_t i = 0; i < n; i++) { memcpy(etext + len, esc, el); len += el; }
+			memcpy(etext + len, "\"\n", 2); len += 2;
+			t[side] = 1e300;
+			for (int r = 0; r < 3; r++) {
+				double c0 = wall_ms();
+				shcl_doc *ed = shcl_parse(etext, len);
+				shcl_read_str egot = shcl_read_string(ed, "a", 1);
+				double ms = wall_ms() - c0;
+				if (ms < t[side]) t[side] = ms;
+				int ok = egot.status == SHCL_GOOD && egot.value.n == n;
+				for (size_t i = 0; ok && i < n; i++) ok = egot.value.p[i] == '\t';
+				shcl_str canon = shcl_to_canonical(ed);
+				if (!ok || canon.n != len || memcmp(canon.p, etext, len) != 0) fail("escape fixture: wrong result");
+				shcl_free(ed);
+			}
+		}
+		free(etext);
+		printf("mem_bounds: escapes: %.1f ms for 10000, %.1f ms for 80000\n", t[0], t[1]);
+#ifdef SHCL_UNDER_ASAN
+		printf("mem_bounds: escapes ratio not judged under a sanitizer\n");
+#else
+		if (t[1] > (t[0] > 1.0 ? t[0] : 1.0) * 24) fail("escape decoding is not linear");
+#endif
+	}
+
 	int last_failed = failures > open_base;
 	if (!failures) printf("mem_bounds: OK\n");
 	test_id_end(last_failed);

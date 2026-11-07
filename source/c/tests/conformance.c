@@ -2277,19 +2277,20 @@ int main(int argc, char **argv) {
 		if (shcl_get_int_or(ld, "a", 1, 0) != 1) fail("parse_limited", "parsed part unreadable");
 		if (shcl_exists(ld, "d", 1)) fail("parse_limited", "the remainder must not parse");
 		shcl_free(ld);
-		// A cap crossed by the document's last content line still reports.
+		// A cap crossed by the document's last content line stops nothing, so
+		// nothing reports (2026110613470304; it reported one E020 before).
 		ld = shcl_parse_limited("a: 1\nb: 2\nc: 3", 15, SHCL_STANDARD, 2, 0, 0);
 		ncap = 0;
 		for (size_t k = 0; k < shcl_diag_count(ld); k++)
 			if (strcmp(shcl_diag_code(ld, k), "E020") == 0) ncap++;
-		if (ncap != 1 || shcl_lost_count(ld) != 0) fail("parse_limited", "last-line cross must report, nothing lost");
+		if (ncap != 0 || shcl_lost_count(ld) != 0) fail("parse_limited", "last-line cross stops nothing");
 		shcl_free(ld);
-		// One line may overshoot the cap by its own path; the parse still stops.
+		// One line may overshoot the cap by its own path.
 		ld = shcl_parse_limited("x.y.z: 1\n", 9, SHCL_STANDARD, 1, 0, 0);
 		ncap = 0;
 		for (size_t k = 0; k < shcl_diag_count(ld); k++)
 			if (strcmp(shcl_diag_code(ld, k), "E020") == 0) ncap++;
-		if (ncap != 1) fail("parse_limited", "deep line must report E020");
+		if (ncap != 0) fail("parse_limited", "deep last line stops nothing");
 		if (shcl_get_int_or(ld, "x.y.z", 5, 0) != 1) fail("parse_limited", "overshot line must stay in the document");
 		shcl_free(ld);
 		// 0 is no cap: identical to shcl_parse_with.
@@ -2425,6 +2426,53 @@ int main(int argc, char **argv) {
 		if (!shcl_strict_failed(ld)) fail("parse_limited", "capped strict load must fail");
 		if (shcl_get_int_or(ld, "a", 1, 0) != 1) fail("parse_limited", "failed strict doc unusable");
 		shcl_free(ld);
+	}
+	// Comment lines and kept lines build no node but cost about what one does,
+	// so the node cap counts them, and a file of nothing else stops at the
+	// cap. E020 goes on the first line not parsed, and a cap crossed with only
+	// blanks left stops nothing. Same fixture in every runner.
+	test_id("df006", "the_node_cap_counts_comment_and_kept_lines");
+	{
+		// The first E020's line, or 0 for none, and how many there were.
+		#define E020_AT(doc, nout, atout) do { (nout) = 0; (atout) = 0; \
+			for (size_t k_ = 0; k_ < shcl_diag_count(doc); k_++) \
+				if (strcmp(shcl_diag_code(doc, k_), "E020") == 0) { (nout)++; (atout) = shcl_diag_line(doc, k_); } } while (0)
+		size_t n = 0, at = 0;
+		// The cap is 3, so the fourth line taken is the one past it, and the
+		// parse stops before the fifth.
+		const char *ones[] = {"# c\n", "a b\n", "# c\na b\n"};
+		for (size_t c = 0; c < 3; c++) {
+			size_t ol = strlen(ones[c]), tl = ol * 1000, lines = (ol / 4) * 1000;
+			char *ct = (char *)malloc(tl);
+			if (!ct) { fail("held lines", "out of memory"); break; }
+			for (size_t r = 0; r < 1000; r++) memcpy(ct + r * ol, ones[c], ol);
+			shcl_doc *hd = shcl_parse_limited(ct, tl, SHCL_STANDARD, 3, 0, 100);
+			E020_AT(hd, n, at);
+			if (n != 1 || at != 5) fail(ones[c], "held lines: want one E020 at line 5");
+			if (shcl_lost_count(hd) != lines - 4) fail(ones[c], "held lines: wrong lost count");
+			shcl_free(hd); free(ct);
+		}
+		// Nodes and held lines share the one count.
+		const char *mt = "# c\na: 1\nb b\nc: 3\nd: 4\n";
+		shcl_doc *hd = shcl_parse_limited(mt, strlen(mt), SHCL_STANDARD, 3, 0, 0);
+		E020_AT(hd, n, at);
+		if (n != 1 || at != 5 || shcl_get_int_or(hd, "c", 1, 0) != 3) fail("held lines", "nodes and held lines share the count");
+		shcl_free(hd);
+		// The comment that crosses it on the last line loads, and Strict takes it.
+		mt = "a: 1\n# b\n# c\n\n\n";
+		hd = shcl_parse_limited(mt, strlen(mt), SHCL_STANDARD, 2, 0, 0);
+		if (shcl_diag_count(hd) != 0) fail("held lines", "last-line comment must report nothing");
+		shcl_free(hd);
+		hd = shcl_parse_limited(mt, strlen(mt), SHCL_STRICT, 2, 0, 0);
+		if (shcl_strict_failed(hd)) fail("held lines", "last-line comment must load under Strict");
+		shcl_free(hd);
+		// The overshoot line stays, and the next one is the first not parsed.
+		mt = "x.y.z: 1\nw: 2\n";
+		hd = shcl_parse_limited(mt, strlen(mt), SHCL_STANDARD, 1, 0, 0);
+		E020_AT(hd, n, at);
+		if (n != 1 || at != 2 || shcl_get_int_or(hd, "x.y.z", 5, 0) != 1 || shcl_lost_count(hd) != 1) fail("held lines", "overshoot: E020 on the next line");
+		shcl_free(hd);
+		#undef E020_AT
 	}
 	test_id("ddkpc", "a_cap_wins_over_a_broken_value");
 	{
@@ -2713,12 +2761,16 @@ int main(int argc, char **argv) {
 		const char *lt2 = "a:\n\t\tb: 1\n\tc: 2\n";
 		shcl_doc *lo = shcl_parse(lt2, strlen(lt2));
 		if (shcl_lost_count(lo) != 1) fail("lost", "lost_count not 1");
+		/* A parse never read the file an earlier fixture left there. */
+		remove(tfile);
 		if (shcl_save_file(kd, tfile, NULL) != SHCL_SAVE_OK) fail("lost", "kept save failed");
 		shcl_doc *kb = shcl_load_file(tfile, &fst);
 		shcl_str kbc = shcl_to_canonical(kb);
 		if (!contains(kbc.p, kbc.n, "square-miles 300\n")) fail("lost", "retained line lost through save");
 		shcl_free(kb);
 		if (shcl_save_file(lo, tfile, NULL) != SHCL_SAVE_REFUSED) fail("lost", "save did not refuse a lossy save");
+		// lo never read what kd wrote there.
+		remove(tfile);
 		if (shcl_save_file_lossy(lo, tfile, NULL) != SHCL_SAVE_OK) fail("lost", "lossy save failed");
 		// A refusal and a failed write are separate values, not two spellings of
 		// one message, and the gate answers before any i/o - so an unwritable path
@@ -2733,6 +2785,7 @@ int main(int argc, char **argv) {
 		shcl_doc *kl = shcl_parse_keep_lines(lt2, strlen(lt2), SHCL_STANDARD);
 		if (shcl_set_int(kl, "a.b", 3, 5) != SHCL_SET_OK) fail("lost", "keep set failed");
 		int klk = 0;
+		remove(tfile);
 		if (shcl_save_file_keep_lines(kl, tfile, &klk, NULL) != SHCL_SAVE_OK || !klk) fail("lost", "keep save did not keep a dropped line");
 		size_t kll = 0; shcl_file_status kls;
 		char *klt = shcl_read_file(tfile, 0, &kll, &kls);
@@ -3200,8 +3253,11 @@ int main(int argc, char **argv) {
 		FILE *rf = fopen(rfile, "wb");
 		if (!rf || fputs("a: 1\n", rf) == EOF || fclose(rf) != 0) fail("readonly", "seed write failed");
 		if (!SetFileAttributesA(rfile, GetFileAttributesA(rfile) | FILE_ATTRIBUTE_READONLY)) fail("readonly", "set read-only failed");
+		/* A parse never read the file there, so these saves force. */
+		shcl_save_options rforce = {0};
+		rforce.force = 1;
 		shcl_doc *rd = shcl_parse("a: 2\n", 5);
-		if (shcl_save_file(rd, rfile, NULL) != SHCL_SAVE_OK) fail("readonly", "save over a read-only file failed");
+		if (shcl_save_file_with(rd, rfile, rforce, NULL, NULL) != SHCL_SAVE_OK) fail("readonly", "save over a read-only file failed");
 		size_t rn; char *rt = read_file(rfile, &rn);
 		if (!rt || rn != 5 || memcmp(rt, "a: 2\n", 5) != 0) fail("readonly", "file not rewritten");
 		free(rt);
@@ -3211,7 +3267,7 @@ int main(int argc, char **argv) {
 		// hidden config used to come back visible.
 		SetFileAttributesA(rfile, (GetFileAttributesA(rfile) & ~(DWORD)FILE_ATTRIBUTE_READONLY) | FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM);
 		shcl_doc *hd = shcl_parse("a: 3\n", 5);
-		if (shcl_save_file(hd, rfile, NULL) != SHCL_SAVE_OK) fail("attrs", "save over a hidden file failed");
+		if (shcl_save_file_with(hd, rfile, rforce, NULL, NULL) != SHCL_SAVE_OK) fail("attrs", "save over a hidden file failed");
 		DWORD after = GetFileAttributesA(rfile);
 		if (!(after & FILE_ATTRIBUTE_HIDDEN)) fail("attrs", "file did not come back hidden");
 		if (!(after & FILE_ATTRIBUTE_SYSTEM)) fail("attrs", "file did not come back system");
@@ -4234,12 +4290,33 @@ int main(int argc, char **argv) {
 		// codeql[cpp/world-writable-file-creation] a test's scratch file, made the way fopen makes any file
 		FILE *df = fopen(dfile, "wb");
 		if (!df || fputs("a: 1\n", df) == EOF || fclose(df) != 0) fail("dirpath", "seed write failed");
-		shcl_doc *dd = shcl_parse("a: 2\n", 5);
+		shcl_doc *dd = shcl_load_file(dfile, NULL);
+		(void)shcl_set_int(dd, "a", 1, 2);
+		/* Is a directory, before the changed and create checks, which read
+		   such a path as a change or as a file there (2026110613470308). */
 		static const char *sfx[] = { "/", "/.", "/.." };
+		shcl_save_options dcreate = {0};
+		dcreate.create = 1;
 		for (size_t si = 0; si < sizeof sfx / sizeof sfx[0]; si++) {
 			snprintf(dpath, sizeof dpath, "%s%s", dfile, sfx[si]);
-			if (shcl_save_file(dd, dpath, NULL) == SHCL_SAVE_OK) fail("dirpath", "a directory-shaped path was accepted");
+			shcl_write_status dwhy = SHCL_WRITE_OK;
+			if (shcl_save_file(dd, dpath, &dwhy) != SHCL_SAVE_FAILED || dwhy != SHCL_WRITE_IS_DIRECTORY) fail("dirpath", "a directory-shaped path was not a directory");
+			dwhy = SHCL_WRITE_OK;
+			if (shcl_save_file_with(dd, dpath, dcreate, NULL, &dwhy) != SHCL_SAVE_FAILED || dwhy != SHCL_WRITE_IS_DIRECTORY) fail("dirpath", "a create through a directory-shaped path was not a directory");
 		}
+		/* A folder at the path, made after the load. */
+		char gfile[336];
+		snprintf(gfile, sizeof gfile, "%s/g.shcl", ddir);
+		shcl_doc *gd = shcl_load_file(gfile, NULL);
+#ifdef _WIN32
+		if (_mkdir(gfile) != 0) fail("dirpath", "mkdir g failed");
+#else
+		if (mkdir(gfile, 0700) != 0) fail("dirpath", "mkdir g failed");
+#endif
+		shcl_write_status gwhy = SHCL_WRITE_OK;
+		if (shcl_save_file(gd, gfile, &gwhy) != SHCL_SAVE_FAILED || gwhy != SHCL_WRITE_IS_DIRECTORY) fail("dirpath", "a save over a folder was not a directory");
+		shcl_free(gd);
+		rmdir(gfile);
 		size_t dn; char *dt = read_file(dfile, &dn);
 		if (!dt || dn != 5 || memcmp(dt, "a: 1\n", 5) != 0) fail("dirpath", "a refused save changed the file");
 		free(dt);
@@ -6258,7 +6335,11 @@ int main(int argc, char **argv) {
 		}
 		if (!made) { test_skip(); printf("conformance: winlink skipped (no symlink)\n"); }
 		else {
-			shcl_doc *sd = shcl_parse("a: 2\n", 5);
+			/* Loaded through the link, since a save over bytes the document
+			   never read is refused (2026110613470307). */
+			shcl_file_status lst;
+			shcl_doc *sd = shcl_load_file(link, &lst);
+			if (!sd || lst != SHCL_FILE_CLEAN || shcl_set_int(sd, "a", 1, 2) != SHCL_SET_OK) fail("winlink", "load through the link failed");
 			if (shcl_save_file(sd, link, NULL) != SHCL_SAVE_OK) fail("winlink", "save through the link failed");
 			shcl_free(sd);
 			size_t rn; char *rt = read_file(real, &rn);
@@ -6897,9 +6978,9 @@ int main(int argc, char **argv) {
 	test_id("dekkm", "a_save_over_a_file_changed_since_the_load_is_refused");
 	{
 		/* A save over the file a load read refuses when another program changed
-		   it since, writes nothing, and writes with force. A save elsewhere, and
-		   a document from a parse, save as they always did (2026102910482342).
-		   Same fixture in every runner. */
+		   it since, writes nothing, and writes with force. A save over a file
+		   the document never read, a parse's included, is refused the same way
+		   (2026102910482342, 2026110613470307). Same fixture in every runner. */
 		const char *at = "changed";
 		char cdir[256], f[320], n[320], other[320];
 		up_dir(cdir, sizeof cdir, "changed");
@@ -7024,29 +7105,40 @@ int main(int argc, char **argv) {
 		}
 #endif
 
-		/* Elsewhere is not checked, and the load's file still is. */
+		/* A file the document never read is checked too: a save-as over it is
+		   refused, and force writes it. The load's file still is. */
 		put_file(other, "z: 0\n");
-		if (shcl_save_file(gone, other, NULL) != SHCL_SAVE_OK) fail(at, "save elsewhere");
+		if (shcl_save_file(gone, other, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over a file never read");
+		if (!file_is(other, "z: 0\n")) fail(at, "a refused save over a file never read wrote");
+		if (shcl_save_file_with(gone, other, force, NULL, NULL) != SHCL_SAVE_OK) fail(at, "forced save over a file never read");
+		if (shcl_save_file(gone, other, NULL) != SHCL_SAVE_OK) fail(at, "save over what it wrote");
 		if (shcl_save_file(gone, f, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over the load's file after one elsewhere");
 		/* compact keeps the record. */
 		shcl_compact(gone);
 		if (shcl_save_file(gone, f, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over the load's file after a compact");
 		shcl_free(gone);
-		/* A parse has no file behind it. */
+		/* A parse read no file, so it writes only where nothing is, or over
+		   what it wrote itself. */
 		shcl_doc *parsed = shcl_parse("a: 5\n", 5);
-		if (shcl_save_file(parsed, other, NULL) != SHCL_SAVE_OK) fail(at, "save of a parse");
+		if (shcl_save_file(parsed, other, NULL) != SHCL_SAVE_CHANGED) fail(at, "save of a parse");
+		if (shcl_save_file_with(parsed, other, force, NULL, NULL) != SHCL_SAVE_OK) fail(at, "forced save of a parse");
 		if (!file_is(other, "a: 5\n")) fail(at, "save of a parse text");
+		if (shcl_save_file(parsed, f, NULL) != SHCL_SAVE_OK) fail(at, "save of a parse where nothing is");
+		if (shcl_save_file(parsed, f, NULL) != SHCL_SAVE_OK) fail(at, "save of a parse over what it wrote");
+		if (!file_is(f, "a: 5\n")) fail(at, "save of a parse where nothing is text");
 		shcl_free(parsed);
 		dir_clear(cdir);
 	}
 	test_id("detpr", "a_changed_check_knows_its_file_by_any_spelling");
 	{
 		/* One file gives one answer however its path is spelled: bare, `./`,
-		   absolute, through a link, in a folder made after the load, or from
-		   another working folder. A FIFO swapped in gets the write's own
-		   refusal rather than a wait, and a file the check can't read is a
-		   change (2026110312163201, 2026110312163202). Same fixture in every
-		   runner. */
+		   absolute, through a link, in a folder made after the load, through
+		   `..` under a folder made after it, or by another hard link. The check
+		   reads the bytes at the save path, so a file the document never read,
+		   such as the same name from another working folder, is refused too. A
+		   FIFO swapped in gets the write's own refusal rather than a wait, and a
+		   file the check can't read is a change (2026110312163201,
+		   2026110312163202, 2026110613470307). Same fixture in every runner. */
 		const char *at = "spelled";
 		char sdir[256], back[1024], ah[320], al[320], an[320], sub[320], nd[320];
 		up_dir(sdir, sizeof sdir, "spelled");
@@ -7101,8 +7193,8 @@ int main(int argc, char **argv) {
 		if (shcl_save_file(later, an, NULL) != SHCL_SAVE_CHANGED) fail(at, "new folder");
 		if (!file_is("new/n.shcl", "b: 2\n")) fail(at, "a refused save in a new folder wrote");
 		shcl_free(later);
-		/* The same name from another working folder is another file, so it
-		   isn't checked. */
+		/* The same name from another working folder is another file, one the
+		   document never read, so a save over it is refused. */
 		put_file("m.shcl", "a: 1\n");
 		shcl_doc *moved = shcl_load_file("m.shcl", NULL);
 #ifdef _WIN32
@@ -7112,8 +7204,8 @@ int main(int argc, char **argv) {
 #endif
 		if (!in_sub) fail(at, "chdir sub failed");
 		put_file("m.shcl", "z: 0\n");
-		if (shcl_save_file(moved, "m.shcl", NULL) != SHCL_SAVE_OK) fail(at, "another folder");
-		if (!file_is("m.shcl", "a: 1\n")) fail(at, "another folder text");
+		if (shcl_save_file(moved, "m.shcl", NULL) != SHCL_SAVE_CHANGED) fail(at, "another folder");
+		if (!file_is("m.shcl", "z: 0\n")) fail(at, "another folder text");
 		shcl_free(moved);
 #ifdef _WIN32
 		if (_chdir(sdir) != 0) fail(at, "chdir back failed");
@@ -7147,6 +7239,25 @@ int main(int argc, char **argv) {
 		if (shcl_save_file(through, "nodir/../q.shcl", NULL) != SHCL_SAVE_FAILED) fail(at, "missing folder");
 		if (access("q.shcl", F_OK) == 0) fail(at, "missing folder: q.shcl is there");
 		shcl_free(through);
+		/* Loaded through it while it's missing, saved through it once another
+		   program made the folder and the file. */
+		shcl_file_status ust = SHCL_FILE_CLEAN;
+		shcl_doc *up_through = shcl_load_file("nodir/../q.shcl", &ust);
+		if (ust != SHCL_FILE_NOT_FOUND) fail(at, "up through status");
+		if (mkdir("nodir", 0700) != 0) fail(at, "mkdir nodir failed");
+		put_file("q.shcl", "b: 2\n");
+		if (shcl_save_file(up_through, "nodir/../q.shcl", NULL) != SHCL_SAVE_CHANGED) fail(at, "up through");
+		if (!file_is("q.shcl", "b: 2\n")) fail(at, "a refused save up through a new folder wrote");
+		shcl_free(up_through);
+		rmdir("nodir");
+		/* 2 hard links are 2 paths to one set of bytes. */
+		put_file("h1.shcl", "a: 1\n");
+		if (link("h1.shcl", "h2.shcl") != 0) fail(at, "link failed");
+		shcl_doc *hard = shcl_load_file("h1.shcl", NULL);
+		put_file("h2.shcl", "a: 9\n");
+		if (shcl_save_file(hard, "h1.shcl", NULL) != SHCL_SAVE_CHANGED) fail(at, "hard link");
+		if (!file_is("h1.shcl", "a: 9\n")) fail(at, "a refused save over a hard link wrote");
+		shcl_free(hard);
 		/* A FIFO swapped in is refused as the write refuses it, with no wait. */
 		put_file("f.shcl", "a: 1\n");
 		shcl_doc *fifo = shcl_load_file("./f.shcl", NULL);
@@ -7331,6 +7442,8 @@ int main(int argc, char **argv) {
 		for (size_t i = 0; i < sizeof texts / sizeof *texts; i++) {
 			shcl_doc *d = shcl_parse(texts[i], strlen(texts[i]));
 			if (shcl_newer_format(d)) fail(at, texts[i]);
+			/* A parse never read the file the last pass wrote. */
+			remove(other);
 			if (shcl_save_file(d, other, NULL) != SHCL_SAVE_OK) fail(at, texts[i]);
 			shcl_free(d);
 		}

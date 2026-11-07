@@ -82,7 +82,8 @@ func TestSoakHeapSettles(t *testing.T) {
 			}
 			doc.SetInt("soak.round", int64(r))
 			doc.SetString("soak.case", strconv.Itoa(r)+" "+c.input)
-			if doc.SaveFileLossy(saveTo) == nil {
+			// Each case's document never read what the last one saved there.
+			if _, err := doc.SaveFileWith(saveTo, SaveOptions{Lossy: true, Force: true}); err == nil {
 				saved++
 				back, _ := LoadFile(saveTo)
 				doc.Merge(back)

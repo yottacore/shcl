@@ -2483,15 +2483,31 @@ def main():
 		dfile = os.path.join(dtd, "f.shcl")
 		with open(dfile, "w", encoding="utf-8", newline="") as fh:
 			fh.write("a: 1\n")
-		ddoc = shcl.Document.parse("a: 2\n")
+		ddoc, _ = shcl.Document.load_file(dfile)
+		ddoc.set_int("a", 2)
+		# Is a directory, before the changed and create checks, which read
+		# such a path as a change or as a file there (2026110613470308).
 		for suffix in ("/", "/.", "/.."):
-			try:
-				ddoc.save_file(dfile + suffix)
-				raise SystemExit(f"save through {dfile + suffix} was accepted")
-			except shcl.SaveFailed:
-				pass
+			for dopts in (shcl.SaveOptions(), shcl.SaveOptions(create=True)):
+				try:
+					ddoc.save_file_with(dfile + suffix, dopts)
+					raise SystemExit(f"save through {dfile + suffix} was accepted")
+				except shcl.SaveFailed as de:
+					if de.status != shcl.WriteStatus.IsDirectory:
+						raise SystemExit(f"save through {dfile + suffix}: {de.status}") from None
 		if _read(dfile) != "a: 1\n":
 			raise SystemExit("a refused save changed the file")
+		# A folder at the path, made after the load.
+		gfile = os.path.join(dtd, "g.shcl")
+		gdoc, _ = shcl.Document.load_file(gfile)
+		os.mkdir(gfile)
+		try:
+			gdoc.save_file(gfile)
+			raise SystemExit("a save over a folder was accepted")
+		except shcl.SaveFailed as ge:
+			if ge.status != shcl.WriteStatus.IsDirectory:
+				raise SystemExit(f"a save over a folder: {ge.status}") from None
+		os.rmdir(gfile)
 		ddoc.save_file(dfile)
 		if _read(dfile) != "a: 2\n":
 			raise SystemExit("the plain path did not save")
@@ -2618,6 +2634,69 @@ def main():
 	bound = 3000.0 if ms[0] <= 0 else ms[0] * 25 + 1000
 	if ms[1] > bound:
 		raise SystemExit(f"50 edits and merges beside a kept line {ms[1]:.1f} ms against {ms[0]:.1f} ms without it (bound {bound:.1f} ms) - each one settles the whole document")
+	test_id("df012", "reopened_blocks_load_in_linear_time")
+	# A load that re-opens every block after a kept line looked for each
+	# re-opened node in its parent's list, and walked the siblings between it
+	# and the kept line, so the time went with the square of the blocks
+	# (2026110613470305). Eight times the blocks has to take under 24 times the
+	# time, 3 times the linear growth, where the old walk took 40 times and
+	# more. Same fixture in every runner, at half the blocks here and best of 2
+	# on the big side rather than 3: the old walk is still past 10 times over.
+	ms = []
+	for n, runs in ((3000, 3), (24000, 2)):
+		text = "".join(f"srv: v{i}\n\ta: 1\n" for i in range(n))
+		text += "".join(f"q{i}: [1\nsrv: v{i}\n\tb: 1\n" for i in range(n))
+		best = float("inf")
+		for _ in range(runs):
+			t0 = time.perf_counter()
+			rdoc = shcl.Document.parse(text)
+			best = min(best, (time.perf_counter() - t0) * 1000.0)
+			if not rdoc.to_canonical().endswith(f"\nq{n - 1}: [1\n"):
+				raise SystemExit("re-opened fixture: the kept lines did not go to the end of the file")
+		ms.append(best)
+	bound = max(ms[0], 1.0) * 24
+	if ms[1] > bound:
+		raise SystemExit(f"24000 re-opened blocks {ms[1]:.1f} ms against {ms[0]:.1f} ms for 3000 (bound {bound:.1f} ms) - the load's refile is not linear")
+	test_id("df026", "escapes_decode_in_linear_time")
+	# Decoding a value's escapes cut the rest of the text off at each one, so
+	# the time went with the square of their count (2026110613470306). Eight
+	# times the escapes has to take under 24 times the time, 3 times the linear
+	# growth, where the old walk took 45 times. Same fixture in every runner,
+	# best of 2 on the big side here rather than 3.
+	ms = []
+	for n, runs in ((10000, 3), (80000, 2)):
+		text = "a: \"" + "\u25c9TAB\u25c9" * n + "\"\n"
+		best = float("inf")
+		for _ in range(runs):
+			t0 = time.perf_counter()
+			edoc = shcl.Document.parse(text)
+			got = edoc.get_string("a")
+			best = min(best, (time.perf_counter() - t0) * 1000.0)
+			if got != "\t" * n or edoc.to_canonical() != text:
+				raise SystemExit("escape fixture: wrong result")
+		ms.append(best)
+	bound = max(ms[0], 1.0) * 24
+	if ms[1] > bound:
+		raise SystemExit(f"80000 escapes {ms[1]:.1f} ms against {ms[0]:.1f} ms for 10000 (bound {bound:.1f} ms) - escape decoding is not linear")
+	test_id("df027", "an_escape_message_is_built_only_for_an_error")
+	# A good escape built the E023 text it never read (2026110613470306).
+	built = []
+	one_line_in = shcl._one_line_in
+
+	def counted(*a):
+		built.append(a)
+		return one_line_in(*a)
+
+	shcl._one_line_in = counted
+	try:
+		good = shcl._resolve_marks("x\u25c9TAB\u25c9y\u25c9U+41\u25c9z\u25c9ESCAPE_CHAR\u25c9")
+		if good != ("x\tyAz\u25c9", None) or built:
+			raise SystemExit(f"good escapes: {good!r}, message text built {len(built)} times")
+		bad = shcl._resolve_marks("x\u25c9NOPE\u25c9")
+		if bad[0] is not None or "'\u25c9NOPE\u25c9'" not in (bad[1] or "") or not built:
+			raise SystemExit(f"unknown escape: {bad!r}")
+	finally:
+		shcl._one_line_in = one_line_in
 	test_id("ddes7", "a_kept_line_gone_from_the_tree_refuses_the_save")
 	# The save gate on kept lines, from inside: once the edits that lose one
 	# are fixed, no public call reaches the gate, so this takes a line out by
@@ -2868,11 +2947,13 @@ def main():
 		raise SystemExit(f"node cap: {[(g.line, g.code) for g in ldoc.diagnostics()]}")
 	if ldoc.lost_count() != 1 or ldoc.get_int("a") != 1 or ldoc.exists("d"):
 		raise SystemExit("node cap: remainder must be lost and unparsed")
+	# A cap crossed by the document's last content line stops nothing, so
+	# nothing reports (2026110613470304; it reported one E020 before).
 	ldoc = shcl.Document.parse_limited("a: 1\nb: 2\nc: 3", shcl.Strictness.Standard, 2, 0)
-	if sum(1 for g in ldoc.diagnostics() if g.code == "E020") != 1 or ldoc.lost_count() != 0:
-		raise SystemExit("node cap crossed on the last line must still report")
+	if sum(1 for g in ldoc.diagnostics() if g.code == "E020") != 0 or ldoc.lost_count() != 0:
+		raise SystemExit("node cap crossed on the last line stops nothing")
 	ldoc = shcl.Document.parse_limited("x.y.z: 1\n", shcl.Strictness.Standard, 1, 0)
-	if sum(1 for g in ldoc.diagnostics() if g.code == "E020") != 1 or ldoc.get_int("x.y.z") != 1:
+	if sum(1 for g in ldoc.diagnostics() if g.code == "E020") != 0 or ldoc.get_int("x.y.z") != 1:
 		raise SystemExit("node cap overshoot line must stay in the document")
 	ldoc = shcl.Document.parse_limited(ltext, shcl.Strictness.Standard, 0, 0)
 	if ldoc.diagnostics():
@@ -3002,6 +3083,56 @@ def main():
 	except shcl.LoadError as ex:
 		if ex.document is None or ex.document.get_int("a") != 1:
 			raise SystemExit("failed strict doc must stay readable") from None
+	test_id("df005", "the_node_cap_counts_comment_and_kept_lines")
+	# Comment lines and kept lines build no node but cost about what one
+	# does, so the node cap counts them, and a file of nothing else stops at
+	# the cap. E020 goes on the first line not parsed, and a cap crossed with
+	# only blanks left stops nothing. Same fixture in every runner.
+	def e020_at(d):
+		return [g.line for g in d.diagnostics() if g.code == "E020"]
+	# The cap is 3, so the fourth line taken is the one past it, and the
+	# parse stops before the fifth.
+	for what, one in (("comment", "# c\n"), ("kept", "a b\n"), ("mixed", "# c\na b\n")):
+		ctext = one * 1000
+		ldoc = shcl.Document.parse_limited(ctext, shcl.Strictness.Standard, 3, 0, 100)
+		if e020_at(ldoc) != [5] or ldoc.lost_count() != ctext.count("\n") - 4:
+			raise SystemExit(f"{what}: E020 at {e020_at(ldoc)}, lost {ldoc.lost_count()}")
+	# Nodes and held lines share the one count.
+	ldoc = shcl.Document.parse_limited("# c\na: 1\nb b\nc: 3\nd: 4\n", shcl.Strictness.Standard, 3, 0)
+	if e020_at(ldoc) != [5] or ldoc.get_int("c") != 3:
+		raise SystemExit(f"shared count: E020 at {e020_at(ldoc)}")
+	# The comment that crosses it on the last line loads, and Strict takes it.
+	ctext = "a: 1\n# b\n# c\n\n\n"
+	ldoc = shcl.Document.parse_limited(ctext, shcl.Strictness.Standard, 2, 0)
+	if ldoc.diagnostics():
+		raise SystemExit(f"last-line comment: {[(g.line, g.code) for g in ldoc.diagnostics()]}")
+	shcl.Document.parse_limited(ctext, shcl.Strictness.Strict, 2, 0)
+	# The overshoot line stays, and the next one is the first not parsed.
+	ldoc = shcl.Document.parse_limited("x.y.z: 1\nw: 2\n", shcl.Strictness.Standard, 1, 0)
+	if e020_at(ldoc) != [2] or ldoc.get_int("x.y.z") != 1 or ldoc.lost_count() != 1:
+		raise SystemExit(f"overshoot: E020 at {e020_at(ldoc)}, lost {ldoc.lost_count()}")
+
+	test_id("df00a", "comment_and_kept_lines_count_against_the_node_cap")
+	# A file of comment lines and kept lines builds no node, so the node cap
+	# never fired and each line was held: 100 times the file at 4 MB. Set
+	# against the same number of field lines, which stop at the cap and cost
+	# only the per-line split.
+	nlines, ncap = 200000, 1000
+	htext = "".join("# a comment line\n" if k % 2 == 0 else "kept line\n" for k in range(nlines))
+	ftext = "".join(f"k{k}: 1\n" for k in range(nlines))
+	tracemalloc.start()
+	shcl.Document.parse_limited(ftext, shcl.Strictness.Standard, ncap, 0)
+	fpeak = tracemalloc.get_traced_memory()[1]
+	tracemalloc.stop()
+	tracemalloc.start()
+	ldoc = shcl.Document.parse_limited(htext, shcl.Strictness.Standard, ncap, 0)
+	hpeak = tracemalloc.get_traced_memory()[1]
+	tracemalloc.stop()
+	if hpeak >= fpeak * 2:
+		raise SystemExit(f"a capped parse held its comment and kept lines: {hpeak} bytes against {fpeak} for as many field lines")
+	if e020_at(ldoc) != [ncap + 2] or ldoc.lost_count() != nlines - ncap - 1:
+		raise SystemExit(f"held lines: E020 at {e020_at(ldoc)}, lost {ldoc.lost_count()}")
+
 	test_id("ddkh3", "a_cap_wins_over_a_broken_value")
 	# An item or a line past the caller's element cap is E021 and dropped,
 	# even when its value is broken: the cap wins over a value fault. A fault
@@ -3366,7 +3497,9 @@ def main():
 			with open(ro, "w", encoding="utf-8", newline="") as fh:
 				fh.write("a: 1\n")
 			os.chmod(ro, stat.S_IREAD)
-			shcl.Document.parse("a: 2\n").save_file(ro)
+			# A parse never read the file there, so these saves force.
+			rforce = shcl.SaveOptions(force=True)
+			shcl.Document.parse("a: 2\n").save_file_with(ro, rforce)
 			if _read(ro) != "a: 2\n":
 				raise SystemExit("read-only file not rewritten")
 			if os.stat(ro).st_mode & stat.S_IWRITE:
@@ -3384,7 +3517,7 @@ def main():
 			# checks this file against the POSIX stubs, where both are absent.
 			k32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
 			k32.SetFileAttributesW(ro, 0x2 | 0x4)
-			shcl.Document.parse("a: 3\n").save_file(ro)
+			shcl.Document.parse("a: 3\n").save_file_with(ro, rforce)
 			after = os.stat(ro).st_file_attributes  # type: ignore[attr-defined]
 			if not after & 0x2:
 				raise SystemExit("file did not come back hidden")
@@ -3406,7 +3539,7 @@ def main():
 		if surdoc.read_string("s").value != "\udcff":
 			raise SystemExit("the parse dropped a surrogate")
 		try:
-			surdoc.save_file(fpath)
+			surdoc.save_file(fpath + ".sur")
 			raise SystemExit("save_file wrote a lone surrogate")
 		except shcl.SaveFailed:
 			pass
@@ -3630,6 +3763,9 @@ def main():
 		lostdoc = shcl.Document.parse("a:\n\t\tb: 1\n\tc: 2\n")
 		if lostdoc.lost_count() != 1:
 			raise SystemExit(f"lost lost_count got {lostdoc.lost_count()}")
+		# A parse never read the file an earlier fixture left there.
+		if os.path.exists(fpath):
+			os.remove(fpath)
 		kept.save_file(fpath)
 		kback, _ = shcl.Document.load_file(fpath)
 		if "square-miles 300\n" not in kback.to_canonical():
@@ -3639,6 +3775,8 @@ def main():
 			raise SystemExit("save_file did not refuse a lossy save")
 		except shcl.SaveRefused:
 			pass
+		# lostdoc never read what kept wrote there.
+		os.remove(fpath)
 		lostdoc.save_file_lossy(fpath)
 		# A refusal and a failed write are separate classes, not two spellings of
 		# one message, and the gate answers before any i/o - so an unwritable path
@@ -3663,6 +3801,7 @@ def main():
 		keep = shcl.Document.parse_keep_lines("a:\n\t\tb: 1\n\tc: 2\n", shcl.Strictness.Standard)
 		if not keep.set_int("a.b", 5):
 			raise SystemExit("keep set_int a.b failed")
+		os.remove(fpath)
 		if keep.save_file_keep_lines(fpath) is not True:
 			raise SystemExit("save_file_keep_lines did not keep the dropped line")
 		with open(fpath, encoding="utf-8", newline="") as fh:
@@ -5371,8 +5510,9 @@ def main():
 
 	test_id("dekj7", "a_save_over_a_file_changed_since_the_load_is_refused")
 	# A save over the file a load read refuses when another program changed it
-	# since, writes nothing, and writes with force. A save elsewhere, and a
-	# document from parse, save as they always did (2026102910482342).
+	# since, writes nothing, and writes with force. A save over a file the
+	# document never read, a parse's included, is refused the same way
+	# (2026102910482342, 2026110613470307).
 	with tempfile.TemporaryDirectory() as cd:
 		def cread(p):
 			with open(p, encoding="utf-8", newline="") as fh:
@@ -5404,7 +5544,7 @@ def main():
 		refused("plain", lambda: cdoc.save_file(cf), cf)
 		refused("lossy", lambda: cdoc.save_file_lossy(cf), cf)
 		same("left", cread(cf), "a: 9\n")
-		same("message", refused("plain", lambda: cdoc.save_file(cf), cf), f"{cf}: refusing to save: the file changed since it was loaded; nothing written (force overrides)")
+		same("message", refused("plain", lambda: cdoc.save_file(cf), cf), f"{cf}: refusing to save: what is there is not what this document read or wrote; nothing written (force overrides)")
 		same("force", cdoc.save_file_with(cf, force), False)
 		same("forced", cread(cf), "a: 2\n")
 		# The next save is checked against what that one wrote.
@@ -5445,21 +5585,34 @@ def main():
 		cfresh.save_file(cn)
 		same("created", cread(cn), "a: 1\n")
 
-		# Elsewhere is not checked, and the load's file still is.
+		# A file the document never read is checked too: a save-as over it is
+		# refused, and force writes it. The load's file still is.
 		cother = os.path.join(cd, "other.shcl")
 		cwrite(cother, "z: 0\n")
+		refused("other", lambda: cgone.save_file(cother), cother)
+		same("other left", cread(cother), "z: 0\n")
+		same("other force", cgone.save_file_with(cother, force), False)
 		cgone.save_file(cother)
 		refused("still", lambda: cgone.save_file(cf), cf)
-		# A parse has no file behind it.
-		shcl.Document.parse("a: 5\n").save_file(cother)
+		# A parse read no file, so it writes only where nothing is, or over
+		# what it wrote itself.
+		cparsed = shcl.Document.parse("a: 5\n")
+		refused("parsed", lambda: cparsed.save_file(cother), cother)
+		same("parsed force", cparsed.save_file_with(cother, force), False)
 		same("parsed", cread(cother), "a: 5\n")
+		cparsed.save_file(cf)
+		cparsed.save_file(cf)
+		same("parsed new", cread(cf), "a: 5\n")
 
 	test_id("detpp", "a_changed_check_knows_its_file_by_any_spelling")
 	# One file gives one answer however its path is spelled: bare, `./`,
-	# absolute, through a link, in a folder made after the load, or from
-	# another working folder. A FIFO swapped in gets the write's own refusal
-	# rather than a wait, and a file the check can't read is a change
-	# (2026110312163201, 2026110312163202).
+	# absolute, through a link, in a folder made after the load, through `..`
+	# under a folder made after it, or by another hard link. The check reads
+	# the bytes at the save path, so a file the document never read, such as
+	# the same name from another working folder, is refused too. A FIFO
+	# swapped in gets the write's own refusal rather than a wait, and a file
+	# the check can't read is a change (2026110312163201, 2026110312163202,
+	# 2026110613470307).
 	with tempfile.TemporaryDirectory() as sd:
 		def sread(p):
 			with open(p, encoding="utf-8", newline="") as fh:
@@ -5531,14 +5684,14 @@ def main():
 				srefused("link", lambda: slinked.save_file("sub/k.shcl"), "sub/k.shcl")
 				ssame("link left", sread("sub/k.shcl"), "b: 2\n")
 
-			# The same name from another working folder is another file, so
-			# it isn't checked.
+			# The same name from another working folder is another file, one
+			# the document never read, so a save over it is refused.
 			swrite("m.shcl", "a: 1\n")
 			smoved, _ = shcl.Document.load_file("m.shcl")
 			os.chdir("sub")
 			swrite("m.shcl", "z: 0\n")
-			smoved.save_file("m.shcl")
-			ssame("moved", sread("m.shcl"), "a: 1\n")
+			srefused("moved", lambda: smoved.save_file("m.shcl"), "m.shcl")
+			ssame("moved left", sread("m.shcl"), "z: 0\n")
 			os.chdir(sd)
 
 			if os.name != "nt":
@@ -5563,6 +5716,21 @@ def main():
 				except shcl.SaveFailed:
 					pass
 				ssame("missing folder left", os.path.exists("q.shcl"), False)
+				# Loaded through it while it's missing, saved through it once
+				# another program made the folder and the file.
+				supthrough, st = shcl.Document.load_file("nodir/../q.shcl")
+				ssame("up through status", st, shcl.FileStatus.NotFound)
+				os.mkdir("nodir")
+				swrite("q.shcl", "b: 2\n")
+				srefused("up through", lambda: supthrough.save_file("nodir/../q.shcl"), "nodir/../q.shcl")
+				ssame("up through left", sread("q.shcl"), "b: 2\n")
+				# 2 hard links are 2 paths to one set of bytes.
+				swrite("h1.shcl", "a: 1\n")
+				os.link("h1.shcl", "h2.shcl")
+				shard, _ = shcl.Document.load_file("h1.shcl")
+				swrite("h2.shcl", "a: 9\n")
+				srefused("hard link", lambda: shard.save_file("h1.shcl"), "h1.shcl")
+				ssame("hard link left", sread("h1.shcl"), "a: 9\n")
 
 			if hasattr(os, "mkfifo"):
 				# A FIFO swapped in is refused as the write refuses it, with no
@@ -5745,6 +5913,9 @@ def main():
 				"a: 1\n##    Format   4x\n", "note:\n\t```\n##    Format   4\n\t```\n"):
 			d = shcl.Document.parse(text)
 			nsame(repr(text), d.newer_format(), False)
+			# A parse never read the file the last pass wrote.
+			if os.path.exists(nother):
+				os.remove(nother)
 			d.save_file(nother)
 		# A merged layer's lines are the document's now.
 		nbase = shcl.Document.parse("b: 2\n")

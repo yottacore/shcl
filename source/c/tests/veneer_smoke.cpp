@@ -145,8 +145,13 @@ static int reads_from_several_threads() {
 			std::string o;
 			const std::string savePath = save_path();
 			shcl::WriteStatus why{};
+			// The document records only its last save, which may be another
+			// thread's to another path, so each save starts with nothing there
+			// (2026110613470307).
 			put(o, d.save_file(savePath, &why)); put(o, why); put(o, shcl::read_file(savePath));
+			std::remove(savePath.c_str());
 			put(o, d.save_file_lossy(savePath, &why)); put(o, why); put(o, shcl::read_file(savePath));
+			std::remove(savePath.c_str());
 			put(o, d.save_file_keep_lines(savePath, &why)); put(o, why); put(o, shcl::read_file(savePath));
 			std::remove(savePath.c_str());
 			return o;
@@ -226,9 +231,10 @@ static int reads_from_several_threads() {
 
 #ifndef SHCL_NO_FILE_IO
 // A save over the file a load read refuses when another program changed
-// it since, writes nothing, and writes with force. A save elsewhere, and a
-// document from a parse, save as they always did (2026102910482342). The
-// C runner's fixture, through the veneer.
+// it since, writes nothing, and writes with force. A save over a file the
+// document never read, a parse's included, is refused the same way
+// (2026102910482342, 2026110613470307). The C runner's fixture, through the
+// veneer.
 static int a_save_over_a_file_changed_since_the_load_is_refused() {
 	test_id("dekkn", "a_save_over_a_file_changed_since_the_load_is_refused");
 	const char *tmp = std::getenv("TMPDIR");
@@ -293,13 +299,19 @@ static int a_save_over_a_file_changed_since_the_load_is_refused() {
 	std::remove(n.c_str());
 	CHECK(fresh.save_file(n) == R::Ok && has(n, "a: 1\n"));
 
-	// Elsewhere is not checked, and the load's file still is.
+	// A file the document never read is checked too: a save-as over it is
+	// refused, and force writes it. The load's file still is.
 	put_text(other, "z: 0\n");
+	CHECK(gone.save_file(other) == R::Changed && has(other, "z: 0\n"));
+	CHECK(gone.save_file_with(other, force).first == R::Ok);
 	CHECK(gone.save_file(other) == R::Ok);
 	CHECK(gone.save_file(f) == R::Changed);
-	// A parse has no file behind it.
+	// A parse read no file, so it writes only where nothing is, or over what
+	// it wrote itself.
 	auto parsed = shcl::Document::parse("a: 5\n");
-	CHECK(parsed.save_file(other) == R::Ok && has(other, "a: 5\n"));
+	CHECK(parsed.save_file(other) == R::Changed);
+	CHECK(parsed.save_file_with(other, force).first == R::Ok && has(other, "a: 5\n"));
+	CHECK(parsed.save_file(f) == R::Ok && parsed.save_file(f) == R::Ok && has(f, "a: 5\n"));
 #ifndef _WIN32
 	std::remove(link.c_str());
 #endif
@@ -1153,6 +1165,8 @@ int main() {
 		auto lost = shcl::Document::parse("a:\n\t\tb: 1\n\tc: 2\n");
 		CHECK(lost.lost_count() == 1);
 		CHECK(lost.save_file(f) == shcl::SaveResult::Refused);
+		// lost never read what is there.
+		std::remove(f.c_str());
 		CHECK(lost.save_file_lossy(f) == shcl::SaveResult::Ok);
 		CHECK(strict.save_file(dir + "/nope/t.shcl") == shcl::SaveResult::Failed);
 		// A failed write says why, and a refusal is no write failure.

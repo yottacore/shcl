@@ -35,6 +35,61 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- The changed check misses a file reached through a second spelling of its path
+	- ID: 2026110613470307
+	- Type: Bug
+	- Status: Waiting on automated testing
+	- Needs external testing: the Windows and macOS rows of 2026110616475901, on b29w and vmKt6m or b26.
+	- Severity: High
+	- Target version: v3.0.0
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 7
+	- Prereq IDs: 2026110616475901
+	- Related IDs: 2026110312163201, 2026110314064292, 2026110314240418, 2026110408432594
+	- Version and build: dev at `343334df`
+	- Steps to reproduce:
+		- Load `nodir/../q.shcl` with no `nodir` there.
+		- Another program makes `nodir` and writes `q.shcl`.
+		- Save to `nodir/../q.shcl`.
+	- Incorrect behavior: the save says OK in all 4, and the other program's text is gone.
+	- Expected behavior: spec.md says a file made where the load found nothing is a change, and one file gives one answer however its path is spelled. `nodir/./q.shcl` refuses as it should.
+	- Reproduced: 20261106, library calls in all 4.
+	- Possible cause: the load records the path with `..` kept, since `nodir` wasn't there. At the save the folder exists, so the resolve cancels `..` and gets another path, and the check doesn't run.
+	- Twins, read only, each with a probe kept for the next visit to that box:
+		- Windows Go: `nodir\..\x.shcl` keeps `..` in the record, while Windows cancels it, so a later save to `x.shcl` skips the check.
+		- macOS Go and Python: on a volume that ignores case, a load of `Conf.shcl` and a save to `conf.shcl` skip the check, since `EvalSymlinks` and `realpath` keep the case given. Rust and C get the case on disk from Darwin's `realpath`.
+	- Origin: `2c878191` (2026-11-03) in Go and Python, `2f38f68b` (2026-11-03) in Rust, `0710c634` (2026-11-04) in C. A missed twin of 2026110314240418, which kept `..` as written without the folder showing up later. Confirmed on Linux, Plausible on Windows and macOS.
+	- Requirements (JC, 2026-11-06, after the review's recurring-problems question):
+		- Stop asking whether the save path is the file the load read. Check the destination every time, by its bytes, the way an editor checks the file at its one path: at save time read what sits at the save path as given, right now. Nothing there and the load found nothing: write. Nothing there and the load read a file: refuse as Changed. Bytes equal to what the load read, or to what this document's last save wrote: write. Other bytes: refuse as Changed, unless `force`. The byte compare is `holds` as it is today.
+		- No path compare is left. The recorded resolved path and `real_nearest` go, in all 4 bindings. `resolve_target` stays for the write alone, to follow a link and rename the temp file in place, resolved once at save time and compared against nothing later.
+		- Behavior change, into spec.md's save section: a save onto an existing file the document never read, a save-as, is refused unless `force`, where today it's written when the path happens to resolve apart. `detpn`'s "same name from another working folder" case flips to a refusal. Nobody read those bytes, so writing over them is the bug, and the overwrite prompt every editor shows is the precedent.
+		- A hard link comes right for free: 2 names, 2 real paths, one set of bytes.
+		- The filesystem property test 2026110616475901 is the proof. This item closes when that test runs in all 4 bindings and passes every case it lists, and the Windows and macOS rows ran on their boxes.
+	- Why not the alternatives (JC's questions, 2026-11-06):
+		- A save-time re-resolve of both paths plus an OS identity check (inode, Windows file index): works, but needs Windows FFI in Rust and C, and only tells "same file edited" from "different file", a distinction the bytes rule doesn't need.
+		- A property test over spellings alone: finds the next spelling, holds nothing. Each fix since 2026110312163201 closed one spelling with a hand rule in `real_nearest`, in 4 languages, and a compare of 2 strings resolved at 2 different times breaks on the next event nobody listed.
+		- Canonicalize with realpath and write temp-and-rename over it: already done for the write. It can't help the check, since realpath has no answer for a path that doesn't fully exist yet, which every case in this class is, and a canonical path taken at load isn't canonical at save once a component becomes a link.
+	- Note: still a check, not a lock. An edit between the read and the rename is lost either way, and only a file lock would close that, which is a separate call.
+	- Test case: the `nodir/..`, hard-link and other-folder rows in `a_changed_check_knows_its_file_by_any_spelling` (`detpn`, `detpp`, `detpq`, `detpr`), the save-as and parse rows in `a_save_over_a_file_changed_since_the_load_is_refused` (`dekj7`, `dekk8`, `dekkm`, `dekkn`). The item closes with 2026110616475901's run, per the requirements.
+	- Branch: `r1107b`
+	- Regression test: 2026110616475901, with the `nodir/..` row and the flipped `detpn` row (a save-as over unread bytes refuses) as fixed cases, in all 4 bindings; watched to fail on `343334df`.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Actual cause: confirmed. The check asked whether the save path was the file the load read, by 2 paths resolved at 2 different times. `nodir/..` kept its `..` at the load and lost it at the save, once the folder was there.
+	- Actual fix: JC's destination-bytes rule, in all 4 and the veneer. The save reads the path as given just before the write. It writes when the bytes there are what the load read or what this document's last save wrote, or when nothing is there and the load read no file, and refuses as Changed otherwise, unless force. The load's path record, `real_nearest`/`realNearest`/`_real_nearest`/C's nearest-folder part, `tidyRest`/`_tidy_rest`, Go's `absReal` and `rawBase`, C's `s_save_target`, its windows mode 2 and `s_win_read_link` are gone. `resolve_target` is the write's alone. spec.md, design.md, examples.md and the changelog say so.
+	- Decisions:
+		- me, 20261107: the 4 CLIs save with force, since their own check just before the write is the changed check, and the library's would refuse every file, as their documents come from a parse.
+		- me, 20261107: besides a FIFO or a folder, the check leaves to the write a path it can't reach a file through: part of it a file (ENOTDIR), a link cycle (ELOOP), and a file gone with its folder. The write's own error is the true one there, and nothing could be written, so a caller isn't sent to force.
+		- me, 20261107: the Changed message is now `PATH: refusing to save: what is there is not what this document read or wrote; nothing written (force overrides)`, since "changed since it was loaded" was wrong for a save-as.
+		- me, 20261107: the create check looks at the path as given (lstat, `GetFileAttributesW` on windows), so on windows too a link to nowhere is now Exists. That may close the create half of 2026110408432594, unchecked.
+		- me, 20261107: the soak tests in Rust, Go and Python save each case with force, since each case's document never read what the last one saved.
+		- 20261107, 2 more tests that saved over bytes their document never read, found on b29w: the C runner's Windows-only `dc476` (winlink) saved a parse through a link, and now loads through it first; the veneer's `de1a5` saves one document from 8 threads to 8 paths, so the record of its last save was another thread's, and each save now starts with nothing there. Both failed on b29w every run and passed on dev.
+		- 20261107, tests whose assert only needed the new rule (a parse or another load saving over a file it never read): `lost_and_save_gate` and its twins (`dbcxf`, `dd5h6`, `d9v59`), the newer-format loop (`dekvw`, `dekvx` and twins), the read-only and hidden saves (`dbxkq`, `dbxm2` and twins), and the soaks now remove the file first or force. The changed tests (`dekj7`, `dekk8`, `dekkm`, `dekkn`) and the spelling tests' other-folder row flip from Ok to Changed, as asked.
+	- Swept: every caller of the resolve and the record in all 4 and the veneer (load, save, create check, write, C's `dir_takes_a_temp`), the 4 CLIs' save calls, every test that saves a parse or a second document over a file, Windows-only ones included as far as a read shows.
+	- Verified: on the old code, the new rows fail: Python saves through `nodir/../q.shcl` over the other program's file, and Go `detpq`, C `detpr`, Rust `detpn` fail the other-folder row, Go `dekk8`, C `dekkm`, Rust and Python `dekj7` the save-as rows. All pass on the new code. Rust `cargo test` (all binaries), clippy for the host and windows, fmt; Go tests in both modules, vet and staticcheck for the host and windows, a wasip1 build; Python conformance, ruff, mypy (after `c2243d04`, which fixes an error from `df027`); the C runner, the veneer smoke, oom_hook, oom_recover, mem_bounds, analyze-c (202 s), a mingw build; cli-regress (658 rows); perf-gate; `test-ids.py check`. On b29w with a short-name TEMP: Python conformance whole, and Go `detpq`, `dekk8`, `dc42k`, `dbcxf`, `dekvw` and the read-only save.
+		- Not run: `--backlog-run-quick` with every area (past one call), check-c-compilers (past one call), check-docs, crosscheck.
+		- 20261107, b29w with a short-name TEMP, at `30887e7e` plus the 2 test fixes below: Rust `cargo test` whole (all binaries, `detpn`, `dc42j`, `dekj7`, `save_rewrites_a_read_only_file` included), the C runner whole (`dekkm`, `detpr`, `dc42n`, `dbxm2`), and the veneer smoke (`dekkn`, `detps`) linked static, 3 runs. The dynamic veneer build dies at startup on b29w on dev too, so that build is the box's.
+
 - `install.ps1` refuses pwsh on Linux and macOS
 	- ID: 2026110215285715
 	- Type: Enhancement
@@ -70,106 +125,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Sweep: every place the parse keeps a line with no node, in all 4.
 	- Regression test: a budget test in all 4 suites: a file of comment lines and kept lines many times the cap, parsed under the cap, asserting the line count and bytes kept stay under it and that `E020` names the first line the parse didn't take; a fuzz guard that counts such inputs each run.
 	- Estimated effort: Avg
-
-- A load that re-opens many blocks takes time in the square of their count since 2026-11-04
-	- ID: 2026110613470305
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Target version: v3.0.0
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 5
-	- Related IDs: 2026110315051536
-	- Version and build: dev at `343334df`
-	- Steps to reproduce:
-		- 100,000 blocks `srv: vN`, each with a child, then each one again with another child.
-		- `shcl fmt FILE`.
-	- Incorrect behavior: Go 5.3 s, C 4.0 s, Rust 1.6 s. Go built from before `5922ef64` takes 0.56 s. With a kept line before each re-opened block, Rust at 64,000 blocks went from 0.46 s to 3.3 s.
-	- Expected behavior: the linear time it had before the fold fix. lib.rs says the parse keeps a plain file out of quadratic time.
-	- Reproduced: 20261106, all 4 CLIs, and the old Go and Rust builds for the before numbers. Go's profile puts 91% of the time in `refileFolded`.
-	- Possible cause: every line that binds to an existing node goes in `folded`, kept lines or not, and `refile_folded` scans the parent's whole child list for each one before it checks whether anything has to move. A child-to-index map gave the old Go time, with the same output over the corpus.
-	- Origin: `5922ef64` (2026-11-04), the fix for 2026110315051536. Regression. No perf-gate workload re-opens blocks. Confirmed.
-	- Note: the fix needs a perf-gate workload with a numeric threshold.
-	- Regression test: a scaling test in all 4 suites, as `dep84` does for the CLI: 8 times the re-opened blocks reads in under 3 times the time, skipped under TSan and Miri like the other timing tests; watched to fail on `5922ef64`.
-	- Estimated effort: Low
-
-- Python decodes escapes in time in the square of their count
-	- ID: 2026110613470306
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Target version: v3.0.0
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 6
-	- Version and build: dev at `343334df`
-	- Steps to reproduce:
-		- `a: "`, then `◉TAB◉` 80,000 times, then `"`.
-		- `shcl check FILE`.
-	- Incorrect behavior: Python takes 3.0 s, against 0.8 s at 40,000. 1M escapes, a 9 MB line, ran past 90 s. At 1M Rust takes 0.09 s, C 0.08 and Go 0.71.
-		- Go and Python build the diagnostic text for every good escape, where Rust builds it only for an error. Building it only when needed took Go from 0.72 s to 0.19 s at 1M.
-	- Expected behavior: README says the parser is safe on untrusted input. The caps can't help, since it's one line.
-	- Reproduced: 20261106, all 4 CLIs, profiled in Python.
-	- Possible cause: `_resolve_marks` copies the rest of the text at each escape, and `_shown` does the same. Finding each mark by index gave 0.25 s at 40,000 and 3.1 s at 1M, with the same `fmt` output.
-	- Origin: `f2b97394` (2026-10-06) for `_resolve_marks`, `1d5f3f2b` (2026-10-10) for `_shown`, `81943546` (2026-10-09) for the text built every time. A drift from the Rust reference. Not seen by an earlier round. Confirmed.
-	- Regression test: a scaling test in the Python suite, 8 times the escapes decoded in under 3 times the time, and the same test in the other 3 for parity; plus a test that an error's text isn't built when nothing reads it, in Go and Python.
-	- Estimated effort: Low
-
-- The changed check misses a file reached through a second spelling of its path
-	- ID: 2026110613470307
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Target version: v3.0.0
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 7
-	- Related IDs: 2026110312163201, 2026110314064292, 2026110314240418, 2026110408432594
-	- Version and build: dev at `343334df`
-	- Steps to reproduce:
-		- Load `nodir/../q.shcl` with no `nodir` there.
-		- Another program makes `nodir` and writes `q.shcl`.
-		- Save to `nodir/../q.shcl`.
-	- Incorrect behavior: the save says OK in all 4, and the other program's text is gone.
-	- Expected behavior: spec.md says a file made where the load found nothing is a change, and one file gives one answer however its path is spelled. `nodir/./q.shcl` refuses as it should.
-	- Reproduced: 20261106, library calls in all 4.
-	- Possible cause: the load records the path with `..` kept, since `nodir` wasn't there. At the save the folder exists, so the resolve cancels `..` and gets another path, and the check doesn't run.
-	- Twins, read only, each with a probe kept for the next visit to that box:
-		- Windows Go: `nodir\..\x.shcl` keeps `..` in the record, while Windows cancels it, so a later save to `x.shcl` skips the check.
-		- macOS Go and Python: on a volume that ignores case, a load of `Conf.shcl` and a save to `conf.shcl` skip the check, since `EvalSymlinks` and `realpath` keep the case given. Rust and C get the case on disk from Darwin's `realpath`.
-	- Origin: `2c878191` (2026-11-03) in Go and Python, `2f38f68b` (2026-11-03) in Rust, `0710c634` (2026-11-04) in C. A missed twin of 2026110314240418, which kept `..` as written without the folder showing up later. Confirmed on Linux, Plausible on Windows and macOS.
-	- Requirements (JC, 2026-11-06, after the review's recurring-problems question):
-		- Stop asking whether the save path is the file the load read. Check the destination every time, by its bytes, the way an editor checks the file at its one path: at save time read what sits at the save path as given, right now. Nothing there and the load found nothing: write. Nothing there and the load read a file: refuse as Changed. Bytes equal to what the load read, or to what this document's last save wrote: write. Other bytes: refuse as Changed, unless `force`. The byte compare is `holds` as it is today.
-		- No path compare is left. The recorded resolved path and `real_nearest` go, in all 4 bindings. `resolve_target` stays for the write alone, to follow a link and rename the temp file in place, resolved once at save time and compared against nothing later.
-		- Behavior change, into spec.md's save section: a save onto an existing file the document never read, a save-as, is refused unless `force`, where today it's written when the path happens to resolve apart. `detpn`'s "same name from another working folder" case flips to a refusal. Nobody read those bytes, so writing over them is the bug, and the overwrite prompt every editor shows is the precedent.
-		- A hard link comes right for free: 2 names, 2 real paths, one set of bytes.
-		- The filesystem property test 2026110616475901 is the proof. This item closes when that test runs in all 4 bindings and passes every case it lists, and the Windows and macOS rows ran on their boxes.
-	- Why not the alternatives (JC's questions, 2026-11-06):
-		- A save-time re-resolve of both paths plus an OS identity check (inode, Windows file index): works, but needs Windows FFI in Rust and C, and only tells "same file edited" from "different file", a distinction the bytes rule doesn't need.
-		- A property test over spellings alone: finds the next spelling, holds nothing. Each fix since 2026110312163201 closed one spelling with a hand rule in `real_nearest`, in 4 languages, and a compare of 2 strings resolved at 2 different times breaks on the next event nobody listed.
-		- Canonicalize with realpath and write temp-and-rename over it: already done for the write. It can't help the check, since realpath has no answer for a path that doesn't fully exist yet, which every case in this class is, and a canonical path taken at load isn't canonical at save once a component becomes a link.
-	- Note: still a check, not a lock. An edit between the read and the rename is lost either way, and only a file lock would close that, which is a separate call.
-	- Regression test: 2026110616475901, with the `nodir/..` row and the flipped `detpn` row (a save-as over unread bytes refuses) as fixed cases, in all 4 bindings; watched to fail on `343334df`.
-	- Estimated effort: Avg
-
-- A path that names a folder gets the wrong refusal in Rust and C, and from the CLIs' own changed check
-	- ID: 2026110613470308
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Target version: v3.0.0
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 8
-	- Version and build: dev at `343334df`
-	- Steps to reproduce:
-		- A file `f.shcl`. Save to `f.shcl/` or `f.shcl/.`, and a create-only save to `f.shcl/`.
-		- `set --write f.shcl` with the file swapped for a folder during the wait for ops.
-	- Incorrect behavior: Rust and C give `Changed`, or `Exists` for the create, where Go and Python give `IsDirectory`. The CLIs' swap case gives `FILE: not a regular file` at exit 8, where a folder there from the start gives "is a directory". The C CLI says `Not a directory` for `f.shcl/`.
-	- Expected behavior: design.md's Save outcomes give `IsDirectory` for a path ending in a separator, `.` or `..`, and for a folder, and say the same answer comes from every binding's save and from the CLI's `--write`.
-	- Reproduced: 20261106, library calls and all 4 CLIs. Nothing is written in any case.
-	- Possible cause: the resolve drops the trailing separator before the changed and create checks, and a read that fails with ENOTDIR counts as a change. The CLI's check refuses anything but a regular file with one message.
-	- Origin: `2f38f68b` (2026-11-03) for the library, `c1053f55` (2026-11-04) for the CLI message. Before `2f38f68b` the write said `IsDirectory`. Regression from a fresh fix. Confirmed.
-	- Note: a caller that retries with `force` on `Changed` is misled.
-	- Regression test: rows in 2026110616475901 with a folder at the save path, for the library save, the changed check and the CLIs' own check, expecting the directory refusal in all 4 and exit 8 with the matching text from each CLI; a cli-regress fixture that puts a folder at the path.
-	- Estimated effort: Low
+	- Actual cause: the node cap counted arena nodes only. A whole-line comment and a kept line each make a pending entry and build no node. The last-line `E020` came from a second check after the loop, written to report a cap crossed on the last line.
+	- Actual fix: the node cap's count is nodes plus every comment line and kept line taken, in all 4. `E020` goes on the first line not parsed, and only when a non-blank line is left, so the check after the loop is gone. spec.md, design.md, the changelog and each binding's doc comment say so.
+		- Swept: the comment push and the one `refuse` funnel that files every kept line, in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. `E028`'s kept line is a node's own line, already counted. Raw block bodies are a node's value, dropped lines aren't held (the line-keeping save that tracks them has no cap), and diagnostics have their own cap.
+	- Progress log:
+		- 20261107: split. The fuzz guard is child 2026110707441268, since the fuzz can't yet see the held-line count. The budget tests and the fix are in.
+		- 20261107: measured, 200k lines half comments and half `kept line`, cap 1,000, against as many `kN: 1` lines under the same cap. Before: Rust 55.4 MB against 7.8, Go 129 against 3.9, C 105 against 8.5, Python 69 against 13.9. After, all 4 are under 2 times the field lines, C 8.9 MB and Python 14.1 MB.
+	- Decisions:
+		- me, 20261107: comment and kept lines count against the node cap, not a new cap. Each costs about what a node does, and a fourth cap would be one more number every caller picks for the same memory.
+		- me, 20261107: a cap crossed on the last line with content reports nothing, since the parse stopped nothing. The overshoot is the one line it always was. `Check:` entry in questions.md.
+		- 20261107, test asserts updated for the last-line change, the rest of each test as it was: `parse_limited_caps` in all 4 runners (`dc1yg`, `dc1yh`, `dc26x`, `dc1yj`), the last-line cross from 1 `E020` to 0, and the one-line overshoot `x.y.z: 1` from 1 `E020` to 0. The overshoot with a next line is pinned in the new tests.
+	- Test case: `the_node_cap_counts_comment_and_kept_lines` (`df003` Rust, `df004` Go, `df005` Python, `df006` C) and the budget tests (`df007` Rust `mem_caps`, `df008` Go `mem_test`, `df009` C `mem_bounds`, `df00a` Python). All failed on the old code and pass now. The fuzz guard is the child's.
 
 - C checks a recursive schema in time cubic in the nesting depth
 	- ID: 2026110613470309
@@ -350,6 +316,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Regression test: a check-docs row that refuses a comparison.md row dated older than the table's run date, and the comparison run writes the memory row itself so the two can't drift.
 	- Estimated effort: Low
 
+- The fuzz counts inputs where comment and kept lines take the node cap
+	- ID: 2026110707441268
+	- Type: Task
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0
+	- Opened: 20261107-074413
+	- Opened by: me
+	- Parent ID: 2026110613470304
+	- Requirements:
+		- The parent's fuzz guard: a property over fuzzed documents with comment and kept lines mixed in, parsed under a small node cap, that the parse holds no more than the cap allows and stops at the first line past it, with a guard that counts such inputs each run.
+		- The fuzz can't read the held-line count today. It needs a count it can see, or a property that doesn't need one. Raw bodies and `- ` items make a count of output lines a poor stand-in.
+	- Estimated effort: Avg
+
 - A filesystem property test for the save's checks, over every past path bug
 	- ID: 2026110616475901
 	- Type: Enhancement
@@ -495,6 +475,42 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Problem description: `run_20261101-103838` took 76 minutes and `run_20261101-120609` 72, with tests 49 of them. The run lengths item closed on a 59-minute run, before the box step and the hosted job were added.
 	- Requirements:
 		- Time each step over 2 runs, then move what pushes the run past an hour to `--long`.
+	- Estimated effort: Avg
+
+- The veneer smoke linked against the DLLs dies at start on b29w
+	- ID: 2026110710374327
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261107-103743
+	- Opened by:
+	- Progress log:
+		- On b29w veneer_smoke.cpp built the normal way exits 0xC0000409 at start, on dev too; built with -static it passes. win-runners.bash's dynamic veneer row fails there for this reason, so a b29w suites-long visit would fail. Likely the mingw runtime DLLs found on PATH.
+
+- The save comments in shcl.h and its twins still describe a change since the load
+	- ID: 2026110710374311
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261107-103743
+	- Opened by:
+	- Related IDs: 2026110613470307
+	- Progress log:
+		- The comments on SHCL_SAVE_CHANGED and force in shcl.h (about lines 346 and 354) say a save refuses when the file changed since the load. Since 2026110613470307 it refuses when the bytes at the path are neither what the load read nor what this document last saved. Check the other 3 bindings' doc comments too.
+
+- A capped parse still splits every line first, so a file of blank lines costs 17 to 48 times its size
+	- ID: 2026110707441368
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261107-074413
+	- Opened by: me, found working 2026110613470304
+	- Related IDs: 2026110613470304
+	- Steps to reproduce:
+		- 2 MB of `\n`, `parse_limited` with caps of 1,000 nodes, 1,000 elements and 100 diagnostics.
+	- Incorrect behavior: a tracemalloc peak of 34 MB in Python, 17 times the file. Rust holds the split lines twice (`lines` and `src`), 16 bytes each, so a 1-byte line costs 32 to 48 bytes there. Not measured in Go or C.
+	- Expected behavior: what a capped parse holds stays near the file's size. The amount is linear and a byte cap on the read bounds it, so this is a constant factor, not a hole in the caps.
+	- Possible cause: every binding splits the whole text into lines before the first cap check, and blank lines count against nothing.
 	- Estimated effort: Avg
 
 - On Windows a create-only save through a link to nowhere, and `.` under a missing folder, are unchecked
@@ -918,6 +934,110 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- A load that re-opens many blocks takes time in the square of their count since 2026-11-04
+	- ID: 2026110613470305
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Target version: v3.0.0
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 5
+	- Related IDs: 2026110315051536
+	- Version and build: dev at `343334df`
+	- Steps to reproduce:
+		- 100,000 blocks `srv: vN`, each with a child, then each one again with another child.
+		- `shcl fmt FILE`.
+	- Incorrect behavior: Go 5.3 s, C 4.0 s, Rust 1.6 s. Go built from before `5922ef64` takes 0.56 s. With a kept line before each re-opened block, Rust at 64,000 blocks went from 0.46 s to 3.3 s.
+	- Expected behavior: the linear time it had before the fold fix. lib.rs says the parse keeps a plain file out of quadratic time.
+	- Reproduced: 20261106, all 4 CLIs, and the old Go and Rust builds for the before numbers. Go's profile puts 91% of the time in `refileFolded`.
+	- Possible cause: every line that binds to an existing node goes in `folded`, kept lines or not, and `refile_folded` scans the parent's whole child list for each one before it checks whether anything has to move. A child-to-index map gave the old Go time, with the same output over the corpus.
+	- Origin: `5922ef64` (2026-11-04), the fix for 2026110315051536. Regression. No perf-gate workload re-opens blocks. Confirmed.
+	- Note: the fix needs a perf-gate workload with a numeric threshold.
+	- Regression test: a scaling test in all 4 suites, as `dep84` does for the CLI: 8 times the re-opened blocks reads in under 3 times the time, skipped under TSan and Miri like the other timing tests; watched to fail on `5922ef64`.
+	- Estimated effort: Low
+	- Actual cause [Bug]: as above. Each re-opened node was looked for in its parent's child list, and one with a kept line before it walked every sibling between it and that line. C also kept the re-open hint's lines in a list it scanned, so it was quadratic with no kept line too.
+	- Actual effort: Low
+	- Progress log:
+		- 20261107, all 4 bindings: the refile skips a node with no kept line to move, finds each node's place from one pass over each parent's list, and finds the sibling a line goes above by one sweep per parent from its end. C's re-open lines are in a hash map, as in the other 3.
+		- 100,000 blocks with a kept line before each re-open: Rust 59 s to 4.1 s (debug), Go 13 s to 0.96 s, C 9.9 s to 0.47 s, Python out of reach to 17 s, each linear. Output the same as before over the corpus and both shapes.
+	- Decisions:
+		- me, 20261107: the scaling bound is 8 times the blocks in under 24 times the time, 3 times linear growth. 8 times the work can't take under 3 times the time. The old code took 40 to 50 times.
+		- me, 20261107: the perf-gate workload is judged against a twin with new values in the second half, so nothing re-opens, as fills is. A fold and its hint cost more than a parsed line. New code runs at about the twin's time, the old at 4 to 6 times it.
+		- me, 20261107: Python's test uses 3,000 and 24,000 blocks, best of 2 on the big side, where the others use 6,000 and 48,000. The old code is still past 10 times over there.
+	- Actual fix [Bug]: `refile_folded` with `folded_span` and `place_folded` (Go `refileFolded`, `foldedSpan`, `placeFolded`; Python `_refile_folded`, `_folded_span`, `_place_folded`), in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`, and C's `reent_get` / `reent_set` through a hash map.
+	- Swept: the other 3 bindings' re-open lines (maps already), the 2 sites that feed the fold list, and the rest of the refile (sort and settle, linear).
+	- Verified: the 4 conformance suites, Go under `-race`, Rust's lib, cli_pipe and 20,000-iteration fuzz, C's mem_bounds, veneer, oom_hook and oom_recover, cli-regress (655 rows), crosscheck (54873 comparisons), perf-gate over the 4 CLIs, analyze-c, clippy, go vet, staticcheck, ruff, mypy, shellcheck, test-ids check, and the C CLI at `-Werror` under cc, gcc 15 and clang.
+	- Verified: `df010`, `df011`, `df012` and `df013` fail on the code before the fix and pass after, and perf-gate `df014` failed for the old Rust, Go and C CLIs (4, 5 and 6 times the twin).
+	- Branch: `r1107b`
+	- Commit: `49afec33`
+	- Test case: conformance `reopened_blocks_load_in_linear_time` (`df010` Rust, `df011` Go, `df012` Python), C mem_bounds `df013`, perf-gate `reopens` (`df014`).
+	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new tests failed before and pass after, and the named gates pass.
+	- Closed: 20261107-083437
+
+- Python decodes escapes in time in the square of their count
+	- ID: 2026110613470306
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Target version: v3.0.0
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 6
+	- Version and build: dev at `343334df`
+	- Steps to reproduce:
+		- `a: "`, then `◉TAB◉` 80,000 times, then `"`.
+		- `shcl check FILE`.
+	- Incorrect behavior: Python takes 3.0 s, against 0.8 s at 40,000. 1M escapes, a 9 MB line, ran past 90 s. At 1M Rust takes 0.09 s, C 0.08 and Go 0.71.
+		- Go and Python build the diagnostic text for every good escape, where Rust builds it only for an error. Building it only when needed took Go from 0.72 s to 0.19 s at 1M.
+	- Expected behavior: README says the parser is safe on untrusted input. The caps can't help, since it's one line.
+	- Reproduced: 20261106, all 4 CLIs, profiled in Python.
+	- Possible cause: `_resolve_marks` copies the rest of the text at each escape, and `_shown` does the same. Finding each mark by index gave 0.25 s at 40,000 and 3.1 s at 1M, with the same `fmt` output.
+	- Origin: `f2b97394` (2026-10-06) for `_resolve_marks`, `1d5f3f2b` (2026-10-10) for `_shown`, `81943546` (2026-10-09) for the text built every time. A drift from the Rust reference. Not seen by an earlier round. Confirmed.
+	- Regression test: a scaling test in the Python suite, 8 times the escapes decoded in under 3 times the time, and the same test in the other 3 for parity; plus a test that an error's text isn't built when nothing reads it, in Go and Python.
+	- Actual cause: as above. `_resolve_marks` and `_shown` sliced off the rest of the text at each escape, and `_escape_text` in Python and `escapeText` in Go built the `E023` text before knowing there was an error.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Decisions:
+		- "8 times the escapes in under 3 times the time" read as under 3 times the linear growth, so under 24 times, the bound df010 to df013 use. The old Python walk took 46 times at 10,000 against 80,000 (me).
+		- Go's allocation test checks names from the list only, since a code point's text is a new string either way (me).
+	- Swept: `_one_line_in` and `oneLineIn` callers in Python and Go for other text built ahead of an error (none on a per-escape path); Python's other `rest = rest[...]` loop is the duration parser, bounded by its few units. Rust and C already find marks without copying and build the text lazily.
+	- Actual fix: both Python walks find each mark by index in the one string. Python and Go build the escape's message text only on the error path, as Rust does. At 1M escapes `shcl check` takes 1.8 s in Python (past 90 s before) and 0.20 s in Go (0.71 s).
+	- Verified: df026 and df027 fail on the old Python and pass on the fix; df029 fails on the old Go and passes. df028, df02a and df02b pass. Python, Go full suites, mem_bounds, crosscheck (23529 comparisons), cli-regress (655 rows), perf-gate, test-ids check, ruff, go vet, staticcheck, cargo fmt and clippy pass.
+	- Branch: `r1107b`
+	- Test case: `df026` (Python), `df028` (Go), `df02a` (Rust), `df02b` (C) scaling over 10,000 and 80,000 escapes; `df027` (Python), `df029` (Go) no message text for a good escape.
+	- Acceptance signoff: Self-closed: the scaling and message tests fail on the old code and pass on the fix.
+	- Closed: 20261107-085100
+
+- A path that names a folder gets the wrong refusal in Rust and C, and from the CLIs' own changed check
+	- ID: 2026110613470308
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Target version: v3.0.0
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 8
+	- Version and build: dev at `343334df`
+	- Steps to reproduce:
+		- A file `f.shcl`. Save to `f.shcl/` or `f.shcl/.`, and a create-only save to `f.shcl/`.
+		- `set --write f.shcl` with the file swapped for a folder during the wait for ops.
+	- Incorrect behavior: Rust and C give `Changed`, or `Exists` for the create, where Go and Python give `IsDirectory`. The CLIs' swap case gives `FILE: not a regular file` at exit 8, where a folder there from the start gives "is a directory". The C CLI says `Not a directory` for `f.shcl/`.
+	- Expected behavior: design.md's Save outcomes give `IsDirectory` for a path ending in a separator, `.` or `..`, and for a folder, and say the same answer comes from every binding's save and from the CLI's `--write`.
+	- Reproduced: 20261106, library calls and all 4 CLIs. Nothing is written in any case.
+	- Possible cause: the resolve drops the trailing separator before the changed and create checks, and a read that fails with ENOTDIR counts as a change. The CLI's check refuses anything but a regular file with one message.
+	- Origin: `2f38f68b` (2026-11-03) for the library, `c1053f55` (2026-11-04) for the CLI message. Before `2f38f68b` the write said `IsDirectory`. Regression from a fresh fix. Confirmed.
+	- Note: a caller that retries with `force` on `Changed` is misled.
+	- Regression test: rows in 2026110616475901 with a folder at the save path, for the library save, the changed check and the CLIs' own check, expecting the directory refusal in all 4 and exit 8 with the matching text from each CLI; a cli-regress fixture that puts a folder at the path.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: confirmed. Rust and C ran the create and changed checks before the write's is-a-directory test, through a resolve that drops the trailing separator, and a read that failed with ENOTDIR counted as a change. The CLIs' own check gave one message for anything not a regular file. The C CLI's create test took only ENOENT as nothing there, so `f.shcl/` went to the read.
+	- Actual fix: every binding's save answers a path ending in a separator, `.` or `..` as IsDirectory first, before the create and changed checks. The CLIs' check names a folder as a folder there from the start is named, `FILE: Is a directory`. The C CLI takes ENOTDIR as nothing there, as the other 3 do, and skips the temp-file probe for EISDIR.
+	- Decisions:
+		- me, 20261107: the regression rows went into the existing tests (`dc42j`, `dc42p`, `dc42k`, `dc42n`) and cli-regress, since 2026110616475901 isn't written yet. That item still owes its own folder rows.
+	- Verified: `dc42j` gave Changed for `f.shcl/` on the old Rust code and `dc42n` failed on the old C code; both pass now. cli-regress `df03q`, `df03r` and `df03s` fail on the old CLIs (Python and C for the swap, C for the 2 paths) and pass on all 4 new ones. Go `dc42k` passed on b29w. The rest as on 2026110613470307.
+		- 20261107, b29w with a short-name TEMP: Rust `dc42j` and C `dc42n` pass, in the whole Rust suite and C runner, in place of the hosted windows job.
+	- Test case: `save_refuses_a_directory_shaped_path` (`dc42j`, `dc42p`, `dc42k`, `dc42n`), cli-regress `df03q` (`write-dir-during-wait`, stdin `@dir`), `df03r` (`write-dir-shaped`) and `df03s` (`write-dir-shaped-dot`). POSIX only for `df03q`.
+	- Branch: `r1107b`
+	- Closed: 20261107-103409
 
 - A `#` in an unquoted path cuts the path, so `--remove` and the setters act on the field above it
 	- ID: 2026110613470301

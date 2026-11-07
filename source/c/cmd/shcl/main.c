@@ -689,7 +689,9 @@ static FILE *open_rb(const char *file) {
 static int path_absent(const char *file) {
 	FILE *p = open_rb(file);
 	if (p) { fclose(p); return 0; }
-	return errno == ENOENT;
+	// ENOTDIR too, as the other three, so `f/` with a file at f gets the
+	// save's is-a-directory refusal rather than the read's error.
+	return errno == ENOENT || errno == ENOTDIR;
 }
 
 // The message for reading a directory is the platform's, and windows
@@ -1268,7 +1270,9 @@ static int holds_bytes(const char *file, const char *before, size_t n, int *not_
 static int unchanged_since_read(const char *file, const char *before, size_t n) {
 	int not_regular = 0;
 	int same = holds_bytes(file, before, n, &not_regular);
-	if (not_regular) fprintf(stderr, "%s: not a regular file\n", file);
+	// A folder gets the words a folder there from the start gets.
+	if (not_regular && is_a_directory(file)) fprintf(stderr, "%s: Is a directory\n", file);
+	else if (not_regular) fprintf(stderr, "%s: not a regular file\n", file);
 	else if (!same) fprintf(stderr, "%s: changed since it was read; nothing written\n", file);
 	return same;
 }
@@ -1296,13 +1300,17 @@ static int write_back(shcl_doc *d, const char *file, Opts *o, const char *read, 
 		&& c.n == read_len && (c.n == 0 || memcmp(c.p, read, c.n) == 0)) return 0;
 	// The text is already built, so the line-keeping save writes it rather
 	// than building it again, with the same refusal shcl_save_file_keep_lines
-	// makes (20260926 idea 3).
+	// makes (20260926 idea 3). The check above is this write's changed check.
+	// The library's would refuse every file, since the parse read none.
+	shcl_save_options so = {0};
+	so.force = 1;
+	so.lossy = o->lossy;
 	shcl_save_result r;
 	if (o->lossy && keep) r = shcl_write_file_atomic(file, c.p, c.n, NULL) ? SHCL_SAVE_OK : SHCL_SAVE_FAILED;
-	else if (o->lossy) r = shcl_save_file_lossy(d, file, NULL);
+	else if (o->lossy) r = shcl_save_file_with(d, file, so, NULL, NULL);
 	else if (keep && !kept && shcl_lost_count(d) > 0) r = SHCL_SAVE_REFUSED;
 	else if (keep) r = shcl_write_file_atomic(file, c.p, c.n, NULL) ? SHCL_SAVE_OK : SHCL_SAVE_FAILED;
-	else r = shcl_save_file(d, file, NULL);
+	else r = shcl_save_file_with(d, file, so, NULL, NULL);
 	if (r == SHCL_SAVE_OK) {
 		// A created file is the one write with nothing to compare against
 		// afterwards, and a typo in the name used to end at exit 0 with an
@@ -1323,7 +1331,7 @@ static int write_back(shcl_doc *d, const char *file, Opts *o, const char *read, 
 	// naming is the temp-file create, which is what failed when the target's
 	// directory cannot take one.
 	int e = errno;
-	if (!dir_takes_a_temp(file)) fprintf(stderr, "%s: cannot create temporary file: %s\n", file, strerror(e));
+	if (e != EISDIR && !dir_takes_a_temp(file)) fprintf(stderr, "%s: cannot create temporary file: %s\n", file, strerror(e));
 	else fprintf(stderr, "%s: %s\n", file, strerror(e));
 	return EXIT_IO;
 }

@@ -1235,24 +1235,25 @@ fn parse_limited_caps() {
 	assert_eq!(doc.lost_count(), 1);
 	assert_eq!(doc.get_int("a"), Ok(1));
 	assert!(!doc.exists("d"), "the remainder must not parse");
-	// A cap crossed by the document's last content line still reports.
+	// A cap crossed by the document's last content line stops nothing, so
+	// nothing reports (2026110613470304; it reported one E020 before).
 	let doc = Document::parse_limited("a: 1\nb: 2\nc: 3", Strictness::Standard, 2, 0, 0).unwrap();
 	assert_eq!(
 		doc.diagnostics()
 			.iter()
 			.filter(|d| d.code == "E020")
 			.count(),
-		1
+		0
 	);
 	assert_eq!(doc.lost_count(), 0, "nothing was dropped");
-	// One line may overshoot the cap by its own path; the parse still stops.
+	// One line may overshoot the cap by its own path.
 	let doc = Document::parse_limited("x.y.z: 1\n", Strictness::Standard, 1, 0, 0).unwrap();
 	assert_eq!(
 		doc.diagnostics()
 			.iter()
 			.filter(|d| d.code == "E020")
 			.count(),
-		1
+		0
 	);
 	assert_eq!(doc.get_int("x.y.z"), Ok(1));
 	// 0 is no cap: identical to parse_with.
@@ -1402,6 +1403,57 @@ fn parse_limited_caps() {
 	// parsed part still on the error.
 	let err = Document::parse_limited(text, Strictness::Strict, 2, 0, 0).unwrap_err();
 	assert_eq!(err.document.get_int("a"), Ok(1));
+}
+
+/// Comment lines and kept lines build no node but cost about what one does,
+/// so the node cap counts them, and a file of nothing else stops at the cap.
+/// E020 goes on the first line not parsed, and a cap crossed with only
+/// blanks left stops nothing. Same fixture in every runner.
+#[test]
+fn the_node_cap_counts_comment_and_kept_lines() {
+	let _id = test_id("df003");
+	use shcl::Strictness;
+	let e020 = |doc: &Document| -> Vec<usize> {
+		doc.diagnostics()
+			.iter()
+			.filter(|d| d.code == "E020")
+			.map(|d| d.line)
+			.collect()
+	};
+	// The cap is 3, so the fourth line taken is the one past it, and the
+	// parse stops before the fifth.
+	for (what, line) in [
+		("comment", "# c\n"),
+		("kept", "a b\n"),
+		("mixed", "# c\na b\n"),
+	] {
+		let text = line.repeat(1000);
+		let lines = text.lines().count();
+		let doc = Document::parse_limited(&text, Strictness::Standard, 3, 0, 100).unwrap();
+		assert_eq!(e020(&doc), vec![5], "{what}");
+		assert_eq!(doc.lost_count(), lines - 4, "{what}");
+	}
+	// Nodes and held lines share the one count.
+	let doc = Document::parse_limited(
+		"# c\na: 1\nb b\nc: 3\nd: 4\n",
+		Strictness::Standard,
+		3,
+		0,
+		0,
+	)
+	.unwrap();
+	assert_eq!(e020(&doc), vec![5]);
+	assert_eq!(doc.get_int("c"), Ok(3));
+	// The comment that crosses it on the last line loads, and Strict takes it.
+	let text = "a: 1\n# b\n# c\n\n\n";
+	let doc = Document::parse_limited(text, Strictness::Standard, 2, 0, 0).unwrap();
+	assert!(doc.diagnostics().is_empty());
+	assert!(Document::parse_limited(text, Strictness::Strict, 2, 0, 0).is_ok());
+	// The overshoot line stays, and the next one is the first not parsed.
+	let doc = Document::parse_limited("x.y.z: 1\nw: 2\n", Strictness::Standard, 1, 0, 0).unwrap();
+	assert_eq!(e020(&doc), vec![2]);
+	assert_eq!(doc.get_int("x.y.z"), Ok(1));
+	assert_eq!(doc.lost_count(), 1);
 }
 
 /// An item or a line past the caller's element cap is E021 and dropped, even
@@ -2692,7 +2744,10 @@ fn save_reports_a_symlink_cycle_instead_of_replacing_it() {
 	std::os::unix::fs::symlink("b.shcl", &a).unwrap();
 	std::os::unix::fs::symlink("a.shcl", &b).unwrap();
 	let mut doc = Document::parse("a: 1\n");
-	assert!(doc.save_file(a.to_str().unwrap()).is_err());
+	match doc.save_file(a.to_str().unwrap()) {
+		Err(shcl::SaveError::Io(e)) => assert_eq!(e.status, shcl::WriteStatus::Other),
+		other => panic!("a symlink cycle saved as {other:?}"),
+	}
 	for link in [&a, &b] {
 		assert!(
 			std::fs::symlink_metadata(link)
@@ -2768,8 +2823,13 @@ fn save_rewrites_a_read_only_file() {
 	let mut perms = std::fs::metadata(&f).unwrap().permissions();
 	perms.set_readonly(true);
 	std::fs::set_permissions(&f, perms).unwrap();
+	// A parse never read the file there, so these saves force.
+	let force = shcl::SaveOptions {
+		force: true,
+		..shcl::SaveOptions::default()
+	};
 	let mut doc = Document::parse("a: 2\n");
-	doc.save_file(f.to_str().unwrap()).unwrap();
+	doc.save_file_with(f.to_str().unwrap(), &force).unwrap();
 	assert_eq!(std::fs::read_to_string(&f).unwrap(), "a: 2\n");
 	assert!(std::fs::metadata(&f).unwrap().permissions().readonly());
 	let left: Vec<_> = std::fs::read_dir(&dir).unwrap().collect();
@@ -2784,7 +2844,7 @@ fn save_rewrites_a_read_only_file() {
 	// hidden config used to come back visible.
 	set_attrs(&f, 0x2 | 0x4);
 	Document::parse("a: 3\n")
-		.save_file(f.to_str().unwrap())
+		.save_file_with(f.to_str().unwrap(), &force)
 		.unwrap();
 	let after = {
 		use std::os::windows::fs::MetadataExt;
@@ -2826,19 +2886,37 @@ fn set_attrs(path: &std::path::Path, attrs: u32) {
 #[test]
 fn save_refuses_a_directory_shaped_path() {
 	let _id = test_id("dc42j");
+	use shcl::{SaveError, SaveOptions, WriteStatus};
 	let dir = std::env::temp_dir().join(format!("shcl-dirpath-{}", std::process::id()));
 	std::fs::create_dir_all(&dir).unwrap();
 	let f = dir.join("f.shcl");
 	std::fs::write(&f, "a: 1\n").unwrap();
-	let mut doc = Document::parse("a: 2\n");
+	let (mut doc, _) = Document::load_file(f.to_str().unwrap());
+	let _ = doc.set_int("a", 2);
+	// Is a directory, before the changed and create checks, which read such
+	// a path as a change or as a file there (2026110613470308).
+	let create = SaveOptions {
+		create: true,
+		..SaveOptions::default()
+	};
 	for suffix in ["/", "/.", "/.."] {
 		let p = format!("{}{}", f.display(), suffix);
-		assert!(
-			doc.save_file(&p).is_err(),
-			"save through {:?} was accepted",
-			p
-		);
+		for opts in [SaveOptions::default(), create] {
+			match doc.save_file_with(&p, &opts) {
+				Err(SaveError::Io(e)) => assert_eq!(e.status, WriteStatus::IsDirectory, "{p:?}"),
+				other => panic!("save through {p:?} gave {other:?}"),
+			}
+		}
 	}
+	// A folder at the path, made after the load.
+	let g = dir.join("g.shcl");
+	let (mut gone, _) = Document::load_file(g.to_str().unwrap());
+	std::fs::create_dir(&g).unwrap();
+	match gone.save_file(g.to_str().unwrap()) {
+		Err(SaveError::Io(e)) => assert_eq!(e.status, WriteStatus::IsDirectory),
+		other => panic!("save over a folder gave {other:?}"),
+	}
+	std::fs::remove_dir(&g).unwrap();
 	assert_eq!(std::fs::read_to_string(&f).unwrap(), "a: 1\n");
 	assert!(doc.save_file(f.to_str().unwrap()).is_ok());
 	assert_eq!(std::fs::read_to_string(&f).unwrap(), "a: 2\n");
@@ -3180,6 +3258,90 @@ fn a_far_kept_line_costs_an_edit_nothing() {
 	assert!(
 		ms[1] <= bound,
 		"500 edits and merges beside a kept line {:.1} ms against {:.1} ms without it (bound {:.1} ms) - each one settles the whole document",
+		ms[1],
+		ms[0],
+		bound
+	);
+}
+
+/// A load that re-opens every block after a kept line looked for each
+/// re-opened node in its parent's list, and walked the siblings between it
+/// and the kept line, so the time went with the square of the blocks
+/// (2026110613470305). Eight times the blocks has to take under 24 times the
+/// time, 3 times the linear growth, where the old walk took 40 times and more.
+/// Best of 3 each, against noise on the small side. Same fixture in every
+/// runner.
+#[cfg_attr(
+	miri,
+	ignore = "times a ratio, which means nothing under Miri, and never finishes there (2026102106592600)"
+)]
+#[cfg_attr(
+	shcl_tsan,
+	ignore = "times a ratio, which means nothing under ThreadSanitizer"
+)]
+#[test]
+fn reopened_blocks_load_in_linear_time() {
+	let _id = test_id("df010");
+	let mut ms = [0.0f64; 2];
+	for (slot, n) in ms.iter_mut().zip([6000, 48_000]) {
+		let mut text = String::new();
+		for i in 0..n {
+			text.push_str(&format!("srv: v{i}\n\ta: 1\n"));
+		}
+		for i in 0..n {
+			text.push_str(&format!("q{i}: [1\nsrv: v{i}\n\tb: 1\n"));
+		}
+		*slot = f64::INFINITY;
+		for _ in 0..3 {
+			let t0 = std::time::Instant::now();
+			let d = Document::parse(&text);
+			*slot = slot.min(t0.elapsed().as_secs_f64() * 1000.0);
+			assert!(d.to_canonical().ends_with(&format!("\nq{}: [1\n", n - 1)));
+		}
+	}
+	let bound = ms[0].max(1.0) * 24.0;
+	assert!(
+		ms[1] <= bound,
+		"48000 re-opened blocks {:.1} ms against {:.1} ms for 6000 (bound {:.1} ms) - the load's refile is not linear",
+		ms[1],
+		ms[0],
+		bound
+	);
+}
+
+/// Decoding a value's escapes cut the rest of the text off at each one in
+/// Python, so the time went with the square of their count
+/// (2026110613470306). Eight times the escapes has to take under 24 times the
+/// time, 3 times the linear growth. Best of 3 each. Same fixture in every
+/// runner.
+#[cfg_attr(
+	miri,
+	ignore = "times a ratio, which means nothing under Miri, and never finishes there (2026102106592600)"
+)]
+#[cfg_attr(
+	shcl_tsan,
+	ignore = "times a ratio, which means nothing under ThreadSanitizer"
+)]
+#[test]
+fn escapes_decode_in_linear_time() {
+	let _id = test_id("df02a");
+	let mut ms = [0.0f64; 2];
+	for (slot, n) in ms.iter_mut().zip([10_000, 80_000]) {
+		let text = format!("a: \"{}\"\n", "\u{25C9}TAB\u{25C9}".repeat(n));
+		*slot = f64::INFINITY;
+		for _ in 0..3 {
+			let t0 = std::time::Instant::now();
+			let d = Document::parse(&text);
+			let got = d.get_string("a");
+			*slot = slot.min(t0.elapsed().as_secs_f64() * 1000.0);
+			assert_eq!(got.as_deref(), Ok("\t".repeat(n).as_str()));
+			assert_eq!(d.to_canonical(), text);
+		}
+	}
+	let bound = ms[0].max(1.0) * 24.0;
+	assert!(
+		ms[1] <= bound,
+		"80000 escapes {:.1} ms against {:.1} ms for 10000 (bound {:.1} ms) - escape decoding is not linear",
 		ms[1],
 		ms[0],
 		bound
@@ -3697,6 +3859,8 @@ fn lost_and_save_gate() {
 	let (back, _) = Document::load_file(fs);
 	assert!(back.to_canonical().contains("square-miles 300\n"));
 	assert!(lost.save_file(fs).is_err());
+	// lost never read what kept wrote there.
+	std::fs::remove_file(&f).unwrap();
 	assert!(lost.save_file_lossy(fs).is_ok());
 	// A refusal and a failed write are separate values, not two spellings of one
 	// message, and the gate answers before any i/o - so an unwritable path still
@@ -3714,6 +3878,7 @@ fn lost_and_save_gate() {
 	let mut keep =
 		Document::parse_keep_lines("a:\n\t\tb: 1\n\tc: 2\n", Strictness::Standard).unwrap();
 	assert_eq!(keep.set_int("a.b", 5), shcl::SetStatus::Ok);
+	std::fs::remove_file(&f).unwrap();
 	assert!(matches!(keep.save_file_keep_lines(fs), Ok(true)));
 	assert_eq!(
 		std::fs::read_to_string(fs).unwrap(),
@@ -5993,8 +6158,9 @@ fn format_array_is_the_setters_text() {
 }
 
 /// A save over the file a load read refuses when another program changed it
-/// since, writes nothing, and writes with force. A save elsewhere, and a
-/// document from parse, save as they always did (2026102910482342).
+/// since, writes nothing, and writes with force. A save over a file the
+/// document never read, a parse's included, is refused the same way
+/// (2026102910482342, 2026110613470307).
 #[cfg_attr(
 	miri,
 	ignore = "saves to disk, and Miri has no fchown or directory fsync"
@@ -6026,7 +6192,7 @@ fn a_save_over_a_file_changed_since_the_load_is_refused() {
 	assert_eq!(
 		doc.save_file(&f).unwrap_err().to_string(),
 		format!(
-			"{f}: refusing to save: the file changed since it was loaded; nothing written (force overrides)"
+			"{f}: refusing to save: what is there is not what this document read or wrote; nothing written (force overrides)"
 		)
 	);
 	assert_eq!(doc.save_file_with(&f, &force), Ok(false));
@@ -6076,15 +6242,24 @@ fn a_save_over_a_file_changed_since_the_load_is_refused() {
 	assert_eq!(fresh.save_file(&n), Ok(()));
 	assert_eq!(read(&n), "a: 1\n");
 
-	// Elsewhere is not checked, and the load's file still is.
+	// A file the document never read is checked too: a save-as over it is
+	// refused, and force writes it. The load's file still is.
 	let other = at("other.shcl");
 	std::fs::write(&other, "z: 0\n").unwrap();
+	assert_eq!(gone.save_file(&other), Err(changed(&other)));
+	assert_eq!(read(&other), "z: 0\n");
+	assert_eq!(gone.save_file_with(&other, &force), Ok(false));
 	assert_eq!(gone.save_file(&other), Ok(()));
 	assert_eq!(gone.save_file(&f), Err(changed(&f)));
-	// A parse has no file behind it.
+	// A parse read no file, so it writes only where nothing is, or over what
+	// it wrote itself.
 	let mut parsed = Document::parse("a: 5\n");
-	assert_eq!(parsed.save_file(&other), Ok(()));
+	assert_eq!(parsed.save_file(&other), Err(changed(&other)));
+	assert_eq!(parsed.save_file_with(&other, &force), Ok(false));
 	assert_eq!(read(&other), "a: 5\n");
+	assert_eq!(parsed.save_file(&f), Ok(()));
+	assert_eq!(parsed.save_file(&f), Ok(()));
+	assert_eq!(read(&f), "a: 5\n");
 	let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -6283,6 +6458,8 @@ fn a_newer_format_document_saves_nowhere() {
 	] {
 		let mut d = Document::parse(text);
 		assert!(!d.newer_format(), "{text:?}");
+		// A parse never read the file the last pass wrote.
+		let _ = std::fs::remove_file(&other);
 		assert_eq!(d.save_file(&other), Ok(()), "{text:?}");
 	}
 	// A merged layer's lines are the document's now.
