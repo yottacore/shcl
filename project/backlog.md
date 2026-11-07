@@ -51,8 +51,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A `#` in an unquoted path cuts the path, so `--remove` and the setters act on the field above it
 	- ID: 2026110613470301
 	- Type: Bug
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: a 2,000,000-iteration release fuzz (`SHCL_FUZZ_ITERS=2000000`) and `check-migrate.bash` on `c423e310`, since the new corpus input shifts the seeds. check-migrate didn't finish in 4 minutes here.
+	- Status: Done
+	- Needs local test suite run?: No
 	- Severity: High
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 1
@@ -79,6 +79,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: corpus `216` fails in Rust, Python and C on the old libraries (the remove and setters act on `colors`), and `dez5f`, `dez5h` fail on the old C CLI. All pass on the fix. The 4 conformance suites, the whole Rust suite with the quick fuzz, the Go cmd tests, the veneer smoke, cli-regress (655 rows, 4 bindings), crosscheck (23298 comparisons), check-docs, check-abnf, test-ids, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, shellcheck, markdownlint, lint-report.
 	- Branch: `r1107`
 	- Commit: `c423e310`
+	- Acceptance signoff: Self-closed: the 2M release fuzz and check-migrate passed on c423e310.
+	- Closed: 20261107-022500
+	- 20261107: Verified: SHCL_FUZZ_ITERS=2000000 release fuzz_smoke passed (31 tests, 507 s) and check-migrate.bash passed (655 documents) on c423e310, log /mnt/ext/wip2/wip/tmp/shcl/20261107-010737_001/fuzzmig.log.
 
 - `banner on` and `upgrade` drop an author's line inside the info block
 	- ID: 2026110613470302
