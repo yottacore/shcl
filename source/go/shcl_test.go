@@ -3138,6 +3138,61 @@ func TestStrictFailureCarriesDocument(t *testing.T) {
 	}
 }
 
+// Comment lines and kept lines build no node but cost about what one does, so
+// the node cap counts them, and a file of nothing else stops at the cap. E020
+// goes on the first line not parsed, and a cap crossed with only blanks left
+// stops nothing. Same fixture in every runner.
+func TestNodeCapCountsCommentAndKeptLines(t *testing.T) {
+	defer testID(t, "df004")
+	e020 := func(d *Document) []int {
+		var at []int
+		for _, g := range d.Diagnostics() {
+			if g.Code == "E020" {
+				at = append(at, g.Line)
+			}
+		}
+		return at
+	}
+	// The cap is 3, so the fourth line taken is the one past it, and the
+	// parse stops before the fifth.
+	for _, c := range []struct{ what, line string }{{"comment", "# c\n"}, {"kept", "a b\n"}, {"mixed", "# c\na b\n"}} {
+		text := strings.Repeat(c.line, 1000)
+		lines := strings.Count(text, "\n")
+		doc, _ := ParseLimited(text, Standard, 3, 0, 100)
+		if at := e020(doc); len(at) != 1 || at[0] != 5 {
+			t.Fatalf("%s: E020 at %v", c.what, at)
+		}
+		if doc.LostCount() != lines-4 {
+			t.Fatalf("%s: lost %d", c.what, doc.LostCount())
+		}
+	}
+	// Nodes and held lines share the one count.
+	doc, _ := ParseLimited("# c\na: 1\nb b\nc: 3\nd: 4\n", Standard, 3, 0, 0)
+	if at := e020(doc); len(at) != 1 || at[0] != 5 {
+		t.Fatalf("shared count: E020 at %v", at)
+	}
+	if v, st := doc.GetInt("c"); v != 3 || st != Good {
+		t.Fatalf("c: %d %v", v, st)
+	}
+	// The comment that crosses it on the last line loads, and Strict takes it.
+	text := "a: 1\n# b\n# c\n\n\n"
+	doc, _ = ParseLimited(text, Standard, 2, 0, 0)
+	if len(doc.Diagnostics()) != 0 {
+		t.Fatalf("last-line comment: %v", doc.Diagnostics())
+	}
+	if _, err := ParseLimited(text, Strict, 2, 0, 0); err != nil {
+		t.Fatalf("last-line comment under Strict: %v", err)
+	}
+	// The overshoot line stays, and the next one is the first not parsed.
+	doc, _ = ParseLimited("x.y.z: 1\nw: 2\n", Standard, 1, 0, 0)
+	if at := e020(doc); len(at) != 1 || at[0] != 2 {
+		t.Fatalf("overshoot: E020 at %v", at)
+	}
+	if v, st := doc.GetInt("x.y.z"); v != 1 || st != Good || doc.LostCount() != 1 {
+		t.Fatalf("overshoot: %d %v lost %d", v, st, doc.LostCount())
+	}
+}
+
 func TestParseLimitedCaps(t *testing.T) {
 	defer testID(t, "dc1yh")
 	// The caps exist because a document amplifies to many times its byte size
@@ -3171,15 +3226,16 @@ func TestParseLimitedCaps(t *testing.T) {
 	if doc.Exists("d") {
 		t.Fatalf("the remainder must not parse")
 	}
-	// A cap crossed by the document's last content line still reports. The
+	// A cap crossed by the document's last content line stops nothing, so
+	// nothing reports (2026110613470304; it reported one E020 before). The
 	// Standard calls from here on drop the error, which only Strict returns.
 	doc, _ = ParseLimited("a: 1\nb: 2\nc: 3", Standard, 2, 0, 0)
-	if n, _ := codeCount(doc, "E020"); n != 1 || doc.LostCount() != 0 {
+	if n, _ := codeCount(doc, "E020"); n != 0 || doc.LostCount() != 0 {
 		t.Fatalf("last-line cross: %d E020, lost %d", n, doc.LostCount())
 	}
-	// One line may overshoot the cap by its own path; the parse still stops.
+	// One line may overshoot the cap by its own path.
 	doc, _ = ParseLimited("x.y.z: 1\n", Standard, 1, 0, 0)
-	if n, _ := codeCount(doc, "E020"); n != 1 {
+	if n, _ := codeCount(doc, "E020"); n != 0 {
 		t.Fatalf("deep line: %d E020", n)
 	}
 	if v, st := doc.GetInt("x.y.z"); v != 1 || st != Good {

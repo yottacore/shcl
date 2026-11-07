@@ -161,6 +161,53 @@ fn peak_during(_turn: &Turn, f: impl FnOnce()) -> usize {
 	ignore = "slow under Miri; --miri-all runs it"
 )]
 #[test]
+fn comment_and_kept_lines_count_against_the_node_cap() {
+	let _id = test_id("df007");
+	let turn = my_turn();
+	use shcl::{Document, Strictness};
+	// A file of comment lines and kept lines builds no node, so the node cap
+	// never fired and each line was held: 100 times the file at 4 MB. Set
+	// against the same number of field lines, which stop at the cap and
+	// cost only the per-line split.
+	let lines = 200_000;
+	let held: String = (0..lines)
+		.map(|i| {
+			if i % 2 == 0 {
+				"# a comment line\n"
+			} else {
+				"kept line\n"
+			}
+		})
+		.collect();
+	let fields: String = (0..lines).map(|i| format!("k{i}: 1\n")).collect();
+	let cap = 1_000;
+	let base = peak_during(&turn, || {
+		Document::parse_limited(&fields, Strictness::Standard, cap, 0, 0).unwrap();
+	});
+	let (mut at, mut lost) = (Vec::new(), 0);
+	let capped = peak_during(&turn, || {
+		let doc = Document::parse_limited(&held, Strictness::Standard, cap, 0, 0).unwrap();
+		at = doc
+			.diagnostics()
+			.iter()
+			.filter(|d| d.code == "E020")
+			.map(|d| d.line)
+			.collect();
+		lost = doc.lost_count();
+	});
+	assert!(
+		capped < base * 2,
+		"a capped parse held its comment and kept lines: {capped} bytes against {base} for as many field lines"
+	);
+	assert_eq!(at, vec![cap + 2], "E020 goes on the first line not parsed");
+	assert_eq!(lost, lines - cap - 1);
+}
+
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
+#[test]
 fn element_cap_bounds_the_parse() {
 	let _id = test_id("dc25e");
 	let turn = my_turn();

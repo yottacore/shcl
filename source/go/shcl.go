@@ -4680,10 +4680,15 @@ type parser struct {
 	src        []string
 	arrayLines map[int]arrayLine
 	// ParseLimited's caps, 0 = uncapped: nodes counted against the arena
-	// (root excluded), elements against a single value's cell, diagnostics
-	// against the list. Past the diagnostic cap nothing is listed, only
-	// counted (errors, hints), for the one tail entry the parse ends with.
-	maxNodes       int
+	// (root excluded) plus held, elements against a single value's cell,
+	// diagnostics against the list. Past the diagnostic cap nothing is
+	// listed, only counted (errors, hints), for the one tail entry the parse
+	// ends with.
+	maxNodes int
+	// Comment lines and kept lines taken so far. They cost about what a node
+	// does and build none, so a file of nothing else would pass the node cap
+	// untouched.
+	held           int
 	maxElements    int
 	maxDiags       int
 	unlistedErrors int
@@ -5262,6 +5267,7 @@ func (p *parser) refuse(line int, code, msg string, out outcome, indent string) 
 		// files a retained line nowhere breaks that, and the save gate then
 		// refuses even a plain fmt --write, as it should.
 		p.keptOwed++
+		p.held++
 		// A line kept as written never hangs on a block: its indent is not
 		// one the output's levels are written with, so the block it would
 		// match here is not the one it matches on a reload. It waits for the
@@ -6112,16 +6118,20 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 	p.childMap = append(make([]map[uint64]slot, 0, want), p.childMap...)
 	p.dispMap = append(make([]map[uint64]int, 0, want), p.dispMap...)
 	i := 0
-	nodeCapped := false
 	tok := Tokens{Cap: p.maxElements}
 	for i < len(lines) {
 		// Node cap: reported at the first line not parsed, so the count can
 		// overshoot by at most one line's path. The unparsed remainder counts
 		// as lost, which is what keeps SaveFile from writing a silently
-		// truncated document.
-		if p.maxNodes != 0 && len(p.arena)-1 > p.maxNodes {
-			p.refuse(i+1, "E020", fmt.Sprintf("node cap of %d exceeded; parse stopped", p.maxNodes), outStopped(lines[i:]), "")
-			nodeCapped = true
+		// truncated document. With only blanks left nothing stopped, so
+		// nothing reports.
+		if p.maxNodes != 0 && len(p.arena)-1+p.held > p.maxNodes {
+			for _, l := range lines[i:] {
+				if trimWsp(l) != "" {
+					p.refuse(i+1, "E020", fmt.Sprintf("node cap of %d exceeded; parse stopped", p.maxNodes), outStopped(lines[i:]), "")
+					break
+				}
+			}
 			break
 		}
 		lineno := i + 1
@@ -6140,6 +6150,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		// It consumes a pending blank into its own flag, so a blank between
 		// comment-only regions survives the round-trip.
 		if strings.HasPrefix(rest, "#") {
+			p.held++
 			p.pending = append(p.pending, pend{text: rest, indent: indent, blankBefore: p.sawBlank, ceiling: len(indent), line: lineno})
 			p.sawBlank = false
 			i++
@@ -6527,11 +6538,6 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		}
 		i = next
 	}
-	// A cap crossed on the document's last line still reports, with nothing
-	// left to skip.
-	if !nodeCapped && p.maxNodes != 0 && len(p.arena)-1 > p.maxNodes {
-		p.refuse(len(lines), "E020", fmt.Sprintf("node cap of %d exceeded; parse stopped", p.maxNodes), outStopped(nil), "")
-	}
 	p.starFlush()
 	// Indented tail comments keep their block; only top-level ones orphan.
 	// Before the fold, which moves a dropped instance's comments over to the
@@ -6612,9 +6618,11 @@ func (d *Document) strictGate() (*Document, error) {
 // ParseLimited parses with resource caps beside the strictness, for input the
 // consumer does not control: a document amplifies to many times its byte size
 // in memory, so a size cap alone cannot bound what a load allocates. maxNodes
-// stops the parse once a line takes the node count past it - one E020 error,
-// and the unparsed remainder counts as lost so a save cannot silently
-// truncate. maxElements refuses any line whose array would hold more elements
+// stops the parse once a line takes the count past it - one E020 error on the
+// first line not parsed, and the unparsed remainder counts as lost so a save
+// cannot silently truncate. The count is the nodes built plus the comment
+// lines and kept lines held, since each costs about what a node does.
+// maxElements refuses any line whose array would hold more elements
 // (E021, that line alone is skipped). maxDiags bounds the diagnostics list
 // itself - a document of nothing but bad lines costs a diagnostic per line -
 // by listing the first that many and ending with one E022 that counts the

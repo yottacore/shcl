@@ -193,8 +193,9 @@ typedef struct { shcl_value_kind value; shcl_status status; } shcl_read_value_ki
 shcl_doc *shcl_parse(const char *text, size_t len);
 shcl_doc *shcl_parse_with(const char *text, size_t len, shcl_strictness s);
 // Parse with resource caps beside the strictness: max_nodes stops the parse
-// once a line takes the node count past it (one E020 error; the unparsed
-// remainder counts as lost), max_elements refuses any line whose array would
+// once a line takes the count past it (one E020 error on the first line not
+// parsed; the unparsed remainder counts as lost), where the count is the
+// nodes built plus the comment lines and kept lines held, max_elements refuses any line whose array would
 // hold more elements (E021, that line alone skipped), max_diags lists only
 // that many diagnostics and ends the list with one E022 counting the rest
 // (an error whenever an unlisted one was, so the strict gate still fails).
@@ -5070,8 +5071,13 @@ typedef struct { shcl_doc *d; ShclArena *tmp; ShclArena *line; ShclArena *hints;
 	   refile_folded(). */
 	ShclVecSize folded;
 	/* shcl_parse_limited's caps, 0 = uncapped: nodes counted against the
-	   arena (root excluded), elements against a single value's cell. */
+	   arena (root excluded) plus held, elements against a single value's
+	   cell. */
 	size_t max_nodes, max_elements;
+	/* Comment lines and kept lines taken so far. They cost about what a node
+	   does and build none, so a file of nothing else would pass the node cap
+	   untouched. */
+	size_t held;
 	/* Diagnostic cap: past it nothing is listed, only counted (errors, hints),
 	   for the one tail entry the parse ends with. */
 	size_t max_diags, unlisted_errors, unlisted_hints;
@@ -5695,6 +5701,7 @@ static void p_refuse(ShclParser *P, size_t line, const char *code, ShclStr msg, 
 		   retained line nowhere breaks that, and the save gate then refuses
 		   even a plain fmt --write, as it should. */
 		P->d->kept_owed++;
+		P->held++;
 		/* A line kept as written never hangs on a block: its indent is not one
 		   the output's levels are written with, so the block it would match
 		   here is not the one it matches on a reload. It waits for the next
@@ -6569,7 +6576,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 	   arena before the next reset. */
 	ShclParser P; P.d = d; P.tmp = &d->scratch; P.line = &own->line; P.hints = &own->hints; P.cmaps = &own->cmaps; P.dmaps = &own->dmaps; memset(&P.stack, 0, sizeof P.stack); memset(&P.pending, 0, sizeof P.pending); memset(&P.pend_marks, 0, sizeof P.pend_marks); memset(&P.depth_chain, 0, sizeof P.depth_chain); memset(&P.held_chain, 0, sizeof P.held_chain);
 	P.star_open = 0; P.star_node = 0; P.star_key = 0; P.star_disp = 0; P.saw_blank = 0;
-	P.max_nodes = max_nodes; P.max_elements = max_elements; P.max_diags = max_diags; P.unlisted_errors = 0; P.unlisted_hints = 0;
+	P.max_nodes = max_nodes; P.held = 0; P.max_elements = max_elements; P.max_diags = max_diags; P.unlisted_errors = 0; P.unlisted_hints = 0;
 	P.has_kept_hold = 0; P.kept_hold = s_empty(); P.kept_any = 0; memset(&P.lazies, 0, sizeof P.lazies);
 	P.kept_arrays = 0; memset(&P.src_lines, 0, sizeof P.src_lines); memset(&P.array_marks, 0, sizeof P.array_marks); memset(&P.array_at, 0, sizeof P.array_at);
 	memset(&P.reent_node, 0, sizeof P.reent_node); memset(&P.reent_line, 0, sizeof P.reent_line); memset(&P.late_dups, 0, sizeof P.late_dups); memset(&P.folded, 0, sizeof P.folded);
@@ -6611,16 +6618,19 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 	P.src_lines = lines;
 	stamp_hint(&P, full);
 	size_t i = 0;
-	int node_capped = 0;
 	while (i < lines.len) {
 		/* Node cap: reported at the first line not parsed, so the count can
 		   overshoot by at most one line's path. The unparsed remainder counts
 		   as lost, which is what keeps shcl_save_file from writing a silently
-		   truncated document. */
-		if (P.max_nodes && d->nodes.len - 1 > P.max_nodes) {
-			ShclSB m = {0}; sb_puts(P.line, &m, "node cap of "); sb_put_u64(P.line, &m, P.max_nodes); sb_puts(P.line, &m, " exceeded; parse stopped");
-			p_refuse(&P, i + 1, "E020", sb_S(&m), out_stopped(lines.data + i, lines.len - i), s_empty());
-			node_capped = 1;
+		   truncated document. With only blanks left nothing stopped, so
+		   nothing reports. */
+		if (P.max_nodes && d->nodes.len - 1 + P.held > P.max_nodes) {
+			size_t k = i;
+			while (k < lines.len && s_trim_wsp(lines.data[k]).n == 0) k++;
+			if (k < lines.len) {
+				ShclSB m = {0}; sb_puts(P.line, &m, "node cap of "); sb_put_u64(P.line, &m, P.max_nodes); sb_puts(P.line, &m, " exceeded; parse stopped");
+				p_refuse(&P, i + 1, "E020", sb_S(&m), out_stopped(lines.data + i, lines.len - i), s_empty());
+			}
 			break;
 		}
 		arena_reset(&own->line);
@@ -6638,6 +6648,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 		   comment-only regions survives the round-trip. Text and indent are
 		   slices of the retained input copy, so they store as-is. */
 		if (rest.p[0] == '#') {
+			P.held++;
 			ShclPend pd; pd.text = rest; pd.indent = indent; pd.blank_before = P.saw_blank; pd.ceiling = indent.n; pd.line = lineno; P.saw_blank = 0;
 			ShclVecPend_push(P.tmp, &P.pending, pd);
 			i++; continue;
@@ -6933,12 +6944,6 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 			if (arrayed) array_mark_set(&P, mark);
 		}
 		i = next;
-	}
-	/* A cap crossed on the document's last line still reports, with nothing
-	   left to skip. */
-	if (!node_capped && P.max_nodes && d->nodes.len - 1 > P.max_nodes) {
-		ShclSB m = {0}; sb_puts(P.line, &m, "node cap of "); sb_put_u64(P.line, &m, P.max_nodes); sb_puts(P.line, &m, " exceeded; parse stopped");
-		p_refuse(&P, lines.len, "E020", sb_S(&m), out_stopped(NULL, 0), s_empty());
 	}
 	star_flush(&P);
 	/* Indented tail comments keep their block; only top-level ones orphan.
@@ -12060,8 +12065,10 @@ shcl_doc *shcl_parse_with(const char *text, size_t len, shcl_strictness s) { ret
 /* Parse with resource caps beside the strictness, for input the consumer does
    not control: a document amplifies to many times its byte size in memory, so
    a size cap alone cannot bound what a load allocates. max_nodes stops the
-   parse once a line takes the node count past it - one E020 error, and the
-   unparsed remainder counts as lost so a save cannot silently truncate.
+   parse once a line takes the count past it - one E020 error on the first
+   line not parsed, and the unparsed remainder counts as lost so a save cannot
+   silently truncate. The count is the nodes built plus the comment lines and
+   kept lines held, since each costs about what a node does.
    max_elements refuses any line whose array would hold more elements (E021,
    that line alone is skipped). 0 disables a cap, making this shcl_parse_with.
    Both caps are parse-time only; the write API is the consumer's own

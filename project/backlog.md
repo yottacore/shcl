@@ -70,6 +70,46 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Sweep: every place the parse keeps a line with no node, in all 4.
 	- Regression test: a budget test in all 4 suites: a file of comment lines and kept lines many times the cap, parsed under the cap, asserting the line count and bytes kept stay under it and that `E020` names the first line the parse didn't take; a fuzz guard that counts such inputs each run.
 	- Estimated effort: Avg
+	- Actual cause: the node cap counted arena nodes only. A whole-line comment and a kept line each make a pending entry and build no node. The last-line `E020` came from a second check after the loop, written to report a cap crossed on the last line.
+	- Actual fix: the node cap's count is nodes plus every comment line and kept line taken, in all 4. `E020` goes on the first line not parsed, and only when a non-blank line is left, so the check after the loop is gone. spec.md, design.md, the changelog and each binding's doc comment say so.
+		- Swept: the comment push and the one `refuse` funnel that files every kept line, in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. `E028`'s kept line is a node's own line, already counted. Raw block bodies are a node's value, dropped lines aren't held (the line-keeping save that tracks them has no cap), and diagnostics have their own cap.
+	- Progress log:
+		- 20261107: split. The fuzz guard is child 2026110707441268, since the fuzz can't yet see the held-line count. The budget tests and the fix are in.
+		- 20261107: measured, 200k lines half comments and half `kept line`, cap 1,000, against as many `kN: 1` lines under the same cap. Before: Rust 55.4 MB against 7.8, Go 129 against 3.9, C 105 against 8.5, Python 69 against 13.9. After, all 4 are under 2 times the field lines, C 8.9 MB and Python 14.1 MB.
+	- Decisions:
+		- me, 20261107: comment and kept lines count against the node cap, not a new cap. Each costs about what a node does, and a fourth cap would be one more number every caller picks for the same memory.
+		- me, 20261107: a cap crossed on the last line with content reports nothing, since the parse stopped nothing. The overshoot is the one line it always was. `Check:` entry in questions.md.
+		- 20261107, test asserts updated for the last-line change, the rest of each test as it was: `parse_limited_caps` in all 4 runners (`dc1yg`, `dc1yh`, `dc26x`, `dc1yj`), the last-line cross from 1 `E020` to 0, and the one-line overshoot `x.y.z: 1` from 1 `E020` to 0. The overshoot with a next line is pinned in the new tests.
+	- Test case: `the_node_cap_counts_comment_and_kept_lines` (`df003` Rust, `df004` Go, `df005` Python, `df006` C) and the budget tests (`df007` Rust `mem_caps`, `df008` Go `mem_test`, `df009` C `mem_bounds`, `df00a` Python). All failed on the old code and pass now. The fuzz guard is the child's.
+
+- The fuzz counts inputs where comment and kept lines take the node cap
+	- ID: 2026110707441268
+	- Type: Task
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0
+	- Opened: 20261107-074413
+	- Opened by: me
+	- Parent ID: 2026110613470304
+	- Requirements:
+		- The parent's fuzz guard: a property over fuzzed documents with comment and kept lines mixed in, parsed under a small node cap, that the parse holds no more than the cap allows and stops at the first line past it, with a guard that counts such inputs each run.
+		- The fuzz can't read the held-line count today. It needs a count it can see, or a property that doesn't need one. Raw bodies and `- ` items make a count of output lines a poor stand-in.
+	- Estimated effort: Avg
+
+- A capped parse still splits every line first, so a file of blank lines costs 17 to 48 times its size
+	- ID: 2026110707441368
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261107-074413
+	- Opened by: me, found working 2026110613470304
+	- Related IDs: 2026110613470304
+	- Steps to reproduce:
+		- 2 MB of `\n`, `parse_limited` with caps of 1,000 nodes, 1,000 elements and 100 diagnostics.
+	- Incorrect behavior: a tracemalloc peak of 34 MB in Python, 17 times the file. Rust holds the split lines twice (`lines` and `src`), 16 bytes each, so a 1-byte line costs 32 to 48 bytes there. Not measured in Go or C.
+	- Expected behavior: what a capped parse holds stays near the file's size. The amount is linear and a byte cap on the read bounds it, so this is a constant factor, not a hole in the caps.
+	- Possible cause: every binding splits the whole text into lines before the first cap check, and blank lines count against nothing.
+	- Estimated effort: Avg
 
 - A load that re-opens many blocks takes time in the square of their count since 2026-11-04
 	- ID: 2026110613470305

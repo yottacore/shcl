@@ -1235,24 +1235,25 @@ fn parse_limited_caps() {
 	assert_eq!(doc.lost_count(), 1);
 	assert_eq!(doc.get_int("a"), Ok(1));
 	assert!(!doc.exists("d"), "the remainder must not parse");
-	// A cap crossed by the document's last content line still reports.
+	// A cap crossed by the document's last content line stops nothing, so
+	// nothing reports (2026110613470304; it reported one E020 before).
 	let doc = Document::parse_limited("a: 1\nb: 2\nc: 3", Strictness::Standard, 2, 0, 0).unwrap();
 	assert_eq!(
 		doc.diagnostics()
 			.iter()
 			.filter(|d| d.code == "E020")
 			.count(),
-		1
+		0
 	);
 	assert_eq!(doc.lost_count(), 0, "nothing was dropped");
-	// One line may overshoot the cap by its own path; the parse still stops.
+	// One line may overshoot the cap by its own path.
 	let doc = Document::parse_limited("x.y.z: 1\n", Strictness::Standard, 1, 0, 0).unwrap();
 	assert_eq!(
 		doc.diagnostics()
 			.iter()
 			.filter(|d| d.code == "E020")
 			.count(),
-		1
+		0
 	);
 	assert_eq!(doc.get_int("x.y.z"), Ok(1));
 	// 0 is no cap: identical to parse_with.
@@ -1402,6 +1403,57 @@ fn parse_limited_caps() {
 	// parsed part still on the error.
 	let err = Document::parse_limited(text, Strictness::Strict, 2, 0, 0).unwrap_err();
 	assert_eq!(err.document.get_int("a"), Ok(1));
+}
+
+/// Comment lines and kept lines build no node but cost about what one does,
+/// so the node cap counts them, and a file of nothing else stops at the cap.
+/// E020 goes on the first line not parsed, and a cap crossed with only
+/// blanks left stops nothing. Same fixture in every runner.
+#[test]
+fn the_node_cap_counts_comment_and_kept_lines() {
+	let _id = test_id("df003");
+	use shcl::Strictness;
+	let e020 = |doc: &Document| -> Vec<usize> {
+		doc.diagnostics()
+			.iter()
+			.filter(|d| d.code == "E020")
+			.map(|d| d.line)
+			.collect()
+	};
+	// The cap is 3, so the fourth line taken is the one past it, and the
+	// parse stops before the fifth.
+	for (what, line) in [
+		("comment", "# c\n"),
+		("kept", "a b\n"),
+		("mixed", "# c\na b\n"),
+	] {
+		let text = line.repeat(1000);
+		let lines = text.lines().count();
+		let doc = Document::parse_limited(&text, Strictness::Standard, 3, 0, 100).unwrap();
+		assert_eq!(e020(&doc), vec![5], "{what}");
+		assert_eq!(doc.lost_count(), lines - 4, "{what}");
+	}
+	// Nodes and held lines share the one count.
+	let doc = Document::parse_limited(
+		"# c\na: 1\nb b\nc: 3\nd: 4\n",
+		Strictness::Standard,
+		3,
+		0,
+		0,
+	)
+	.unwrap();
+	assert_eq!(e020(&doc), vec![5]);
+	assert_eq!(doc.get_int("c"), Ok(3));
+	// The comment that crosses it on the last line loads, and Strict takes it.
+	let text = "a: 1\n# b\n# c\n\n\n";
+	let doc = Document::parse_limited(text, Strictness::Standard, 2, 0, 0).unwrap();
+	assert!(doc.diagnostics().is_empty());
+	assert!(Document::parse_limited(text, Strictness::Strict, 2, 0, 0).is_ok());
+	// The overshoot line stays, and the next one is the first not parsed.
+	let doc = Document::parse_limited("x.y.z: 1\nw: 2\n", Strictness::Standard, 1, 0, 0).unwrap();
+	assert_eq!(e020(&doc), vec![2]);
+	assert_eq!(doc.get_int("x.y.z"), Ok(1));
+	assert_eq!(doc.lost_count(), 1);
 }
 
 /// An item or a line past the caller's element cap is E021 and dropped, even

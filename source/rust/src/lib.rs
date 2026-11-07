@@ -4408,10 +4408,15 @@ struct Parser<'a> {
 	src: Vec<&'a str>,
 	array_line: HashMap<usize, ArrayLine>,
 	// parse_limited's caps, 0 = uncapped: nodes counted against the arena
-	// (root excluded), elements against a single value's cell, diagnostics
-	// against the list. Past the diagnostic cap nothing is listed, only
-	// counted (errors, hints), for the one tail entry the parse ends with.
+	// (root excluded) plus `held`, elements against a single value's cell,
+	// diagnostics against the list. Past the diagnostic cap nothing is
+	// listed, only counted (errors, hints), for the one tail entry the parse
+	// ends with.
 	max_nodes: usize,
+	// Comment lines and kept lines taken so far. They cost about what a node
+	// does and build none, so a file of nothing else would pass the node cap
+	// untouched.
+	held: usize,
 	max_elements: usize,
 	max_diags: usize,
 	unlisted: (usize, usize),
@@ -4527,6 +4532,7 @@ impl<'a> Parser<'a> {
 			src: Vec::new(),
 			array_line: HashMap::new(),
 			max_nodes: 0,
+			held: 0,
 			max_elements: 0,
 			max_diags: 0,
 			unlisted: (0, 0),
@@ -4611,6 +4617,7 @@ impl<'a> Parser<'a> {
 			// that files a retained line nowhere breaks that, and the save
 			// gate then refuses even a plain fmt --write, as it should.
 			self.kept_owed += 1;
+			self.held += 1;
 			// A line kept as written never hangs on a block: its indent is not
 			// one the output's levels are written with, so the block it would
 			// match here is not the one it matches on a reload. It waits for
@@ -5965,7 +5972,6 @@ impl<'a> Parser<'a> {
 			self.diag(d);
 		}
 		let mut i = 0usize;
-		let mut node_capped = false;
 		let mut tok = Tokens {
 			cap: self.max_elements,
 			..Tokens::default()
@@ -5974,16 +5980,18 @@ impl<'a> Parser<'a> {
 			// Node cap: reported at the first line not parsed, so the count can
 			// overshoot by at most one line's path. The unparsed remainder counts
 			// as lost, which is what keeps save_file from writing a silently
-			// truncated document.
-			if self.max_nodes != 0 && self.arena.len() - 1 > self.max_nodes {
-				self.refuse(
-					i + 1,
-					"E020",
-					format!("node cap of {} exceeded; parse stopped", self.max_nodes),
-					Outcome::Stopped(&lines[i..]),
-					"",
-				);
-				node_capped = true;
+			// truncated document. With only blanks left nothing stopped, so
+			// nothing reports.
+			if self.max_nodes != 0 && self.arena.len() - 1 + self.held > self.max_nodes {
+				if lines[i..].iter().any(|l| !trim_wsp(l).is_empty()) {
+					self.refuse(
+						i + 1,
+						"E020",
+						format!("node cap of {} exceeded; parse stopped", self.max_nodes),
+						Outcome::Stopped(&lines[i..]),
+						"",
+					);
+				}
 				break;
 			}
 			let lineno = i + 1;
@@ -6007,6 +6015,7 @@ impl<'a> Parser<'a> {
 			// It consumes a pending blank into its own flag, so a blank between
 			// comment-only regions survives the round-trip.
 			if rest.starts_with('#') {
+				self.held += 1;
 				self.pending.push(Pend {
 					text: rest.to_string(),
 					indent,
@@ -6510,17 +6519,6 @@ impl<'a> Parser<'a> {
 			}
 			i = next;
 		}
-		// A cap crossed on the document's last line still reports, with nothing
-		// left to skip.
-		if !node_capped && self.max_nodes != 0 && self.arena.len() - 1 > self.max_nodes {
-			self.refuse(
-				lines.len(),
-				"E020",
-				format!("node cap of {} exceeded; parse stopped", self.max_nodes),
-				Outcome::Stopped(&[]),
-				"",
-			);
-		}
 		self.star_flush();
 		// Indented tail comments keep their block; only top-level ones orphan.
 		// Before the fold, which moves a dropped instance's comments over to
@@ -6636,9 +6634,11 @@ impl Document {
 	/// Parse with resource caps beside the strictness, for input the consumer
 	/// does not control: a document amplifies to many times its byte size in
 	/// memory, so a size cap alone cannot bound what a load allocates.
-	/// `max_nodes` stops the parse once a line takes the node count past it -
-	/// one `E020` error, and the unparsed remainder counts as lost so a save
-	/// cannot silently truncate. `max_elements` refuses any line whose array
+	/// `max_nodes` stops the parse once a line takes the count past it - one
+	/// `E020` error on the first line not parsed, and the unparsed remainder
+	/// counts as lost so a save cannot silently truncate. The count is the
+	/// nodes built plus the comment lines and kept lines held, since each
+	/// costs about what a node does. `max_elements` refuses any line whose array
 	/// would hold more elements (`E021`, that line alone is skipped).
 	/// `max_diags` bounds the diagnostics list itself - a document of nothing
 	/// but bad lines costs a diagnostic per line - by listing the first that

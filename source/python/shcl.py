@@ -3993,10 +3993,15 @@ class _Parser:
 		self.src: list[str] = []
 		self.array_lines: dict[int, tuple[int, int, bool, bool]] = {}
 		# parse_limited's caps, 0 = uncapped: nodes counted against the arena
-		# (root excluded), elements against a single value's cell, diagnostics
-		# against the list. Past the diagnostic cap nothing is listed, only
-		# counted (errors, hints), for the one tail entry the parse ends with.
+		# (root excluded) plus held, elements against a single value's cell,
+		# diagnostics against the list. Past the diagnostic cap nothing is
+		# listed, only counted (errors, hints), for the one tail entry the
+		# parse ends with.
 		self.max_nodes = 0
+		# Comment lines and kept lines taken so far. They cost about what a
+		# node does and build none, so a file of nothing else would pass the
+		# node cap untouched.
+		self.held = 0
 		self.max_elements = 0
 		self.max_diags = 0
 		self.unlisted_errors = 0
@@ -4349,6 +4354,7 @@ class _Parser:
 			# that files a retained line nowhere breaks that, and the save gate
 			# then refuses even a plain fmt --write, as it should.
 			self.kept_owed += 1
+			self.held += 1
 			p = _Pend(outcome.text, indent, outcome.blank_before, line)
 			# A line kept as written never hangs on a block: its indent is not
 			# one the output's levels are written with, so the block it would
@@ -4908,17 +4914,17 @@ class _Parser:
 			self._diag(hint)
 		i = 0
 		nlines = len(lines)
-		node_capped = False
 		tok = Tokens(self.max_elements)
 		locate = _locate_in  # a local, once per line
 		while i < nlines:
 			# Node cap: reported at the first line not parsed, so the count can
 			# overshoot by at most one line's path. The unparsed remainder
 			# counts as lost, which is what keeps save_file from writing a
-			# silently truncated document.
-			if self.max_nodes and len(self.arena) - 1 > self.max_nodes:
-				self._refuse(i + 1, "E020", f"node cap of {self.max_nodes} exceeded; parse stopped", _out_stopped(lines[i:]), "")
-				node_capped = True
+			# silently truncated document. With only blanks left nothing
+			# stopped, so nothing reports.
+			if self.max_nodes and len(self.arena) - 1 + self.held > self.max_nodes:
+				if any(_trim_wsp(rl) for rl in lines[i:]):
+					self._refuse(i + 1, "E020", f"node cap of {self.max_nodes} exceeded; parse stopped", _out_stopped(lines[i:]), "")
 				break
 			lineno = i + 1
 			line = _trim_wsp_end(lines[i])
@@ -4936,6 +4942,7 @@ class _Parser:
 			# It consumes a pending blank into its own flag, so a blank between
 			# comment-only regions survives the round-trip.
 			if rest.startswith("#"):
+				self.held += 1
 				self.pending.append(_Pend(rest, indent, self.saw_blank, lineno))
 				self.saw_blank = False
 				i += 1
@@ -5242,10 +5249,6 @@ class _Parser:
 				if tok.array is not None:
 					self.array_lines[node] = mark
 			i = nxt
-		# A cap crossed on the document's last line still reports, with nothing
-		# left to skip.
-		if not node_capped and self.max_nodes and len(self.arena) - 1 > self.max_nodes:
-			self._refuse(nlines, "E020", f"node cap of {self.max_nodes} exceeded; parse stopped", _out_stopped(()), "")
 		self._star_flush()
 		# Indented tail comments keep their block; only top-level ones orphan.
 		# Before the fold, which moves a dropped instance's comments over to
@@ -6676,9 +6679,11 @@ class Document:
 		"""Parse with resource caps beside the strictness, for input the
 		consumer does not control: a document amplifies to many times its byte
 		size in memory, so a size cap alone cannot bound what a load
-		allocates. max_nodes stops the parse once a line takes the node count
-		past it - one E020 error, and the unparsed remainder counts as lost so
-		a save cannot silently truncate. max_elements refuses any line whose
+		allocates. max_nodes stops the parse once a line takes the count past
+		it - one E020 error on the first line not parsed, and the unparsed
+		remainder counts as lost so a save cannot silently truncate. The count
+		is the nodes built plus the comment lines and kept lines held, since
+		each costs about what a node does. max_elements refuses any line whose
 		array would hold more elements (E021, that line alone is skipped).
 		max_diags bounds the diagnostics list itself - a document of nothing
 		but bad lines costs a diagnostic per line - by listing the first that

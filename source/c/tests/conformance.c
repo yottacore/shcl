@@ -2277,19 +2277,20 @@ int main(int argc, char **argv) {
 		if (shcl_get_int_or(ld, "a", 1, 0) != 1) fail("parse_limited", "parsed part unreadable");
 		if (shcl_exists(ld, "d", 1)) fail("parse_limited", "the remainder must not parse");
 		shcl_free(ld);
-		// A cap crossed by the document's last content line still reports.
+		// A cap crossed by the document's last content line stops nothing, so
+		// nothing reports (2026110613470304; it reported one E020 before).
 		ld = shcl_parse_limited("a: 1\nb: 2\nc: 3", 15, SHCL_STANDARD, 2, 0, 0);
 		ncap = 0;
 		for (size_t k = 0; k < shcl_diag_count(ld); k++)
 			if (strcmp(shcl_diag_code(ld, k), "E020") == 0) ncap++;
-		if (ncap != 1 || shcl_lost_count(ld) != 0) fail("parse_limited", "last-line cross must report, nothing lost");
+		if (ncap != 0 || shcl_lost_count(ld) != 0) fail("parse_limited", "last-line cross stops nothing");
 		shcl_free(ld);
-		// One line may overshoot the cap by its own path; the parse still stops.
+		// One line may overshoot the cap by its own path.
 		ld = shcl_parse_limited("x.y.z: 1\n", 9, SHCL_STANDARD, 1, 0, 0);
 		ncap = 0;
 		for (size_t k = 0; k < shcl_diag_count(ld); k++)
 			if (strcmp(shcl_diag_code(ld, k), "E020") == 0) ncap++;
-		if (ncap != 1) fail("parse_limited", "deep line must report E020");
+		if (ncap != 0) fail("parse_limited", "deep last line stops nothing");
 		if (shcl_get_int_or(ld, "x.y.z", 5, 0) != 1) fail("parse_limited", "overshot line must stay in the document");
 		shcl_free(ld);
 		// 0 is no cap: identical to shcl_parse_with.
@@ -2425,6 +2426,53 @@ int main(int argc, char **argv) {
 		if (!shcl_strict_failed(ld)) fail("parse_limited", "capped strict load must fail");
 		if (shcl_get_int_or(ld, "a", 1, 0) != 1) fail("parse_limited", "failed strict doc unusable");
 		shcl_free(ld);
+	}
+	// Comment lines and kept lines build no node but cost about what one does,
+	// so the node cap counts them, and a file of nothing else stops at the
+	// cap. E020 goes on the first line not parsed, and a cap crossed with only
+	// blanks left stops nothing. Same fixture in every runner.
+	test_id("df006", "the_node_cap_counts_comment_and_kept_lines");
+	{
+		// The first E020's line, or 0 for none, and how many there were.
+		#define E020_AT(doc, nout, atout) do { (nout) = 0; (atout) = 0; \
+			for (size_t k_ = 0; k_ < shcl_diag_count(doc); k_++) \
+				if (strcmp(shcl_diag_code(doc, k_), "E020") == 0) { (nout)++; (atout) = shcl_diag_line(doc, k_); } } while (0)
+		size_t n = 0, at = 0;
+		// The cap is 3, so the fourth line taken is the one past it, and the
+		// parse stops before the fifth.
+		const char *ones[] = {"# c\n", "a b\n", "# c\na b\n"};
+		for (size_t c = 0; c < 3; c++) {
+			size_t ol = strlen(ones[c]), tl = ol * 1000, lines = (ol / 4) * 1000;
+			char *ct = (char *)malloc(tl);
+			if (!ct) { fail("held lines", "out of memory"); break; }
+			for (size_t r = 0; r < 1000; r++) memcpy(ct + r * ol, ones[c], ol);
+			shcl_doc *hd = shcl_parse_limited(ct, tl, SHCL_STANDARD, 3, 0, 100);
+			E020_AT(hd, n, at);
+			if (n != 1 || at != 5) fail(ones[c], "held lines: want one E020 at line 5");
+			if (shcl_lost_count(hd) != lines - 4) fail(ones[c], "held lines: wrong lost count");
+			shcl_free(hd); free(ct);
+		}
+		// Nodes and held lines share the one count.
+		const char *mt = "# c\na: 1\nb b\nc: 3\nd: 4\n";
+		shcl_doc *hd = shcl_parse_limited(mt, strlen(mt), SHCL_STANDARD, 3, 0, 0);
+		E020_AT(hd, n, at);
+		if (n != 1 || at != 5 || shcl_get_int_or(hd, "c", 1, 0) != 3) fail("held lines", "nodes and held lines share the count");
+		shcl_free(hd);
+		// The comment that crosses it on the last line loads, and Strict takes it.
+		mt = "a: 1\n# b\n# c\n\n\n";
+		hd = shcl_parse_limited(mt, strlen(mt), SHCL_STANDARD, 2, 0, 0);
+		if (shcl_diag_count(hd) != 0) fail("held lines", "last-line comment must report nothing");
+		shcl_free(hd);
+		hd = shcl_parse_limited(mt, strlen(mt), SHCL_STRICT, 2, 0, 0);
+		if (shcl_strict_failed(hd)) fail("held lines", "last-line comment must load under Strict");
+		shcl_free(hd);
+		// The overshoot line stays, and the next one is the first not parsed.
+		mt = "x.y.z: 1\nw: 2\n";
+		hd = shcl_parse_limited(mt, strlen(mt), SHCL_STANDARD, 1, 0, 0);
+		E020_AT(hd, n, at);
+		if (n != 1 || at != 2 || shcl_get_int_or(hd, "x.y.z", 5, 0) != 1 || shcl_lost_count(hd) != 1) fail("held lines", "overshoot: E020 on the next line");
+		shcl_free(hd);
+		#undef E020_AT
 	}
 	test_id("ddkpc", "a_cap_wins_over_a_broken_value");
 	{

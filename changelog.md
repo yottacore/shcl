@@ -12,6 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `E003` names the index as written. One past the 64-bit range was shown as 18446744073709551615.
 
+- The node cap of `parse_limited` counts comment lines and kept lines too. A file of nothing else built no node, so a capped parse of it held 100 times the file. A cap crossed on the last line no longer reports `E020`, since nothing was left to stop.
+
 ## v3.0.0-beta1 - 2026-11-05
 
 Format 3. It fixes the 2.x design flaws that heavy use turned up. v4 will keep this format and settle the programming interface.

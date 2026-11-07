@@ -2868,11 +2868,13 @@ def main():
 		raise SystemExit(f"node cap: {[(g.line, g.code) for g in ldoc.diagnostics()]}")
 	if ldoc.lost_count() != 1 or ldoc.get_int("a") != 1 or ldoc.exists("d"):
 		raise SystemExit("node cap: remainder must be lost and unparsed")
+	# A cap crossed by the document's last content line stops nothing, so
+	# nothing reports (2026110613470304; it reported one E020 before).
 	ldoc = shcl.Document.parse_limited("a: 1\nb: 2\nc: 3", shcl.Strictness.Standard, 2, 0)
-	if sum(1 for g in ldoc.diagnostics() if g.code == "E020") != 1 or ldoc.lost_count() != 0:
-		raise SystemExit("node cap crossed on the last line must still report")
+	if sum(1 for g in ldoc.diagnostics() if g.code == "E020") != 0 or ldoc.lost_count() != 0:
+		raise SystemExit("node cap crossed on the last line stops nothing")
 	ldoc = shcl.Document.parse_limited("x.y.z: 1\n", shcl.Strictness.Standard, 1, 0)
-	if sum(1 for g in ldoc.diagnostics() if g.code == "E020") != 1 or ldoc.get_int("x.y.z") != 1:
+	if sum(1 for g in ldoc.diagnostics() if g.code == "E020") != 0 or ldoc.get_int("x.y.z") != 1:
 		raise SystemExit("node cap overshoot line must stay in the document")
 	ldoc = shcl.Document.parse_limited(ltext, shcl.Strictness.Standard, 0, 0)
 	if ldoc.diagnostics():
@@ -3002,6 +3004,56 @@ def main():
 	except shcl.LoadError as ex:
 		if ex.document is None or ex.document.get_int("a") != 1:
 			raise SystemExit("failed strict doc must stay readable") from None
+	test_id("df005", "the_node_cap_counts_comment_and_kept_lines")
+	# Comment lines and kept lines build no node but cost about what one
+	# does, so the node cap counts them, and a file of nothing else stops at
+	# the cap. E020 goes on the first line not parsed, and a cap crossed with
+	# only blanks left stops nothing. Same fixture in every runner.
+	def e020_at(d):
+		return [g.line for g in d.diagnostics() if g.code == "E020"]
+	# The cap is 3, so the fourth line taken is the one past it, and the
+	# parse stops before the fifth.
+	for what, one in (("comment", "# c\n"), ("kept", "a b\n"), ("mixed", "# c\na b\n")):
+		ctext = one * 1000
+		ldoc = shcl.Document.parse_limited(ctext, shcl.Strictness.Standard, 3, 0, 100)
+		if e020_at(ldoc) != [5] or ldoc.lost_count() != ctext.count("\n") - 4:
+			raise SystemExit(f"{what}: E020 at {e020_at(ldoc)}, lost {ldoc.lost_count()}")
+	# Nodes and held lines share the one count.
+	ldoc = shcl.Document.parse_limited("# c\na: 1\nb b\nc: 3\nd: 4\n", shcl.Strictness.Standard, 3, 0)
+	if e020_at(ldoc) != [5] or ldoc.get_int("c") != 3:
+		raise SystemExit(f"shared count: E020 at {e020_at(ldoc)}")
+	# The comment that crosses it on the last line loads, and Strict takes it.
+	ctext = "a: 1\n# b\n# c\n\n\n"
+	ldoc = shcl.Document.parse_limited(ctext, shcl.Strictness.Standard, 2, 0)
+	if ldoc.diagnostics():
+		raise SystemExit(f"last-line comment: {[(g.line, g.code) for g in ldoc.diagnostics()]}")
+	shcl.Document.parse_limited(ctext, shcl.Strictness.Strict, 2, 0)
+	# The overshoot line stays, and the next one is the first not parsed.
+	ldoc = shcl.Document.parse_limited("x.y.z: 1\nw: 2\n", shcl.Strictness.Standard, 1, 0)
+	if e020_at(ldoc) != [2] or ldoc.get_int("x.y.z") != 1 or ldoc.lost_count() != 1:
+		raise SystemExit(f"overshoot: E020 at {e020_at(ldoc)}, lost {ldoc.lost_count()}")
+
+	test_id("df00a", "comment_and_kept_lines_count_against_the_node_cap")
+	# A file of comment lines and kept lines builds no node, so the node cap
+	# never fired and each line was held: 100 times the file at 4 MB. Set
+	# against the same number of field lines, which stop at the cap and cost
+	# only the per-line split.
+	nlines, ncap = 200000, 1000
+	htext = "".join("# a comment line\n" if k % 2 == 0 else "kept line\n" for k in range(nlines))
+	ftext = "".join(f"k{k}: 1\n" for k in range(nlines))
+	tracemalloc.start()
+	shcl.Document.parse_limited(ftext, shcl.Strictness.Standard, ncap, 0)
+	fpeak = tracemalloc.get_traced_memory()[1]
+	tracemalloc.stop()
+	tracemalloc.start()
+	ldoc = shcl.Document.parse_limited(htext, shcl.Strictness.Standard, ncap, 0)
+	hpeak = tracemalloc.get_traced_memory()[1]
+	tracemalloc.stop()
+	if hpeak >= fpeak * 2:
+		raise SystemExit(f"a capped parse held its comment and kept lines: {hpeak} bytes against {fpeak} for as many field lines")
+	if e020_at(ldoc) != [ncap + 2] or ldoc.lost_count() != nlines - ncap - 1:
+		raise SystemExit(f"held lines: E020 at {e020_at(ldoc)}, lost {ldoc.lost_count()}")
+
 	test_id("ddkh3", "a_cap_wins_over_a_broken_value")
 	# An item or a line past the caller's element cap is E021 and dropped,
 	# even when its value is broken: the cap wins over a value fault. A fault
