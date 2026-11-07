@@ -1207,15 +1207,28 @@ def _unstack(nd):
 		return
 	notes = t.notes
 	k = 0
+	orphans = []
 	for before, lead in t.among:
 		while k < len(notes) and notes[k][0] < before:
-			t.leading.append(_Lead(notes[k][1], False))
+			orphans.append(_Lead(notes[k][1], False))
 			k += 1
-		t.leading.append(lead)
+		orphans.append(lead)
 	for _, text in notes[k:]:
-		t.leading.append(_Lead(text, False))
+		orphans.append(_Lead(text, False))
 	t.among = []
 	t.notes = []
+	_adopt(nd, orphans)
+
+
+def _adopt(heir, lines):
+	"""Lines an edit took off a node or a list item it took away go to heir:
+	right above its line, after its own comments, with its blank above them
+	(design.md, Lines an edit takes from their node)."""
+	if not lines:
+		return
+	lines[0].blank_before = heir.blank_before
+	heir.blank_before = False
+	heir._triv().leading.extend(lines)
 
 
 def _bracket(nd):

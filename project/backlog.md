@@ -35,6 +35,75 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Removes, folds, merges and the banner toggle hand lines on through `adopt`
+	- ID: 2026110712372281
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0
+	- Opened: 20261107-123722
+	- Opened by: split from 2026110616475902
+	- Parent ID: 2026110616475902
+	- Prereq IDs: 2026110616475903, 2026110712372276
+	- Related IDs: 2026110712372271, 2026110613470302, 2026110613470312, 2026110312163204, 2026110315051536
+	- Problem description: `adopt` is in, and a replaced item list goes through it (2026110712372271). The other edits still move the lines around what they take away in their own code: the remove's own path, `beside_kept` with `leave_above` and `leave_last` for a merged duplicate, `refile_folded` and `settle_first_blank` for a fold at load, and `drop_banners` for the info block.
+	- Requirements:
+		- Each of them calls `adopt`, with the same call sites in all 4 bindings, per design.md's "Lines an edit takes from their node". The heir is what takes the node's place, else the next sibling, else the parent's trailing lines.
+		- The old helpers go in the same commit, once the placement suite 2026110616475903 passes with both in place. A grep for them then finds only `adopt`.
+		- The kept-line rules stay as they are: design.md's table for kept lines under edits, a misplaced line keeping its space indent, `E001` and `E008` lines as built.
+		- design.md's "Where the code still differs" bullet loses its second half.
+	- Regression test: 2026110616475903's property and table, run against both the old helpers and `adopt` before the old ones go; plus a check-docs row that greps the 4 bindings for the retired helper names.
+	- Estimated effort: High
+
+- A node's blank above its comments, from the parse on
+	- ID: 2026110712372276
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0
+	- Opened: 20261107-123722
+	- Opened by: split from 2026110616475902
+	- Parent ID: 2026110616475902
+	- Prereq IDs: 2026110616475903
+	- Related IDs: 2026110712372271
+	- Problem description: design.md's "Lines an edit takes from their node" has the emitter write a node's lines in one fixed order: the blank, the comments, the line, the children, the trailing lines. The parse still gives a node the blank between its comments and its line, so in `# c`, a blank, `b: 2`, the comment is `b`'s, and a remove of `b` takes it.
+	- Requirements:
+		- Every comment line and blank line belongs to one node from the parse on, as its leading lines or its trailing lines, in that order, in all 4 bindings.
+		- A comment run set off from the next line by a blank is the trailing lines of the node above it, or of its parent. So a remove of `b` above leaves `# c`.
+		- The line-keeping save and every corpus golden agree. A golden that changes is named on this item with why.
+		- design.md's "Where the code still differs" bullet loses its first half, and spec.md's Remove sentence says which comment lines go.
+	- Note: a remove that leaves a comment it used to take changes what a user sees. That is the rule's point, and it goes in the changelog.
+	- Regression test: 2026110616475903's table gets rows for a comment run set off by a blank, through a remove, a set and a reload, in all 4 bindings.
+	- Estimated effort: High
+
+- One rule for where the comments and blank of a removed list item go, through `adopt`
+	- ID: 2026110712372271
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz (`SHCL_FUZZ_ITERS=2000000`, `fuzz_smoke`) on this item's commit, since corpus 221 shifts the seeds. check-migrate passed on the same tree.
+	- Priority: High
+	- Target version: v3.0.0
+	- Opened: 20261107-123722
+	- Opened by: split from 2026110616475902
+	- Parent ID: 2026110616475902
+	- Related IDs: 2026110613470311
+	- Problem description: the design half of 2026110616475902, and the one `adopt` its list replace needs.
+	- Requirements:
+		- design.md's ownership rule, and spec.md naming it where the SetComment rule is.
+		- `adopt` in all 4 bindings, and `unstack` handing the lines among a list's items and on them to it, rather than moving them itself (2026110613470311).
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Progress log:
+		- 20261107: design.md has a new section, "Lines an edit takes from their node", with the rule, the order, `adopt`, and where the code still differs. spec.md's SetComment sentence names it for a replaced list. `adopt` in `lib.rs`, `shcl.go` (`adopt`), `shcl.py` (`_adopt`) and `shcl.h`, called from `unstack` in each. The changelog has a line.
+	- Decisions:
+		- me, 20261107: the lines go right above the heir's line, after its own comments, and the heir's blank goes above them. A blank the heir's own comments had stays where it was, since the edit didn't touch them. Moving the blank above every comment the heir has, as `SetComment` does, was the other option, and it waits for the fixed order in 2026110712372276.
+		- me, 20261107: a blank above the first moved line goes, and one between 2 moved lines stays. Keeping the first would set the field off from the line above it where the file did not.
+		- me, 20261107: the heir is chosen by the caller. A list replace has only one, the field. The fallbacks in the rule come with the sites in 2026110712372281.
+	- Swept: every `unstack` caller in all 4: the setter's list replace, `new_child`, `new_child_under`, `fold_list_into_empty` and the merge's `bracket`. All go through `adopt` now. The other movers named in 2026110616475902 are 2026110712372281.
+	- Test case: corpus `221-list-replace-comments` (`df09h`), through the write ops, the line-keeping save and the layered merge.
+	- Verified: `df09h` fails on the old Rust, C and Python libraries, and the old Go and C CLIs give the old output, and it passes on the new ones in all 4. The 4 conformance suites, the whole Rust suite, the Go tests, the 200,000-iteration fuzz, cli-regress (658 rows), crosscheck (54717 comparisons), check-migrate (659 documents), check-docs, test-ids, analyze-c, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, markdownlint, lint-report.
+	- Branch: `r1107c`
+
 - The changed check misses a file reached through a second spelling of its path
 	- ID: 2026110613470307
 	- Type: Bug
@@ -220,7 +289,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Comments taken off a replaced item list end up above the list's blank line
 	- ID: 2026110613470311
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz on the commit, as on 2026110712372271.
 	- Severity: High
 	- Target version: v3.0.0
 	- Opened: 20261106-134703
@@ -240,6 +310,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: comment placement under edits has come back one site at a time since Code review 20260802. The list of past cases is on 2026110616475903.
 	- Regression test: the fixed row in 2026110616475903's table and its placement property, in all 4 bindings; watched to fail on `343334df`.
 	- Estimated effort: Low
+	- Actual cause: confirmed. `unstack` added the lines among the items and the comments on them to the field's comments, and the field's blank stayed between them and the field's line.
+	- Actual effort: Low
+	- Actual fix: `unstack` hands the lines to `adopt` (2026110712372271), which puts them right above the field's line with the field's blank above them. All 4 bindings, design.md, spec.md and the changelog.
+	- Decisions:
+		- me, 20261107: the fixed row is corpus `221-list-replace-comments` for now, since 2026110616475903's table isn't built yet. That item takes it into its table, or keeps the case and points at it.
+	- Swept: see 2026110712372271. Every `unstack` caller, the merge's `bracket` included, goes through `adopt`, so `fmt --layer` is fixed with the set.
+	- Test case: corpus `221-list-replace-comments` (`df09h`): the review's file, a field with a comment of its own and a blank among its items, and a list in a block, through `literal` ops, the line-keeping save and a layered merge.
+	- Verified: `df09h` fails on the libraries before the fix in Rust, C and Python, and the Go and C CLIs before it print the review's output. It passes on the fix in all 4. The rest as on 2026110712372271.
+	- Branch: `r1107c`
 
 - Some spec sentences don't match what all 4 bindings do
 	- ID: 2026110613470314
@@ -419,6 +498,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Fix `unstack` alone. Closes 2026110613470311 and leaves the class open, as every fix before it did.
 	- Regression test: 2026110616475903's property and table are the gate, run against both the old helpers and `adopt` before the old ones go; plus a check-docs row that greps the 4 bindings for the retired helper names, so a second mover can't come back.
 	- Estimated effort: High
+	- Progress log:
+		- 20261107: split in 3. The design and `adopt`, with the item list replace through it, are child 2026110712372271. A node's blank above its comments from the parse on is child 2026110712372276. The other edits through `adopt`, and the old helpers gone, are child 2026110712372281, after 2026110616475903.
 
 - An exhaustive comment placement suite, with a placement property in the fuzz
 	- ID: 2026110616475903

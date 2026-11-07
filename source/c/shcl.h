@@ -5190,6 +5190,17 @@ static int stacks(const ShclNode *nd) {
 	return nd->star_list || triv_among(nd).len || triv_notes(nd).len;
 }
 
+/* Lines an edit took off a node or a list item it took away go to heir:
+   right above its line, after its own comments, with its blank above them
+   (design.md, Lines an edit takes from their node). */
+static void adopt(shcl_doc *d, ShclNode *heir, ShclVecLead lines) {
+	if (!lines.len) return;
+	lines.data[0].blank_before = heir->blank_before;
+	heir->blank_before = 0;
+	ShclTrivia *t = triv_mut(&d->arena, heir);
+	for (size_t i = 0; i < lines.len; i++) ShclVecLead_push(&d->arena, &t->leading, lines.data[i]);
+}
+
 /* A list after an empty binding of its name cannot be written stacked: its
    bare header would merge into that binding on a reload. It goes in
    brackets, and the lines among its elements and the comments on them go
@@ -5204,15 +5215,17 @@ static void unstack(shcl_doc *d, ShclNode *nd) {
 	ShclTrivia *t = nd->trivia;
 	if (!t) return;
 	ShclArena *a = &d->arena;
+	ShclVecLead orphans = {0};
 	size_t k = 0;
 	for (size_t i = 0; i < t->among.len; i++) {
 		for (; k < t->notes.len && t->notes.data[k].at < t->among.data[i].before; k++)
-			ShclVecLead_push(a, &t->leading, lead_plain(t->notes.data[k].text));
-		ShclVecLead_push(a, &t->leading, t->among.data[i].lead);
+			ShclVecLead_push(a, &orphans, lead_plain(t->notes.data[k].text));
+		ShclVecLead_push(a, &orphans, t->among.data[i].lead);
 	}
-	for (; k < t->notes.len; k++) ShclVecLead_push(a, &t->leading, lead_plain(t->notes.data[k].text));
+	for (; k < t->notes.len; k++) ShclVecLead_push(a, &orphans, lead_plain(t->notes.data[k].text));
 	t->among.len = 0;
 	t->notes.len = 0;
+	adopt(d, nd, orphans);
 }
 
 /* A merge writes a list in brackets. */

@@ -1293,18 +1293,33 @@ func unstack(nd *nodeData) {
 	}
 	notes := t.notes
 	k := 0
+	var orphans []lead
 	for _, a := range t.among {
 		for k < len(notes) && notes[k].at < a.before {
-			t.leading = append(t.leading, plainLead(notes[k].text))
+			orphans = append(orphans, plainLead(notes[k].text))
 			k++
 		}
-		t.leading = append(t.leading, a.lead)
+		orphans = append(orphans, a.lead)
 	}
 	for ; k < len(notes); k++ {
-		t.leading = append(t.leading, plainLead(notes[k].text))
+		orphans = append(orphans, plainLead(notes[k].text))
 	}
 	t.among = nil
 	t.notes = nil
+	adopt(nd, orphans)
+}
+
+// adopt gives heir the lines an edit took off a node or a list item it took
+// away: right above its line, after its own comments, with its blank above
+// them (design.md, Lines an edit takes from their node).
+func adopt(heir *nodeData, lines []lead) {
+	if len(lines) == 0 {
+		return
+	}
+	lines[0].blankBefore = heir.blankBefore
+	heir.blankBefore = false
+	t := heir.trivMut()
+	t.leading = append(t.leading, lines...)
 }
 
 // bracket: a merge writes a list in brackets.

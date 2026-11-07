@@ -1,0 +1,7 @@
+query	type	expected	status
+-	load	ok	-
+items	string[]	one|two	Good
+items	comments		-
+hosts	comments	# the list	-
+srv.tags	string[]	x|y	Good
+z	int	1	Good

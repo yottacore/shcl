@@ -1250,16 +1250,30 @@ fn unstack(nd: &mut NodeData) {
 			el.mark = writer_mark(&el.text);
 		}
 	}
-	if let Some(t) = nd.trivia.as_deref_mut() {
-		let mut notes = t.notes.drain(..).peekable();
-		for (at, l) in t.among.drain(..) {
-			while let Some((_, n)) = notes.next_if(|n| n.0 < at) {
-				t.leading.push(Lead::plain(n));
-			}
-			t.leading.push(l);
+	let Some(t) = nd.trivia.as_deref_mut() else {
+		return;
+	};
+	let mut notes = t.notes.drain(..).peekable();
+	let mut orphans = Vec::new();
+	for (at, l) in t.among.drain(..) {
+		while let Some((_, n)) = notes.next_if(|n| n.0 < at) {
+			orphans.push(Lead::plain(n));
 		}
-		t.leading.extend(notes.map(|n| Lead::plain(n.1)));
+		orphans.push(l);
 	}
+	orphans.extend(notes.map(|n| Lead::plain(n.1)));
+	adopt(nd, orphans);
+}
+
+/// Lines an edit took off a node or a list item it took away go to `heir`:
+/// right above its line, after its own comments, with its blank above them
+/// (design.md, Lines an edit takes from their node).
+fn adopt(heir: &mut NodeData, mut lines: Vec<Lead>) {
+	let Some(first) = lines.first_mut() else {
+		return;
+	};
+	first.blank_before = std::mem::take(&mut heir.blank_before);
+	heir.triv_mut().leading.append(&mut lines);
 }
 
 /// A merge writes a list in brackets.

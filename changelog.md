@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- A setter or a merge that replaced a stacked list put the comments among its items above the field's blank line, so they read as part of the block above. They go right above the field now, with the blank above them.
+
 - A save through `nodir/../f.shcl`, loaded while `nodir` wasn't there, wrote over a file another program made there since. The check compared 2 paths resolved at 2 different times, and now compares bytes.
 
 - A save to `f.shcl/`, `f.shcl/.` or `f.shcl/..`, or a create-only one, says it is a directory in Rust and C, as in Go and Python. They said the file changed, or that it was there. `set --write` says the same for a folder swapped in during its wait as for one there from the start, and the C CLI no longer says `Not a directory` for `f.shcl/`.
