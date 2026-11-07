@@ -6335,7 +6335,11 @@ int main(int argc, char **argv) {
 		}
 		if (!made) { test_skip(); printf("conformance: winlink skipped (no symlink)\n"); }
 		else {
-			shcl_doc *sd = shcl_parse("a: 2\n", 5);
+			/* Loaded through the link, since a save over bytes the document
+			   never read is refused (2026110613470307). */
+			shcl_file_status lst;
+			shcl_doc *sd = shcl_load_file(link, &lst);
+			if (!sd || lst != SHCL_FILE_CLEAN || shcl_set_int(sd, "a", 1, 2) != SHCL_SET_OK) fail("winlink", "load through the link failed");
 			if (shcl_save_file(sd, link, NULL) != SHCL_SAVE_OK) fail("winlink", "save through the link failed");
 			shcl_free(sd);
 			size_t rn; char *rt = read_file(real, &rn);

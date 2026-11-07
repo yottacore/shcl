@@ -145,8 +145,13 @@ static int reads_from_several_threads() {
 			std::string o;
 			const std::string savePath = save_path();
 			shcl::WriteStatus why{};
+			// The document records only its last save, which may be another
+			// thread's to another path, so each save starts with nothing there
+			// (2026110613470307).
 			put(o, d.save_file(savePath, &why)); put(o, why); put(o, shcl::read_file(savePath));
+			std::remove(savePath.c_str());
 			put(o, d.save_file_lossy(savePath, &why)); put(o, why); put(o, shcl::read_file(savePath));
+			std::remove(savePath.c_str());
 			put(o, d.save_file_keep_lines(savePath, &why)); put(o, why); put(o, shcl::read_file(savePath));
 			std::remove(savePath.c_str());
 			return o;

@@ -188,11 +188,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026110613470307
 	- Type: Bug
 	- Status: Waiting on automated testing
-	- Needs external testing: hosted ci.yml windows job, for the Rust and C suites and the C++ veneer smoke on Windows (`dekkm`, `dekkn`, `detpn`, `detpr`, `detps`, `dc42j`, `dc42n`, `dbxm2`, the Rust `save_rewrites_a_read_only_file`), since Windows-only tests there save a parse over a file the way `dbxkq` did. The Windows and macOS rows of 2026110616475901, on b29w and vmKt6m or b26.
+	- Needs external testing: the Windows and macOS rows of 2026110616475901, on b29w and vmKt6m or b26.
 	- Severity: High
 	- Target version: v3.0.0
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 7
+	- Prereq IDs: 2026110616475901
 	- Related IDs: 2026110312163201, 2026110314064292, 2026110314240418, 2026110408432594
 	- Version and build: dev at `343334df`
 	- Steps to reproduce:
@@ -231,16 +232,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 20261107: the Changed message is now `PATH: refusing to save: what is there is not what this document read or wrote; nothing written (force overrides)`, since "changed since it was loaded" was wrong for a save-as.
 		- me, 20261107: the create check looks at the path as given (lstat, `GetFileAttributesW` on windows), so on windows too a link to nowhere is now Exists. That may close the create half of 2026110408432594, unchecked.
 		- me, 20261107: the soak tests in Rust, Go and Python save each case with force, since each case's document never read what the last one saved.
+		- 20261107, 2 more tests that saved over bytes their document never read, found on b29w: the C runner's Windows-only `dc476` (winlink) saved a parse through a link, and now loads through it first; the veneer's `de1a5` saves one document from 8 threads to 8 paths, so the record of its last save was another thread's, and each save now starts with nothing there. Both failed on b29w every run and passed on dev.
 		- 20261107, tests whose assert only needed the new rule (a parse or another load saving over a file it never read): `lost_and_save_gate` and its twins (`dbcxf`, `dd5h6`, `d9v59`), the newer-format loop (`dekvw`, `dekvx` and twins), the read-only and hidden saves (`dbxkq`, `dbxm2` and twins), and the soaks now remove the file first or force. The changed tests (`dekj7`, `dekk8`, `dekkm`, `dekkn`) and the spelling tests' other-folder row flip from Ok to Changed, as asked.
 	- Swept: every caller of the resolve and the record in all 4 and the veneer (load, save, create check, write, C's `dir_takes_a_temp`), the 4 CLIs' save calls, every test that saves a parse or a second document over a file, Windows-only ones included as far as a read shows.
 	- Verified: on the old code, the new rows fail: Python saves through `nodir/../q.shcl` over the other program's file, and Go `detpq`, C `detpr`, Rust `detpn` fail the other-folder row, Go `dekk8`, C `dekkm`, Rust and Python `dekj7` the save-as rows. All pass on the new code. Rust `cargo test` (all binaries), clippy for the host and windows, fmt; Go tests in both modules, vet and staticcheck for the host and windows, a wasip1 build; Python conformance, ruff, mypy (after `c2243d04`, which fixes an error from `df027`); the C runner, the veneer smoke, oom_hook, oom_recover, mem_bounds, analyze-c (202 s), a mingw build; cli-regress (658 rows); perf-gate; `test-ids.py check`. On b29w with a short-name TEMP: Python conformance whole, and Go `detpq`, `dekk8`, `dc42k`, `dbcxf`, `dekvw` and the read-only save.
 		- Not run: `--backlog-run-quick` with every area (past one call), check-c-compilers (past one call), check-docs, crosscheck.
+		- 20261107, b29w with a short-name TEMP, at `30887e7e` plus the 2 test fixes below: Rust `cargo test` whole (all binaries, `detpn`, `dc42j`, `dekj7`, `save_rewrites_a_read_only_file` included), the C runner whole (`dekkm`, `detpr`, `dc42n`, `dbxm2`), and the veneer smoke (`dekkn`, `detps`) linked static, 3 runs. The dynamic veneer build dies at startup on b29w on dev too, so that build is the box's.
 
 - A path that names a folder gets the wrong refusal in Rust and C, and from the CLIs' own changed check
 	- ID: 2026110613470308
 	- Type: Bug
-	- Status: Waiting on automated testing
-	- Needs external testing: hosted ci.yml windows job, for `dc42j` and `dc42n` in Rust and C on Windows.
+	- Status: Done
 	- Severity: High
 	- Target version: v3.0.0
 	- Opened: 20261106-134703
@@ -263,8 +265,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- me, 20261107: the regression rows went into the existing tests (`dc42j`, `dc42p`, `dc42k`, `dc42n`) and cli-regress, since 2026110616475901 isn't written yet. That item still owes its own folder rows.
 	- Verified: `dc42j` gave Changed for `f.shcl/` on the old Rust code and `dc42n` failed on the old C code; both pass now. cli-regress `df03q`, `df03r` and `df03s` fail on the old CLIs (Python and C for the swap, C for the 2 paths) and pass on all 4 new ones. Go `dc42k` passed on b29w. The rest as on 2026110613470307.
+		- 20261107, b29w with a short-name TEMP: Rust `dc42j` and C `dc42n` pass, in the whole Rust suite and C runner, in place of the hosted windows job.
 	- Test case: `save_refuses_a_directory_shaped_path` (`dc42j`, `dc42p`, `dc42k`, `dc42n`), cli-regress `df03q` (`write-dir-during-wait`, stdin `@dir`), `df03r` (`write-dir-shaped`) and `df03s` (`write-dir-shaped-dot`). POSIX only for `df03q`.
 	- Branch: `r1107b`
+	- Closed: 20261107-103409
 
 - C checks a recursive schema in time cubic in the nesting depth
 	- ID: 2026110613470309
