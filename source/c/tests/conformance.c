@@ -6461,7 +6461,7 @@ int main(int argc, char **argv) {
 			shcl_file_status lst;
 			shcl_doc *sd = shcl_load_file(link, &lst);
 			if (!sd || lst != SHCL_FILE_CLEAN || shcl_set_int(sd, "a", 1, 2) != SHCL_SET_OK) fail("winlink", "load through the link failed");
-			if (shcl_save_file(sd, link, NULL) != SHCL_SAVE_OK) fail("winlink", "save through the link failed");
+			else if (shcl_save_file(sd, link, NULL) != SHCL_SAVE_OK) fail("winlink", "save through the link failed");
 			shcl_free(sd);
 			size_t rn; char *rt = read_file(real, &rn);
 			if (!rt || rn != 5 || memcmp(rt, "a: 2\n", 5) != 0) fail("winlink", "the save did not reach the link's target");
