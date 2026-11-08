@@ -462,6 +462,37 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Regression test: a Go test that calls every public method on a zero-value `Document` and asserts the chosen behavior for each, a working call or the `New()` message; a doc check that the message names `New()`.
 	- Estimated effort: Low
 
+- perf-gate's `deqqs` self-test passes on vm925w, so the gate fails there
+	- ID: 2026110810540701
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261108-105407
+	- Opened by: main's pre-push merge gate on the installer sync `8f1c320a`
+	- Related IDs: 2026110110325317, 2026103016433965
+	- Version and build: main `99a9f7b6` plus the installer sync; dev has the same code
+	- Steps to reproduce:
+		- A merge gate whose box step reaches vm925w (`windows-x86_64|perf`, `--keys 400000 --factor 4`).
+	- Incorrect behavior: `deqqs` (a workload slow every time still fails) got exit 0: "683 of 788 ms". Step 7 failed and the push was refused. `deqqr` passed.
+	- Expected behavior: the slow-every-time bait fails on every box.
+	- Reproduced: 20261108, once. vm925w passed it on 2026-11-01.
+	- Possible cause: the bait burns a fixed 500 ms, and the budget is the baseline times the factor. Under git's bash the baseline holds the shell's start-up, so at factor 4 the budget passed the bait.
+
+- A merge gate records its tree before the release builds and test boxes, so a re-push skips a gate that failed there
+	- ID: 2026110810540702
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261108-105407
+	- Opened by: main's pre-push merge gate on the installer sync `8f1c320a`
+	- Related IDs: 2026110810540701
+	- Version and build: dev `0942044c` and main `99a9f7b6`, same code
+	- Steps to reproduce:
+		- Push main with a tree whose release build or box step fails.
+		- Push the same commit again.
+	- Incorrect behavior: cicd.bash records the tree right after the cross checks ("tree recorded; a push of it skips the pre-push gate"). Step 7 then failed and the push was refused, but the second push would skip the gate.
+	- Expected behavior: a tree is recorded only once every step of the run passed, or a failed later step takes the record back.
+
 - Fuzz `dd3t9` fails at iteration 863179: a remove puts a kept line below the next kept line, and the reload gets a new `E018`
 	- ID: 2026110714552634
 	- Type: Bug
