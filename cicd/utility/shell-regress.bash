@@ -431,8 +431,11 @@ SRVEOF
 	sed "/^\tparam(\[string\]\$Release, /a\\
 \tfunction Invoke-RestMethod { Get-Content -Raw -LiteralPath '${tmpDir}/rel.json' | ConvertFrom-Json }" "${tmpDir}/nogate.ps1" > "${tmpDir}/fakeapi.ps1"
 	grep -q '^	function Invoke-RestMethod' "${tmpDir}/fakeapi.ps1" || fBad "install.ps1's inner param line moved; the fake API row found nowhere to go"
+	##	The plan comes after the check for Windows' own tar, so SystemRoot holds
+	##	a stand-in for it.
+	mkdir -p "${tmpDir}/sysroot/System32"; : > "${tmpDir}/sysroot/System32/tar.exe"
 	for release in stable dev; do
-		out="$(env -u DISPLAY PROCESSOR_ARCHITECTURE=AMD64 LOCALAPPDATA="${tmpDir}/lad" pwsh -NoProfile -NonInteractive -File "${tmpDir}/fakeapi.ps1" -Release "${release}" < /dev/null 2>&1 || true)"
+		out="$(env -u DISPLAY PROCESSOR_ARCHITECTURE=AMD64 SystemRoot="${tmpDir}/sysroot" LOCALAPPDATA="${tmpDir}/lad" pwsh -NoProfile -NonInteractive -File "${tmpDir}/fakeapi.ps1" -Release "${release}" < /dev/null 2>&1 || true)"
 		want="shcl 2.0.0 (stable, windows-x86_64)"; [[ "${release}" == dev ]] && want="shcl 3.0.0-beta1 (dev, windows-x86_64)"
 		[[ "${out}" == *"${want}"* ]] || fBad "install.ps1 -Release ${release} planned the wrong install: ${out@Q}"
 		##	20260924c idea 4: the plan names the release page it installs from.
@@ -508,6 +511,34 @@ SRVEOF
 	[[ -e "${ow}/none/scripts" ]] && fBad "install.ps1 update made a scripts dir where there was none"
 	# shellcheck disable=SC2016  ## install.ps1's own $dest, matched literally
 	grep -qF 'Remove-OldWrapper -Dest $dest' "${repoDir}/install.ps1" || fBad "install.ps1 no longer calls Remove-OldWrapper on an install"
+
+	fTest df0aj 2026110613470317-install-ps1-tar-by-full-path
+	##	2026110613470317: the payload went to whatever `tar` came first on PATH,
+	##	and a GNU tar there reads C:\... as a remote host. A stand-in System32
+	##	under SystemRoot holds a tar that unpacks, and a tar ahead of it on PATH
+	##	only records the call. win-runners holds the same on Windows.
+	pt="${tmpDir}/ptar"
+	mkdir -p "${pt}/root/System32" "${pt}/path" "${pt}/x/source" "${pt}/out"
+	printf 'x\n' > "${pt}/x/source/lib.rs"
+	( cd "${pt}/x" && tar -czf "${pt}/payload.tgz" source )
+	printf '#!/bin/sh\necho system >> "%s/calls"\nexec "%s" "$@"\n' "${pt}" "$(command -v tar)" > "${pt}/root/System32/tar.exe"
+	printf '#!/bin/sh\necho path >> "%s/calls"\nexit 1\n' "${pt}" > "${pt}/path/tar"
+	chmod 755 "${pt}/root/System32/tar.exe" "${pt}/path/tar"
+	#  shellcheck disable=2016  ## PowerShell's own $variables, quoted so bash leaves them alone.
+	{
+		echo 'Set-StrictMode -Version Latest'
+		echo '$ErrorActionPreference = "Stop"'
+		sed -n '/^\tfunction Get-ShclTar/,/^\t}/p;/^\tfunction Expand-ShclPayload/,/^\t}/p' "${repoDir}/install.ps1"
+		echo "\$env:SystemRoot = '${pt}/root'"
+		echo "\$env:PATH = '${pt}/path' + [IO.Path]::PathSeparator + \$env:PATH"
+		echo "Expand-ShclPayload -Archive '${pt}/payload.tgz' -Dest '${pt}/out'"
+		echo 'Write-Output "exit=$LASTEXITCODE"'
+	} > "${tmpDir}/ptar.ps1"
+	out="$(env -u DISPLAY pwsh -NoProfile -File "${tmpDir}/ptar.ps1" 2>&1 || true)"
+	[[ "${out}" == "exit=0" && -f "${pt}/out/source/lib.rs" && "$(cat "${pt}/calls" 2>/dev/null)" == "system" ]] \
+		|| fBad "install.ps1 did not unpack through the System32 tar: ${out@Q}, calls: $(tr '\n' ' ' 2>/dev/null < "${pt}/calls")"
+	grep -qF 'Expand-ShclPayload -Archive' "${repoDir}/install.ps1" || fBad "install.ps1 no longer unpacks through Expand-ShclPayload"
+	grep -nE '^[[:space:]]*tar[[:space:]]' "${repoDir}/install.ps1" && fBad "install.ps1 calls tar by name"
 
 	fTest depm0 2026103114555334-ps1-safe-remove
 	##	The PowerShell scripts take a folder down only through Remove-SafeTree,
@@ -1951,8 +1982,20 @@ if fHave setsid && fHave openssl; then
 	out="$(HOME="${uh}" PATH="${ui}/bin:${PATH}" setsid -w bash "${repoDir}/install.bash" --release dev --yes </dev/null 2>&1 || true)"
 	[[ "${out}" == *"installed shcl 3.0.0-beta1"* && "${out}" != *"retired wrappers"* && ! -e "${uh}/.local/share/shcl/scripts" ]] \
 		|| fBad "install.bash fresh install: ${out@Q}"
+
+	fTest df0ak 2026110613470318-install-bash-dots-in-tmpdir
+	##	2026110613470318: the guard refused any `..` in the temp folder's path, so
+	##	under a TMPDIR named `tmp sp..x` the install finished, then said
+	##	"refused, bad path", exited 1 and left the binary and payload behind.
+	uh="${ui}/home-dots"; ut="${ui}/tmp sp..x"; mkdir -p "${uh}" "${ut}"
+	rc=0
+	# shellcheck disable=SC2031  ## the gate's own PATH, which no subshell above changed for this one
+	out="$(HOME="${uh}" TMPDIR="${ut}" PATH="${ui}/bin:${PATH}" setsid -w bash "${repoDir}/install.bash" --release dev --yes </dev/null 2>&1)" || rc=$?
+	[[ "${rc}" == 0 && "${out}" == *"installed shcl 3.0.0-beta1"* && "${out}" != *"safe-rm"* ]] \
+		|| fBad "install.bash under a TMPDIR with .. in its name: exit ${rc}: ${out@Q}"
+	[[ -z "$(find "${ut}" -mindepth 1 -maxdepth 1 2>/dev/null)" ]] || fBad "install.bash left its temp folder in a TMPDIR with .. in its name"
 else
-	fTestSkip
+	fTestSkipBlock
 fi
 
 fTest ddgew 20261004-install-bash-release-without-platform
@@ -2019,6 +2062,38 @@ if fHave pwsh; then
 	[[ "${out}" == *"dev=v2.1.0-alpha.10"* ]]  || fBad "install.ps1 dev channel: ${out@Q}"
 else
 	fTestSkip
+fi
+
+fTest df0am 2026110613470318-tag-filter-anchored
+##	2026110613470318: the vX.Y.Z filter wasn't anchored at the end, so
+##	install.bash took `v2.0.0x` over v2.0.0 and install.ps1 threw on it. A
+##	longer tag holding the wanted one, and junk after a pre-release, both drop.
+cat > "${tmpDir}/rel-tail.json" <<'JSON'
+[
+  { "tag_name": "v2.0.0x", "draft": false, "prerelease": false },
+  { "tag_name": "v2.0.0", "draft": false, "prerelease": false },
+  { "tag_name": "v2.0.1.4", "draft": false, "prerelease": false },
+  { "tag_name": "v2.0.1+build", "draft": false, "prerelease": false },
+  { "tag_name": "v3.0.0-beta1 x", "draft": false, "prerelease": true },
+  { "tag_name": "v3.0.0-beta1", "draft": false, "prerelease": true }
+]
+JSON
+out="$(fPickTag stable "${tmpDir}/rel-tail.json")"
+[[ "${out}" == "v2.0.0" ]] || fBad "install.bash stable channel took an unanchored tag: ${out@Q}, want v2.0.0"
+out="$(fPickTag dev "${tmpDir}/rel-tail.json")"
+[[ "${out}" == "v3.0.0-beta1" ]] || fBad "install.bash dev channel took an unanchored tag: ${out@Q}, want v3.0.0-beta1"
+if fHave pwsh; then
+	#  shellcheck disable=2016  ## PowerShell's own $variables, quoted so bash leaves them alone.
+	{
+		echo 'Set-StrictMode -Version Latest'
+		echo '$ErrorActionPreference = "Stop"'
+		sed -n '/^\tfunction Select-ReleaseTag/,/^\t}/p' "${repoDir}/install.ps1"
+		echo "\$rel = Get-Content '${tmpDir}/rel-tail.json' -Raw | ConvertFrom-Json"
+		echo 'Write-Output ("stable=" + (Select-ReleaseTag stable $rel).tag_name)'
+		echo 'Write-Output ("dev=" + (Select-ReleaseTag dev $rel).tag_name)'
+	} > "${tmpDir}/picktail.ps1"
+	out="$(pwsh -NoProfile -File "${tmpDir}/picktail.ps1" 2>&1 || true)"
+	[[ "${out}" == "stable=v2.0.0"$'\n'"dev=v3.0.0-beta1" ]] || fBad "install.ps1 took an unanchored tag: ${out@Q}"
 fi
 
 fTest dd2f5 20260924c-idea7-stable-falls-back-to-prerelease
@@ -3600,7 +3675,7 @@ if [[ -f "${ps1}" ]]; then
 	while IFS= read -r h; do
 		[[ -z "${h}" || "${h}" == *"-UseBasicParsing"* ]] || fBad "install.ps1 makes a web call without -UseBasicParsing: ${h}"
 	done <<<"${webCalls}"
-	tarLine="$( { grep -n 'Get-Command -Name tar ' "${ps1}" || true ;} | head -n1 | cut -d: -f1)"
+	tarLine="$( { grep -n 'Test-Path -LiteralPath (Get-ShclTar) ' "${ps1}" || true ;} | head -n1 | cut -d: -f1)"
 	getLine="$( { grep -n '^[[:space:]]*Save-ReleaseAsset -Uri ' "${ps1}" || true ;} | head -n1 | cut -d: -f1)"
 	if [[ -z "${tarLine}" || -z "${getLine}" ]] || ((tarLine >= getLine)); then
 		fBad "install.ps1 does not look for tar before its first download"
@@ -4502,3 +4577,4 @@ echo "shell-regress: OK: installers, one-liner scope, packaging, comparison work
 ##		2026-10-31  A Windows row's perf runs perf-gate.bash, in check-boxes.bash, fBoxRow and --list.
 ##		2026-10-31  The PowerShell safe removal guard, for 2026103114555334.
 ##		2026-11-01  cicd.bash stamps every build before the debug build and hands the stamp to the image; a cut drops the date.
+##		2026-11-07  install.ps1 unpacks through the System32 tar, install.bash under a TMPDIR with .. in its name, anchored tag filters.

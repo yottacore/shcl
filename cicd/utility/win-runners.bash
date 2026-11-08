@@ -316,6 +316,32 @@ fRunSafeRm51() {
 	[[ "${out//$'\r'/}" == "done" ]] || { echo "win-runners: safe remove 5.1: ${out@Q}" >&2; return 1; }
 }
 
+## 2026110613470317: install.ps1 ran whatever `tar` came first on PATH, and a
+## GNU tar from Git for Windows, MSYS2 or Cygwin reads C:\... as a remote host.
+## A tar ahead of System32 here only records that it ran. Under 5.1, where the
+## one-liner runs.
+fRunTarPath() {
+	local top="${work}/tarpath" ps="${work}/tarpath.ps1" win out
+	mkdir -p "${top}/x/source" "${top}/out" "${top}/path"
+	printf 'x\n' > "${top}/x/source/lib.rs"
+	(cd "${top}/x" && tar -czf ../payload.tgz source) || return 1
+	win="$(cygpath -w "${top}")" || return 1
+	printf '@echo off\r\n>>"%s\\calls" echo path\r\nexit /b 1\r\n' "${win}" > "${top}/path/tar.cmd"
+	#  shellcheck disable=2016  ## PowerShell's own $variables, quoted so bash leaves them alone.
+	{
+		echo 'Set-StrictMode -Version Latest'
+		echo '$ErrorActionPreference = "Stop"'
+		sed -n '/^\tfunction Get-ShclTar/,/^\t}/p;/^\tfunction Expand-ShclPayload/,/^\t}/p' install.ps1
+		echo "\$env:PATH = '${win}\\path;' + \$env:PATH"
+		echo "Expand-ShclPayload -Archive '${win}\\payload.tgz' -Dest '${win}\\out'"
+		echo 'Write-Output "exit=$LASTEXITCODE"'
+	} > "${ps}"
+	out="$(powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "${ps}")" 2>&1)" \
+		|| { echo "win-runners: tar path: ${out}" >&2; return 1; }
+	[[ "${out//$'\r'/}" == "exit=0" && -f "${top}/out/source/lib.rs" && ! -e "${top}/calls" ]] \
+		|| { echo "win-runners: tar path: ${out@Q}, calls: $(cat "${top}/calls" 2>/dev/null)" >&2; return 1; }
+}
+
 ## 20260924 item 7: Windows PowerShell 5.1 puts a BOM in front of text it pipes
 ## to a program when $OutputEncoding has one, as it does on a UTF-8 console,
 ## and `set` then read the first op as unknown. Piped the way a user types it.
@@ -494,6 +520,7 @@ case "$(uname -s 2>/dev/null || true)" in
 		fRun --id ddg6q "ps args" "cargo" fRunPsArgs
 		fRun --id dd720 "uninstall nothing" "" fRunUninstallNothing
 		fRun --id depma "safe remove 5.1" "" fRunSafeRm51
+		fRun --id df0ap "tar path" "" fRunTarPath
 		fRun --id dd71s "ops bom 5.1" "cargo" fRunOpsBom51
 		if [[ -n "${WINRUN_PARTIAL:-}" ]]; then fRunWinpathSandbox
 		else fRun "windows path" "" powershell -NoProfile -ExecutionPolicy Bypass -File cicd/utility/winpath-regress.ps1
