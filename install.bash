@@ -327,9 +327,11 @@ esac
 ## The three fields are read in the order the API emits them, so a whole release
 ## on one line has to be split first: a compact response used to yield no tag at
 ## all, and the run said no release was published.
-## Only vX.Y.Z tags count, as in install.ps1. A tag such as `vnext` sorts above
-## every version under sort -V. Stable falls back to the newest pre-release when
-## there is no full release at all, so a first beta still installs by default.
+## Only vX.Y.Z tags count, with an optional -suffix, as in install.ps1. A tag
+## such as `vnext` sorts above every version under sort -V, and `v2.0.0x`
+## would have passed an unanchored match. Stable falls back to the newest
+## pre-release when there is no full release at all, so a first beta still
+## installs by default.
 fPickTag(){
 	local channel="$1" json="$2" tags pick
 	tags="$(awk '
@@ -339,7 +341,7 @@ fPickTag(){
 			n = split(buf, line, "\n")
 			for (i = 1; i <= n; i++) {
 				s = line[i]
-				if (s ~ /^"tag_name":/)               { t = s; sub(/^"tag_name": *"/, "", t); sub(/".*/, "", t); if (t !~ /^v[0-9]+\.[0-9]+\.[0-9]+/) t = "" }
+				if (s ~ /^"tag_name":/)               { t = s; sub(/^"tag_name": *"/, "", t); sub(/".*/, "", t); if (t !~ /^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/) t = "" }
 				else if (s ~ /^"draft": *true/)       { t = "" }
 				else if (s ~ /^"prerelease": *true/)  { if (t != "") print "pre " t; t = "" }
 				else if (s ~ /^"prerelease": *false/) { if (t != "") print "full " t; t = "" }
@@ -353,14 +355,15 @@ fPickTag(){
 
 api="https://api.github.com/repos/${REPO}/releases?per_page=100"
 ## The one folder this script made, and nothing else: the shared safe removal
-## guard cut down to that, in Bash 3.2 and with no GNU realpath or rm.
+## guard cut down to that, in Bash 3.2 and with no GNU realpath or rm. `..` is
+## refused as a whole path part only, since a TMPDIR named `sp..x` is a name.
 tmp="$(mktemp -d)" || fDie "could not make a temp folder"
 tmp="$(CDPATH='' cd -P -- "${tmp}" && pwd -P)" || fDie "could not make a temp folder"
 tmpParent="${tmp%/*}"
 fRmTmp(){
 	local p="${1:-}" oneFs=''
 	case "${p}" in
-		''|*..*|*//*|*"
+		''|..|../*|*/..|*/../*|*//*|*"
 "*) printf 'safe-rm: refused, bad path: "%s"\n' "${p}" >&2; return 1 ;;
 	esac
 	if [[ -z "${tmpParent}" || "${p}" != "${tmpParent}"/?* || "${p#"${tmpParent}"/}" == */* ]]; then
