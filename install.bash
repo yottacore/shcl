@@ -54,7 +54,7 @@
 
 set -euo pipefail
 
-installer_version="1.4.0"
+installer_version="1.5.0"
 REPO="yottacore/shcl"
 release="stable"
 target="user"
@@ -398,9 +398,34 @@ version="${tag#v}"
 channel="${release}"
 [[ "${release}" == stable && "${tag}" == *-* ]] && channel="stable, but no full release yet, so the newest pre-release"
 
+## The version the installed binary reports, or nothing when it does not run.
+## Asked of the binary itself, so an install from before this check counts too.
+fInstalledVersion(){   ## fInstalledVersion BIN
+	local out
+	out="$("$1" --version 2>/dev/null </dev/null | head -n1 || true)"
+	[[ "${out}" =~ ^shcl\ v?([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?) ]] && printf '%s\n' "${BASH_REMATCH[1]}"
+	return 0
+}
+## Is A older than B? The same order fPickTag ranks tags in.
+fIsOlder(){   ## fIsOlder A B
+	[[ "$1" != "$2" ]] || return 1
+	[[ "$(printf '%s\n%s\n' "$1" "$2" | sed 's/-/~/' | sort -V | head -n1 | sed 's/~/-/')" == "$1" ]]
+}
+
 ## State the plan; abort is the default when there is no tty to confirm on.
+## A plain run after `--release dev` goes back to the stable release, and that
+## used to read as an ordinary update.
 existing="new install"
-[[ -e "${dest}/shcl" ]] && existing="updates the existing install"
+installed=""
+older=0
+if [[ -e "${dest}/shcl" ]]; then
+	existing="updates the existing install"
+	installed="$(fInstalledVersion "${dest}/shcl")"
+	if [[ -n "${installed}" ]] && fIsOlder "${version}" "${installed}"; then
+		older=1
+		existing="replaces the newer ${installed} with an older release"
+	fi
+fi
 printf 'shcl %s (%s, %s-%s) -> %s (%s)\n' "${version}" "${channel}" "${osname}" "${arch}" "${dest}" "${existing}"
 printf '  from     https://github.com/%s/releases/tag/%s\n' "${REPO}" "${tag}"
 printf '  binary   %s/shcl (symlink %s)\n' "${dest}" "${link}"
@@ -409,6 +434,7 @@ printf '  drop-ins %s/code/\n' "${dest}"
 printf '  man page %s (symlink %s)\n' "${dest}/man/shcl.1" "${manlink}"
 printf '  compl.   %s/completions/ (enable by hand - see the note at the end)\n' "${dest}"
 [[ -n "${asroot}" ]] && printf '  uses sudo for %s and %s\n' "${dest}" "${link}"
+(( older )) && [[ "${release}" == stable ]] && printf '  note     to keep %s, re-run with --release dev\n' "${installed}"
 if (( ! assume_yes )); then
 	## Ask on the terminal, and treat "cannot ask" as the abort it is. Testing
 	## /dev/tty for readability was not the same question: it passes in plenty of
@@ -550,6 +576,24 @@ fLayDown(){
 		${asroot} mkdir -p "${dest}/code"
 		${asroot} cp "${tmp}"/code/* "${dest}/code/"
 	fi
+	## What this release does not ship goes, by name, when the install was
+	## another version: a newer release's drop-ins, man page and completions
+	## left beside an older binary describe the wrong format. On the same
+	## version they can only have been put there by hand, so they stay.
+	dropped=""
+	if [[ "${installed}" != "${version}" ]]; then
+		if (( ! have_dropins )) && [[ -d "${dest}/code" ]]; then
+			${asroot} rm -f "${dest}/code/lib.rs" "${dest}/code/shcl.go" "${dest}/code/shcl.py" "${dest}/code/shcl.h" "${dest}/code/shcl.hpp"
+			${asroot} rmdir "${dest}/code" 2>/dev/null || true
+			dropped="the drop-ins"
+		fi
+		if (( ! have_docs )) && [[ -d "${dest}/man" || -d "${dest}/completions" ]]; then
+			[[ "$(fLinkOwner "${manlink}" "${dest}")" == ours ]] && ${asroot} rm -f "${manlink}"
+			${asroot} rm -f "${dest}/man/shcl.1" "${dest}/completions/shcl.bash" "${dest}/completions/_shcl"
+			${asroot} rmdir "${dest}/man" "${dest}/completions" 2>/dev/null || true
+			dropped="${dropped:+${dropped}, }the man page and completions"
+		fi
+	fi
 	## The shell wrappers are retired (project/legacy/), so an update takes out
 	## the copies an older install left, and scripts/ once that empties it.
 	${asroot} rm -f "${dest}/scripts/shcl.bash" "${dest}/scripts/shcl.ps1"
@@ -590,7 +634,12 @@ fOnPath(){
 fLayDown
 
 echo
-printf 'installed shcl %s -> %s\n' "${version}" "${link}"
+if (( older )); then
+	printf 'installed shcl %s -> %s (older than the %s it replaced)\n' "${version}" "${link}" "${installed}"
+else
+	printf 'installed shcl %s -> %s\n' "${version}" "${link}"
+fi
+[[ -n "${dropped}" ]] && printf 'note: removed %s the %s install had, since this release does not ship them\n' "${dropped}" "${installed:-earlier}"
 if [[ -n "${man_note}" ]]; then
 	printf 'note: %s - left alone, and this install'\''s man page not linked there\n' "${man_note}"
 fi

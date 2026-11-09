@@ -501,7 +501,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Say so when an installer moves a beta install back to the older stable
 	- ID: 2026110613470322
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Priority: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261106-134703
@@ -515,6 +515,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: `74c3a5a0` (2026-07-22), `c52fa077` (2026-09-22). Confirmed for install.bash in a sandbox. install.ps1 has the same logic.
 	- Regression test: shell-regress rows for install.bash and install.ps1 under pwsh: a newer beta on the box, then a default install, and the output names the move back to the stable version; the receipt line checked exact.
 	- Estimated effort: Low
+	- Needs external testing: install.ps1 on b29w, user target: a `-Release dev` install, then a plain run against the live releases. The plan says it replaces the newer beta, the receipt line says "older than the 3.0.0-beta1 it replaced", and `code\` is gone.
+	- Decisions:
+		- 20261109: both installers ask the installed binary its `--version`, so an install from before this change counts too. A binary that won't run reads as an ordinary update.
+		- 20261109: the plan and the receipt name the move back, and on the stable channel the plan says to re-run with `--release dev` to keep the newer one. It still runs, since stable is what was asked for.
+		- 20261109: what the release doesn't ship goes by name whenever the installed version differs, not only on a move back. On the same version those files could only be hand-placed, so they stay.
+		- 20261109: installer versions 1.5.0 (install.bash) and 1.3.0 (install.ps1).
+	- Progress log:
+		- 20261109: done in both installers, with a sentence in install.md and a changelog line. The install.ps1 row runs to the plan only, since the full script needs Windows past it.
+	- Swept: install-dev.bash, which installs no release. The uninstall paths already remove by name.
+	- Test case: shell-regress `df38m` (install.bash, plan, note, receipt exact, removal, rerun as update) and `df38n` (install.ps1 plan and note). Both fail on the old scripts and pass now.
 
 - Make `children` and `instances` exit 3 on a path that isn't there
 	- ID: 2026110613470323

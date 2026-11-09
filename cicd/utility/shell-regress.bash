@@ -443,6 +443,25 @@ SRVEOF
 		[[ "${out}" == *"${want}"* ]] || fBad "install.ps1 -Release ${release} plan does not name its release page: ${out@Q}"
 	done
 
+	fTest df38n 2026110613470322-install-ps1-back-to-stable
+	##	2026110613470322: a plain run over a beta install planned 2.0.0 as
+	##	"updates the existing install". The installed copy is asked its
+	##	version. Same fake API as the plan-line row.
+	mkdir -p "${tmpDir}/ladback/Programs/Shcl"
+	printf '#!/bin/sh\necho "shcl v3.0.0-beta1"\n' > "${tmpDir}/ladback/Programs/Shcl/shcl.exe"
+	chmod 755 "${tmpDir}/ladback/Programs/Shcl/shcl.exe"
+	for release in stable dev; do
+		out="$(env -u DISPLAY PROCESSOR_ARCHITECTURE=AMD64 SystemRoot="${tmpDir}/sysroot" LOCALAPPDATA="${tmpDir}/ladback" pwsh -NoProfile -NonInteractive -File "${tmpDir}/fakeapi.ps1" -Release "${release}" < /dev/null 2>&1 || true)"
+		if [[ "${release}" == stable ]]; then
+			[[ "${out}" == *"shcl 2.0.0 (stable, windows-x86_64) -> "*" (replaces the newer 3.0.0-beta1 with an older release)"$'\n'* ]] \
+				|| fBad "install.ps1 does not plan the move back to stable as one: ${out@Q}"
+			[[ "${out}" == *$'\n'"  note     to keep 3.0.0-beta1, re-run with -Release dev"$'\n'* ]] || fBad "install.ps1 does not say how to keep the beta: ${out@Q}"
+		else
+			[[ "${out}" == *"shcl 3.0.0-beta1 (dev, windows-x86_64) -> "*" (updates the existing install)"$'\n'* && "${out}" != *"older"* ]] \
+				|| fBad "install.ps1 calls a rerun of the installed version a move back: ${out@Q}"
+		fi
+	done
+
 	fTest dcz7z 20260921-idea6-install-ps1-uninstall-held-file
 	##	20260921 idea 6: a file the uninstall could not remove, which a running
 	##	shcl.exe causes on Windows, went unsaid, and the dir it kept was blamed
@@ -2111,6 +2130,52 @@ if fHave setsid && fHave openssl; then
 	[[ "${rc}" == 0 && "${out}" == *"installed shcl 3.0.0-beta1"* && "${out}" != *"safe-rm"* ]] \
 		|| fBad "install.bash under a TMPDIR with .. in its name: exit ${rc}: ${out@Q}"
 	[[ -z "$(find "${ut}" -mindepth 1 -maxdepth 1 2>/dev/null)" ]] || fBad "install.bash left its temp folder in a TMPDIR with .. in its name"
+
+	fTest df38m 2026110613470322-install-bash-back-to-stable
+	##	2026110613470322: after `--release dev`, a plain run put 2.0.0 over the
+	##	beta as "updates the existing install", and left the beta's drop-ins,
+	##	man page and completions beside it. The stand-in 2.0.0 ships the binary
+	##	alone, as the real one does.
+	bk="${tmpDir}/backinst"; bh="${bk}/home"; bd="${bh}/.local/share/shcl"
+	mkdir -p "${bk}/bin" "${bk}/rel" "${bh}"
+	cp "${ui}/bin/openssl" "${ui}/bin/uname" "${bk}/bin/"
+	printf '#!/bin/sh\necho "shcl v2.0.0"\n' > "${bk}/rel/shcl-2.0.0-linux-x86_64"
+	( cd "${bk}/rel" && sha256sum shcl-2.0.0-linux-x86_64 > "${bk}/sums" )
+	printf '[{"tag_name":"v2.0.0","prerelease":false,"draft":false},{"tag_name":"v3.0.0-beta1","prerelease":true,"draft":false}]\n' > "${bk}/rel.json"
+	cat > "${bk}/bin/curl" <<-STUB
+		#!/bin/sh
+		out=""; url=""
+		while [ \$# -gt 0 ]; do case "\$1" in -o) out="\$2"; shift 2 ;; -*) shift ;; *) url="\$1"; shift ;; esac; done
+		case "\${url}" in
+			https://api.github.com/repos/yottacore/shcl/releases*) cp '${bk}/rel.json' "\${out}" ;;
+			*/shcl-2.0.0-sha256sums.txt) cp '${bk}/sums' "\${out}" ;;
+			*/shcl-2.0.0-sha256sums.txt.sig) : > "\${out}" ;;
+			*/shcl-2.0.0-linux-x86_64) cp '${bk}/rel/shcl-2.0.0-linux-x86_64' "\${out}" ;;
+			*) exit 22 ;;
+		esac
+	STUB
+	chmod 755 "${bk}/bin/curl"
+	# shellcheck disable=SC2031  ## the gate's own PATH, which no subshell above changed for this one
+	HOME="${bh}" PATH="${ui}/bin:${PATH}" setsid -w bash "${repoDir}/install.bash" --release dev --yes </dev/null >/dev/null 2>&1 || true
+	[[ -f "${bd}/code/lib.rs" && -f "${bd}/man/shcl.1" ]] || fBad "install.bash --release dev did not lay down the beta to go back from"
+	rc=0
+	# shellcheck disable=SC2031  ## the gate's own PATH, which no subshell above changed for this one
+	out="$(HOME="${bh}" PATH="${bk}/bin:${PATH}" setsid -w bash "${repoDir}/install.bash" --yes </dev/null 2>&1)" || rc=$?
+	[[ "${rc}" == 0 && "${out}" == *"shcl 2.0.0 (stable, linux-x86_64) -> ${bd} (replaces the newer 3.0.0-beta1 with an older release)"$'\n'* ]] \
+		|| fBad "install.bash does not plan the move back to stable as one: exit ${rc}: ${out@Q}"
+	[[ "${out}" == *$'\n'"  note     to keep 3.0.0-beta1, re-run with --release dev"$'\n'* ]] || fBad "install.bash does not say how to keep the beta: ${out@Q}"
+	[[ "${out}" == *$'\n'"installed shcl 2.0.0 -> ${bh}/.local/bin/shcl (older than the 3.0.0-beta1 it replaced)"$'\n'* ]] \
+		|| fBad "install.bash's receipt does not name the move back: ${out@Q}"
+	[[ "${out}" == *$'\n'"note: removed the drop-ins, the man page and completions the 3.0.0-beta1 install had, since this release does not ship them"$'\n'* ]] \
+		|| fBad "install.bash does not say what it removed: ${out@Q}"
+	[[ -e "${bd}/code" || -e "${bd}/man" || -e "${bd}/completions" || -e "${bh}/.local/share/man/man1/shcl.1" || -L "${bh}/.local/share/man/man1/shcl.1" ]] \
+		&& fBad "install.bash left the beta's drop-ins, man page or completions beside 2.0.0"
+	cmp -s "${bd}/shcl" "${bk}/rel/shcl-2.0.0-linux-x86_64" || fBad "install.bash did not put 2.0.0 in place"
+	##	The same run again is an update, with nothing to remove.
+	# shellcheck disable=SC2031  ## the gate's own PATH, which no subshell above changed for this one
+	out="$(HOME="${bh}" PATH="${bk}/bin:${PATH}" setsid -w bash "${repoDir}/install.bash" --yes </dev/null 2>&1 || true)"
+	[[ "${out}" == *"(updates the existing install)"* && "${out}" != *"older"* && "${out}" != *"removed"* ]] \
+		|| fBad "install.bash calls a rerun of the same version a move back: ${out@Q}"
 else
 	fTestSkipBlock
 fi
