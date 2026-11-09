@@ -709,7 +709,6 @@ static int deep_wildcards(shcl_doc *d) {
 	for (size_t i = 0; i < SHCL_MAX_DEPTH; i++) { if (i) path[n++] = '.'; path[n++] = '*'; }
 	int ok = shcl_count(d, path, n) == 1;
 	char *schema = xrealloc(NULL, n + 16);
-	// codeql[cpp/overflowing-snprintf] the buffer is the path plus 16, more than "field: " and the newline take
 	snprintf(schema, n + 16, "field: %.*s\n", (int)n, path);
 	ok = ok && deep_validates(d, schema);
 	free(schema);

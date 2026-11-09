@@ -38,7 +38,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - codeql-scan fails on 39b06389: an unsuppressed `cpp/large-parameter` in shcl.h and a stale suppression in conformance.c
 	- ID: 2026110913374081
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261109-133740
@@ -50,6 +50,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: codeql-scan passes. The shcl.h line takes the suppression the other `DEFINE_VEC` lines have, `// codeql[cpp/large-parameter] DEFINE_VEC's push takes its element by value, for every type`, and the stale one goes.
 	- Reproduced: 20261109, codeql-scan on `r1109` with 2026110714552634's edits in the tree, which touch neither line.
 	- Estimated effort: Low
+	- Fix: the DEFINE_VEC line takes the same suppression the other DEFINE_VEC lines have, and the stale snprintf suppression in deep_wildcards is gone.
+	- Test case: codeql-scan `de5ag` and `de5am`, which failed on cd2f6386 and pass now.
+	- Verified: 20261109, codeql-scan.bash passed every test on the fix (run 20261109-140803_001, 360 s).
+	- Acceptance signoff: me, 20261109, codeql-scan green.
+	- Closed: 20261109-141600
 
 - The changed check misses a file reached through a second spelling of its path
 	- ID: 2026110613470307
@@ -110,8 +115,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Comments taken off a replaced item list end up above the list's blank line
 	- ID: 2026110613470311
 	- Type: Bug
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz on the commit, as on 2026110712372271.
+	- Status: Done
+	- Needs local test suite run?: No
 	- Severity: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261106-134703
@@ -142,14 +147,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: see 2026110712372271. Every `unstack` caller, the merge's `bracket` included, goes through `adopt`, so `fmt --layer` is fixed with the set.
 	- Test case: corpus `221-list-replace-comments` (`df09h`): the review's file, a field with a comment of its own and a blank among its items, and a list in a block, through `literal` ops, the line-keeping save and a layered merge.
 	- Verified: `df09h` fails on the libraries before the fix in Rust, C and Python, and the Go and C CLIs before it print the review's output. It passes on the fix in all 4. The rest as on 2026110712372271.
+	- Verified: 20261109, the 2,000,000-iteration release fuzz passed on r1109 at e132b1f5 (32 tests, 651 s), which holds this item's change and the 2026110714552634 fix.
 	- Branch: `r1107c`
-	- Prereq IDs: 2026110714552634
+	- Acceptance signoff: me, 20261109, every Needs row ran green.
+	- Closed: 20261109-140900
 
 - One rule for where the comments and blank of a removed list item go, through `adopt`
 	- ID: 2026110712372271
 	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz (`SHCL_FUZZ_ITERS=2000000`, `fuzz_smoke`) on this item's commit, since corpus 221 shifts the seeds. check-migrate passed on the same tree.
+	- Status: Done
+	- Needs local test suite run?: No
 	- Priority: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261107-123722
@@ -172,8 +179,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: every `unstack` caller in all 4: the setter's list replace, `new_child`, `new_child_under`, `fold_list_into_empty` and the merge's `bracket`. All go through `adopt` now. The other movers named in 2026110616475902 are 2026110712372281.
 	- Test case: corpus `221-list-replace-comments` (`df09h`), through the write ops, the line-keeping save and the layered merge.
 	- Verified: `df09h` fails on the old Rust, C and Python libraries, and the old Go and C CLIs give the old output, and it passes on the new ones in all 4. The 4 conformance suites, the whole Rust suite, the Go tests, the 200,000-iteration fuzz, cli-regress (658 rows), crosscheck (54717 comparisons), check-migrate (659 documents), check-docs, test-ids, analyze-c, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, markdownlint, lint-report.
+	- Verified: 20261109, the 2,000,000-iteration release fuzz passed on r1109 at e132b1f5 (32 tests, 651 s), which holds this item's change and the 2026110714552634 fix.
 	- Branch: `r1107c`
-	- Prereq IDs: 2026110714552634
+	- Acceptance signoff: me, 20261109, every Needs row ran green.
+	- Closed: 20261109-140900
 
 - `install.ps1` refuses pwsh on Linux and macOS
 	- ID: 2026110215285715

@@ -13314,6 +13314,7 @@ typedef struct {
 	size_t i, k, fi;
 	int opened, mounting;
 } ShclVLevel;
+// codeql[cpp/large-parameter] DEFINE_VEC's push takes its element by value, for every type
 DEFINE_VEC(ShclVecVLevel, ShclVLevel)
 
 // lv is this level's scratch arena (next slot in the caller's per-level pool);
