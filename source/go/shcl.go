@@ -933,7 +933,8 @@ func srcMatchesDisplay(v *value, s string) bool {
 }
 
 // Document is a parsed SHCL document: the tree, its diagnostics, and its
-// strictness level.
+// strictness level. The zero value is an empty document at Standard, the same
+// as New().
 type Document struct {
 	arena      []nodeData
 	diags      []Diagnostic
@@ -998,6 +999,25 @@ type Document struct {
 	// newer: the text named a newer format than this one (H006), so its lines
 	// may read differently there, and a save refuses. A merge takes a layer's.
 	newer bool
+	// zero: settles a zero-value Document into New()'s empty tree on the
+	// first call, so `var d Document` works. A Once, since reads may run
+	// concurrently and the first of them on a zero value writes.
+	zero sync.Once
+}
+
+// ready makes a zero-value Document what New() returns. Every exported
+// method, and every exported call that takes a Document, calls it first. A
+// nil one is left to fail where it did.
+func (d *Document) ready() {
+	if d == nil {
+		return
+	}
+	d.zero.Do(func() {
+		if d.arena == nil {
+			d.arena = []nodeData{{}}
+			d.strictness = Standard
+		}
+	})
 }
 
 // nameIndex is the first child of each (parent, name), chained on to the next
@@ -6661,6 +6681,7 @@ func ParseLimited(text string, strictness Strictness, maxNodes, maxElements, max
 // Diagnostics is everything the load recorded (after LoadAndValidate,
 // validation findings too).
 func (d *Document) Diagnostics() []Diagnostic {
+	d.ready()
 	// A copy: the reference hands out a borrowed view nobody can append to,
 	// and a Go slice sharing the document's backing array would let a
 	// caller's append and the document's next one overwrite each other.
@@ -6676,6 +6697,7 @@ func (d *Document) Diagnostics() []Diagnostic {
 // lines the load kept as written that an edit took and design.md's
 // kept-lines table does not let it take.
 func (d *Document) LostCount() int {
+	d.ready()
 	return d.lost + d.keptShortfall()
 }
 
@@ -6684,6 +6706,7 @@ func (d *Document) LostCount() int {
 // Reads work as usual, and so do edits, but every save refuses with
 // *SaveTooNew, since it would write the lines by these rules.
 func (d *Document) NewerFormat() bool {
+	d.ready()
 	return d.newer
 }
 
@@ -6917,6 +6940,7 @@ func besideKept(nd *nodeData) []lead {
 // as success by accident. Counts whatever Diagnostics() holds (after
 // LoadAndValidate, that includes validation errors).
 func (d *Document) ErrorCount() int {
+	d.ready()
 	n := 0
 	for _, dg := range d.diags {
 		if dg.Severity == SeverityError {
@@ -6952,6 +6976,7 @@ func LoadAndValidate(text, schemaText string, strictness Strictness) (*Document,
 // the same: Diagnostics and ErrorCount keep the load's values, the disavowed
 // hints stay, and Strict fails only on a load error.
 func LoadAndValidateWith(text string, schema *Document, strictness Strictness) (*Document, error) {
+	schema.ready()
 	doc := newParser().parse(text, strictness)
 	// Validate would give the same lone V099; a broken schema disavows no
 	// hints either, so nothing is suppressed.
@@ -6967,6 +6992,7 @@ func LoadAndValidateWith(text string, schema *Document, strictness Strictness) (
 
 // Strictness is the level the document was loaded at.
 func (d *Document) Strictness() Strictness {
+	d.ready()
 	return d.strictness
 }
 
@@ -6981,6 +7007,7 @@ func writeTabs(out *strings.Builder, n int) {
 // minimal quoting, redundancy collapsed, comments re-emitted as attached
 // trivia. Scalar text is never rewritten.
 func (d *Document) ToCanonical() string {
+	d.ready()
 	e := newEmit(len(d.arena)*24, false)
 	d.emitAll(e)
 	return e.out.String()
@@ -7014,6 +7041,7 @@ func LoadFileKeepLines(path string, level Strictness) (*Document, FileStatus, er
 // ParseKeepLines or LoadFileKeepLines, or it took a merge, or an edit took a
 // kept line it should not have, this is ToCanonical() and false.
 func (d *Document) ToTextKeepLines() (string, bool) {
+	d.ready()
 	// The reparse check cannot see a kept line gone from both the tree and
 	// the text, so falling back leaves it to the lost-count gate.
 	if d.source != nil && d.keptShortfall() == 0 {
@@ -7029,6 +7057,7 @@ func (d *Document) ToTextKeepLines() (string, bool) {
 // dropped comes back as written when the lines are kept, so this refuses the
 // way SaveFile does only when it would write canonical.
 func (d *Document) SaveFileKeepLines(path string) (bool, error) {
+	d.ready()
 	return d.SaveFileWith(path, SaveOptions{KeepLines: true})
 }
 
@@ -9206,6 +9235,7 @@ func h001Head(name string) string {
 // allocation and never disturbs the input (the reference filters its list in
 // place behind &mut; a Go return reads as a copy, so it must behave as one).
 func SuppressDeclaredRepeats(schema *Document, diags []Diagnostic) []Diagnostic {
+	schema.ready()
 	names := disavowedNames(schema, func(c *constraint) bool { return c.repeat != nil && c.repeat[1] > 1 })
 	if len(names) == 0 {
 		return append([]Diagnostic(nil), diags...)
@@ -10347,6 +10377,7 @@ func readRegular(path string) ([]byte, bool, error) {
 // WriteFileAtomic's *WriteError. A save records what it wrote, so it is a
 // write: not concurrent with another call on the document.
 func (d *Document) SaveFile(path string) error {
+	d.ready()
 	_, err := d.SaveFileWith(path, SaveOptions{})
 	return err
 }
@@ -10356,6 +10387,7 @@ func (d *Document) SaveFile(path string) error {
 // never returns *SaveRefused - the gate is the one thing it skips. The changed
 // check still applies.
 func (d *Document) SaveFileLossy(path string) error {
+	d.ready()
 	_, err := d.SaveFileWith(path, SaveOptions{Lossy: true})
 	return err
 }
@@ -10363,6 +10395,7 @@ func (d *Document) SaveFileLossy(path string) error {
 // SaveFileWith is the save the options describe: true when it kept the lines,
 // as SaveFileKeepLines says. All the save calls come here.
 func (d *Document) SaveFileWith(path string, opts SaveOptions) (bool, error) {
+	d.ready()
 	// First, and no option overrides it: whatever else is true, the save would
 	// write a newer format's lines by these rules.
 	if d.newer {
@@ -10446,6 +10479,7 @@ func h002Head(name string) string {
 // Used by `check --schema` and LoadAndValidate; call it wherever doc
 // diagnostics and a schema meet. Returns a fresh slice like the H001 one.
 func SuppressDeclaredReopens(schema *Document, diags []Diagnostic) []Diagnostic {
+	schema.ready()
 	names := disavowedNames(schema, func(c *constraint) bool { return c.reopen })
 	if len(names) == 0 {
 		return append([]Diagnostic(nil), diags...)
@@ -11012,6 +11046,7 @@ func (d *Document) resolveMode(path string, group bool) (resolved, bool) {
 
 // Count returns the instance count at a path (0 when nothing matches).
 func (d *Document) Count(path string) int {
+	d.ready()
 	return d.ReadCount(path).Value
 }
 
@@ -11020,6 +11055,7 @@ func (d *Document) Count(path string) int {
 // slots matches nothing, as in ReadIntArray. Line is set when the path
 // reaches one node.
 func (d *Document) ReadCount(path string) Read[int] {
+	d.ready()
 	r, ok := d.resolve(path)
 	if !ok {
 		return Read[int]{Status: BadPath}
@@ -11042,6 +11078,7 @@ func (d *Document) ReadCount(path string) Read[int] {
 // quoted and escaped - the form the path scanner accepts - so each path is a
 // well-formed lookup path and nothing in the document is hidden.
 func (d *Document) Paths() []string {
+	d.ready()
 	var out []string
 	seen := map[string]bool{}
 	type ent struct {
@@ -11078,6 +11115,7 @@ func (d *Document) Paths() []string {
 // exactly one node, or the node was writer-built. Merged instances cite the
 // first binding's line, matching diagnostics.
 func (d *Document) Line(path string) int {
+	d.ready()
 	return d.ReadLine(path).Value
 }
 
@@ -11086,6 +11124,7 @@ func (d *Document) Line(path string) int {
 // say, or BadPath when it cannot be read as a path. A writer-built node is
 // Good with 0. Line is set too.
 func (d *Document) ReadLine(path string) Read[int] {
+	d.ready()
 	n, st := d.nodeAt(path)
 	if st != Good {
 		return Read[int]{Status: st}
@@ -11102,12 +11141,14 @@ func (d *Document) ReadLine(path string) Read[int] {
 // exactly one node. Merged instances keep the first binding's spelling; a
 // writer-built node keeps the spelling the setter's path used.
 func (d *Document) AuthoredName(path string) string {
+	d.ready()
 	return d.ReadAuthoredName(path).Value
 }
 
 // ReadAuthoredName is AuthoredName with a status, the way ReadLine has them:
 // Multiple for a repeated field, NotFound or BadPath otherwise.
 func (d *Document) ReadAuthoredName(path string) Read[string] {
+	d.ready()
 	n, st := d.nodeAt(path)
 	if st != Good {
 		return Read[string]{Status: st}
@@ -11121,6 +11162,7 @@ func (d *Document) ReadAuthoredName(path string) Read[string] {
 // KindEmpty when the path does not resolve to exactly one node, as Line gives
 // 0; ReadKind says which miss it was.
 func (d *Document) Kind(path string) ValueKind {
+	d.ready()
 	return d.ReadKind(path).Value
 }
 
@@ -11129,6 +11171,7 @@ func (d *Document) Kind(path string) ValueKind {
 // KindEmpty, so a written `x:` and a missing field read apart. Line is set
 // too.
 func (d *Document) ReadKind(path string) Read[ValueKind] {
+	d.ready()
 	n, st := d.nodeAt(path)
 	if st != Good {
 		return Read[ValueKind]{Value: KindEmpty, Status: st}
@@ -11150,6 +11193,7 @@ func (d *Document) ReadKind(path string) Read[ValueKind] {
 // every binding's. Wildcard slots that did not resolve stay in the list as 0,
 // and a writer-built node is 0, so indices keep matching Count().
 func (d *Document) Lines(path string) []int {
+	d.ready()
 	return d.ReadLines(path).Value
 }
 
@@ -11158,6 +11202,7 @@ func (d *Document) Lines(path string) []int {
 // them. Unresolved wildcard slots stay 0 as in Lines, and still count as a
 // match. Line is set when the path reaches one node.
 func (d *Document) ReadLines(path string) Read[[]int] {
+	d.ready()
 	r, ok := d.resolve(path)
 	if !ok {
 		return Read[[]int]{Value: []int{}, Status: BadPath}
@@ -11194,6 +11239,7 @@ func (d *Document) ReadLines(path string) Read[[]int] {
 // dotted path reaches all of them. Names come back as stored; QuoteSegment()
 // makes one splice-safe in a path.
 func (d *Document) Children(path string) []string {
+	d.ready()
 	return d.ReadChildren(path).Value
 }
 
@@ -11203,6 +11249,7 @@ func (d *Document) Children(path string) []string {
 // an empty section and a missing one read differently. Line is set when the
 // path reaches one node.
 func (d *Document) ReadChildren(path string) Read[[]string] {
+	d.ready()
 	nodes := []int{root}
 	line := 0
 	if strings.TrimSpace(path) != "" {
@@ -11243,6 +11290,7 @@ func (d *Document) ReadChildren(path string) Read[[]string] {
 // parent, so each path reads exactly one node and a repeated block is walked
 // instance by instance. Segments are written as Paths() writes them.
 func (d *Document) InstancePaths() []string {
+	d.ready()
 	walk := d.instanceWalk()
 	out := make([]string, 0, len(walk))
 	for _, w := range walk {
@@ -11254,6 +11302,7 @@ func (d *Document) InstancePaths() []string {
 // Fields is InstancePaths() as a field list: each binding's path, name, value
 // and line, in the same order.
 func (d *Document) Fields() []Field {
+	d.ready()
 	walk := d.instanceWalk()
 	out := make([]Field, 0, len(walk))
 	for _, w := range walk {
@@ -11267,6 +11316,7 @@ func (d *Document) Fields() []Field {
 // so two instances with one value still get paths that read one each. An
 // unresolved wildcard slot is an all-empty Field, line 0.
 func (d *Document) ReadFields(path string) Read[[]Field] {
+	d.ready()
 	r, ok := d.resolve(path)
 	if !ok {
 		return Read[[]Field]{Value: []Field{}, Status: BadPath}
@@ -11302,6 +11352,7 @@ func (d *Document) ReadFields(path string) Read[[]Field] {
 // beside its name, paths written as InstancePaths() writes them. "" is the
 // top level.
 func (d *Document) ReadChildFields(path string) Read[[]Field] {
+	d.ready()
 	nodes := []int{root}
 	line := 0
 	if strings.TrimSpace(path) != "" {
@@ -11401,6 +11452,7 @@ func (d *Document) instanceWalk() []walked {
 // slots that did not resolve stay in the list as "" so indices keep matching
 // Count().
 func (d *Document) Instances(path string) []string {
+	d.ready()
 	return d.ReadInstances(path).Value
 }
 
@@ -11410,6 +11462,7 @@ func (d *Document) Instances(path string) []string {
 // still count as a match, as they do in ReadCount. Line is set when the path
 // reaches one node.
 func (d *Document) ReadInstances(path string) Read[[]string] {
+	d.ready()
 	r, ok := d.resolve(path)
 	if !ok {
 		return Read[[]string]{Value: []string{}, Status: BadPath}
@@ -11619,6 +11672,7 @@ func (d *Document) newChild(parent int, name, nameSrc string, v value) int {
 // gives only the path reasons, SetBadPath to SetUnderArray. A setter can still
 // refuse its value on a SetOk path, and its own status says why.
 func (d *Document) CheckSetPath(path string) SetStatus {
+	d.ready()
 	scan, err := scanLookup(path)
 	if err != nil {
 		return SetBadPath
@@ -12258,6 +12312,7 @@ func (d *Document) lineOfOne(targets []int) int {
 
 // Exists is true when the path resolves to at least one real node.
 func (d *Document) Exists(path string) bool {
+	d.ready()
 	return d.ReadExists(path).Value
 }
 
@@ -12265,6 +12320,7 @@ func (d *Document) Exists(path string) bool {
 // path reaches no real node, or BadPath when it cannot be read as a path.
 // Line is set when the path reaches one node.
 func (d *Document) ReadExists(path string) Read[bool] {
+	d.ready()
 	t, st := d.targetsAt(path)
 	if st != Good {
 		return Read[bool]{Status: st}
@@ -12277,6 +12333,7 @@ func (d *Document) ReadExists(path string) Read[bool] {
 // only by the lines under it goes with the last of them.
 // A removed node's storage is not reclaimed, so a process that adds and removes in a loop grows by a few hundred bytes a pair. Reloading the canonical text gives it back.
 func (d *Document) Remove(path string) int {
+	d.ready()
 	return d.TryRemove(path).Value
 }
 
@@ -12284,6 +12341,7 @@ func (d *Document) Remove(path string) int {
 // real node, or BadPath when it cannot be read as a path, which removes
 // nothing. Line is set when the path reached one node.
 func (d *Document) TryRemove(path string) Read[int] {
+	d.ready()
 	targets, status := d.targetsAt(path)
 	// A miss still settles below, as it always has.
 	if status == BadPath {
@@ -12590,6 +12648,7 @@ func (d *Document) live(node int) bool {
 // drop the rest with nothing to say so. Text that is not valid UTF-8 is
 // SetNotUtf8.
 func (d *Document) SetComment(path, text string) SetStatus {
+	d.ready()
 	line, ok := commentLine(text)
 	if !ok {
 		why := SetBadComment
@@ -12633,6 +12692,7 @@ func (d *Document) pushComment(idx int, text string) {
 // its own comment from one a user wrote there, and SetComment puts a line it
 // gave back as it was. Empty when the path reaches nothing.
 func (d *Document) Comments(path string) []string {
+	d.ready()
 	return d.ReadComments(path).Value
 }
 
@@ -12641,6 +12701,7 @@ func (d *Document) Comments(path string) []string {
 // comment above it is Good with an empty list. Line is set when the path
 // reaches one node.
 func (d *Document) ReadComments(path string) Read[[]string] {
+	d.ready()
 	targets, st := d.targetsAt(path)
 	if st != Good {
 		return Read[[]string]{Value: []string{}, Status: st}
@@ -12668,6 +12729,7 @@ func (d *Document) ReadComments(path string) Read[[]string] {
 // stays, and so does a line kept as written for being malformed. Returns how
 // many lines came off, 0 when the path reaches nothing.
 func (d *Document) ClearComments(path string) int {
+	d.ready()
 	return d.TryClearComments(path).Value
 }
 
@@ -12676,6 +12738,7 @@ func (d *Document) ClearComments(path string) int {
 // node with no comment above it is Good with 0. Line is set when the path
 // reaches one node.
 func (d *Document) TryClearComments(path string) Read[int] {
+	d.ready()
 	targets, st := d.targetsAt(path)
 	if st != Good {
 		return Read[int]{Status: st}
@@ -12739,6 +12802,7 @@ func (d *Document) TryClearComments(path string) Read[int] {
 // this is for a program that wants it in a file it writes. Returns how many old
 // blocks came off.
 func (d *Document) SetBanner(on bool) int {
+	d.ready()
 	return d.swapBanner(on, false)
 }
 
@@ -12829,6 +12893,7 @@ func (d *Document) swapBanner(on, v2 bool) int {
 // assuming: an ignored refusal means the save that follows writes a document
 // missing the edit, and reports success doing it.
 func (d *Document) SetInt(path string, v int64) SetStatus {
+	d.ready()
 	return d.setValue(path, cellOf(strconv.FormatInt(v, 10)))
 }
 
@@ -12836,6 +12901,7 @@ func (d *Document) SetInt(path string, v int64) SetStatus {
 // infinity or a NaN has no spelling the reader accepts, so it fails the write
 // (SetNotFinite) rather than binding a value that cannot read back.
 func (d *Document) SetFloat(path string, v float64) SetStatus {
+	d.ready()
 	if math.IsInf(v, 0) || math.IsNaN(v) {
 		return d.refuse(path, SetNotFinite)
 	}
@@ -12844,6 +12910,7 @@ func (d *Document) SetFloat(path string, v float64) SetStatus {
 
 // SetBool binds true/false at path.
 func (d *Document) SetBool(path string, v bool) SetStatus {
+	d.ready()
 	return d.setValue(path, cellOf(boolText(v)))
 }
 
@@ -12853,6 +12920,7 @@ func (d *Document) SetBool(path string, v bool) SetStatus {
 // replacement character per bad byte and reported as written - the same
 // refusal SetFloat gives an infinity and SetDateTime a month of 13.
 func (d *Document) SetString(path, v string) SetStatus {
+	d.ready()
 	return d.setValue(path, cellOf(v))
 }
 
@@ -12861,6 +12929,7 @@ func (d *Document) SetString(path, v string) SetStatus {
 // would refuse (month 13, a fraction with no seconds, an empty struct) fails
 // the write (SetBadDateTime) rather than binding text that cannot read back.
 func (d *Document) SetDateTime(path string, v DateTime) SetStatus {
+	d.ready()
 	if !datetimeReadsBack(v) {
 		return d.refuse(path, SetBadDateTime)
 	}
@@ -12869,6 +12938,7 @@ func (d *Document) SetDateTime(path string, v DateTime) SetStatus {
 
 // SetEmpty binds an empty value at path (distinct from the empty string).
 func (d *Document) SetEmpty(path string) SetStatus {
+	d.ready()
 	return d.setValue(path, value{kind: vEmpty})
 }
 
@@ -12879,6 +12949,7 @@ func (d *Document) SetEmpty(path string) SetStatus {
 // as does a body line ending in CR (SetBadRawBody), since the load takes the
 // trailing CR run off every line.
 func (d *Document) SetRaw(path, content, info string) SetStatus {
+	d.ready()
 	info = trimWsp(info)
 	fc, fl := chooseFence(content)
 	return d.setValue(path, value{kind: vRaw, raw: &rawValue{content: content, info: info, fenceChar: fc, fenceLen: fl}})
@@ -12887,6 +12958,7 @@ func (d *Document) SetRaw(path, content, info string) SetStatus {
 // SetIntArray binds an inline integer array at path. An array on a field with
 // lines under it fails the write (SetHasChildren), from every array setter.
 func (d *Document) SetIntArray(path string, v []int64) SetStatus {
+	d.ready()
 	texts := make([]string, len(v))
 	for i, x := range v {
 		texts[i] = strconv.FormatInt(x, 10)
@@ -12896,6 +12968,7 @@ func (d *Document) SetIntArray(path string, v []int64) SetStatus {
 
 // SetFloatArray binds an inline float array at path.
 func (d *Document) SetFloatArray(path string, v []float64) SetStatus {
+	d.ready()
 	for _, x := range v {
 		if math.IsInf(x, 0) || math.IsNaN(x) {
 			return d.refuse(path, SetNotFinite)
@@ -12910,6 +12983,7 @@ func (d *Document) SetFloatArray(path string, v []float64) SetStatus {
 
 // SetBoolArray binds an inline bool array at path.
 func (d *Document) SetBoolArray(path string, v []bool) SetStatus {
+	d.ready()
 	texts := make([]string, len(v))
 	for i, x := range v {
 		texts[i] = boolText(x)
@@ -12919,6 +12993,7 @@ func (d *Document) SetBoolArray(path string, v []bool) SetStatus {
 
 // SetStringArray binds an inline string array at path, per-element escaped.
 func (d *Document) SetStringArray(path string, v []string) SetStatus {
+	d.ready()
 	texts := make([]string, len(v))
 	copy(texts, v)
 	return d.setValue(path, arrayCell(texts))
@@ -12926,6 +13001,7 @@ func (d *Document) SetStringArray(path string, v []string) SetStatus {
 
 // SetDateTimeArray binds an inline datetime array at path.
 func (d *Document) SetDateTimeArray(path string, v []DateTime) SetStatus {
+	d.ready()
 	for _, x := range v {
 		if !datetimeReadsBack(x) {
 			return d.refuse(path, SetBadDateTime)
@@ -13024,16 +13100,19 @@ func containsIndex(xs []int, v int) bool {
 // comment. A raw block there stays and gives SetRawBlock. The other default
 // forms work the same way with their own type.
 func (d *Document) SetIntDefault(path string, v int64) SetStatus {
+	d.ready()
 	return d.setDefault(path, "an int", func(e *Document, p string) Status { return e.ReadInt(p).Status }, func(e *Document, p string) SetStatus { return e.SetInt(p, v) })
 }
 
 // SetFloatDefault is SetFloat unless the field already reads as that type.
 func (d *Document) SetFloatDefault(path string, v float64) SetStatus {
+	d.ready()
 	return d.setDefault(path, "a float", func(e *Document, p string) Status { return e.ReadFloat(p).Status }, func(e *Document, p string) SetStatus { return e.SetFloat(p, v) })
 }
 
 // SetBoolDefault is SetBool unless the field already reads as that type.
 func (d *Document) SetBoolDefault(path string, v bool) SetStatus {
+	d.ready()
 	return d.setDefault(path, "a bool", func(e *Document, p string) Status { return e.ReadBool(p).Status }, func(e *Document, p string) SetStatus { return e.SetBool(p, v) })
 }
 
@@ -13045,6 +13124,7 @@ func (d *Document) SetBoolDefault(path string, v bool) SetStatus {
 // An array on a field with lines under it is SetHasChildren, as from the
 // array setters, and text that is not valid UTF-8 is SetNotUtf8.
 func (d *Document) SetLiteral(path, text string) SetStatus {
+	d.ready()
 	// Text that parsed as one value and still has no line that reads back is
 	// still not one value, as far as the caller can tell.
 	v, ok := literalValue(text)
@@ -13065,47 +13145,56 @@ func (d *Document) SetLiteral(path, text string) SetStatus {
 // SetLiteralDefault is SetLiteral unless the field already has a value.
 // Literal text names no type, so any value counts.
 func (d *Document) SetLiteralDefault(path, text string) SetStatus {
+	d.ready()
 	return d.setDefault(path, "a string", func(e *Document, p string) Status { return e.ReadString(p).Status }, func(e *Document, p string) SetStatus { return e.SetLiteral(p, text) })
 }
 
 // SetStringDefault is SetString unless the field already has a value, since
 // any value reads as a string.
 func (d *Document) SetStringDefault(path, v string) SetStatus {
+	d.ready()
 	return d.setDefault(path, "a string", func(e *Document, p string) Status { return e.ReadString(p).Status }, func(e *Document, p string) SetStatus { return e.SetString(p, v) })
 }
 
 // SetDateTimeDefault is SetDateTime unless the field already reads as that type.
 func (d *Document) SetDateTimeDefault(path string, v DateTime) SetStatus {
+	d.ready()
 	return d.setDefault(path, "a datetime", func(e *Document, p string) Status { return e.ReadDateTime(p).Status }, func(e *Document, p string) SetStatus { return e.SetDateTime(p, v) })
 }
 
 // SetRawDefault is SetRaw unless the field already reads as that type.
 func (d *Document) SetRawDefault(path, content, info string) SetStatus {
+	d.ready()
 	return d.setDefault(path, "a raw block", func(e *Document, p string) Status { return e.ReadRaw(p).Status }, func(e *Document, p string) SetStatus { return e.SetRaw(p, content, info) })
 }
 
 // SetIntArrayDefault is SetIntArray unless the field already reads as that type.
 func (d *Document) SetIntArrayDefault(path string, v []int64) SetStatus {
+	d.ready()
 	return d.setDefault(path, "an int array", func(e *Document, p string) Status { return e.ReadIntArray(p).Status }, func(e *Document, p string) SetStatus { return e.SetIntArray(p, v) })
 }
 
 // SetFloatArrayDefault is SetFloatArray unless the field already reads as that type.
 func (d *Document) SetFloatArrayDefault(path string, v []float64) SetStatus {
+	d.ready()
 	return d.setDefault(path, "a float array", func(e *Document, p string) Status { return e.ReadFloatArray(p).Status }, func(e *Document, p string) SetStatus { return e.SetFloatArray(p, v) })
 }
 
 // SetBoolArrayDefault is SetBoolArray unless the field already reads as that type.
 func (d *Document) SetBoolArrayDefault(path string, v []bool) SetStatus {
+	d.ready()
 	return d.setDefault(path, "a bool array", func(e *Document, p string) Status { return e.ReadBoolArray(p).Status }, func(e *Document, p string) SetStatus { return e.SetBoolArray(p, v) })
 }
 
 // SetStringArrayDefault is SetStringArray unless the field already reads as that type.
 func (d *Document) SetStringArrayDefault(path string, v []string) SetStatus {
+	d.ready()
 	return d.setDefault(path, "a string array", func(e *Document, p string) Status { return e.ReadStringArray(p).Status }, func(e *Document, p string) SetStatus { return e.SetStringArray(p, v) })
 }
 
 // SetDateTimeArrayDefault is SetDateTimeArray unless the field already reads as that type.
 func (d *Document) SetDateTimeArrayDefault(path string, v []DateTime) SetStatus {
+	d.ready()
 	return d.setDefault(path, "a datetime array", func(e *Document, p string) Status { return e.ReadDateTimeArray(p).Status }, func(e *Document, p string) SetStatus { return e.SetDateTimeArray(p, v) })
 }
 
@@ -13130,11 +13219,14 @@ func (d *Document) SetDateTimeArrayDefault(path string, v []DateTime) SetStatus 
 // rebuild on the next read.
 //
 // A document merged onto itself is left as it is. The walk reads over while it
-// writes d, so the same document on both sides duplicated lines.
+// writes d, so the same document on both sides duplicated lines. A nil one
+// adds nothing, as an empty one does.
 func (d *Document) Merge(over *Document) {
-	if over == d {
+	d.ready()
+	if over == nil || over == d {
 		return
 	}
+	over.ready()
 	d.index.Store(nil)
 	d.source = nil
 	d.lost += over.lost
@@ -14591,24 +14683,28 @@ func readScalar[T any](d *Document, path string, coerce func(*element) (T, bool)
 
 // ReadInt is the full-tier integer read at path, coerced per the document's strictness.
 func (d *Document) ReadInt(path string) Read[int64] {
+	d.ready()
 	lvl := d.strictness
 	return readScalar(d, path, func(e *element) (int64, bool) { return parseIntText(e, lvl) })
 }
 
 // ReadFloat is the full-tier float read at path, coerced per the document's strictness.
 func (d *Document) ReadFloat(path string) Read[float64] {
+	d.ready()
 	lvl := d.strictness
 	return readScalar(d, path, func(e *element) (float64, bool) { return parseFloatText(e, lvl) })
 }
 
 // ReadBool is the full-tier bool read at path, coerced per the document's strictness.
 func (d *Document) ReadBool(path string) Read[bool] {
+	d.ready()
 	lvl := d.strictness
 	return readScalar(d, path, func(e *element) (bool, bool) { return parseBoolText(e.text, lvl) })
 }
 
 // ReadDateTime is the full-tier datetime read at path.
 func (d *Document) ReadDateTime(path string) Read[DateTime] {
+	d.ready()
 	return readScalar(d, path, func(e *element) (DateTime, bool) { return ParseDateTime(e.text) })
 }
 
@@ -14629,6 +14725,7 @@ func readNamed[T any](d *Document, path string, coerce func(*element, string) (T
 // name when the name ends in one (`timeout-ms`, `delay_seconds`), else from
 // unit, and is BadType with neither.
 func (d *Document) ReadDuration(path string, unit DurationUnit) Read[time.Duration] {
+	d.ready()
 	return readNamed(d, path, func(e *element, name string) (time.Duration, bool) {
 		bare := nameUnit(name, durationNames)
 		if bare == DurationNone {
@@ -14643,6 +14740,7 @@ func (d *Document) ReadDuration(path string, unit DurationUnit) Read[time.Durati
 // `1.5 GiB`. A bare number takes its unit the way a duration does. KB to TB
 // are powers of 1024 unless decimal is set.
 func (d *Document) ReadSize(path string, unit SizeUnit, decimal bool) Read[int64] {
+	d.ready()
 	return readNamed(d, path, func(e *element, name string) (int64, bool) {
 		bare := nameUnit(name, sizeNames)
 		if bare == SizeNone {
@@ -14656,6 +14754,7 @@ func (d *Document) ReadSize(path string, unit SizeUnit, decimal bool) Read[int64
 // ReadString reads any value as a string: a raw block yields its content, an
 // array its canonical bracket form. Escapes are applied.
 func (d *Document) ReadString(path string) Read[string] {
+	d.ready()
 	n, st := d.nodeAt(path)
 	if n < 0 {
 		return Read[string]{Status: st}
@@ -14678,6 +14777,7 @@ func (d *Document) ReadString(path string) Read[string] {
 
 // ReadRaw reads raw-block content verbatim. Non-block values are BadType.
 func (d *Document) ReadRaw(path string) Read[string] {
+	d.ready()
 	n, st := d.nodeAt(path)
 	if n < 0 {
 		return Read[string]{Status: st}
@@ -14696,6 +14796,7 @@ func (d *Document) ReadRaw(path string) Read[string] {
 
 // ReadRawInfo reads the advisory info-string of a raw block ("" when absent).
 func (d *Document) ReadRawInfo(path string) Read[string] {
+	d.ready()
 	n, st := d.nodeAt(path)
 	if n < 0 {
 		return Read[string]{Status: st}
@@ -14796,29 +14897,34 @@ func readArray[T any](d *Document, path string, coerce func(*element) (T, bool))
 
 // ReadIntArray is the full-tier integer-array read at path (per-slot statuses in Slots).
 func (d *Document) ReadIntArray(path string) Read[[]int64] {
+	d.ready()
 	lvl := d.strictness
 	return readArray(d, path, func(e *element) (int64, bool) { return parseIntText(e, lvl) })
 }
 
 // ReadFloatArray is the full-tier float-array read at path.
 func (d *Document) ReadFloatArray(path string) Read[[]float64] {
+	d.ready()
 	lvl := d.strictness
 	return readArray(d, path, func(e *element) (float64, bool) { return parseFloatText(e, lvl) })
 }
 
 // ReadBoolArray is the full-tier bool-array read at path.
 func (d *Document) ReadBoolArray(path string) Read[[]bool] {
+	d.ready()
 	lvl := d.strictness
 	return readArray(d, path, func(e *element) (bool, bool) { return parseBoolText(e.text, lvl) })
 }
 
 // ReadDateTimeArray is the full-tier datetime-array read at path.
 func (d *Document) ReadDateTimeArray(path string) Read[[]DateTime] {
+	d.ready()
 	return readArray(d, path, func(e *element) (DateTime, bool) { return ParseDateTime(e.text) })
 }
 
 // ReadStringArray is the full-tier string-array read at path, escapes applied per element.
 func (d *Document) ReadStringArray(path string) Read[[]string] {
+	d.ready()
 	return readArray(d, path, func(e *element) (string, bool) { return e.text, true })
 }
 
@@ -14828,54 +14934,63 @@ func (d *Document) ReadStringArray(path string) Read[[]string] {
 
 // GetInt is ReadInt reduced to (value, status).
 func (d *Document) GetInt(path string) (int64, Status) {
+	d.ready()
 	r := d.ReadInt(path)
 	return r.Value, r.Status
 }
 
 // GetFloat is ReadFloat reduced to (value, status).
 func (d *Document) GetFloat(path string) (float64, Status) {
+	d.ready()
 	r := d.ReadFloat(path)
 	return r.Value, r.Status
 }
 
 // GetBool is ReadBool reduced to (value, status).
 func (d *Document) GetBool(path string) (bool, Status) {
+	d.ready()
 	r := d.ReadBool(path)
 	return r.Value, r.Status
 }
 
 // GetString is ReadString reduced to (value, status).
 func (d *Document) GetString(path string) (string, Status) {
+	d.ready()
 	r := d.ReadString(path)
 	return r.Value, r.Status
 }
 
 // GetRaw is ReadRaw reduced to (value, status).
 func (d *Document) GetRaw(path string) (string, Status) {
+	d.ready()
 	r := d.ReadRaw(path)
 	return r.Value, r.Status
 }
 
 // GetRawInfo is ReadRawInfo reduced to (value, status).
 func (d *Document) GetRawInfo(path string) (string, Status) {
+	d.ready()
 	r := d.ReadRawInfo(path)
 	return r.Value, r.Status
 }
 
 // GetDateTime is ReadDateTime reduced to (value, status).
 func (d *Document) GetDateTime(path string) (DateTime, Status) {
+	d.ready()
 	r := d.ReadDateTime(path)
 	return r.Value, r.Status
 }
 
 // GetDuration is ReadDuration reduced to (value, status).
 func (d *Document) GetDuration(path string, unit DurationUnit) (time.Duration, Status) {
+	d.ready()
 	r := d.ReadDuration(path, unit)
 	return r.Value, r.Status
 }
 
 // GetSize is ReadSize reduced to (value, status).
 func (d *Document) GetSize(path string, unit SizeUnit, decimal bool) (int64, Status) {
+	d.ready()
 	r := d.ReadSize(path, unit, decimal)
 	return r.Value, r.Status
 }
@@ -14886,30 +15001,35 @@ func (d *Document) GetSize(path string, unit SizeUnit, decimal bool) (int64, Sta
 
 // GetIntArray is ReadIntArray reduced to (value, status).
 func (d *Document) GetIntArray(path string) ([]int64, Status) {
+	d.ready()
 	r := d.ReadIntArray(path)
 	return r.Value, r.Status
 }
 
 // GetFloatArray is ReadFloatArray reduced to (value, status).
 func (d *Document) GetFloatArray(path string) ([]float64, Status) {
+	d.ready()
 	r := d.ReadFloatArray(path)
 	return r.Value, r.Status
 }
 
 // GetBoolArray is ReadBoolArray reduced to (value, status).
 func (d *Document) GetBoolArray(path string) ([]bool, Status) {
+	d.ready()
 	r := d.ReadBoolArray(path)
 	return r.Value, r.Status
 }
 
 // GetStringArray is ReadStringArray reduced to (value, status).
 func (d *Document) GetStringArray(path string) ([]string, Status) {
+	d.ready()
 	r := d.ReadStringArray(path)
 	return r.Value, r.Status
 }
 
 // GetDateTimeArray is ReadDateTimeArray reduced to (value, status).
 func (d *Document) GetDateTimeArray(path string) ([]DateTime, Status) {
+	d.ready()
 	r := d.ReadDateTimeArray(path)
 	return r.Value, r.Status
 }
@@ -14922,6 +15042,7 @@ func (d *Document) GetDateTimeArray(path string) ([]DateTime, Status) {
 
 // GetIntOr is the integer at path, or def when the read is not Good.
 func (d *Document) GetIntOr(path string, def int64) int64 {
+	d.ready()
 	if r := d.ReadInt(path); r.Status == Good {
 		return r.Value
 	}
@@ -14930,6 +15051,7 @@ func (d *Document) GetIntOr(path string, def int64) int64 {
 
 // GetFloatOr is the float at path, or def when the read is not Good.
 func (d *Document) GetFloatOr(path string, def float64) float64 {
+	d.ready()
 	if r := d.ReadFloat(path); r.Status == Good {
 		return r.Value
 	}
@@ -14938,6 +15060,7 @@ func (d *Document) GetFloatOr(path string, def float64) float64 {
 
 // GetBoolOr is the bool at path, or def when the read is not Good.
 func (d *Document) GetBoolOr(path string, def bool) bool {
+	d.ready()
 	if r := d.ReadBool(path); r.Status == Good {
 		return r.Value
 	}
@@ -14946,6 +15069,7 @@ func (d *Document) GetBoolOr(path string, def bool) bool {
 
 // GetStringOr is the string at path, or def when the read is not Good.
 func (d *Document) GetStringOr(path string, def string) string {
+	d.ready()
 	if r := d.ReadString(path); r.Status == Good {
 		return r.Value
 	}
@@ -14954,6 +15078,7 @@ func (d *Document) GetStringOr(path string, def string) string {
 
 // GetRawOr is the raw-block content at path, or def when the read is not Good.
 func (d *Document) GetRawOr(path string, def string) string {
+	d.ready()
 	if r := d.ReadRaw(path); r.Status == Good {
 		return r.Value
 	}
@@ -14963,6 +15088,7 @@ func (d *Document) GetRawOr(path string, def string) string {
 // GetRawInfoOr is the raw block's info-string at path, or def when the read is
 // not Good.
 func (d *Document) GetRawInfoOr(path string, def string) string {
+	d.ready()
 	if r := d.ReadRawInfo(path); r.Status == Good {
 		return r.Value
 	}
@@ -14971,6 +15097,7 @@ func (d *Document) GetRawInfoOr(path string, def string) string {
 
 // GetDateTimeOr is the datetime at path, or def when the read is not Good.
 func (d *Document) GetDateTimeOr(path string, def DateTime) DateTime {
+	d.ready()
 	if r := d.ReadDateTime(path); r.Status == Good {
 		return r.Value
 	}
@@ -14979,6 +15106,7 @@ func (d *Document) GetDateTimeOr(path string, def DateTime) DateTime {
 
 // GetDurationOr is the duration at path, or def when the read is not Good.
 func (d *Document) GetDurationOr(path string, unit DurationUnit, def time.Duration) time.Duration {
+	d.ready()
 	if r := d.ReadDuration(path, unit); r.Status == Good {
 		return r.Value
 	}
@@ -14987,6 +15115,7 @@ func (d *Document) GetDurationOr(path string, unit DurationUnit, def time.Durati
 
 // GetSizeOr is the size at path, or def when the read is not Good.
 func (d *Document) GetSizeOr(path string, unit SizeUnit, decimal bool, def int64) int64 {
+	d.ready()
 	if r := d.ReadSize(path, unit, decimal); r.Status == Good {
 		return r.Value
 	}
@@ -14995,6 +15124,7 @@ func (d *Document) GetSizeOr(path string, unit SizeUnit, decimal bool, def int64
 
 // GetIntArrayOr is the integer array at path, or def when the read is not Good.
 func (d *Document) GetIntArrayOr(path string, def []int64) []int64 {
+	d.ready()
 	if r := d.ReadIntArray(path); r.Status == Good {
 		return r.Value
 	}
@@ -15003,6 +15133,7 @@ func (d *Document) GetIntArrayOr(path string, def []int64) []int64 {
 
 // GetFloatArrayOr is the float array at path, or def when the read is not Good.
 func (d *Document) GetFloatArrayOr(path string, def []float64) []float64 {
+	d.ready()
 	if r := d.ReadFloatArray(path); r.Status == Good {
 		return r.Value
 	}
@@ -15011,6 +15142,7 @@ func (d *Document) GetFloatArrayOr(path string, def []float64) []float64 {
 
 // GetBoolArrayOr is the bool array at path, or def when the read is not Good.
 func (d *Document) GetBoolArrayOr(path string, def []bool) []bool {
+	d.ready()
 	if r := d.ReadBoolArray(path); r.Status == Good {
 		return r.Value
 	}
@@ -15019,6 +15151,7 @@ func (d *Document) GetBoolArrayOr(path string, def []bool) []bool {
 
 // GetStringArrayOr is the string array at path, or def when the read is not Good.
 func (d *Document) GetStringArrayOr(path string, def []string) []string {
+	d.ready()
 	if r := d.ReadStringArray(path); r.Status == Good {
 		return r.Value
 	}
@@ -15027,6 +15160,7 @@ func (d *Document) GetStringArrayOr(path string, def []string) []string {
 
 // GetDateTimeArrayOr is the datetime array at path, or def when the read is not Good.
 func (d *Document) GetDateTimeArrayOr(path string, def []DateTime) []DateTime {
+	d.ready()
 	if r := d.ReadDateTimeArray(path); r.Status == Good {
 		return r.Value
 	}
@@ -15781,6 +15915,7 @@ func genDefaultText(v string) string {
 // schema faults (V09x), same as Validate / check --schema; a schema with a
 // load error of its own is a lone V099, as `init` refuses it.
 func Generate(schema *Document, noBanner bool) (string, []Diagnostic) {
+	schema.ready()
 	// A starter config from what survived a broken load would leave out the
 	// fields on the broken lines with no word about them.
 	if fault, ok := schemaLoadFault(schema); ok {
@@ -16583,6 +16718,8 @@ func schemaLoadFault(schema *Document) (Diagnostic, bool) {
 // SuppressDeclaredReopens yourself, or use LoadAndValidate, which runs both
 // for you.
 func (d *Document) Validate(schema *Document) []Diagnostic {
+	d.ready()
+	schema.ready()
 	// A schema that did not load would drop the constraints on its broken
 	// lines, or report every field as unknown - either way blaming the
 	// document for the schema.

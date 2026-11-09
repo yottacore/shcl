@@ -7897,3 +7897,106 @@ func TestANewerFormatDocumentSavesNowhere(t *testing.T) {
 		t.Errorf("a merge onto a newer document: not newer")
 	}
 }
+
+// A zero-value Document is New()'s empty document: every exported method on
+// one gives what it gives on New(), and none panics. The walk finds the
+// methods itself, so a new one that skips ready() fails here
+// (2026110613470325).
+func TestAZeroValueDocumentActsAsNew(t *testing.T) {
+	defer testID(t, "df38b")
+	typ := reflect.TypeOf(&Document{})
+	for i := 0; i < typ.NumMethod(); i++ {
+		m := typ.Method(i)
+		call := func(d *Document, dir string) (out []reflect.Value, panicked any) {
+			defer func() { panicked = recover() }()
+			args := []reflect.Value{reflect.ValueOf(d)}
+			for j := 1; j < m.Type.NumIn(); j++ {
+				at := m.Type.In(j)
+				switch {
+				case at.Kind() == reflect.String && strings.HasPrefix(m.Name, "Save") && j == 1:
+					args = append(args, reflect.ValueOf(filepath.Join(dir, "x.shcl")))
+				case at.Kind() == reflect.String:
+					args = append(args, reflect.ValueOf("a"))
+				case at == typ:
+					args = append(args, reflect.ValueOf(&Document{}))
+				default:
+					args = append(args, reflect.Zero(at))
+				}
+			}
+			return m.Func.Call(args), nil
+		}
+		zero, ref := &Document{}, New()
+		got, p := call(zero, t.TempDir())
+		if p != nil {
+			t.Errorf("%s on a zero Document panicked: %v", m.Name, p)
+			continue
+		}
+		want, p := call(ref, t.TempDir())
+		if p != nil {
+			t.Errorf("%s on New() panicked: %v", m.Name, p)
+			continue
+		}
+		for k := range got {
+			g, w := got[k].Interface(), want[k].Interface()
+			if strings.HasPrefix(m.Name, "Save") {
+				g, w = fmt.Sprint(g == nil), fmt.Sprint(w == nil)
+			}
+			if !reflect.DeepEqual(g, w) {
+				t.Errorf("%s result %d: zero Document %#v, New() %#v", m.Name, k, g, w)
+			}
+		}
+		if a, b := zero.ToCanonical(), ref.ToCanonical(); a != b {
+			t.Errorf("after %s: zero Document %q, New() %q", m.Name, a, b)
+		}
+	}
+}
+
+// The calls the review found panicking on a zero value, a merge onto and from
+// one, nil merged in, a zero schema, and reads racing on a fresh zero value
+// (2026110613470325).
+func TestAZeroValueDocumentTakesTheCallsThatPanicked(t *testing.T) {
+	defer testID(t, "df38c")
+	var d Document
+	if st := d.SetString("a", "b"); st != SetOk {
+		t.Fatalf("SetString on a zero Document: %v", st)
+	}
+	if got := d.GetStringOr("a", "x"); got != "b" {
+		t.Errorf("GetStringOr after SetString: %q, want b", got)
+	}
+	if got := d.Strictness(); got != Standard {
+		t.Errorf("Strictness: %v, want Standard", got)
+	}
+	d.Merge(nil)
+	var over Document
+	over.SetInt("n", 2)
+	d.Merge(&over)
+	var under Document
+	under.Merge(Parse("n: 3\n"))
+	if got, want := d.ToCanonical(), "a: b\nn: 2\n"; got != want {
+		t.Errorf("merge from a zero Document: %q, want %q", got, want)
+	}
+	if got := under.GetIntOr("n", 0); got != 3 {
+		t.Errorf("merge onto a zero Document: n = %d, want 3", got)
+	}
+	var schema Document
+	if diags := Parse("a: 1\n").Validate(&schema); len(diags) != len(Parse("a: 1\n").Validate(New())) {
+		t.Errorf("Validate against a zero schema: %v", diags)
+	}
+	var fresh Document
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = fresh.GetStringOr("a", "")
+		}()
+	}
+	wg.Wait()
+	src, err := os.ReadFile("shcl.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`(?m)^// .*New\(\)\.\ntype Document struct`).Match(src) {
+		t.Errorf("the Document doc comment does not name New()")
+	}
+}

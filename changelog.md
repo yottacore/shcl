@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- In Go, a zero-value `Document`, such as `var d shcl.Document`, is an empty document at Standard, the same as `New()`. Its first set, read or merge panicked before. `Merge(nil)` adds nothing, where it panicked too.
+
 - The Windows setup's uninstall rewrote a machine PATH that had an empty segment, such as a trailing `;`, even when it didn't have a shcl folder in it, and its install dropped the empty segments. It writes only its own segment now, as install.ps1 does.
 
 - install.ps1 extracts the drop-in payload with Windows' own `tar`. A GNU tar from Git for Windows, MSYS2, or Cygwin ahead of it on PATH failed the unpack.

@@ -548,7 +548,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Make a Go zero-value `Document` usable, or say to use `New()`
 	- ID: 2026110613470325
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261106-134703
@@ -559,6 +559,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: `8bca69bd` (2026-07-12). Not in the v4 design. Confirmed.
 	- Regression test: a Go test that calls every public method on a zero-value `Document` and asserts the chosen behavior for each, a working call or the `New()` message; a doc check that the message names `New()`.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Progress log:
+		- 20261109: a zero-value `Document` is an empty document at Standard, the same as `New()`. Every exported method, and each exported call that takes a `Document` (`Merge`'s layer, `Validate`, `LoadAndValidateWith`, `Generate` and the 2 `SuppressDeclared*` schemas), settles it first through a `sync.Once`. The type's doc comment says so. The changelog has a line.
+	- Decisions:
+		- me, 20261109: a usable zero value, not a `New()` note, since it's the Go idiom and both needed a guard in every method for the test anyway. It has to set Standard, since the zero `Strictness` is `Loose`.
+		- me, 20261109: a `sync.Once`, since reads may run at once and the first of them on a zero value writes. On a parsed document it costs one atomic load per call.
+		- me, 20261109: `Merge(nil)` adds nothing, as an empty layer does. Other nil `Document` arguments fail as before.
+	- Swept: all 110 exported `*Document` methods in `shcl.go` (none in `shcl_windows.go`), and every exported function that takes a `*Document`. The test finds the methods by reflection, so a new one without the guard fails it.
+	- Test case: `TestAZeroValueDocumentActsAsNew` (`df38b`), which calls every exported method on a zero value and on `New()` and compares results, and `TestAZeroValueDocumentTakesTheCallsThatPanicked` (`df38c`), which has the review's calls, merges, a zero schema, racing reads and the doc comment check.
+	- Verified: both fail on the old `shcl.go` (7 panics) and pass on the new one, `df38b` fails with the guard taken off `Strictness` and `Paths`, both pass under `-race`, `cicd.bash --backlog-run-quick go` (go vet, staticcheck, Windows build, every GOOS), check-docs, test-ids check, mdcheck and markdownlint on changelog.md.
+	- Branch: `r1109`
+	- Acceptance signoff: Self-closed: the requirement's first option, with its regression test watched to fail.
+	- Closed: 20261109-151300
 
 - perf-gate's `deqqs` self-test passes on vm925w, so the gate fails there
 	- ID: 2026110810540701
