@@ -379,7 +379,7 @@ schemaLinePy="$(cat <<'PYEOF'
 import re, subprocess, sys
 root = sys.argv[1]
 spec = open(f"{root}/project/spec.md", encoding="utf-8").read()
-codes = sorted(int(m) for m in re.findall(r"^\| `V(\d{3})` \|[^\n]*\| schema file\s*$", spec, re.M))
+codes = sorted(int(m) for m in re.findall(r"^\| `V(\d{3})`\s*\|[^\n]*\| schema file\s*$", spec, re.M))
 if not codes:
 	print("no `schema file` rows in the spec.md code table")
 	sys.exit()

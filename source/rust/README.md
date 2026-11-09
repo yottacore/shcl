@@ -1,10 +1,12 @@
+<!-- markdownlint-disable MD010 -- hard tabs -->
+<!-- markdownlint-disable MD041 -- First line in a file should be a top-level heading -->
 # shcl
 
 **S**imple **H**ierarchical **C**onfig **L**anguage. Forgiving to write, predictable to read.
 
 Values are stored as plain text and coerced only when *your* code asks for a type, so a config file can never silently decide that `NO` means `false`. A bad line is skipped or repaired with a diagnostic instead of taking down the whole file.
 
-This crate is the reference implementation. Independent Go, Python, and C bindings are held byte-for-byte against it by a shared conformance corpus.
+This crate is the reference implementation. A shared conformance corpus checks the independent Go, Python, and C bindings byte-for-byte against it.
 
 ## Install
 
@@ -12,7 +14,7 @@ This crate is the reference implementation. Independent Go, Python, and C bindin
 cargo add shcl
 ~~~
 
-Zero dependencies. The crate also includes the CLI:
+The crate has zero dependencies, and it also includes the CLI:
 
 ~~~sh
 cargo install shcl
@@ -59,7 +61,7 @@ doc.save_file("server.shcl").unwrap();
 
 `Document::parse` never fails, and neither does `load_file`. When you want a hard error instead, use `Document::parse_with(&text, Strictness::Strict)` or `load_file_with(path, Strictness::Strict)`.
 
-Also here: `merge` for layered config (defaults, site, user), `validate` against a schema that is itself a SHCL file, a full writer, and a canonical formatter that preserves comments.
+The library also has `merge` for layered config such as defaults, site, and user, `validate` against a schema that is itself a SHCL file, a full writer, and a canonical formatter that preserves comments.
 
 ## Compatibility
 
@@ -67,8 +69,8 @@ Bindings are versioned in lockstep, so `3.x` is the same behavior in every langu
 
 ## Docs
 
-Language spec, formal grammar, and the other bindings: <https://github.com/yottacore/shcl>
+The language spec, the formal grammar, and the other bindings are at <https://github.com/yottacore/shcl>.
 
 ## License
 
-MIT. SHCL™ is a trademark of Jim Collier - see the [trademark policy](https://github.com/yottacore/shcl/blob/main/trademark.md).
+The license is MIT. SHCL™ is a trademark of Jim Collier. See the [trademark policy](https://github.com/yottacore/shcl/blob/main/trademark.md).

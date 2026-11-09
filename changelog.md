@@ -6,35 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
-- A save checks the bytes at the path it writes, every time, whatever file the path names now. It writes when they are what the load read or what this document's last save wrote, or when nothing is there and the load found nothing. So a save onto a file the document never read, a save-as or a document from `parse` over an existing file, is refused as changed unless `force` is set, where it used to write. A save to the same relative name from another working folder is refused the same way.
+- A save checks the bytes at the path it writes, every time, whatever file the path names now. It writes when they're what the load read or what this document's last save wrote, or when nothing is there and the load found nothing. So unless `force` is set, a save onto a file the document never read is refused as changed, where it used to write. A save-as is one case, and a document from `parse` over an existing file is another. A save to the same relative name from another working folder is refused the same way.
 
 ### Fixed
 
-- The Windows setup's uninstall rewrote a machine PATH that held an empty segment, such as a trailing `;`, even with no shcl folder in it, and its install dropped the empty segments. It writes only its own segment now, as install.ps1 does.
+- The Windows setup's uninstall rewrote a machine PATH that had an empty segment, such as a trailing `;`, even when it didn't have a shcl folder in it, and its install dropped the empty segments. It writes only its own segment now, as install.ps1 does.
 
-- install.ps1 unpacks the drop-in payload with Windows' own `tar`. A GNU tar from Git for Windows, MSYS2 or Cygwin ahead of it on PATH failed the unpack.
+- install.ps1 extracts the drop-in payload with Windows' own `tar`. A GNU tar from Git for Windows, MSYS2, or Cygwin ahead of it on PATH failed the unpack.
 
-- install.bash under a `TMPDIR` with `..` inside a folder name, such as `tmp sp..x`, installed, then refused to remove its temp folder and exited 1. Both installers take only a whole `vX.Y.Z` or `vX.Y.Z-suffix` tag, where a tag such as `v2.0.0x` passed before.
+- Under a `TMPDIR` with `..` inside a folder name, such as `tmp sp..x`, install.bash installed, then refused to remove its temp folder and exited 1. Both installers take only a whole `vX.Y.Z` or `vX.Y.Z-suffix` tag, where a tag such as `v2.0.0x` passed before.
 
 - A setter or a merge that replaced a stacked list put the comments among its items above the field's blank line, so they read as part of the block above. They go right above the field now, with the blank above them.
 
-- A save through `nodir/../f.shcl`, loaded while `nodir` wasn't there, wrote over a file another program made there since. The check compared 2 paths resolved at 2 different times, and now compares bytes.
+- When a document was loaded through `nodir/../f.shcl` while `nodir` wasn't there, its save wrote over a file another program made there since. The check compared 2 paths that were resolved at 2 different times. Now it compares bytes.
 
-- A save to `f.shcl/`, `f.shcl/.` or `f.shcl/..`, or a create-only one, says it is a directory in Rust and C, as in Go and Python. They said the file changed, or that it was there. `set --write` says the same for a folder swapped in during its wait as for one there from the start, and the C CLI no longer says `Not a directory` for `f.shcl/`.
+- A save to `f.shcl/`, `f.shcl/.`, or `f.shcl/..`, or a create-only one, says it's a directory in Rust and C, as in Go and Python. Rust and C said the file changed, or that it was there. `set --write` says the same for a folder swapped in during its wait as for one there from the start, and the C CLI no longer says `Not a directory` for `f.shcl/`.
 
-- The Go library builds for wasm again, `js` and `wasip1`. beta1 used a system constant those targets don't have.
+- The Go library builds for the `js` and `wasip1` wasm targets again. In beta1 it used a system constant those targets don't have.
 
 - A file that re-opens many blocks loads in linear time again. In beta1, 100,000 blocks each named twice took 4 to 5.5 s to load in Go and C, and a kept line before each second instance made it 10 s and more.
 
-- C checks a document against a fragment that mounts itself in time that grows with the square of the depth, not the cube. In beta1, 40 lines each 510 levels deep took 4 s to check in C, and now take a quarter of a second.
+- C checks a document against a fragment that mounts itself in time that grows with the square of the depth rather than the cube. In beta1, 40 lines each 510 levels deep took 4 s to check in C, but now they take a quarter of a second.
 
-- A `#` outside quotes in a lookup path is refused, as `BadPath`. The path used to end there, so `set --remove='colors#primary'` removed all of `colors` at exit 0. Quote a name that holds one, `"colors#primary"`.
+- A `#` outside quotes in a lookup path is refused, as `BadPath`. The path used to end there, so `set --remove='colors#primary'` removed all of `colors` at exit 0. Quote a name that has one, as in `"colors#primary"`.
 
-- A bare value `set_literal` stores, such as `10:00` or `(5)`, counts as quoted when a save quotes it, as from the other setters. Its `quoted` flag read false before the save and true after it.
+- When `set_literal` stores a bare value, such as `10:00` or `(5)`, it counts as quoted if a save quotes it, as it does from the other setters. Its `quoted` flag read false before the save and true after it.
 
-- `E003` names the index as written. One past the 64-bit range was shown as 18446744073709551615.
+- `E003` names the index as written. An index one past the 64-bit range was shown as 18446744073709551615.
 
-- The node cap of `parse_limited` counts comment lines and kept lines too. A file of nothing else built no node, so a capped parse of it held 100 times the file. A cap crossed on the last line no longer reports `E020`, since nothing was left to stop.
+- The node cap of `parse_limited` counts comment lines and kept lines too. A file that had only those didn't build any node, so a capped parse of it stored 100 times the file. A cap that's crossed on the last line no longer reports `E020`, since nothing was left to stop.
 
 ## v3.0.0-beta1 - 2026-11-05
 

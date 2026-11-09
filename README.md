@@ -28,7 +28,7 @@
 
 - A save never deletes a line you typed unless you ask it to. If a write would delete a line or value from the file, the save refuses rather than dropping it.
 
-- Comments and blank lines survive a rewrite, attached to what they documented.
+- Comments and blank lines survive a rewrite, and they stay attached to what they documented.
 
 - A program can change one value and leave every other line as the person wrote it, spacing and all. `shcl set` saves that way.
 
@@ -36,11 +36,11 @@
 
 - Your code decides a value's type when it reads it. Nothing is guessed at parse time.
 
-- The same file reads the same in every language. The Rust reference and the Go, Python, and C/C++ bindings produce byte-for-byte identical output for valid UTF-8, held to one conformance corpus. Zig uses the C header as is.
+- The same file reads the same in every language. The Rust reference and the Go, Python, and C/C++ bindings produce byte-for-byte identical output for valid UTF-8, and one conformance corpus tests all of them. Zig uses the C header as is.
 
 - Each binding is one drop-in source file with no dependencies. C++ adds `shcl.hpp` beside `shcl.h`, and Go has an optional Windows file. The CLI is a single binary, and shell scripts call it directly.
 
-- Prebuilt for Linux and Windows, x86_64 and ARM64. From 3.0.0-beta1, also macOS as one universal binary, and FreeBSD on x86_64. Everything else builds from source with `cargo install shcl`.
+- Binaries are prebuilt for Linux and Windows, on x86_64 and ARM64. From 3.0.0-beta1, macOS gets one universal binary, and FreeBSD gets one for x86_64. Everything else builds from source with `cargo install shcl`.
 
 - Releases are signed, and the binaries are reproducible from the tag.
 
@@ -125,7 +125,7 @@ When you do want zero-tolerance rigor: schema validation, plus a strict mode tha
 
 > *A note on types, because it is the big design difference: JSON and TOML store types in the file, so the author has to get them right. YAML infers types from the text, which is where `NO` becomes `false`. SHCL stores plain text and coerces when **you** ask for a type; the only code that decides a value is an int (for example) is the code that needed an int.*
 
-The benchmark numbers, and how SHCL differs from Pkl, CUE, and Dhall, are in [Compared to other config languages](project/comparison.md).
+[Compared to other config languages](project/comparison.md) has the benchmark numbers, and how SHCL differs from Pkl, CUE, and Dhall.
 
 ### When SHCL is the wrong choice
 
@@ -139,13 +139,13 @@ The benchmark numbers, and how SHCL differs from Pkl, CUE, and Dhall, are in [Co
 
 Beyond the list at the top:
 
-- Hierarchy by indentation or dot paths (`site(blog.example.com).tls.hsts: off`), freely mixed. Both give the same tree.
+- Hierarchy comes from indentation or dot paths, such as `site(blog.example.com).tls.hsts: off`, and they mix freely. Both give the same tree.
 
 - Reads come as int, float, bool, datetime, duration, size, string, or raw block. Int, float, bool, datetime, and string reads have array forms too.
 
 - Repeated fields are queryable as a set. Count them, list them, or fan one read across all of them with `site(*).root` and get a status per slot.
 
-- Raw fenced blocks embed anything verbatim: SQL, code, templates, Markdown-style.
+- Raw fenced blocks work as in Markdown, and embed anything verbatim, such as SQL, code, or templates.
 
 - Three strictness levels, from most forgiving to fail-on-anything. At Loose, `"$1,200"` reads as 1200 and `15%` as 0.15. Standard and Strict refuse both.
 
@@ -153,33 +153,33 @@ Beyond the list at the top:
 
 - Schema validation, layered loading (defaults, site, user), and commented starter-config generation, all as library features.
 
-- Safe on untrusted input. A parse can take caps on nodes, array size and diagnostics, so a hostile file cannot run a program out of memory. Nesting is capped at 512 levels for every parse.
+- SHCL is safe on untrusted input. A parse can take caps on nodes, array size, and diagnostics, so a hostile file can't run a program out of memory. Nesting is capped at 512 levels for every parse.
 
-- `shcl fmt --check app.shcl` exits 6 when the file is not in canonical form. One line gates formatting in CI.
+- `shcl fmt --check app.shcl` exits 6 when the file isn't in canonical form. One line gates formatting in CI.
 
 - A save keeps the file's mode and group, and writes through symlinks. On Windows it also keeps the ACLs and the hidden flag. It writes a temp file and renames it, so a crash can't leave half a config behind.
 
 - A save won't write over a change another program made after the load. It can also refuse to replace a file that's already there, and give a new file exact permission bits, such as 0600 for one with tokens in it.
 
-- A file written for a newer format version still reads, and no save overwrites it.
+- A file that was written for a newer format version still reads, but no save overwrites it.
 
 - Reads and lists print JSON lines with `--json`, for jq or `ConvertFrom-Json`. `shcl explain E014` prints the rule behind a code, and a typo in a command, an option, or a schema field name gets a suggestion. A man page and bash and zsh completions are included.
 
 - The C binding builds without file IO for embedded targets, and frees a whole document with one call.
 
-- The release gate runs the corpus, a fuzzer, and a four-way check that feeds the same inputs to all four parsers and compares the bytes.
+- The release gate runs the corpus, a fuzzer, and a 4-way check that feeds the same inputs to all 4 parsers and compares the bytes.
 
 ## SHCL is used by multiple projects
 
 These projects use SHCL today, and harden it in the process:
 
-| Project                                                                                    | OSS? | Release status | Used for
-| :--                                                                                        | :--: | :--            | :--
-| [SilkTerm](https://github.com/jim-collier/silkterm)                                        | Yes  | beta           | Config & UI language
-| [GitNiblet OSS Edition](https://github.com/yottacore/gitniblet)                            | Yes  | beta           | Config & DDL
-| [GitNiblet Enterprise Edition](https://www.yottacore.com/product/nano-git-db-enterprise)   |  No  | beta           | Config
-| [convert-base-v2](https://github.com/jim-collier/convert-base-v2)                          | Yes  | **stable**     | Config
-| [TradeClanker](https://www.yottacore.com/product/tradeclanker)                             |  No  | beta           | Config & User's rules
+| Project                                                                                  | OSS?  | Release status | Used for
+| :---                                                                                     | :---: | :---           | :---
+| [SilkTerm](https://github.com/jim-collier/silkterm)                                      | Yes   | beta           | Config & UI language
+| [GitNiblet OSS Edition](https://github.com/yottacore/gitniblet)                          | Yes   | beta           | Config & DDL
+| [GitNiblet Enterprise Edition](https://www.yottacore.com/product/nano-git-db-enterprise) | No    | beta           | Config
+| [convert-base-v2](https://github.com/jim-collier/convert-base-v2)                        | Yes   | **stable**     | Config
+| [TradeClanker](https://www.yottacore.com/product/tradeclanker)                           | No    | beta           | Config & User's rules
 
 <!--
 | [Rapid Photo Downloader Pro](https://github.com/jim-collier/rapid-photo-downloader-pro)    | Yes  | alpha          | Config
@@ -188,7 +188,7 @@ These projects use SHCL today, and harden it in the process:
 | [SlodWorld2](https://www.yottacore.com/product/slodworld2)                                 |  No  | beta           | Config
 -->
 
-(Most of these are by the same author.)
+Most of these are by the same author.
 
 ## What a .shcl file looks like
 
@@ -224,7 +224,7 @@ maintenance-page:
 	~~~
 ~~~~
 
-Field names are case-insensitive, and repeated paths merge. `site` here is a set of instances, example.com and blog.example.com, each with its own children.
+Field names are case-insensitive, and repeated paths merge. Here `site` is a set of instances. Each of example.com and blog.example.com has its own children.
 
 ## Escapes
 
@@ -276,7 +276,7 @@ The full list of escapes is in [the spec](project/spec.md#escapes).
 
 ## Installation
 
-Packages for Debian, Fedora, FreeBSD, and Windows, the install scripts for the stable and dev channels, the language packages, and a DIY route are in [Installation](project/install.md).
+[Installation](project/install.md) has packages for Debian, Fedora, FreeBSD, and Windows, the install scripts for the stable and dev channels, the language packages, and a DIY route.
 
 ## Usage and examples
 
@@ -306,9 +306,9 @@ Packages for Debian, Fedora, FreeBSD, and Windows, the install scripts for the s
 
 - [`project/style-guide_code.md`](project/style-guide_code.md): coding and prose style. The bindings deliberately mirror the reference's structure over per-language idiom, so they stay byte-for-byte in sync.
 
-- [`project/style-guide_ui-ux.md`](project/style-guide_ui-ux.md): how the command line behaves. Option spelling, the help layout, what goes to stdout and what to stderr, and the exit codes.
+- [`project/style-guide_ui-ux.md`](project/style-guide_ui-ux.md): how the command line behaves, including option spelling, the help layout, what goes to stdout and what to stderr, and the exit codes.
 
-Generated API reference, per binding: [docs.rs](https://docs.rs/shcl) for Rust, [pkg.go.dev](https://pkg.go.dev/github.com/yottacore/shcl/source/go/v3) for Go.
+The generated API reference is on [docs.rs](https://docs.rs/shcl) for Rust and [pkg.go.dev](https://pkg.go.dev/github.com/yottacore/shcl/source/go/v3) for Go.
 
 ## Contributing and support
 
