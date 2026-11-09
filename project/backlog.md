@@ -173,6 +173,26 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Avg
 	- Held for v4 (JC, 2026-11-02).
 
+- CodeQL fails on test code from the last rounds, so every full run and main push fails
+	- ID: 2026110908100001
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Target version: v3.0.0
+	- Opened: 20261109-081000
+	- Opened by: me, from JC's run `run_20261108-141308`
+	- Version and build: dev, 2026-11-08
+	- Steps to reproduce: `cicd/utility/codeql-scan.bash`, or any run with the leak checks on.
+	- Incorrect behavior: `de5ag`, `de5aj` and `de5am` fail, and the run stops at step 5.
+		- `cpp/overflowing-snprintf` at `mem_bounds.c:651` (the suppression above covers only line 650) and `conformance.c:680` and `683`.
+		- `py/unreachable-statement` at `conformance.py:2728`, the `test_id` line after `df027`'s `finally`.
+		- 4 `py/overly-permissive-file` suppressions in `conformance.py` cover no finding now, at 3402, 3415, 5451 and 5883.
+	- Expected behavior: nothing found, and every suppression covers a finding.
+	- Possible cause: `--backlog-run-quick` skips codeql-scan, so r1107b and r1107c never ran it. The C lines came with the 64 KB stack tests, `df027` with 2026110613470306, and the chmod suppressions may be stale from a query change rather than a code change.
+	- Note: check the stale suppressions against hosted CI's CodeQL too before taking them out, since a different version could still flag those lines.
+	- Regression test: codeql-scan's own `de5ag`, `de5aj` and `de5am`, green on a whole run. Round settings get a line: a change to C or Python tests runs codeql-scan detached, as a `shcl.h` change runs cppcheck.
+	- Estimated effort: Low
+
 - Spec promises the depth cap keeps every binding inside a thread stack
 	- ID: 2026110713595457
 	- Type: Bug
