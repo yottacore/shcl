@@ -182,6 +182,8 @@ With docker you may not need any of it.
 
 - What a run starts in docker is labeled `dev.project=shcl`, plus `dev.run` with the name of the run's temp folder, and the run's containers go when it ends, failed or stopped too. A run in the image, failed or stopped too, also removes our image tags but the current one and the one before it. The images build on docker's default builder, and a run leaves docker's build cache alone. Docker can trim that cache itself, through `builder.gc` in `/etc/docker/daemon.json`. A run removes the `shcl-cicd` buildx builder that runs from early November 2026 made, with its cache, the first time it finds it.
 
+- A run caps its memory, with no swap, so a runaway step is killed and the rest of the box isn't. The cap is `CICD_MEM_CAP`, a docker size such as `24g`, or `none` for no cap, and it's a third of the RAM from 4g to 32g by default. Any other value fails the run before anything starts. Each container gets `--memory` and `--memory-swap` at the cap and `--oom-score-adj 1000`, and where `systemd-run --user` works the run itself goes under a user scope at the cap, first in line for the OOM killer. A step killed at the cap exits 137.
+
 - `--keep-temp` keeps the run's temp folder and its containers, and says where they are. `--list` prints the steps the other flags would run, by stage, with the test IDs each step runs under it, and runs nothing.
 
 Stages 2 to 6 run from a copy of the tree taken after the format stage, with your uncommitted edits and any new file git does not ignore in it, so you can keep editing, merging and switching branches while a run goes. The run lists what it copied. `--no-freeze` runs them in the checkout instead.

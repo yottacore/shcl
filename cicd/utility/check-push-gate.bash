@@ -51,6 +51,10 @@ trap 'HOST_TEMP="${hostTemp}" fSafeRm "${work}"' EXIT
 ## The hook's worktrees and the helper's scratch index go in here too, and the
 ## engine's run folders, under shcl/.
 export TMPDIR="${work}" HOST_TEMP="${work}"
+## Each engine run takes the default memory cap and no user scope, unless a
+## test gives it its own.
+unset CICD_MEM_CAP SHCL_MEM_SCOPED
+export SHCL_SYSTEMD_RUN="${work}/no-systemd-run"
 
 rc=0; declare -i nFail=0
 fail() { echo "check-push-gate: FAIL: $*" >&2; rc=1; nFail+=1; }
@@ -471,7 +475,7 @@ cp "${root}/cicd/utility/green-tree.bash" "${root}/cicd/utility/test-ids.py" "${
 printf '#!/usr/bin/env bash\n: fTest %s stub test\n' zzzz1 > "${eng}/cicd/utility/stub-ids.bash"
 chmod +x "${eng}/cicd/utility/stub-ids.bash"
 cp "${root}/cicd/utility/include/gfs-rotate.bash" "${root}/cicd/utility/include/ctr-image.bash" "${root}/cicd/utility/include/frozen-tree.bash" \
-	"${root}/cicd/utility/include/stop-descendants.bash" "${root}/cicd/utility/include/safe-rm.bash" "${root}/cicd/utility/include/cpu-cap.bash" "${eng}/cicd/utility/include/"
+	"${root}/cicd/utility/include/stop-descendants.bash" "${root}/cicd/utility/include/safe-rm.bash" "${root}/cicd/utility/include/cpu-cap.bash" "${root}/cicd/utility/include/mem-cap.bash" "${eng}/cicd/utility/include/"
 cp "${root}/.gitignore" "${eng}/.gitignore"
 mkdir -p "${eng}/.github/workflows"; : > "${eng}/.github/workflows/ci.yml"
 cat > "${eng}/cicd/utility/crosscheck.bash" <<'EOF'
@@ -1076,7 +1080,7 @@ if [[ -n "${STUB_DOCKER_EXEC:-}" ]]; then
 			--rm|--init)           shift ;;
 			-e)                    envs+=("$2"); shift 2 ;;
 			-w)                    dir="$2"; shift 2 ;;
-			-v|--user|--group-add|--label|--name|--network|--device|--cidfile|--cpus|--cpu-shares) shift 2 ;;
+			-v|--user|--group-add|--label|--name|--network|--device|--cidfile|--cpus|--cpu-shares|--memory|--memory-swap|--oom-score-adj) shift 2 ;;
 			*)                     break ;;
 		esac
 	done
@@ -1692,6 +1696,90 @@ fi
 ## The scripts a gate runs in the image, which this stub doesn't start.
 # shellcheck disable=SC2016  ## ctr-image.bash's own text, matched literally
 grep -qF '"${tag}" nice -n 19 bash "$@"' "${root}/cicd/utility/include/ctr-image.bash" || fail "fCtrRunSelf no longer runs its script under nice in the image"
+fTest df2sr every container a run starts has the memory cap, with no swap, and goes first to the OOM killer
+## 2026-11-09: CICD_MEM_CAP, or a third of the RAM from 4g to 32g, on each run,
+## fCtrRunSelf's too. none is no cap, and anything else starts nothing. The
+## value is only matched, so x[$(cmd)] runs nothing.
+memKb="$(awk '/^MemTotal:/ { print $2 }' /proc/meminfo 2>/dev/null || true)"
+[[ "${memKb}" =~ ^[0-9]+$ ]] || memKb=0
+memDef=$((memKb / 3 / 1048576)); ((memDef <= 32)) || memDef=32; ((memDef >= 4)) || memDef=4; memDef="${memDef}g"
+fMemRuns(){  ## fMemRuns LABEL FILE MIN WANT: FILE has MIN runs or more, each with the cap WANT, or with no memory option for none
+	local label="$1" file="$2" min="$3" want="$4" runs bad
+	runs="$(grep -c '^run ' "${file}" 2>/dev/null || true)"
+	if [[ "${want}" == none ]]; then bad="$(grep '^run ' "${file}" 2>/dev/null | grep -E -- ' --(memory|memory-swap|oom-score-adj) ' | cut -c1-160 || true)"
+	else bad="$(grep '^run ' "${file}" 2>/dev/null | grep -vF -- " --memory ${want} --memory-swap ${want} --oom-score-adj 1000 " | cut -c1-160 || true)"; fi
+	if ((runs < min)) || [[ -n "${bad}" ]]; then fail "${label}: ${runs} run(s), want ${min} or more, and these without the cap ${want}: ${bad:-none}"; fi
+	return 0
+}
+fMemSelf(){  ## fMemSelf FILE [VAR=VALUE ...] -> memSelfRc: fCtrRunSelf's run, its args in FILE
+	local file="$1"; shift
+	rm -f "${file}"
+	memSelfRc=0
+	env "$@" SHCL_DOCKER="${work}/fake-docker" STUB_DOCKER_ARGS="${file}" STUB_MOUNTS="${work}/mem.tsv" PATH="${work}/x86_64:${PATH}" \
+		bash "${work}/ctr-image-on.bash" "${eng}" self "${work}/mem-self" > "${work}/mem-self.log" 2>&1 || memSelfRc=$?
+}
+fMemRuns "the default cap, ${memDef}" "${work}/args.txt" 7 "${memDef}"
+fMemSelf "${work}/mem-self.txt"
+((memSelfRc == 0)) || fail "fCtrRunSelf with the default cap: exit ${memSelfRc}: $(tail -2 "${work}/mem-self.log")"
+fMemRuns "fCtrRunSelf with the default cap, ${memDef}" "${work}/mem-self.txt" 1 "${memDef}"
+for memCase in 7g none; do
+	rm -f "${work}/mem-args.txt"
+	fCtr CICD_MEM_CAP="${memCase}" STUB_DOCKER_ARGS="${work}/mem-args.txt" STUB_MOUNTS="${work}/mem.tsv" STUB_DOCKER_ZIG='512\t0.16.0\t0.16.0' -- -y --no-sync
+	((engRc == 0)) || fail "a run with CICD_MEM_CAP=${memCase}: exit ${engRc}: $(tail -2 "${work}/eng.log")"
+	fMemRuns "CICD_MEM_CAP=${memCase}" "${work}/mem-args.txt" 7 "${memCase}"
+	fMemSelf "${work}/mem-self.txt" CICD_MEM_CAP="${memCase}"
+	((memSelfRc == 0)) || fail "fCtrRunSelf with CICD_MEM_CAP=${memCase}: exit ${memSelfRc}: $(tail -2 "${work}/mem-self.log")"
+	fMemRuns "fCtrRunSelf with CICD_MEM_CAP=${memCase}" "${work}/mem-self.txt" 1 "${memCase}"
+done
+memPwn="x[\$(touch ${work}/mem-pwned)]"
+for memBad in "${memPwn}" 0 0g '24 g' 24gb 24G -1g 1.5g abc; do
+	rm -f "${work}/mem-args.txt" "${work}/mem-pwned"
+	fCtr CICD_MEM_CAP="${memBad}" STUB_DOCKER_ARGS="${work}/mem-args.txt" STUB_MOUNTS="${work}/mem.tsv" -- -y --no-sync
+	memLines="$(grep -cF "CICD_MEM_CAP='${memBad}' isn't a size such as 24g, or none" "${work}/eng.log" || true)"
+	if ((engRc != 2 || memLines != 1)) || [[ -n "${docker}" || -e "${work}/mem-args.txt" || -e "${work}/mem-pwned" ]]; then
+		fail "a run with CICD_MEM_CAP='${memBad}': exit ${engRc}, ${memLines} line(s) saying why, docker calls '${docker}', $([[ -e "${work}/mem-pwned" ]] && echo 'the value ran' || echo 'the value ran nothing'): $(tail -2 "${work}/eng.log")"
+	fi
+	fMemSelf "${work}/mem-self.txt" CICD_MEM_CAP="${memBad}"
+	if ((memSelfRc != 2)) || [[ -e "${work}/mem-self.txt" || -e "${work}/mem-pwned" ]]; then
+		fail "fCtrRunSelf with CICD_MEM_CAP='${memBad}': exit ${memSelfRc}, $([[ -e "${work}/mem-self.txt" ]] && echo 'docker ran' || echo 'no docker run'): $(tail -2 "${work}/mem-self.log")"
+	fi
+done
+fTest df2ss a run goes once under a user scope at the memory cap with no swap, first for the OOM killer, when one can be had
+## 2026-11-09: the steps a run takes on this box, with no image. The check
+## that systemd-run --user works comes first, and a box where it doesn't, a
+## GitHub runner, none and a bad value all run as before, or not at all.
+cat > "${work}/fake-systemd-run" <<'EOS'
+#!/usr/bin/env bash
+echo "$*" >> "${STUB_SDRUN_LOG}"
+if [[ "$*" == "--user --scope --quiet true" ]]; then exit "${STUB_SDRUN_RC:-0}"; fi
+while (($#)) && [[ "$1" != -- ]]; do shift; done
+shift
+exec "$@"
+EOS
+## choom goes unrun, since the fake starts what comes after its --.
+mkdir -p "${work}/choom-bin"
+printf '#!/bin/sh\nexit 1\n' > "${work}/choom-bin/choom"
+chmod +x "${work}/fake-systemd-run" "${work}/choom-bin/choom"
+fMemScoped(){  ## fMemScoped WANT [VAR=VALUE ...] -- ARGS...: systemd-run's calls are WANT, lines joined by |
+	local want="$1" got
+	shift
+	rm -f "${work}/sdrun.log"
+	fEngine SHCL_SYSTEMD_RUN="${work}/fake-systemd-run" STUB_SDRUN_LOG="${work}/sdrun.log" PATH="${work}/choom-bin:${PATH}" "$@"
+	got="$(paste -sd'|' "${work}/sdrun.log" 2>/dev/null || true)"
+	[[ "${got}" == "${want}" ]] || fail "systemd-run's calls, $*: '${got}', want '${want}', exit ${engRc}: $(tail -2 "${work}/eng.log")"
+}
+memCheck="--user --scope --quiet true"
+fMemScoped "${memCheck}|--user --scope --quiet -p MemoryMax=${memDef^^} -p MemorySwapMax=0 choom -n 1000 -- bash ${eng}/cicd/cicd.bash -y --no-sync" -- -y --no-sync
+((engRc == 0)) || fail "a run under the scope: exit ${engRc}: $(tail -2 "${work}/eng.log")"
+fMemScoped "${memCheck}|--user --scope --quiet -p MemoryMax=7G -p MemorySwapMax=0 choom -n 1000 -- bash ${eng}/cicd/cicd.bash -y --no-sync" CICD_MEM_CAP=7g -- -y --no-sync
+fMemScoped "${memCheck}" STUB_SDRUN_RC=1 -- -y --no-sync
+((engRc == 0)) || fail "a run where systemd-run --user doesn't work: exit ${engRc}: $(tail -2 "${work}/eng.log")"
+fMemScoped "" CICD_MEM_CAP=none -- -y --no-sync
+((engRc == 0)) || fail "a run with CICD_MEM_CAP=none: exit ${engRc}: $(tail -2 "${work}/eng.log")"
+fMemScoped "" GITHUB_ACTIONS=true -- -y --no-sync
+fMemScoped "" SHCL_MEM_SCOPED=7g -- -y --no-sync
+fMemScoped "" CICD_MEM_CAP=bad -- -y --no-sync
+((engRc == 2)) || fail "a run with CICD_MEM_CAP=bad under systemd-run: exit ${engRc}, want 2"
 fTest dej63 a run in the image keeps the local time of the box it runs on
 ## 2026102520122877: the image has no zone, so its step lines read UTC. The
 ## zone file goes in as its /etc/localtime, and a TZ rule with no file as is.
@@ -1833,3 +1921,4 @@ exit "${rc}"
 ##		- 2026-11-04: Builds on docker's default builder, no build cache prune, and the old builder removed once.
 ##		- 2026-11-04: --quick and the test boxes, and an image that won't build.
 ##		- 2026-11-07: The guards take a folder with .. inside a name (2026110613470318).
+##		- 2026-11-09: The memory cap on each container, and the run under a user scope at it.

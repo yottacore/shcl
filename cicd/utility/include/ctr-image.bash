@@ -55,6 +55,8 @@
 ##		https://mit-license.org/
 ##	SPDX-License-Identifier: MIT
 
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/mem-cap.bash"
 
 ## An installed docker with no daemon behind it is no docker at all. The
 ## timeout is for a DOCKER_HOST that never replies.
@@ -109,8 +111,9 @@ fCtrZoneArgs(){
 
 fCtrRunSelf(){
 	local engine="${SHCL_DOCKER:-docker}" work="$1" rw="$2" ctx tag rc=0 d
-	local -a rwMount=() rwDirs=() labels=() zone=()
+	local -a rwMount=() rwDirs=() labels=() zone=() mem=()
 	shift 2
+	fMemCtrArgs mem || return 2
 	## A gate run by hand is a run of its own, named by its scratch dir. Local,
 	## so the build below gets it too.
 	local SHCL_DEV_RUN="${SHCL_DEV_RUN:-${work##*/}}"
@@ -135,8 +138,9 @@ fCtrRunSelf(){
 	rm -f -- "${cidfile}"
 	if declare -p stop_cidfiles &>/dev/null; then stop_cidfiles=("${cidfile}"); fi
 	d="${1##*/}"
-	## nice here doesn't reach the container: a CPU quota, a low share, and nice inside.
-	"${engine}" run --rm --init --cidfile "${cidfile}" "${labels[@]}" --name "$(fCtrName "${d%.bash}")" --cpus "${CPU_CAP:-1}" --cpu-shares 256 --network none --user "$(id -u):$(id -g)" \
+	## nice here doesn't reach the container: a CPU quota, a low share, and nice
+	## inside. A script over the memory cap, with no swap, exits 137.
+	"${engine}" run --rm --init --cidfile "${cidfile}" "${labels[@]}" --name "$(fCtrName "${d%.bash}")" --cpus "${CPU_CAP:-1}" --cpu-shares 256 "${mem[@]}" --network none --user "$(id -u):$(id -g)" \
 		-v "${root}:${root}:ro" -v "${work}/in:${work}/in" "${rwMount[@]}" "${zone[@]}" -w "${root}" \
 		-e SHCL_IN_IMAGE=1 -e "CPU_CAP=${CPU_CAP:-}" -e "TMPDIR=${work}/in" -e "HOME=${work}/in" \
 		-e "SHCL_GATE_STRICT=${SHCL_GATE_STRICT:-}" -e "SHCL_CTR_CARGO=${SHCL_CTR_CARGO:-}" \
@@ -262,13 +266,14 @@ fCtrDf(){
 ## another run still has, so that one stays. Prints "BYTES<TAB>WHAT" when it goes.
 fCtrZigTrim(){
 	local engine="${SHCL_DOCKER:-docker}" tag="$1" vol="${CTR_ZIG_VOLUME:-${APP_NAME}-zig-cache}" cap="${CTR_ZIG_CAP_KB:-}" out="" kb="" stamp="" ver="" why=""
-	local -a labels=()
+	local -a labels=() mem=()
 	[[ -n "${tag}" ]] || return 0
+	fMemCtrArgs mem || return 0
 	fCtrLabelArgs labels
 	[[ "${cap}" =~ ^[0-9]{1,15}$ ]] || cap=2097152
 	"${engine}" volume inspect "${vol}" >/dev/null 2>&1 || return 0
 	# shellcheck disable=SC2016  ## for the shell in the image
-	out="$("${engine}" run --rm "${labels[@]}" --name "$(fCtrName zig-trim)" --cpus 1 --cpu-shares 256 --network none --user "$(id -u):$(id -g)" -v "${vol}:/zig-cache" "${tag}" \
+	out="$("${engine}" run --rm "${labels[@]}" --name "$(fCtrName zig-trim)" --cpus 1 --cpu-shares 256 "${mem[@]}" --network none --user "$(id -u):$(id -g)" -v "${vol}:/zig-cache" "${tag}" \
 		sh -c 'v="$(zig version)" || exit 1; f=/zig-cache/zig-version.stamp; s="$(cat "${f}" 2>/dev/null)"
 			if [ -z "${s}" ]; then s="${v}"; printf "%s\n" "${v}" > "${f}"; fi
 			printf "%s\t%s\t%s\n" "$(du -sk /zig-cache | cut -f1)" "${s}" "${v}"' 2>/dev/null)" || return 0
@@ -295,3 +300,4 @@ fCtrZigTrim(){
 ##		- 2026-11-02: The images build on our own buildx builder, and fCtrPrune prunes only its cache.
 ##		- 2026-11-04: Back to docker's default builder, whose cache docker trims. fCtrOldBuilderGone
 ##		  in place of fCtrPrune.
+##		- 2026-11-09: Each container gets the memory cap of mem-cap.bash, with no swap.
