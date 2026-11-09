@@ -44,7 +44,9 @@
 
 - Releases are signed, and the binaries are reproducible from the tag.
 
-- A complete specification and grammar. MIT License.
+- A complete specification and grammar.
+
+- MIT License.
 
 <!-- TOC ignore:true -->
 ## Table of contents
