@@ -211,7 +211,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Spec promises the depth cap keeps every binding inside a thread stack
 	- ID: 2026110713595457
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261107-135954
@@ -223,6 +223,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: the spec says what stack a full-depth document needs in each binding, or Rust's walks stop growing with the depth. Rust's own threads default to 2 MB, so a number in the spec may be enough.
 	- Estimated effort: Low
 	- Note: `SHCL_MAX_DEPTH`'s comment in `shcl.h` makes the same claim for emit, merge and clone, so it changes with the spec line. C's emit, overlay and clone walks iterate since 2026110713595389 and 2026110713595411.
+	- Decisions: the spec states the numbers rather than making Rust's walks iterative. Rust's default thread has 2 MB and the cap needs about 175 KB, and Rust is the reference whose structure the ports mirror (style guide). Go grows its stack and Python and C walk with their own stacks.
+	- Test case: none new. The change is wording, and check-docs passed. The C 64 KB tests (`df0c9`, `df0d5`, `df32k`, `df32m`, `df32n`) pin the C half of the claim.
+	- Acceptance signoff: Self-closed: wording only, and the numbers come from the measurements on the parent.
+	- Closed: 20261109-130014
+	- Verified: check-docs passed.
+	- Swept: the same claim in `shcl.h`'s `SHCL_MAX_DEPTH` comment, now reworded. No other binding, README or design.md text makes it.
 
 - C's validate, generate and path walks need stack in proportion to the depth
 	- ID: 2026110713595434

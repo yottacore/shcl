@@ -177,10 +177,10 @@ typedef enum { SHCL_KIND_EMPTY, SHCL_KIND_SCALAR, SHCL_KIND_ARRAY, SHCL_KIND_RAW
 typedef struct { shcl_value_kind value; shcl_status status; } shcl_read_value_kind;
 
 // Maximum nesting depth (levels below the document root), enforced at load and
-// by the Writer. Deeper lines are skipped with an E016 error. The cap is what
-// keeps the recursive tree walks (emit, merge, clone) safely inside every
-// binding's stack, so a hostile or machine-generated document can make a load
-// fail but never crash the consumer.
+// by the Writer. Deeper lines are skipped with an E016 error. The cap bounds
+// the tree walks (emit, merge, clone), which keep their own stacks here, so a
+// hostile or machine-generated document can make a load fail but never crash
+// the consumer.
 #define SHCL_MAX_DEPTH ((size_t)512)
 
 // How much of a file's own name the temporary file beside it borrows, in bytes.
