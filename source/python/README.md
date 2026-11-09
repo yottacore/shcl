@@ -1,10 +1,12 @@
+<!-- markdownlint-disable MD010 -- hard tabs -->
+<!-- markdownlint-disable MD041 -- First line in a file should be a top-level heading -->
 # shcl
 
 **S**imple **H**ierarchical **C**onfig **L**anguage. Forgiving to write, predictable to read.
 
 Values are stored as plain text and coerced only when *your* code asks for a type, so a config file can never silently decide that `NO` means `false`. A bad line is skipped or repaired with a diagnostic instead of taking down the whole file.
 
-Pure standard library, no dependencies, one module. Held byte-for-byte against the Rust reference by a shared conformance corpus.
+It uses only the standard library, and it's one module without any dependencies. A shared conformance corpus checks it byte-for-byte against the Rust reference.
 
 ## Install
 
@@ -46,9 +48,9 @@ if st is not SetStatus.Ok:
 doc.save_file("server.shcl")
 ~~~
 
-`Document.parse` never raises, and neither does `load_file`. When you want a hard error instead, use `Document.parse_with(text, Strictness.Strict)` or `load_file_with(path, Strictness.Strict)`, which raise `LoadError`. A `get_*` call with no `default=` raises `StatusError` rather than inventing a value.
+`Document.parse` never raises, and neither does `load_file`. When you want a hard error instead, use `Document.parse_with(text, Strictness.Strict)` or `load_file_with(path, Strictness.Strict)`, which raise `LoadError`. A `get_*` call without a `default=` raises `StatusError` rather than inventing a value.
 
-Also here: `merge` for layered config (defaults, site, user), `validate` against a schema that is itself a SHCL file, a full writer, and a canonical formatter that preserves comments.
+The library also has `merge` for layered config such as defaults, site, and user, `validate` against a schema that is itself a SHCL file, a full writer, and a canonical formatter that preserves comments.
 
 Python 3.9 or newer.
 
@@ -58,12 +60,12 @@ Bindings are versioned in lockstep, so `3.x` is the same behavior in every langu
 
 ## The CLI
 
-This package is the library only. The `shcl` command comes as a prebuilt binary and as `.deb`/`.rpm`/Windows packages - see <https://github.com/yottacore/shcl>.
+This package is the library only. The `shcl` command comes as a prebuilt binary and as `.deb`, `.rpm`, and Windows packages. See <https://github.com/yottacore/shcl>.
 
 ## Docs
 
-Language spec, formal grammar, and the other bindings: <https://github.com/yottacore/shcl>
+The language spec, the formal grammar, and the other bindings are at <https://github.com/yottacore/shcl>.
 
 ## License
 
-MIT. SHCL™ is a trademark of Jim Collier - see the [trademark policy](https://github.com/yottacore/shcl/blob/main/trademark.md).
+The license is MIT. SHCL™ is a trademark of Jim Collier. See the [trademark policy](https://github.com/yottacore/shcl/blob/main/trademark.md).
