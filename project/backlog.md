@@ -342,7 +342,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A save where nothing is at the path writes, as an editor's does
 	- ID: 2026110907535001
 	- Type: Enhancement
-	- Status: Waiting on automated testing
+	- Status: Done
 	- Priority: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261109-075350
@@ -359,15 +359,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Regression test: in each binding's changed tests, a load then a save to a new name, and a load, the file removed, then a save, both written with the text expected; the `dekj7`, `dekk8`, `dekkm` and `dekkn` rows that expect Changed with nothing at the path flip to a write. Watched to fail on dev at `0947eea4`. 2026110616475901's oracle follows the same rule.
 	- Estimated effort: Low
 	- Actual effort: Low
-	- Needs external testing: b29w with a short-name TEMP, as `private/claude_simple/tools/winbox-savetests/` runs it: the C runner's `dekkm` (its short-name rows now expect a write) and `detpr`, and the veneer's `dekkn`.
 	- Decisions:
 		- me, 20261109: nothing at the path now always writes, so the folder test that only that branch read went: `folder_there` in Rust, `s_folder_there` in C, and the folder stat in Go and Python. The record of what the load read stays, since the byte compare reads it. A file gone with its folder still falls to the write, which says the folder is missing.
 		- me, 20261109: the Rust twin `dekj6`, and the bare-name gone rows in the spelling tests (`detpn`, `detpp`, `detpq`, `detpr`, `detps`), flipped with the 4 the item names, since they asked the same thing. The gone rows save by another spelling (`./i.shcl`, or the absolute path in the veneer) to show the spelling doesn't matter. Further down, the rows that saved to the load's file after it was gone now put other bytes there first, so they still check a refusal, and the parse's save where nothing is removes the file first.
 		- 20261109, asserts changed for this item: in all 5 changed tests, "gone since the load" went from Changed to a write of the edited text; in all 5 spelling tests, "bare name gone" went from Changed to a write. The C runner's Windows short-name "removed file" row went from Changed to a write.
 	- Swept: the changed check in all 4 bindings (`holds`, `s_file_holds`) and the veneer, which calls C. The 4 CLIs' own check before `--write` still refuses a file removed during the wait, filed as 2026110914412379. `upgrade_file`'s own check is left, since it upgrades a file that's there. Docs: spec.md's save section, design.md's Save outcomes row, examples.md's "What saving does", the changelog's Changed entry, and the save doc comments in all 4 and the veneer, with 2026110710374311's.
-	- Verified: the new rows fail with each binding's library file from `aec73482` (the round branch before this change) and pass with the change, in Rust, Go, Python, C and the veneer. Also the whole Rust suite, Go in both modules, the Python and C runners, the veneer smoke, the C runner under wine from the mingw build, clippy (host and windows-gnu), go vet, staticcheck, ruff, mypy, cargo fmt, cli-regress (660 rows), perf-gate, analyze-c, codeql-scan, check-docs, markdownlint-cli2, lint-report `--check --no-mark`, and `cicd.bash --backlog-run-quick cli`.
+	- Verified: the new rows fail with each binding's library file from `aec73482` (the round branch before this change) and pass with the change, in Rust, Go, Python, C and the veneer. Also the whole Rust suite, Go in both modules, the Python and C runners, the veneer smoke, the C runner under wine from the mingw build, clippy (host and windows-gnu), go vet, staticcheck, ruff, mypy, cargo fmt, cli-regress (660 rows), perf-gate, analyze-c, codeql-scan, check-docs, markdownlint-cli2, lint-report `--check --no-mark`, and `cicd.bash --backlog-run-quick cli`. On b29w with a short-name TEMP, from r1109 at `ce2a26b9`: the C runner (221 cases, `dekkm` and `detpr` among them), the static veneer smoke (`dekkn`, `detps`), and the whole Rust suite.
 	- Test case: `a_save_over_a_file_changed_since_the_load_is_refused` (`dekj6`, `dekj7`, `dekk8`, `dekkm`, `dekkn`), `a_changed_check_knows_its_file_by_any_spelling` (`detpn`, `detpp`, `detpq`, `detpr`, `detps`).
 	- Branch: `r1109`
+	- Acceptance signoff: Self-closed: every named row passed locally and on b29w.
+	- Closed: 20261109-154811
 
 - Removes, folds, merges and the banner toggle hand lines on through `adopt`
 	- ID: 2026110712372281
@@ -501,7 +502,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Say so when an installer moves a beta install back to the older stable
 	- ID: 2026110613470322
 	- Type: Enhancement
-	- Status: Waiting on automated testing
+	- Status: Done
 	- Priority: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261106-134703
@@ -515,7 +516,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: `74c3a5a0` (2026-07-22), `c52fa077` (2026-09-22). Confirmed for install.bash in a sandbox. install.ps1 has the same logic.
 	- Regression test: shell-regress rows for install.bash and install.ps1 under pwsh: a newer beta on the box, then a default install, and the output names the move back to the stable version; the receipt line checked exact.
 	- Estimated effort: Low
-	- Needs external testing: install.ps1 on b29w, user target: a `-Release dev` install, then a plain run against the live releases. The plan says it replaces the newer beta, the receipt line says "older than the 3.0.0-beta1 it replaced", and `code\` is gone.
 	- Decisions:
 		- 20261109: both installers ask the installed binary its `--version`, so an install from before this change counts too. A binary that won't run reads as an ordinary update.
 		- 20261109: the plan and the receipt name the move back, and on the stable channel the plan says to re-run with `--release dev` to keep the newer one. It still runs, since stable is what was asked for.
@@ -523,8 +523,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261109: installer versions 1.5.0 (install.bash) and 1.3.0 (install.ps1).
 	- Progress log:
 		- 20261109: done in both installers, with a sentence in install.md and a changelog line. The install.ps1 row runs to the plan only, since the full script needs Windows past it.
+		- 20261109: install.ps1 from r1109 on b29w, user target, against the live releases. A `-Release dev` install put in 3.0.0-beta1. A plain run then said "replaces the newer 3.0.0-beta1 with an older release" with the `-Release dev` note, and the receipt said "older than the 3.0.0-beta1 it replaced". 2.0.0 ships drop-ins, so `code\` then held 2.0.0's 5 files rather than going. A third run with the release pinned to v1.2.0, which ships none, removed `code\` and said so. The user target was empty before, and was uninstalled after, with the user PATH as it was.
 	- Swept: install-dev.bash, which installs no release. The uninstall paths already remove by name.
 	- Test case: shell-regress `df38m` (install.bash, plan, note, receipt exact, removal, rerun as update) and `df38n` (install.ps1 plan and note). Both fail on the old scripts and pass now.
+	- Acceptance signoff: Self-closed: the plan, note, receipt and drop-in removal ran on b29w.
+	- Closed: 20261109-154811
 
 - Make `children` and `instances` exit 3 on a path that isn't there
 	- ID: 2026110613470323
