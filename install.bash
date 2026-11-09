@@ -581,7 +581,7 @@ fLayDown(){
 	## left beside an older binary describe the wrong format. On the same
 	## version they can only have been put there by hand, so they stay.
 	dropped=""
-	if [[ "${installed}" != "${version}" ]]; then
+	if [[ "${installed:-}" != "${version:-}" ]]; then
 		if (( ! have_dropins )) && [[ -d "${dest}/code" ]]; then
 			${asroot} rm -f "${dest}/code/lib.rs" "${dest}/code/shcl.go" "${dest}/code/shcl.py" "${dest}/code/shcl.h" "${dest}/code/shcl.hpp"
 			${asroot} rmdir "${dest}/code" 2>/dev/null || true
