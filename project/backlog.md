@@ -12746,13 +12746,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The core mirrors Rust's in every binding: tokenizer, parser, stored lines, edits, and emitter. A fix stays a diff of the same function in each port.
 		- The Rust core is written to be ported. It's index-based storage with plain functions, with no lifetimes, traits, borrowed views, or macros a port can't follow line for line. The Rust API on top uses any Rust idiom that fits.
 		- Languages to come: Go, C with its C++ veneer, Python, JavaScript for Node and Bun, Java and Kotlin, C#, Swift, R, Ruby, Dart, and a native PowerShell port.
-		- Text positions get settled before the storage is built. Rust slices UTF-8 bytes, JavaScript, Java, C#, and Dart index UTF-16 units, and Python indexes code points.
-		- Each language's int type gets checked against the 64-bit reads. JavaScript needs a BigInt, and R has no 64-bit int of its own.
+		- Each port works on its language's own strings. Rust slices UTF-8 bytes, JavaScript, Java, C#, and Dart index UTF-16 units, and Python indexes code points. The text handling sits in a small module per language that the mirrored core calls, so no port has to deal with Unicode in a form that isn't native to it.
+		- 64-bit ints use each language's own wide type, and BigInt in JavaScript. A low-priority language without one, such as R, makes do with what it has. It doesn't set limits for the others.
 		- Walks keep their own stacks, since recursion limits differ from one runtime to the next.
 		- The file tier stays apart from the core, since it's the part most tied to each OS and runtime.
 	- Reason: one format read the same way in more languages, without a separate core per language drifting away from Rust's.
 	- Decisions:
 		- Native public API over a mirrored core (JC, 2026-11-09). A native core in each binding was turned down. Output has to match byte for byte, so each fix would have to be worked out again in every language.
+		- Text handling is native per language, in its own module (JC, 2026-11-09). Making every port work on UTF-8 bytes was turned down. Unicode handled in a form a language doesn't use natively is where bugs come from.
+		- The lowest common denominator doesn't set the design (JC, 2026-11-09). R is low priority.
 	- Note: v4.0 itself ports only to C, Go, and Python, per the v4 doc's roadmap. The other languages come after.
 	- Estimated effort: High
 
