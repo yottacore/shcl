@@ -114,7 +114,11 @@ Each release includes a `shcl-<version>-sha256sums.txt` and a detached `.sig` ov
 bash <(curl -fsSL https://raw.githubusercontent.com/yottacore/shcl/main/install.bash)
 ~~~
 
-Options go at the end, after the closing parenthesis.
+Options go at the end, after the closing parenthesis. For the 3.0 beta:
+
+~~~sh
+bash <(curl -fsSL https://raw.githubusercontent.com/yottacore/shcl/main/install.bash) --release dev
+~~~
 
 The prebuilt linux-x86_64 binary needs glibc 2.34 or newer (Ubuntu 22.04, Debian 12, RHEL 9, and later). On an older system, `cargo install shcl` builds against what's there.
 
@@ -132,6 +136,12 @@ irm https://raw.githubusercontent.com/yottacore/shcl/main/install.ps1 | iex
 
 ~~~powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/yottacore/shcl/main/install.ps1))) -Help
+~~~
+
+The 3.0 beta installs the same way:
+
+~~~powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/yottacore/shcl/main/install.ps1))) -Release dev
 ~~~
 
 The installer extracts the drop-in payload with `tar`, which Windows 10 1803, Server 2019, and later include. On an older Windows, use the setup `.exe` from the releases page instead.

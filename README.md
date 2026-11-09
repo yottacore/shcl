@@ -45,7 +45,6 @@
 
 - [The problem](#the-problem)
 - [What SHCL does about it](#what-shcl-does-about-it)
-- [Try it](#try-it)
 - [What a .shcl file looks like](#what-a-shcl-file-looks-like)
 - [How it compares to...](#how-it-compares-to)
 	- [Config languages - JSON, YAML, TOML, XML](#config-languages---json-yaml-toml-xml)
@@ -98,48 +97,6 @@ SHCL makes a contract:
 - If a person can tell what a line means, the parser can too.
 
 When you do want zero-tolerance rigor: schema validation, plus a strict mode that fails loudly.
-
-## Try it
-
-Install the CLI. Until 3.0.0 is out, `--release dev` gets the 3.0 beta that this page describes:
-
-~~~sh
-bash <(curl -fsSL https://raw.githubusercontent.com/yottacore/shcl/main/install.bash) --release dev
-~~~
-
-Windows, the packages, and the language libraries are in [Installation](project/install.md).
-
-Save this as `box.shcl`. It has a mistake on line 3:
-
-~~~text
-name:      Build box
-port:      8081    # 8080 is taken
-workers =  4
-log-level: warn
-~~~
-
-The bad line gets reported, and the rest of the file still reads:
-
-~~~console
-$ shcl get --int box.shcl port
-line 3: Error: E014 malformed line skipped: unexpected character after the path, at column 9
-8081
-~~~
-
-Now change the port from a script. The comment, the spacing, and even the broken line are left where they were, so whoever wrote it can still fix it:
-
-~~~console
-$ shcl set --write box.shcl --set 'port=9000'
-line 3: Error: E014 malformed line skipped: unexpected character after the path, at column 9
-
-$ cat box.shcl
-name:      Build box
-port:      9000    # 8080 is taken
-workers =  4
-log-level: warn
-~~~
-
-`shcl check box.shcl` lists every problem and exits 6, for CI. `shcl explain E014` prints the rule behind the code.
 
 ## What a .shcl file looks like
 
@@ -320,6 +277,20 @@ demo-escapes:
 The full list of escapes is in [the spec](project/spec.md#escapes).
 
 ## Installation
+
+Until 3.0.0 is out, the install scripts default to 2.0.0. Add `--release dev` (`-Release dev` on Windows) for the 3.0 beta that this page describes.
+
+Linux, macOS, WSL, and FreeBSD:
+
+~~~sh
+bash <(curl -fsSL https://raw.githubusercontent.com/yottacore/shcl/main/install.bash) --release dev
+~~~
+
+Windows PowerShell:
+
+~~~powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/yottacore/shcl/main/install.ps1))) -Release dev
+~~~
 
 [Installation](project/install.md) has packages for Debian, Fedora, FreeBSD, and Windows, the install scripts for the stable and dev channels, the language packages, and a DIY route.
 

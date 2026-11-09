@@ -253,8 +253,7 @@ fi
 ##	transcript. Two files the doc describes rather than shows are made here:
 ##	server.shcl with the colon knocked off line 3, for the block that starts
 ##	with `shcl check server.shcl`, and an app.shcl whose line 2 has the
-##	misspelled key its schema block reports. The README's box.shcl comes from
-##	its "Try it" block, and `$ cat box.shcl` is run too, to check what set wrote.
+##	misspelled key its schema block reports.
 fTest dct4z console-transcripts
 cli="${SHCL_CLI:-${repoDir}/source/rust/target/debug/shcl}"
 [[ -x "${cli}" ]] || { echo "check-readme: no built CLI at ${cli} to run the transcripts with" >&2; exit 2 ;}
@@ -265,8 +264,6 @@ awk '/^## What a .shcl file looks like/ { f = 1 } f && /^~~~+text$/ { b = 1; nex
 awk '/^Hand it a schema/ { f = 1 } f && /^~~~+text$/ { b = 1; next } b && /^~~~+$/ { exit } b' "${docs[@]}" > "${tx}/app-schema.shcl"
 [[ -s "${tx}/server-shown.shcl" ]] || { echo "check-readme: the transcripts' server.shcl is gone from ${docNames}" >&2; exit 2 ;}
 [[ -s "${tx}/app-schema.shcl" ]] || { echo "check-readme: the transcripts' schema block is gone from ${docNames}" >&2; exit 2 ;}
-awk '/^## Try it/ { f = 1 } f && /^~~~+text$/ { b = 1; next } b && /^~~~+$/ { exit } b' "${readme}" > "${tx}/box.shcl"
-[[ -s "${tx}/box.shcl" ]] || { echo "check-readme: the box.shcl block under \"Try it\" is gone from ${readme}" >&2; exit 2 ;}
 sed '3s/://' "${tx}/server-shown.shcl" > "${tx}/server-knocked.shcl"
 printf 'workers: 4\nlog-levle: warn\n' > "${tx}/app.shcl"
 ##	One case per command: N.cmd, N.want (the lines under it, less the blank that
@@ -290,7 +287,7 @@ for cmdFile in $(find "${tx}/cases" -name '*.cmd' | sort -t/ -k1 -V); do
 			cp "${tx}/server-shown.shcl" "${tx}/server.shcl"
 		fi
 	fi
-	[[ "${cmd}" == shcl\ * || "${cmd}" == 'cat box.shcl' ]] || continue
+	[[ "${cmd}" == shcl\ * ]] || continue
 	want="$(cat "${base}.want")"
 	got="$(cd "${tx}" && PATH="${tx}/bin:${PATH}" bash -c "${cmd}" 2>&1 </dev/null || true)"
 	nCases=$((nCases + 1))
@@ -499,4 +496,3 @@ echo "check-readme: OK"
 ##		2026-10-14  The examples, transcripts and shell blocks moved from the
 ##		            README to project/examples.md. Every block is looked for in
 ##		            both files, so a move between them keeps it checked.
-##		2026-11-09  The README's "Try it" transcripts run against its box.shcl.
