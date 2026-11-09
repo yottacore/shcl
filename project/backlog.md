@@ -41,7 +41,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Status: Waiting on automated testing
 	- Needs external testing: the Windows and macOS rows of 2026110616475901, on b29w and vmKt6m or b26.
 	- Severity: High
-	- Target version: v3.0.0
+	- Target version: v3.0.0-beta2
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 7
 	- Prereq IDs: 2026110616475901, 2026110907535001
@@ -97,7 +97,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Status: Waiting on automated testing
 	- Needs local test suite run?: the 2,000,000-iteration release fuzz on the commit, as on 2026110712372271.
 	- Severity: High
-	- Target version: v3.0.0
+	- Target version: v3.0.0-beta2
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 11
 	- Version and build: dev at `343334df`
@@ -135,7 +135,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Status: Waiting on automated testing
 	- Needs local test suite run?: the 2,000,000-iteration release fuzz (`SHCL_FUZZ_ITERS=2000000`, `fuzz_smoke`) on this item's commit, since corpus 221 shifts the seeds. check-migrate passed on the same tree.
 	- Priority: High
-	- Target version: v3.0.0
+	- Target version: v3.0.0-beta2
 	- Opened: 20261107-123722
 	- Opened by: split from 2026110616475902
 	- Parent ID: 2026110616475902
@@ -178,7 +178,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: High
-	- Target version: v3.0.0
+	- Target version: v3.0.0-beta2
 	- Opened: 20261109-081000
 	- Opened by: me, from JC's run `run_20261108-141308`
 	- Version and build: dev, 2026-11-08
@@ -198,7 +198,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: High
-	- Target version: v3.0.0
+	- Target version: v3.0.0-beta2
 	- Opened: 20261107-135954
 	- Opened by: Child of 2026110613470315
 	- Parent ID: 2026110613470315
@@ -214,7 +214,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: High
-	- Target version: v3.0.0
+	- Target version: v3.0.0-beta2
 	- Opened: 20261107-135954
 	- Opened by: Child of 2026110613470315
 	- Parent ID: 2026110613470315
@@ -224,46 +224,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Avg
 	- Note: the 64 KB thread runner `deep_on_64_kb` in the C runner (`df0c9`, `df0d5`) and the harness in the tools folder's `deepstack/` come from the first two children. A new op goes in `deep_round_trip`.
 
-- The parse caps don't count comment lines or kept lines, so a capped parse can still use 100 times the file's size
-	- ID: 2026110613470304
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Target version: v3.0.0
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 4
-	- Version and build: dev at `343334df`
-	- Steps to reproduce:
-		- A 4 MB file of `#` lines.
-		- `parse_limited` with caps of 10,000 nodes, 1,000 elements and 100 diagnostics.
-	- Incorrect behavior: a peak of 342 MB in Rust, 539 in Go, 357 in C and 436 in Python. A 9.5 MB file of comments takes 849 MB to 1.2 GB, and 2M lines of `a b`, kept as `E014`, take 344 to 654 MB. A file of `kN: 1` lines stops at the cap at about 47 MB.
-		- When the cap is crossed on the file's last line, that line loads, and `E020` goes on it, saying "parse stopped" with nothing lost. The code's comment puts `E020` on the first line not parsed. Under Strict that file fails to load.
-	- Expected behavior: README says the caps mean a hostile file can't run a program out of memory, and spec.md says only counting what the parse builds can bound what a load allocates. Comment and kept lines are built but not counted.
-	- Reproduced: 20261106, all 4 libraries, peak memory by `/usr/bin/time`. The `E020` case in Python and Go.
-	- Possible cause: the node cap counts tree nodes only. Pending comments, orphans and kept lines have no count.
-	- Origin: the node cap is `c1335634` (2026-09-01), the README line `3e798e75` (2026-09-24). Not seen by an earlier round. Confirmed.
-	- Sweep: every place the parse keeps a line with no node, in all 4.
-	- Regression test: a budget test in all 4 suites: a file of comment lines and kept lines many times the cap, parsed under the cap, asserting the line count and bytes kept stay under it and that `E020` names the first line the parse didn't take; a fuzz guard that counts such inputs each run.
-	- Estimated effort: Avg
-	- Actual cause: the node cap counted arena nodes only. A whole-line comment and a kept line each make a pending entry and build no node. The last-line `E020` came from a second check after the loop, written to report a cap crossed on the last line.
-	- Actual fix: the node cap's count is nodes plus every comment line and kept line taken, in all 4. `E020` goes on the first line not parsed, and only when a non-blank line is left, so the check after the loop is gone. spec.md, design.md, the changelog and each binding's doc comment say so.
-		- Swept: the comment push and the one `refuse` funnel that files every kept line, in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. `E028`'s kept line is a node's own line, already counted. Raw block bodies are a node's value, dropped lines aren't held (the line-keeping save that tracks them has no cap), and diagnostics have their own cap.
-	- Progress log:
-		- 20261107: split. The fuzz guard is child 2026110707441268, since the fuzz can't yet see the held-line count. The budget tests and the fix are in.
-		- 20261107: measured, 200k lines half comments and half `kept line`, cap 1,000, against as many `kN: 1` lines under the same cap. Before: Rust 55.4 MB against 7.8, Go 129 against 3.9, C 105 against 8.5, Python 69 against 13.9. After, all 4 are under 2 times the field lines, C 8.9 MB and Python 14.1 MB.
-	- Decisions:
-		- me, 20261107: comment and kept lines count against the node cap, not a new cap. Each costs about what a node does, and a fourth cap would be one more number every caller picks for the same memory.
-		- me, 20261107: a cap crossed on the last line with content reports nothing, since the parse stopped nothing. The overshoot is the one line it always was. `Check:` entry in questions.md.
-		- JC, 20261109: a node cap of 1,000 is far too low for big projects with millions of generated lines. me, 20261109: there's no default cap. Every cap is 0, which means off, unless a caller passes one to `parse_limited` for input it doesn't control. The 1,000 was only the question's example. design.md already says a legitimate config can have millions of nodes, which is why no built-in number exists, and no sister project calls `parse_limited`. So counting comment lines changes nothing for a plain load or the CLI. The last-line call stands, the way `head -n` treats a file that ends at its count.
-		- 20261107, test asserts updated for the last-line change, the rest of each test as it was: `parse_limited_caps` in all 4 runners (`dc1yg`, `dc1yh`, `dc26x`, `dc1yj`), the last-line cross from 1 `E020` to 0, and the one-line overshoot `x.y.z: 1` from 1 `E020` to 0. The overshoot with a next line is pinned in the new tests.
-	- Test case: `the_node_cap_counts_comment_and_kept_lines` (`df003` Rust, `df004` Go, `df005` Python, `df006` C) and the budget tests (`df007` Rust `mem_caps`, `df008` Go `mem_test`, `df009` C `mem_bounds`, `df00a` Python). All failed on the old code and pass now. The fuzz guard is the child's.
-
 - A document at the 512 depth cap needs about 190 KB of stack in C
 	- ID: 2026110613470315
 	- Type: Bug
 	- Status: Queued
 	- Severity: High
-	- Target version: v3.0.0
+	- Target version: v3.0.0-beta2
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 15
 	- Version and build: dev at `343334df`
@@ -282,7 +248,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: High
-	- Target version: v3.0.0
+	- Target version: v3.0.0-beta2
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 20
 	- Version and build: dev at `343334df`
@@ -299,7 +265,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: High
-	- Target version: v3.0.0
+	- Target version: v3.0.0-beta2
 	- Opened: 20261109-075350
 	- Opened by: JC, from the `Check:` on 2026110613470307
 	- Parent ID: 2026110613470307
@@ -319,7 +285,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: High
-	- Target version: v3.0.0
+	- Target version: v3.0.0-beta2
 	- Opened: 20261107-123722
 	- Opened by: split from 2026110616475902
 	- Parent ID: 2026110616475902
@@ -340,7 +306,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: High
-	- Target version: v3.0.0
+	- Target version: v3.0.0-beta2
 	- Opened: 20261107-123722
 	- Opened by: split from 2026110616475902
 	- Parent ID: 2026110616475902
@@ -361,7 +327,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Task
 	- Status: Queued
 	- Priority: High
-	- Target version: v3.0.0
+	- Target version: v3.0.0-beta2
 	- Opened: 20261107-074413
 	- Opened by: me
 	- Parent ID: 2026110613470304
@@ -375,7 +341,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: High
-	- Target version: v3.0.0
+	- Target version: v3.0.0-beta2
 	- Opened: 20261106-164759
 	- Opened by: Code review 20261106 follow-up (JC)
 	- Related IDs: 2026102910482342, 2026110312163201, 2026110312163202, 2026110312163207, 2026110313211991, 2026110314064292, 2026110314240418, 2026110408432594, 2026110613470307, 2026110613470308
@@ -404,7 +370,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: High
-	- Target version: v3.0.0
+	- Target version: v3.0.0-beta2
 	- Opened: 20261106-164759
 	- Opened by: Code review 20261106 follow-up (JC)
 	- Related IDs: 2026110613470311, 2026110613470302, 2026110613470312, 2026100307163904, 2026100218185700, 2026092718195400, 2026110312163204, 2026110315051536
@@ -428,7 +394,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: High
-	- Target version: v3.0.0
+	- Target version: v3.0.0-beta2
 	- Opened: 20261106-164759
 	- Opened by: Code review 20261106 follow-up (JC)
 	- Related IDs: 2026110616475902, 2026110613470311, 2026110613470302, 2026100307163904, 2026100218185700, 2026092718195400
@@ -448,7 +414,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: High
-	- Target version: v3.0.0
+	- Target version: v3.0.0-beta2
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 22
 	- Related IDs: 2026110215285718
@@ -466,7 +432,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: High
-	- Target version: v3.0.0
+	- Target version: v3.0.0-beta2
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 23
 	- Related IDs: 2026100818140260
@@ -481,7 +447,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: High
-	- Target version: v3.0.0
+	- Target version: v3.0.0-beta2
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 24
 	- Problem description: spec.md quotes an instance value with a line break in it, because a consumer splits the output on newlines. U+2028, U+2029, U+0085, VT and FF print as they are, though Python's `splitlines()` splits on them and `fmt` escapes them. A list of 3 values came out as 5 lines.
@@ -495,7 +461,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: High
-	- Target version: v3.0.0
+	- Target version: v3.0.0-beta2
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 25
 	- Problem description: `var d shcl.Document`, then `d.SetString("a", "b")` or `d.GetStringOr(...)`, panics with an index out of range, and so does `d.Merge(nil)`. Rust has `Default`, Python's `Document()` works, and the C++ comment says a default Document is usable. Go's `Document` doc doesn't say to use `New()`.
@@ -541,6 +507,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: Avg
+	- Target version: v3.0.0-beta2
 	- Opened: 20261107-145526
 	- Opened by: found while working 2026110613470311
 	- Related IDs: 2026110613470311, 2026110407313888, 2026110315051536, 2026110712372281
@@ -1046,6 +1013,42 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- The parse caps don't count comment lines or kept lines, so a capped parse can still use 100 times the file's size
+	- ID: 2026110613470304
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Target version: v3.0.0
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 4
+	- Version and build: dev at `343334df`
+	- Steps to reproduce:
+		- A 4 MB file of `#` lines.
+		- `parse_limited` with caps of 10,000 nodes, 1,000 elements and 100 diagnostics.
+	- Incorrect behavior: a peak of 342 MB in Rust, 539 in Go, 357 in C and 436 in Python. A 9.5 MB file of comments takes 849 MB to 1.2 GB, and 2M lines of `a b`, kept as `E014`, take 344 to 654 MB. A file of `kN: 1` lines stops at the cap at about 47 MB.
+		- When the cap is crossed on the file's last line, that line loads, and `E020` goes on it, saying "parse stopped" with nothing lost. The code's comment puts `E020` on the first line not parsed. Under Strict that file fails to load.
+	- Expected behavior: README says the caps mean a hostile file can't run a program out of memory, and spec.md says only counting what the parse builds can bound what a load allocates. Comment and kept lines are built but not counted.
+	- Reproduced: 20261106, all 4 libraries, peak memory by `/usr/bin/time`. The `E020` case in Python and Go.
+	- Possible cause: the node cap counts tree nodes only. Pending comments, orphans and kept lines have no count.
+	- Origin: the node cap is `c1335634` (2026-09-01), the README line `3e798e75` (2026-09-24). Not seen by an earlier round. Confirmed.
+	- Sweep: every place the parse keeps a line with no node, in all 4.
+	- Regression test: a budget test in all 4 suites: a file of comment lines and kept lines many times the cap, parsed under the cap, asserting the line count and bytes kept stay under it and that `E020` names the first line the parse didn't take; a fuzz guard that counts such inputs each run.
+	- Estimated effort: Avg
+	- Actual cause: the node cap counted arena nodes only. A whole-line comment and a kept line each make a pending entry and build no node. The last-line `E020` came from a second check after the loop, written to report a cap crossed on the last line.
+	- Actual fix: the node cap's count is nodes plus every comment line and kept line taken, in all 4. `E020` goes on the first line not parsed, and only when a non-blank line is left, so the check after the loop is gone. spec.md, design.md, the changelog and each binding's doc comment say so.
+		- Swept: the comment push and the one `refuse` funnel that files every kept line, in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. `E028`'s kept line is a node's own line, already counted. Raw block bodies are a node's value, dropped lines aren't held (the line-keeping save that tracks them has no cap), and diagnostics have their own cap.
+	- Progress log:
+		- 20261107: split. The fuzz guard is child 2026110707441268, since the fuzz can't yet see the held-line count. The budget tests and the fix are in.
+		- 20261107: measured, 200k lines half comments and half `kept line`, cap 1,000, against as many `kN: 1` lines under the same cap. Before: Rust 55.4 MB against 7.8, Go 129 against 3.9, C 105 against 8.5, Python 69 against 13.9. After, all 4 are under 2 times the field lines, C 8.9 MB and Python 14.1 MB.
+	- Decisions:
+		- me, 20261107: comment and kept lines count against the node cap, not a new cap. Each costs about what a node does, and a fourth cap would be one more number every caller picks for the same memory.
+		- me, 20261107: a cap crossed on the last line with content reports nothing, since the parse stopped nothing. The overshoot is the one line it always was. `Check:` entry in questions.md.
+		- JC, 20261109: a node cap of 1,000 is far too low for big projects with millions of generated lines. me, 20261109: there's no default cap. Every cap is 0, which means off, unless a caller passes one to `parse_limited` for input it doesn't control. The 1,000 was only the question's example. design.md already says a legitimate config can have millions of nodes, which is why no built-in number exists, and no sister project calls `parse_limited`. So counting comment lines changes nothing for a plain load or the CLI. The last-line call stands, the way `head -n` treats a file that ends at its count.
+		- 20261107, test asserts updated for the last-line change, the rest of each test as it was: `parse_limited_caps` in all 4 runners (`dc1yg`, `dc1yh`, `dc26x`, `dc1yj`), the last-line cross from 1 `E020` to 0, and the one-line overshoot `x.y.z: 1` from 1 `E020` to 0. The overshoot with a next line is pinned in the new tests.
+	- Test case: `the_node_cap_counts_comment_and_kept_lines` (`df003` Rust, `df004` Go, `df005` Python, `df006` C) and the budget tests (`df007` Rust `mem_caps`, `df008` Go `mem_test`, `df009` C `mem_bounds`, `df00a` Python). All failed on the old code and pass now. The fuzz guard is the child's.
+	- Acceptance signoff: Self-closed: the fix and the budget tests went in on 20261107, and each test was seen to fail on the old code. The fuzz guard is its own item, 2026110707441268.
+	- Closed: 20261109-114119
 
 - C's overlay and clone walks need stack in proportion to the depth
 	- ID: 2026110713595411
