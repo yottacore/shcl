@@ -4750,11 +4750,15 @@ func (g *seqGen) doc() string {
 
 // placed: a line refused only for where it sits, as one code. An edit around
 // it can change which it gets, and it stays kept either way. Removing the
-// field before an E008 item under a field with a value leaves it E011.
+// field before an E008 item under a field with a value leaves it E011. A
+// misplaced line is the same, as its own code: it's E018 under a kept E012
+// line and E012 elsewhere, so moving the line above it changes it.
 func placed(code string) string {
 	switch code {
 	case "E001", "E003", "E007", "E008", "E011":
 		return "placed"
+	case "E012", "E018":
+		return "misplaced"
 	}
 	return code
 }
@@ -4778,6 +4782,36 @@ func noNewErrors(text, base string) bool {
 		}
 	}
 	return true
+}
+
+// The fuzz's base and edits from 2026110714552634: the remove leaves a
+// misplaced line below the kept field line after it, where a reload of the
+// text without the removed line files it, and the misplaced line under them
+// reloads as E018 where it was E012. Same fixture in every runner.
+func TestARemoveThatMovesAMisplacedLineAddsNoError(t *testing.T) {
+	defer testID(t, "df350")
+	base := "window:\n\topacity: 1.0\n    m_argin: 4\n\n\tcol\tmns: 160\n\trows: 48\nfont:\n\tface:\n\t\tsize: 12\n    bad:\t 1\n\t\tfamily: mono\n\thint:\n  ~ bad: 2\n\t\tfist: 1\n\t\tsecond: 2\\a:\n    b: 1\n  c: 2\n     d 3\n    h: 6\nz: 9\n"
+	want := "font:\n\tface:\n\t\tsize: 12\n    bad:\t 1\n\t\tfamily: mono\n\t\t\tkid2: 3\n\thint:\n\t\tsecond: 2\\a:\n  ~ bad: 2\n    b: 1\n  c: 2\n     d 3\n    h: 6\nz: 9\n"
+	doc, _ := ParseKeepLines(base, Standard)
+	if doc.Remove("font.hint.fist") != 1 {
+		t.Fatal("remove font.hint.fist")
+	}
+	if cut := Parse(strings.Replace(base, "\t\tfist: 1\n", "", 1)); doc.ToCanonical() != cut.ToCanonical() {
+		t.Fatalf("remove %q, reload of the cut text %q", doc.ToCanonical(), cut.ToCanonical())
+	}
+	if doc.Remove("window") != 1 || doc.SetInt("font.face.family.kid2", 3) != SetOk {
+		t.Fatal("remove window or set kid2")
+	}
+	text, kept := doc.ToTextKeepLines()
+	if text != want || !kept {
+		t.Fatalf("kept %v %q, want %q", kept, text, want)
+	}
+	if Parse(text).ToCanonical() != doc.ToCanonical() {
+		t.Fatalf("reload differs: %q", text)
+	}
+	if !noNewErrors(text, base) {
+		t.Fatalf("a new error: %q", text)
+	}
 }
 
 // keepsEveryLine: on a base that loads clean, a new field saved with the lines

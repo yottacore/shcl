@@ -736,7 +736,7 @@ Where a kept line is comes from canonical output before the edit. Under the targ
 
 - A repeated header goes when the last line under it is removed, since an earlier block already has that instance, and the blank line above it goes too. While anything stays under it, the header and its blank line both stay.
 
-- The kept lines beside a target that was the last field in its block stay at the end of that block. A misplaced line among them doesn't have a level there, so it goes down to right above the next field line, with the comments after it, which is where a reload files them.
+- The kept lines beside a target that was the last field in its block stay at the end of that block. A misplaced line among them doesn't have a level there, so it goes down to right above the next field line, with the comments after it, which is where a reload files them. A kept field line after it stays in the block, so the 2 change places, as they do when the removed line is cut from the file by hand and the file is formatted (2026110714552634).
 
 - A setter that replaces a stacked list's value moves the kept lines among its elements above it, as under Load outcomes, with the field's blank above them, as [Lines an edit takes from their node](#lines-an-edit-takes-from-their-node) describes. A move isn't a loss. A line among them that names the list is then a comment, as the next bullet says, on that set rather than a later one.
 

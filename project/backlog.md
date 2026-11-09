@@ -35,6 +35,22 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- codeql-scan fails on 39b06389: an unsuppressed `cpp/large-parameter` in shcl.h and a stale suppression in conformance.c
+	- ID: 2026110913374081
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261109-133740
+	- Opened by: found while working 2026110714552634
+	- Related IDs: 2026110713595434, 2026110908100001
+	- Version and build: `r1109` at `cd2f6386`
+	- Steps to reproduce: `cicd/utility/codeql-scan.bash` on the round branch.
+	- Incorrect behavior: `de5ag` fails on `source/c/shcl.h:13317`, `DEFINE_VEC(ShclVecVLevel, ShclVLevel)`, a 72-byte element taken by value. `de5am` fails on `source/c/tests/conformance.c:712`, a `codeql[cpp/overflowing-snprintf]` line with no finding under it. Both lines are from `39b06389`. The quick run skips codeql-scan, so the merge gate is the first to see it.
+	- Expected behavior: codeql-scan passes. The shcl.h line takes the suppression the other `DEFINE_VEC` lines have, `// codeql[cpp/large-parameter] DEFINE_VEC's push takes its element by value, for every type`, and the stale one goes.
+	- Reproduced: 20261109, codeql-scan on `r1109` with 2026110714552634's edits in the tree, which touch neither line.
+	- Estimated effort: Low
+
 - The changed check misses a file reached through a second spelling of its path
 	- ID: 2026110613470307
 	- Type: Bug
@@ -547,7 +563,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Fuzz `dd3t9` fails at iteration 863179: a remove puts a kept line below the next kept line, and the reload gets a new `E018`
 	- ID: 2026110714552634
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Avg
 	- Target version: v3.0.0-beta2
 	- Opened: 20261107-145526
@@ -563,7 +579,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261107, Rust library, on `r1107c` at `217bff58` and on dev at `c9f4bc4b`, with the same text after each op. The round's new corpus cases 220 and 221 shifted the seeds onto it. The other 3 bindings not tried.
 	- Possible cause: `second: 2\a:` is refused, so `fist` is the only child of `hint`. The remove hands its kept leading line to `leave_last`, which appends it after the kept lines already at the end of the block, with no look at source order. `refile_folded` places by source line for this reason (2026110315051536).
 	- Estimated effort: Avg
-	- Test case: none yet. The fix adds this base and these ops as a fixed test, in all 4.
+	- Actual cause [Bug]: the property, not the remove. The remove leaves the document that the file with `fist: 1` cut out by hand loads as. The parse files a kept field line in the block it sits in, and a misplaced line down to the next field line, which is design.md's rule for the lines a remove leaves at the end of a block. So the 2 kept lines change places, and `fmt` on the cut file writes the same. `    b: 1` is then under the kept `E012` line, so it's `E018`. Both codes are for a line refused for where it sits, kept as written either way. The possible cause is off: no kept lines were at the end of the block, and `leave_last`'s split of fields from misplaced lines is that rule.
+	- Actual effort: Low
+	- Progress log:
+		- 20261109: the check for a new error counts `E012` and `E018` as one code (`misplaced`), beside `placed`, in Rust's `dd3t9` (through a new `no_new_errors`) and in `noNewErrors` / `no_new_errors` in Go, Python and C. A fixed test in all 4 runs the issue's base and ops, and checks that the first remove gives what the cut file loads as. design.md's bullet for a target that was the last field in its block says the 2 lines change places.
+	- Decisions:
+		- me, 20261109: the property changes, not the remove. Keeping file order would make the document differ from the reload of its own text, so the save that keeps lines would refuse. Changing the parse to keep them in order would change load outcomes for every file with this shape. The same call as 2026110407313888.
+		- me, 20261109: `misplaced` is a class of its own, not 2 more codes in `placed`, since no edit turns a misplaced line into one refused for where its path leads.
+		- me, 20261109: not adopt's work in 2026110712372281. The remove already does what design.md and the reload say, so nothing moves to `adopt` for it.
+	- Actual fix [Bug]: `placed` in `fuzz_smoke.rs`, `shcl_test.go`, `conformance.py` and `conformance.c`, and `no_new_errors` in `fuzz_smoke.rs`. A sentence in design.md's "Kept lines under edits".
+	- Swept: every check of a reload's error codes against the base's goes through `placed`: Rust's `dd3t9`, and the edits-and-merges fuzz in Go (`dd16m`), Python (`dd16n`) and C (`dc474`). The fuzz outcome table (`dcavy`) counts codes per line, so a move can't change it.
+	- Verified: `df34z`, `df350`, `df351` and `df352` fail on the old property in each runner and pass on the new one. With corpus 220 and 221 in, `dd3t9` passes at 2,000,000 iterations in release, and so does the whole 2,000,000-iteration release fuzz (32 tests, 651 s). The 4 conformance suites, the whole Rust suite, the Go tests in both modules, check-docs, test-ids, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, markdownlint. codeql-scan found nothing in the new tests, and failed on 2 lines from `39b06389` (Bug 2026110913374081).
+	- Branch: `r1109`
+	- Test case: `a_remove_that_moves_a_misplaced_line_adds_no_error` (`df34z` Rust, `df350` Go, `df351` Python, `df352` C); fuzz `dd3t9`.
+	- Acceptance signoff: Self-closed: its tests failed before and pass after, and the result is what design.md's table says.
+	- Closed: 20261109-134020
 
 - Schema check costs the square of the nesting depth in all 4 bindings
 	- ID: 2026110711492228

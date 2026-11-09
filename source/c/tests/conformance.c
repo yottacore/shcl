@@ -1088,11 +1088,14 @@ static void seq_doc(SeqBuf *b) {
 
 /* A line refused only for where it sits, as one code. An edit around it can
    change which it gets, and it stays kept either way. Removing the field
-   before an E008 item under a field with a value leaves it E011. */
+   before an E008 item under a field with a value leaves it E011. A misplaced
+   line is the same, as its own code: it's E018 under a kept E012 line and
+   E012 elsewhere, so moving the line above it changes it. */
 static const char *placed(const char *code) {
 	static const char *const where[] = {"E001", "E003", "E007", "E008", "E011"};
 	for (size_t i = 0; i < sizeof where / sizeof where[0]; i++)
 		if (strcmp(code, where[i]) == 0) return "placed";
+	if (strcmp(code, "E012") == 0 || strcmp(code, "E018") == 0) return "misplaced";
 	return code;
 }
 
@@ -5760,6 +5763,32 @@ int main(int argc, char **argv) {
 			fail("settled_below", "reload_took_only_comments got it wrong");
 		free(sa.p); free(sr.p);
 		shcl_free(sl); shcl_free(sb);
+	}
+	test_id("df352", "a_remove_that_moves_a_misplaced_line_adds_no_error");
+	/* The fuzz's base and edits from 2026110714552634: the remove leaves a
+	   misplaced line below the kept field line after it, where a reload of the
+	   text without the removed line files it, and the misplaced line under them
+	   reloads as E018 where it was E012. Same fixture in every runner. */
+	{
+		const char *mb = "window:\n\topacity: 1.0\n    m_argin: 4\n\n\tcol\tmns: 160\n\trows: 48\nfont:\n\tface:\n\t\tsize: 12\n    bad:\t 1\n\t\tfamily: mono\n\thint:\n  ~ bad: 2\n\t\tfist: 1\n\t\tsecond: 2\\a:\n    b: 1\n  c: 2\n     d 3\n    h: 6\nz: 9\n";
+		const char *mcut = "window:\n\topacity: 1.0\n    m_argin: 4\n\n\tcol\tmns: 160\n\trows: 48\nfont:\n\tface:\n\t\tsize: 12\n    bad:\t 1\n\t\tfamily: mono\n\thint:\n  ~ bad: 2\n\t\tsecond: 2\\a:\n    b: 1\n  c: 2\n     d 3\n    h: 6\nz: 9\n";
+		const char *mwant = "font:\n\tface:\n\t\tsize: 12\n    bad:\t 1\n\t\tfamily: mono\n\t\t\tkid2: 3\n\thint:\n\t\tsecond: 2\\a:\n  ~ bad: 2\n    b: 1\n  c: 2\n     d 3\n    h: 6\nz: 9\n";
+		shcl_doc *md = shcl_parse_keep_lines(mb, strlen(mb), SHCL_STANDARD);
+		shcl_doc *mc = shcl_parse(mcut, strlen(mcut));
+		if (shcl_remove(md, "font.hint.fist", 14) != 1) fail("misplaced_move", "remove font.hint.fist");
+		shcl_str mx = shcl_to_canonical(md), my = shcl_to_canonical(mc);
+		if (mx.n != my.n || memcmp(mx.p, my.p, mx.n) != 0) fail("misplaced_move", "the remove differs from a reload of the cut text");
+		if (shcl_remove(md, "window", 6) != 1 || shcl_set_int(md, "font.face.family.kid2", 21, 3) != SHCL_SET_OK) fail("misplaced_move", "remove window or set kid2");
+		int mk = 0;
+		shcl_str mt = shcl_to_text_keep_lines(md, &mk);
+		if (!mk || !str_is(mt, mwant)) { fail("misplaced_move", mwant); fprintf(stderr, "  got %.*s\n", (int)mt.n, mt.p); }
+		shcl_doc *mr = shcl_parse(mt.p, mt.n);
+		shcl_doc *mo = shcl_parse(mb, strlen(mb));
+		mx = shcl_to_canonical(mr);
+		my = shcl_to_canonical(md);
+		if (mx.n != my.n || memcmp(mx.p, my.p, mx.n) != 0) fail("misplaced_move", "reload differs");
+		if (!no_new_errors(mr, mo)) fail("misplaced_move", "a new error");
+		shcl_free(mo); shcl_free(mr); shcl_free(mc); shcl_free(md);
 	}
 	test_id("dd6xj", "compact_keeps_generation_faults");
 	{

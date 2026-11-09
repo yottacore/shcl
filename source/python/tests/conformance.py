@@ -1035,8 +1035,12 @@ SEQ_NAMES = ["a", "b", "m"]
 def placed(code):
 	"""A line refused only for where it sits, as one code. An edit around it
 	can change which it gets, and it stays kept either way. Removing the field
-	before an E008 item under a field with a value leaves it E011."""
-	return "placed" if code in ("E001", "E003", "E007", "E008", "E011") else code
+	before an E008 item under a field with a value leaves it E011. A misplaced
+	line is the same, as its own code: it's E018 under a kept E012 line and
+	E012 elsewhere, so moving the line above it changes it."""
+	if code in ("E001", "E003", "E007", "E008", "E011"):
+		return "placed"
+	return "misplaced" if code in ("E012", "E018") else code
 
 
 def no_new_errors(text, base):
@@ -1045,6 +1049,30 @@ def no_new_errors(text, base):
 	count = collections.Counter(placed(d.code) for d in shcl.Document.parse(base).diagnostics() if d.severity == shcl.Severity.Error)
 	count.subtract(placed(d.code) for d in shcl.Document.parse(text).diagnostics() if d.severity == shcl.Severity.Error)
 	return min(count.values(), default=0) >= 0
+
+
+def a_remove_that_moves_a_misplaced_line_adds_no_error():
+	"""The fuzz's base and edits from 2026110714552634: the remove leaves a
+	misplaced line below the kept field line after it, where a reload of the
+	text without the removed line files it, and the misplaced line under them
+	reloads as E018 where it was E012. Same fixture in every runner."""
+	base = "window:\n\topacity: 1.0\n    m_argin: 4\n\n\tcol\tmns: 160\n\trows: 48\nfont:\n\tface:\n\t\tsize: 12\n    bad:\t 1\n\t\tfamily: mono\n\thint:\n  ~ bad: 2\n\t\tfist: 1\n\t\tsecond: 2\\a:\n    b: 1\n  c: 2\n     d 3\n    h: 6\nz: 9\n"
+	want = "font:\n\tface:\n\t\tsize: 12\n    bad:\t 1\n\t\tfamily: mono\n\t\t\tkid2: 3\n\thint:\n\t\tsecond: 2\\a:\n  ~ bad: 2\n    b: 1\n  c: 2\n     d 3\n    h: 6\nz: 9\n"
+	doc = shcl.Document.parse_keep_lines(base, shcl.Strictness.Standard)
+	if doc.remove("font.hint.fist") != 1:
+		raise SystemExit("remove font.hint.fist")
+	cut = shcl.Document.parse(base.replace("\t\tfist: 1\n", "", 1))
+	if doc.to_canonical() != cut.to_canonical():
+		raise SystemExit(f"remove {doc.to_canonical()!r}, reload of the cut text {cut.to_canonical()!r}")
+	if doc.remove("window") != 1 or not doc.set_int("font.face.family.kid2", 3):
+		raise SystemExit("remove window or set kid2")
+	text, kept = doc.to_text_keep_lines()
+	if (text, kept) != (want, True):
+		raise SystemExit(f"kept {kept} {text!r}, want {want!r}")
+	if shcl.Document.parse(text).to_canonical() != doc.to_canonical():
+		raise SystemExit(f"reload differs: {text!r}")
+	if not no_new_errors(text, base):
+		raise SystemExit(f"a new error: {text!r}")
 
 
 def keeps_every_line(base):
@@ -4021,6 +4049,8 @@ def main():
 	edits_and_merges_match_a_reload()
 	test_id("ddhg0", "a_remove_keeps_a_settled_line_below_it")
 	a_remove_keeps_a_settled_line_below_it()
+	test_id("df351", "a_remove_that_moves_a_misplaced_line_adds_no_error")
+	a_remove_that_moves_a_misplaced_line_adds_no_error()
 
 	test_id("dcrns", "repr_names_the_fields")
 	# Python-only: Diagnostic and Read used to print as object addresses, where
