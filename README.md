@@ -26,27 +26,17 @@
 
 </div>
 
-- A save never deletes a line you typed unless you ask it to. If a write would delete a line or value from the file, the save refuses rather than dropping it.
+- A typo costs you one line, not the whole file.
 
-- Comments and blank lines survive a rewrite, and they stay attached to what they documented.
+- A program can change one value and leave every other line the way a person typed it, comments and all.
 
-- A program can change one value and leave every other line as the person wrote it, spacing and all. `shcl set` saves that way.
+- A save won't delete anything you wrote unless you tell it to.
 
-- One bad line costs you that line, not the file.
+- Your code picks a value's type when it reads it, so `NO` never turns into `false`.
 
-- Your code decides a value's type when it reads it. Nothing is guessed at parse time.
+- Rust, Go, Python, C, and C++ read a file the same way. Each library is one source file with no dependencies.
 
-- The same file reads the same in every language. The Rust reference and the Go, Python, and C/C++ bindings produce byte-for-byte identical output for valid UTF-8, and one conformance corpus tests all of them. Zig uses the C header as is.
-
-- Each binding is one drop-in source file with no dependencies. C++ adds `shcl.hpp` beside `shcl.h`, and Go has an optional Windows file. The CLI is a single binary, and shell scripts call it directly.
-
-- Binaries are prebuilt for Linux and Windows, on x86_64 and ARM64. From 3.0.0-beta1, macOS gets one universal binary, and FreeBSD gets one for x86_64. Everything else builds from source with `cargo install shcl`.
-
-- Releases are signed, and the binaries are reproducible from the tag.
-
-- A complete specification and grammar.
-
-- MIT License.
+- The CLI comes prebuilt and signed for Linux, macOS, Windows, and FreeBSD. It's all MIT licensed.
 
 <!-- TOC ignore:true -->
 ## Table of contents
@@ -55,12 +45,13 @@
 
 - [The problem](#the-problem)
 - [What SHCL does about it](#what-shcl-does-about-it)
+- [Try it](#try-it)
+- [What a .shcl file looks like](#what-a-shcl-file-looks-like)
 - [How it compares to...](#how-it-compares-to)
 	- [Config languages - JSON, YAML, TOML, XML](#config-languages---json-yaml-toml-xml)
 	- [When SHCL is the wrong choice](#when-shcl-is-the-wrong-choice)
 - [More features](#more-features)
-- [SHCL is used by multiple projects](#shcl-is-used-by-multiple-projects)
-- [What a .shcl file looks like](#what-a-shcl-file-looks-like)
+- [Who uses SHCL](#who-uses-shcl)
 - [Escapes](#escapes)
 - [Installation](#installation)
 - [Usage and examples](#usage-and-examples)
@@ -108,89 +99,47 @@ SHCL makes a contract:
 
 When you do want zero-tolerance rigor: schema validation, plus a strict mode that fails loudly.
 
-## How it compares to...
+## Try it
 
-### Config languages - JSON, YAML, TOML, XML
+Install the CLI. Until 3.0.0 is out, `--release dev` gets the 3.0 beta that this page describes:
 
-|                                       | SHCL                       | JSON            | YAML                                      | TOML                           | XML
-| :---                                  | :---                       | :---            | :---                                      | :---                           | :---
-| Comments                              | ✅                          | 🚫               | ✅                                         | ✅                              | ✅
-| Unquoted strings                      | ✅                          | 🚫               | ✅ But the parser may silently change type | 🚫                              | 🚫
-| Bad lines don't break the whole thing | ✅                          | 🚫               | 🚫                                         | 🚫                              | 🚫
-| Who decides a value's type            | Your code, at read time    | The file        | The parser guesses                        | The file                       | Your code
-| Deep nesting                          | Indent or dot paths, mixed | Brace pyramids  | Indent, whitespace-fragile                | `[a.b.c]` headers get old fast | Tag soup
-| Nested arrays                         | 🚫 Use repeated instances   | ✅               | ✅                                         | ✅                              | Repeated child tags
-| Nested object definitions             | ✅                          | ✅               | ✅                                         | ✅                              | ✅
-| Multi-line verbatim blocks            | Fenced, like Markdown      | Escaped strings | Block scalars, with rules to memorize     | Multi-line strings             | CDATA
-| Hand-editable by a non-programmer     | ✅                          | Risky           | Risky                                     | ✅ Mostly                       | 🚫
-| Tells you what it fixed               | ✅ Structured diagnostics   | 🚫               | 🚫                                         | 🚫                              | 🚫
+~~~sh
+bash <(curl -fsSL https://raw.githubusercontent.com/yottacore/shcl/main/install.bash) --release dev
+~~~
 
-> *A note on types, because it is the big design difference: JSON and TOML store types in the file, so the author has to get them right. YAML infers types from the text, which is where `NO` becomes `false`. SHCL stores plain text and coerces when **you** ask for a type; the only code that decides a value is an int (for example) is the code that needed an int.*
+Windows, the packages, and the language libraries are in [Installation](project/install.md).
 
-[Compared to other config languages](project/comparison.md) has the benchmark numbers, and how SHCL differs from Pkl, CUE, and Dhall.
+Save this as `box.shcl`. It has a mistake on line 3:
 
-### When SHCL is the wrong choice
+~~~text
+name:      Build box
+port:      8081    # 8080 is taken
+workers =  4
+log-level: warn
+~~~
 
-- You need expressions, functions, or imports inside the file itself. Use Pkl (arguably best), CUE, or Dhall.
+The bad line gets reported, and the rest of the file still reads:
 
-- You are serializing machine-to-machine data at high volume. Use JSON or something binary. SHCL is for files that people edit.
+~~~console
+$ shcl get --int box.shcl port
+line 3: Error: E014 malformed line skipped: unexpected character after the path, at column 9
+8081
+~~~
 
-- You want the whole file decoded into a struct in one call, the way TOML and YAML libraries do it. SHCL reads one path at a time, and that is [by design](project/design.md#consumer-api).
+Now change the port from a script. The comment, the spacing, and even the broken line are left where they were, so whoever wrote it can still fix it:
 
-## More features
+~~~console
+$ shcl set --write box.shcl --set 'port=9000'
+line 3: Error: E014 malformed line skipped: unexpected character after the path, at column 9
 
-Beyond the list at the top:
+$ cat box.shcl
+name:      Build box
+port:      9000    # 8080 is taken
+workers =  4
+log-level: warn
+~~~
 
-- Hierarchy comes from indentation or dot paths, such as `site(blog.example.com).tls.hsts: off`, and they mix freely. Both give the same tree.
-
-- Reads come as int, float, bool, datetime, duration, size, string, or raw block. Int, float, bool, datetime, and string reads have array forms too.
-
-- Repeated fields are queryable as a set. Count them, list them, or fan one read across all of them with `site(*).root` and get a status per slot.
-
-- Raw fenced blocks work as in Markdown, and embed anything verbatim, such as SQL, code, or templates.
-
-- Three strictness levels, from most forgiving to fail-on-anything. At Loose, `"$1,200"` reads as 1200 and `15%` as 0.15. Standard and Strict refuse both.
-
-- Every diagnostic has a stable code (`E014`, `V001`), so tooling can match on the code while the prose stays free to improve.
-
-- Schema validation, layered loading (defaults, site, user), and commented starter-config generation, all as library features.
-
-- SHCL is safe on untrusted input. A parse can take caps on nodes, array size, and diagnostics, so a hostile file can't run a program out of memory. Nesting is capped at 512 levels for every parse.
-
-- `shcl fmt --check app.shcl` exits 6 when the file isn't in canonical form. One line gates formatting in CI.
-
-- A save keeps the file's mode and group, and writes through symlinks. On Windows it also keeps the ACLs and the hidden flag. It writes a temp file and renames it, so a crash can't leave half a config behind.
-
-- A save won't write over a change another program made after the load. It can also refuse to replace a file that's already there, and give a new file exact permission bits, such as 0600 for one with tokens in it.
-
-- A file that was written for a newer format version still reads, but no save overwrites it.
-
-- Reads and lists print JSON lines with `--json`, for jq or `ConvertFrom-Json`. `shcl explain E014` prints the rule behind a code, and a typo in a command, an option, or a schema field name gets a suggestion. A man page and bash and zsh completions are included.
-
-- The C binding builds without file IO for embedded targets, and frees a whole document with one call.
-
-- The release gate runs the corpus, a fuzzer, and a 4-way check that feeds the same inputs to all 4 parsers and compares the bytes.
-
-## SHCL is used by multiple projects
-
-These projects use SHCL today, and harden it in the process:
-
-| Project                                                                                  | OSS?  | Release status | Used for
-| :---                                                                                     | :---: | :---           | :---
-| [SilkTerm](https://github.com/jim-collier/silkterm)                                      | Yes   | beta           | Config & UI language
-| [GitNiblet OSS Edition](https://github.com/yottacore/gitniblet)                          | Yes   | beta           | Config & DDL
-| [GitNiblet Enterprise Edition](https://www.yottacore.com/product/nano-git-db-enterprise) | No    | beta           | Config
-| [convert-base-v2](https://github.com/jim-collier/convert-base-v2)                        | Yes   | **stable**     | Config
-| [TradeClanker](https://www.yottacore.com/product/tradeclanker)                           | No    | beta           | Config & User's rules
-
-<!--
-| [Rapid Photo Downloader Pro](https://github.com/jim-collier/rapid-photo-downloader-pro)    | Yes  | alpha          | Config
-| [Nemo Anywhere](https://www.yottacore.com/product/nemo-anywhere)                           | Yes  | beta           | Config
-| SlodWorld                                                                                  |  No  | beta           | Config
-| [SlodWorld2](https://www.yottacore.com/product/slodworld2)                                 |  No  | beta           | Config
--->
-
-Most of these are by the same author.
+`shcl check box.shcl` lists every problem and exits 6, for CI. `shcl explain E014` prints the rule behind the code.
 
 ## What a .shcl file looks like
 
@@ -227,6 +176,100 @@ maintenance-page:
 ~~~~
 
 Field names are case-insensitive, and repeated paths merge. Here `site` is a set of instances. Each of example.com and blog.example.com has its own children.
+
+## How it compares to...
+
+### Config languages - JSON, YAML, TOML, XML
+
+|                                       | SHCL                       | JSON            | YAML                                      | TOML                           | XML
+| :---                                  | :---                       | :---            | :---                                      | :---                           | :---
+| Comments                              | ✅                          | 🚫               | ✅                                         | ✅                              | ✅
+| Unquoted strings                      | ✅                          | 🚫               | ✅ But the parser may silently change type | 🚫                              | 🚫
+| Bad lines don't break the whole thing | ✅                          | 🚫               | 🚫                                         | 🚫                              | 🚫
+| Who decides a value's type            | Your code, at read time    | The file        | The parser guesses                        | The file                       | Your code
+| Deep nesting                          | Indent or dot paths, mixed | Brace pyramids  | Indent, whitespace-fragile                | `[a.b.c]` headers get old fast | Tag soup
+| Nested arrays                         | 🚫 Use repeated instances   | ✅               | ✅                                         | ✅                              | Repeated child tags
+| Nested object definitions             | ✅                          | ✅               | ✅                                         | ✅                              | ✅
+| Multi-line verbatim blocks            | Fenced, like Markdown      | Escaped strings | Block scalars, with rules to memorize     | Multi-line strings             | CDATA
+| Hand-editable by a non-programmer     | ✅                          | Risky           | Risky                                     | ✅ Mostly                       | 🚫
+| Tells you what it fixed               | ✅ Structured diagnostics   | 🚫               | 🚫                                         | 🚫                              | 🚫
+
+> *A note on types, because it is the big design difference: JSON and TOML store types in the file, so the author has to get them right. YAML infers types from the text, which is where `NO` becomes `false`. SHCL stores plain text and coerces when **you** ask for a type; the only code that decides a value is an int (for example) is the code that needed an int.*
+
+[Compared to other config languages](project/comparison.md) has the benchmark numbers, and how SHCL differs from Pkl, CUE, and Dhall.
+
+### When SHCL is the wrong choice
+
+- You need expressions, functions, or imports inside the file itself. Use Pkl (arguably best), CUE, or Dhall.
+
+- You are serializing machine-to-machine data at high volume. Use JSON or something binary. SHCL is for files that people edit.
+
+- You want the whole file decoded into a struct in one call, the way TOML and YAML libraries do it. SHCL reads one path at a time, and that is [by design](project/design.md#consumer-api).
+
+## More features
+
+Beyond the list at the top:
+
+- The Rust reference and the Go, Python, and C/C++ bindings produce byte-for-byte identical output for valid UTF-8, and one conformance corpus tests all of them. Zig uses the C header as is.
+
+- Each binding is a drop-in source file. C++ adds `shcl.hpp` beside `shcl.h`, and Go has an optional Windows file. The CLI is a single binary, and shell scripts call it directly.
+
+- Binaries are prebuilt for Linux and Windows on x86_64 and ARM64, for macOS as one universal binary, and for FreeBSD on x86_64. macOS and FreeBSD start with 3.0.0-beta1. Everything else builds from source with `cargo install shcl`.
+
+- Releases are signed, and the binaries are reproducible from the tag.
+
+- There's a complete specification and a formal grammar.
+
+- Hierarchy comes from indentation or dot paths, such as `site(blog.example.com).tls.hsts: off`, and they mix freely. Both give the same tree.
+
+- Reads come as int, float, bool, datetime, duration, size, string, or raw block. Int, float, bool, datetime, and string reads have array forms too.
+
+- Repeated fields are queryable as a set. Count them, list them, or fan one read across all of them with `site(*).root` and get a status per slot.
+
+- Raw fenced blocks work as in Markdown, and embed anything verbatim, such as SQL, code, or templates.
+
+- Three strictness levels, from most forgiving to fail-on-anything. At Loose, `"$1,200"` reads as 1200 and `15%` as 0.15. Standard and Strict refuse both.
+
+- Every diagnostic has a stable code (`E014`, `V001`), so tooling can match on the code while the prose stays free to improve.
+
+- Schema validation, layered loading (defaults, site, user), and commented starter-config generation, all as library features.
+
+- SHCL is safe on untrusted input. A parse can take caps on nodes, array size, and diagnostics, so a hostile file can't run a program out of memory. Nesting is capped at 512 levels for every parse.
+
+- `shcl fmt --check app.shcl` exits 6 when the file isn't in canonical form. One line gates formatting in CI.
+
+- A save keeps the file's mode and group, and writes through symlinks. On Windows it also keeps the ACLs and the hidden flag. It writes a temp file and renames it, so a crash can't leave half a config behind.
+
+- A save won't write over a change another program made after the load. It can also refuse to replace a file that's already there, and give a new file exact permission bits, such as 0600 for one with tokens in it.
+
+- A file that was written for a newer format version still reads, but no save overwrites it.
+
+- Reads and lists print JSON lines with `--json`, for jq or `ConvertFrom-Json`. `shcl explain E014` prints the rule behind a code, and a typo in a command, an option, or a schema field name gets a suggestion. A man page and bash and zsh completions are included.
+
+- The C binding builds without file IO for embedded targets, and frees a whole document with one call.
+
+- The release gate runs the corpus, a fuzzer, and a 4-way check that feeds the same inputs to all 4 parsers and compares the bytes.
+
+## Who uses SHCL
+
+These projects use SHCL today, and harden it in the process:
+
+| Project                                                                                  | OSS?  | Release status | Used for
+| :---                                                                                     | :---: | :---           | :---
+| [SilkTerm](https://github.com/jim-collier/silkterm)                                      | Yes   | beta           | Config & UI language
+| [GitNiblet OSS Edition](https://github.com/yottacore/gitniblet)                          | Yes   | beta           | Config & DDL
+| [GitNiblet Enterprise Edition](https://www.yottacore.com/product/nano-git-db-enterprise) | No    | beta           | Config
+| [convert-base-v2](https://github.com/jim-collier/convert-base-v2)                        | Yes   | **stable**     | Config
+| [TradeClanker](https://www.yottacore.com/product/tradeclanker)                           | No    | beta           | Config & User's rules
+
+<!--
+| [Rapid Photo Downloader Pro](https://github.com/jim-collier/rapid-photo-downloader-pro)    | Yes  | alpha          | Config
+| [Nemo Anywhere](https://www.yottacore.com/product/nemo-anywhere)                           | Yes  | beta           | Config
+| SlodWorld                                                                                  |  No  | beta           | Config
+| [SlodWorld2](https://www.yottacore.com/product/slodworld2)                                 |  No  | beta           | Config
+-->
+
+Most of these are by the same author.
 
 ## Escapes
 
