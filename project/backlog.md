@@ -279,7 +279,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - comparison.md's peak memory row comes from the 2026-10-02 run
 	- ID: 2026110613470320
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261106-134703
@@ -292,6 +292,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: the memory row is `b30d70a8` (2026-10-14), the read row `ae8540e9` (2026-11-05). Confirmed.
 	- Regression test: a check-docs row that refuses a comparison.md row dated older than the table's run date, and the comparison run writes the memory row itself so the two can't drift.
 	- Estimated effort: Low
+	- Actual cause: the 2026-11-05 refresh rewrote the read row and left the memory row. check-docs only held the doc's prose ratios and the schema sentence to results.shcl, never the table cells.
+	- Actual fix: the memory row now gives the 2026-11-05 run's numbers, XML 1.4, TOML 2.3 and YAML 2.6 GB. The other cells and the `toml_edit` sentence already matched it.
+	- Decisions:
+		- The check works out every cell of all three tables, and the `toml_edit` sentence, from the newest run, rounded to the places the cell prints. That covers the row-date idea and more, since the cells carry no dates. The tool does not write the doc, since the prose around the tables is hand-written and the check already makes a stale cell go red (me).
+	- Swept: README.md and design.md print no table cells from the run. design.md's memory sentence (below YAML on all 4 shapes, below TOML on 3, about 40% of `toml_edit` on records) still holds for the 2026-11-05 run.
+	- Test case: check-docs `df34d` comparison-tables-match-results. It failed on the old row with the three stale cells, and passes now.
+	- Acceptance signoff: Self-closed: doc numbers fixed, and its test failed before and passes after.
+	- Branch: `r1109`
+	- Closed: 20261109-131102
 
 - A save where nothing is at the path writes, as an editor's does
 	- ID: 2026110907535001

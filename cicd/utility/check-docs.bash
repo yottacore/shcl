@@ -831,6 +831,59 @@ if [[ -f "${cmpResults}" && -f "${designDoc}" ]]; then
 	fi
 fi
 
+fTest df34d comparison-tables-match-results
+##	Every cell of comparison.md's three tables, and the toml_edit sentence, against
+##	the newest run, rounded to the places the cell prints. The stress table's
+##	read row was refreshed alone once, and left the memory row a run and a month
+##	old under a note saying every number is in results.shcl.
+if [[ -x "${cmpBin:-}" && -n "${newestStamp:-}" && -f "${comparisonDoc}" ]]; then
+	cmpCells=""
+	for shape in config ddl records; do
+		hits="$("${cmpBin}" instances "${cmpResults}" "run(${newestStamp}).tier(rust).shape(${shape}).library")" || fFeedBad $?
+		mapfile -t cmpLibs <<<"${hits}"
+		for metric in bytes gzip-bytes parse-secs peak-rss-mib; do
+			hits="$("${cmpBin}" get --float --array "${cmpResults}" "run(${newestStamp}).tier(rust).shape(${shape}).library(*).${metric}")" || fFeedBad $?
+			mapfile -t cmpVals <<<"${hits}"
+			if (( ${#cmpVals[@]} != ${#cmpLibs[@]} )); then
+				fBad "results.shcl: ${shape} has ${#cmpLibs[@]} libraries but ${#cmpVals[@]} ${metric} values in run ${newestStamp}"
+				continue
+			fi
+			for i in "${!cmpLibs[@]}"; do cmpCells+="${shape} ${metric} ${cmpLibs[i]} ${cmpVals[i]}"$'\n'; done
+		done
+	done
+	cmpBad="$(awk '
+		NR == FNR { if (NF == 4) v[$1 " " $2 " " $3] = $4; next }
+		FNR == 1 { split("Config file|config|Schema file|ddl|Stress test|records", t, "|"); for (i = 1; i < 6; i += 2) shapeOf[t[i]] = t[i + 1]
+			split("File size (KB)|bytes|0.001|File size (MB)|bytes|0.000001|Gzipped (MB)|gzip-bytes|0.000001|Read time (ms)|parse-secs|1000|Read time (s)|parse-secs|1|Peak memory (GB)|peak-rss-mib|0.001048576", t, "|")
+			for (i = 1; i < 18; i += 3) { metricOf[t[i]] = t[i + 1]; scaleOf[t[i]] = t[i + 2] } }
+		!/^\|/ { shape = ""; next }
+		{ n = split($0, c, "|"); for (i = 2; i <= n; i++) { gsub(/\*/, "", c[i]); gsub(/^[ \t]+|[ \t]+$/, "", c[i]) } }
+		c[2] in shapeOf { shape = shapeOf[c[2]]; for (i = 3; i <= n; i++) col[i] = tolower(c[i]); next }
+		shape == "" || c[2] ~ /^:?-+:?$/ || c[2] == "Keeps your file as written" { next }
+		!(c[2] in metricOf) { print "line " FNR ": no rule for the row \"" c[2] "\""; next }
+		{ for (i = 3; i <= n; i++) {
+			k = shape " " metricOf[c[2]] " " col[i]
+			if (!(k in v)) { print "line " FNR ": the newest run has no " k; continue }
+			d = (index(c[i], ".") ? length(c[i]) - index(c[i], ".") : 0)
+			want = sprintf("%." d "f", v[k] * scaleOf[c[2]])
+			if (want != c[i]) print "line " FNR ": " c[2] " for " toupper(col[i]) " is " c[i] ", the newest run gives " want } }
+		' - "${comparisonDoc}" <<<"${cmpCells}")" || fFeedBad $?
+	[[ -z "${cmpBad}" ]] || while IFS= read -r line; do fBad "project/comparison.md ${line} (run ${newestStamp})"; done <<<"${cmpBad}"
+	tomlEditLine="$(awk '
+		{ v[$1 " " $2 " " $3] = $4 }
+		END { printf "It peaks at %.1f GB against SHCL'\''s %.1f, and reads in %.1f s against SHCL'\''s %.1f.",
+			v["records peak-rss-mib toml-edit"] * 0.001048576, v["records peak-rss-mib shcl"] * 0.001048576,
+			v["records parse-secs toml-edit"], v["records parse-secs shcl"] }' <<<"${cmpCells}")"
+	grep -qF "${tomlEditLine}" "${comparisonDoc}" \
+		|| fBad "project/comparison.md: the toml_edit sentence does not read '${tomlEditLine}' (run ${newestStamp})"
+elif [[ -n "${SHCL_GATE_STRICT:-}" ]]; then
+	fBad "no debug binary or results.shcl run to check comparison.md against, and the gate requires it"
+else
+	echo "check-docs: SKIPPED the comparison tables - no debug binary (cargo build first)"
+	echo check-docs >> "${SHCL_GATE_SKIPS:-/dev/null}"
+	fTestSkip
+fi
+
 fTest dc0bz blank-line-between-bullets
 ##	Two top-level bullets with no blank line between them. Auto-generated TOC
 ##	blocks are the exception - the tool strips blank lines out of them, so a
