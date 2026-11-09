@@ -176,7 +176,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - CodeQL fails on test code from the last rounds, so every full run and main push fails
 	- ID: 2026110908100001
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261109-081000
@@ -192,6 +192,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: check the stale suppressions against hosted CI's CodeQL too before taking them out, since a different version could still flag those lines.
 	- Regression test: codeql-scan's own `de5ag`, `de5aj` and `de5am`, green on a whole run. Round settings get a line: a change to C or Python tests runs codeql-scan detached, as a `shcl.h` change runs cppcheck.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Reproduced: JC's run `run_20261108-141308`, with the findings above.
+	- Actual cause: confirmed by a scan after the fix.
+		- The C lines are 3 `snprintf` appends in test fixtures with no suppression of their own. A `codeql[...]` line covers only the line under it, and `mem_bounds.c` had 2 appends under one.
+		- `df027` tests `built`, an empty list a nested function fills, for truth. CodeQL takes it as always empty, so it reads the `not built` branch as always raising and everything after the `finally` in `main()` is unreachable. The 4 chmod lines sit in that dead part, so their suppressions covered nothing. No query changed.
+	- Actual fix: a suppression with its reason above each of the 3 C appends, and `df027` tests `len(built)`, with a comment saying why. The 4 chmod suppressions stay, since they cover findings again.
+	- Decisions:
+		- me, 20261109: the chmod suppressions were checked only against the pinned CodeQL. Hosted CI runs no CodeQL (`--skip=codeql-scan.bash`), and the git host has no code scanning analysis for the repo, so there is no other version to check against.
+		- me, 20261109: the C appends get suppressions rather than a bounded append helper, as every other test fixture `snprintf` append has.
+	- Swept: every finding and stale suppression in the scan, all 5 languages. The other `snprintf` appends in `source/c/tests/` already have suppressions. The scan finds no other unreachable statement in the Python code.
+	- Verified: codeql-scan.bash on the fixed tree, all `de5a*` and `de5p*` green, `de5ag`, `de5aj` and `de5am` among them. Also `cicd.bash --backlog-run-quick python c`.
+	- Test case: codeql-scan `de5ag`, `de5aj` and `de5am`, which failed in `run_20261108-141308` and pass after.
+	- Acceptance signoff: Self-closed: the 3 tests failed before and pass after, and the gates are green.
+	- Branch: `r1109`
+	- Closed: 20261109-115623
 
 - Spec promises the depth cap keeps every binding inside a thread stack
 	- ID: 2026110713595457

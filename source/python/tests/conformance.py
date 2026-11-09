@@ -2716,12 +2716,14 @@ def main():
 		return one_line_in(*a)
 
 	shcl._one_line_in = counted
+	# len(), not the list's truth: CodeQL takes `built` as the empty list it
+	# starts as, and would call the rest of main() unreachable.
 	try:
 		good = shcl._resolve_marks("x\u25c9TAB\u25c9y\u25c9U+41\u25c9z\u25c9ESCAPE_CHAR\u25c9")
-		if good != ("x\tyAz\u25c9", None) or built:
+		if good != ("x\tyAz\u25c9", None) or len(built):
 			raise SystemExit(f"good escapes: {good!r}, message text built {len(built)} times")
 		bad = shcl._resolve_marks("x\u25c9NOPE\u25c9")
-		if bad[0] is not None or "'\u25c9NOPE\u25c9'" not in (bad[1] or "") or not built:
+		if bad[0] is not None or "'\u25c9NOPE\u25c9'" not in (bad[1] or "") or len(built) == 0:
 			raise SystemExit(f"unknown escape: {bad!r}")
 	finally:
 		shcl._one_line_in = one_line_in

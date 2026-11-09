@@ -648,6 +648,7 @@ int main(void) {
 			size_t n = sizes[side], len = 0;
 			// codeql[cpp/overflowing-snprintf] cap is 96 bytes a block, about twice what one takes
 			for (size_t i = 0; i < n; i++) len += (size_t)snprintf(rtext + len, cap - len, "srv: v%zu\n\ta: 1\n", i);
+			// codeql[cpp/overflowing-snprintf] the same 96 bytes a block also fit these second lines
 			for (size_t i = 0; i < n; i++) len += (size_t)snprintf(rtext + len, cap - len, "q%zu: [1\nsrv: v%zu\n\tb: 1\n", i, i);
 			int rtn = snprintf(rtail, sizeof rtail, "\nq%zu: [1\n", n - 1);
 			t[side] = 1e300;

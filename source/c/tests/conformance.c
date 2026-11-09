@@ -677,9 +677,11 @@ static char *deep_doc(size_t *len, int comments) {
 	for (size_t i = 0; i < levels; i++) {
 		if (comments) {
 			memset(t + n, '\t', i); n += i;
+			// codeql[cpp/overflowing-snprintf] cap is levels squared plus 33 a level, more than the tabs and both lines take
 			n += (size_t)snprintf(t + n, cap - n, "# c%zu\n", i);
 		}
 		memset(t + n, '\t', i); n += i;
+		// codeql[cpp/overflowing-snprintf] cap is levels squared plus 33 a level, more than the tabs and both lines take
 		n += (size_t)snprintf(t + n, cap - n, "k%zu:\n", i);
 	}
 	memset(t + n, '\t', levels); n += levels;
