@@ -10230,9 +10230,9 @@ func (e *SaveRefused) Error() string {
 
 // SaveChanged is the error a save returns when what is at the path now is
 // neither what the load read nor what this document's last save wrote:
-// another program's edit, a file gone since the load, or a file this document
-// never read. Nothing is written. Those bytes are not the caller's to undo by
-// accident, so SaveOptions.Force is the override.
+// another program's edit, or a file this document never read. Nothing at the
+// path is no change. Nothing is written. Those bytes are not the caller's to
+// undo by accident, so SaveOptions.Force is the override.
 type SaveChanged struct {
 	Path string
 }
@@ -10272,8 +10272,8 @@ type SaveOptions struct {
 	Lossy bool
 	// KeepLines keeps the lines no edit touched, as SaveFileKeepLines does.
 	KeepLines bool
-	// Force writes over the file the document was loaded from even when it
-	// changed since, for a caller that means to replace whatever is there.
+	// Force writes over whatever is at the path, even a file this document
+	// never read or one changed since, for a caller that means to replace it.
 	Force bool
 	// Create only makes a new file: *SaveExists when one is there, even one
 	// another save makes at the same time.
@@ -10294,12 +10294,14 @@ type seenBytes struct {
 	saved *string
 }
 
-// holds is true when path, as given and read now, holds what the load read or
-// the last save wrote, or nothing, where the load read no file. Content only,
-// so a touch alone is no change. Something that isn't a regular file is left
-// to the write, which refuses it, and so is a path the write can't reach a
-// file through: part of it a file, a folder not there, or a link cycle. A file that can't be read
-// is a change, since the rename that replaces it needs no read access.
+// holds is true when path, as given and read now, holds nothing, or what the
+// load read or the last save wrote. Nothing there means no bytes to lose, so a
+// save-as to a new name and a file removed since the load are written, as an
+// editor writes them. Content only, so a touch alone is no change. Something
+// that isn't a regular file is left to the write, which refuses it, and so is
+// a path the write can't reach a file through: part of it a file, a folder not
+// there, or a link cycle. A file that can't be read is a change, since the
+// rename that replaces it needs no read access.
 func (s *seenBytes) holds(path string) bool {
 	now, regular, err := readRegular(path)
 	switch {
@@ -10307,15 +10309,7 @@ func (s *seenBytes) holds(path string) bool {
 		return true
 	case err == nil:
 		return (s.read != nil && *s.read == string(now)) || (s.saved != nil && *s.saved == string(now))
-	case errors.Is(err, os.ErrNotExist):
-		// A file gone with its folder is left to the write, which says the
-		// folder is missing.
-		if s.read == nil {
-			return true
-		}
-		st, serr := os.Stat(rawDir(path))
-		return serr != nil || !st.IsDir()
-	case errors.Is(err, syscall.ENOTDIR), errors.Is(err, syscall.ELOOP):
+	case errors.Is(err, os.ErrNotExist), errors.Is(err, syscall.ENOTDIR), errors.Is(err, syscall.ELOOP):
 		return true
 	}
 	return false

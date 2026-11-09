@@ -5571,8 +5571,9 @@ def main():
 	test_id("dekj7", "a_save_over_a_file_changed_since_the_load_is_refused")
 	# A save over the file a load read refuses when another program changed it
 	# since, writes nothing, and writes with force. A save over a file the
-	# document never read, a parse's included, is refused the same way
-	# (2026102910482342, 2026110613470307).
+	# document never read, a parse's included, is refused the same way, and
+	# nothing at the path is written (2026102910482342, 2026110613470307,
+	# 2026110907535001).
 	with tempfile.TemporaryDirectory() as cd:
 		def cread(p):
 			with open(p, encoding="utf-8", newline="") as fh:
@@ -5629,11 +5630,18 @@ def main():
 		same("kept force", ckept.save_file_with(cf, shcl.SaveOptions(keep_lines=True, force=True)), True)
 		same("kept forced", cread(cf), "a: 2 # one\n")
 
-		# Gone since the load is a change. So is a file made where none was.
+		# Nothing at the path is no bytes to lose, so a file gone since the
+		# load is written back, and a save-as to a new name is written, as an
+		# editor writes them (2026110907535001). A file made where none was is
+		# a change.
 		cgone, _ = shcl.Document.load_file(cf)
+		cgone.set_int("a", 4)
 		os.remove(cf)
-		refused("gone", lambda: cgone.save_file(cf), cf)
-		same("gone left", os.path.exists(cf), False)
+		cgone.save_file(cf)
+		same("gone", cread(cf), "a: 4  # one\n")
+		crenamed = os.path.join(cd, "renamed.shcl")
+		cgone.save_file(crenamed)
+		same("renamed", cread(crenamed), "a: 4  # one\n")
 		cn = os.path.join(cd, "new.shcl")
 		cfresh, cst = shcl.Document.load_file(cn)
 		same("new status", cst, shcl.FileStatus.NotFound)
@@ -5653,13 +5661,16 @@ def main():
 		same("other left", cread(cother), "z: 0\n")
 		same("other force", cgone.save_file_with(cother, force), False)
 		cgone.save_file(cother)
+		cwrite(cf, "a: 8\n")
 		refused("still", lambda: cgone.save_file(cf), cf)
+		same("still left", cread(cf), "a: 8\n")
 		# A parse read no file, so it writes only where nothing is, or over
 		# what it wrote itself.
 		cparsed = shcl.Document.parse("a: 5\n")
 		refused("parsed", lambda: cparsed.save_file(cother), cother)
 		same("parsed force", cparsed.save_file_with(cother, force), False)
 		same("parsed", cread(cother), "a: 5\n")
+		os.remove(cf)
 		cparsed.save_file(cf)
 		cparsed.save_file(cf)
 		same("parsed new", cread(cf), "a: 5\n")
@@ -5671,8 +5682,9 @@ def main():
 	# the bytes at the save path, so a file the document never read, such as
 	# the same name from another working folder, is refused too. A FIFO
 	# swapped in gets the write's own refusal rather than a wait, and a file
-	# the check can't read is a change (2026110312163201, 2026110312163202,
-	# 2026110613470307).
+	# the check can't read is a change. Nothing at the path is no change, so a
+	# file gone since the load is written back (2026110312163201,
+	# 2026110312163202, 2026110613470307, 2026110907535001).
 	with tempfile.TemporaryDirectory() as sd:
 		def sread(p):
 			with open(p, encoding="utf-8", newline="") as fh:
@@ -5702,12 +5714,13 @@ def main():
 		os.chdir(sd)
 		try:
 			os.mkdir("sub")
-			# A bare name, gone since the load.
+			# A bare name, gone since the load, is written back, since nothing
+			# there is no bytes to lose (2026110907535001).
 			swrite("i.shcl", "a: 1\n")
 			sgone, _ = shcl.Document.load_file("i.shcl")
 			os.remove("i.shcl")
-			srefused("bare gone", lambda: sgone.save_file("i.shcl"), "i.shcl")
-			ssame("bare gone left", os.path.exists("i.shcl"), False)
+			sgone.save_file("./i.shcl")
+			ssame("bare gone", sread("i.shcl"), "a: 1\n")
 
 			# A bare name made where the load found nothing, by any spelling.
 			sfresh, st = shcl.Document.load_file("h.shcl")

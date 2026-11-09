@@ -9,7 +9,6 @@ mod common;
 
 use common::test_id;
 use shcl::{Document, FileStatus, SaveError};
-use std::path::Path;
 
 /// One file gives one answer however its path is spelled: bare, `./`,
 /// absolute, through a link, in a folder made after the load, through `..`
@@ -17,7 +16,9 @@ use std::path::Path;
 /// bytes at the save path, so a file the document never read, such as the same
 /// name from another working folder, is refused too. A FIFO swapped in gets
 /// the write's own refusal rather than a wait, and a file the check can't read
-/// is a change (2026110312163201, 2026110312163202, 2026110613470307).
+/// is a change. Nothing at the path is no change, so a file gone since the
+/// load is written back (2026110312163201, 2026110312163202,
+/// 2026110613470307, 2026110907535001).
 #[cfg_attr(
 	miri,
 	ignore = "saves to disk, and Miri has no fchown or directory fsync"
@@ -38,12 +39,13 @@ fn a_changed_check_knows_its_file_by_any_spelling() {
 		})
 	};
 
-	// A bare name, gone since the load.
+	// A bare name, gone since the load, is written back, since nothing there
+	// is no bytes to lose (2026110907535001).
 	std::fs::write("i.shcl", "a: 1\n").unwrap();
 	let (mut gone, _) = Document::load_file("i.shcl");
 	std::fs::remove_file("i.shcl").unwrap();
-	assert_eq!(gone.save_file("i.shcl"), changed("i.shcl"));
-	assert!(!Path::new("i.shcl").exists());
+	assert_eq!(gone.save_file("./i.shcl"), Ok(()));
+	assert_eq!(read("i.shcl"), "a: 1\n");
 
 	// A bare name made where the load found nothing, saved by any spelling.
 	let (mut fresh, st) = Document::load_file("h.shcl");

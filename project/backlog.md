@@ -35,6 +35,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- set --write refuses a file deleted during its wait, where the library's save writes it back
+	- ID: 2026110914412379
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Target version: v3.0.0-beta2
+	- Opened: 20261109-144123
+	- Opened by: 2026110907535001's sweep
+	- Related IDs: 2026110907535001
+	- Problem description: since 2026110907535001 the library's save writes where nothing is at the path, as an editor does. The 4 CLIs' own check before `--write` (`unchanged_since_read` / `unchangedSinceRead`) still refuses a FILE removed between the read and the write, as `FILE: changed since it was read; nothing written`. Decide whether the CLI follows the library, and if so say `FILE: created` as for a new file.
+	- Estimated effort: Low
+
 - codeql-scan fails on 39b06389: an unsuppressed `cpp/large-parameter` in shcl.h and a stale suppression in conformance.c
 	- ID: 2026110913374081
 	- Type: Bug
@@ -330,7 +342,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A save where nothing is at the path writes, as an editor's does
 	- ID: 2026110907535001
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Priority: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261109-075350
@@ -346,6 +358,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- spec.md's save section, design.md, examples.md, each binding's doc comments (with 2026110710374311's `shcl.h` comments) and the changelog say so.
 	- Regression test: in each binding's changed tests, a load then a save to a new name, and a load, the file removed, then a save, both written with the text expected; the `dekj7`, `dekk8`, `dekkm` and `dekkn` rows that expect Changed with nothing at the path flip to a write. Watched to fail on dev at `0947eea4`. 2026110616475901's oracle follows the same rule.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Needs external testing: b29w with a short-name TEMP, as `private/claude_simple/tools/winbox-savetests/` runs it: the C runner's `dekkm` (its short-name rows now expect a write) and `detpr`, and the veneer's `dekkn`.
+	- Decisions:
+		- me, 20261109: nothing at the path now always writes, so the folder test that only that branch read went: `folder_there` in Rust, `s_folder_there` in C, and the folder stat in Go and Python. The record of what the load read stays, since the byte compare reads it. A file gone with its folder still falls to the write, which says the folder is missing.
+		- me, 20261109: the Rust twin `dekj6`, and the bare-name gone rows in the spelling tests (`detpn`, `detpp`, `detpq`, `detpr`, `detps`), flipped with the 4 the item names, since they asked the same thing. The gone rows save by another spelling (`./i.shcl`, or the absolute path in the veneer) to show the spelling doesn't matter. Further down, the rows that saved to the load's file after it was gone now put other bytes there first, so they still check a refusal, and the parse's save where nothing is removes the file first.
+		- 20261109, asserts changed for this item: in all 5 changed tests, "gone since the load" went from Changed to a write of the edited text; in all 5 spelling tests, "bare name gone" went from Changed to a write. The C runner's Windows short-name "removed file" row went from Changed to a write.
+	- Swept: the changed check in all 4 bindings (`holds`, `s_file_holds`) and the veneer, which calls C. The 4 CLIs' own check before `--write` still refuses a file removed during the wait, filed as 2026110914412379. `upgrade_file`'s own check is left, since it upgrades a file that's there. Docs: spec.md's save section, design.md's Save outcomes row, examples.md's "What saving does", the changelog's Changed entry, and the save doc comments in all 4 and the veneer, with 2026110710374311's.
+	- Verified: the new rows fail with each binding's library file from `aec73482` (the round branch before this change) and pass with the change, in Rust, Go, Python, C and the veneer. Also the whole Rust suite, Go in both modules, the Python and C runners, the veneer smoke, the C runner under wine from the mingw build, clippy (host and windows-gnu), go vet, staticcheck, ruff, mypy, cargo fmt, cli-regress (660 rows), perf-gate, analyze-c, codeql-scan, check-docs, markdownlint-cli2, lint-report `--check --no-mark`, and `cicd.bash --backlog-run-quick cli`.
+	- Test case: `a_save_over_a_file_changed_since_the_load_is_refused` (`dekj6`, `dekj7`, `dekk8`, `dekkm`, `dekkn`), `a_changed_check_knows_its_file_by_any_spelling` (`detpn`, `detpp`, `detpq`, `detpr`, `detps`).
+	- Branch: `r1109`
 
 - Removes, folds, merges and the banner toggle hand lines on through `adopt`
 	- ID: 2026110712372281
@@ -662,13 +684,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The save comments in shcl.h and its twins still describe a change since the load
 	- ID: 2026110710374311
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261107-103743
 	- Opened by:
 	- Related IDs: 2026110613470307
 	- Progress log:
 		- The comments on SHCL_SAVE_CHANGED and force in shcl.h (about lines 346 and 354) say a save refuses when the file changed since the load. Since 2026110613470307 it refuses when the bytes at the path are neither what the load read nor what this document last saved. Check the other 3 bindings' doc comments too.
+	- Actual cause: the comments weren't updated with 2026110613470307. The enum comment also quoted an old message, "the file changed since it was loaded".
+	- Actual fix: done with 2026110907535001. `SHCL_SAVE_CHANGED`, `force` and the save result comment in shcl.h now give the bytes rule and the message the other bindings print, and nothing at the path as written. The same went into Rust's `SaveError::Changed` and `save_file`, Go's `SaveChanged` and `Force`, Python's `SaveChanged` and `SaveOptions`, and the veneer's `SaveResult`.
+	- Swept: every save doc comment that said "changed since the load", "gone since the load" or "the file the load read", in all 4 bindings and the veneer.
+	- Test case: none, comments only. The C runner, the veneer smoke and check-docs pass.
+	- Branch: `r1109`
+	- Closed: 20261109-144355
 
 - A capped parse still splits every line first, so a file of blank lines costs 17 to 48 times its size
 	- ID: 2026110707441368

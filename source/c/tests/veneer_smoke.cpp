@@ -232,9 +232,9 @@ static int reads_from_several_threads() {
 #ifndef SHCL_NO_FILE_IO
 // A save over the file a load read refuses when another program changed
 // it since, writes nothing, and writes with force. A save over a file the
-// document never read, a parse's included, is refused the same way
-// (2026102910482342, 2026110613470307). The C runner's fixture, through the
-// veneer.
+// document never read, a parse's included, is refused the same way, and
+// nothing at the path is written (2026102910482342, 2026110613470307,
+// 2026110907535001). The C runner's fixture, through the veneer.
 static int a_save_over_a_file_changed_since_the_load_is_refused() {
 	test_id("dekkn", "a_save_over_a_file_changed_since_the_load_is_refused");
 	const char *tmp = std::getenv("TMPDIR");
@@ -253,7 +253,7 @@ static int a_save_over_a_file_changed_since_the_load_is_refused() {
 	force.force = true;
 	shcl::SaveOptions keepForce;
 	keepForce.keep_lines = keepForce.force = true;
-	const std::string f = dir + "/f.shcl", n = dir + "/new.shcl", other = dir + "/other.shcl";
+	const std::string f = dir + "/f.shcl", n = dir + "/new.shcl", other = dir + "/other.shcl", renamed = dir + "/renamed.shcl";
 	put_text(f, "a: 1\n");
 	auto doc = shcl::Document::load_file(f).first;
 	CHECK(doc.set_int("a", 2) == shcl::SetStatus::Ok);
@@ -286,11 +286,14 @@ static int a_save_over_a_file_changed_since_the_load_is_refused() {
 	CHECK(kept.save_file_with(f, keepForce) == std::make_pair(R::Ok, true));
 	CHECK(has(f, "a: 2 # one\n"));
 
-	// Gone since the load is a change. So is a file made where none was.
+	// Nothing at the path is no bytes to lose, so a file gone since the load
+	// is written back, and a save-as to a new name is written, as an editor
+	// writes them (2026110907535001). A file made where none was is a change.
 	auto gone = shcl::Document::load_file(f).first;
+	CHECK(gone.set_int("a", 4) == shcl::SetStatus::Ok);
 	std::remove(f.c_str());
-	CHECK(gone.save_file(f) == R::Changed);
-	CHECK(shcl::read_file(f).second == shcl::FileStatus::NotFound);
+	CHECK(gone.save_file(f) == R::Ok && has(f, "a: 4  # one\n"));
+	CHECK(gone.save_file(renamed) == R::Ok && has(renamed, "a: 4  # one\n"));
 	auto [fresh, freshSt] = shcl::Document::load_file(n);
 	CHECK(freshSt == shcl::FileStatus::NotFound);
 	CHECK(fresh.set_int("a", 1) == shcl::SetStatus::Ok);
@@ -305,18 +308,22 @@ static int a_save_over_a_file_changed_since_the_load_is_refused() {
 	CHECK(gone.save_file(other) == R::Changed && has(other, "z: 0\n"));
 	CHECK(gone.save_file_with(other, force).first == R::Ok);
 	CHECK(gone.save_file(other) == R::Ok);
-	CHECK(gone.save_file(f) == R::Changed);
+	put_text(f, "a: 8\n");
+	CHECK(gone.save_file(f) == R::Changed && has(f, "a: 8\n"));
 	// A parse read no file, so it writes only where nothing is, or over what
 	// it wrote itself.
 	auto parsed = shcl::Document::parse("a: 5\n");
 	CHECK(parsed.save_file(other) == R::Changed);
 	CHECK(parsed.save_file_with(other, force).first == R::Ok && has(other, "a: 5\n"));
+	std::remove(f.c_str());
 	CHECK(parsed.save_file(f) == R::Ok && parsed.save_file(f) == R::Ok && has(f, "a: 5\n"));
 #ifndef _WIN32
 	std::remove(link.c_str());
 #endif
 	std::remove(n.c_str());
 	std::remove(other.c_str());
+	std::remove(renamed.c_str());
+	std::remove(f.c_str());
 	rmdir(dir.c_str());
 	return test_id_end(fails);
 }
@@ -324,7 +331,8 @@ static int a_save_over_a_file_changed_since_the_load_is_refused() {
 
 #ifndef SHCL_NO_FILE_IO
 // A bare name is the same file as its absolute spelling, whether it was there
-// at the load or not (2026110312163201). The C runner's fixture, in part,
+// at the load or not, and a file gone since the load is written back
+// (2026110312163201, 2026110907535001). The C runner's fixture, in part,
 // through the veneer.
 static int a_changed_check_knows_its_file_by_any_spelling() {
 	test_id("detps", "a_changed_check_knows_its_file_by_any_spelling");
@@ -343,12 +351,13 @@ static int a_changed_check_knows_its_file_by_any_spelling() {
 #endif
 	auto put_text = [](const std::string &p, const std::string &t) { CHECK(shcl::write_file_atomic(p, t) == shcl::WriteStatus::Ok); };
 	auto has = [](const std::string &p, const std::string &t) { return shcl::read_file(p) == std::make_pair(t, shcl::FileStatus::Clean); };
-	// A bare name, gone since the load.
+	// A bare name, gone since the load, is written back, since nothing there
+	// is no bytes to lose (2026110907535001).
 	put_text("i.shcl", "a: 1\n");
 	auto gone = shcl::Document::load_file("i.shcl").first;
 	std::remove("i.shcl");
-	CHECK(gone.save_file("i.shcl") == R::Changed);
-	CHECK(shcl::read_file("i.shcl").second == shcl::FileStatus::NotFound);
+	CHECK(gone.save_file(dir + "/i.shcl") == R::Ok && has("i.shcl", "a: 1\n"));
+	std::remove("i.shcl");
 	// A bare name made where the load found nothing, by any spelling.
 	auto [fresh, freshSt] = shcl::Document::load_file("h.shcl");
 	CHECK(freshSt == shcl::FileStatus::NotFound);

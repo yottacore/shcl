@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
-- A save checks the bytes at the path it writes, every time, whatever file the path names now. It writes when they're what the load read or what this document's last save wrote, or when nothing is there and the load found nothing. So unless `force` is set, a save onto a file the document never read is refused as changed, where it used to write. A save-as is one case, and a document from `parse` over an existing file is another. A save to the same relative name from another working folder is refused the same way.
+- A save checks the bytes at the path it writes, every time, whatever file the path names now. It writes when they're what the load read or what this document's last save wrote, or when nothing is there, as an editor does. So a file deleted since the load is written back, where beta1 refused it as changed, and a save-as to a new name is still written. Unless `force` is set, a save onto a file the document never read is refused as changed, where it used to write. A save-as is one case, and a document from `parse` over an existing file is another. A save to the same relative name from another working folder is refused the same way.
 
 ### Fixed
 

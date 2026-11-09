@@ -7332,8 +7332,9 @@ func TestFormatArrayIsTheSettersText(t *testing.T) {
 
 // A save over the file a load read refuses when another program changed it
 // since, writes nothing, and writes with Force. A save over a file the document
-// never read, a Parse's included, is refused the same way (2026102910482342,
-// 2026110613470307). Same fixture in every runner.
+// never read, a Parse's included, is refused the same way, and nothing at the
+// path is written (2026102910482342, 2026110613470307, 2026110907535001). Same
+// fixture in every runner.
 func TestASaveOverAFileChangedSinceTheLoadIsRefused(t *testing.T) {
 	defer testID(t, "dekk8")
 	dir := t.TempDir()
@@ -7410,15 +7411,19 @@ func TestASaveOverAFileChangedSinceTheLoadIsRefused(t *testing.T) {
 	}
 	has(f, "a: 2 # one\n")
 
-	// Gone since the load is a change. So is a file made where none was.
+	// Nothing at the path is no bytes to lose, so a file gone since the load
+	// is written back, and a save-as to a new name is written, as an editor
+	// writes them (2026110907535001). A file made where none was is a change.
 	gone, _ := LoadFile(f)
+	gone.SetInt("a", 4)
 	if err := os.Remove(f); err != nil {
 		t.Fatal(err)
 	}
-	changed("save over a removed file", gone.SaveFile(f), f)
-	if _, err := os.Stat(f); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("a refused save made %s", f)
-	}
+	ok("save over a removed file", gone.SaveFile(f))
+	has(f, "a: 4  # one\n")
+	renamed := at("renamed.shcl")
+	ok("save to a new name", gone.SaveFile(renamed))
+	has(renamed, "a: 4  # one\n")
 	n := at("new.shcl")
 	fresh, st := LoadFile(n)
 	if st != FileNotFound {
@@ -7444,7 +7449,9 @@ func TestASaveOverAFileChangedSinceTheLoadIsRefused(t *testing.T) {
 	_, err = gone.SaveFileWith(other, force)
 	ok("forced save over a file never read", err)
 	ok("save over what it wrote", gone.SaveFile(other))
+	write(f, "a: 8\n")
 	changed("save over the load's file after one elsewhere", gone.SaveFile(f), f)
+	has(f, "a: 8\n")
 	// A parse read no file, so it writes only where nothing is, or over what
 	// it wrote itself.
 	parsed := Parse("a: 5\n")
@@ -7452,6 +7459,9 @@ func TestASaveOverAFileChangedSinceTheLoadIsRefused(t *testing.T) {
 	_, err = parsed.SaveFileWith(other, force)
 	ok("forced save of a parse", err)
 	has(other, "a: 5\n")
+	if err := os.Remove(f); err != nil {
+		t.Fatal(err)
+	}
 	ok("save of a parse where nothing is", parsed.SaveFile(f))
 	ok("save of a parse over what it wrote", parsed.SaveFile(f))
 	has(f, "a: 5\n")
@@ -7463,8 +7473,9 @@ func TestASaveOverAFileChangedSinceTheLoadIsRefused(t *testing.T) {
 // bytes at the save path, so a file the document never read, such as the same
 // name from another working folder, is refused too. A FIFO swapped in gets the
 // write's own refusal rather than a wait, and a file the check can't read is a
-// change (2026110312163201, 2026110312163202, 2026110613470307). Same fixture
-// in every runner.
+// change. Nothing at the path is no change, so a file gone since the load is
+// written back (2026110312163201, 2026110312163202, 2026110613470307,
+// 2026110907535001). Same fixture in every runner.
 func TestAChangedCheckKnowsItsFileByAnySpelling(t *testing.T) {
 	defer testID(t, "detpq")
 	dir := t.TempDir()
@@ -7500,14 +7511,15 @@ func TestAChangedCheckKnowsItsFileByAnySpelling(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A bare name, gone since the load.
+	// A bare name, gone since the load, is written back, since nothing there
+	// is no bytes to lose (2026110907535001).
 	write("i.shcl", "a: 1\n")
 	gone, _ := LoadFile("i.shcl")
 	_ = os.Remove("i.shcl")
-	changed("bare, gone", gone.SaveFile("i.shcl"), "i.shcl")
-	if _, err := os.Stat("i.shcl"); err == nil {
-		t.Error("bare, gone: the save made the file")
+	if err := gone.SaveFile("./i.shcl"); err != nil {
+		t.Errorf("bare, gone: %v", err)
 	}
+	has("i.shcl", "a: 1\n")
 
 	// A bare name made where the load found nothing, by any spelling.
 	fresh, st := LoadFile("h.shcl")

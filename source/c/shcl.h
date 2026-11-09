@@ -327,14 +327,16 @@ typedef enum {
 } shcl_file_status;
 /* Save refuses when the write would delete content from the file
    (shcl_lost_count); shcl_save_file_lossy is the override, and is the only way
-   to write then. Over the file a load read, it also refuses when that file no
-   longer holds what the load read, or what this document's last save there
-   wrote, so another program's edit is not lost; the force option is the
-   override. The failures are separate values rather than one falsey answer
-   because they need different handling: a refusal is the caller's to
-   reverse, a write failure is the disk's answer with errno describing it.
-   CHANGED is the other bindings' "PATH: refusing to save: the file changed
-   since it was loaded; nothing written (force overrides)", EXISTS their
+   to write then. It also refuses when something is at the path and its bytes
+   are neither what the load read nor what this document's last save wrote,
+   so another program's edit, or a file this document never read, is not
+   lost; the force option is the override. Nothing at the path is written, as
+   a save-as to a new name or over a file removed since the load. The
+   failures are separate values rather than one falsey answer because they
+   need different handling: a refusal is the caller's to reverse, a write
+   failure is the disk's answer with errno describing it. CHANGED is the
+   other bindings' "PATH: refusing to save: what is there is not what this
+   document read or wrote; nothing written (force overrides)", EXISTS their
    "PATH: refusing to save: the file is already there and create asks for a
    new one; nothing written", and TOO_NEW their "PATH: refusing to save: the
    document holds lines from a newer format than this reader's; nothing
@@ -343,7 +345,7 @@ typedef enum {
 	SHCL_SAVE_OK,      /* written */
 	SHCL_SAVE_REFUSED, /* the lost-content gate fired; lossy overrides */
 	SHCL_SAVE_FAILED,  /* the write itself failed; *why and errno say why */
-	SHCL_SAVE_CHANGED, /* the file changed since the load; nothing written, force overrides */
+	SHCL_SAVE_CHANGED, /* the bytes at the path are neither what the load read nor what the last save wrote; nothing written, force overrides */
 	SHCL_SAVE_EXISTS,  /* create found a file there, or another save made it first; nothing written */
 	SHCL_SAVE_TOO_NEW  /* the document is from a newer format (shcl_newer_format); nothing written, and nothing overrides it */
 } shcl_save_result;
@@ -351,7 +353,7 @@ typedef enum {
 typedef struct {
 	int lossy;      /* write even when the save deletes content, as shcl_save_file_lossy */
 	int keep_lines; /* keep the lines no edit touched, as shcl_save_file_keep_lines */
-	int force;      /* write over the file the load read even when it changed since */
+	int force;      /* write over whatever is at the path, even a file this document never read or one changed since */
 	int create;     /* only make a new file: SHCL_SAVE_EXISTS when one is there, even one another save makes at the same time */
 	unsigned mode;  /* the permission bits (0777) a file this save makes gets, exactly, whatever the umask; 0 is an ordinary create's; a file already there keeps its own, and windows has no such bits */
 } shcl_save_options;
@@ -15150,10 +15152,11 @@ shcl_doc *shcl_load_file_keep_lines(const char *path, shcl_strictness s, shcl_fi
 // would delete content from the file (shcl_lost_count) - that is
 // SHCL_SAVE_REFUSED, distinct from SHCL_SAVE_FAILED so the caller need not
 // guess which happened; shcl_save_file_lossy writes anyway. Refuses with
-// SHCL_SAVE_CHANGED when what is at PATH now is neither what the load read nor
-// what this document's last save wrote, so another program's edit, or a file
-// nobody read, is not lost; the force option writes anyway. A
-// document from a newer format is SHCL_SAVE_TOO_NEW (shcl_newer_format).
+// SHCL_SAVE_CHANGED when something is at PATH now and it is neither what the
+// load read nor what this document's last save wrote, so another program's
+// edit, or a file nobody read, is not lost; the force option writes anyway.
+// Nothing at PATH is written, as a save-as to a new name. A document from a
+// newer format is SHCL_SAVE_TOO_NEW (shcl_newer_format).
 shcl_save_result shcl_save_file(shcl_doc *d, const char *path, shcl_write_status *why) {
 	shcl_save_options o = {0};
 	return shcl_save_file_with(d, path, o, NULL, why);
@@ -15179,41 +15182,18 @@ shcl_save_result shcl_save_file_keep_lines(shcl_doc *d, const char *path, int *k
 	return shcl_save_file_with(d, path, o, kept, why);
 }
 
-/* The folder PATH names its file in is there. A file gone with its folder is
-   left to the write, which says the folder is missing. */
-static int s_folder_there(const char *path) {
-	const char *sep = shcl_last_sep(path);
-	size_t n = sep ? (size_t)(sep - path) + (sep == path ? 1 : 0) : 0;
-	char *dir = (char *)malloc(n + 2);
-	if (!dir) { SHCL_OOM(); abort(); }
-	if (n) memcpy(dir, path, n);
-	else dir[n++] = '.';
-	dir[n] = '\0';
-#ifdef _WIN32
-	wchar_t *w = shcl_widen(dir);
-	free(dir);
-	if (!w) { SHCL_OOM(); abort(); }
-	DWORD at = GetFileAttributesW(w);
-	free(w);
-	return at != INVALID_FILE_ATTRIBUTES && (at & FILE_ATTRIBUTE_DIRECTORY);
-#else
-	struct stat st;
-	int there = stat(dir, &st) == 0 && S_ISDIR(st.st_mode);
-	free(dir);
-	return there;
-#endif
-}
-
 static int s_same_bytes(const char *a, size_t an, const char *b, size_t bn) {
 	return a && an == bn && (an == 0 || memcmp(a, b, an) == 0);
 }
 
-/* PATH, as given and read now, holds what the load read or the last save
-   wrote, or nothing, where the load read no file. Content only, so a touch
-   alone is no change. Something that isn't a regular file is left to the
-   write, which refuses it, and so is a path the write can't reach a file
-   through: part of it a file, a folder not there, or a link cycle. A file that can't be read is a
-   change, since the rename that replaces it needs no read access. */
+/* PATH, as given and read now, holds nothing, or what the load read or the
+   last save wrote. Nothing there means no bytes to lose, so a save-as to a
+   new name and a file removed since the load are written, as an editor
+   writes them. Content only, so a touch alone is no change. Something that
+   isn't a regular file is left to the write, which refuses it, and so is a
+   path the write can't reach a file through: part of it a file, a folder not
+   there, or a link cycle. A file that can't be read is a change, since the
+   rename that replaces it needs no read access. */
 static int s_file_holds(const shcl_doc *d, const char *path) {
 	size_t n = 0;
 	shcl_file_status st = SHCL_FILE_UNREADABLE;
@@ -15225,8 +15205,7 @@ static int s_file_holds(const shcl_doc *d, const char *path) {
 		return same;
 	}
 	if (not_regular) return 1;
-	if (err == ENOTDIR || err == ELOOP) return 1;
-	if (st == SHCL_FILE_NOT_FOUND) return d->read_text == NULL || !s_folder_there(path);
+	if (st == SHCL_FILE_NOT_FOUND || err == ENOTDIR || err == ELOOP) return 1;
 	if (err == ENOMEM) { SHCL_OOM(); abort(); }
 	return 0;
 }

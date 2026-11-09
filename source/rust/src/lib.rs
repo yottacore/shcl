@@ -161,8 +161,8 @@ pub enum SaveError {
 	/// The write itself failed: why, and the message.
 	Io(WriteError),
 	/// What is at the path now is neither what the load read nor what this
-	/// document's last save wrote: another program's edit, a file gone since
-	/// the load, or a file this document never read. Nothing written.
+	/// document's last save wrote: another program's edit, or a file this
+	/// document never read. Nothing at the path is no change. Nothing written.
 	Changed { path: String },
 	/// `SaveOptions::create` found a file already there, or another save made
 	/// it first. Nothing written.
@@ -233,14 +233,15 @@ struct Seen {
 }
 
 impl Seen {
-	/// PATH, as given and read now, holds what the load read or the last save
-	/// wrote, or nothing, where the load read no file. Content only, so a
-	/// touch alone is no change. Something that isn't a regular file is left
-	/// to the write, which refuses it, and so is a path the write can't reach
-	/// a file through: part of it a file, a folder not there, or a link
-	/// cycle. A file that can't
-	/// be read is a change, since the rename that replaces it needs no read
-	/// access.
+	/// PATH, as given and read now, holds nothing, or what the load read or
+	/// the last save wrote. Nothing there means no bytes to lose, so a save-as
+	/// to a new name and a file removed since the load are written, as an
+	/// editor writes them. Content only, so a touch alone is no change.
+	/// Something that isn't a regular file is left to the write, which
+	/// refuses it, and so is a path the write can't reach a file through:
+	/// part of it a file, a folder not there, or a link cycle. A file that
+	/// can't be read is a change, since the rename that replaces it needs no
+	/// read access.
 	fn holds(&self, path: &str) -> bool {
 		use std::io::ErrorKind;
 		match read_regular(path) {
@@ -249,21 +250,11 @@ impl Seen {
 				.flatten()
 				.any(|t| t.as_bytes() == now),
 			Ok(None) => true,
-			Err(e) if e.kind() == ErrorKind::NotFound => self.read.is_none() || !folder_there(path),
+			Err(e) if e.kind() == ErrorKind::NotFound => true,
 			Err(e) if e.kind() == ErrorKind::NotADirectory || e.raw_os_error() == ELOOP => true,
 			Err(_) => false,
 		}
 	}
-}
-
-/// The folder PATH names its file in is there. A file gone with its folder
-/// is left to the write, which says the folder is missing.
-fn folder_there(path: &str) -> bool {
-	std::path::Path::new(path)
-		.parent()
-		.filter(|d| !d.as_os_str().is_empty())
-		.unwrap_or(std::path::Path::new("."))
-		.is_dir()
 }
 
 /// A link cycle on the path, which the write refuses by name. std has no
@@ -6887,13 +6878,15 @@ impl Document {
 	/// interrupted save can never truncate the config it rewrites - the same
 	/// mechanics the CLI's `--write` uses. Refuses when the write would delete
 	/// content from the file (see lost_count); save_file_lossy writes
-	/// anyway. Refuses when what is at PATH now is neither what the load read
-	/// nor what this document's last save wrote, so another program's edit,
-	/// or a file nobody read, is not lost; `SaveOptions::force` writes
-	/// anyway. The Err tells them apart without matching on prose:
-	/// SaveError::Refused is the gate, SaveError::Changed the other program's
-	/// edit, SaveError::TooNew a document from a newer format (see
-	/// newer_format), SaveError::Io the write failing.
+	/// anyway. Refuses when something is at PATH now and it is neither what
+	/// the load read nor what this document's last save wrote, so another
+	/// program's edit, or a file nobody read, is not lost;
+	/// `SaveOptions::force` writes anyway. Nothing at PATH is written, as a
+	/// save-as to a new name or over a file removed since the load. The Err
+	/// tells them apart without matching on prose: SaveError::Refused is the
+	/// gate, SaveError::Changed the other program's edit, SaveError::TooNew a
+	/// document from a newer format (see newer_format), SaveError::Io the
+	/// write failing.
 	pub fn save_file(&mut self, path: &str) -> Result<(), SaveError> {
 		self.save_file_with(path, &SaveOptions::default())
 			.map(|_| ())

@@ -7201,14 +7201,16 @@ int main(int argc, char **argv) {
 	{
 		/* A save over the file a load read refuses when another program changed
 		   it since, writes nothing, and writes with force. A save over a file
-		   the document never read, a parse's included, is refused the same way
-		   (2026102910482342, 2026110613470307). Same fixture in every runner. */
+		   the document never read, a parse's included, is refused the same way,
+		   and nothing at the path is written (2026102910482342,
+		   2026110613470307, 2026110907535001). Same fixture in every runner. */
 		const char *at = "changed";
-		char cdir[256], f[320], n[320], other[320];
+		char cdir[256], f[320], n[320], other[320], renamed[320];
 		up_dir(cdir, sizeof cdir, "changed");
 		snprintf(f, sizeof f, "%s/f.shcl", cdir);
 		snprintf(n, sizeof n, "%s/new.shcl", cdir);
 		snprintf(other, sizeof other, "%s/other.shcl", cdir);
+		snprintf(renamed, sizeof renamed, "%s/renamed.shcl", cdir);
 		shcl_save_options force = {0}, keep_force = {0};
 		force.force = 1;
 		keep_force.keep_lines = keep_force.force = 1;
@@ -7250,13 +7252,18 @@ int main(int argc, char **argv) {
 		if (!file_is(f, "a: 2 # one\n")) fail(at, "forced keep save text");
 		shcl_free(kept);
 
-		/* Gone since the load is a change. So is a file made where none was. */
+		/* Nothing at the path is no bytes to lose, so a file gone since the load
+		   is written back, and a save-as to a new name is written, as an editor
+		   writes them (2026110907535001). A file made where none was is a
+		   change. */
 		shcl_doc *gone = shcl_load_file(f, NULL);
+		(void)shcl_set_int(gone, "a", 1, 4);
 		remove(f);
-		if (shcl_save_file(gone, f, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over a removed file");
+		if (shcl_save_file(gone, f, NULL) != SHCL_SAVE_OK) fail(at, "save over a removed file");
+		if (!file_is(f, "a: 4  # one\n")) fail(at, "save over a removed file text");
+		if (shcl_save_file(gone, renamed, NULL) != SHCL_SAVE_OK) fail(at, "save to a new name");
+		if (!file_is(renamed, "a: 4  # one\n")) fail(at, "save to a new name text");
 		shcl_file_status st = SHCL_FILE_CLEAN;
-		free(shcl_read_file(f, 0, NULL, &st));
-		if (st != SHCL_FILE_NOT_FOUND) fail(at, "a refused save made the file");
 		shcl_doc *fresh = shcl_load_file(n, &st);
 		if (st != SHCL_FILE_NOT_FOUND) fail(at, "status, want NotFound");
 		(void)shcl_set_int(fresh, "a", 1, 1);
@@ -7284,8 +7291,10 @@ int main(int argc, char **argv) {
 				put_file(sf, "a: 1\n");
 				shcl_doc *sg = shcl_load_file(sf, NULL);
 				remove(sf);
-				if (shcl_save_file(sg, sf, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over a removed file, short name");
+				if (shcl_save_file(sg, sf, NULL) != SHCL_SAVE_OK) fail(at, "save over a removed file, short name");
+				if (!file_is(sf, "a: 1\n")) fail(at, "save over a removed file text, short name");
 				shcl_free(sg);
+				remove(sf);
 				shcl_doc *snew = shcl_load_file(sn2, NULL);
 				put_file(sn2, "b: 2\n");
 				if (shcl_save_file(snew, sn2, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over a file made since, short name");
@@ -7334,7 +7343,9 @@ int main(int argc, char **argv) {
 		if (!file_is(other, "z: 0\n")) fail(at, "a refused save over a file never read wrote");
 		if (shcl_save_file_with(gone, other, force, NULL, NULL) != SHCL_SAVE_OK) fail(at, "forced save over a file never read");
 		if (shcl_save_file(gone, other, NULL) != SHCL_SAVE_OK) fail(at, "save over what it wrote");
+		put_file(f, "a: 8\n");
 		if (shcl_save_file(gone, f, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over the load's file after one elsewhere");
+		if (!file_is(f, "a: 8\n")) fail(at, "a refused save over the load's file wrote");
 		/* compact keeps the record. */
 		shcl_compact(gone);
 		if (shcl_save_file(gone, f, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over the load's file after a compact");
@@ -7345,6 +7356,7 @@ int main(int argc, char **argv) {
 		if (shcl_save_file(parsed, other, NULL) != SHCL_SAVE_CHANGED) fail(at, "save of a parse");
 		if (shcl_save_file_with(parsed, other, force, NULL, NULL) != SHCL_SAVE_OK) fail(at, "forced save of a parse");
 		if (!file_is(other, "a: 5\n")) fail(at, "save of a parse text");
+		remove(f);
 		if (shcl_save_file(parsed, f, NULL) != SHCL_SAVE_OK) fail(at, "save of a parse where nothing is");
 		if (shcl_save_file(parsed, f, NULL) != SHCL_SAVE_OK) fail(at, "save of a parse over what it wrote");
 		if (!file_is(f, "a: 5\n")) fail(at, "save of a parse where nothing is text");
@@ -7359,8 +7371,10 @@ int main(int argc, char **argv) {
 		   reads the bytes at the save path, so a file the document never read,
 		   such as the same name from another working folder, is refused too. A
 		   FIFO swapped in gets the write's own refusal rather than a wait, and a
-		   file the check can't read is a change (2026110312163201,
-		   2026110312163202, 2026110613470307). Same fixture in every runner. */
+		   file the check can't read is a change. Nothing at the path is no
+		   change, so a file gone since the load is written back
+		   (2026110312163201, 2026110312163202, 2026110613470307,
+		   2026110907535001). Same fixture in every runner. */
 		const char *at = "spelled";
 		char sdir[256], back[1024], ah[320], al[320], an[320], sub[320], nd[320];
 		up_dir(sdir, sizeof sdir, "spelled");
@@ -7376,13 +7390,13 @@ int main(int argc, char **argv) {
 #endif
 		if (!moved_in) fail(at, "chdir failed");
 		shcl_file_status st = SHCL_FILE_CLEAN;
-		/* A bare name, gone since the load. */
+		/* A bare name, gone since the load, is written back, since nothing
+		   there is no bytes to lose (2026110907535001). */
 		put_file("i.shcl", "a: 1\n");
 		shcl_doc *gone = shcl_load_file("i.shcl", NULL);
 		remove("i.shcl");
-		if (shcl_save_file(gone, "i.shcl", NULL) != SHCL_SAVE_CHANGED) fail(at, "bare, gone");
-		free(shcl_read_file("i.shcl", 0, NULL, &st));
-		if (st != SHCL_FILE_NOT_FOUND) fail(at, "bare, gone: the save made the file");
+		if (shcl_save_file(gone, "./i.shcl", NULL) != SHCL_SAVE_OK) fail(at, "bare, gone");
+		if (!file_is("i.shcl", "a: 1\n")) fail(at, "bare, gone: text");
 		shcl_free(gone);
 		/* A bare name made where the load found nothing, by any spelling. */
 		shcl_doc *fresh = shcl_load_file("h.shcl", &st);
