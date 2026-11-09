@@ -556,6 +556,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Time each step over 2 runs, then move what pushes the run past an hour to `--long`.
 	- Estimated effort: Avg
 
+- Allow callers to request the multiline list form for arrays
+	- ID: 2026110911441449
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Target version: v3.0.0
+	- Opened: 20261109-114414
+	- Opened by: JC
+	- Problem description: an array setter writes the bracket form. Only a list already stacked with `- ` items in the file stays stacked.
+	- Requirements:
+		- Allow callers to request the multiline list form for arrays.
+
 - The veneer smoke linked against the DLLs dies at start on b29w
 	- ID: 2026110710374327
 	- Type: Bug
