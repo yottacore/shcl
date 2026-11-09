@@ -26,13 +26,13 @@
 
 </div>
 
-- A typo costs you one line, not the whole file.
+- A typo on one line doesn't cause the whole config read to fail.
 
 - A program can change one value and leave every other line the way a person typed it, comments and all.
 
 - A save won't delete anything you wrote unless you tell it to.
 
-- Your code picks a value's type when it reads it, so `NO` never turns into `false`.
+- Your code picks a value's type when it reads it, so `NO` (e.g. for "Norway") doesn't turn into `false`, as it does with YAML.
 
 - Rust, Go, Python, C, and C++ read a file the same way. Each library is one source file with no dependencies.
 
@@ -67,7 +67,7 @@ You have probably lived some version of this:
 
 - A whole service refused to start because one line of config had a typo.
 
-- YAML turned `country: NO` into `false`. (Norway. It really does that.)
+- YAML turned `country: NO` into `false`. (It really does that.)
 
 - JSON needed a comment, and JSON doesn't do comments.
 	- Or a trailing comma killed the parse.
