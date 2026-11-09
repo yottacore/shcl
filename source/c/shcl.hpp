@@ -325,8 +325,9 @@ enum class FileStatus { Clean, HadErrors, NotFound, Unreadable };
 // overrides, and folding it into a failed write leaves the caller with an
 // override they cannot tell they need. Changed is what is at the path now
 // being neither what the load read nor what the last save wrote: another
-// program's edit, a file gone since the load, or one the document never read;
-// nothing was written, and SaveOptions::force overrides. Exists is a file SaveOptions::create found
+// program's edit, or a file the document never read; nothing was written,
+// and SaveOptions::force overrides. Nothing at the path is no change, so a
+// save-as to a new name is written. Exists is a file SaveOptions::create found
 // there, or another save made first; nothing was written. TooNew is a document
 // from a newer format (newer_format); nothing was written, and nothing
 // overrides it.

@@ -370,9 +370,9 @@ class SaveFailed(SaveError):
 
 class SaveChanged(SaveError):
 	"""What is at the path now is neither what the load read nor what this
-	document's last save wrote: another program's edit, a file gone since the
-	load, or a file this document never read. Nothing was written;
-	SaveOptions.force is the override."""
+	document's last save wrote: another program's edit, or a file this
+	document never read. Nothing at the path is no change. Nothing was
+	written; SaveOptions.force is the override."""
 	path: str | os.PathLike[str]
 
 	def __init__(self, path: str | os.PathLike[str]):
@@ -405,8 +405,8 @@ class SaveOptions:
 	"""How save_file_with saves. The default is save_file. lossy writes even
 	when the save deletes content from the file, as save_file_lossy does.
 	keep_lines keeps the lines no edit touched, as save_file_keep_lines does.
-	force writes over the file the document was loaded from even when it
-	changed since, for a caller that means to replace whatever is there.
+	force writes over whatever is at the path, even a file this document never
+	read or one changed since, for a caller that means to replace it.
 	create only makes a new file, and raises SaveExists when one is there, even
 	one another save makes at the same time. mode is the permission bits
 	(0o777) a file this save makes gets, exactly, whatever the umask; 0 is an
@@ -436,20 +436,19 @@ class _Seen:
 		self.saved: str | None = None
 
 	def holds(self, path: str | os.PathLike[str]) -> bool:
-		"""path, as given and read now, holds what the load read or the last
-		save wrote, or nothing, where the load read no file. Content only, so a
-		touch alone is no change. Something that isn't a regular file is left
-		to the write, which refuses it, and so is a path the write can't reach
-		a file through: part of it a file, a folder not there, or a link
-		cycle. A file that can't
-		be read is a change, since the rename that replaces it needs no read
-		access."""
+		"""path, as given and read now, holds nothing, or what the load read
+		or the last save wrote. Nothing there means no bytes to lose, so a
+		save-as to a new name and a file removed since the load are written,
+		as an editor writes them. Content only, so a touch alone is no change.
+		Something that isn't a regular file is left to the write, which
+		refuses it, and so is a path the write can't reach a file through:
+		part of it a file, a folder not there, or a link cycle. A file that
+		can't be read is a change, since the rename that replaces it needs no
+		read access."""
 		try:
 			now = _read_regular(os.fspath(path))
 		except FileNotFoundError:
-			# A file gone with its folder is left to the write, which says the
-			# folder is missing.
-			return self.read is None or not os.path.isdir(os.path.dirname(os.fspath(path)) or ".")
+			return True
 		except (NotADirectoryError, ValueError):
 			# ValueError is a NUL in the path, which the write refuses the
 			# same way.

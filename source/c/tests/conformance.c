@@ -677,9 +677,11 @@ static char *deep_doc(size_t *len, int comments) {
 	for (size_t i = 0; i < levels; i++) {
 		if (comments) {
 			memset(t + n, '\t', i); n += i;
+			// codeql[cpp/overflowing-snprintf] cap is levels squared plus 33 a level, more than the tabs and both lines take
 			n += (size_t)snprintf(t + n, cap - n, "# c%zu\n", i);
 		}
 		memset(t + n, '\t', i); n += i;
+		// codeql[cpp/overflowing-snprintf] cap is levels squared plus 33 a level, more than the tabs and both lines take
 		n += (size_t)snprintf(t + n, cap - n, "k%zu:\n", i);
 	}
 	memset(t + n, '\t', levels); n += levels;
@@ -688,22 +690,82 @@ static char *deep_doc(size_t *len, int comments) {
 	return t;
 }
 
-// Parses and formats the document at the depth cap. With merge set it is laid
-// over an empty document instead, which clones it, and the same tree without
-// its comments over that, which walks every level and changes nothing.
-// Nonzero when every step was clean; a stack overflow crashes the run instead.
-static int deep_round_trip(int merge) {
+enum { DEEP_FMT, DEEP_MERGE, DEEP_WILDCARD, DEEP_MOUNTS, DEEP_GENERATE };
+
+// Nonzero when the schema validates d with nothing to report.
+static int deep_validates(shcl_doc *d, const char *schema) {
+	shcl_doc *s = shcl_parse(schema, strlen(schema));
+	shcl_validation *v = s ? shcl_validate(d, s) : NULL;
+	int ok = v && shcl_validation_count(v) == 0;
+	shcl_validation_free(v);
+	shcl_free(s);
+	return ok;
+}
+
+// A wildcard per level, read and validated: one leaf, nothing to report.
+static int deep_wildcards(shcl_doc *d) {
+	size_t cap = SHCL_MAX_DEPTH * 2 + 16, n = 0;
+	char *path = xrealloc(NULL, cap);
+	for (size_t i = 0; i < SHCL_MAX_DEPTH; i++) { if (i) path[n++] = '.'; path[n++] = '*'; }
+	int ok = shcl_count(d, path, n) == 1;
+	char *schema = xrealloc(NULL, n + 16);
+	snprintf(schema, n + 16, "field: %.*s\n", (int)n, path);
+	ok = ok && deep_validates(d, schema);
+	free(schema);
+	free(path);
+	return ok;
+}
+
+// 512 distinct fragments in one chain, since a re-entered name cuts at once
+// and only a chain that long reaches the depth cut. The output names each
+// field, and the cut fragment in the trailing note.
+static int deep_generate(void) {
+	size_t cap = (SHCL_MAX_DEPTH + 1) * 64, n = 0;
+	char *g = xrealloc(NULL, cap);
+	n += (size_t)snprintf(g + n, cap - n, "field: a\n\tinherits: f0\n");
+	for (size_t k = 0; k < SHCL_MAX_DEPTH; k++) {
+		// codeql[cpp/overflowing-snprintf] cap is 64 a fragment, more than its two or three lines take
+		n += (size_t)snprintf(g + n, cap - n, "fragment: f%zu\n\tfield: b\n", k);
+		// codeql[cpp/overflowing-snprintf] cap is 64 a fragment, more than its two or three lines take
+		if (k + 1 < SHCL_MAX_DEPTH) n += (size_t)snprintf(g + n, cap - n, "\t\tinherits: f%zu\n", k + 1);
+	}
+	shcl_doc *s = shcl_parse(g, n);
+	int ok = s && shcl_diag_count(s) == 0;
+	if (ok) {
+		int gen_ok = 0;
+		shcl_str out = shcl_generate(s, 1, &gen_ok);
+		size_t lines = 0;
+		for (size_t i = 0; i + 1 < out.n; i++) if (out.p[i] == '\n' && out.p[i + 1] == '#') lines++;
+		ok = gen_ok && lines >= SHCL_MAX_DEPTH;
+	}
+	shcl_free(s);
+	free(g);
+	return ok;
+}
+
+// Parses and formats the document at the depth cap. DEEP_MERGE lays it over
+// an empty document instead, which clones it, and the same tree without its
+// comments over that, which walks every level and changes nothing. The other
+// ops read, validate or generate in between, each through a walk that goes
+// one level a step. Nonzero when every step was clean; a stack overflow
+// crashes the run instead.
+static int deep_round_trip(int op) {
 	size_t n, bn;
 	char *t = deep_doc(&n, 1);
-	shcl_doc *d = merge ? shcl_new() : shcl_parse(t, n);
+	shcl_doc *d = op == DEEP_MERGE ? shcl_new() : shcl_parse(t, n);
 	int ok = d && shcl_diag_count(d) == 0;
-	if (ok && merge) {
+	if (ok && op == DEEP_MERGE) {
 		char *bare = deep_doc(&bn, 0);
 		shcl_doc *o = shcl_parse(t, n), *b = shcl_parse(bare, bn);
 		ok = o && b && shcl_diag_count(o) == 0 && shcl_diag_count(b) == 0;
 		if (ok) { shcl_merge(d, o); shcl_merge(d, b); }
 		shcl_free(b); shcl_free(o); free(bare);
 	}
+	if (ok && op == DEEP_WILDCARD) ok = deep_wildcards(d);
+	// A fragment that mounts itself under every child, which the
+	// unknown-field sweep then follows one mount a level.
+	if (ok && op == DEEP_MOUNTS) ok = deep_validates(d, "field: k0\n\tinherits: f\nfragment: f\n\tfield: *\n\t\tinherits: f\n");
+	if (ok && op == DEEP_GENERATE) ok = deep_generate();
 	if (ok) {
 		shcl_str out = shcl_to_canonical(d);
 		ok = out.n == n && memcmp(out.p, t, n) == 0;
@@ -714,18 +776,18 @@ static int deep_round_trip(int merge) {
 }
 
 #ifdef _WIN32
-static DWORD WINAPI deep_on_small_stack(LPVOID merge) { return deep_round_trip(*(const int *)merge) ? 1 : 0; }
+static DWORD WINAPI deep_on_small_stack(LPVOID op) { return deep_round_trip(*(const int *)op) ? 1 : 0; }
 #else
-static void *deep_on_small_stack(void *merge) { return deep_round_trip(*(const int *)merge) ? (void *)1 : NULL; }
+static void *deep_on_small_stack(void *op) { return deep_round_trip(*(const int *)op) ? (void *)1 : NULL; }
 #endif
 
 // Runs deep_round_trip on a 64 KB thread, or the platform's smallest when that
 // is larger. Nonzero when it finished clean.
-static int deep_on_64_kb(int merge, const char *at) {
+static int deep_on_64_kb(int op, const char *at) {
 	size_t small = 64 * 1024;
 	int ok = 0;
 #ifdef _WIN32
-	HANDLE th = CreateThread(NULL, small, deep_on_small_stack, &merge, STACK_SIZE_PARAM_IS_A_RESERVATION, NULL);
+	HANDLE th = CreateThread(NULL, small, deep_on_small_stack, &op, STACK_SIZE_PARAM_IS_A_RESERVATION, NULL);
 	if (!th) { fail(at, "cannot start a 64 KB thread"); return 0; }
 	DWORD res = 0;
 	WaitForSingleObject(th, INFINITE);
@@ -738,7 +800,7 @@ static int deep_on_64_kb(int merge, const char *at) {
 	if (floorBytes > 0 && (size_t)floorBytes > small) small = (size_t)floorBytes;
 	if (pthread_attr_init(&at_) != 0 || pthread_attr_setstacksize(&at_, small) != 0) {
 		fail(at, "cannot make a 64 KB thread attribute");
-	} else if (pthread_create(&th, &at_, deep_on_small_stack, &merge) != 0) {
+	} else if (pthread_create(&th, &at_, deep_on_small_stack, &op) != 0) {
 		fail(at, "cannot start a 64 KB thread");
 	} else {
 		void *res = NULL;
@@ -1025,11 +1087,14 @@ static void seq_doc(SeqBuf *b) {
 
 /* A line refused only for where it sits, as one code. An edit around it can
    change which it gets, and it stays kept either way. Removing the field
-   before an E008 item under a field with a value leaves it E011. */
+   before an E008 item under a field with a value leaves it E011. A misplaced
+   line is the same, as its own code: it's E018 under a kept E012 line and
+   E012 elsewhere, so moving the line above it changes it. */
 static const char *placed(const char *code) {
 	static const char *const where[] = {"E001", "E003", "E007", "E008", "E011"};
 	for (size_t i = 0; i < sizeof where / sizeof where[0]; i++)
 		if (strcmp(code, where[i]) == 0) return "placed";
+	if (strcmp(code, "E012") == 0 || strcmp(code, "E018") == 0) return "misplaced";
 	return code;
 }
 
@@ -4389,11 +4454,21 @@ int main(int argc, char **argv) {
 	// at -O2, which overflowed a 64 KB thread. musl gives a thread 128 KB, and
 	// an embedded stack is smaller still.
 	test_id("df0c9", "canonical_at_the_depth_cap_fits_a_64_kb_stack");
-	if (!deep_on_64_kb(0, "deep-stack")) fail("deep-stack", "parse and format at the depth cap were not clean on a 64 KB stack");
+	if (!deep_on_64_kb(DEEP_FMT, "deep-stack")) fail("deep-stack", "parse and format at the depth cap were not clean on a 64 KB stack");
 	// The merge and the clone it makes of unmatched blocks recursed the same
 	// way, about 560 KB at the cap.
 	test_id("df0d5", "merge_at_the_depth_cap_fits_a_64_kb_stack");
-	if (!deep_on_64_kb(1, "deep-merge")) fail("deep-merge", "a merge at the depth cap was not clean on a 64 KB stack");
+	if (!deep_on_64_kb(DEEP_MERGE, "deep-merge")) fail("deep-merge", "a merge at the depth cap was not clean on a 64 KB stack");
+	// Resolving a wildcard per level, validating against a fragment that
+	// mounts itself, and generating from a chain of mounts each recursed once
+	// per level. Each took more than 64 KB at the cap, and generating more
+	// than 256 KB.
+	test_id("df32k", "wildcards_at_the_depth_cap_fit_a_64_kb_stack");
+	if (!deep_on_64_kb(DEEP_WILDCARD, "deep-wildcard")) fail("deep-wildcard", "a wildcard read and validate at the depth cap were not clean on a 64 KB stack");
+	test_id("df32m", "validate_through_mounts_at_the_depth_cap_fits_a_64_kb_stack");
+	if (!deep_on_64_kb(DEEP_MOUNTS, "deep-mounts")) fail("deep-mounts", "validating through mounts at the depth cap was not clean on a 64 KB stack");
+	test_id("df32n", "generate_through_mounts_at_the_depth_cap_fits_a_64_kb_stack");
+	if (!deep_on_64_kb(DEEP_GENERATE, "deep-generate")) fail("deep-generate", "generating through a chain of mounts at the depth cap was not clean on a 64 KB stack");
 	/* A path that names a directory - it ends in a separator, or its last
 	   component is `.` or `..` - is not a document. A path cleanup drops the
 	   trailing separator first, so a save through `f/.` used to rewrite `f` in
@@ -5687,6 +5762,32 @@ int main(int argc, char **argv) {
 			fail("settled_below", "reload_took_only_comments got it wrong");
 		free(sa.p); free(sr.p);
 		shcl_free(sl); shcl_free(sb);
+	}
+	test_id("df352", "a_remove_that_moves_a_misplaced_line_adds_no_error");
+	/* The fuzz's base and edits from 2026110714552634: the remove leaves a
+	   misplaced line below the kept field line after it, where a reload of the
+	   text without the removed line files it, and the misplaced line under them
+	   reloads as E018 where it was E012. Same fixture in every runner. */
+	{
+		const char *mb = "window:\n\topacity: 1.0\n    m_argin: 4\n\n\tcol\tmns: 160\n\trows: 48\nfont:\n\tface:\n\t\tsize: 12\n    bad:\t 1\n\t\tfamily: mono\n\thint:\n  ~ bad: 2\n\t\tfist: 1\n\t\tsecond: 2\\a:\n    b: 1\n  c: 2\n     d 3\n    h: 6\nz: 9\n";
+		const char *mcut = "window:\n\topacity: 1.0\n    m_argin: 4\n\n\tcol\tmns: 160\n\trows: 48\nfont:\n\tface:\n\t\tsize: 12\n    bad:\t 1\n\t\tfamily: mono\n\thint:\n  ~ bad: 2\n\t\tsecond: 2\\a:\n    b: 1\n  c: 2\n     d 3\n    h: 6\nz: 9\n";
+		const char *mwant = "font:\n\tface:\n\t\tsize: 12\n    bad:\t 1\n\t\tfamily: mono\n\t\t\tkid2: 3\n\thint:\n\t\tsecond: 2\\a:\n  ~ bad: 2\n    b: 1\n  c: 2\n     d 3\n    h: 6\nz: 9\n";
+		shcl_doc *md = shcl_parse_keep_lines(mb, strlen(mb), SHCL_STANDARD);
+		shcl_doc *mc = shcl_parse(mcut, strlen(mcut));
+		if (shcl_remove(md, "font.hint.fist", 14) != 1) fail("misplaced_move", "remove font.hint.fist");
+		shcl_str mx = shcl_to_canonical(md), my = shcl_to_canonical(mc);
+		if (mx.n != my.n || memcmp(mx.p, my.p, mx.n) != 0) fail("misplaced_move", "the remove differs from a reload of the cut text");
+		if (shcl_remove(md, "window", 6) != 1 || shcl_set_int(md, "font.face.family.kid2", 21, 3) != SHCL_SET_OK) fail("misplaced_move", "remove window or set kid2");
+		int mk = 0;
+		shcl_str mt = shcl_to_text_keep_lines(md, &mk);
+		if (!mk || !str_is(mt, mwant)) { fail("misplaced_move", mwant); fprintf(stderr, "  got %.*s\n", (int)mt.n, mt.p); }
+		shcl_doc *mr = shcl_parse(mt.p, mt.n);
+		shcl_doc *mo = shcl_parse(mb, strlen(mb));
+		mx = shcl_to_canonical(mr);
+		my = shcl_to_canonical(md);
+		if (mx.n != my.n || memcmp(mx.p, my.p, mx.n) != 0) fail("misplaced_move", "reload differs");
+		if (!no_new_errors(mr, mo)) fail("misplaced_move", "a new error");
+		shcl_free(mo); shcl_free(mr); shcl_free(mc); shcl_free(md);
 	}
 	test_id("dd6xj", "compact_keeps_generation_faults");
 	{
@@ -7100,14 +7201,16 @@ int main(int argc, char **argv) {
 	{
 		/* A save over the file a load read refuses when another program changed
 		   it since, writes nothing, and writes with force. A save over a file
-		   the document never read, a parse's included, is refused the same way
-		   (2026102910482342, 2026110613470307). Same fixture in every runner. */
+		   the document never read, a parse's included, is refused the same way,
+		   and nothing at the path is written (2026102910482342,
+		   2026110613470307, 2026110907535001). Same fixture in every runner. */
 		const char *at = "changed";
-		char cdir[256], f[320], n[320], other[320];
+		char cdir[256], f[320], n[320], other[320], renamed[320];
 		up_dir(cdir, sizeof cdir, "changed");
 		snprintf(f, sizeof f, "%s/f.shcl", cdir);
 		snprintf(n, sizeof n, "%s/new.shcl", cdir);
 		snprintf(other, sizeof other, "%s/other.shcl", cdir);
+		snprintf(renamed, sizeof renamed, "%s/renamed.shcl", cdir);
 		shcl_save_options force = {0}, keep_force = {0};
 		force.force = 1;
 		keep_force.keep_lines = keep_force.force = 1;
@@ -7149,13 +7252,18 @@ int main(int argc, char **argv) {
 		if (!file_is(f, "a: 2 # one\n")) fail(at, "forced keep save text");
 		shcl_free(kept);
 
-		/* Gone since the load is a change. So is a file made where none was. */
+		/* Nothing at the path is no bytes to lose, so a file gone since the load
+		   is written back, and a save-as to a new name is written, as an editor
+		   writes them (2026110907535001). A file made where none was is a
+		   change. */
 		shcl_doc *gone = shcl_load_file(f, NULL);
+		(void)shcl_set_int(gone, "a", 1, 4);
 		remove(f);
-		if (shcl_save_file(gone, f, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over a removed file");
+		if (shcl_save_file(gone, f, NULL) != SHCL_SAVE_OK) fail(at, "save over a removed file");
+		if (!file_is(f, "a: 4  # one\n")) fail(at, "save over a removed file text");
+		if (shcl_save_file(gone, renamed, NULL) != SHCL_SAVE_OK) fail(at, "save to a new name");
+		if (!file_is(renamed, "a: 4  # one\n")) fail(at, "save to a new name text");
 		shcl_file_status st = SHCL_FILE_CLEAN;
-		free(shcl_read_file(f, 0, NULL, &st));
-		if (st != SHCL_FILE_NOT_FOUND) fail(at, "a refused save made the file");
 		shcl_doc *fresh = shcl_load_file(n, &st);
 		if (st != SHCL_FILE_NOT_FOUND) fail(at, "status, want NotFound");
 		(void)shcl_set_int(fresh, "a", 1, 1);
@@ -7183,8 +7291,10 @@ int main(int argc, char **argv) {
 				put_file(sf, "a: 1\n");
 				shcl_doc *sg = shcl_load_file(sf, NULL);
 				remove(sf);
-				if (shcl_save_file(sg, sf, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over a removed file, short name");
+				if (shcl_save_file(sg, sf, NULL) != SHCL_SAVE_OK) fail(at, "save over a removed file, short name");
+				if (!file_is(sf, "a: 1\n")) fail(at, "save over a removed file text, short name");
 				shcl_free(sg);
+				remove(sf);
 				shcl_doc *snew = shcl_load_file(sn2, NULL);
 				put_file(sn2, "b: 2\n");
 				if (shcl_save_file(snew, sn2, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over a file made since, short name");
@@ -7233,7 +7343,9 @@ int main(int argc, char **argv) {
 		if (!file_is(other, "z: 0\n")) fail(at, "a refused save over a file never read wrote");
 		if (shcl_save_file_with(gone, other, force, NULL, NULL) != SHCL_SAVE_OK) fail(at, "forced save over a file never read");
 		if (shcl_save_file(gone, other, NULL) != SHCL_SAVE_OK) fail(at, "save over what it wrote");
+		put_file(f, "a: 8\n");
 		if (shcl_save_file(gone, f, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over the load's file after one elsewhere");
+		if (!file_is(f, "a: 8\n")) fail(at, "a refused save over the load's file wrote");
 		/* compact keeps the record. */
 		shcl_compact(gone);
 		if (shcl_save_file(gone, f, NULL) != SHCL_SAVE_CHANGED) fail(at, "save over the load's file after a compact");
@@ -7244,6 +7356,7 @@ int main(int argc, char **argv) {
 		if (shcl_save_file(parsed, other, NULL) != SHCL_SAVE_CHANGED) fail(at, "save of a parse");
 		if (shcl_save_file_with(parsed, other, force, NULL, NULL) != SHCL_SAVE_OK) fail(at, "forced save of a parse");
 		if (!file_is(other, "a: 5\n")) fail(at, "save of a parse text");
+		remove(f);
 		if (shcl_save_file(parsed, f, NULL) != SHCL_SAVE_OK) fail(at, "save of a parse where nothing is");
 		if (shcl_save_file(parsed, f, NULL) != SHCL_SAVE_OK) fail(at, "save of a parse over what it wrote");
 		if (!file_is(f, "a: 5\n")) fail(at, "save of a parse where nothing is text");
@@ -7258,8 +7371,10 @@ int main(int argc, char **argv) {
 		   reads the bytes at the save path, so a file the document never read,
 		   such as the same name from another working folder, is refused too. A
 		   FIFO swapped in gets the write's own refusal rather than a wait, and a
-		   file the check can't read is a change (2026110312163201,
-		   2026110312163202, 2026110613470307). Same fixture in every runner. */
+		   file the check can't read is a change. Nothing at the path is no
+		   change, so a file gone since the load is written back
+		   (2026110312163201, 2026110312163202, 2026110613470307,
+		   2026110907535001). Same fixture in every runner. */
 		const char *at = "spelled";
 		char sdir[256], back[1024], ah[320], al[320], an[320], sub[320], nd[320];
 		up_dir(sdir, sizeof sdir, "spelled");
@@ -7275,13 +7390,13 @@ int main(int argc, char **argv) {
 #endif
 		if (!moved_in) fail(at, "chdir failed");
 		shcl_file_status st = SHCL_FILE_CLEAN;
-		/* A bare name, gone since the load. */
+		/* A bare name, gone since the load, is written back, since nothing
+		   there is no bytes to lose (2026110907535001). */
 		put_file("i.shcl", "a: 1\n");
 		shcl_doc *gone = shcl_load_file("i.shcl", NULL);
 		remove("i.shcl");
-		if (shcl_save_file(gone, "i.shcl", NULL) != SHCL_SAVE_CHANGED) fail(at, "bare, gone");
-		free(shcl_read_file("i.shcl", 0, NULL, &st));
-		if (st != SHCL_FILE_NOT_FOUND) fail(at, "bare, gone: the save made the file");
+		if (shcl_save_file(gone, "./i.shcl", NULL) != SHCL_SAVE_OK) fail(at, "bare, gone");
+		if (!file_is("i.shcl", "a: 1\n")) fail(at, "bare, gone: text");
 		shcl_free(gone);
 		/* A bare name made where the load found nothing, by any spelling. */
 		shcl_doc *fresh = shcl_load_file("h.shcl", &st);

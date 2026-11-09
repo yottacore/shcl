@@ -6190,8 +6190,9 @@ fn format_array_is_the_setters_text() {
 
 /// A save over the file a load read refuses when another program changed it
 /// since, writes nothing, and writes with force. A save over a file the
-/// document never read, a parse's included, is refused the same way
-/// (2026102910482342, 2026110613470307).
+/// document never read, a parse's included, is refused the same way, and
+/// nothing at the path is written (2026102910482342, 2026110613470307,
+/// 2026110907535001).
 #[cfg_attr(
 	miri,
 	ignore = "saves to disk, and Miri has no fchown or directory fsync"
@@ -6257,11 +6258,17 @@ fn a_save_over_a_file_changed_since_the_load_is_refused() {
 	assert_eq!(kept.save_file_with(&f, &keep_force), Ok(true));
 	assert_eq!(read(&f), "a: 2 # one\n");
 
-	// Gone since the load is a change. So is a file made where none was.
+	// Nothing at the path is no bytes to lose, so a file gone since the load
+	// is written back, and a save-as to a new name is written, as an editor
+	// writes them (2026110907535001). A file made where none was is a change.
 	let (mut gone, _) = Document::load_file(&f);
+	let _ = gone.set_int("a", 4);
 	std::fs::remove_file(&f).unwrap();
-	assert_eq!(gone.save_file(&f), Err(changed(&f)));
-	assert!(!Path::new(&f).exists());
+	assert_eq!(gone.save_file(&f), Ok(()));
+	assert_eq!(read(&f), "a: 4  # one\n");
+	let renamed = at("renamed.shcl");
+	assert_eq!(gone.save_file(&renamed), Ok(()));
+	assert_eq!(read(&renamed), "a: 4  # one\n");
 	let n = at("new.shcl");
 	let (mut fresh, st) = Document::load_file(&n);
 	assert_eq!(st, shcl::FileStatus::NotFound);
@@ -6281,13 +6288,16 @@ fn a_save_over_a_file_changed_since_the_load_is_refused() {
 	assert_eq!(read(&other), "z: 0\n");
 	assert_eq!(gone.save_file_with(&other, &force), Ok(false));
 	assert_eq!(gone.save_file(&other), Ok(()));
+	std::fs::write(&f, "a: 8\n").unwrap();
 	assert_eq!(gone.save_file(&f), Err(changed(&f)));
+	assert_eq!(read(&f), "a: 8\n");
 	// A parse read no file, so it writes only where nothing is, or over what
 	// it wrote itself.
 	let mut parsed = Document::parse("a: 5\n");
 	assert_eq!(parsed.save_file(&other), Err(changed(&other)));
 	assert_eq!(parsed.save_file_with(&other, &force), Ok(false));
 	assert_eq!(read(&other), "a: 5\n");
+	std::fs::remove_file(&f).unwrap();
 	assert_eq!(parsed.save_file(&f), Ok(()));
 	assert_eq!(parsed.save_file(&f), Ok(()));
 	assert_eq!(read(&f), "a: 5\n");

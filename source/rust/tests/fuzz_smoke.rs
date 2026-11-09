@@ -2085,12 +2085,55 @@ fn tidy(rng: &mut Rng) -> String {
 
 /// A line refused only for where it sits, as one code: an edit around it can
 /// change which it gets, and it stays kept either way. Removing the field
-/// before an `E008` item under a field with a value leaves it `E011`.
+/// before an `E008` item under a field with a value leaves it `E011`. A
+/// misplaced line is the same, as its own code: it's `E018` under a kept
+/// `E012` line and `E012` elsewhere, so moving the line above it changes it.
 fn placed(code: &str) -> &str {
 	match code {
 		"E001" | "E003" | "E007" | "E008" | "E011" => "placed",
+		"E012" | "E018" => "misplaced",
 		c => c,
 	}
+}
+
+/// Every error code `back` loads with, `base` loaded with at least as often,
+/// with placed's codes as one.
+fn no_new_errors(back: &Document, base: &str) -> bool {
+	let errors = |d: &Document| {
+		let mut c: Vec<&str> = d
+			.diagnostics()
+			.iter()
+			.filter(|d| d.severity == Severity::Error)
+			.map(|d| placed(d.code))
+			.collect();
+		c.sort_unstable();
+		c
+	};
+	let mut had = errors(&Document::parse(base)).into_iter();
+	errors(back).iter().all(|c| had.any(|h| h == *c))
+}
+
+/// The fuzz's base and edits from 2026110714552634: the remove leaves a
+/// misplaced line below the kept field line after it, where a reload of the
+/// text without the removed line files it, and the misplaced line under them
+/// reloads as `E018` where it was `E012`. Same fixture in every runner.
+#[test]
+fn a_remove_that_moves_a_misplaced_line_adds_no_error() {
+	let _id = test_id("df34z");
+	let base = "window:\n\topacity: 1.0\n    m_argin: 4\n\n\tcol\tmns: 160\n\trows: 48\nfont:\n\tface:\n\t\tsize: 12\n    bad:\t 1\n\t\tfamily: mono\n\thint:\n  ~ bad: 2\n\t\tfist: 1\n\t\tsecond: 2\\a:\n    b: 1\n  c: 2\n     d 3\n    h: 6\nz: 9\n";
+	let want = "font:\n\tface:\n\t\tsize: 12\n    bad:\t 1\n\t\tfamily: mono\n\t\t\tkid2: 3\n\thint:\n\t\tsecond: 2\\a:\n  ~ bad: 2\n    b: 1\n  c: 2\n     d 3\n    h: 6\nz: 9\n";
+	let mut doc =
+		Document::parse_keep_lines(base, Strictness::Standard).unwrap_or_else(|e| e.document);
+	assert_eq!(doc.remove("font.hint.fist"), 1);
+	let cut = Document::parse(&base.replace("\t\tfist: 1\n", ""));
+	assert_eq!(doc.to_canonical(), cut.to_canonical());
+	assert_eq!(doc.remove("window"), 1);
+	assert_eq!(doc.set_int("font.face.family.kid2", 3), shcl::SetStatus::Ok);
+	let (text, kept) = doc.to_text_keep_lines();
+	assert_eq!((text.as_str(), kept), (want, true));
+	let back = Document::parse(&text);
+	assert_eq!(back.to_canonical(), doc.to_canonical());
+	assert!(no_new_errors(&back, base), "a new error:\n{text}");
 }
 
 /// The save that keeps lines writes text that reloads as the document with
@@ -2185,19 +2228,8 @@ fn keeping_lines_reloads_as_the_document() {
 				want,
 				"iteration {i}: kept lines reload as another document:\n{log}--- wrote\n{text}"
 			);
-			let errors = |d: &Document| {
-				let mut c: Vec<&str> = d
-					.diagnostics()
-					.iter()
-					.filter(|d| d.severity == Severity::Error)
-					.map(|d| placed(d.code))
-					.collect();
-				c.sort_unstable();
-				c
-			};
-			let mut had = errors(&Document::parse(&base)).into_iter();
 			assert!(
-				errors(&back).iter().all(|c| had.any(|h| h == *c)),
+				no_new_errors(&back, &base),
 				"iteration {i}: kept lines load with a new error:\n{log}--- wrote\n{text}"
 			);
 			// Every line the load dropped went out as written, so the reload

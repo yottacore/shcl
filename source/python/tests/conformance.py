@@ -1035,8 +1035,12 @@ SEQ_NAMES = ["a", "b", "m"]
 def placed(code):
 	"""A line refused only for where it sits, as one code. An edit around it
 	can change which it gets, and it stays kept either way. Removing the field
-	before an E008 item under a field with a value leaves it E011."""
-	return "placed" if code in ("E001", "E003", "E007", "E008", "E011") else code
+	before an E008 item under a field with a value leaves it E011. A misplaced
+	line is the same, as its own code: it's E018 under a kept E012 line and
+	E012 elsewhere, so moving the line above it changes it."""
+	if code in ("E001", "E003", "E007", "E008", "E011"):
+		return "placed"
+	return "misplaced" if code in ("E012", "E018") else code
 
 
 def no_new_errors(text, base):
@@ -1045,6 +1049,30 @@ def no_new_errors(text, base):
 	count = collections.Counter(placed(d.code) for d in shcl.Document.parse(base).diagnostics() if d.severity == shcl.Severity.Error)
 	count.subtract(placed(d.code) for d in shcl.Document.parse(text).diagnostics() if d.severity == shcl.Severity.Error)
 	return min(count.values(), default=0) >= 0
+
+
+def a_remove_that_moves_a_misplaced_line_adds_no_error():
+	"""The fuzz's base and edits from 2026110714552634: the remove leaves a
+	misplaced line below the kept field line after it, where a reload of the
+	text without the removed line files it, and the misplaced line under them
+	reloads as E018 where it was E012. Same fixture in every runner."""
+	base = "window:\n\topacity: 1.0\n    m_argin: 4\n\n\tcol\tmns: 160\n\trows: 48\nfont:\n\tface:\n\t\tsize: 12\n    bad:\t 1\n\t\tfamily: mono\n\thint:\n  ~ bad: 2\n\t\tfist: 1\n\t\tsecond: 2\\a:\n    b: 1\n  c: 2\n     d 3\n    h: 6\nz: 9\n"
+	want = "font:\n\tface:\n\t\tsize: 12\n    bad:\t 1\n\t\tfamily: mono\n\t\t\tkid2: 3\n\thint:\n\t\tsecond: 2\\a:\n  ~ bad: 2\n    b: 1\n  c: 2\n     d 3\n    h: 6\nz: 9\n"
+	doc = shcl.Document.parse_keep_lines(base, shcl.Strictness.Standard)
+	if doc.remove("font.hint.fist") != 1:
+		raise SystemExit("remove font.hint.fist")
+	cut = shcl.Document.parse(base.replace("\t\tfist: 1\n", "", 1))
+	if doc.to_canonical() != cut.to_canonical():
+		raise SystemExit(f"remove {doc.to_canonical()!r}, reload of the cut text {cut.to_canonical()!r}")
+	if doc.remove("window") != 1 or not doc.set_int("font.face.family.kid2", 3):
+		raise SystemExit("remove window or set kid2")
+	text, kept = doc.to_text_keep_lines()
+	if (text, kept) != (want, True):
+		raise SystemExit(f"kept {kept} {text!r}, want {want!r}")
+	if shcl.Document.parse(text).to_canonical() != doc.to_canonical():
+		raise SystemExit(f"reload differs: {text!r}")
+	if not no_new_errors(text, base):
+		raise SystemExit(f"a new error: {text!r}")
 
 
 def keeps_every_line(base):
@@ -2716,12 +2744,14 @@ def main():
 		return one_line_in(*a)
 
 	shcl._one_line_in = counted
+	# len(), not the list's truth: CodeQL takes `built` as the empty list it
+	# starts as, and would call the rest of main() unreachable.
 	try:
 		good = shcl._resolve_marks("x\u25c9TAB\u25c9y\u25c9U+41\u25c9z\u25c9ESCAPE_CHAR\u25c9")
-		if good != ("x\tyAz\u25c9", None) or built:
+		if good != ("x\tyAz\u25c9", None) or len(built):
 			raise SystemExit(f"good escapes: {good!r}, message text built {len(built)} times")
 		bad = shcl._resolve_marks("x\u25c9NOPE\u25c9")
-		if bad[0] is not None or "'\u25c9NOPE\u25c9'" not in (bad[1] or "") or not built:
+		if bad[0] is not None or "'\u25c9NOPE\u25c9'" not in (bad[1] or "") or len(built) == 0:
 			raise SystemExit(f"unknown escape: {bad!r}")
 	finally:
 		shcl._one_line_in = one_line_in
@@ -4019,6 +4049,8 @@ def main():
 	edits_and_merges_match_a_reload()
 	test_id("ddhg0", "a_remove_keeps_a_settled_line_below_it")
 	a_remove_keeps_a_settled_line_below_it()
+	test_id("df351", "a_remove_that_moves_a_misplaced_line_adds_no_error")
+	a_remove_that_moves_a_misplaced_line_adds_no_error()
 
 	test_id("dcrns", "repr_names_the_fields")
 	# Python-only: Diagnostic and Read used to print as object addresses, where
@@ -5539,8 +5571,9 @@ def main():
 	test_id("dekj7", "a_save_over_a_file_changed_since_the_load_is_refused")
 	# A save over the file a load read refuses when another program changed it
 	# since, writes nothing, and writes with force. A save over a file the
-	# document never read, a parse's included, is refused the same way
-	# (2026102910482342, 2026110613470307).
+	# document never read, a parse's included, is refused the same way, and
+	# nothing at the path is written (2026102910482342, 2026110613470307,
+	# 2026110907535001).
 	with tempfile.TemporaryDirectory() as cd:
 		def cread(p):
 			with open(p, encoding="utf-8", newline="") as fh:
@@ -5597,11 +5630,18 @@ def main():
 		same("kept force", ckept.save_file_with(cf, shcl.SaveOptions(keep_lines=True, force=True)), True)
 		same("kept forced", cread(cf), "a: 2 # one\n")
 
-		# Gone since the load is a change. So is a file made where none was.
+		# Nothing at the path is no bytes to lose, so a file gone since the
+		# load is written back, and a save-as to a new name is written, as an
+		# editor writes them (2026110907535001). A file made where none was is
+		# a change.
 		cgone, _ = shcl.Document.load_file(cf)
+		cgone.set_int("a", 4)
 		os.remove(cf)
-		refused("gone", lambda: cgone.save_file(cf), cf)
-		same("gone left", os.path.exists(cf), False)
+		cgone.save_file(cf)
+		same("gone", cread(cf), "a: 4  # one\n")
+		crenamed = os.path.join(cd, "renamed.shcl")
+		cgone.save_file(crenamed)
+		same("renamed", cread(crenamed), "a: 4  # one\n")
 		cn = os.path.join(cd, "new.shcl")
 		cfresh, cst = shcl.Document.load_file(cn)
 		same("new status", cst, shcl.FileStatus.NotFound)
@@ -5621,13 +5661,16 @@ def main():
 		same("other left", cread(cother), "z: 0\n")
 		same("other force", cgone.save_file_with(cother, force), False)
 		cgone.save_file(cother)
+		cwrite(cf, "a: 8\n")
 		refused("still", lambda: cgone.save_file(cf), cf)
+		same("still left", cread(cf), "a: 8\n")
 		# A parse read no file, so it writes only where nothing is, or over
 		# what it wrote itself.
 		cparsed = shcl.Document.parse("a: 5\n")
 		refused("parsed", lambda: cparsed.save_file(cother), cother)
 		same("parsed force", cparsed.save_file_with(cother, force), False)
 		same("parsed", cread(cother), "a: 5\n")
+		os.remove(cf)
 		cparsed.save_file(cf)
 		cparsed.save_file(cf)
 		same("parsed new", cread(cf), "a: 5\n")
@@ -5639,8 +5682,9 @@ def main():
 	# the bytes at the save path, so a file the document never read, such as
 	# the same name from another working folder, is refused too. A FIFO
 	# swapped in gets the write's own refusal rather than a wait, and a file
-	# the check can't read is a change (2026110312163201, 2026110312163202,
-	# 2026110613470307).
+	# the check can't read is a change. Nothing at the path is no change, so a
+	# file gone since the load is written back (2026110312163201,
+	# 2026110312163202, 2026110613470307, 2026110907535001).
 	with tempfile.TemporaryDirectory() as sd:
 		def sread(p):
 			with open(p, encoding="utf-8", newline="") as fh:
@@ -5670,12 +5714,13 @@ def main():
 		os.chdir(sd)
 		try:
 			os.mkdir("sub")
-			# A bare name, gone since the load.
+			# A bare name, gone since the load, is written back, since nothing
+			# there is no bytes to lose (2026110907535001).
 			swrite("i.shcl", "a: 1\n")
 			sgone, _ = shcl.Document.load_file("i.shcl")
 			os.remove("i.shcl")
-			srefused("bare gone", lambda: sgone.save_file("i.shcl"), "i.shcl")
-			ssame("bare gone left", os.path.exists("i.shcl"), False)
+			sgone.save_file("./i.shcl")
+			ssame("bare gone", sread("i.shcl"), "a: 1\n")
 
 			# A bare name made where the load found nothing, by any spelling.
 			sfresh, st = shcl.Document.load_file("h.shcl")

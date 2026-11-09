@@ -6,9 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
-- A save checks the bytes at the path it writes, every time, whatever file the path names now. It writes when they're what the load read or what this document's last save wrote, or when nothing is there and the load found nothing. So unless `force` is set, a save onto a file the document never read is refused as changed, where it used to write. A save-as is one case, and a document from `parse` over an existing file is another. A save to the same relative name from another working folder is refused the same way.
+- An installer run that would put an older release over a newer install says so in its plan and its receipt, and on the stable channel says how to keep the newer one. It also removes the drop-ins, man page and completions the older release doesn't ship, so they don't sit beside a binary they don't match.
+
+- A save checks the bytes at the path it writes, every time, whatever file the path names now. It writes when they're what the load read or what this document's last save wrote, or when nothing is there, as an editor does. So a file deleted since the load is written back, where beta1 refused it as changed, and a save-as to a new name is still written. Unless `force` is set, a save onto a file the document never read is refused as changed, where it used to write. A save-as is one case, and a document from `parse` over an existing file is another. A save to the same relative name from another working folder is refused the same way.
 
 ### Fixed
+
+- In Go, a zero-value `Document`, such as `var d shcl.Document`, is an empty document at Standard, the same as `New()`. Its first set, read or merge panicked before. `Merge(nil)` adds nothing, where it panicked too.
 
 - The Windows setup's uninstall rewrote a machine PATH that had an empty segment, such as a trailing `;`, even when it didn't have a shcl folder in it, and its install dropped the empty segments. It writes only its own segment now, as install.ps1 does.
 

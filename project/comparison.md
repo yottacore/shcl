@@ -61,7 +61,7 @@ Far past anything anyone edits by hand: one array of 296,892 records.
 | File size (MB)             | 105      | 157  | 75   | **67**  | 78
 | Gzipped (MB)               | 8.7      | 10.8 | 9.1  | 8.9     | 9.3
 | Read time (s)              | **0.63** | 1.40 | 2.07 | 3.92    | 4.76
-| Peak memory (GB)           | **1.1**  | 1.5  | 2.4  | 1.7     | 2.7
+| Peak memory (GB)           | **1.1**  | 1.4  | 2.3  | 1.7     | 2.6
 | Keeps your file as written | no       | no   | no   | **yes** | no
 
 `toml_edit` is the only other parser here that keeps the file as written, comments included. It isn't in the table. It peaks at 4.2 GB against SHCL's 1.7, and reads in 2.5 s against SHCL's 3.9.

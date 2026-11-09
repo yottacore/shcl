@@ -177,10 +177,10 @@ typedef enum { SHCL_KIND_EMPTY, SHCL_KIND_SCALAR, SHCL_KIND_ARRAY, SHCL_KIND_RAW
 typedef struct { shcl_value_kind value; shcl_status status; } shcl_read_value_kind;
 
 // Maximum nesting depth (levels below the document root), enforced at load and
-// by the Writer. Deeper lines are skipped with an E016 error. The cap is what
-// keeps the recursive tree walks (emit, merge, clone) safely inside every
-// binding's stack, so a hostile or machine-generated document can make a load
-// fail but never crash the consumer.
+// by the Writer. Deeper lines are skipped with an E016 error. The cap bounds
+// the tree walks (emit, merge, clone), which keep their own stacks here, so a
+// hostile or machine-generated document can make a load fail but never crash
+// the consumer.
 #define SHCL_MAX_DEPTH ((size_t)512)
 
 // How much of a file's own name the temporary file beside it borrows, in bytes.
@@ -327,14 +327,16 @@ typedef enum {
 } shcl_file_status;
 /* Save refuses when the write would delete content from the file
    (shcl_lost_count); shcl_save_file_lossy is the override, and is the only way
-   to write then. Over the file a load read, it also refuses when that file no
-   longer holds what the load read, or what this document's last save there
-   wrote, so another program's edit is not lost; the force option is the
-   override. The failures are separate values rather than one falsey answer
-   because they need different handling: a refusal is the caller's to
-   reverse, a write failure is the disk's answer with errno describing it.
-   CHANGED is the other bindings' "PATH: refusing to save: the file changed
-   since it was loaded; nothing written (force overrides)", EXISTS their
+   to write then. It also refuses when something is at the path and its bytes
+   are neither what the load read nor what this document's last save wrote,
+   so another program's edit, or a file this document never read, is not
+   lost; the force option is the override. Nothing at the path is written, as
+   a save-as to a new name or over a file removed since the load. The
+   failures are separate values rather than one falsey answer because they
+   need different handling: a refusal is the caller's to reverse, a write
+   failure is the disk's answer with errno describing it. CHANGED is the
+   other bindings' "PATH: refusing to save: what is there is not what this
+   document read or wrote; nothing written (force overrides)", EXISTS their
    "PATH: refusing to save: the file is already there and create asks for a
    new one; nothing written", and TOO_NEW their "PATH: refusing to save: the
    document holds lines from a newer format than this reader's; nothing
@@ -343,7 +345,7 @@ typedef enum {
 	SHCL_SAVE_OK,      /* written */
 	SHCL_SAVE_REFUSED, /* the lost-content gate fired; lossy overrides */
 	SHCL_SAVE_FAILED,  /* the write itself failed; *why and errno say why */
-	SHCL_SAVE_CHANGED, /* the file changed since the load; nothing written, force overrides */
+	SHCL_SAVE_CHANGED, /* the bytes at the path are neither what the load read nor what the last save wrote; nothing written, force overrides */
 	SHCL_SAVE_EXISTS,  /* create found a file there, or another save made it first; nothing written */
 	SHCL_SAVE_TOO_NEW  /* the document is from a newer format (shcl_newer_format); nothing written, and nothing overrides it */
 } shcl_save_result;
@@ -351,7 +353,7 @@ typedef enum {
 typedef struct {
 	int lossy;      /* write even when the save deletes content, as shcl_save_file_lossy */
 	int keep_lines; /* keep the lines no edit touched, as shcl_save_file_keep_lines */
-	int force;      /* write over the file the load read even when it changed since */
+	int force;      /* write over whatever is at the path, even a file this document never read or one changed since */
 	int create;     /* only make a new file: SHCL_SAVE_EXISTS when one is there, even one another save makes at the same time */
 	unsigned mode;  /* the permission bits (0777) a file this save makes gets, exactly, whatever the umask; 0 is an ordinary create's; a file already there keeps its own, and windows has no such bits */
 } shcl_save_options;
@@ -7148,6 +7150,73 @@ static void children_named(shcl_doc *d, ShclArena *a, size_t parent, ShclStr nam
 	}
 }
 
+/* A wildcard instance still to walk, and the segment its walk starts at. */
+typedef struct { size_t node, seg; } ShclSubWalk;
+DEFINE_VEC(ShclVecSubWalk, ShclSubWalk)
+
+// The slots one wildcard instance adds to the run: normally one - the node, or
+// why the rest of the path did not reach one node - but a further wildcard in
+// the rest adds its own, so the two compose into one flat run of leaves rather
+// than one unreadable slot. Its own stack rather than a call per wildcard, as
+// in Python: a path can hold a wildcard per document level, which at the depth
+// cap outran a small thread's stack. Children go on reversed, so slots come out
+// in file order.
+static void resolve_slots(shcl_doc *d, size_t inst, ShclSegment *segs, size_t nsegs, int group, ShclVecSlot *slots) { // NOLINT(bugprone-easily-swappable-parameters): a count follows its array
+	ShclArena *a = &d->scratch;
+	ShclVecSubWalk todo = {0};
+	ShclSubWalk w0; w0.node = inst; w0.seg = 0;
+	ShclVecSubWalk_push(a, &todo, w0);
+	while (todo.len) {
+		ShclSubWalk w = todo.data[--todo.len];
+		ShclVecSize cur = {0};
+		ShclVecSize_push(a, &cur, w.node);
+		int split = 0;
+		for (size_t si = w.seg; si < nsegs; si++) {
+			const ShclSegment *seg = &segs[si];
+			ShclVecSize next = {0};
+			for (size_t k = 0; k < cur.len; k++) {
+				ShclVecSize ch = NODE(d, cur.data[k]).children;
+				if (seg->star) {
+					for (size_t j = 0; j < ch.len; j++) ShclVecSize_push(a, &next, ch.data[j]);
+				} else {
+					children_named(d, a, cur.data[k], seg->name, &next);
+				}
+			}
+			if (seg->star || seg->sel.tag == SEL_WILDCARD) {
+				if (si + 1 == nsegs) {
+					for (size_t k = 0; k < next.len; k++) { ShclSlot sl; sl.present = 1; sl.idx = next.data[k]; sl.miss = SHCL_NOT_FOUND; ShclVecSlot_push(a, slots, sl); }
+				} else {
+					for (size_t k = next.len; k > 0; k--) { ShclSubWalk c; c.node = next.data[k - 1]; c.seg = si + 1; ShclVecSubWalk_push(a, &todo, c); }
+				}
+				split = 1;
+				break;
+			}
+			switch (seg->sel.tag) {
+			case SEL_VALUE: {
+				ShclVecSize f = {0};
+				ShclStr want = seg->sel.value;
+				for (size_t k = 0; k < next.len; k++) if (single_scalar(&NODE(d, next.data[k]).value) && s_eq(disp_key(a, &NODE(d, next.data[k]).value), want)) ShclVecSize_push(a, &f, next.data[k]);
+				cur = f; break;
+			}
+			case SEL_INDEX: {
+				ShclVecSize f = {0};
+				if (seg->sel.index < next.len) ShclVecSize_push(a, &f, next.data[seg->sel.index]);
+				cur = f; break;
+			}
+			case SEL_NONE: case SEL_WILDCARD: cur = next; break;
+			}
+		}
+		if (split) continue;
+		if (cur.len > 1 && group) {
+			for (size_t j = 0; j < cur.len; j++) { ShclSlot m; m.present = 1; m.idx = cur.data[j]; m.miss = SHCL_GOOD; ShclVecSlot_push(a, slots, m); }
+			continue;
+		}
+		ShclSlot sl; sl.present = cur.len == 1; sl.idx = cur.len == 1 ? cur.data[0] : 0;
+		sl.miss = cur.len > 1 ? SHCL_MULTIPLE : SHCL_NOT_FOUND;
+		ShclVecSlot_push(a, slots, sl);
+	}
+}
+
 // `group`: a sub-path reaching several nodes joins the slot list instead of
 // becoming one SHCL_MULTIPLE slot. Reads want the slot per instance, so they
 // leave it off; remove and exists want every node behind the wildcard.
@@ -7172,25 +7241,8 @@ static ShclResolved resolve_from(shcl_doc *d, const size_t *start, size_t nstart
 			ShclSegment *rest = segs + si + 1; size_t nrest = nsegs - si - 1;
 			ShclVecSlot slots = {0};
 			for (size_t k = 0; k < next.len; k++) {
-				ShclSlot sl; sl.present = 0; sl.idx = 0; sl.miss = SHCL_NOT_FOUND;
-				if (nrest == 0) { sl.present = 1; sl.idx = next.data[k]; }
-				else {
-					size_t inst = next.data[k]; ShclResolved r = resolve_from(d, &inst, 1, rest, nrest, group);
-					if (r.kind == R_ONE) { sl.present = 1; sl.idx = r.one; }
-					else if (r.kind == R_SLOTS) {
-						// A wildcard after a wildcard: the inner slots join the
-						// outer list, so the two compose into one flat run of
-						// leaves rather than one unreadable slot.
-						for (size_t j = 0; j < r.slots.len; j++) ShclVecSlot_push(a, &slots, r.slots.data[j]);
-						continue;
-					}
-					else if (r.kind == R_MANY && group) {
-						for (size_t j = 0; j < r.many.len; j++) { ShclSlot m; m.present = 1; m.idx = r.many.data[j]; m.miss = SHCL_GOOD; ShclVecSlot_push(a, &slots, m); }
-						continue;
-					}
-					else if (r.kind != R_NONE) sl.miss = SHCL_MULTIPLE;
-				}
-				ShclVecSlot_push(a, &slots, sl);
+				if (nrest == 0) { ShclSlot sl; sl.present = 1; sl.idx = next.data[k]; sl.miss = SHCL_NOT_FOUND; ShclVecSlot_push(a, &slots, sl); }
+				else resolve_slots(d, next.data[k], rest, nrest, group, &slots);
 			}
 			ShclResolved R; R.kind = R_SLOTS; R.slots = slots; memset(&R.many, 0, sizeof R.many); R.one = 0;
 			return R;
@@ -7212,25 +7264,8 @@ static ShclResolved resolve_from(shcl_doc *d, const size_t *start, size_t nstart
 			ShclSegment *rest = segs + si + 1; size_t nrest = nsegs - si - 1;
 			ShclVecSlot slots = {0};
 			for (size_t k = 0; k < next.len; k++) {
-				ShclSlot sl; sl.present = 0; sl.idx = 0; sl.miss = SHCL_NOT_FOUND;
-				if (nrest == 0) { sl.present = 1; sl.idx = next.data[k]; }
-				else {
-					size_t inst = next.data[k]; ShclResolved r = resolve_from(d, &inst, 1, rest, nrest, group);
-					if (r.kind == R_ONE) { sl.present = 1; sl.idx = r.one; }
-					else if (r.kind == R_SLOTS) {
-						// A wildcard after a wildcard: the inner slots join the
-						// outer list, so the two compose into one flat run of
-						// leaves rather than one unreadable slot.
-						for (size_t j = 0; j < r.slots.len; j++) ShclVecSlot_push(a, &slots, r.slots.data[j]);
-						continue;
-					}
-					else if (r.kind == R_MANY && group) {
-						for (size_t j = 0; j < r.many.len; j++) { ShclSlot m; m.present = 1; m.idx = r.many.data[j]; m.miss = SHCL_GOOD; ShclVecSlot_push(a, &slots, m); }
-						continue;
-					}
-					else if (r.kind != R_NONE) sl.miss = SHCL_MULTIPLE;
-				}
-				ShclVecSlot_push(a, &slots, sl);
+				if (nrest == 0) { ShclSlot sl; sl.present = 1; sl.idx = next.data[k]; sl.miss = SHCL_NOT_FOUND; ShclVecSlot_push(a, &slots, sl); }
+				else resolve_slots(d, next.data[k], rest, nrest, group, &slots);
 			}
 			ShclResolved R; R.kind = R_SLOTS; R.slots = slots; memset(&R.many, 0, sizeof R.many); R.one = 0;
 			return R;
@@ -12963,62 +12998,73 @@ static void v_suggest(ShclArena *a, ShclArena *tmp, ShclSuggestNames *sn, ShclSt
 typedef struct { size_t anchor; ShclVecSize found; } ShclVCtx;
 DEFINE_VEC(ShclVecVCtx, ShclVCtx)
 
+/* A wildcard instance whose contexts are still to resolve: the segment its
+   walk starts at, and the line its required/repeat checks anchor to. */
+typedef struct { size_t node, seg, anchor; } ShclVCtxWalk;
+DEFINE_VEC(ShclVecVCtxWalk, ShclVCtxWalk)
+
+// Its own stack rather than a call per wildcard, as in Python: a path can hold
+// a wildcard per document level, which at the depth cap outran a small
+// thread's stack. Instances go on reversed, so contexts come out in the
+// reference's order.
 static void v_contexts(ShclArena *a, shcl_doc *d, const size_t *start, size_t nstart, ShclSegment *segs, size_t nsegs, size_t anchor, ShclVecVCtx *out) { // NOLINT(bugprone-easily-swappable-parameters): a count follows its array
-	ShclVecSize cur = {0};
-	// cppcheck-suppress objectIndex  ## single-element callers pass nstart == 1, so start[i] stays at 0
-	for (size_t i = 0; i < nstart; i++) ShclVecSize_push(a, &cur, start[i]);
-	for (size_t si = 0; si < nsegs; si++) {
-		const ShclSegment *seg = &segs[si];
-		ShclVecSize next = {0};
-		for (size_t k = 0; k < cur.len; k++) {
-			ShclVecSize ch = NODE(d, cur.data[k]).children;
-			if (seg->star) {
-				for (size_t j = 0; j < ch.len; j++) ShclVecSize_push(a, &next, ch.data[j]);
-			} else {
-				children_named(d, a, cur.data[k], seg->name, &next);
-			}
+	ShclVecVCtxWalk todo = {0};
+	int first = 1;
+	while (first || todo.len) {
+		ShclVecSize cur = {0};
+		size_t at = 0, anc = anchor;
+		if (first) {
+			// cppcheck-suppress objectIndex  ## single-element callers pass nstart == 1, so start[i] stays at 0
+			for (size_t i = 0; i < nstart; i++) ShclVecSize_push(a, &cur, start[i]);
+			first = 0;
+		} else {
+			ShclVCtxWalk w = todo.data[--todo.len];
+			ShclVecSize_push(a, &cur, w.node);
+			at = w.seg; anc = w.anchor;
 		}
-		if (seg->star) {
-			// Name wildcard: same per-instance split as `(*)`, any child name.
-			ShclSegment *rest = segs + si + 1; size_t nrest = nsegs - si - 1;
-			if (nrest == 0) {
-				ShclVCtx ctx; ctx.anchor = anchor; ctx.found = next; ShclVecVCtx_push(a, out, ctx);
-			} else {
-				for (size_t k = 0; k < next.len; k++) {
-					size_t inst = next.data[k];
-					v_contexts(a, d, &inst, 1, rest, nrest, NODE(d, inst).line, out);
+		int split = 0;
+		for (size_t si = at; si < nsegs; si++) {
+			const ShclSegment *seg = &segs[si];
+			ShclVecSize next = {0};
+			for (size_t k = 0; k < cur.len; k++) {
+				ShclVecSize ch = NODE(d, cur.data[k]).children;
+				if (seg->star) {
+					for (size_t j = 0; j < ch.len; j++) ShclVecSize_push(a, &next, ch.data[j]);
+				} else {
+					children_named(d, a, cur.data[k], seg->name, &next);
 				}
 			}
-			return;
-		}
-		switch (seg->sel.tag) {
-		case SEL_NONE: cur = next; break;
-		case SEL_VALUE: {
-			ShclVecSize f = {0};
-			ShclStr want = seg->sel.value;
-			for (size_t k = 0; k < next.len; k++) if (single_scalar(&NODE(d, next.data[k]).value) && s_eq(disp_key(a, &NODE(d, next.data[k]).value), want)) ShclVecSize_push(a, &f, next.data[k]);
-			cur = f; break;
-		}
-		case SEL_INDEX: {
-			ShclVecSize f = {0};
-			if (seg->sel.index < next.len) ShclVecSize_push(a, &f, next.data[seg->sel.index]);
-			cur = f; break;
-		}
-		case SEL_WILDCARD: {
-			ShclSegment *rest = segs + si + 1; size_t nrest = nsegs - si - 1;
-			if (nrest == 0) {
-				ShclVCtx ctx; ctx.anchor = anchor; ctx.found = next; ShclVecVCtx_push(a, out, ctx);
-			} else {
-				for (size_t k = 0; k < next.len; k++) {
-					size_t inst = next.data[k];
-					v_contexts(a, d, &inst, 1, rest, nrest, NODE(d, inst).line, out);
+			if (seg->star || seg->sel.tag == SEL_WILDCARD) {
+				// Wildcard, or the name wildcard (the same per-instance split,
+				// over any child name): the rest resolves per instance.
+				if (si + 1 == nsegs) {
+					ShclVCtx ctx; ctx.anchor = anc; ctx.found = next; ShclVecVCtx_push(a, out, ctx);
+				} else {
+					for (size_t k = next.len; k > 0; k--) {
+						ShclVCtxWalk w; w.node = next.data[k - 1]; w.seg = si + 1; w.anchor = NODE(d, w.node).line;
+						ShclVecVCtxWalk_push(a, &todo, w);
+					}
 				}
+				split = 1;
+				break;
 			}
-			return;
+			switch (seg->sel.tag) {
+			case SEL_VALUE: {
+				ShclVecSize f = {0};
+				ShclStr want = seg->sel.value;
+				for (size_t k = 0; k < next.len; k++) if (single_scalar(&NODE(d, next.data[k]).value) && s_eq(disp_key(a, &NODE(d, next.data[k]).value), want)) ShclVecSize_push(a, &f, next.data[k]);
+				cur = f; break;
+			}
+			case SEL_INDEX: {
+				ShclVecSize f = {0};
+				if (seg->sel.index < next.len) ShclVecSize_push(a, &f, next.data[seg->sel.index]);
+				cur = f; break;
+			}
+			case SEL_NONE: case SEL_WILDCARD: cur = next; break;
+			}
 		}
-		}
+		if (!split) { ShclVCtx ctx; ctx.anchor = anc; ctx.found = cur; ShclVecVCtx_push(a, out, ctx); }
 	}
-	ShclVCtx ctx; ctx.anchor = anchor; ctx.found = cur; ShclVecVCtx_push(a, out, ctx);
 }
 
 static void v_wrong_type(ShclArena *a, ShclVecDiag *out, size_t line, const ShclVCons *c) {
@@ -13260,64 +13306,105 @@ static void v_node(ShclArena *a, ShclArena *lv, shcl_doc *d, const ShclVCons *c,
    a hit verifies against. */
 typedef struct { ShclCMap map; ShclVecS frag; ShclVecSize node; } ShclVMounts;
 
+/* One active level of the mount walk: the constraint, its mount looked up
+   once, its contexts, and where the walk over them is. While mounting, fi is
+   the next field of the fragment mounted at found[k] of context i. */
+typedef struct {
+	const ShclVCons *c;
+	const ShclVecVCons *fcs;
+	ShclVecVCtx ctxs;
+	size_t i, k, fi;
+	int opened, mounting;
+} ShclVLevel;
+// codeql[cpp/large-parameter] DEFINE_VEC's push takes its element by value, for every type
+DEFINE_VEC(ShclVecVLevel, ShclVLevel)
+
+// lv is this level's scratch arena (next slot in the caller's per-level pool);
+// resetting it here reuses the previous sibling's block instead of retaining
+// every level's temporaries in the validation arena until it is freed. Level
+// L's contexts stay live in lv while deeper levels run in lv+1.
+static void v_check_open(ShclArena *a, ShclArena *lv, shcl_doc *d, const ShclVCons *c, const ShclVSchemaDef *def, size_t start, size_t anchor0, ShclVecVLevel *levels) { // NOLINT(bugprone-easily-swappable-parameters): result arena first, then the level's
+	arena_reset(lv);
+	ShclVLevel L; memset(&L, 0, sizeof L);
+	L.c = c;
+	v_contexts(lv, d, &start, 1, c->segs.data, c->segs.len, anchor0, &L.ctxs);
+	// The mount is the constraint's, not the node's, so it is looked up once
+	// here rather than once per resolved node.
+	L.fcs = c->inherits.n ? v_frag_get(def, c->inherits) : NULL;
+	ShclVecVLevel_push(a, levels, L);
+}
+
 // A mounted fragment's fields run per resolved node, right after that node's
 // own checks, in fragment order - depth-first, so diagnostic order stays
 // derivable. Termination is structural: every mount descends at least one
-// document level, and the document is finite (depth capped at 512, so this C
-// stack recursion is safe - same rationale as v_contexts' own).
-// lv is this level's scratch arena (next slot in the caller's per-level pool);
-// resetting it at entry reuses the previous sibling call's block instead of
-// retaining every level's temporaries in the validation arena until it is
-// freed. Level L's contexts stay live in lv while deeper levels run in lv+1.
-static void v_check_from(ShclArena *a, ShclArena *lv, shcl_doc *d, const ShclVCons *c, const ShclVSchemaDef *def, size_t start, size_t anchor0, ShclVecDiag *out, ShclVMounts *mounted) {
-	arena_reset(lv);
-	ShclVecVCtx ctxs = {0};
-	v_contexts(lv, d, &start, 1, c->segs.data, c->segs.len, anchor0, &ctxs);
-	// The mount is the constraint's, not the node's, so it is looked up once
-	// here rather than once per resolved node.
-	const ShclVecVCons *fcs = c->inherits.n ? v_frag_get(def, c->inherits) : NULL;
-	for (size_t i = 0; i < ctxs.len; i++) {
-		ShclVCtx *ctx = &ctxs.data[i];
-		if (c->required && ctx->found.len == 0)
-			v_diag(a, out, ctx->anchor, "V002", v_msg3(a, "required path missing: ", schema_text(a, c->path), ""));
-		if (c->has_repeat) {
-			uint64_t n = (uint64_t)ctx->found.len;
-			if (n < c->rep_lo || n > c->rep_hi) {
-				ShclSB s = {0, 0, 0};
-				sb_puts(a, &s, "instance count out of bounds at '"); sb_putS(a, &s, schema_text(a, c->path));
-				sb_puts(a, &s, "': "); sb_put_u64(a, &s, n);
-				sb_puts(a, &s, " not in "); sb_put_u64(a, &s, c->rep_lo);
-				sb_puts(a, &s, ".."); sb_put_u64(a, &s, c->rep_hi);
-				v_diag(a, out, ctx->anchor, "V007", sb_S(&s));
+// document level, and the document is finite (depth capped at 512, which is
+// what bounds the level pool). The levels are kept in `levels` rather than one
+// call per mount, as in Python: a fragment mounting itself descends one level
+// per document level, which at the depth cap outran a small thread's stack.
+// `levels` is the caller's, reused across constraints; level L uses lvls[L].
+static void v_check_from(ShclArena *a, ShclArena *lvls, shcl_doc *d, const ShclVCons *c0, const ShclVSchemaDef *def, size_t start, size_t anchor0, ShclVecDiag *out, ShclVMounts *mounted, ShclVecVLevel *levels) {
+	levels->len = 0;
+	v_check_open(a, lvls, d, c0, def, start, anchor0, levels);
+	while (levels->len) {
+		size_t depth = levels->len - 1;
+		ShclVLevel *L = &levels->data[depth];
+		ShclArena *lv = lvls + depth;
+		const ShclVCons *c = L->c;
+		if (L->mounting) {
+			if (L->fi < L->fcs->len) {
+				size_t n = L->ctxs.data[L->i].found.data[L->k];
+				const ShclVCons *fc = &L->fcs->data[L->fi++];
+				// L moves if the push grows the vector.
+				v_check_open(a, lv + 1, d, fc, def, n, NODE(d, n).line, levels);
+				continue;
 			}
+			L->mounting = 0;
+			L->k++;
+			continue;
 		}
-		for (size_t k = 0; k < ctx->found.len; k++) {
-			size_t n = ctx->found.data[k];
-			v_node(a, lv, d, c, n, out);
-			if (c->inherits.n) {
-				if (fcs) {
-					// Two constraints can resolve to the same node and mount the
-					// same fragment there. The second mount would repeat the
-					// first's work and its diagnostics, and repeating it per
-					// level is what makes a recursive schema cost double per
-					// document level, so each pair is done once.
-					char kb[sizeof n]; memcpy(kb, &n, sizeof n);
-					ShclStr nkey; nkey.p = kb; nkey.n = sizeof n;
-					uint64_t h = cmap_hash(c->inherits, nkey);
-					int seen = 0;
-					for (ShclCMapEnt *e = cmap_first(&mounted->map, h); e; e = cmap_next(e, h))
-						if (mounted->node.data[e->val] == n && s_eq(mounted->frag.data[e->val], c->inherits)) { seen = 1; break; }
-					if (!seen) {
-						size_t mi = mounted->frag.len;
-						ShclVecS_push(a, &mounted->frag, c->inherits);
-						ShclVecSize_push(a, &mounted->node, n);
-						cmap_put(a, &mounted->map, h, mi);
-						for (size_t fi = 0; fi < fcs->len; fi++)
-							v_check_from(a, lv + 1, d, &fcs->data[fi], def, n, NODE(d, n).line, out, mounted);
-					}
+		if (L->i >= L->ctxs.len) { levels->len--; continue; }
+		ShclVCtx *ctx = &L->ctxs.data[L->i];
+		if (!L->opened) {
+			L->opened = 1;
+			if (c->required && ctx->found.len == 0)
+				v_diag(a, out, ctx->anchor, "V002", v_msg3(a, "required path missing: ", schema_text(a, c->path), ""));
+			if (c->has_repeat) {
+				uint64_t n = (uint64_t)ctx->found.len;
+				if (n < c->rep_lo || n > c->rep_hi) {
+					ShclSB s = {0, 0, 0};
+					sb_puts(a, &s, "instance count out of bounds at '"); sb_putS(a, &s, schema_text(a, c->path));
+					sb_puts(a, &s, "': "); sb_put_u64(a, &s, n);
+					sb_puts(a, &s, " not in "); sb_put_u64(a, &s, c->rep_lo);
+					sb_puts(a, &s, ".."); sb_put_u64(a, &s, c->rep_hi);
+					v_diag(a, out, ctx->anchor, "V007", sb_S(&s));
 				}
 			}
 		}
+		if (L->k >= ctx->found.len) { L->i++; L->k = 0; L->opened = 0; continue; }
+		size_t n = ctx->found.data[L->k];
+		v_node(a, lv, d, c, n, out);
+		if (L->fcs) {
+			// Two constraints can resolve to the same node and mount the
+			// same fragment there. The second mount would repeat the
+			// first's work and its diagnostics, and repeating it per
+			// level is what makes a recursive schema cost double per
+			// document level, so each pair is done once.
+			char kb[sizeof n]; memcpy(kb, &n, sizeof n);
+			ShclStr nkey; nkey.p = kb; nkey.n = sizeof n;
+			uint64_t h = cmap_hash(c->inherits, nkey);
+			int seen = 0;
+			for (ShclCMapEnt *e = cmap_first(&mounted->map, h); e; e = cmap_next(e, h))
+				if (mounted->node.data[e->val] == n && s_eq(mounted->frag.data[e->val], c->inherits)) { seen = 1; break; }
+			if (!seen) {
+				size_t mi = mounted->frag.len;
+				ShclVecS_push(a, &mounted->frag, c->inherits);
+				ShclVecSize_push(a, &mounted->node, n);
+				cmap_put(a, &mounted->map, h, mi);
+				L->mounting = 1; L->fi = 0;
+				continue;
+			}
+		}
+		L->k++;
 	}
 }
 
@@ -13413,49 +13500,67 @@ static int star_legal(const ShclVecSeg *pats, size_t npats, const ShclFirstIdx *
 	return 0;
 }
 
+/* A chain_parts_legal state: the constraint set (its row in `seen`), where
+   the chain's remainder starts, and how many parts are consumed. */
+typedef struct { size_t set, from, at; } ShclChainState;
+DEFINE_VEC(ShclVecChainState, ShclChainState)
+
 // Chain legality through fragment mounts: the general matcher - element-wise
 // like star_legal (stars wild, prefixes legal), and when a mount's whole path
 // matched with chain left over, the remainder is retried against the mounted
 // fragment's fields. Terminates: every descent consumes >= 1 part. A state is
-// (fragment, parts consumed), one byte each in `dead` - row 0 the top-level
-// constraints, row k+1 fragment k - and one that has failed is not walked
+// (fragment, parts consumed), one byte each in `seen` - row 0 the top-level
+// constraints, row k+1 fragment k - and one already queued is not queued
 // again: two mounts of the same fragment at the same depth used to be walked
-// both, which is 2^depth on a chain that ends unknown.
-// set_idx is one ShclFirstIdx per constraint list, laid out the way `dead` is -
+// both, which is 2^depth on a chain that ends unknown. A worklist rather than
+// a call per mount, as in Python: a chain at the depth cap descends that many
+// mounts, which outran a small thread's stack. The answer is whether any
+// state matches, so the order states are tried in cannot reach it.
+// set_idx is one ShclFirstIdx per constraint list, laid out the way `seen` is -
 // row 0 the top-level constraints, row k+1 fragment k - rather than keyed by
 // fragment name as the reference does, because that numbering is already here.
-static int chain_parts_legal(const ShclVecVCons *cons, size_t set, const ShclVSchemaDef *def, const ShclFirstIdx *set_idx, ShclStr chain, size_t from, size_t at, size_t nparts, unsigned char *dead) { // NOLINT(bugprone-easily-swappable-parameters): a from-to range in the chain
-	if (dead[set * (nparts + 1) + at]) return 0;
-	// The recursion only descends with parts left over, and the sweep never
-	// asks about an empty chain, so there is always a first part to look up.
-	size_t fi0 = from; ShclStr first;
-	const ShclVecSize *bucket = chain_next(chain, &fi0, &first) ? fidx_bucket(&set_idx[set], first) : NULL;
-	for (int pass = 0; pass < 2; pass++) {
-		const ShclVecSize *list = pass ? &set_idx[set].stars : bucket;
-		if (!list) continue;
-		for (size_t bi = 0; bi < list->len; bi++) {
-			const ShclVCons *c = &cons->data[list->data[bi]];
-			size_t n = c->segs.len;
-			// Compare only as far as the path goes. Walking the rest of the
-			// chain per candidate made every level cost the chain's length,
-			// which is cubic in the depth of a recursive mount.
-			size_t part = 0, i = from;
-			int match = 1;
-			ShclStr nm;
-			while (match && part < n && chain_next(chain, &i, &nm)) {
-				if (!c->segs.data[part].star && !s_eq(c->segs.data[part].name, nm)) match = 0;
-				part++;
-			}
-			if (!match) continue;
-			if (nparts - at <= n) return 1; // a prefix of a legal path
-			if (c->inherits.n) {
+static int chain_parts_legal(ShclArena *tmp, const ShclVSchemaDef *def, const ShclFirstIdx *set_idx, ShclStr chain, size_t nparts, unsigned char *seen) {
+	ShclVecChainState todo = {0};
+	ShclChainState s0; s0.set = 0; s0.from = 0; s0.at = 0;
+	ShclVecChainState_push(tmp, &todo, s0);
+	seen[0] = 1;
+	while (todo.len) {
+		ShclChainState st = todo.data[--todo.len];
+		const ShclVecVCons *cons = st.set ? &def->frags.data[st.set - 1].fields : &def->cons;
+		// A state is only queued with parts left over, and the sweep never
+		// asks about an empty chain, so there is always a first part to look up.
+		size_t fi0 = st.from; ShclStr first;
+		const ShclVecSize *bucket = chain_next(chain, &fi0, &first) ? fidx_bucket(&set_idx[st.set], first) : NULL;
+		for (int pass = 0; pass < 2; pass++) {
+			const ShclVecSize *list = pass ? &set_idx[st.set].stars : bucket;
+			if (!list) continue;
+			for (size_t bi = 0; bi < list->len; bi++) {
+				const ShclVCons *c = &cons->data[list->data[bi]];
+				size_t n = c->segs.len;
+				// Compare only as far as the path goes. Walking the rest of the
+				// chain per candidate made every level cost the chain's length,
+				// which is cubic in the depth of a recursive mount.
+				size_t part = 0, i = st.from;
+				int match = 1;
+				ShclStr nm;
+				while (match && part < n && chain_next(chain, &i, &nm)) {
+					if (!c->segs.data[part].star && !s_eq(c->segs.data[part].name, nm)) match = 0;
+					part++;
+				}
+				if (!match) continue;
+				if (nparts - st.at <= n) return 1; // a prefix of a legal path
+				if (!c->inherits.n) continue;
 				size_t fi = v_frag_index(def, c->inherits);
+				if (fi == SIZE_MAX) continue;
 				// i is past the matched path, where the remainder starts.
-				if (fi != SIZE_MAX && chain_parts_legal(&def->frags.data[fi].fields, fi + 1, def, set_idx, chain, i, at + n, nparts, dead)) return 1;
+				ShclChainState next; next.set = fi + 1; next.from = i; next.at = st.at + n;
+				unsigned char *cell = &seen[next.set * (nparts + 1) + next.at];
+				if (*cell) continue;
+				*cell = 1;
+				ShclVecChainState_push(tmp, &todo, next);
 			}
 		}
 	}
-	dead[set * (nparts + 1) + at] = 1;
 	return 0;
 }
 static int chain_legal(ShclArena *tmp, const ShclVSchemaDef *def, const ShclFirstIdx *set_idx, ShclStr chain) {
@@ -13463,9 +13568,9 @@ static int chain_legal(ShclArena *tmp, const ShclVSchemaDef *def, const ShclFirs
 	ShclStr nm;
 	while (chain_next(chain, &i, &nm)) nparts++;
 	size_t cells = (def->frags.len + 1) * (nparts + 1);
-	unsigned char *dead = (unsigned char *)arena_alloc(tmp, cells);
-	memset(dead, 0, cells);
-	return chain_parts_legal(&def->cons, 0, def, set_idx, chain, 0, 0, nparts, dead);
+	unsigned char *seen = (unsigned char *)arena_alloc(tmp, cells);
+	memset(seen, 0, cells);
+	return chain_parts_legal(tmp, def, set_idx, chain, nparts, seen);
 }
 
 // Unknown-field sweep: a schema path legalizes its name chain and every prefix
@@ -13647,7 +13752,7 @@ shcl_validation *shcl_validate(shcl_doc *d, shcl_doc *schema) { // NOLINT(bugpro
 	ShclVecDiag faults = {0};
 	v_build_schema(a, schema, &def, &faults);
 	v->diags = faults;
-	// One scratch arena per mount-recursion level, reset and reused across
+	// One scratch arena per mount level, reset and reused across
 	// sibling calls: peak retention is one block per active document level,
 	// not every level of every walk. The parser caps depth at SHCL_MAX_DEPTH
 	// and every mount starts at least one level deeper, so the pool cannot be
@@ -13663,7 +13768,8 @@ shcl_validation *shcl_validate(shcl_doc *d, shcl_doc *schema) { // NOLINT(bugpro
 	// fragment runs once per node. Entries live in the validation arena, so
 	// the set needs no own teardown.
 	ShclVMounts mounted; memset(&mounted, 0, sizeof mounted);
-	for (size_t i = 0; i < def.cons.len; i++) v_check_from(a, lvls, d, &def.cons.data[i], &def, ROOT, 0, &v->diags, &mounted);
+	ShclVecVLevel walk = {0};
+	for (size_t i = 0; i < def.cons.len; i++) v_check_from(a, lvls, d, &def.cons.data[i], &def, ROOT, 0, &v->diags, &mounted, &walk);
 	// Nothing returns between the alloc and here, so every slot is reached.
 	for (size_t i = 0; i <= SHCL_MAX_DEPTH; i++) arena_free(&lvls[i]);
 	free(lvls);
@@ -15046,10 +15152,11 @@ shcl_doc *shcl_load_file_keep_lines(const char *path, shcl_strictness s, shcl_fi
 // would delete content from the file (shcl_lost_count) - that is
 // SHCL_SAVE_REFUSED, distinct from SHCL_SAVE_FAILED so the caller need not
 // guess which happened; shcl_save_file_lossy writes anyway. Refuses with
-// SHCL_SAVE_CHANGED when what is at PATH now is neither what the load read nor
-// what this document's last save wrote, so another program's edit, or a file
-// nobody read, is not lost; the force option writes anyway. A
-// document from a newer format is SHCL_SAVE_TOO_NEW (shcl_newer_format).
+// SHCL_SAVE_CHANGED when something is at PATH now and it is neither what the
+// load read nor what this document's last save wrote, so another program's
+// edit, or a file nobody read, is not lost; the force option writes anyway.
+// Nothing at PATH is written, as a save-as to a new name. A document from a
+// newer format is SHCL_SAVE_TOO_NEW (shcl_newer_format).
 shcl_save_result shcl_save_file(shcl_doc *d, const char *path, shcl_write_status *why) {
 	shcl_save_options o = {0};
 	return shcl_save_file_with(d, path, o, NULL, why);
@@ -15075,41 +15182,18 @@ shcl_save_result shcl_save_file_keep_lines(shcl_doc *d, const char *path, int *k
 	return shcl_save_file_with(d, path, o, kept, why);
 }
 
-/* The folder PATH names its file in is there. A file gone with its folder is
-   left to the write, which says the folder is missing. */
-static int s_folder_there(const char *path) {
-	const char *sep = shcl_last_sep(path);
-	size_t n = sep ? (size_t)(sep - path) + (sep == path ? 1 : 0) : 0;
-	char *dir = (char *)malloc(n + 2);
-	if (!dir) { SHCL_OOM(); abort(); }
-	if (n) memcpy(dir, path, n);
-	else dir[n++] = '.';
-	dir[n] = '\0';
-#ifdef _WIN32
-	wchar_t *w = shcl_widen(dir);
-	free(dir);
-	if (!w) { SHCL_OOM(); abort(); }
-	DWORD at = GetFileAttributesW(w);
-	free(w);
-	return at != INVALID_FILE_ATTRIBUTES && (at & FILE_ATTRIBUTE_DIRECTORY);
-#else
-	struct stat st;
-	int there = stat(dir, &st) == 0 && S_ISDIR(st.st_mode);
-	free(dir);
-	return there;
-#endif
-}
-
 static int s_same_bytes(const char *a, size_t an, const char *b, size_t bn) {
 	return a && an == bn && (an == 0 || memcmp(a, b, an) == 0);
 }
 
-/* PATH, as given and read now, holds what the load read or the last save
-   wrote, or nothing, where the load read no file. Content only, so a touch
-   alone is no change. Something that isn't a regular file is left to the
-   write, which refuses it, and so is a path the write can't reach a file
-   through: part of it a file, a folder not there, or a link cycle. A file that can't be read is a
-   change, since the rename that replaces it needs no read access. */
+/* PATH, as given and read now, holds nothing, or what the load read or the
+   last save wrote. Nothing there means no bytes to lose, so a save-as to a
+   new name and a file removed since the load are written, as an editor
+   writes them. Content only, so a touch alone is no change. Something that
+   isn't a regular file is left to the write, which refuses it, and so is a
+   path the write can't reach a file through: part of it a file, a folder not
+   there, or a link cycle. A file that can't be read is a change, since the
+   rename that replaces it needs no read access. */
 static int s_file_holds(const shcl_doc *d, const char *path) {
 	size_t n = 0;
 	shcl_file_status st = SHCL_FILE_UNREADABLE;
@@ -15121,8 +15205,7 @@ static int s_file_holds(const shcl_doc *d, const char *path) {
 		return same;
 	}
 	if (not_regular) return 1;
-	if (err == ENOTDIR || err == ELOOP) return 1;
-	if (st == SHCL_FILE_NOT_FOUND) return d->read_text == NULL || !s_folder_there(path);
+	if (st == SHCL_FILE_NOT_FOUND || err == ENOTDIR || err == ELOOP) return 1;
 	if (err == ENOMEM) { SHCL_OOM(); abort(); }
 	return 0;
 }
@@ -15678,48 +15761,63 @@ static int gen_path_text(ShclArena *a, const ShclVecSeg *segs, const ShclParentV
 	return 1;
 }
 
+/* One list g_expand_mounts is part way through: the mount's path and
+   segments its fields are prefixed with (none at the top), and the next field. */
+typedef struct { const ShclVecVCons *list; size_t i; int has_at; ShclStr at_path; ShclVecSeg at_segs; } ShclGExpand;
+DEFINE_VEC(ShclVecGExpand, ShclGExpand)
+
 // Inline every fragment mount into a flat constraint list, depth-first in
 // schema order, each field's path and segments prefixed by its mount's. A
 // mount whose fragment is already expanding (a cycle) stops there and is
 // recorded as (path, fragment name) for the trailing not-generated block.
-static void g_expand_go(ShclArena *a, const ShclVecVCons *list, const ShclVSchemaDef *def, const ShclStr *at_path, const ShclVecSeg *at_segs, ShclVecS *stack, ShclVecVCons *out, ShclVecS *cut_path, ShclVecS *cut_frag) {
-	for (size_t i = 0; i < list->len; i++) {
-		const ShclVCons *c = &list->data[i];
+// The lists being expanded are kept in `todo` rather than one call per mount,
+// as in Python: a chain of mounts runs to the depth cap, which outran a small
+// thread's stack. `chain` holds the fragment names todo's lists belong to,
+// one fewer than todo, since the top list has none.
+static void g_expand_mounts(ShclArena *a, const ShclVSchemaDef *def, ShclVecVCons *out, ShclVecS *cut_path, ShclVecS *cut_frag) {
+	ShclVecS chain = {0, 0, 0};
+	ShclVecGExpand todo = {0};
+	ShclGExpand top; memset(&top, 0, sizeof top); top.list = &def->cons;
+	ShclVecGExpand_push(a, &todo, top);
+	while (todo.len) {
+		ShclGExpand *f = &todo.data[todo.len - 1];
+		if (f->i >= f->list->len) {
+			todo.len--;
+			if (todo.len) chain.len--;
+			continue;
+		}
+		const ShclVCons *c = &f->list->data[f->i++];
 		ShclVCons cc = *c;
-		if (at_path) {
+		if (f->has_at) {
 			ShclSB p = {0, 0, 0};
-			sb_putS(a, &p, *at_path); sb_putc(a, &p, '.'); sb_putS(a, &p, c->path);
+			sb_putS(a, &p, f->at_path); sb_putc(a, &p, '.'); sb_putS(a, &p, c->path);
 			cc.path = sb_S(&p);
 			ShclVecSeg segs = {0, 0, 0};
-			for (size_t k = 0; k < at_segs->len; k++) ShclVecSeg_push(a, &segs, at_segs->data[k]);
+			for (size_t k = 0; k < f->at_segs.len; k++) ShclVecSeg_push(a, &segs, f->at_segs.data[k]);
 			for (size_t k = 0; k < c->segs.len; k++) ShclVecSeg_push(a, &segs, c->segs.data[k]);
 			cc.segs = segs;
 		}
-		ShclStr path = cc.path; ShclVecSeg segs = cc.segs;
+		// Past the ceiling the whole expansion stops: nothing after it is
+		// generated, and the caller reports V096.
 		if (out->len > GEN_MAX_FIELDS) return;
 		ShclVecVCons_push(a, out, cc);
-		if (c->inherits.n) {
-			int cycling = 0;
-			for (size_t k = 0; k < stack->len; k++) if (s_eq(stack->data[k], c->inherits)) { cycling = 1; break; }
-			// A chain long enough to outrun the stack, or a mount that
-			// re-enters, stops here and is noted instead of expanded.
-			if (cycling || stack->len >= SHCL_MAX_DEPTH) {
-				ShclVecS_push(a, cut_path, schema_text(a, path));
-				ShclVecS_push(a, cut_frag, schema_text(a, c->inherits));
-			} else {
-				const ShclVecVCons *fcs = v_frag_get(def, c->inherits);
-				if (fcs) {
-					ShclVecS_push(a, stack, c->inherits);
-					g_expand_go(a, fcs, def, &path, &segs, stack, out, cut_path, cut_frag);
-					stack->len--;
-				}
-			}
+		if (!c->inherits.n) continue;
+		int cycling = 0;
+		for (size_t k = 0; k < chain.len; k++) if (s_eq(chain.data[k], c->inherits)) { cycling = 1; break; }
+		// A chain long enough to outrun the stack, or a mount that
+		// re-enters, stops here and is noted instead of expanded.
+		if (cycling || chain.len >= SHCL_MAX_DEPTH) {
+			ShclVecS_push(a, cut_path, schema_text(a, cc.path));
+			ShclVecS_push(a, cut_frag, schema_text(a, c->inherits));
+			continue;
 		}
+		const ShclVecVCons *fcs = v_frag_get(def, c->inherits);
+		if (!fcs) continue;
+		ShclVecS_push(a, &chain, c->inherits);
+		// f is not used again: the push can move it.
+		ShclGExpand below; below.list = fcs; below.i = 0; below.has_at = 1; below.at_path = cc.path; below.at_segs = cc.segs;
+		ShclVecGExpand_push(a, &todo, below);
 	}
-}
-static void g_expand_mounts(ShclArena *a, const ShclVSchemaDef *def, ShclVecVCons *out, ShclVecS *cut_path, ShclVecS *cut_frag) {
-	ShclVecS stack = {0, 0, 0};
-	g_expand_go(a, &def->cons, def, NULL, NULL, &stack, out, cut_path, cut_frag);
 }
 
 /* What a generation holds while it works: its private arena and the nested
