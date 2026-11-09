@@ -245,6 +245,7 @@ SHELLCHECK_TARGETS=(
 	cicd/hooks/pre-push
 	cicd/utility/include/c-flags.bash
 	cicd/utility/include/cpu-cap.bash
+	cicd/utility/include/mem-cap.bash
 	cicd/utility/include/corpus-cases.bash
 	cicd/utility/include/ctr-image.bash
 	cicd/utility/include/frozen-tree.bash

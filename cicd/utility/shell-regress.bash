@@ -2649,7 +2649,7 @@ fTest dcwg7 20260920-2-gate-runs-the-cross-checks
 stubDir="${tmpDir}/cicd-stub"
 mkdir -p "${stubDir}/cicd/utility/include"
 cp "${repoDir}/cicd/cicd.bash" "${stubDir}/cicd/"
-cp "${repoDir}/cicd/utility/include/gfs-rotate.bash" "${repoDir}/cicd/utility/include/frozen-tree.bash" "${repoDir}/cicd/utility/include/stop-descendants.bash" "${repoDir}/cicd/utility/include/safe-rm.bash" "${repoDir}/cicd/utility/include/cpu-cap.bash" "${stubDir}/cicd/utility/include/"
+cp "${repoDir}/cicd/utility/include/gfs-rotate.bash" "${repoDir}/cicd/utility/include/frozen-tree.bash" "${repoDir}/cicd/utility/include/stop-descendants.bash" "${repoDir}/cicd/utility/include/safe-rm.bash" "${repoDir}/cicd/utility/include/cpu-cap.bash" "${repoDir}/cicd/utility/include/mem-cap.bash" "${stubDir}/cicd/utility/include/"
 cp "${repoDir}/cicd/utility/green-tree.bash" "${stubDir}/cicd/utility/"
 cat > "${stubDir}/cicd/config.bash" <<'EOF'
 APP_NAME="stub"; EXE_NAME="stub"; VERSION_MANIFEST="Cargo.toml"; LINT_LOG_DIR=""
@@ -4510,7 +4510,7 @@ frz="${tmpDir}/frozen"; frzLive="${frz}/live"; frzOut="${frz}/out"
 mkdir -p "${frzLive}/cicd/utility/include" "${frzLive}/cicd/artifacts" "${frz}/tmp" "${frzOut}"
 cp "${repoDir}/cicd/cicd.bash" "${frzLive}/cicd/"
 cp "${repoDir}/cicd/utility/green-tree.bash" "${frzLive}/cicd/utility/"
-cp "${repoDir}/cicd/utility/include/gfs-rotate.bash" "${repoDir}/cicd/utility/include/frozen-tree.bash" "${repoDir}/cicd/utility/include/stop-descendants.bash" "${repoDir}/cicd/utility/include/safe-rm.bash" "${repoDir}/cicd/utility/include/cpu-cap.bash" "${frzLive}/cicd/utility/include/"
+cp "${repoDir}/cicd/utility/include/gfs-rotate.bash" "${repoDir}/cicd/utility/include/frozen-tree.bash" "${repoDir}/cicd/utility/include/stop-descendants.bash" "${repoDir}/cicd/utility/include/safe-rm.bash" "${repoDir}/cicd/utility/include/cpu-cap.bash" "${repoDir}/cicd/utility/include/mem-cap.bash" "${frzLive}/cicd/utility/include/"
 cp "${repoDir}/.gitignore" "${frzLive}/"
 cat > "${frzLive}/cicd/config.bash" <<'EOF'
 APP_NAME="stub"; EXE_NAME="stub"; VERSION_MANIFEST="Cargo.toml"; LINT_LOG_DIR=""

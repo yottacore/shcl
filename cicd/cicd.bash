@@ -129,6 +129,15 @@ root="$(cd "${here}/.." && pwd)"   ## the git repo root (cicd/..)
 ## rust-toolchain.toml is meaningless and target/ fills with mixed artifacts.
 export PATH="${HOME}/.cargo/bin:${PATH}"
 
+## A memory cap with no swap, CICD_MEM_CAP or a third of the RAM from 4g to
+## 32g, checked before anything starts (include/mem-cap.bash). The whole run
+## goes again under a user scope at the cap, once, and first in line for the
+## OOM killer; each container gets the same cap of its own. A step killed at
+## the cap exits 137. The run in the image has no scope to take.
+source "${here}/utility/include/mem-cap.bash"
+fMemCap || exit 2
+if [[ -z "${SHCL_IN_CONTAINER:-}" ]]; then fMemScope "${BASH_SOURCE[0]}" "$@"; fi
+
 ## Low priority for the whole run, since the box is usually running something
 ## else. Set on this shell, so every child takes it, inside the image too.
 renice -n 19 -p $$ > /dev/null 2>&1 || true
@@ -983,8 +992,9 @@ fCtrImage(){
 fRunContainer(){   ## fRunContainer TREE [PART]
 	local tree="$1" part="${2:-}"
 	local engine="${SHCL_DOCKER:-docker}" tag="${ctr_tag}" link="" real="" step="${2:-stages}"
-	local -a mounts=() groups=() env=() inner=() labels=() zone=()
+	local -a mounts=() groups=() env=() inner=() labels=() zone=() mem=()
 	fSection "Container: ${ctr_image}"
+	fMemCtrArgs mem || fDie "no container started"
 	fCtrLabelArgs labels
 	fCtrZoneArgs zone
 	fEcho_Clean "image ${tag}"
@@ -1042,8 +1052,8 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 	## need the second group a runner's user has. So the image's passwd and
 	## group files plus the caller's entries, and the caller's groups.
 	local etc gid gname; etc="$(mktemp -d)"
-	"${engine}" run --rm "${labels[@]}" --name "$(fCtrName "${step}-passwd")" --cpus 1 --cpu-shares 256 "${tag}" cat /etc/passwd > "${etc}/passwd" || fDie "could not read the image's /etc/passwd"
-	"${engine}" run --rm "${labels[@]}" --name "$(fCtrName "${step}-group")" --cpus 1 --cpu-shares 256 "${tag}" cat /etc/group > "${etc}/group" || fDie "could not read the image's /etc/group"
+	"${engine}" run --rm "${labels[@]}" --name "$(fCtrName "${step}-passwd")" --cpus 1 --cpu-shares 256 "${mem[@]}" "${tag}" cat /etc/passwd > "${etc}/passwd" || fDie "could not read the image's /etc/passwd"
+	"${engine}" run --rm "${labels[@]}" --name "$(fCtrName "${step}-group")" --cpus 1 --cpu-shares 256 "${mem[@]}" "${tag}" cat /etc/group > "${etc}/group" || fDie "could not read the image's /etc/group"
 	printf '%s:x:%s:%s::/cache/home:/bin/bash\n' "${USER:-builder}" "$(id -u)" "$(id -g)" >> "${etc}/passwd"
 	for gid in $(id -G); do
 		if grep -q "^[^:]*:[^:]*:${gid}:" "${etc}/group"; then continue; fi
@@ -1082,10 +1092,11 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 	local cidfile="${run_tmp}/ctr.cid"
 	stop_cidfiles=("${cidfile}")
 	## nice on this side doesn't reach the container, so a CPU quota and a low
-	## share; the engine inside renices itself.
+	## share; the engine inside renices itself. The memory cap has no swap, so
+	## a step over it is killed in here, and the run exits 137.
 	local -a rmArg=(--rm)
 	if ((keep_temp)); then rmArg=(); fi
-	"${engine}" run "${rmArg[@]}" --init --cidfile "${cidfile}" "${labels[@]}" --name "$(fCtrName "${step}")" --cpus "${CPU_CAP}" --cpu-shares 256 --user "$(id -u):$(id -g)" "${groups[@]}" "${mounts[@]}" "${env[@]}" -w "${tree}" \
+	"${engine}" run "${rmArg[@]}" --init --cidfile "${cidfile}" "${labels[@]}" --name "$(fCtrName "${step}")" --cpus "${CPU_CAP}" --cpu-shares 256 "${mem[@]}" --user "$(id -u):$(id -g)" "${groups[@]}" "${mounts[@]}" "${env[@]}" -w "${tree}" \
 		"${tag}" bash "${tree}/cicd/cicd.bash" "${inner[@]}" \
 		|| ctrRc=$?
 	stop_cidfiles=()
@@ -2044,3 +2055,4 @@ exit 0
 ##		- 2026-11-02: A run that fails or is stopped tidies docker as a whole run does. Only our own builder's cache is pruned.
 ##		- 2026-11-04: The images build on docker's default builder again, and a run prunes no build cache.
 ##		- 2026-11-04: --quick leaves out the test boxes. A run that picked the main image itself goes on here when it won't build.
+##		- 2026-11-09: A memory cap with no swap, CICD_MEM_CAP: the run under a user scope, and each container it starts.
