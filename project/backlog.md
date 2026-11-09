@@ -44,7 +44,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Target version: v3.0.0
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 7
-	- Prereq IDs: 2026110616475901
+	- Prereq IDs: 2026110616475901, 2026110907535001
 	- Related IDs: 2026110312163201, 2026110314064292, 2026110314240418, 2026110408432594
 	- Version and build: dev at `343334df`
 	- Steps to reproduce:
@@ -85,6 +85,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 20261107: the soak tests in Rust, Go and Python save each case with force, since each case's document never read what the last one saved.
 		- 20261107, 2 more tests that saved over bytes their document never read, found on b29w: the C runner's Windows-only `dc476` (winlink) saved a parse through a link, and now loads through it first; the veneer's `de1a5` saves one document from 8 threads to 8 paths, so the record of its last save was another thread's, and each save now starts with nothing there. Both failed on b29w every run and passed on dev.
 		- 20261107, tests whose assert only needed the new rule (a parse or another load saving over a file it never read): `lost_and_save_gate` and its twins (`dbcxf`, `dd5h6`, `d9v59`), the newer-format loop (`dekvw`, `dekvx` and twins), the read-only and hidden saves (`dbxkq`, `dbxm2` and twins), and the soaks now remove the file first or force. The changed tests (`dekj7`, `dekk8`, `dekkm`, `dekkn`) and the spelling tests' other-folder row flip from Ok to Changed, as asked.
+		- JC, 20261109, on the `Check:` for this item: do what's least surprising to people used to text and document editors. So a save where nothing is at the path always writes, as an editor does for a save-as to a new name or a file deleted since it was opened. The overwrite refusals stay, since an editor asks first there too. Filed as 2026110907535001, which this item now waits on.
 	- Swept: every caller of the resolve and the record in all 4 and the veneer (load, save, create check, write, C's `dir_takes_a_temp`), the 4 CLIs' save calls, every test that saves a parse or a second document over a file, Windows-only ones included as far as a read shows.
 	- Verified: on the old code, the new rows fail: Python saves through `nodir/../q.shcl` over the other program's file, and Go `detpq`, C `detpr`, Rust `detpn` fail the other-folder row, Go `dekk8`, C `dekkm`, Rust and Python `dekj7` the save-as rows. All pass on the new code. Rust `cargo test` (all binaries), clippy for the host and windows, fmt; Go tests in both modules, vet and staticcheck for the host and windows, a wasip1 build; Python conformance, ruff, mypy (after `c2243d04`, which fixes an error from `df027`); the C runner, the veneer smoke, oom_hook, oom_recover, mem_bounds, analyze-c (202 s), a mingw build; cli-regress (658 rows); perf-gate; `test-ids.py check`. On b29w with a short-name TEMP: Python conformance whole, and Go `detpq`, `dekk8`, `dc42k`, `dbcxf`, `dekvw` and the read-only save.
 		- Not run: `--backlog-run-quick` with every area (past one call), check-c-compilers (past one call), check-docs, crosscheck.
@@ -233,6 +234,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- me, 20261107: comment and kept lines count against the node cap, not a new cap. Each costs about what a node does, and a fourth cap would be one more number every caller picks for the same memory.
 		- me, 20261107: a cap crossed on the last line with content reports nothing, since the parse stopped nothing. The overshoot is the one line it always was. `Check:` entry in questions.md.
+		- JC, 20261109: a node cap of 1,000 is far too low for big projects with millions of generated lines. me, 20261109: there's no default cap. Every cap is 0, which means off, unless a caller passes one to `parse_limited` for input it doesn't control. The 1,000 was only the question's example. design.md already says a legitimate config can have millions of nodes, which is why no built-in number exists, and no sister project calls `parse_limited`. So counting comment lines changes nothing for a plain load or the CLI. The last-line call stands, the way `head -n` treats a file that ends at its count.
 		- 20261107, test asserts updated for the last-line change, the rest of each test as it was: `parse_limited_caps` in all 4 runners (`dc1yg`, `dc1yh`, `dc26x`, `dc1yj`), the last-line cross from 1 `E020` to 0, and the one-line overshoot `x.y.z: 1` from 1 `E020` to 0. The overshoot with a next line is pinned in the new tests.
 	- Test case: `the_node_cap_counts_comment_and_kept_lines` (`df003` Rust, `df004` Go, `df005` Python, `df006` C) and the budget tests (`df007` Rust `mem_caps`, `df008` Go `mem_test`, `df009` C `mem_bounds`, `df00a` Python). All failed on the old code and pass now. The fuzz guard is the child's.
 
@@ -272,6 +274,26 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Regression test: a check-docs row that refuses a comparison.md row dated older than the table's run date, and the comparison run writes the memory row itself so the two can't drift.
 	- Estimated effort: Low
 
+- A save where nothing is at the path writes, as an editor's does
+	- ID: 2026110907535001
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0
+	- Opened: 20261109-075350
+	- Opened by: JC, from the `Check:` on 2026110613470307
+	- Parent ID: 2026110613470307
+	- Related IDs: 2026110616475901, 2026110710374311
+	- Problem description: the destination-bytes rule refuses as Changed in 2 cases where nothing is at the save path: a loaded document saved to a new name, and a file deleted since the load. No editor refuses either one. vim, VS Code and gedit write a save-as to a fresh name, and write a deleted file back on save. Nothing at the path means no bytes to lose.
+	- Requirements:
+		- The save reads the path as given just before the write. Nothing there: write. Bytes equal to what the load read or what this document last wrote: write. Other bytes: refuse as Changed unless `force`. The same in all 4 bindings and the C++ veneer.
+		- What stays refused unless `force`, as an editor asks before it overwrites: a `parse` saved over an existing file, and a loaded document saved over a file it never read.
+		- Drop whatever the check kept only to know whether the load read a file, if nothing else reads it.
+		- The 4 CLIs keep passing `force`, since their documents come from a parse and their own check runs just before the write.
+		- spec.md's save section, design.md, examples.md, each binding's doc comments (with 2026110710374311's `shcl.h` comments) and the changelog say so.
+	- Regression test: in each binding's changed tests, a load then a save to a new name, and a load, the file removed, then a save, both written with the text expected; the `dekj7`, `dekk8`, `dekkm` and `dekkn` rows that expect Changed with nothing at the path flip to a write. Watched to fail on dev at `0947eea4`. 2026110616475901's oracle follows the same rule.
+	- Estimated effort: Low
+
 - Removes, folds, merges and the banner toggle hand lines on through `adopt`
 	- ID: 2026110712372281
 	- Type: Enhancement
@@ -289,7 +311,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The old helpers go in the same commit, once the placement suite 2026110616475903 passes with both in place. A grep for them then finds only `adopt`.
 		- The kept-line rules stay as they are: design.md's table for kept lines under edits, a misplaced line keeping its space indent, `E001` and `E008` lines as built.
 		- design.md's "Where the code still differs" bullet loses its second half.
-	- Regression test: 2026110616475903's property and table, run against both the old helpers and `adopt` before the old ones go; plus a check-docs row that greps the 4 bindings for the retired helper names.
+		- A remove takes the node's comment lines, per spec.md's Remove, and hands its blank line to the heir. So `x`, a blank, `y`, `z`, minus `y`, gives `x`, a blank, `z`, and 2026110613470312's dotted pair keeps the blank above it (me, 20261109, from that item's `Check:`). spec.md's Remove sentence says so, and a corpus golden that changes is named on this item.
+	- Regression test: 2026110616475903's property and table, run against both the old helpers and `adopt` before the old ones go; plus a check-docs row that greps the 4 bindings for the retired helper names. The table gets the `x`, blank, `y`, `z` remove row and 2026110613470312's dotted pair with a blank above it.
 	- Estimated effort: High
 
 - A node's blank above its comments, from the parse on
@@ -348,7 +371,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Reason for the tmpfs: a fresh filesystem per run, so no object left by a past run answers for a new one (a reused folder name gave a false Changed during the review), no disk wear from thousands of small writes, and nothing in the ZFS snapshots.
 		- The load spelling and the save spelling each come from a small grammar: bare name, `./x`, absolute, `//`, `/./`, `dir/../x`, through a link to the folder, a link to the file, a dangling link, a link cycle, from another working folder, a trailing `.` or `..`, and on Windows `\`, mixed separators, an 8.3 short name and a `\\?\` prefix, and on macOS a case variant.
 		- An event between the load and the save, drawn from: nothing, the file rewritten, removed, swapped for a FIFO, made where the load found nothing, a folder on the path made, a link on the path made or pointed elsewhere, the working folder changed, the read bit taken off.
-		- An oracle that doesn't ask the library. Write a marker through the save spelling and read through the load spelling to learn whether the 2 name one file. Then: the save refuses as Changed iff they name one file and its bytes differ from what the load read; refuses as Exists iff create-only and anything is at the path; refuses a FIFO as not regular; and a refused save writes nothing anywhere.
+		- An oracle that doesn't ask the library. Write a marker through the save spelling and read through the load spelling to learn whether the 2 name one file. Then: the save refuses as Changed iff something is at the save path and its bytes are neither what the load read nor what this document last wrote, per 2026110613470307 and 2026110907535001; refuses as Exists iff create-only and anything is at the path; refuses a FIFO as not regular; and a refused save writes nothing anywhere.
 		- Every case in the Related list is a fixed row the generator also has to be able to draw, and a run fails when the generator didn't draw each kind at least once, as the fuzz guards do.
 		- Windows and macOS rows run on b29w with a short-name TEMP and on vmKt6m or b26, through the box step. Until a box runs them, they're skipped by platform, never dropped.
 		- Watched to fail: run it on `343334df` and see the `nodir/..` row and 2026110613470308's folder row go red before 2026110613470307's fix.
@@ -1402,6 +1425,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- me, 20261106: the block's own lines are found by their names, not their text, since the links and the Legal line change between releases. A later release that adds a named line adds it to the list.
 		- me, 20261106: over an older block, the author's line stays where the block was and the new block goes under it, as a Schema line did (corpus `175`). Carrying it into the new block was the other option. Filed as a `Check:` in questions.md.
+		- me, 20261109, left to me by JC: it stands. The tool never moves a line the user typed, a Schema line already works this way, and nothing has to change. Carrying the line into the new block would mean rewriting text the tool didn't write, and `175`'s golden.
 	- Swept: `drop_banners` / `dropBanners` / `_drop_banners` / `drop_banners` and `swap_banner` in each, the only code that takes the block off; `upgrade` and the CLIs' `banner` op go through `swap_banner`. The C++ veneer wraps `shcl_set_banner` and says nothing about the lines.
 	- Test case: corpus `dez6b` (`217-banner-author-line`, `banner on` over a current block), `dez6c` (`218-banner-off-author-line`), cli-regress `dez6e` (`upgrade --from-2x --write`).
 	- Verified: `dez6b`, `dez6c` fail on the old C and Python libraries and `dez6e` on the old C CLI, and all pass on the fix. The 4 conformance suites, the whole Rust suite with the quick fuzz, the Go tests, cli-regress (655 rows, 4 bindings), crosscheck (54873 comparisons), analyze-c, check-docs, test-ids, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, shellcheck, markdownlint.
@@ -1463,6 +1487,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: the line-keeping save leaves out a group of block heads whose line went, when the next source line is what sits under them now, since that line names them again. A head with an instance's value, as `db(main).port: 5` has, goes the same way. When the text then doesn't reload as the document, such as when a head had a comment, the save is run again and writes them as before. `keep_lines` in Rust and C, `keepLines` in Go, `_keep_lines` in Python, with design.md.
 	- Decisions:
 		- me, 20261106: the blank line above the removed line still goes with it, as for any removed field, since the document hangs it on the removed name. Keeping it is a remove handing the blank on, which is what 2026110616475902 decides. Filed as a `Check:` in questions.md.
+		- me, 20261109, left to me by JC: this item stands as built, and the blank line is kept later. A user who deletes a line in an editor doesn't expect the gap between 2 groups to close too. So once the remove goes through `adopt` (2026110712372281), it hands its blank line to the next field and still takes its own comments, per spec.md's Remove. That's a requirement on 2026110712372281 now, so this item doesn't get a second fix of its own.
 		- me, 20261106: a second run, rather than a stricter test up front, catches the cases where leaving the heads out doesn't reload, so the save is never worse than before.
 		- me, 20261106: removing the only field under `a.b: 1` still writes `a:`, since the document keeps `a` as an empty field.
 	- Swept: `keep_lines` and its twins are the one line-keeping save; `set`, `fmt --write` keeping lines and `upgrade` all go through it. The other block heads it writes fresh were checked: a selector head (`db(main)`, fixed with the rest) and a head inside a block (`p.q.r`).
