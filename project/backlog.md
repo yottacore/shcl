@@ -258,7 +258,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A document at the 512 depth cap needs about 190 KB of stack in C
 	- ID: 2026110613470315
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261106-134703
@@ -273,6 +273,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Regression test: a C test that parses a document at the depth cap on a thread with a 64 KB stack (`pthread_attr_setstacksize`, `CreateThread`'s size on Windows), asserting a clean parse; watched to fail on `343334df`.
 	- Estimated effort: Avg
 	- Children: 2026110713595389 (emit, Done), 2026110713595411 (overlay and clone, Done), 2026110713595434 (validate, generate, paths, Done), 2026110713595457 (spec and Rust). The C walks go iterative, as Python's did, since 128 bytes a level is all a 64 KB stack leaves at the cap.
+	- Test case: its children's: 2026110713595457: none new. The change is wording, and check-docs passed. The C 64 KB tests (`df0c9`, `df0d5`, `df32k`, `df32m`, `df32n`) pin the C half of the claim.; 2026110713595434: C runner `wildcards_at_the_depth_cap_fit_a_64_kb_stack` (`df32k`), `validate_through_mounts_at_the_depth_cap_fits_a_64_kb_stack` (`df32m`) and `generate_through_mounts_at_the_depth_cap_fits_a_64_kb_stack` (`df32n`), each a new op in `deep_round_trip` on a 64 KB thread. The runner crashed at `df32k` on the old header, and the tools folder's `deepstack` harness crashed on all 4 ops there. All pass now.; 2026110713595411: C runner `merge_at_the_depth_cap_fits_a_64_kb_stack` (`df0d5`): the capped document laid over an empty one (the clone) and a bare copy laid over that (the overlay), on a 64 KB thread, same bytes back. It crashed the runner on `528ade2c` and passes now.; 2026110713595389: C runner `canonical_at_the_depth_cap_fits_a_64_kb_stack` (`df0c9`), parse and format at the cap on a 64 KB thread (CreateThread's size on Windows), same bytes back. It crashed the runner on the old header and passes now.
+	- Closed: 20261109-130039
 
 - comparison.md's peak memory row comes from the 2026-10-02 run
 	- ID: 2026110613470320
