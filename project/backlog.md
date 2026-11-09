@@ -12731,6 +12731,31 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Note: with v4 (JC).
 
+- Write v4's Rust core so it can be ported to every major language
+	- ID: 2026110908083108
+	- Type: Enhancement
+	- Status: Deferred
+	- Priority: High
+	- Target version: v4.0.0
+	- Opened: 20261109-080831
+	- Opened by: JC
+	- Related IDs: 2026101407100008
+	- Problem description: in 3.0 each binding mirrors Rust's public API as well as its core. So Go returns a status struct where a Go reader expects an error, and the style guide keeps a long list of name exceptions. v4 swaps the test CLIs for drivers, so the cross-binding check no longer needs the APIs to match.
+	- Requirements:
+		- Each binding's public API is native to its language. Names, errors, missing values, loops, and collections work the way that language does them. Its driver maps that API onto the shared ops.
+		- The core mirrors Rust's in every binding: tokenizer, parser, stored lines, edits, and emitter. A fix stays a diff of the same function in each port.
+		- The Rust core is written to be ported. It's index-based storage with plain functions, with no lifetimes, traits, borrowed views, or macros a port can't follow line for line. The Rust API on top uses any Rust idiom that fits.
+		- Languages to come: Go, C with its C++ veneer, Python, JavaScript for Node and Bun, Java and Kotlin, C#, Swift, R, Ruby, Dart, and a native PowerShell port.
+		- Text positions get settled before the storage is built. Rust slices UTF-8 bytes, JavaScript, Java, C#, and Dart index UTF-16 units, and Python indexes code points.
+		- Each language's int type gets checked against the 64-bit reads. JavaScript needs a BigInt, and R has no 64-bit int of its own.
+		- Walks keep their own stacks, since recursion limits differ from one runtime to the next.
+		- The file tier stays apart from the core, since it's the part most tied to each OS and runtime.
+	- Reason: one format read the same way in more languages, without a separate core per language drifting away from Rust's.
+	- Decisions:
+		- Native public API over a mirrored core (JC, 2026-11-09). A native core in each binding was turned down. Output has to match byte for byte, so each fix would have to be worked out again in every language.
+	- Note: v4.0 itself ports only to C, Go, and Python, per the v4 doc's roadmap. The other languages come after.
+	- Estimated effort: High
+
 - A Format or Schema line with other spacing is a plain comment
 	- ID: 2026110217340704
 	- Type: Bug

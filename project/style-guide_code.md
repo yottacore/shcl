@@ -27,6 +27,8 @@ The cost is accepted openly: some code reads as slightly foreign to a native of 
 
 Scope of the rule: parity governs structure and behavior. Idiom still governs the surface - each language keeps its own formatter, naming case, error-propagation syntax, and doc-comment conventions. The goal is "obviously the same program, written by someone fluent in each language", not transliterated Rust.
 
+v4 narrows the rule to the core: tokenizer, parser, stored lines, edits, and emitter. Each binding's public API there is native to its language, as [the v4 design](design_docs/20261015-072055_v4.md#native-api-over-a-mirrored-core) says.
+
 New bindings (Tier 3) follow the same recipe: port the reference function-for-function, run the corpus, and don't release until the crosscheck is green.
 
 ## Rules for every language
