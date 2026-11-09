@@ -690,22 +690,83 @@ static char *deep_doc(size_t *len, int comments) {
 	return t;
 }
 
-// Parses and formats the document at the depth cap. With merge set it is laid
-// over an empty document instead, which clones it, and the same tree without
-// its comments over that, which walks every level and changes nothing.
-// Nonzero when every step was clean; a stack overflow crashes the run instead.
-static int deep_round_trip(int merge) {
+enum { DEEP_FMT, DEEP_MERGE, DEEP_WILDCARD, DEEP_MOUNTS, DEEP_GENERATE };
+
+// Nonzero when the schema validates d with nothing to report.
+static int deep_validates(shcl_doc *d, const char *schema) {
+	shcl_doc *s = shcl_parse(schema, strlen(schema));
+	shcl_validation *v = s ? shcl_validate(d, s) : NULL;
+	int ok = v && shcl_validation_count(v) == 0;
+	shcl_validation_free(v);
+	shcl_free(s);
+	return ok;
+}
+
+// A wildcard per level, read and validated: one leaf, nothing to report.
+static int deep_wildcards(shcl_doc *d) {
+	size_t cap = SHCL_MAX_DEPTH * 2 + 16, n = 0;
+	char *path = xrealloc(NULL, cap);
+	for (size_t i = 0; i < SHCL_MAX_DEPTH; i++) { if (i) path[n++] = '.'; path[n++] = '*'; }
+	int ok = shcl_count(d, path, n) == 1;
+	char *schema = xrealloc(NULL, n + 16);
+	// codeql[cpp/overflowing-snprintf] the buffer is the path plus 16, more than "field: " and the newline take
+	snprintf(schema, n + 16, "field: %.*s\n", (int)n, path);
+	ok = ok && deep_validates(d, schema);
+	free(schema);
+	free(path);
+	return ok;
+}
+
+// 512 distinct fragments in one chain, since a re-entered name cuts at once
+// and only a chain that long reaches the depth cut. The output names each
+// field, and the cut fragment in the trailing note.
+static int deep_generate(void) {
+	size_t cap = (SHCL_MAX_DEPTH + 1) * 64, n = 0;
+	char *g = xrealloc(NULL, cap);
+	n += (size_t)snprintf(g + n, cap - n, "field: a\n\tinherits: f0\n");
+	for (size_t k = 0; k < SHCL_MAX_DEPTH; k++) {
+		// codeql[cpp/overflowing-snprintf] cap is 64 a fragment, more than its two or three lines take
+		n += (size_t)snprintf(g + n, cap - n, "fragment: f%zu\n\tfield: b\n", k);
+		// codeql[cpp/overflowing-snprintf] cap is 64 a fragment, more than its two or three lines take
+		if (k + 1 < SHCL_MAX_DEPTH) n += (size_t)snprintf(g + n, cap - n, "\t\tinherits: f%zu\n", k + 1);
+	}
+	shcl_doc *s = shcl_parse(g, n);
+	int ok = s && shcl_diag_count(s) == 0;
+	if (ok) {
+		int gen_ok = 0;
+		shcl_str out = shcl_generate(s, 1, &gen_ok);
+		size_t lines = 0;
+		for (size_t i = 0; i + 1 < out.n; i++) if (out.p[i] == '\n' && out.p[i + 1] == '#') lines++;
+		ok = gen_ok && lines >= SHCL_MAX_DEPTH;
+	}
+	shcl_free(s);
+	free(g);
+	return ok;
+}
+
+// Parses and formats the document at the depth cap. DEEP_MERGE lays it over
+// an empty document instead, which clones it, and the same tree without its
+// comments over that, which walks every level and changes nothing. The other
+// ops read, validate or generate in between, each through a walk that goes
+// one level a step. Nonzero when every step was clean; a stack overflow
+// crashes the run instead.
+static int deep_round_trip(int op) {
 	size_t n, bn;
 	char *t = deep_doc(&n, 1);
-	shcl_doc *d = merge ? shcl_new() : shcl_parse(t, n);
+	shcl_doc *d = op == DEEP_MERGE ? shcl_new() : shcl_parse(t, n);
 	int ok = d && shcl_diag_count(d) == 0;
-	if (ok && merge) {
+	if (ok && op == DEEP_MERGE) {
 		char *bare = deep_doc(&bn, 0);
 		shcl_doc *o = shcl_parse(t, n), *b = shcl_parse(bare, bn);
 		ok = o && b && shcl_diag_count(o) == 0 && shcl_diag_count(b) == 0;
 		if (ok) { shcl_merge(d, o); shcl_merge(d, b); }
 		shcl_free(b); shcl_free(o); free(bare);
 	}
+	if (ok && op == DEEP_WILDCARD) ok = deep_wildcards(d);
+	// A fragment that mounts itself under every child, which the
+	// unknown-field sweep then follows one mount a level.
+	if (ok && op == DEEP_MOUNTS) ok = deep_validates(d, "field: k0\n\tinherits: f\nfragment: f\n\tfield: *\n\t\tinherits: f\n");
+	if (ok && op == DEEP_GENERATE) ok = deep_generate();
 	if (ok) {
 		shcl_str out = shcl_to_canonical(d);
 		ok = out.n == n && memcmp(out.p, t, n) == 0;
@@ -716,18 +777,18 @@ static int deep_round_trip(int merge) {
 }
 
 #ifdef _WIN32
-static DWORD WINAPI deep_on_small_stack(LPVOID merge) { return deep_round_trip(*(const int *)merge) ? 1 : 0; }
+static DWORD WINAPI deep_on_small_stack(LPVOID op) { return deep_round_trip(*(const int *)op) ? 1 : 0; }
 #else
-static void *deep_on_small_stack(void *merge) { return deep_round_trip(*(const int *)merge) ? (void *)1 : NULL; }
+static void *deep_on_small_stack(void *op) { return deep_round_trip(*(const int *)op) ? (void *)1 : NULL; }
 #endif
 
 // Runs deep_round_trip on a 64 KB thread, or the platform's smallest when that
 // is larger. Nonzero when it finished clean.
-static int deep_on_64_kb(int merge, const char *at) {
+static int deep_on_64_kb(int op, const char *at) {
 	size_t small = 64 * 1024;
 	int ok = 0;
 #ifdef _WIN32
-	HANDLE th = CreateThread(NULL, small, deep_on_small_stack, &merge, STACK_SIZE_PARAM_IS_A_RESERVATION, NULL);
+	HANDLE th = CreateThread(NULL, small, deep_on_small_stack, &op, STACK_SIZE_PARAM_IS_A_RESERVATION, NULL);
 	if (!th) { fail(at, "cannot start a 64 KB thread"); return 0; }
 	DWORD res = 0;
 	WaitForSingleObject(th, INFINITE);
@@ -740,7 +801,7 @@ static int deep_on_64_kb(int merge, const char *at) {
 	if (floorBytes > 0 && (size_t)floorBytes > small) small = (size_t)floorBytes;
 	if (pthread_attr_init(&at_) != 0 || pthread_attr_setstacksize(&at_, small) != 0) {
 		fail(at, "cannot make a 64 KB thread attribute");
-	} else if (pthread_create(&th, &at_, deep_on_small_stack, &merge) != 0) {
+	} else if (pthread_create(&th, &at_, deep_on_small_stack, &op) != 0) {
 		fail(at, "cannot start a 64 KB thread");
 	} else {
 		void *res = NULL;
@@ -4391,11 +4452,21 @@ int main(int argc, char **argv) {
 	// at -O2, which overflowed a 64 KB thread. musl gives a thread 128 KB, and
 	// an embedded stack is smaller still.
 	test_id("df0c9", "canonical_at_the_depth_cap_fits_a_64_kb_stack");
-	if (!deep_on_64_kb(0, "deep-stack")) fail("deep-stack", "parse and format at the depth cap were not clean on a 64 KB stack");
+	if (!deep_on_64_kb(DEEP_FMT, "deep-stack")) fail("deep-stack", "parse and format at the depth cap were not clean on a 64 KB stack");
 	// The merge and the clone it makes of unmatched blocks recursed the same
 	// way, about 560 KB at the cap.
 	test_id("df0d5", "merge_at_the_depth_cap_fits_a_64_kb_stack");
-	if (!deep_on_64_kb(1, "deep-merge")) fail("deep-merge", "a merge at the depth cap was not clean on a 64 KB stack");
+	if (!deep_on_64_kb(DEEP_MERGE, "deep-merge")) fail("deep-merge", "a merge at the depth cap was not clean on a 64 KB stack");
+	// Resolving a wildcard per level, validating against a fragment that
+	// mounts itself, and generating from a chain of mounts each recursed once
+	// per level. Each took more than 64 KB at the cap, and generating more
+	// than 256 KB.
+	test_id("df32k", "wildcards_at_the_depth_cap_fit_a_64_kb_stack");
+	if (!deep_on_64_kb(DEEP_WILDCARD, "deep-wildcard")) fail("deep-wildcard", "a wildcard read and validate at the depth cap were not clean on a 64 KB stack");
+	test_id("df32m", "validate_through_mounts_at_the_depth_cap_fits_a_64_kb_stack");
+	if (!deep_on_64_kb(DEEP_MOUNTS, "deep-mounts")) fail("deep-mounts", "validating through mounts at the depth cap was not clean on a 64 KB stack");
+	test_id("df32n", "generate_through_mounts_at_the_depth_cap_fits_a_64_kb_stack");
+	if (!deep_on_64_kb(DEEP_GENERATE, "deep-generate")) fail("deep-generate", "generating through a chain of mounts at the depth cap was not clean on a 64 KB stack");
 	/* A path that names a directory - it ends in a separator, or its last
 	   component is `.` or `..` - is not a document. A path cleanup drops the
 	   trailing separator first, so a save through `f/.` used to rewrite `f` in

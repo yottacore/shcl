@@ -227,7 +227,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - C's validate, generate and path walks need stack in proportion to the depth
 	- ID: 2026110713595434
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261107-135954
@@ -238,6 +238,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: each one either fits a small stack at the cap, or is bounded by something other than the depth; the 64 KB thread test covers each op that is depth-linear.
 	- Estimated effort: Avg
 	- Note: the 64 KB thread runner `deep_on_64_kb` in the C runner (`df0c9`, `df0d5`) and the harness in the tools folder's `deepstack/` come from the first two children. A new op goes in `deep_round_trip`.
+	- Reproduced: 20261109 on `f1bf78de`, a 64 KB pthread at the cap segfaults on a wildcard read with a `*` per level, on validating against a fragment that mounts itself, on a validate with a `*` per level, and on generating from a chain of 512 fragments. The read and the mount validate needed over 128 KB, generating over 256 KB. Parse, format, merge, set, a plain read, `shcl_paths` and `shcl_free` already fit 16 KB.
+	- Actual cause: `resolve_from` and `v_contexts` call themselves once per wildcard, `v_check_from` once per mount, `chain_parts_legal` once per mount the unknown-field sweep follows, and `g_expand_go` once per mount in the chain.
+	- Actual fix: each keeps its own stack in an arena, as Python's do. Wildcard instances go on reversed, so slots and contexts come out in the same order. The mount check keeps one entry per level and still resets each level's scratch arena the way the recursion did. The sweep's chain check is a worklist over the same (fragment, parts) states, since it only answers yes or no. Generation stops the whole expansion at the field ceiling, which is what the recursion's early returns added up to. Output is unchanged.
+	- Decisions: iterative, as with the first two children, since a 64 KB stack leaves 128 bytes a level. `shcl_free` stays recursive, since it recurses only into a document's probe document, which never has one of its own. The style guide's C and Python deviations now name these walks too.
+	- Test case: C runner `wildcards_at_the_depth_cap_fit_a_64_kb_stack` (`df32k`), `validate_through_mounts_at_the_depth_cap_fits_a_64_kb_stack` (`df32m`) and `generate_through_mounts_at_the_depth_cap_fits_a_64_kb_stack` (`df32n`), each a new op in `deep_round_trip` on a 64 KB thread. The runner crashed at `df32k` on the old header, and the tools folder's `deepstack` harness crashed on all 4 ops there. All pass now.
+	- Branch: `r1109`
+	- Acceptance signoff: Self-closed: output unchanged across the crosscheck, and the tests were seen to fail first.
+	- Closed: 20261109-122736
+	- Verified: C runner, mem_bounds, crosscheck, cli-regress, perf-gate (`recurse` among them), sanitize-c, analyze-c, check-c-compilers, check-docs and `--backlog-run-quick c cli` passed. The runner's Windows branch builds with mingw and passes under wine.
+	- Swept: a scan of `shcl.h` for functions that call themselves found no other walk that goes a level a call, and every op in the harness fits 16 KB now. Python already iterates all 5 walks, Go grows its stack, and Rust is 2026110713595457.
 
 - A document at the 512 depth cap needs about 190 KB of stack in C
 	- ID: 2026110613470315
@@ -256,7 +266,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: either the spec gives the stack a full-depth document needs, or the recursion uses less.
 	- Regression test: a C test that parses a document at the depth cap on a thread with a 64 KB stack (`pthread_attr_setstacksize`, `CreateThread`'s size on Windows), asserting a clean parse; watched to fail on `343334df`.
 	- Estimated effort: Avg
-	- Children: 2026110713595389 (emit, Done), 2026110713595411 (overlay and clone, Done), 2026110713595434 (validate, generate, paths), 2026110713595457 (spec and Rust). The C walks go iterative, as Python's did, since 128 bytes a level is all a 64 KB stack leaves at the cap.
+	- Children: 2026110713595389 (emit, Done), 2026110713595411 (overlay and clone, Done), 2026110713595434 (validate, generate, paths, Done), 2026110713595457 (spec and Rust). The C walks go iterative, as Python's did, since 128 bytes a level is all a 64 KB stack leaves at the cap.
 
 - comparison.md's peak memory row comes from the 2026-10-02 run
 	- ID: 2026110613470320
