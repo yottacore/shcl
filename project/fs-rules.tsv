@@ -1,0 +1,59 @@
+# The filesystem property test's generator rules, shared by the 4 bindings'
+# runners, so one seed draws one case in each. Tab-separated. Changing a row's
+# order, or adding one, changes what every seed draws.
+#
+# A case is drawn from splitmix64 seeded with the case number, each draw the
+# next output modulo the count, in this order: the file at w/t.shcl there or
+# not (2), o/t.shcl there or not (2), the load spelling, the save spelling,
+# the number of events (1, plus a draw of 2), each event, create (1 in 4), force
+# (1 in 4). Every row counts in a draw on every platform, so a case is the
+# same everywhere, and a case that drew a row not for this platform is
+# skipped.
+#
+# The tree: the case's root holds w/ (the working folder), o/ (another one)
+# and w/sub/ with sub/t.shcl. Off windows w/ also has lw -> . , lt.shcl ->
+# t.shcl, dl.shcl -> gone.shcl, and cy.shcl and cy2.shcl pointing at each
+# other. nodir and nd are not there until an event makes them.
+#
+# spell	name	path	cwd	os
+#	{W} is w/'s absolute path, {S} its 8.3 short form.
+spell	bare	t.shcl	w	any
+spell	dot	./t.shcl	w	any
+spell	abs	{W}/t.shcl	w	any
+spell	dslash	.//t.shcl	w	any
+spell	absdot	{W}/./t.shcl	w	any
+spell	updir	sub/../t.shcl	w	any
+spell	nodir	nodir/../t.shcl	w	posix
+spell	nd	nd/t.shcl	w	any
+spell	nddot	nd/./t.shcl	w	any
+spell	lndir	lw/t.shcl	w	posix
+spell	lnfile	lt.shcl	w	posix
+spell	dangle	dl.shcl	w	posix
+spell	cycle	cy.shcl	w	posix
+spell	otherwd	../w/t.shcl	o	any
+spell	trail	t.shcl/	w	any
+spell	traildot	t.shcl/.	w	any
+spell	trailup	t.shcl/..	w	any
+spell	bslash	.\t.shcl	w	windows
+spell	mixed	{W}\./t.shcl	w	windows
+spell	short	{S}\t.shcl	w	windows
+spell	verbatim	\\?\{W}\t.shcl	w	windows
+spell	case	T.SHCL	w	macos
+#
+# event	name	-	-	os
+#	write-load and write-save write other bytes through that spelling, which
+#	rewrites a file or makes one where there was none. mkdir makes nodir and
+#	nd. link-made makes nd a link to sub. relink points lw at sub and lt.shcl
+#	at sub/t.shcl. chdir swaps the save's working folder between w and o.
+#	unread takes the read bits off what the load spelling names.
+event	none	-	-	any
+event	write-load	-	-	any
+event	write-save	-	-	any
+event	remove-load	-	-	any
+event	fifo-load	-	-	posix
+event	dir-load	-	-	any
+event	mkdir	-	-	any
+event	link-made	-	-	posix
+event	relink	-	-	posix
+event	chdir	-	-	any
+event	unread	-	-	posix

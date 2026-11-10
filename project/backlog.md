@@ -189,6 +189,112 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reason: a property over the whole space of spellings and events is the only test that finds the next member of the class before a user does. The example lists found none of the 8.
 	- Regression test: this item is the test. Its rows for every Related ID are the regression tests for those items, each watched to fail in a worktree at the commit before its fix.
 	- Estimated effort: Avg
+	- Progress log:
+		- 20261110: split for the time cap. Rust with the generator rules and the dump is child 2026111010012269, the cicd tmpfs 2026111010012287, Go 2026111010012304, Python 2026111010012324, C 2026111010012342, and the Windows and macOS box rows 2026111010012360.
+		- 20261110: Rust (2026111010012269) and Go (2026111010012304) are Done. The other 4 children are Queued.
+
+- Filesystem property test: Rust, with the shared generator rules and the case dump
+	- ID: 2026111010012269
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-100122
+	- Opened by: 2026110616475901's split
+	- Parent ID: 2026110616475901
+	- Problem description: the first part of the parent: the seeded test in Rust, the generator rules the other 3 bindings take, the fixed rows for every Related ID of the parent, the draw guard and the dump.
+	- Requirements: the parent's, for Rust. The test takes its folder from an env var. Windows and macOS rows skip by platform.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Actual fix: `source/rust/tests/fs_property.rs`, its own test binary, over the rules in `project/fs-rules.tsv`. A fixed row per Related ID of the parent, and cases drawn by seed for `SHCL_FS_SECS` (2 when unset) with a floor of 400. The expected answer comes from reading the folder, never the library, and a refused save must leave the whole case tree as it was. `SHCL_FUZZ_DUMP` gets `fs/rust-rows.tsv` and `fs/rust-drawn.tsv`, and `SHCL_FS_SEED` replays one seed.
+	- Decisions:
+		- me, 20261110: the rules are a TSV the 4 runners read, drawn with splitmix64. Every row counts in every platform's draw, so a seed is one case everywhere, and a case that drew a row not for this platform is skipped.
+		- me, 20261110: with no `SHCL_FS_DIR` the cases go under the temp folder, with a `note:` line, so a plain `cargo test` runs them. The pipeline sets it to the tmpfs in 2026111010012287.
+		- me, 20261110: the Windows and macOS rows skip on every platform until 2026111010012360 runs them on their boxes, and the test is ignored on Windows, so the hosted windows job doesn't run code no box tried.
+		- me, 20261110: the oracle judges Changed by the bytes at the save path. The marker through the save spelling and back through the load spelling only says whether the 2 name one file, for the dump and the draw guard, since the bytes rule doesn't need it.
+		- me, 20261110: 2026110313211991 was the CLIs' own check, so it has no library row. Its library twin is the FIFO row, and cli-regress `devy8` holds the CLIs.
+		- me, 20261110: the guard asks for every spelling, event and answer, and both one file and 2. The first 400 seeds always run, so it can't turn red by load.
+	- Verified: on `343334df` the `nodir/..` row of 2026110613470307, its other-folder row, and 2026110613470308's `t.shcl/` and `t.shcl/.` rows fail, and the drawn test fails at seed 0. On `625b3676^` 2026110312163207's link row fails. On `2f38f68b^` the rows of 2026110312163201 (made), 2026110312163202 (unread), 2026110312163207 and 2026110314240418 fail, and the FIFO row hangs until killed. All pass now, and so does a 40 s run. The draw guard fails with the floor cut to 5. Also `cicd.bash --backlog-run-quick rust`, all 5 steps, clippy for the host and windows, rustfmt and `test-ids.py check`.
+		- Rows Rust can't show red: 2026110312163201's absolute row and 2026110314064292 were Go and Python bugs, 2026110314240418 at `0710c634^` was not in Rust, and 2026102910482342 came with the check itself.
+	- Test case: `the_save_checks_hold_on_every_past_path_bug` (`df4bw`) and `the_save_checks_hold_on_drawn_paths_and_events` (`df4bx`).
+	- Branch: `r1110`
+	- Acceptance signoff: Self-closed: the rows went red at the commits before their fixes and pass now, and the gates are green.
+	- Closed: 20261110-101653
+
+- Filesystem property test: a tmpfs made for each cicd run
+	- ID: 2026111010012287
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-100122
+	- Opened by: 2026110616475901's split
+	- Parent ID: 2026110616475901
+	- Prereq IDs: 2026111010012269
+	- Problem description: the parent's tmpfs routes: the container's tmpfs mount with check-push-gate's fake docker branch, the host's user namespace, the macOS RAM disk, FreeBSD's tmpfs, the Windows temp folder, and the plain folder with a note: line where none works. The run points `SHCL_FS_DIR` at it, and runs each binding's fs tests with `SHCL_FUZZ_DUMP` set and compares their `fs/` dumps over the seeds they share, which is the parent's cross-binding check.
+	- Estimated effort: Avg
+
+- Filesystem property test: the Go port
+	- ID: 2026111010012304
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-100123
+	- Opened by: 2026110616475901's split
+	- Parent ID: 2026110616475901
+	- Prereq IDs: 2026111010012269
+	- Problem description: the parent's test in Go, from the generator rules the Rust part set down, with its dump held to Rust's answers by the cross-binding check.
+	- Estimated effort: Avg
+	- Actual effort: Low
+	- Actual fix: `source/go/fs_property_test.go`, function for function with Rust's, with the FIFO call in `fs_property_unix_test.go` and `fs_property_other_test.go`. Its dump goes in `fs/go-rows.tsv` and `fs/go-drawn.tsv`.
+	- Decisions:
+		- me, 20261110: the pipeline's compare of the dumps is in 2026111010012287, with the rest of the cicd part, since it needs the tests run with `SHCL_FUZZ_DUMP` on the tmpfs.
+		- me, 20261110: Go's `os.Remove` also takes an empty folder, so the events remove only what isn't a folder, as Rust's `remove_file` does. Otherwise the 2 trees part and so do the answers.
+	- Verified: Go's dump matches Rust's byte for byte, 16 rows and the first 5000 drawn cases of a 40 s run each. On `343334df` the `nodir/..` and other-folder rows of 2026110613470307 fail. On `2f38f68b` the rows of 2026110312163207, 2026110314064292 and 2026110613470308 (`t.shcl/.`) fail. All pass now. Also `cicd.bash --backlog-run-quick go`, all 5 steps, go vet for the host and windows, staticcheck and gofmt.
+	- Test case: `TestTheSaveChecksHoldOnEveryPastPathBug` (`df4c4`) and `TestTheSaveChecksHoldOnDrawnPathsAndEvents` (`df4c5`).
+	- Branch: `r1110`
+	- Acceptance signoff: Self-closed: the rows went red at the commits before their fixes, pass now, and agree with Rust's case by case.
+	- Closed: 20261110-101653
+
+- Filesystem property test: the Python port
+	- ID: 2026111010012324
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-100123
+	- Opened by: 2026110616475901's split
+	- Parent ID: 2026110616475901
+	- Prereq IDs: 2026111010012269
+	- Problem description: the parent's test in Python, from the generator rules the Rust part set down, with its dump held to Rust's answers by the cross-binding check.
+	- Estimated effort: Avg
+
+- Filesystem property test: the C port
+	- ID: 2026111010012342
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-100123
+	- Opened by: 2026110616475901's split
+	- Parent ID: 2026110616475901
+	- Prereq IDs: 2026111010012269
+	- Problem description: the parent's test in C, from the generator rules the Rust part set down, with its dump held to Rust's answers by the cross-binding check.
+	- Estimated effort: Avg
+
+- Filesystem property test: the Windows and macOS rows on their boxes
+	- ID: 2026111010012360
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-100123
+	- Opened by: 2026110616475901's split
+	- Parent ID: 2026110616475901
+	- Prereq IDs: 2026111010012269, 2026111010012287, 2026111010012304, 2026111010012324, 2026111010012342
+	- Problem description: the parent's Windows rows on b29w with a short-name TEMP and its macOS rows on vmKt6m or b26, through the box step, in all 4 bindings.
+	- Estimated effort: Avg
 
 - One helper reattaches the lines around a node an edit takes away
 	- ID: 2026110616475902
