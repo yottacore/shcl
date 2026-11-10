@@ -437,14 +437,17 @@ if [[ -n "${winTimer}" ]]; then
 fi
 ((nNative)) || fTestSkip
 ## The second timing (2026110110325317). The bait parses in about 20 ms and
-## burns 500 ms of CPU on its first BAIT_SPIKES workload runs, 20 after. One
-## spike is let off by the second timing; slow every time still fails.
+## burns BAIT_SLOW_MS of CPU on its first BAIT_SPIKES workload runs, 20 after.
+## One spike is let off by the second timing; slow every time still fails.
+## The slow burn is sized from the bait's own baseline and the factor. A fixed
+## 500 ms sat inside the budget under git's bash on vm925w, whose start-up
+## alone is near 180 ms (2026110810540701).
 cat > "${tmpDir}/bait-spike" <<'EOF'
 #!/usr/bin/env bash
 ms=20
 if [[ -s /dev/stdin ]]; then
 	n=$(( $(cat "${BAIT_DIR}/count" 2>/dev/null || echo 0) + 1 )); echo "${n}" > "${BAIT_DIR}/count"
-	((n <= BAIT_SPIKES)) && ms=500
+	((n <= BAIT_SPIKES)) && ms="${BAIT_SLOW_MS}"
 fi
 t="${BAIT_DIR}/times.$$"
 while :; do
@@ -456,6 +459,9 @@ done
 rm -f "${t}"; yes x | head -n "${BAIT_LINES}"
 EOF
 chmod +x "${tmpDir}/bait-spike"
+baitBase="$(BAIT_DIR="${tmpDir}" BAIT_SPIKES=0 BAIT_SLOW_MS=20 BAIT_LINES="${keys}" fBaseMs "${tmpDir}/bait-spike" writes 2>/dev/null)"
+((baitBase >= 0)) || baitBase=0
+export BAIT_SLOW_MS=$(( baitBase * factor + 500 ))
 fTest deqqr self-test-retry-spike
 rm -f "${tmpDir}/count"; jrc=0
 BAIT_DIR="${tmpDir}" BAIT_SPIKES=2 BAIT_LINES="${keys}" fJudge bait "${tmpDir}/bait-spike" writes -1 > /dev/null 2>&1 || jrc=$?
@@ -464,6 +470,7 @@ fTest deqqs self-test-retry-steady
 rm -f "${tmpDir}/count"; jrc=0
 BAIT_DIR="${tmpDir}" BAIT_SPIKES=99 BAIT_LINES="${keys}" fJudge bait "${tmpDir}/bait-spike" writes -1 > /dev/null 2>&1 || jrc=$?
 ((jrc == 1)) || { echo "perf-gate: self-test: a workload slow every time came back rc ${jrc} (${judgeMs} of ${judgeBudget} ms)" >&2; nBad+=1; }
+unset BAIT_SLOW_MS
 ## A gate whose own guards are down judges nothing after them.
 if ((nBad)); then fTestEnd; exit 1; fi
 
