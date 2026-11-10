@@ -304,9 +304,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened: 20261110-100123
 	- Opened by: 2026110616475901's split
 	- Parent ID: 2026110616475901
-	- Prereq IDs: 2026111010012269, 2026111010012287, 2026111010012304, 2026111010012324, 2026111010012342
+	- Prereq IDs: 2026111010012269, 2026111010012287, 2026111010012304, 2026111010012324, 2026111010012342, 2026111010331517
 	- Problem description: the parent's Windows rows on b29w with a short-name TEMP and its macOS rows on vmKt6m or b26, through the box step, in all 4 bindings.
 	- Estimated effort: Avg
+	- Waits on 2026111010331517 too, since the macOS rows need its case-insensitive RAM disk (me).
 
 - Filesystem property test: the tmpfs routes on the boxes
 	- ID: 2026111010331517
