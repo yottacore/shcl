@@ -102,7 +102,7 @@ Run `shcl-3.0.0-beta1-windows-x86_64-setup.exe`. It installs to `C:\Program File
 
 Each script downloads a release, checks its signature, and installs the binary plus the drop-in files. It's idempotent. An update also removes the Bash and PowerShell wrappers that older releases put in `scripts/`. It uses sane defaults, states its plan, and asks before touching anything. Pass `--help` (`-Help` on Windows) for the options.
 
-The default is the newest full release. Until 3.0.0 is out that's still 2.0.0, which reads files by the 2.x rules. For the 3.0 beta this page describes, add `--release dev` (`-Release dev` on Windows).
+The default is the newest full release. Until 3.0.0 is out that's still 2.0.0, which reads files by the 2.x rules. For the 3.0 beta this page describes, add `--release dev` (`-Release dev` on Windows). Add it on each rerun too. A plain run goes back to 2.0.0, says so before it asks, and removes the 3.0 files 2.0.0 doesn't ship.
 
 Each release includes a `shcl-<version>-sha256sums.txt` and a detached `.sig` over it. The sums file lists every asset, including the binary, the packages, and the drop-in payload. Both installers include the release public key and verify that signature before they read any checksum out of the file, so replacing a release asset isn't enough to get past them. Nothing unverified is installed. A release without a signed drop-in payload gets the binary and a note that says what was skipped. On Linux, macOS, and FreeBSD this needs `openssl`, alongside `curl` or `wget`. There isn't an install-anyway fallback, so use the [DIY install](#diy-install) route on a machine that lacks it.
 
