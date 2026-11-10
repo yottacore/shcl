@@ -381,12 +381,12 @@ LEAKCHECK_TESTS=(
 
 ## The filesystem property test of each binding, as "name|command", run by
 ## fs-property.bash with SHCL_FS_DIR and SHCL_FUZZ_DUMP set. The first is the
-## reference whose answers the rest must give. C joins when its port is in
-## (2026111010012342).
+## reference whose answers the rest must give.
 FS_PROPERTY_TESTS=(
 	'rust|cicd/utility/libtest-quiet.bash cargo test -j "${CPU_CAP}" --manifest-path source/rust/Cargo.toml --test fs_property'
 	'go|GOMAXPROCS="${CPU_CAP}" go -C source/go test -count=1 -run TestTheSaveChecksHold'
 	'python|python3 -X dev -W error::ResourceWarning source/python/tests/fs_property.py'
+	'c|fbin="$(mktemp)"; cc -std=c11 -O2 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -Isource/c source/c/tests/fs_property.c -o "${fbin}" -lm && "${fbin}" project/fs-rules.tsv; frc=$?; rm -f "${fbin}"; ((frc==0))'
 )
 
 ## Stage 4b: cross-binding differential check (crosscheck.bash). Every entry is

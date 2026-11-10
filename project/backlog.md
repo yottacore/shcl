@@ -191,7 +191,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Avg
 	- Progress log:
 		- 20261110: split for the time cap. Rust with the generator rules and the dump is child 2026111010012269, the cicd tmpfs 2026111010012287, Go 2026111010012304, Python 2026111010012324, C 2026111010012342, and the Windows and macOS box rows 2026111010012360.
-		- 20261110: Rust (2026111010012269), Go (2026111010012304), Python (2026111010012324) and the cicd tmpfs (2026111010012287) are Done. The tmpfs routes on the boxes went to a new child, 2026111010331517. The other 3 children are Queued.
+		- 20261110: Rust (2026111010012269), Go (2026111010012304), Python (2026111010012324), C (2026111010012342) and the cicd tmpfs (2026111010012287) are Done. The tmpfs routes on the boxes went to a new child, 2026111010331517. The other 2 children are Queued.
 
 - Filesystem property test: Rust, with the shared generator rules and the case dump
 	- ID: 2026111010012269
@@ -294,7 +294,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Filesystem property test: the C port
 	- ID: 2026111010012342
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261110-100123
@@ -303,6 +303,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Prereq IDs: 2026111010012269
 	- Problem description: the parent's test in C, from the generator rules the Rust part set down, with its dump held to Rust's answers by the cross-binding check.
 	- Estimated effort: Avg
+	- Actual effort: Low
+	- Actual fix: `source/c/tests/fs_property.c`, function for function with Go's, a plain program beside `soak.c` that takes the rules file as its argument. Its line is in config.bash's `FS_PROPERTY_TESTS`, built with the conformance runner's flags, so fs-property.bash runs it on the tmpfs and holds its dump, `fs/c-rows.tsv` and `fs/c-drawn.tsv`, to Rust's.
+	- Decisions:
+		- me, 20261110: not in the cppcheck line, which covers main.c and conformance.c only, as soak.c, mem_bounds.c and the oom tests aren't. Each file there analyzes all of shcl.h again, which a cold run pays for in tens of minutes. CodeQL takes every file under `source/c/tests/`, so it gets this one.
+		- me, 20261110: on Windows both tests print SKIP, as Go's and Python's do, until 2026111010012360.
+		- me, 20261110: CodeQL's path-injection findings on the case paths (from the rules file) and the dump folder (from `SHCL_FUZZ_DUMP`), and a toctou one in the tree removal, are suppressed at their lines with the reason, since the test's whole job is to work on paths it's handed in its own folder.
+	- Verified: C's dump matches Go's byte for byte, 16 rows and the first 5000 drawn cases of a 40 s run each, and the quick run's step had it agree with Rust on 4604. On `343334df` the `nodir/..` and other-folder rows of 2026110613470307 and 2026110613470308's `t.shcl/` and `t.shcl/.` rows fail, and the drawn test fails at seed 0. On `0710c634^` 2026110314240418's row fails, and passes at `0710c634`. On `625b3676^` and `2f38f68b` 2026110312163207's link row fails, and on `2f38f68b^` the rows test hangs until killed, where Rust's FIFO row hung. All pass now, also under ASan and UBSan. The `2026110312163201-gone` row fails at all of those, since its answer came with 2026110907535001. Also `cicd.bash --backlog-run-quick c`, all 5 steps, shell-regress, `test-ids.py check`, a mingw build of the Windows skip, codeql-scan, and cppcheck with the Lint line's flags over this file.
+	- Test case: `the_save_checks_hold_on_every_past_path_bug` (`df4ep`) and `the_save_checks_hold_on_drawn_paths_and_events` (`df4eq`).
+	- Branch: `r1110`
+	- Acceptance signoff: Self-closed: the rows went red at the commits before their fixes, pass now, and agree with Rust's and Go's case by case.
+	- Closed: 20261110-120236
 
 - Filesystem property test: the Windows and macOS rows on their boxes
 	- ID: 2026111010012360
