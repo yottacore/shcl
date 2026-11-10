@@ -94,7 +94,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `install.ps1` refuses pwsh on Linux and macOS
 	- ID: 2026110215285715
 	- Type: Enhancement
-	- Status: Stalled
+	- Status: Deferred
 	- Priority: Avg
 	- Target version: v4.0.0
 	- Opened: 20261102-152857
@@ -737,6 +737,47 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: Confirmed. `90870748`, 2026-10-29, round r1029b. No earlier round saw it.
 	- Estimated effort: Avg
 
+- The publisher's ssh key check asks github.com about a remote that's a local path
+	- ID: 2026111011285666
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261110-112856
+	- Opened by: tukfs-hash feedback
+	- Related IDs: Done item 24 of the old format, "the publish stage aborts before doing anything in a repository with no git identity"
+	- Version and build: dev at `5d974733`
+	- Steps to reproduce:
+		- Run the host parse at line 271 of `cicd/utility/n8git_backup-and-publish` on each origin form.
+	- Incorrect behavior: `/mnt/x/origin.git` and `file:///mnt/x/origin.git` give an empty host, so line 272 probes `git@github.com`. `../origin.git` gives `..` and probes `git@..`. The run goes on, but the key check prints auth lines for a host the repo never talks to.
+	- Expected behavior: a remote with no ssh host skips the probe and says so.
+	- Reproduced: Yes, 20261110, the sed from line 271 on the 4 forms. `git@github.com:a/b.git` gives `github.com` as it should.
+	- Note: item 24's note says the `${sshHost:-github.com}` fallback can never fire. It fires for every local-path remote.
+	- Note: tukfs-hash's copy skips the probe on an empty host since 2026-10-23 and prints `(origin isn't an ssh remote)`. It still probes `git@..` for a relative path, so that copy isn't the whole fix.
+	- Requirements:
+		- No probe for a local path, a `file://` URL or a relative path.
+		- The same patch in the canonical copy under the synced tree. The other projects' copies take it as each is refreshed.
+	- Estimated effort: Low
+
+- The publisher refuses to run in a linked worktree
+	- ID: 2026111011285679
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261110-112856
+	- Opened by: tukfs-hash feedback
+	- Version and build: dev at `5d974733`
+	- Steps to reproduce:
+		- `git worktree add ../wt`, then run `cicd/utility/n8git_backup-and-publish` from `../wt`.
+	- Incorrect behavior: it stops with "Not in git project base directory." Line 144 looks only for `.git/HEAD`, and a linked worktree's `.git` is a file.
+	- Expected behavior: a linked worktree counts as a git project folder.
+	- Reproduced: No, read from the code. tukfs-hash hit it and fixed its copy on 2026-10-23.
+	- Requirements:
+		- Accept a `.git` file too, as tukfs-hash's copy does: `[[ -f "${dirPath_GitProj}/.git/HEAD" || -f "${dirPath_GitProj}/.git" ]]`.
+		- The same patch in the canonical copy under the synced tree.
+	- Estimated effort: Low
+
 - set --write refuses a file deleted during its wait, where the library's save writes it back
 	- ID: 2026110914412379
 	- Type: Enhancement
@@ -1029,6 +1070,37 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- None of them draws from the corpus, so only a change to its own generator or to the library moves them. All 3 pass at 100 today.
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
+	- Estimated effort: Low
+
+- A plain `get` on an array prints its quotes, with no hint about `--array`
+	- ID: 2026111011285692
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Target version: v3.0.0
+	- Opened: 20261110-112856
+	- Opened by: tukfs-hash feedback
+	- Related IDs: 2026110613470324
+	- Version and build: beta1 build `df3v5`
+	- Problem description: for `rar_excludes: [*/target, *.rar, "cicd/artifacts/*"]`, `shcl get FILE rar_excludes` prints `[*/target, *.rar, "cicd/artifacts/*"]` at exit 0. spec.md says a plain `get` prints the value as it is, so this is by design. A bash script that leaves out `--array` still gets quote marks inside its globs, and nothing points it to `--array`, which prints one item a line with the quotes taken off.
+	- Requirements:
+		- When a plain `get` reads an array, say on stderr that `--array` gives one item a line. The output and exit code stay as they are.
+		- The same text from all 4 CLIs.
+	- Estimated effort: Low
+
+- The docs read as if an index picks an array item
+	- ID: 2026111011285705
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Target version: v3.0.0
+	- Opened: 20261110-112856
+	- Opened by: tukfs-hash feedback
+	- Version and build: beta1 build `df3v5`
+	- Problem description: the beta1 changelog says "an index is `site(0)`". On a field whose value is an array, `rar_excludes(0)` gives the whole array and `rar_excludes(2)` exits 3 with "no value at that path". That's right by spec.md, since an index counts instances, but nothing near the selector text says so, and a path can't name one array item.
+	- Requirements:
+		- spec.md's selector section, the README and the `get` help say an index picks an instance, never an array item, and that `get --array` is how a script reads items.
+		- The released beta1 changelog section stays as it is.
 	- Estimated effort: Low
 
 - perf-gate's `deqqs` self-test passes on vm925w, so the gate fails there
