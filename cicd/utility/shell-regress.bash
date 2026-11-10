@@ -4856,6 +4856,44 @@ brWant+="v|u@v|/r/win.exe|perf v^check-boxes.bash && perf-gate.bash w|u@w|/r/win
 [[ "${brOut}" == "${brWant}" ]] || fBad "perf rows through fBoxRow and --list: ${brOut@Q}"
 grep -qxF '	"vm925w|collierjr@vm925w|windows-x86_64|perf"' "${repoDir}/cicd/config.bash" || fBad "config.bash has no vm925w perf row"
 
+fTest df4cq 2026111010012287-fs-property-compare
+##	fs-property.bash holds each binding's filesystem dump to the reference's:
+##	the fixed rows whole, the drawn cases over the lines both wrote. A failed
+##	command fails it, a SHCL_FS_TMPFS that isn't a tmpfs is said, and the
+##	cases go under the temp folder, never the tree or /dev/shm.
+fsFake(){  ## fsFake NAME ROWS DRAWN -> a binding command that dumps them
+	# shellcheck disable=SC2016  ## the binding command's own variables
+	printf 'mkdir -p "${SHCL_FUZZ_DUMP}/fs" && printf "%s" > "${SHCL_FUZZ_DUMP}/fs/%s-rows.tsv" && printf "%s" > "${SHCL_FUZZ_DUMP}/fs/%s-drawn.tsv" && echo "${SHCL_FS_DIR}" > "%s/fs-%s.dir"' \
+		"$2" "$1" "$3" "$1" "${tmpDir}" "$1"
+}
+fsRun(){  ## fsRun [VAR=VALUE ...] -- NAME|COMMAND ... -> fsRc, fsOut
+	local -a envs=()
+	while [[ "$1" != -- ]]; do envs+=("$1"); shift; done; shift
+	fsRc=0; fsOut="$(env ${envs[@]+"${envs[@]}"} "${BASH}" "${repoDir}/cicd/utility/fs-property.bash" "$@" 2>&1)" || fsRc=$?
+}
+fsRun -- "a|$(fsFake a 'r1\nr2\n' 's0\ns1\ns2\n')" "b|$(fsFake b 'r1\nr2\n' 's0\ns1\n')"
+[[ "${fsRc}" == 0 && "${fsOut}" == *"PASS df4cf "* && "${fsOut}" == *"PASS df4cg "* && "${fsOut}" == *"b agrees with a on 2 drawn cases"* ]] || fBad "fs-property.bash on 2 dumps that agree: exit ${fsRc}: ${fsOut@Q}"
+fsDir="$(cat "${tmpDir}/fs-a.dir" 2> /dev/null || true)"
+[[ "${fsDir}" == "${TMPDIR}"/?* && "${fsDir}" != "${repoDir}"/* ]] || fBad "fs-property.bash put the cases in ${fsDir@Q}, not under ${TMPDIR}"
+fsRun -- "a|$(fsFake a 'r1\nr2\n' 's0\ns1\ns2\n')" "b|$(fsFake b 'r1\nr2\n' 's0\nsX\n')"
+[[ "${fsRc}" == 1 && "${fsOut}" == *"FAIL df4cg "* && "${fsOut}" == *"PASS df4cf "* ]] || fBad "fs-property.bash on a drawn case that differs: exit ${fsRc}: ${fsOut@Q}"
+fsRun -- "a|$(fsFake a 'r1\nr2\n' 's0\ns1\n')" "b|$(fsFake b 'r1\nrX\n' 's0\ns1\n')"
+[[ "${fsRc}" == 1 && "${fsOut}" == *"FAIL df4cf "* && "${fsOut}" == *"PASS df4cg "* ]] || fBad "fs-property.bash on a fixed row that differs: exit ${fsRc}: ${fsOut@Q}"
+fsRun -- "a|$(fsFake a 'r1\n' 's0\n')" "b|false"
+[[ "${fsRc}" == 1 && "${fsOut}" == *"b failed, exit 1"* ]] || fBad "fs-property.bash with a binding whose tests fail: exit ${fsRc}: ${fsOut@Q}"
+fsRun SHCL_FS_TMPFS="${tmpDir}" -- "a|$(fsFake a 'r1\n' 's0\n')"
+[[ "${fsRc}" == 0 && "${fsOut}" == *"names ${tmpDir}, which isn't a tmpfs here"* ]] || fBad "fs-property.bash took a SHCL_FS_TMPFS that isn't a tmpfs without a word: exit ${fsRc}: ${fsOut@Q}"
+fsDir="$(cat "${tmpDir}/fs-a.dir" 2> /dev/null || true)"
+[[ "${fsDir}" != "${tmpDir}" ]] || fBad "fs-property.bash used a SHCL_FS_TMPFS that isn't a tmpfs"
+## No user namespace: a plain folder, a note: line saying why, and a SKIP.
+mkdir -p "${tmpDir}/no-userns"
+printf '#!/bin/sh\necho "unshare: Operation not permitted" >&2\nexit 1\n' > "${tmpDir}/no-userns/unshare"; chmod +x "${tmpDir}/no-userns/unshare"
+# shellcheck disable=SC2031  ## the PATH a subshell above set was its own
+fsRun PATH="${tmpDir}/no-userns:${PATH}" -- "a|$(fsFake a 'r1\n' 's0\n')"
+[[ "${fsRc}" == 0 && "${fsOut}" == *"note: no tmpfs for the filesystem cases (a user namespace with a tmpfs failed: unshare: Operation not permitted)"* && "${fsOut}" == *"SKIP df4ch "* ]] || fBad "fs-property.bash with no user namespace: exit ${fsRc}: ${fsOut@Q}"
+fsDir="$(cat "${tmpDir}/fs-a.dir" 2> /dev/null || true)"
+[[ "${fsDir}" == "${TMPDIR}"/?*/plain ]] || fBad "fs-property.bash's plain folder is ${fsDir@Q}, not under ${TMPDIR}"
+
 fTestEnd
 
 if ((nBad)); then

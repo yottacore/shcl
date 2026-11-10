@@ -189,6 +189,159 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reason: a property over the whole space of spellings and events is the only test that finds the next member of the class before a user does. The example lists found none of the 8.
 	- Regression test: this item is the test. Its rows for every Related ID are the regression tests for those items, each watched to fail in a worktree at the commit before its fix.
 	- Estimated effort: Avg
+	- Progress log:
+		- 20261110: split for the time cap. Rust with the generator rules and the dump is child 2026111010012269, the cicd tmpfs 2026111010012287, Go 2026111010012304, Python 2026111010012324, C 2026111010012342, and the Windows and macOS box rows 2026111010012360.
+		- 20261110: Rust (2026111010012269), Go (2026111010012304), Python (2026111010012324), C (2026111010012342) and the cicd tmpfs (2026111010012287) are Done. The tmpfs routes on the boxes went to a new child, 2026111010331517. The other 2 children are Queued.
+
+- Filesystem property test: Rust, with the shared generator rules and the case dump
+	- ID: 2026111010012269
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-100122
+	- Opened by: 2026110616475901's split
+	- Parent ID: 2026110616475901
+	- Problem description: the first part of the parent: the seeded test in Rust, the generator rules the other 3 bindings take, the fixed rows for every Related ID of the parent, the draw guard and the dump.
+	- Requirements: the parent's, for Rust. The test takes its folder from an env var. Windows and macOS rows skip by platform.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Actual fix: `source/rust/tests/fs_property.rs`, its own test binary, over the rules in `project/fs-rules.tsv`. A fixed row per Related ID of the parent, and cases drawn by seed for `SHCL_FS_SECS` (2 when unset) with a floor of 400. The expected answer comes from reading the folder, never the library, and a refused save must leave the whole case tree as it was. `SHCL_FUZZ_DUMP` gets `fs/rust-rows.tsv` and `fs/rust-drawn.tsv`, and `SHCL_FS_SEED` replays one seed.
+	- Decisions:
+		- me, 20261110: the rules are a TSV the 4 runners read, drawn with splitmix64. Every row counts in every platform's draw, so a seed is one case everywhere, and a case that drew a row not for this platform is skipped.
+		- me, 20261110: with no `SHCL_FS_DIR` the cases go under the temp folder, with a `note:` line, so a plain `cargo test` runs them. The pipeline sets it to the tmpfs in 2026111010012287.
+		- me, 20261110: the Windows and macOS rows skip on every platform until 2026111010012360 runs them on their boxes, and the test is ignored on Windows, so the hosted windows job doesn't run code no box tried.
+		- me, 20261110: the oracle judges Changed by the bytes at the save path. The marker through the save spelling and back through the load spelling only says whether the 2 name one file, for the dump and the draw guard, since the bytes rule doesn't need it.
+		- me, 20261110: 2026110313211991 was the CLIs' own check, so it has no library row. Its library twin is the FIFO row, and cli-regress `devy8` holds the CLIs.
+		- me, 20261110: the guard asks for every spelling, event and answer, and both one file and 2. The first 400 seeds always run, so it can't turn red by load.
+	- Verified: on `343334df` the `nodir/..` row of 2026110613470307, its other-folder row, and 2026110613470308's `t.shcl/` and `t.shcl/.` rows fail, and the drawn test fails at seed 0. On `625b3676^` 2026110312163207's link row fails. On `2f38f68b^` the rows of 2026110312163201 (made), 2026110312163202 (unread), 2026110312163207 and 2026110314240418 fail, and the FIFO row hangs until killed. All pass now, and so does a 40 s run. The draw guard fails with the floor cut to 5. Also `cicd.bash --backlog-run-quick rust`, all 5 steps, clippy for the host and windows, rustfmt and `test-ids.py check`.
+		- Rows Rust can't show red: 2026110312163201's absolute row and 2026110314064292 were Go and Python bugs, 2026110314240418 at `0710c634^` was not in Rust, and 2026102910482342 came with the check itself.
+	- Test case: `the_save_checks_hold_on_every_past_path_bug` (`df4bw`) and `the_save_checks_hold_on_drawn_paths_and_events` (`df4bx`).
+	- Branch: `r1110`
+	- Acceptance signoff: Self-closed: the rows went red at the commits before their fixes and pass now, and the gates are green.
+	- Closed: 20261110-101653
+
+- Filesystem property test: a tmpfs made for each cicd run
+	- ID: 2026111010012287
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-100122
+	- Opened by: 2026110616475901's split
+	- Parent ID: 2026110616475901
+	- Prereq IDs: 2026111010012269
+	- Problem description: the parent's tmpfs routes: the container's tmpfs mount with check-push-gate's fake docker branch, the host's user namespace, the macOS RAM disk, FreeBSD's tmpfs, the Windows temp folder, and the plain folder with a note: line where none works. The run points `SHCL_FS_DIR` at it, and runs each binding's fs tests with `SHCL_FUZZ_DUMP` set and compares their `fs/` dumps over the seeds they share, which is the parent's cross-binding check.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Actual fix: `cicd/utility/fs-property.bash`, a test step of its own, runs each binding's fs tests from config.bash's `FS_PROPERTY_TESTS` with `SHCL_FS_DIR` and `SHCL_FUZZ_DUMP` set. Then it holds each binding's fixed rows to Rust's whole, and its drawn cases over the seeds both ran. The folder is the image's tmpfs, a `--mount` on the stage run named by `SHCL_FS_TMPFS`. On a Linux host it's a tmpfs in a user namespace around each binding's command. Elsewhere it's a plain folder with a `note:` line. The cargo and go test lines skip the fs tests by name, and the 4 binding areas hold the new step. check-push-gate's fake docker takes `--mount`. contributing.md says how it works.
+	- Decisions:
+		- me, 20261110: the namespace maps the caller's uid back after the mount (`unshare --map-user`), so the read-bit cases run as the caller and don't take the root skip. Where that fails the run takes the plain folder, not a root namespace.
+		- me, 20261110: docker's tmpfs root is root's and 775, so the mount adds `tmpfs-mode=1777`. Without it the caller can't write there.
+		- me, 20261110: the macOS RAM disk, FreeBSD's tmpfs and the Windows temp folder went to child 2026111010331517, since only their boxes can run them. Until then those platforms take the plain folder with a `note:` line.
+		- me, 20261110: the fs tests run once, in their own step, so the other test lines skip them (`--skip the_save_checks_hold`, `-skip TestTheSaveChecksHold`). Each binding gets a fresh tmpfs on the host, since the namespace goes with its command.
+	- Verified: in the image, the quick run's step put the cases on `/tmp/shcl-fs`, a tmpfs, and Go agreed with Rust on 3259 drawn cases. On b23 the host route mounted a 256 MB tmpfs as the caller's own uid, with a read-bit file unreadable inside it, and Go agreed with Rust on 5000. check-push-gate `df4cj` fails with the mount line taken out of cicd.bash. shell-regress `df4cq` holds the compare to a differing row and a differing drawn case, a failing binding, a `SHCL_FS_TMPFS` that isn't a tmpfs, and the plain folder when the namespace fails. Also `cicd.bash --backlog-run-quick rust go cicd`, shell-regress, check-push-gate, shellcheck, `test-ids.py check`, markdownlint.
+	- Test case: fs-property `df4ch`, `df4cf`, `df4cg`, check-push-gate `df4cj`, shell-regress `df4cq`.
+	- Branch: `r1110`
+	- Acceptance signoff: Self-closed: each route this item kept ran and was checked, the compare goes red on a differing dump, and the gates are green.
+	- Closed: 20261110-104504
+
+- Filesystem property test: the Go port
+	- ID: 2026111010012304
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-100123
+	- Opened by: 2026110616475901's split
+	- Parent ID: 2026110616475901
+	- Prereq IDs: 2026111010012269
+	- Problem description: the parent's test in Go, from the generator rules the Rust part set down, with its dump held to Rust's answers by the cross-binding check.
+	- Estimated effort: Avg
+	- Actual effort: Low
+	- Actual fix: `source/go/fs_property_test.go`, function for function with Rust's, with the FIFO call in `fs_property_unix_test.go` and `fs_property_other_test.go`. Its dump goes in `fs/go-rows.tsv` and `fs/go-drawn.tsv`.
+	- Decisions:
+		- me, 20261110: the pipeline's compare of the dumps is in 2026111010012287, with the rest of the cicd part, since it needs the tests run with `SHCL_FUZZ_DUMP` on the tmpfs.
+		- me, 20261110: Go's `os.Remove` also takes an empty folder, so the events remove only what isn't a folder, as Rust's `remove_file` does. Otherwise the 2 trees part and so do the answers.
+	- Verified: Go's dump matches Rust's byte for byte, 16 rows and the first 5000 drawn cases of a 40 s run each. On `343334df` the `nodir/..` and other-folder rows of 2026110613470307 fail. On `2f38f68b` the rows of 2026110312163207, 2026110314064292 and 2026110613470308 (`t.shcl/.`) fail. All pass now. Also `cicd.bash --backlog-run-quick go`, all 5 steps, go vet for the host and windows, staticcheck and gofmt.
+	- Test case: `TestTheSaveChecksHoldOnEveryPastPathBug` (`df4c4`) and `TestTheSaveChecksHoldOnDrawnPathsAndEvents` (`df4c5`).
+	- Branch: `r1110`
+	- Acceptance signoff: Self-closed: the rows went red at the commits before their fixes, pass now, and agree with Rust's case by case.
+	- Closed: 20261110-101653
+
+- Filesystem property test: the Python port
+	- ID: 2026111010012324
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-100123
+	- Opened by: 2026110616475901's split
+	- Parent ID: 2026110616475901
+	- Prereq IDs: 2026111010012269
+	- Problem description: the parent's test in Python, from the generator rules the Rust part set down, with its dump held to Rust's answers by the cross-binding check.
+	- Estimated effort: Avg
+	- Actual effort: Low
+	- Actual fix: `source/python/tests/fs_property.py`, function for function with Rust's and Go's, a plain script beside `soak.py`. Its line is in config.bash's `FS_PROPERTY_TESTS`, so fs-property.bash runs it on the tmpfs and holds its dump, `fs/python-rows.tsv` and `fs/python-drawn.tsv`, to Rust's. Also in the py_compile build line and mypy's file list.
+	- Decisions:
+		- me, 20261110: a script of its own, not a part of conformance.py, since the pipeline runs it only through fs-property.bash, as cargo and go skip theirs by name. On Windows both tests print SKIP, as Go's skip, until 2026111010012360.
+	- Verified: Python's dump matches Go's byte for byte, 16 rows and the first 5000 drawn cases of a 40 s run each, and the quick run's step had it agree with Rust on 3635. On `343334df` the `nodir/..` and other-folder rows of 2026110613470307 fail. On `2f38f68b` the rows of 2026110312163207, 2026110314064292, and 2026110613470308 (`t.shcl/`, `t.shcl/.`) fail, and the drawn test fails at seed 0. All pass now. Also `cicd.bash --backlog-run-quick python`, shell-regress, ruff, mypy, `test-ids.py check` and codeql-scan.
+	- Test case: `the_save_checks_hold_on_every_past_path_bug` (`df4dk`) and `the_save_checks_hold_on_drawn_paths_and_events` (`df4dm`).
+	- Branch: `r1110`
+	- Acceptance signoff: Self-closed: the rows went red at the commits before their fixes, pass now, and agree with Rust's and Go's case by case.
+	- Closed: 20261110-110830
+
+- Filesystem property test: the C port
+	- ID: 2026111010012342
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-100123
+	- Opened by: 2026110616475901's split
+	- Parent ID: 2026110616475901
+	- Prereq IDs: 2026111010012269
+	- Problem description: the parent's test in C, from the generator rules the Rust part set down, with its dump held to Rust's answers by the cross-binding check.
+	- Estimated effort: Avg
+	- Actual effort: Low
+	- Actual fix: `source/c/tests/fs_property.c`, function for function with Go's, a plain program beside `soak.c` that takes the rules file as its argument. Its line is in config.bash's `FS_PROPERTY_TESTS`, built with the conformance runner's flags, so fs-property.bash runs it on the tmpfs and holds its dump, `fs/c-rows.tsv` and `fs/c-drawn.tsv`, to Rust's.
+	- Decisions:
+		- me, 20261110: not in the cppcheck line, which covers main.c and conformance.c only, as soak.c, mem_bounds.c and the oom tests aren't. Each file there analyzes all of shcl.h again, which a cold run pays for in tens of minutes. CodeQL takes every file under `source/c/tests/`, so it gets this one.
+		- me, 20261110: on Windows both tests print SKIP, as Go's and Python's do, until 2026111010012360.
+		- me, 20261110: CodeQL's path-injection findings on the case paths (from the rules file) and the dump folder (from `SHCL_FUZZ_DUMP`), and a toctou one in the tree removal, are suppressed at their lines with the reason, since the test's whole job is to work on paths it's handed in its own folder.
+	- Verified: C's dump matches Go's byte for byte, 16 rows and the first 5000 drawn cases of a 40 s run each, and the quick run's step had it agree with Rust on 4604. On `343334df` the `nodir/..` and other-folder rows of 2026110613470307 and 2026110613470308's `t.shcl/` and `t.shcl/.` rows fail, and the drawn test fails at seed 0. On `0710c634^` 2026110314240418's row fails, and passes at `0710c634`. On `625b3676^` and `2f38f68b` 2026110312163207's link row fails, and on `2f38f68b^` the rows test hangs until killed, where Rust's FIFO row hung. All pass now, also under ASan and UBSan. The `2026110312163201-gone` row fails at all of those, since its answer came with 2026110907535001. Also `cicd.bash --backlog-run-quick c`, all 5 steps, shell-regress, `test-ids.py check`, a mingw build of the Windows skip, codeql-scan, and cppcheck with the Lint line's flags over this file.
+	- Test case: `the_save_checks_hold_on_every_past_path_bug` (`df4ep`) and `the_save_checks_hold_on_drawn_paths_and_events` (`df4eq`).
+	- Branch: `r1110`
+	- Acceptance signoff: Self-closed: the rows went red at the commits before their fixes, pass now, and agree with Rust's and Go's case by case.
+	- Closed: 20261110-120236
+
+- Filesystem property test: the Windows and macOS rows on their boxes
+	- ID: 2026111010012360
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-100123
+	- Opened by: 2026110616475901's split
+	- Parent ID: 2026110616475901
+	- Prereq IDs: 2026111010012269, 2026111010012287, 2026111010012304, 2026111010012324, 2026111010012342, 2026111010331517
+	- Problem description: the parent's Windows rows on b29w with a short-name TEMP and its macOS rows on vmKt6m or b26, through the box step, in all 4 bindings.
+	- Estimated effort: Avg
+	- Waits on 2026111010331517 too, since the macOS rows need its case-insensitive RAM disk (me).
+
+- Filesystem property test: the tmpfs routes on the boxes
+	- ID: 2026111010331517
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-103315
+	- Opened by: 2026111010012287's split
+	- Parent ID: 2026110616475901
+	- Prereq IDs: 2026111010012287
+	- Related IDs: 2026111010012360
+	- Problem description: the parent's routes for the other platforms, which 2026111010012287 left on the plain folder with a note: line: a macOS RAM disk from `hdiutil attach -nomount ram://`, case-insensitive and detached at the end, a FreeBSD `tmpfs` mount where the box can make one, and the Windows temp folder. `box-suites.bash` runs the fs tests through `fs-property.bash`, so vmFreeBSD's run uses the route too. Each route runs on its box.
+	- Estimated effort: Avg
 
 - One helper reattaches the lines around a node an edit takes away
 	- ID: 2026110616475902
@@ -233,11 +386,98 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reason: an example per bug has found none of the next ones. A property over every comment in every generated edit finds the next site before a review does.
 	- Regression test: this item is the test. Each past case in its table is watched to fail in a worktree at the commit before that case's fix, and the property on `343334df`.
 	- Estimated effort: Avg
+	- Progress log:
+		- 20261110: split in 4. The table and its Rust runner (2026111012160064), the Go, Python and C runners (2026111012160083), and each row watched to fail before its fix (2026111012160102) are done. The fuzz property, with the cross check, is 2026111012160121, still Queued.
+
+- The comment placement table and its Rust runner
+	- ID: 2026111012160064
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-121600
+	- Opened by: split from 2026110616475903
+	- Parent ID: 2026110616475903
+	- Problem description: the fixed half of 2026110616475903: one row per past placement case, as a before text, an edit and the exact expected text, in one file the conformance suites read.
+	- Requirements: `project/conformance/placement.txt`, read by the Rust conformance runner, with its format in the conformance README.
+	- Estimated effort: Avg
+	- Actual effort: Low
+	- Progress log:
+		- 20261110: placement.txt has 15 rows: 2026110613470311, Code review 20260904 item 18, 20260830 item 19, 20260925b item 2, 20260802 items 8 and 20, 20260901b item 7, 20260923 item 3 (a merge in one go and the same from saved text), the 2 SilkTerm `to_canonical()` items, 2026100307163904, 2026110613470302, 2026100218185700 and 2026092718195400. Each has a before text, ops or merged layers, the canonical text, and the line-keeping save's text where there's no merge. The conformance README has the format.
+	- Decisions:
+		- me, 20261110: a text file with `:: ` section markers, since a row holds several texts with line breaks and tabs, which a TSV row would have to escape. It sits beside the case folders, which every runner and test-ids.py pass over.
+		- me, 20261110: one test ID per runner for the whole table, as a corpus test has, with the failed rows named in its output. An ID per row would need test-ids.py to read the file.
+		- me, 20261110: the 2 banner rows use `banner off`. `banner on` writes the release's links and Legal line, which change every release, and corpus 217 keeps that case.
+		- me, 20261110: corpus 221 stays, since it also covers a list in a block and the merge.
+		- me, 20261110: a dotted line's comment goes inside `db:`, above `host`, in the canonical text, as corpus 153 has it. 20260925b item 2 was about the line-keeping save, and that row's keep text keeps the dotted line.
+		- me, 20261110: the 2026092718195400 row pins its 2026-09-28 call, that a replaced leaf's comments go with it, since it had no fix.
+	- Test case: conformance `placement_table_rows_match` (`df4g0` Rust).
+	- Verified: the 2026110613470311 and 2026110613470302 rows fail on the Rust library at `343334df` and pass now. The 4 conformance suites, the Go tests, clippy, rustfmt, gofmt, go vet, staticcheck, ruff, mypy, the C runner at `-Werror` and under ASan and UBSan with gcc 15, the exhaustive cppcheck line, codeql-scan, check-docs, test-ids, markdownlint.
+	- Branch: `r1110`
+	- Acceptance signoff: Self-closed: the rows fail before their fixes (2026111012160102) and pass now.
+	- Closed: 20261110-122900
+
+- The comment placement table in the Go, Python and C runners
+	- ID: 2026111012160083
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-121600
+	- Opened by: split from 2026110616475903
+	- Parent ID: 2026110616475903
+	- Problem description: the Rust runner reads 2026110616475903's placement table. The other 3 conformance suites don't yet.
+	- Requirements: the Go, Python and C runners read the same file and check each row as the Rust runner does, by the format in the conformance README.
+	- Estimated effort: Avg
+	- Actual effort: Low
+	- Test case: conformance `placement_table_rows_match` (`df4g2` Go, `df4g3` Python, `df4g4` C).
+	- Verified: all 3 pass. The Go and C runners fail on a row with 2026110613470311's old text, and on a keep text without 2026110613470302's line.
+	- Branch: `r1110`
+	- Acceptance signoff: Self-closed: same rows and checks as the Rust runner.
+	- Closed: 20261110-122900
+
+- Each placement table row watched to fail before its fix
+	- ID: 2026111012160102
+	- Type: Task
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-121601
+	- Opened by: split from 2026110616475903
+	- Parent ID: 2026110616475903
+	- Problem description: 2026110616475903 asks that each row of its table be seen to fail in a worktree at the commit before that case's fix.
+	- Requirements: for each row, a worktree at the parent of the fix commit, the row run against that library, and the result on the item. A row that passes there is rewritten until it fails, or says why it can't.
+	- Estimated effort: Avg
+	- Actual effort: Low
+	- Progress log:
+		- 20261110: each row fails on the Python library at the commit before its fix and passes at the fix: 20260802 items 8 and 20 at `f1271852`, the 2 SilkTerm rows at `4ed9ed95`, 20260830 item 19 at `e3694990`, 20260901b item 7 at `d7d0b1fc`, 20260904 item 18 at `fc7b6c16`, 20260923 item 3 at `186b2017`, 20260925b item 2 at `921e0748`, 2026100218185700 at `cdc750c3`, 2026100307163904 at `6c00b70d`. 2026110613470311 and 2026110613470302 fail at `343334df` in Python and Rust.
+	- Decisions:
+		- me, 20261110: watched on the Python library, since the calls the rows use are the same there back to August, so one runner reads every commit. Where a fix went in per binding, the commit named is the Python one.
+		- me, 20261110: 20260923-3b passes before its fix, as it should. It's the merge from saved text, and the bug was the one-step merge, 20260923-3, coming out different from it.
+		- me, 20261110: 2026092718195400 had no fix, only a call, so its row has nothing to fail on.
+	- Test case: conformance `placement_table_rows_match` (`df4g0`, `df4g2`, `df4g3`, `df4g4`).
+	- Branch: `r1110`
+	- Acceptance signoff: Self-closed: every row with a fix was seen to fail before it.
+	- Closed: 20261110-122900
+
+- A comment placement property in the fuzz, replayed in all 4 bindings
+	- ID: 2026111012160121
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-121601
+	- Opened by: split from 2026110616475903
+	- Parent ID: 2026110616475903
+	- Problem description: the property half of 2026110616475903. No fuzz says where a comment must be after an edit.
+	- Requirements: the property, generators and guard in 2026110616475903's Requirements, in `dd3t9`, `dderx` and the merge step, with the cross check replaying the dumps. Watched to fail on `343334df` with 2026110613470311's case.
+	- Note: the cross check already replays `dderx`'s `kept/` dump through every CLI, so its new shapes reach the other 3 bindings that way. `dd3t9` dumps nothing yet, and a merge has no CLI form, so it isn't dumped.
+	- Estimated effort: High
 
 - Make `children` and `instances` exit 3 on a path that isn't there
 	- ID: 2026110613470323
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261106-134703
@@ -248,6 +488,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: Confirmed in all 4 CLIs.
 	- Regression test: cli-regress rows for `children` and `instances` on a path that isn't there, exit 3 and the same stderr from all 4 CLIs.
 	- Estimated effort: Low
+	- Decisions:
+		- The message is `cannot list PATH: no field at that path (in FILE)`, shaped like `get`'s miss. It goes to stderr every time, as `get`'s does outside `--default`.
+		- `count` stays at 0 and exit 0. Its 0 already tells a miss from a match, and a script that reads it under `set -e` would break on a 3.
+		- `--json` and `--paths` exit 3 the same way. A wildcard with no slots is a miss, as in the library, and one whose slots are all missing still lists them at 0.
+		- 20261110: cli-regress `dc09s` (`children-missing`) expected exit 0 and now expects 3 with the message.
+	- Swept: the plain, `--paths` and `--json` arms of `instances` and `children` in all 4 CLIs. `count` and `paths` are left as they are. The man page, changelog and UI guide's exit table (already "nothing at the path") say so. Scripts in cicd/ that call either guard the exit.
+	- Verified: the new rows and `dc09s` failed on the old Rust, Go and C CLIs (15 checks) and pass in all 4. cli-regress (666 rows, 3935 checks), crosscheck over the corpus, check-doc-examples, check-docs, test-ids check, lint-report, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, shellcheck, markdownlint.
+	- Branch: `r1110`
+	- Commit: `6be031a6`
+	- Test case: cli-regress `df4hf`, `df4hg`, `df4hh`, `df4hj`, `df4hk`, `df4hm`, and `dc09s`.
+	- Closed: 20261110-131441
 
 - Quote the other line breaks in `instances` and `get --array` output
 	- ID: 2026110613470324

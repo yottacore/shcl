@@ -499,6 +499,55 @@ def apply_op(doc, line, at):
 		raise SystemExit(f"{at}: {err}")
 
 
+def _placement_text(lines):
+	# Trailing blank lines are dropped, so rows can be spaced apart.
+	while lines and lines[-1] == "":
+		lines = lines[:-1]
+	return "".join(f"{line}\n" for line in lines)
+
+
+def placement_rows():
+	# placement.txt: a text, the edits made to it in file order, and what the
+	# saves must write after them.
+	rows = []
+	section = None
+	text = _read(os.path.join(CORPUS, "placement.txt"))
+	if text.endswith("\n"):
+		text = text[:-1]
+
+	def flush():
+		if section is None:
+			return
+		kind, lines = section
+		if not rows:
+			raise SystemExit("placement.txt: a section before the first row")
+		row = rows[-1]
+		body = _placement_text(lines)
+		if kind in ("before", "expected", "keep"):
+			row[kind] = body
+		elif kind in ("ops", "merge"):
+			row["edits"].append((kind, body))
+		else:
+			raise SystemExit(f"placement.txt: {row['name']}: unknown section '{kind}'")
+
+	for line in text.split("\n"):
+		if not line.startswith(":: "):
+			if section is not None:
+				section[1].append(line)
+			continue
+		flush()
+		section = None
+		marker = line[3:]
+		if marker.startswith("row "):
+			rows.append({"name": marker[4:], "before": "", "edits": [], "expected": "", "keep": None})
+		else:
+			section = (marker, [])
+	flush()
+	if not rows:
+		raise SystemExit("placement.txt: no rows")
+	return rows
+
+
 # The alphabet the setter round-trip fixture draws from: every character that
 # means something to the tokenizer, plus a blank the load trims and a no-break
 # space it does not. Same fixture in every runner.
@@ -1316,6 +1365,35 @@ def main():
 		kdoc = shcl.Document.parse_keep_lines(case["input"], shcl.Strictness.Standard)
 		if kdoc.to_text_keep_lines() != (case["input"], True):
 			fails.append(f"{case['name']}: an unedited save changed the text")
+
+	# Every past case of a comment an edit put in the wrong place, as a fixed
+	# text (2026110616475903).
+	test_id("df4g3", "placement_table_rows_match")
+	for row in placement_rows():
+		name = row["name"]
+		if row["keep"] is not None and any(kind == "merge" for kind, _ in row["edits"]):
+			fails.append(f"{name}: a merge row has no keep text")
+			continue
+		doc = shcl.Document.parse(row["before"])
+		keep = shcl.Document.parse_keep_lines(row["before"], shcl.Strictness.Standard)
+		for kind, body in row["edits"]:
+			if kind == "merge":
+				doc.merge(shcl.Document.parse(body))
+				continue
+			for n, line in enumerate(body.split("\n")):
+				if _blank_op(line) or _comment_op(line):
+					continue
+				at = f"{name}: op {n + 1}"
+				apply_op(doc, line, at)
+				apply_op(keep, line, at)
+		got = doc.to_canonical()
+		if got != row["expected"]:
+			fails.append(f"{name}: canonical text\ngot:\n{got}want:\n{row['expected']}")
+			continue
+		if shcl.Document.parse(got).to_canonical() != got:
+			fails.append(f"{name}: expected text is not a fmt fixpoint")
+		if row["keep"] is not None and keep.to_text_keep_lines()[0] != row["keep"]:
+			fails.append(f"{name}: kept text\ngot:\n{keep.to_text_keep_lines()[0]}want:\n{row['keep']}")
 
 	# Bad-op dimension: each write-bad.ops line, applied alone to the case
 	# input, must be rejected (bad value, bad datetime, or unusable path) and

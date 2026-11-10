@@ -1435,8 +1435,17 @@ rows=(
 	## needing quotes comes back path-ready, or enumerating it buys nothing.
 	'dc09q|children-top|children %T%|-|0|db\nweb\n|-'
 	'dc09r|children-quoted|children %T% db|-|0|host\n"odd.key"\n|-'
-	'dc09s|children-missing|children %T% nope|-|0||-'
+	'dc09s|children-missing|children %T% nope|-|3||^cannot list nope: no field at that path \(in .*tree\.shcl\)$'
 	'dc09t|paths-all|paths %T%|-|0|db\ndb.host\ndb."odd.key"\nweb\nweb.port\n|-'
+	## 2026110613470323: children and instances exited 0 with no output both for
+	## a missing path and an empty section. A miss exits 3 now, as get does;
+	## count's 0 already says it, so count stays at 0.
+	'df4hf|children-missing-exit-3|children - nope|a:\n\tb: 1\nc:\n|3||=cannot list nope: no field at that path (in -)\n'
+	'df4hg|children-empty-section-good|children - c|a:\n\tb: 1\nc:\n|0||^$'
+	'df4hh|children-json-missing-exit-3|children --json - nope|a:\n\tb: 1\nc:\n|3||=cannot list nope: no field at that path (in -)\n'
+	'df4hj|instances-missing-exit-3|instances - a.nope|a:\n\tb: 1\nc:\n|3||=cannot list a.nope: no field at that path (in -)\n'
+	'df4hk|instances-paths-missing-exit-3|instances --paths - x(*).b|a:\n\tb: 1\nc:\n|3||=cannot list x(*).b: no field at that path (in -)\n'
+	'df4hm|count-missing-zero|count - nope|a:\n\tb: 1\nc:\n|0|0\n|^$'
 	## 20260901b item 28: a value with newlines in it stays on one line.
 	'dc45p|diag-value-one-line|check --schema=%SA% %R%|-|6|-|not allowed at .b.: line one◉NEWLINE◉line two$'
 	## 20260901b item 24: two layers with a bad line 2 printed the same thing

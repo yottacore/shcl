@@ -3,7 +3,7 @@
 .\"
 .\" Has no version string on purpose: the release bump touches eight files
 .\" and this is not one of them. Keep it in step with HELP in the four CLIs.
-.TH SHCL 1 2026-11-03 shcl "User Commands"
+.TH SHCL 1 2026-11-10 shcl "User Commands"
 .SH NAME
 shcl \- read, edit, validate and format Simple Hierarchical Config Language files
 .SH SYNOPSIS
@@ -203,7 +203,9 @@ each line is instead the path that reads that one instance, such as
 .BR shard(0) ,
 which a script can hand back to
 .B get
-whatever the values are.
+whatever the values are. A path that does not resolve exits 3, as
+.B get
+does.
 .TP
 .B children
 Print the child field names under
@@ -213,10 +215,10 @@ one per line, in file order and with duplicates kept. With
 left out, the top level. Each name is printed in the form a path accepts, so a
 name holding a dot or a quote can be spliced straight back into a lookup path.
 A path that resolves to several instances lists the children of each in turn.
-A path that does not resolve and a node with no children both print nothing
-and exit 0; ask
-.B count
-when the difference matters.
+A node with no children prints nothing at exit 0, and a path that does not
+resolve exits 3, as
+.B get
+does.
 .TP
 .B paths
 Print every field path in the document, one per line, in file order and

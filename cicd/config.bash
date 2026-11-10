@@ -121,7 +121,7 @@ CPPCHECK_WHEEL="1.5.1"
 BUILD_CMD=(cargo build --manifest-path "${MANIFEST}")
 BUILD_EXTRA=(
 	'GOAMD64=v1 GOMAXPROCS="${CPU_CAP}" go -C source/go/cmd build -o ../shcl ./shcl'
-	'python3 -m py_compile source/python/shcl.py source/python/cmd/shcl/main.py source/python/tests/conformance.py source/python/tests/soak.py'
+	'python3 -m py_compile source/python/shcl.py source/python/cmd/shcl/main.py source/python/tests/conformance.py source/python/tests/soak.py source/python/tests/fs_property.py'
 	'cc -std=c11 -O2 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -Isource/c source/c/cmd/shcl/main.c -o source/c/shcl -lm -s'
 )
 
@@ -226,6 +226,7 @@ SHELLCHECK_TARGETS=(
 	cicd/utility/codeql-scan.bash
 	cicd/utility/comparison/compare.bash
 	cicd/utility/crosscheck.bash
+	cicd/utility/fs-property.bash
 	cicd/utility/gen-compdb.bash
 	cicd/utility/largedoc.bash
 	cicd/utility/libtest-quiet.bash
@@ -270,25 +271,29 @@ SHELLCHECK_TARGETS=(
 ##     SHCL_FUZZ_ITERS=1000000 cargo test --manifest-path source/rust/Cargo.toml \
 ##         --test fuzz_smoke
 ## libtest-quiet.bash drops libtest's per-test lines, since each test prints
-## its own with its test ID.
-TEST_CMD=(cicd/utility/libtest-quiet.bash env SHCL_FUZZ_ITERS=200000 cargo test --manifest-path "${MANIFEST}")
+## its own with its test ID. The filesystem property tests run in
+## fs-property.bash instead, on the run's tmpfs, so each of these skips them.
+TEST_CMD=(cicd/utility/libtest-quiet.bash env SHCL_FUZZ_ITERS=200000 cargo test --manifest-path "${MANIFEST}" -- --skip the_save_checks_hold)
 ## --quick swaps in this test command: same suites, fuzz at the old 20k gate
 ## depth - the minute-scale 200k soak is what the fast loop sheds.
-TEST_QUICK_CMD=(cicd/utility/libtest-quiet.bash env SHCL_FUZZ_ITERS=20000 cargo test --manifest-path "${MANIFEST}")
+TEST_QUICK_CMD=(cicd/utility/libtest-quiet.bash env SHCL_FUZZ_ITERS=20000 cargo test --manifest-path "${MANIFEST}" -- --skip the_save_checks_hold)
 ## -count=1: the corpus sits outside the Go module, so go's test cache cannot
 ## see a changed case and answers `ok (cached)` over a broken golden. The
 ## library is one package, named by directory rather than ./..., since a
 ## package list hides a passing package's output and with it the per-test
 ## status lines.
 TEST_EXTRA=(
-	'GOMAXPROCS="${CPU_CAP}" go -C source/go test -count=1'
+	'GOMAXPROCS="${CPU_CAP}" go -C source/go test -count=1 -skip TestTheSaveChecksHold'
 	'GOMAXPROCS="${CPU_CAP}" go -C source/go/cmd test -count=1 ./...'
 	## spec.md says Go reads can share a document across goroutines, and the
 	## race detector sees that break where a plain run can miss it. The whole
 	## suite, about 20 s to the plain run's 5 here, so the timeout has room for a
 	## slow runner. It needs cgo and a C compiler (2026101514324720,
 	## 2026101711273980).
-	'CGO_ENABLED=1 GOMAXPROCS="${CPU_CAP}" go -C source/go test -race -count=1 -timeout 10m'
+	'CGO_ENABLED=1 GOMAXPROCS="${CPU_CAP}" go -C source/go test -race -count=1 -timeout 10m -skip TestTheSaveChecksHold'
+	## Each binding's filesystem property test, on a tmpfs made for the run,
+	## and their answers held to Rust's (2026111010012287).
+	'cicd/utility/fs-property.bash "${FS_PROPERTY_TESTS[@]}"'
 	## -X dev and the ResourceWarning filter make a file nobody closed an
 	## error, which the runner's unraisable hook turns into a failure. The soak
 	## takes about 15 s here, half of it tracemalloc's (2026101711273980).
@@ -372,6 +377,16 @@ LEAKCHECK_LONG=(
 LEAKCHECK_TESTS=(
 	'sanitize-c.bash'
 	'sanitize-rust.bash'
+)
+
+## The filesystem property test of each binding, as "name|command", run by
+## fs-property.bash with SHCL_FS_DIR and SHCL_FUZZ_DUMP set. The first is the
+## reference whose answers the rest must give.
+FS_PROPERTY_TESTS=(
+	'rust|cicd/utility/libtest-quiet.bash cargo test -j "${CPU_CAP}" --manifest-path source/rust/Cargo.toml --test fs_property'
+	'go|GOMAXPROCS="${CPU_CAP}" go -C source/go test -count=1 -run TestTheSaveChecksHold'
+	'python|python3 -X dev -W error::ResourceWarning source/python/tests/fs_property.py'
+	'c|fbin="$(mktemp)"; cc -std=c11 -O2 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -Isource/c source/c/tests/fs_property.c -o "${fbin}" -lm && "${fbin}" project/fs-rules.tsv; frc=$?; rm -f "${fbin}"; ((frc==0))'
 )
 
 ## Stage 4b: cross-binding differential check (crosscheck.bash). Every entry is
@@ -580,10 +595,10 @@ BACKLOG_SKIP=(
 	'check-push-gate.bash'
 )
 BACKLOG_AREAS=(
-	"rust|cargo test|sanitize-rust.bash"
-	"go|go -C source/go"
-	"python|source/python/tests"
-	"c|source/c/tests|check-c-compilers.bash|sanitize-c.bash"
+	"rust|cargo test|sanitize-rust.bash|fs-property.bash"
+	"go|go -C source/go|fs-property.bash"
+	"python|source/python/tests|fs-property.bash"
+	"c|source/c/tests|check-c-compilers.bash|sanitize-c.bash|fs-property.bash"
 	"cli|cli-regress.bash|check-doc-examples.bash|perf-gate.bash|check-locale.bash|check-migrate.bash|crosscheck.bash"
 	"cicd|shell-regress.bash|check-install-dev.bash|check-push-gate.bash"
 )

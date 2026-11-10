@@ -1,0 +1,310 @@
+Comment placement table. One row per comment that an edit once put in the
+wrong place, with the exact text that edit must give now. The format is in
+README.md, "Placement table". Lines above the first row are not read.
+
+:: row 2026110613470311 a replaced item list's comments go above its blank
+:: before
+server:
+	port: 8080
+
+items:
+	# first element
+	- one
+	- two  # second
+
+z: 1
+:: ops
+literal	items	[one, two]
+:: expected
+server:
+	port: 8080
+
+# first element
+# second
+items:
+	- one
+	- two
+
+z: 1
+:: keep
+server:
+	port: 8080
+
+# first element
+# second
+items:
+	- one
+	- two
+
+z: 1
+
+:: row 20260904-18 a comment added to a node with one keeps the blank above both
+:: before
+a: 1
+# note
+
+b: 2
+:: ops
+comment	b	new
+:: expected
+a: 1
+
+# note
+# new
+b: 2
+:: keep
+a: 1
+
+# note
+# new
+b: 2
+
+:: row 20260830-19 a new node's comment sits right above it
+:: before
+a: 1
+:: ops
+int	x	5
+comment	x	note
+:: expected
+a: 1
+
+# note
+x: 5
+:: keep
+a: 1
+
+# note
+x: 5
+
+:: row 20260925b-2 a comment above a dotted line stays on an edit elsewhere
+:: before
+# db settings
+db.host: localhost
+port: 1
+:: ops
+int	port	2
+:: expected
+db:
+	# db settings
+	host: localhost
+port: 2
+:: keep
+# db settings
+db.host: localhost
+port: 2
+
+:: row 20260802-8 a merged section keeps the comments of both layers
+:: before
+# the db
+db:
+	host: a
+:: merge
+# primary db
+db:
+	host: b
+:: expected
+# the db
+# primary db
+db:
+	host: b
+
+:: row 20260802-20 a footer every layer has is written once
+:: before
+a: 1
+# end
+:: merge
+a: 2
+# end
+:: merge
+a: 3
+# end
+:: expected
+a: 3
+# end
+
+:: row 20260901b-7 a layer's own repeated footer stays repeated
+:: before
+:: merge
+a: 1
+# more
+# more
+:: expected
+a: 1
+# more
+# more
+
+:: row 20260923-3 a comment a merge left after a child stays there through the next merge
+:: before
+a:
+	# inside
+:: merge
+a:
+	c: 1
+:: merge
+a:
+	d: 2
+	# note
+k:
+	# only
+b:
+b: ```sh  # t
+	echo
+	```
+:: expected
+a:
+	c: 1
+	# inside
+	d: 2
+	# note
+k:
+	# only
+b:
+# t
+b: ```sh
+	echo
+	```
+
+:: row 20260923-3b the same merge from the saved text of the first 2 layers
+:: before
+a:
+	c: 1
+	# inside
+:: merge
+a:
+	d: 2
+	# note
+k:
+	# only
+b:
+b: ```sh  # t
+	echo
+	```
+:: expected
+a:
+	c: 1
+	# inside
+	d: 2
+	# note
+k:
+	# only
+b:
+# t
+b: ```sh
+	echo
+	```
+
+:: row 20260802-silkterm-1 the blank between 2 comment runs stays
+:: before
+# one
+
+# two
+a: 1
+
+# end
+:: expected
+# one
+
+# two
+a: 1
+
+# end
+:: keep
+# one
+
+# two
+a: 1
+
+# end
+
+:: row 20260802-silkterm-2 a run after a block's last child stays in the block
+:: before
+a:
+	b: 1
+	# about b
+c: 1
+:: ops
+int	c	2
+:: expected
+a:
+	b: 1
+	# about b
+c: 2
+:: keep
+a:
+	b: 1
+	# about b
+c: 2
+
+:: row 2026100307163904 comments written against the info block stay
+:: before
+port: 1
+
+##
+## This config file format is SHCL.
+##    Format   3
+##
+## Ops team: do not edit by hand.
+## Pager: 555-0100
+:: ops
+banner	off
+:: expected
+port: 1
+
+## Ops team: do not edit by hand.
+## Pager: 555-0100
+:: keep
+port: 1
+
+## Ops team: do not edit by hand.
+## Pager: 555-0100
+
+:: row 2026110613470302 an author's line in the info block stays where it was
+:: before
+a: 1
+##
+## This config file format is SHCL.
+##    Format   3
+##    Pager    555-0100
+##
+b: 2
+:: ops
+banner	off
+:: expected
+a: 1
+##    Pager    555-0100
+b: 2
+:: keep
+a: 1
+##    Pager    555-0100
+b: 2
+
+:: row 2026100218185700 a comment between nested kept lines nests
+:: before
+a: [1]
+	# note
+	b: [2]
+:: ops
+int	c	3
+:: expected
+a: [1]
+	# note
+	b: [2]
+
+c: 3
+:: keep
+a: [1]
+	# note
+	b: [2]
+
+c: 3
+
+:: row 2026092718195400 a replaced leaf's comments go with it
+:: before
+# old e
+e: 1
+f: 1
+:: merge
+e: 5
+:: expected
+e: 5
+f: 1

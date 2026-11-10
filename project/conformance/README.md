@@ -38,6 +38,21 @@ Each case is a directory `NNN-short-name/` containing:
 
 - `expected-merged.shcl` is optional, and it turns on the layered-load dimension. It's the canonical form of merging any `layer*.shcl` files under `input.shcl` through the library `merge`, then applying the `merge.sets` overrides as the top layer. The layers are read in filename order, which is priority order with the lowest first, and `input.shcl` is the highest file layer. `merge.sets` is optional, with one `path=value` per line and `#` comments skipped. Each binding folds the layers with `merge` and matches the golden byte for byte, and the golden must also be a formatter fixpoint. The differential harness replays `fmt --layer=... --set=... input.shcl` across every CLI. A later layer's leaf name replaces earlier leaves with the same name, which is real override for scalars, arrays, and raw blocks. Container instances merge by `(name, value)`, like the rule inside one file.
 
+## Placement table
+
+`placement.txt` holds one row per comment that an edit once put in the wrong place, with the exact text the edit must give now. Each row is named after the backlog item or review item that found it.
+
+- A line that starts with `:: ` is a marker, so no row's text can hold one. The lines above the first marker aren't read.
+
+- `:: row NAME` starts a row. The sections under it run to the next marker:
+	- `:: before` is the text the row starts from.
+	- `:: ops` is a script in the `write.ops` grammar, applied to the document and to its load that keeps lines.
+	- `:: merge` is a layer merged over the document, as a higher layer. A row may have more than one, and the `ops` and `merge` sections run in the order they're written.
+	- `:: expected` is the canonical text after the edits, byte for byte, and it must be a formatter fixpoint.
+	- `:: keep` is optional, and only for a row with no merge. It's the text the save that keeps lines writes after the ops.
+
+- Blank lines at the end of a section are dropped, so rows can be set apart by a blank line. Every other line ends in a newline, and an empty section is empty text.
+
 ## Notes
 
 Case `001` corrects the autoformat shown in `../../../notes.txt`. Instances are kept in insertion order (Chicago, Cleveland, Boston, Philly) rather than sorted alphabetically, and values are minimally quoted, so city names stay bare unless a reserved char forces quotes. Those 2 points are where the case departs on purpose from the original draft by example.

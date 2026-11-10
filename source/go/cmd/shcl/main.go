@@ -3587,7 +3587,11 @@ func doEnum(o *opts, wantCount bool) int {
 	if wantCount {
 		outln(doc.Count(path))
 	} else if o.json || o.paths {
-		for _, f := range doc.ReadFields(path).Value {
+		r := doc.ReadFields(path)
+		if r.Status != shcl.Good {
+			return listMiss(r.Status, path, file)
+		}
+		for _, f := range r.Value {
 			if o.json {
 				outln(jsonLine(f.Path, nil, f.Value, f.Line, nil))
 			} else {
@@ -3595,11 +3599,28 @@ func doEnum(o *opts, wantCount bool) int {
 			}
 		}
 	} else {
-		for _, v := range doc.Instances(path) {
+		r := doc.ReadInstances(path)
+		if r.Status != shcl.Good {
+			return listMiss(r.Status, path, file)
+		}
+		for _, v := range r.Value {
 			outln(oneLine(v))
 		}
 	}
 	return 0
+}
+
+// listMiss: a list that reaches nothing exits 3, as get does, so a script can
+// tell a missing section from an empty one, which lists nothing at 0. count
+// needs no such exit, since its 0 already says it.
+func listMiss(st shcl.Status, path, file string) int {
+	reason := "no field at that path"
+	if st == shcl.BadPath {
+		// Refused before the load, so only a library read meets it.
+		reason = "not a usable path"
+	}
+	fmt.Fprintf(os.Stderr, "cannot list %s: %s (in %s)\n", path, reason, file)
+	return statusCode(st)
 }
 
 // jsonLine is one line of --json output. The keys always come in this order,
@@ -3679,12 +3700,20 @@ func doChildren(o *opts) int {
 		return code
 	}
 	if o.json {
-		for _, f := range doc.ReadChildFields(path).Value {
+		r := doc.ReadChildFields(path)
+		if r.Status != shcl.Good {
+			return listMiss(r.Status, path, file)
+		}
+		for _, f := range r.Value {
 			outln(jsonLine(f.Path, &f.Name, f.Value, f.Line, nil))
 		}
 		return 0
 	}
-	for _, name := range doc.Children(path) {
+	r := doc.ReadChildren(path)
+	if r.Status != shcl.Good {
+		return listMiss(r.Status, path, file)
+	}
+	for _, name := range r.Value {
 		outln(shcl.QuoteSegment(name))
 	}
 	return 0

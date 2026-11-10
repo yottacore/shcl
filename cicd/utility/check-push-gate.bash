@@ -1101,7 +1101,7 @@ if [[ -n "${STUB_DOCKER_EXEC:-}" ]]; then
 			--rm|--init)           shift ;;
 			-e)                    envs+=("$2"); shift 2 ;;
 			-w)                    dir="$2"; shift 2 ;;
-			-v|--user|--group-add|--label|--name|--network|--device|--cidfile|--cpus|--cpu-shares|--memory|--memory-swap|--oom-score-adj) shift 2 ;;
+			-v|--mount|--user|--group-add|--label|--name|--network|--device|--cidfile|--cpus|--cpu-shares|--memory|--memory-swap|--oom-score-adj) shift 2 ;;
 			*)                     break ;;
 		esac
 	done
@@ -1713,6 +1713,15 @@ cpuRuns="$(grep -c '^run ' "${work}/args.txt" || true)"
 cpuBad="$(grep '^run ' "${work}/args.txt" | grep -vE -- ' --cpus [1-9][0-9]* --cpu-shares 256 ' || true)"
 if ((cpuRuns < 7)) || [[ -n "${cpuBad}" ]]; then
 	fail "the CPU limits on a run's containers: ${cpuRuns} run(s), without --cpus and --cpu-shares 256: ${cpuBad:-none}"
+fi
+fTest df4cj each stage run in the image gets a tmpfs for the filesystem cases, and its path
+## 2026111010012287: a tmpfs docker makes for the container and drops with it,
+## 256 MB, open to the caller, since docker owns its root.
+fsRuns="$(grep '^run ' "${work}/args.txt" | grep -cF ' bash ' || true)"
+fsBad="$(grep '^run ' "${work}/args.txt" | grep -F ' bash ' | grep -vF -e ' --mount type=tmpfs,destination=/tmp/shcl-fs,tmpfs-size=256m,tmpfs-mode=1777 ' | cut -c1-160 || true)"
+fsBad+="$(grep '^run ' "${work}/args.txt" | grep -F ' bash ' | grep -vF -e ' -e SHCL_FS_TMPFS=/tmp/shcl-fs ' | cut -c1-160 || true)"
+if ((fsRuns < 2)) || [[ -n "${fsBad}" ]]; then
+	fail "the filesystem cases' tmpfs on the stage runs: ${fsRuns} run(s), without the mount or SHCL_FS_TMPFS: ${fsBad:-none}"
 fi
 ## The scripts a gate runs in the image, which this stub doesn't start.
 # shellcheck disable=SC2016  ## ctr-image.bash's own text, matched literally

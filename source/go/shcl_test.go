@@ -964,6 +964,126 @@ func TestWriteOpsMatchExpected(t *testing.T) {
 	})
 }
 
+// placementRow is one row of placement.txt: a text, the edits made to it in
+// file order, and what the saves must write after them.
+type placementRow struct {
+	name, before, expected, keep string
+	hasKeep                      bool
+	edits                        [][2]string
+}
+
+// placementText drops a section's trailing blank lines, so rows can be spaced
+// apart, and ends each line left with a newline.
+func placementText(lines []string) string {
+	end := len(lines)
+	for end > 0 && lines[end-1] == "" {
+		end--
+	}
+	var b strings.Builder
+	for _, l := range lines[:end] {
+		b.WriteString(l)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func placementRows(t *testing.T) []placementRow {
+	data, err := os.ReadFile(filepath.Join(corpusDir(), "placement.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rows []placementRow
+	kind := ""
+	var lines []string
+	flush := func() {
+		if kind == "" {
+			return
+		}
+		if len(rows) == 0 {
+			t.Fatal("placement.txt: a section before the first row")
+		}
+		row := &rows[len(rows)-1]
+		body := placementText(lines)
+		switch kind {
+		case "before":
+			row.before = body
+		case "ops", "merge":
+			row.edits = append(row.edits, [2]string{kind, body})
+		case "expected":
+			row.expected = body
+		case "keep":
+			row.keep, row.hasKeep = body, true
+		default:
+			t.Fatalf("placement.txt: %s: unknown section '%s'", row.name, kind)
+		}
+	}
+	text := strings.TrimSuffix(string(data), "\n")
+	for _, line := range strings.Split(text, "\n") {
+		marker, ok := strings.CutPrefix(line, ":: ")
+		if !ok {
+			if kind != "" {
+				lines = append(lines, line)
+			}
+			continue
+		}
+		flush()
+		kind, lines = "", nil
+		if name, isRow := strings.CutPrefix(marker, "row "); isRow {
+			rows = append(rows, placementRow{name: name})
+		} else {
+			kind = marker
+		}
+	}
+	flush()
+	if len(rows) == 0 {
+		t.Fatal("placement.txt: no rows")
+	}
+	return rows
+}
+
+// TestPlacementTableRowsMatch: every past case of a comment an edit put in
+// the wrong place, as a fixed text (2026110616475903).
+func TestPlacementTableRowsMatch(t *testing.T) {
+	defer testID(t, "df4g2")
+	for _, row := range placementRows(t) {
+		merges := false
+		for _, e := range row.edits {
+			merges = merges || e[0] == "merge"
+		}
+		if merges && row.hasKeep {
+			t.Errorf("%s: a merge row has no keep text", row.name)
+			continue
+		}
+		doc := Parse(row.before)
+		kept, _ := ParseKeepLines(row.before, Standard)
+		for _, e := range row.edits {
+			if e[0] == "merge" {
+				doc.Merge(Parse(e[1]))
+				continue
+			}
+			for n, line := range strings.Split(e[1], "\n") {
+				if isBlankOpTest(line) || isCommentOpTest(line) {
+					continue
+				}
+				at := fmt.Sprintf("%s: op %d", row.name, n+1)
+				applyOpTest(t, doc, line, at)
+				applyOpTest(t, kept, line, at)
+			}
+		}
+		got := doc.ToCanonical()
+		if got != row.expected {
+			t.Errorf("%s: canonical text\ngot:\n%s\nwant:\n%s", row.name, got, row.expected)
+			continue
+		}
+		if Parse(got).ToCanonical() != got {
+			t.Errorf("%s: expected text is not a fmt fixpoint", row.name)
+		}
+		if text, _ := kept.ToTextKeepLines(); row.hasKeep && text != row.keep {
+			t.Errorf("%s: kept text\ngot:\n%s\nwant:\n%s", row.name, text, row.keep)
+		}
+	}
+}
+
 // TestKeepingLinesWithoutEditsWritesTheInput: loaded to keep its lines and
 // saved with no edits, every input is its own text again, byte for byte.
 func TestKeepingLinesWithoutEditsWritesTheInput(t *testing.T) {

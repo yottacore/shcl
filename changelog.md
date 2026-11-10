@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- `children` and `instances` exit 3 on a path that matches nothing, as `get` does, with `cannot list PATH: no field at that path (in FILE)` on stderr. They exited 0 with no output, the same as for an empty section. A node with no children still lists nothing at exit 0, and `count` still prints 0 at exit 0.
+
 - An installer run that would put an older release over a newer install says so in its plan and its receipt, and on the stable channel says how to keep the newer one. It also removes the drop-ins, man page and completions the older release doesn't ship, so they don't sit beside a binary they don't match.
 
 - A save checks the bytes at the path it writes, every time, whatever file the path names now. It writes when they're what the load read or what this document's last save wrote, or when nothing is there, as an editor does. So a file deleted since the load is written back, where beta1 refused it as changed, and a save-as to a new name is still written. Unless `force` is set, a save onto a file the document never read is refused as changed, where it used to write. A save-as is one case, and a document from `parse` over an existing file is another. A save to the same relative name from another working folder is refused the same way.
