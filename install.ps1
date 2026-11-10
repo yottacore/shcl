@@ -87,7 +87,7 @@ param(
 	Set-StrictMode -Version Latest
 	$ErrorActionPreference = 'Stop'
 
-	$installerVersion = '1.2.0'
+	$installerVersion = '1.3.0'
 
 	## Every run opens with a blank line and ends with one, errors included.
 	Write-Output ''
@@ -345,6 +345,27 @@ installed.
 				try { [Console]::OutputEncoding = $oldEncoding } catch { $null = $_ }
 			}
 		}
+	}
+
+	## The version the installed binary reports, or nothing when it does not run.
+	## Asked of the binary itself, so an install from before this check counts too.
+	function Get-InstalledVersion {
+		[CmdletBinding()]
+		param([string]$Exe)
+		$run = Invoke-ShclSmoke -Exe $Exe
+		if ($run.Code -ne 0) { return '' }
+		$first = "$(@($run.Out)[0])"
+		if ($first -match '^shcl v?([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)') { return $Matches[1] }
+		return ''
+	}
+
+	## Is A older than B? The same order Select-ReleaseTag ranks tags in.
+	function Test-OlderVersion {
+		[CmdletBinding()]
+		param([string]$Older, [string]$Newer)
+		if ($Older -eq $Newer) { return $false }
+		$pair = @($Older, $Newer) | ForEach-Object { [PSCustomObject]@{ tag_name = "v$_"; draft = $false; prerelease = $false } }
+		(Select-ReleaseTag -Channel dev -Releases $pair).tag_name -eq "v$Newer"
 	}
 
 	## Windows' own tar, by full path. A GNU tar from Git for Windows, MSYS2 or
@@ -621,13 +642,26 @@ installed.
 	}
 
 	## State the plan, then confirm.
-	$existing = if (Test-Path -LiteralPath (Join-Path -Path $dest -ChildPath 'shcl.exe')) { 'updates the existing install' } else { 'new install' }
+	## A plain run after -Release dev goes back to the stable release, and that
+	## used to read as an ordinary update.
+	$existing = 'new install'
+	$installed = ''
+	$older = $false
+	if (Test-Path -LiteralPath (Join-Path -Path $dest -ChildPath 'shcl.exe')) {
+		$existing = 'updates the existing install'
+		$installed = Get-InstalledVersion -Exe (Join-Path -Path $dest -ChildPath 'shcl.exe')
+		if ($installed -and (Test-OlderVersion -Older $version -Newer $installed)) {
+			$older = $true
+			$existing = "replaces the newer $installed with an older release"
+		}
+	}
 	Write-Output "shcl $version ($channel, windows-$arch) -> $dest ($existing)"
 	Write-Output "  from     https://github.com/$repo/releases/tag/$tag"
 	Write-Output "  binary   $dest\shcl.exe"
 	Write-Output "  drop-ins $dest\code\"
 	if (Test-Path -LiteralPath (Join-Path -Path $dest -ChildPath 'scripts')) { Write-Output "  removes  the retired wrappers in $dest\scripts\" }
 	Write-Output "  adds $pathDir to the $pathScope PATH if missing"
+	if ($older -and $Release -eq 'stable') { Write-Output "  note     to keep $installed, re-run with -Release dev" }
 	if (-not $Yes) {
 		$reply = Read-Host 'Proceed? [y/N]'
 		if ($reply -notin @('y', 'Y', 'yes', 'Yes', 'YES')) {
@@ -715,6 +749,20 @@ installed.
 				$payloadRoot = $srcroot.FullName
 				Copy-Item -LiteralPath "$payloadRoot\source\rust\src\lib.rs", "$payloadRoot\source\go\shcl.go", "$payloadRoot\source\python\shcl.py", "$payloadRoot\source\c\shcl.h", "$payloadRoot\source\c\shcl.hpp" -Destination (Join-Path -Path $dest -ChildPath 'code')
 			}
+			## What this release does not ship goes, by name, when the install was
+			## another version: a newer release's drop-ins left beside an older
+			## binary describe the wrong format. On the same version they can
+			## only have been put there by hand, so they stay.
+			$dropped = $false
+			$codeDir = Join-Path -Path $dest -ChildPath 'code'
+			if (-not $haveDropins -and $installed -ne $version -and (Test-Path -LiteralPath $codeDir -PathType Container)) {
+				foreach ($name in 'lib.rs', 'shcl.go', 'shcl.py', 'shcl.h', 'shcl.hpp') {
+					$path = Join-Path -Path $codeDir -ChildPath $name
+					if (Test-Path -LiteralPath $path -PathType Leaf) { Remove-Item -Force -LiteralPath $path -ErrorAction Stop }
+				}
+				if (@(Get-ChildItem -Force -LiteralPath $codeDir).Count -eq 0) { Remove-Item -Force -LiteralPath $codeDir -ErrorAction Stop }
+				$dropped = $true
+			}
 			Remove-OldWrapper -Dest $dest
 		} catch {
 			$ex = $_.Exception
@@ -736,7 +784,15 @@ installed.
 		}
 
 		Write-Output ''
-		Write-Output "installed shcl $version -> $dest\shcl.exe"
+		if ($older) {
+			Write-Output "installed shcl $version -> $dest\shcl.exe (older than the $installed it replaced)"
+		} else {
+			Write-Output "installed shcl $version -> $dest\shcl.exe"
+		}
+		if ($dropped) {
+			$was = if ($installed) { $installed } else { 'earlier' }
+			Write-Output "note: removed the drop-ins the $was install had, since this release does not ship them"
+		}
 		## Written over a setup install: its Add/Remove Programs entry still
 		## names the version it put there, which is no longer what is on disk.
 		if (Test-Path -LiteralPath (Join-Path -Path $dest -ChildPath 'uninstall.exe')) {
