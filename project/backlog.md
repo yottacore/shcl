@@ -191,7 +191,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Avg
 	- Progress log:
 		- 20261110: split for the time cap. Rust with the generator rules and the dump is child 2026111010012269, the cicd tmpfs 2026111010012287, Go 2026111010012304, Python 2026111010012324, C 2026111010012342, and the Windows and macOS box rows 2026111010012360.
-		- 20261110: Rust (2026111010012269) and Go (2026111010012304) are Done. The other 4 children are Queued.
+		- 20261110: Rust (2026111010012269), Go (2026111010012304) and the cicd tmpfs (2026111010012287) are Done. The tmpfs routes on the boxes went to a new child, 2026111010331517. The other 4 children are Queued.
 
 - Filesystem property test: Rust, with the shared generator rules and the case dump
 	- ID: 2026111010012269
@@ -224,7 +224,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Filesystem property test: a tmpfs made for each cicd run
 	- ID: 2026111010012287
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261110-100122
@@ -233,6 +233,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Prereq IDs: 2026111010012269
 	- Problem description: the parent's tmpfs routes: the container's tmpfs mount with check-push-gate's fake docker branch, the host's user namespace, the macOS RAM disk, FreeBSD's tmpfs, the Windows temp folder, and the plain folder with a note: line where none works. The run points `SHCL_FS_DIR` at it, and runs each binding's fs tests with `SHCL_FUZZ_DUMP` set and compares their `fs/` dumps over the seeds they share, which is the parent's cross-binding check.
 	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Actual fix: `cicd/utility/fs-property.bash`, a test step of its own, runs each binding's fs tests from config.bash's `FS_PROPERTY_TESTS` with `SHCL_FS_DIR` and `SHCL_FUZZ_DUMP` set. Then it holds each binding's fixed rows to Rust's whole, and its drawn cases over the seeds both ran. The folder is the image's tmpfs, a `--mount` on the stage run named by `SHCL_FS_TMPFS`. On a Linux host it's a tmpfs in a user namespace around each binding's command. Elsewhere it's a plain folder with a `note:` line. The cargo and go test lines skip the fs tests by name, and the 4 binding areas hold the new step. check-push-gate's fake docker takes `--mount`. contributing.md says how it works.
+	- Decisions:
+		- me, 20261110: the namespace maps the caller's uid back after the mount (`unshare --map-user`), so the read-bit cases run as the caller and don't take the root skip. Where that fails the run takes the plain folder, not a root namespace.
+		- me, 20261110: docker's tmpfs root is root's and 775, so the mount adds `tmpfs-mode=1777`. Without it the caller can't write there.
+		- me, 20261110: the macOS RAM disk, FreeBSD's tmpfs and the Windows temp folder went to child 2026111010331517, since only their boxes can run them. Until then those platforms take the plain folder with a `note:` line.
+		- me, 20261110: the fs tests run once, in their own step, so the other test lines skip them (`--skip the_save_checks_hold`, `-skip TestTheSaveChecksHold`). Each binding gets a fresh tmpfs on the host, since the namespace goes with its command.
+	- Verified: in the image, the quick run's step put the cases on `/tmp/shcl-fs`, a tmpfs, and Go agreed with Rust on 3259 drawn cases. On b23 the host route mounted a 256 MB tmpfs as the caller's own uid, with a read-bit file unreadable inside it, and Go agreed with Rust on 5000. check-push-gate `df4cj` fails with the mount line taken out of cicd.bash. shell-regress `df4cq` holds the compare to a differing row and a differing drawn case, a failing binding, a `SHCL_FS_TMPFS` that isn't a tmpfs, and the plain folder when the namespace fails. Also `cicd.bash --backlog-run-quick rust go cicd`, shell-regress, check-push-gate, shellcheck, `test-ids.py check`, markdownlint.
+	- Test case: fs-property `df4ch`, `df4cf`, `df4cg`, check-push-gate `df4cj`, shell-regress `df4cq`.
+	- Branch: `r1110`
+	- Acceptance signoff: Self-closed: each route this item kept ran and was checked, the compare goes red on a differing dump, and the gates are green.
+	- Closed: 20261110-104504
 
 - Filesystem property test: the Go port
 	- ID: 2026111010012304
@@ -294,6 +306,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Parent ID: 2026110616475901
 	- Prereq IDs: 2026111010012269, 2026111010012287, 2026111010012304, 2026111010012324, 2026111010012342
 	- Problem description: the parent's Windows rows on b29w with a short-name TEMP and its macOS rows on vmKt6m or b26, through the box step, in all 4 bindings.
+	- Estimated effort: Avg
+
+- Filesystem property test: the tmpfs routes on the boxes
+	- ID: 2026111010331517
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-103315
+	- Opened by: 2026111010012287's split
+	- Parent ID: 2026110616475901
+	- Prereq IDs: 2026111010012287
+	- Related IDs: 2026111010012360
+	- Problem description: the parent's routes for the other platforms, which 2026111010012287 left on the plain folder with a note: line: a macOS RAM disk from `hdiutil attach -nomount ram://`, case-insensitive and detached at the end, a FreeBSD `tmpfs` mount where the box can make one, and the Windows temp folder. `box-suites.bash` runs the fs tests through `fs-property.bash`, so vmFreeBSD's run uses the route too. Each route runs on its box.
 	- Estimated effort: Avg
 
 - One helper reattaches the lines around a node an edit takes away

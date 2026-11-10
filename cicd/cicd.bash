@@ -1072,6 +1072,11 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 		dest="${link#*:}"; dest="${dest%%:*}"
 		if [[ "${link}" == /*:/tmp/?* && -d "${link%%:*}" ]]; then mkdir -p -- "${scratch}${dest#/tmp}" || true; fi
 	done
+	## The filesystem property test's folder: a tmpfs docker makes for this
+	## container and drops with it, fixed in size so a runaway case ends in
+	## ENOSPC (2026111010012287). Its root is docker's, hence the mode.
+	mkdir -p -- "${scratch}/shcl-fs" || true
+	mounts+=(--mount "type=tmpfs,destination=/tmp/shcl-fs,tmpfs-size=256m,tmpfs-mode=1777")
 	for gid in $(id -G); do
 		if [[ "${gid}" != "$(id -g)" ]]; then groups+=(--group-add "${gid}"); fi
 	done
@@ -1082,6 +1087,7 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 	env=(-e SHCL_IN_CONTAINER=1 -e "SHCL_CTR_IMAGE=${ctr_image}" -e "USER=${USER:-builder}" -e "CPU_CAP=${CPU_CAP}" -e "SHCL_CPU_FIXED=${SHCL_CPU_FIXED}")
 	if [[ -n "${SHCL_GATE_REF:-}" ]]; then env+=(-e "SHCL_GATE_REF=${SHCL_GATE_REF}"); fi
 	env+=(-e "SHCL_BUILD=${SHCL_BUILD:-}" -e "SHCL_BUILD_DATED=${SHCL_BUILD_DATED:-}")
+	env+=(-e SHCL_FS_TMPFS=/tmp/shcl-fs)
 	if [[ -n "${part}" ]]; then env+=(-e "SHCL_RUN_PART=${part}"); fi
 	env+=(-e "SHCL_STEP_PLAN=${step_ids[*]}")
 	inner=("$( ((quiet)) && echo -q || echo -y )" --no-sync --no-dogfood --no-gif --no-publish "${ctr_pass[@]}")
