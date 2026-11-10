@@ -853,6 +853,9 @@ fTeeDone(){
 }
 trap 'if declare -F fStepFail >/dev/null; then fStepFail || true; fi; fRunTmpGone || true; fTeeDone || true' EXIT
 export SHCL_GATE_SKIPS="$(mktemp)"
+## Taken out of the environment, so a cicd.bash a test step starts doesn't
+## hand its tree to this run's caller.
+green_out="${SHCL_GREEN_OUT:-}"; unset SHCL_GREEN_OUT
 
 ## Publish commit message: -m wins, then config, then a default when unattended.
 publish_msg=""
@@ -1096,9 +1099,12 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 	## a step over it is killed in here, and the run exits 137.
 	local -a rmArg=(--rm)
 	if ((keep_temp)); then rmArg=(); fi
+	local greenOut=""
+	if [[ "${part}" != fmt ]]; then greenOut="$(fGreenOut "${tree}")"; env+=(-e "SHCL_GREEN_OUT=${greenOut}"); fi
 	"${engine}" run "${rmArg[@]}" --init --cidfile "${cidfile}" "${labels[@]}" --name "$(fCtrName "${step}")" --cpus "${CPU_CAP}" --cpu-shares 256 "${mem[@]}" --user "$(id -u):$(id -g)" "${groups[@]}" "${mounts[@]}" "${env[@]}" -w "${tree}" \
 		"${tag}" bash "${tree}/cicd/cicd.bash" "${inner[@]}" \
 		|| ctrRc=$?
+	if [[ -n "${greenOut}" ]]; then fGreenTake "${greenOut}" "${tree}"; fi
 	stop_cidfiles=()
 	rm -f -- "${cidfile}"
 	## Only a stand-in still empty: anything else was built here meanwhile.
@@ -1430,11 +1436,30 @@ fFreeze(){
 	fi
 }
 
+## Where a nested run writes the tree it tested, or a blank line when it
+## won't vouch for one. In the git dir, since the image mounts that at its own
+## path and nothing commits it.
+green_tree=""; green_dir=""
+fGreenOut(){
+	local common
+	common="$(git -C "$1" rev-parse --path-format=absolute --git-common-dir)" || fDie "no git dir for ${1}"
+	printf '%s/shcl-green-out.%s' "${common}" "$$"
+}
+fGreenTake(){   ## fGreenTake FILE TREE
+	green_tree=""; green_dir="$2"
+	if [[ -f "$1" ]]; then
+		if ((record_green)); then read -r green_tree < "$1" || green_tree=""; fi
+		rm -f -- "$1"
+	fi
+}
+
 ## Stages 2-6 on this box, in the frozen copy, by the copy's own engine.
 fRunFrozen(){
 	local -a inner=("$( ((quiet)) && echo -q || echo -y )" --no-sync --no-container --no-dogfood --no-gif --no-publish "${ctr_pass[@]}")
-	local rc=0
-	SHCL_STEP_PLAN="${step_ids[*]}" SHCL_RUN_PART=build bash "${frozen_root}/cicd/cicd.bash" "${inner[@]}" || rc=$?
+	local rc=0 out
+	out="$(fGreenOut "${frozen_root}")"
+	SHCL_GREEN_OUT="${out}" SHCL_STEP_PLAN="${step_ids[*]}" SHCL_RUN_PART=build bash "${frozen_root}/cicd/cicd.bash" "${inner[@]}" || rc=$?
+	fGreenTake "${out}" "${frozen_root}"
 	## A stopped run stays a stopped run.
 	if ((rc > 128)); then exit "${rc}"; fi
 	((rc == 0)) || fDie "the run in the frozen copy failed; its output is above"
@@ -1497,7 +1522,7 @@ else
 	fStageFormat
 	if [[ "${run_part}" == fmt ]]; then exit 0; fi
 	## Taken after the formatter, since locally it rewrites what gets tested.
-	green_tree=""
+	green_tree=""; green_dir="${root}"
 	if ((record_green)); then green_tree="$("${here}/utility/green-tree.bash" tree "${root}" || true)"; fi
 
 	## Stage 2: debug build (fast compile sanity; the tests run against this).
@@ -1675,16 +1700,6 @@ else
 		fCpuStep "${c_cmd}"; eval "${c_cmd}" || fDie "cross check failed: ${c_label}"
 		fEcho "OK: ${c_label}"
 	done
-	## The record waits for the cross checks, the last gate before the release. It sat at
-	## the end of stage 4 once they moved under the gate, so a run that then failed one
-	## had already let its tree through the hook.
-	if [[ -n "${green_tree}" ]]; then
-		if [[ -s "${SHCL_GATE_SKIPS}" ]]; then
-			fEcho_Clean "tree not recorded for the pre-push hook, since this run skipped: $(sort -u "${SHCL_GATE_SKIPS}" | paste -sd ' ')"
-		elif "${here}/utility/green-tree.bash" record "${root}" "${green_tree}"; then
-			fEcho "OK: tree ${green_tree:0:12} recorded; a push of it skips the pre-push gate"
-		fi
-	fi
 	if ((${#RELEASE_NATIVE_CMD[@]})); then
 		## A wrong number in a release would be worse than a failed build.
 		[[ -n "${SHCL_BUILD:-}" ]] || fDie "no build number for the release builds"
@@ -1753,6 +1768,13 @@ else
 		fEcho_Clean "release builds skipped; cross checks only"
 	fi
 	if [[ "${step_open}" == release ]]; then fStepEnd; fi
+	if [[ -n "${green_tree}" && -s "${SHCL_GATE_SKIPS}" ]]; then
+		fEcho_Clean "tree not recorded for the pre-push hook, since this run skipped: $(sort -u "${SHCL_GATE_SKIPS}" | paste -sd ' ')"
+		green_tree=""
+	fi
+	## A run in the image or the frozen copy hands its tree to the one that
+	## started it, which records it after the test boxes.
+	if [[ -n "${green_out}" ]]; then printf '%s\n' "${green_tree}" > "${green_out}"; green_tree=""; fi
 fi
 
 ## The test boxes, here whichever way stages 1-6 ran, since the host lock and
@@ -1839,6 +1861,14 @@ if fStepOn hostedwait; then
 		fEcho "OK: the ${HOSTED_JOB} job on GitHub: ${h_url}"
 	fi
 	fStepEnd
+fi
+
+## The record waits for every gate step: the cross checks, the release builds,
+## the test boxes and the GitHub job. It sat before the release builds, so a
+## push refused on a box let the same tree through the next time
+## (2026110810540702).
+if [[ -n "${green_tree}" ]] && "${here}/utility/green-tree.bash" record "${green_dir}" "${green_tree}"; then
+	fEcho "OK: tree ${green_tree:0:12} recorded; a push of it skips the pre-push gate"
 fi
 
 ## Stage 7: dogfood - drop the freshly built optimized native binary into the first

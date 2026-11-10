@@ -263,37 +263,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Regression test: cli-regress rows with U+2028, U+2029 and U+0085 inside a value, for `instances` and `get --array`, output quoted and byte-identical across the 4 CLIs; a crosscheck corpus case with the same values.
 	- Estimated effort: Low
 
-- perf-gate's `deqqs` self-test passes on vm925w, so the gate fails there
-	- ID: 2026110810540701
-	- Type: Bug
-	- Status: Queued
-	- Severity: Avg
-	- Opened: 20261108-105407
-	- Opened by: main's pre-push merge gate on the installer sync `8f1c320a`
-	- Related IDs: 2026110110325317, 2026103016433965
-	- Version and build: main `99a9f7b6` plus the installer sync; dev has the same code
-	- Steps to reproduce:
-		- A merge gate whose box step reaches vm925w (`windows-x86_64|perf`, `--keys 400000 --factor 4`).
-	- Incorrect behavior: `deqqs` (a workload slow every time still fails) got exit 0: "683 of 788 ms". Step 7 failed and the push was refused. `deqqr` passed.
-	- Expected behavior: the slow-every-time bait fails on every box.
-	- Reproduced: 20261108, once. vm925w passed it on 2026-11-01.
-	- Possible cause: the bait burns a fixed 500 ms, and the budget is the baseline times the factor. Under git's bash the baseline holds the shell's start-up, so at factor 4 the budget passed the bait.
-
-- A merge gate records its tree before the release builds and test boxes, so a re-push skips a gate that failed there
-	- ID: 2026110810540702
-	- Type: Bug
-	- Status: Queued
-	- Severity: Avg
-	- Opened: 20261108-105407
-	- Opened by: main's pre-push merge gate on the installer sync `8f1c320a`
-	- Related IDs: 2026110810540701
-	- Version and build: dev `0942044c` and main `99a9f7b6`, same code
-	- Steps to reproduce:
-		- Push main with a tree whose release build or box step fails.
-		- Push the same commit again.
-	- Incorrect behavior: cicd.bash records the tree right after the cross checks ("tree recorded; a push of it skips the pre-push gate"). Step 7 then failed and the push was refused, but the second push would skip the gate.
-	- Expected behavior: a tree is recorded only once every step of the run passed, or a failed later step takes the record back.
-
 - Schema check costs the square of the nesting depth in all 4 bindings
 	- ID: 2026110711492228
 	- Type: Bug
@@ -810,6 +779,48 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard holds at Miri's count over any draw, with no floor that makes the test hours long there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+
+- perf-gate's `deqqs` self-test passes on vm925w, so the gate fails there
+	- ID: 2026110810540701
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261108-105407
+	- Opened by: main's pre-push merge gate on the installer sync `8f1c320a`
+	- Related IDs: 2026110110325317, 2026103016433965
+	- Version and build: main `99a9f7b6` plus the installer sync; dev has the same code
+	- Steps to reproduce:
+		- A merge gate whose box step reaches vm925w (`windows-x86_64|perf`, `--keys 400000 --factor 4`).
+	- Incorrect behavior: `deqqs` (a workload slow every time still fails) got exit 0: "683 of 788 ms". Step 7 failed and the push was refused. `deqqr` passed.
+	- Expected behavior: the slow-every-time bait fails on every box.
+	- Reproduced: 20261108, once. vm925w passed it on 2026-11-01. Again 20261109 on the next installer sync: "681 of 724 ms".
+	- Possible cause: the bait burns a fixed 500 ms, and the budget is the baseline times the factor. Under git's bash the baseline holds the shell's start-up, so at factor 4 the budget passed the bait.
+	- Progress log:
+		- 20261109: the cause held. The bait's baseline was about 181 ms there. On b23 `--factor 30` gives the same failure, "511 of 780 ms".
+		- 20261109: the slow runs now burn the bait's own baseline times the factor, plus 500 ms, so the budget can't reach them on any box or factor.
+	- Test case: perf-gate `deqqs` and `deqqr` at `--factor 3`, `4` and `30` on b23. `deqqs` failed at 30 before the fix and passes at all 3 now.
+	- Acceptance signoff: Self-closed: the failure is reproduced on b23 and gone with the fix. vm925w runs it on the next merge gate.
+	- Closed: 20261109-215302
+
+- A merge gate records its tree before the release builds and test boxes, so a re-push skips a gate that failed there
+	- ID: 2026110810540702
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261108-105407
+	- Opened by: main's pre-push merge gate on the installer sync `8f1c320a`
+	- Related IDs: 2026110810540701
+	- Version and build: dev `0942044c` and main `99a9f7b6`, same code
+	- Steps to reproduce:
+		- Push main with a tree whose release build or box step fails.
+		- Push the same commit again.
+	- Incorrect behavior: cicd.bash records the tree right after the cross checks ("tree recorded; a push of it skips the pre-push gate"). Step 7 then failed and the push was refused, but the second push would skip the gate.
+	- Expected behavior: a tree is recorded only once every step of the run passed, or a failed later step takes the record back.
+	- Progress log:
+		- 20261109: the record moved after the test boxes and the GitHub job. A run of stages 2-6 in the image or the frozen copy writes its tree to a file in the git dir (`SHCL_GREEN_OUT`), and the run that started it records it at the end. A failed release build no longer leaves a record either.
+	- Test case: check-push-gate `df3me`: `--merge-gate` and a no-flag run (frozen copy) with a box that fails record nothing, and with one that passes they record. It failed with "recorded 1" on the old cicd.bash. `de61p` still records through the image.
+	- Acceptance signoff: Self-closed: the new test fails on the old code and check-push-gate passes on the fix.
+	- Closed: 20261109-215302
 
 - codeql-scan fails on 39b06389: an unsuppressed `cpp/large-parameter` in shcl.h and a stale suppression in conformance.c
 	- ID: 2026110913374081

@@ -549,7 +549,13 @@ cat > "${eng}/cicd/utility/stub-publish.bash" <<'EOF'
 #!/usr/bin/env bash
 echo "stub $*" >> "${STUB_QUIET:-/dev/null}"
 EOF
-chmod +x "${eng}/cicd/utility/gen-demo-gif.py" "${eng}/cicd/utility/stub-publish.bash"
+## A test box that fails with STUB_BOX_FAIL set.
+cat > "${eng}/cicd/utility/check-boxes.bash" <<'EOF'
+#!/usr/bin/env bash
+echo "stub box $*"
+[[ -z "${STUB_BOX_FAIL:-}" ]]
+EOF
+chmod +x "${eng}/cicd/utility/gen-demo-gif.py" "${eng}/cicd/utility/stub-publish.bash" "${eng}/cicd/utility/check-boxes.bash"
 { git -C "${eng}" add --all && git -C "${eng}" commit -q -m base; } || { echo "check-push-gate: engine repo commit failed" >&2; exit 2; }
 engTree="$(git -C "${eng}" rev-parse 'HEAD^{tree}')"
 engRecords="${eng}/.git/shcl-green-trees"
@@ -585,6 +591,21 @@ fEngine STUB_CROSS_FAIL=1 -- --merge-gate
 ((engRc != 0 && engRecorded == 0)) || fail "a run failing a cross check: exit ${engRc}, recorded ${engRecorded}"
 fEngine -- --merge-gate --no-cross
 ((engRc == 0 && engRecorded == 0)) || fail "a run with the cross checks left out: exit ${engRc}, recorded ${engRecorded}"
+fTest df3me a run whose test box fails records nothing
+## 2026110810540702: the boxes run after the release builds, and the record
+## waits for them, here and after stages 2-6 in the frozen copy.
+for boxCase in "0|--merge-gate" "1|--merge-gate" "0|-y --no-sync" "1|-y --no-sync"; do
+	read -r -a boxArgs <<< "${boxCase#*|}"
+	boxFail="${boxCase%%|*}"
+	if ((boxFail)); then fEngine STUB_RELEASE="${work}/eng.rel" STUB_BOXES=1 STUB_BOX_FAIL=1 -- "${boxArgs[@]}"
+	else fEngine STUB_RELEASE="${work}/eng.rel" STUB_BOXES=1 -- "${boxArgs[@]}"; fi
+	boxRan=0; if grep -qF 'stub box' "${work}/eng.log"; then boxRan=1; fi
+	if ((boxRan != 1 || (boxFail && (engRc == 0 || engRecorded != 0)) || (! boxFail && (engRc != 0 || engRecorded != 1)))); then
+		fail "cicd.bash ${boxCase#*|} with a box that $( ((boxFail)) && echo fails || echo passes ): exit ${engRc}, box ran ${boxRan}, recorded ${engRecorded}: $(tail -3 "${work}/eng.log")"
+	fi
+	if compgen -G "${eng}/.git/shcl-green-out.*" >/dev/null; then fail "cicd.bash ${boxCase#*|} left its tree hand-off file in the git dir"; rm -f "${eng}/.git/shcl-green-out."*; fi
+done
+rm -f "${work}/eng.rel"
 fTest de4be --quick leaves out what QUICK_SKIP names and nothing else
 ## 2026101816034794: the fast loop drops the steps config names as slow. A
 ## bare run and the gate keep them.
