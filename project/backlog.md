@@ -477,7 +477,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Make `children` and `instances` exit 3 on a path that isn't there
 	- ID: 2026110613470323
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261106-134703
@@ -488,6 +488,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: Confirmed in all 4 CLIs.
 	- Regression test: cli-regress rows for `children` and `instances` on a path that isn't there, exit 3 and the same stderr from all 4 CLIs.
 	- Estimated effort: Low
+	- Decisions:
+		- The message is `cannot list PATH: no field at that path (in FILE)`, shaped like `get`'s miss. It goes to stderr every time, as `get`'s does outside `--default`.
+		- `count` stays at 0 and exit 0. Its 0 already tells a miss from a match, and a script that reads it under `set -e` would break on a 3.
+		- `--json` and `--paths` exit 3 the same way. A wildcard with no slots is a miss, as in the library, and one whose slots are all missing still lists them at 0.
+		- 20261110: cli-regress `dc09s` (`children-missing`) expected exit 0 and now expects 3 with the message.
+	- Swept: the plain, `--paths` and `--json` arms of `instances` and `children` in all 4 CLIs. `count` and `paths` are left as they are. The man page, changelog and UI guide's exit table (already "nothing at the path") say so. Scripts in cicd/ that call either guard the exit.
+	- Verified: the new rows and `dc09s` failed on the old Rust, Go and C CLIs (15 checks) and pass in all 4. cli-regress (666 rows, 3935 checks), crosscheck over the corpus, check-doc-examples, check-docs, test-ids check, lint-report, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, shellcheck, markdownlint.
+	- Branch: `r1110`
+	- Commit: `6be031a6`
+	- Test case: cli-regress `df4hf`, `df4hg`, `df4hh`, `df4hj`, `df4hk`, `df4hm`, and `dc09s`.
+	- Closed: 20261110-131441
 
 - Quote the other line breaks in `instances` and `get --array` output
 	- ID: 2026110613470324
