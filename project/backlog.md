@@ -191,7 +191,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Avg
 	- Progress log:
 		- 20261110: split for the time cap. Rust with the generator rules and the dump is child 2026111010012269, the cicd tmpfs 2026111010012287, Go 2026111010012304, Python 2026111010012324, C 2026111010012342, and the Windows and macOS box rows 2026111010012360.
-		- 20261110: Rust (2026111010012269), Go (2026111010012304) and the cicd tmpfs (2026111010012287) are Done. The tmpfs routes on the boxes went to a new child, 2026111010331517. The other 4 children are Queued.
+		- 20261110: Rust (2026111010012269), Go (2026111010012304), Python (2026111010012324) and the cicd tmpfs (2026111010012287) are Done. The tmpfs routes on the boxes went to a new child, 2026111010331517. The other 3 children are Queued.
 
 - Filesystem property test: Rust, with the shared generator rules and the case dump
 	- ID: 2026111010012269
@@ -272,7 +272,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Filesystem property test: the Python port
 	- ID: 2026111010012324
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261110-100123
@@ -281,6 +281,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Prereq IDs: 2026111010012269
 	- Problem description: the parent's test in Python, from the generator rules the Rust part set down, with its dump held to Rust's answers by the cross-binding check.
 	- Estimated effort: Avg
+	- Actual effort: Low
+	- Actual fix: `source/python/tests/fs_property.py`, function for function with Rust's and Go's, a plain script beside `soak.py`. Its line is in config.bash's `FS_PROPERTY_TESTS`, so fs-property.bash runs it on the tmpfs and holds its dump, `fs/python-rows.tsv` and `fs/python-drawn.tsv`, to Rust's. Also in the py_compile build line and mypy's file list.
+	- Decisions:
+		- me, 20261110: a script of its own, not a part of conformance.py, since the pipeline runs it only through fs-property.bash, as cargo and go skip theirs by name. On Windows both tests print SKIP, as Go's skip, until 2026111010012360.
+	- Verified: Python's dump matches Go's byte for byte, 16 rows and the first 5000 drawn cases of a 40 s run each, and the quick run's step had it agree with Rust on 3635. On `343334df` the `nodir/..` and other-folder rows of 2026110613470307 fail. On `2f38f68b` the rows of 2026110312163207, 2026110314064292, and 2026110613470308 (`t.shcl/`, `t.shcl/.`) fail, and the drawn test fails at seed 0. All pass now. Also `cicd.bash --backlog-run-quick python`, shell-regress, ruff, mypy, `test-ids.py check` and codeql-scan.
+	- Test case: `the_save_checks_hold_on_every_past_path_bug` (`df4dk`) and `the_save_checks_hold_on_drawn_paths_and_events` (`df4dm`).
+	- Branch: `r1110`
+	- Acceptance signoff: Self-closed: the rows went red at the commits before their fixes, pass now, and agree with Rust's and Go's case by case.
+	- Closed: 20261110-110830
 
 - Filesystem property test: the C port
 	- ID: 2026111010012342
