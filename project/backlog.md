@@ -1103,6 +1103,38 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The released beta1 changelog section stays as it is.
 	- Estimated effort: Low
 
+- `Migration` can't say a migration didn't finish
+	- ID: 2026111014552300
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Target version: v3.0.0
+	- Opened: 20261110-145523
+	- Opened by: silkterm feedback
+	- Related IDs: silkterm's 2026100315553545
+	- Version and build: `3.0.0-beta1` from crates.io, and dev at `4901ecac`
+	- Problem description: `migrate_unstamped("notes: ```\nnever closed\n", true)` returns `current: false`, `ambiguous: 0` and `lost: 0`, the same as a migration that finished. A program that writes `GEN_BANNER` itself, which is what `migrate_unstamped` is for, then puts the Format line inside the open raw block, so the file never reads as current. Only the stamped `migrate` shows it, by leaving its Format line off. SilkTerm calls both on every 2.x file to tell. `upgrade()` closes the block and reports `E005`, but it writes its own stamp.
+	- Requirements:
+		- `Migration` says when the migration couldn't finish, as for a raw block that never closes, so a caller of `migrate_unstamped` can tell without making the stamped call too.
+		- The same field in all 4 bindings.
+	- Estimated effort: Low
+
+- A string read of an array gives its bracket text at Good
+	- ID: 2026111014552301
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Target version: v3.0.0
+	- Opened: 20261110-145523
+	- Opened by: silkterm feedback
+	- Related IDs: 2026100115323227
+	- Version and build: `3.0.0-beta1` from crates.io, and dev at `4901ecac`
+	- Problem description: for `family: [One, Two]`, `get_string("family")` gives `[One, Two]` at Good with no diagnostic. spec.md says so on purpose, and `kind()` tells an array apart. A program reading a one-value setting with `get_string` has no reason to call `kind()` first, so it takes the bracket text as the value. SilkTerm loaded a font named `[One, Two]` from a 2.x `family:[One, Two]` line until it added its own `kind()` check to every read.
+	- Requirements:
+		- Filed to look at again from a consumer's side, as 2026100115323227 was for `H004`.
+		- Options: a string read of an array with 2 or more elements is `BadType`, or it stays Good and spec.md and the README tell a program reading a one-value setting to check `kind()`.
+	- Estimated effort: Low
+
 - perf-gate's `deqqs` self-test passes on vm925w, so the gate fails there
 	- ID: 2026110810540701
 	- Type: Bug
@@ -13409,6 +13441,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: this is apart from `set_*_default`, which v4 renames `ensure_*`.
 	- Note: shclwrap does this in `Put` and `Commented()`.
 	- Note: with v4 (JC).
+	- Note: 20261110, silkterm feedback. Still there on `3.0.0-beta1` and dev at `4901ecac`. Setting `performance.profile` under `# profile: max  ## Default` adds `profile: low` at the end of the block and keeps the commented line, so 4 lines become 5. SilkTerm's 2026100219054510 is stalled on it.
 
 - Replace a comment a program set before, and keep the user's own
 	- ID: 2026102911041657
