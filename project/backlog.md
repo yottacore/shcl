@@ -412,7 +412,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 20261110: a dotted line's comment goes inside `db:`, above `host`, in the canonical text, as corpus 153 has it. 20260925b item 2 was about the line-keeping save, and that row's keep text keeps the dotted line.
 		- me, 20261110: the 2026092718195400 row pins its 2026-09-28 call, that a replaced leaf's comments go with it, since it had no fix.
 	- Test case: conformance `placement_table_rows_match` (`df4g0` Rust).
-	- Verified: the 2026110613470311 and 2026110613470302 rows fail on the Rust library at `343334df` and pass now. The 4 conformance suites, the Go tests, clippy, rustfmt, gofmt, go vet, staticcheck, ruff, mypy, the C runner at `-Werror` and under ASan and UBSan with gcc 15, check-docs, test-ids, markdownlint.
+	- Verified: the 2026110613470311 and 2026110613470302 rows fail on the Rust library at `343334df` and pass now. The 4 conformance suites, the Go tests, clippy, rustfmt, gofmt, go vet, staticcheck, ruff, mypy, the C runner at `-Werror` and under ASan and UBSan with gcc 15, the exhaustive cppcheck line, codeql-scan, check-docs, test-ids, markdownlint.
 	- Branch: `r1110`
 	- Acceptance signoff: Self-closed: the rows fail before their fixes (2026111012160102) and pass now.
 	- Closed: 20261110-122900
