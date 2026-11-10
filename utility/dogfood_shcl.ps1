@@ -457,25 +457,15 @@ function Update-FixedName {
 	Write-Note "$LinkPath -> $($versions[-1].Name)"
 }
 
-## What to run: the fixed name when it names the newest pool version, else that
-## version itself. Anything else at the fixed name is someone else's, as an
-## installed release a link points at, or a file there on Linux or macOS.
+## What to run: the newest pool version itself, never the fixed name. A run
+## that repoints the name while this one starts can't swap the build, and the
+## process shows which version it is. The fixed name is there for PATH.
 function Get-RunTarget {
 	[CmdletBinding()]
 	param()
 	$versions = Get-HeldVersion
 	if ($versions.Count -eq 0) { return $null }
-	$newest = $versions[-1].File
-	$cur = Get-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue
-	if (-not $cur) { return $newest.FullName }
-	if ($cur.LinkType -eq 'SymbolicLink') {
-		if ("$($cur.Target)" -eq $newest.FullName) { return $LinkPath }
-		return $newest.FullName
-	}
-	## On Windows the fallback is a hard link or a copy, so it counts when it
-	## holds the newest version's bytes.
-	if ($OnWindows -and $cur.Length -eq $newest.Length -and (Get-FileHash -LiteralPath $LinkPath).Hash -eq (Get-FileHash -LiteralPath $newest.FullName).Hash) { return $LinkPath }
-	return $newest.FullName
+	return $versions[-1].File.FullName
 }
 
 ## Started by -File, PowerShell has parsed the arguments as its own before the
@@ -618,3 +608,4 @@ exit $LASTEXITCODE
 ##		- 2026-10-04 JC: Called from a session, keeps an unquoted `-x:y` whole rather than passing on only the `y`.
 ##		- 2026-11-02 JC: --print-path, for the bash launcher to run the build itself. Passes each argument as a quoted literal, so pwsh on Linux and macOS no longer expands wildcards and ~ in them.
 ##		- 2026-11-06 JC: Each run copies a new build through a temp name of its own, and a killed run's is cleared by the next. The fixed name is replaced by a rename, and rotation gives a version its new name before taking the old one, so the fixed name never dangles.
+##		- 2026-11-09 JC: Runs the newest version by its own path, never through the fixed name.

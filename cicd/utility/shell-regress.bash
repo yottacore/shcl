@@ -3433,7 +3433,8 @@ PSEOF
 	out="$(env -u DISPLAY -u WAYLAND_DISPLAY HOME="${dh}" pwsh -NoProfile -File "${tmpDir}/dfliteral.ps1" "${repoDir}/utility/dogfood_shcl.ps1" "${dwork}" 2>&1 </dev/null || true)"
 	[[ "${out}" == "done" ]] || fBad "dogfood_shcl.ps1 from a session changed an argument: ${out@Q}"
 	out="$(env -u DISPLAY -u WAYLAND_DISPLAY HOME="${dh}" pwsh -NoProfile -File "${repoDir}/utility/dogfood_shcl.ps1" --print-path --no-update 2>/dev/null </dev/null || true)"
-	[[ "${out}" == "${dh}/.local/bin/shcl" ]] || fBad "dogfood_shcl.ps1 --print-path gave ${out@Q}"
+	## The newest version by its own path, which the fixed name links to.
+	[[ "${out}" == "${dh}/.local/bin/shcl_versions/"* && "${out}" -ef "${dh}/.local/bin/shcl" ]] || fBad "dogfood_shcl.ps1 --print-path gave ${out@Q}"
 	rc=0; out="$(env -u DISPLAY -u WAYLAND_DISPLAY HOME="${dh}" pwsh -NoProfile -File "${repoDir}/utility/dogfood_shcl.ps1" --print-path get 2>&1 </dev/null)" || rc=$?
 	[[ "${rc}" == 1 && "${out}" == *"takes no argument"* ]] || fBad "dogfood_shcl.ps1 --print-path took an argument for shcl: ${out@Q} rc ${rc}"
 
