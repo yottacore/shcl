@@ -651,6 +651,115 @@ static size_t split_lines(char *buf, size_t n, char ***out) {
 	*out = lines; return cnt;
 }
 
+// One section of placement.txt as text: trailing blank lines dropped, so rows
+// can be spaced apart, and a newline after each line left. malloc'd.
+static char *placement_text(char **lines, size_t from, size_t to, size_t *len) {
+	while (to > from && lines[to - 1][0] == '\0') to--;
+	size_t n = 0;
+	for (size_t i = from; i < to; i++) n += strlen(lines[i]) + 1;
+	char *out = xrealloc(NULL, n + 1), *p = out;
+	for (size_t i = from; i < to; i++) {
+		size_t k = strlen(lines[i]);
+		memcpy(p, lines[i], k); p[k] = '\n'; p += k + 1;
+	}
+	*p = '\0'; *len = n;
+	return out;
+}
+
+static int placement_marker(const char *line) { return strncmp(line, ":: ", 3) == 0; }
+
+static int same_text(shcl_str got, const char *want, size_t wlen) {
+	return got.n == wlen && (wlen == 0 || memcmp(got.p, want, wlen) == 0);
+}
+
+// Every past case of a comment an edit put in the wrong place, as a fixed
+// text (2026110616475903). A row's texts stay until its documents go.
+static void placement_table(const char *corpus) {
+	char path[4096]; snprintf(path, sizeof path, "%s/placement.txt", corpus);
+	size_t flen; char *file = read_file(path, &flen);
+	if (!file) { fail("placement.txt", "missing"); return; }
+	if (flen && file[flen - 1] == '\n') flen--;
+	char **lines; size_t nl = split_lines(file, flen, &lines);
+	size_t rows = 0;
+	for (size_t r = 0; r < nl; r++) {
+		if (strncmp(lines[r], ":: row ", 7) != 0) continue;
+		const char *name = lines[r] + 7;
+		size_t end = r + 1;
+		while (end < nl && strncmp(lines[end], ":: row ", 7) != 0) end++;
+		rows++;
+		char *before = NULL, *expected = NULL, *keep = NULL;
+		size_t blen = 0, elen = 0, klen = 0;
+		int merges = 0;
+		for (size_t s = r + 1; s < end; s++) {
+			if (!placement_marker(lines[s])) continue;
+			size_t to = s + 1;
+			while (to < end && !placement_marker(lines[to])) to++;
+			const char *kind = lines[s] + 3;
+			if (!strcmp(kind, "before")) { free(before); before = placement_text(lines, s + 1, to, &blen); }
+			else if (!strcmp(kind, "expected")) { free(expected); expected = placement_text(lines, s + 1, to, &elen); }
+			else if (!strcmp(kind, "keep")) { free(keep); keep = placement_text(lines, s + 1, to, &klen); }
+			else if (!strcmp(kind, "merge")) merges = 1;
+			else if (strcmp(kind, "ops") != 0) fail(name, "unknown placement.txt section");
+		}
+		if (!before) before = placement_text(lines, 0, 0, &blen);
+		if (!expected) expected = placement_text(lines, 0, 0, &elen);
+		if (keep && merges) fail(name, "a merge row has no keep text");
+		shcl_doc *d = shcl_parse(before, blen);
+		shcl_doc *kd = shcl_parse_keep_lines(before, blen, SHCL_STANDARD);
+		char **layers = NULL; size_t nlayers = 0;
+		for (size_t s = r + 1; s < end; s++) {
+			if (!placement_marker(lines[s])) continue;
+			size_t to = s + 1;
+			while (to < end && !placement_marker(lines[to])) to++;
+			const char *kind = lines[s] + 3;
+			size_t tlen;
+			if (!strcmp(kind, "merge")) {
+				layers = xrealloc(layers, (nlayers + 1) * sizeof *layers);
+				char *text = layers[nlayers++] = placement_text(lines, s + 1, to, &tlen);
+				shcl_doc *l = shcl_parse(text, tlen);
+				shcl_merge(d, l);
+				shcl_free(l);
+			} else if (!strcmp(kind, "ops")) {
+				char *ops = placement_text(lines, s + 1, to, &tlen);
+				char **olines; size_t nol = split_lines(ops, tlen, &olines);
+				for (size_t li = 0; li < nol; li++) {
+					if (blank_op(olines[li]) || comment_op(olines[li])) continue;
+					// The op is split in place, so each document gets its own copy.
+					size_t on = strlen(olines[li]);
+					char *op2 = xrealloc(NULL, on + 1);
+					memcpy(op2, olines[li], on + 1);
+					apply_op_c(d, olines[li]);
+					apply_op_c(kd, op2);
+					free(op2);
+				}
+				free(olines); free(ops);
+			}
+		}
+		shcl_str got = shcl_to_canonical(d);
+		if (!same_text(got, expected, elen)) {
+			fail(name, "canonical text");
+			fprintf(stderr, "got:\n%.*s", (int)got.n, got.p);
+		} else {
+			shcl_doc *again = shcl_parse(got.p, got.n);
+			if (!same_text(shcl_to_canonical(again), expected, elen)) fail(name, "expected text is not a fmt fixpoint");
+			shcl_free(again);
+		}
+		if (keep && !merges) {
+			int kept = 0;
+			shcl_str kt = shcl_to_text_keep_lines(kd, &kept);
+			if (!same_text(kt, keep, klen)) {
+				fail(name, "kept text");
+				fprintf(stderr, "got:\n%.*s", (int)kt.n, kt.p);
+			}
+		}
+		shcl_free(kd); shcl_free(d);
+		for (size_t i = 0; i < nlayers; i++) free(layers[i]);
+		free(layers); free(before); free(expected); free(keep);
+	}
+	if (!rows) fail("placement.txt", "no rows");
+	free(lines); free(file);
+}
+
 #ifndef _WIN32
 // Runs one validation and reports back through the return value, so a stack
 // overflow inside it is a crashed run rather than a quiet pass.
@@ -2110,6 +2219,8 @@ int main(int argc, char **argv) {
 		char cname[4200]; snprintf(cname, sizeof cname, "corpus/%s", names[ci]);
 		test_line(nfail > case_fails ? "FAIL" : "PASS", id, cname);
 	}
+	test_id("df4g4", "placement_table_rows_match");
+	placement_table(corpus);
 	// The parsed-schema form gives what the text form gives: the same combined
 	// list and the same strict answer, over every corpus schema at every level,
 	// with one schema document reused across the loads. Same fixture in every

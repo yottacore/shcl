@@ -386,6 +386,93 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reason: an example per bug has found none of the next ones. A property over every comment in every generated edit finds the next site before a review does.
 	- Regression test: this item is the test. Each past case in its table is watched to fail in a worktree at the commit before that case's fix, and the property on `343334df`.
 	- Estimated effort: Avg
+	- Progress log:
+		- 20261110: split in 4. The table and its Rust runner (2026111012160064), the Go, Python and C runners (2026111012160083), and each row watched to fail before its fix (2026111012160102) are done. The fuzz property, with the cross check, is 2026111012160121, still Queued.
+
+- The comment placement table and its Rust runner
+	- ID: 2026111012160064
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-121600
+	- Opened by: split from 2026110616475903
+	- Parent ID: 2026110616475903
+	- Problem description: the fixed half of 2026110616475903: one row per past placement case, as a before text, an edit and the exact expected text, in one file the conformance suites read.
+	- Requirements: `project/conformance/placement.txt`, read by the Rust conformance runner, with its format in the conformance README.
+	- Estimated effort: Avg
+	- Actual effort: Low
+	- Progress log:
+		- 20261110: placement.txt has 15 rows: 2026110613470311, Code review 20260904 item 18, 20260830 item 19, 20260925b item 2, 20260802 items 8 and 20, 20260901b item 7, 20260923 item 3 (a merge in one go and the same from saved text), the 2 SilkTerm `to_canonical()` items, 2026100307163904, 2026110613470302, 2026100218185700 and 2026092718195400. Each has a before text, ops or merged layers, the canonical text, and the line-keeping save's text where there's no merge. The conformance README has the format.
+	- Decisions:
+		- me, 20261110: a text file with `:: ` section markers, since a row holds several texts with line breaks and tabs, which a TSV row would have to escape. It sits beside the case folders, which every runner and test-ids.py pass over.
+		- me, 20261110: one test ID per runner for the whole table, as a corpus test has, with the failed rows named in its output. An ID per row would need test-ids.py to read the file.
+		- me, 20261110: the 2 banner rows use `banner off`. `banner on` writes the release's links and Legal line, which change every release, and corpus 217 keeps that case.
+		- me, 20261110: corpus 221 stays, since it also covers a list in a block and the merge.
+		- me, 20261110: a dotted line's comment goes inside `db:`, above `host`, in the canonical text, as corpus 153 has it. 20260925b item 2 was about the line-keeping save, and that row's keep text keeps the dotted line.
+		- me, 20261110: the 2026092718195400 row pins its 2026-09-28 call, that a replaced leaf's comments go with it, since it had no fix.
+	- Test case: conformance `placement_table_rows_match` (`df4g0` Rust).
+	- Verified: the 2026110613470311 and 2026110613470302 rows fail on the Rust library at `343334df` and pass now. The 4 conformance suites, the Go tests, clippy, rustfmt, gofmt, go vet, staticcheck, ruff, mypy, the C runner at `-Werror` and under ASan and UBSan with gcc 15, check-docs, test-ids, markdownlint.
+	- Branch: `r1110`
+	- Acceptance signoff: Self-closed: the rows fail before their fixes (2026111012160102) and pass now.
+	- Closed: 20261110-122900
+
+- The comment placement table in the Go, Python and C runners
+	- ID: 2026111012160083
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-121600
+	- Opened by: split from 2026110616475903
+	- Parent ID: 2026110616475903
+	- Problem description: the Rust runner reads 2026110616475903's placement table. The other 3 conformance suites don't yet.
+	- Requirements: the Go, Python and C runners read the same file and check each row as the Rust runner does, by the format in the conformance README.
+	- Estimated effort: Avg
+	- Actual effort: Low
+	- Test case: conformance `placement_table_rows_match` (`df4g2` Go, `df4g3` Python, `df4g4` C).
+	- Verified: all 3 pass. The Go and C runners fail on a row with 2026110613470311's old text, and on a keep text without 2026110613470302's line.
+	- Branch: `r1110`
+	- Acceptance signoff: Self-closed: same rows and checks as the Rust runner.
+	- Closed: 20261110-122900
+
+- Each placement table row watched to fail before its fix
+	- ID: 2026111012160102
+	- Type: Task
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-121601
+	- Opened by: split from 2026110616475903
+	- Parent ID: 2026110616475903
+	- Problem description: 2026110616475903 asks that each row of its table be seen to fail in a worktree at the commit before that case's fix.
+	- Requirements: for each row, a worktree at the parent of the fix commit, the row run against that library, and the result on the item. A row that passes there is rewritten until it fails, or says why it can't.
+	- Estimated effort: Avg
+	- Actual effort: Low
+	- Progress log:
+		- 20261110: each row fails on the Python library at the commit before its fix and passes at the fix: 20260802 items 8 and 20 at `f1271852`, the 2 SilkTerm rows at `4ed9ed95`, 20260830 item 19 at `e3694990`, 20260901b item 7 at `d7d0b1fc`, 20260904 item 18 at `fc7b6c16`, 20260923 item 3 at `186b2017`, 20260925b item 2 at `921e0748`, 2026100218185700 at `cdc750c3`, 2026100307163904 at `6c00b70d`. 2026110613470311 and 2026110613470302 fail at `343334df` in Python and Rust.
+	- Decisions:
+		- me, 20261110: watched on the Python library, since the calls the rows use are the same there back to August, so one runner reads every commit. Where a fix went in per binding, the commit named is the Python one.
+		- me, 20261110: 20260923-3b passes before its fix, as it should. It's the merge from saved text, and the bug was the one-step merge, 20260923-3, coming out different from it.
+		- me, 20261110: 2026092718195400 had no fix, only a call, so its row has nothing to fail on.
+	- Test case: conformance `placement_table_rows_match` (`df4g0`, `df4g2`, `df4g3`, `df4g4`).
+	- Branch: `r1110`
+	- Acceptance signoff: Self-closed: every row with a fix was seen to fail before it.
+	- Closed: 20261110-122900
+
+- A comment placement property in the fuzz, replayed in all 4 bindings
+	- ID: 2026111012160121
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-121601
+	- Opened by: split from 2026110616475903
+	- Parent ID: 2026110616475903
+	- Problem description: the property half of 2026110616475903. No fuzz says where a comment must be after an edit.
+	- Requirements: the property, generators and guard in 2026110616475903's Requirements, in `dd3t9`, `dderx` and the merge step, with the cross check replaying the dumps. Watched to fail on `343334df` with 2026110613470311's case.
+	- Note: the cross check already replays `dderx`'s `kept/` dump through every CLI, so its new shapes reach the other 3 bindings that way. `dd3t9` dumps nothing yet, and a merge has no CLI form, so it isn't dumped.
+	- Estimated effort: High
 
 - Make `children` and `instances` exit 3 on a path that isn't there
 	- ID: 2026110613470323

@@ -855,6 +855,133 @@ fn write_ops_match_expected() {
 	});
 }
 
+/// One row of placement.txt: a text, the edits made to it in file order, and
+/// what the saves must write after them.
+struct PlacementRow {
+	name: String,
+	before: String,
+	edits: Vec<(String, String)>,
+	expected: String,
+	keep: Option<String>,
+}
+
+/// A section's lines as text: trailing blank lines dropped, so rows can be
+/// spaced apart, and a newline after each line left.
+fn placement_text(lines: &[&str]) -> String {
+	let end = lines
+		.iter()
+		.rposition(|l| !l.is_empty())
+		.map_or(0, |i| i + 1);
+	lines[..end].iter().map(|l| format!("{l}\n")).collect()
+}
+
+fn placement_rows() -> Vec<PlacementRow> {
+	let path = corpus_dir().join("placement.txt");
+	let text =
+		std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {}", path.display(), e));
+	let mut rows: Vec<PlacementRow> = Vec::new();
+	let mut section: Option<(String, Vec<&str>)> = None;
+	let flush = |rows: &mut Vec<PlacementRow>, section: Option<(String, Vec<&str>)>| {
+		let Some((kind, lines)) = section else {
+			return;
+		};
+		let row = rows
+			.last_mut()
+			.expect("placement.txt: a section before the first row");
+		let body = placement_text(&lines);
+		match kind.as_str() {
+			"before" => row.before = body,
+			"ops" | "merge" => row.edits.push((kind, body)),
+			"expected" => row.expected = body,
+			"keep" => row.keep = Some(body),
+			other => panic!("placement.txt: {}: unknown section '{}'", row.name, other),
+		}
+	};
+	for line in text.lines() {
+		let Some(marker) = line.strip_prefix(":: ") else {
+			if let Some((_, lines)) = section.as_mut() {
+				lines.push(line);
+			}
+			continue;
+		};
+		flush(&mut rows, section.take());
+		if let Some(name) = marker.strip_prefix("row ") {
+			rows.push(PlacementRow {
+				name: name.to_string(),
+				before: String::new(),
+				edits: Vec::new(),
+				expected: String::new(),
+				keep: None,
+			});
+		} else {
+			section = Some((marker.to_string(), Vec::new()));
+		}
+	}
+	flush(&mut rows, section);
+	assert!(!rows.is_empty(), "placement.txt: no rows");
+	rows
+}
+
+/// Every past case of a comment an edit put in the wrong place, as a fixed
+/// text (2026110616475903).
+#[test]
+fn placement_table_rows_match() {
+	let _id = test_id("df4g0");
+	let mut failed = Vec::new();
+	for row in placement_rows() {
+		let check = || {
+			let merges = row.edits.iter().any(|(kind, _)| kind == "merge");
+			assert!(
+				!(merges && row.keep.is_some()),
+				"{}: a merge row has no keep text",
+				row.name
+			);
+			let mut doc = Document::parse(&row.before);
+			let mut kept = Document::parse_keep_lines(&row.before, Strictness::Standard)
+				.unwrap_or_else(|e| e.document);
+			for (kind, body) in &row.edits {
+				if kind == "merge" {
+					doc.merge(&Document::parse(body));
+					continue;
+				}
+				for (n, line) in body.lines().enumerate() {
+					if is_blank_op(line) || is_comment_op(line) {
+						continue;
+					}
+					let at = format!("{}: op {}", row.name, n + 1);
+					apply_op(&mut doc, line, &at);
+					apply_op(&mut kept, line, &at);
+				}
+			}
+			let got = doc.to_canonical();
+			assert_eq!(got, row.expected, "{}: canonical text", row.name);
+			assert_eq!(
+				Document::parse(&got).to_canonical(),
+				got,
+				"{}: expected text is not a fmt fixpoint",
+				row.name
+			);
+			if let Some(want) = &row.keep {
+				assert_eq!(
+					&kept.to_text_keep_lines().0,
+					want,
+					"{}: kept text",
+					row.name
+				);
+			}
+		};
+		if std::panic::catch_unwind(std::panic::AssertUnwindSafe(check)).is_err() {
+			failed.push(row.name.clone());
+		}
+	}
+	assert!(
+		failed.is_empty(),
+		"{} row(s) failed: {}",
+		failed.len(),
+		failed.join(", ")
+	);
+}
+
 /// Loaded to keep its lines and saved with no edits, every input is its own
 /// text again, byte for byte.
 #[cfg_attr(
