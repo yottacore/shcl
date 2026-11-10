@@ -2577,15 +2577,31 @@ def do_enum(o, want_count):
 	if want_count:
 		print(doc.count(path))
 	elif o.json or o.paths:
-		for f in doc.read_fields(path).value:
+		r = doc.read_fields(path)
+		if r.status != shcl.Status.Good:
+			return list_miss(r.status, path, file)
+		for f in r.value:
 			if o.json:
 				print(json_line(f.path, None, f.value, f.line, None))
 			else:
 				print(f.path)
 	else:
-		for v in doc.instances(path):
+		r = doc.read_instances(path)
+		if r.status != shcl.Status.Good:
+			return list_miss(r.status, path, file)
+		for v in r.value:
 			print(one_line(v))
 	return 0
+
+
+def list_miss(st, path, file):
+	# A list that reaches nothing exits 3, as get does, so a script can tell a
+	# missing section from an empty one, which lists nothing at 0. count needs
+	# no such exit, since its 0 already says it.
+	# BadPath is refused before the load, so only a library read meets it.
+	reason = "not a usable path" if st == shcl.Status.BadPath else "no field at that path"
+	sys.stderr.write(f"cannot list {path}: {reason} (in {file})\n")
+	return status_code(st)
 
 
 def json_line(path, name, value, line, st):
@@ -2644,10 +2660,16 @@ def do_children(o):
 	if doc is None:
 		return code
 	if o.json:
-		for f in doc.read_child_fields(path).value:
+		r = doc.read_child_fields(path)
+		if r.status != shcl.Status.Good:
+			return list_miss(r.status, path, file)
+		for f in r.value:
 			print(json_line(f.path, f.name, f.value, f.line, None))
 		return 0
-	for name in doc.children(path):
+	r = doc.read_children(path)
+	if r.status != shcl.Status.Good:
+		return list_miss(r.status, path, file)
+	for name in r.value:
 		print(shcl.quote_segment(name))
 	return 0
 

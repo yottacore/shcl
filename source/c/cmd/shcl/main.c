@@ -2197,6 +2197,17 @@ static int do_init(const Opts *o) {
 	shcl_free(sd); free(stext); return 0;
 }
 
+// A list that reaches nothing exits 3, as get does, so a script can tell a
+// missing section from an empty one, which lists nothing at 0. count needs no
+// such exit, since its 0 already says it. A miss lists nothing, so the caller
+// still frees in one place.
+static int list_miss(shcl_status st, const char *path, const char *file) {
+	// BadPath is refused before the load, so only a library read meets it.
+	const char *reason = st == SHCL_BAD_PATH ? "not a usable path" : "no field at that path";
+	fprintf(stderr, "cannot list %s: %s (in %s)\n", path, reason, file);
+	return shcl_status_code(st);
+}
+
 static int do_enum(Opts *o, int want_count) {
 	if (o->nargs != 2) {
 		const char *name = want_count ? "count" : "instances";
@@ -2208,16 +2219,22 @@ static int do_enum(Opts *o, int want_count) {
 	LayeredDoc L; int gate = load_layered(o, file, &L);
 	if (gate) return gate;
 	shcl_doc *d = L.doc;
+	int rc = 0;
 	if (want_count) printf("%zu\n", shcl_count(d, path, plen));
 	else if (o->json || o->paths) {
 		shcl_read_field_list fl = shcl_read_fields(d, path, plen);
+		if (fl.status != SHCL_GOOD) rc = list_miss(fl.status, path, file);
 		for (size_t i = 0; i < fl.n; i++) {
 			if (o->json) json_line(fl.values[i].path, NULL, fl.values[i].value, fl.values[i].line, NULL);
 			else outln(fl.values[i].path.p, fl.values[i].path.n);
 		}
 	}
-	else { shcl_str *vals; size_t n = shcl_instances(d, path, plen, &vals); for (size_t i = 0; i < n; i++) out_one_line(d, vals[i].p, vals[i].n); }
-	layered_free(&L); return 0;
+	else {
+		shcl_read_str_list r = shcl_read_instances(d, path, plen);
+		if (r.status != SHCL_GOOD) rc = list_miss(r.status, path, file);
+		for (size_t i = 0; i < r.n; i++) out_one_line(d, r.values[i].p, r.values[i].n);
+	}
+	layered_free(&L); return rc;
 }
 
 // The type option's kind name (--int -> "int"), or NULL when a is no type
@@ -2409,20 +2426,22 @@ static int do_children(Opts *o) {
 	if (*path && refuse_read_path(path, strlen(path))) return 1;
 	LayeredDoc L; int gate = load_layered(o, file, &L);
 	if (gate) return gate;
+	int rc = 0;
 	if (o->json) {
 		shcl_read_field_list fl = shcl_read_child_fields(L.doc, path, strlen(path));
+		if (fl.status != SHCL_GOOD) rc = list_miss(fl.status, path, file);
 		for (size_t i = 0; i < fl.n; i++) json_line(fl.values[i].path, &fl.values[i].name, fl.values[i].value, fl.values[i].line, NULL);
 		layered_free(&L);
-		return 0;
+		return rc;
 	}
-	shcl_str *names = NULL;
-	size_t n = shcl_children(L.doc, path, strlen(path), &names);
-	for (size_t i = 0; i < n; i++) {
-		shcl_str q = shcl_quote_segment(L.doc, names[i].p, names[i].n);
+	shcl_read_str_list r = shcl_read_children(L.doc, path, strlen(path));
+	if (r.status != SHCL_GOOD) rc = list_miss(r.status, path, file);
+	for (size_t i = 0; i < r.n; i++) {
+		shcl_str q = shcl_quote_segment(L.doc, r.values[i].p, r.values[i].n);
 		fwrite(q.p, 1, q.n, stdout); putchar('\n');
 	}
 	layered_free(&L);
-	return 0;
+	return rc;
 }
 
 // Every field path in the document, one per line, in file order and

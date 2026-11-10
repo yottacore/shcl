@@ -3546,7 +3546,11 @@ fn do_enum(o: &Opts, want_count: bool) -> u8 {
 	if want_count {
 		outln!("{}", doc.count(path));
 	} else if o.json || o.paths {
-		for f in doc.read_fields(path).value {
+		let r = doc.read_fields(path);
+		if r.status != Status::Good {
+			return list_miss(r.status, path, file);
+		}
+		for f in r.value {
 			if o.json {
 				outln!("{}", json_line(&f.path, None, &f.value, f.line, None));
 			} else {
@@ -3554,11 +3558,28 @@ fn do_enum(o: &Opts, want_count: bool) -> u8 {
 			}
 		}
 	} else {
-		for v in doc.instances(path) {
+		let r = doc.read_instances(path);
+		if r.status != Status::Good {
+			return list_miss(r.status, path, file);
+		}
+		for v in r.value {
 			outln!("{}", one_line(&v));
 		}
 	}
 	0
+}
+
+/// A list that reaches nothing exits 3, as `get` does, so a script can tell
+/// a missing section from an empty one, which lists nothing at 0. `count`
+/// needs no such exit, since its 0 already says it.
+fn list_miss(st: Status, path: &str, file: &str) -> u8 {
+	let reason = match st {
+		// Refused before the load, so only a library read meets it.
+		Status::BadPath => "not a usable path",
+		_ => "no field at that path",
+	};
+	errln!("cannot list {}: {} (in {})", path, reason, file);
+	status_code(st)
 }
 
 /// One line of --json output. The keys always come in this order, and only
@@ -3631,7 +3652,11 @@ fn do_children(o: &Opts) -> u8 {
 		Err(code) => return code,
 	};
 	if o.json {
-		for f in doc.read_child_fields(path).value {
+		let r = doc.read_child_fields(path);
+		if r.status != Status::Good {
+			return list_miss(r.status, path, file);
+		}
+		for f in r.value {
 			outln!(
 				"{}",
 				json_line(&f.path, Some(&f.name), &f.value, f.line, None)
@@ -3639,7 +3664,11 @@ fn do_children(o: &Opts) -> u8 {
 		}
 		return 0;
 	}
-	for name in doc.children(path) {
+	let r = doc.read_children(path);
+	if r.status != Status::Good {
+		return list_miss(r.status, path, file);
+	}
+	for name in r.value {
 		outln!("{}", shcl::quote_segment(&name));
 	}
 	0
