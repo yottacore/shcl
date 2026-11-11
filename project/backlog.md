@@ -38,7 +38,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - vmFreeBSD: let bsdtest mount a tmpfs, so the box's fs suite gets one
 	- ID: 2026111019385135
 	- Type: Task
-	- Status: Waiting for answers
+	- Status: Queued
 		- Waits on its question in questions.md: whether to set `vfs.usermount=1` on vmFreeBSD for good.
 	- Priority: Avg
 	- Target version: v3.0.0
@@ -47,12 +47,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Related IDs: 2026111010331517
 	- Problem description: the fs suite on vmFreeBSD runs as bsdtest, and `vfs.usermount` is 0 there, so fs-property.bash's FreeBSD route can't mount its tmpfs and the cases go in a plain folder with a `note:` line. With `vfs.usermount=1` set for a moment (20261110), bsdtest mounted a 256 MB tmpfs on its own folder, a read-bit file there was unreadable to it, and the unmount worked. Setting it for good is a root change on a shared VM, a line in its `/etc/sysctl.conf`.
 	- Estimated effort: Low
+	- JC, 20261110: option (b), add vfs.usermount=1 to vmFreeBSD's /etc/sysctl.conf as root.
 
 - The changed check misses a file reached through a second spelling of its path
 	- ID: 2026110613470307
 	- Type: Bug
-	- Status: Waiting on automated testing
-	- Needs external testing: the Windows and macOS rows of 2026110616475901, on b29w and vmKt6m or b26.
+	- Status: Done
+	- Needs external testing: No
 	- Severity: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261106-134703
@@ -103,6 +104,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: on the old code, the new rows fail: Python saves through `nodir/../q.shcl` over the other program's file, and Go `detpq`, C `detpr`, Rust `detpn` fail the other-folder row, Go `dekk8`, C `dekkm`, Rust and Python `dekj7` the save-as rows. All pass on the new code. Rust `cargo test` (all binaries), clippy for the host and windows, fmt; Go tests in both modules, vet and staticcheck for the host and windows, a wasip1 build; Python conformance, ruff, mypy (after `c2243d04`, which fixes an error from `df027`); the C runner, the veneer smoke, oom_hook, oom_recover, mem_bounds, analyze-c (202 s), a mingw build; cli-regress (658 rows); perf-gate; `test-ids.py check`. On b29w with a short-name TEMP: Python conformance whole, and Go `detpq`, `dekk8`, `dc42k`, `dbcxf`, `dekvw` and the read-only save.
 		- Not run: `--backlog-run-quick` with every area (past one call), check-c-compilers (past one call), check-docs, crosscheck.
 		- 20261107, b29w with a short-name TEMP, at `30887e7e` plus the 2 test fixes below: Rust `cargo test` whole (all binaries, `detpn`, `dc42j`, `dekj7`, `save_rewrites_a_read_only_file` included), the C runner whole (`dekkm`, `detpr`, `dc42n`, `dbxm2`), and the veneer smoke (`dekkn`, `detps`) linked static, 3 runs. The dynamic veneer build dies at startup on b29w on dev too, so that build is the box's.
+	- Closed: 20261110-205935
+	- Verified: 20261110, the fs property test ran in all 4 bindings on b29w with a short-name TEMP and on vmKt6m (2026111019505842, 2026111019505861, 2026111020030146, round r1111).
 
 - `set_literal` cuts a value at an unquoted `#` and returns Ok
 	- ID: 2026111016205700
@@ -207,7 +210,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A filesystem property test for the save's checks, over every past path bug
 	- ID: 2026110616475901
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261106-164759
@@ -236,11 +239,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261110: split for the time cap. Rust with the generator rules and the dump is child 2026111010012269, the cicd tmpfs 2026111010012287, Go 2026111010012304, Python 2026111010012324, C 2026111010012342, and the Windows and macOS box rows 2026111010012360.
 		- 20261110: Rust (2026111010012269), Go (2026111010012304), Python (2026111010012324), C (2026111010012342) and the cicd tmpfs (2026111010012287) are Done. The tmpfs routes on the boxes went to a new child, 2026111010331517. The other 2 children are Queued.
 		- 20261110: the tmpfs routes on the boxes (2026111010331517) are Done. The Windows and macOS rows (2026111010012360) are Queued.
+	- Test case: its children's: 2026111010012360: its children's: 2026111019505842: the `2026110613470307-case` row of `the_save_checks_hold_on_every_past_path_bug` (Rust `df4bw`, Go `df4c4`, Python `df4dk`, C `df4ep`), and the `case` spelling in the drawn tests (`df4bx`, `df4c5`, `df4dm`, `df4eq`).; 2026111019505861: the `2026110613470307-win` row of `the_save_checks_hold_on_every_past_path_bug` (Rust `df4bw`, Go `df4c4`, Python `df4dk`), and the Windows spellings in the drawn tests (`df4bx`, `df4c5`, `df4dm`).; 2026111020030146: the `2026110613470307-win` row of `the_save_checks_hold_on_every_past_path_bug` (C `df4ep`) and the Windows spellings in `the_save_checks_hold_on_drawn_paths_and_events` (C `df4eq`), held to Rust's answers by `df4cf` and `df4cg`.; 2026111010331517: shell-regress `df4xc`, check-boxes `df4x7`, fs-property `df4ch`.; 2026111010012269: `the_save_checks_hold_on_every_past_path_bug` (`df4bw`) and `the_save_checks_hold_on_drawn_paths_and_events` (`df4bx`).; 2026111010012287: fs-property `df4ch`, `df4cf`, `df4cg`, check-push-gate `df4cj`, shell-regress `df4cq`.; 2026111010012304: `TestTheSaveChecksHoldOnEveryPastPathBug` (`df4c4`) and `TestTheSaveChecksHoldOnDrawnPathsAndEvents` (`df4c5`).; 2026111010012324: `the_save_checks_hold_on_every_past_path_bug` (`df4dk`) and `the_save_checks_hold_on_drawn_paths_and_events` (`df4dm`).; 2026111010012342: `the_save_checks_hold_on_every_past_path_bug` (`df4ep`) and `the_save_checks_hold_on_drawn_paths_and_events` (`df4eq`).
+	- Closed: 20261110-205935
 
 - Filesystem property test: the Windows and macOS rows on their boxes
 	- ID: 2026111010012360
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261110-100123
@@ -254,6 +259,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261110: split for the time cap. The macOS rows are child 2026111019505842, the Windows rows 2026111019505861.
 		- 20261110: the macOS rows (2026111019505842) are Done. The Windows rows (2026111019505861) are Done for Rust, Go and Python. C's Windows rows went to a new child, 2026111020030146, which is Queued.
 		- 20261110: C's Windows rows (2026111020030146) are Done.
+	- Test case: its children's: 2026111019505842: the `2026110613470307-case` row of `the_save_checks_hold_on_every_past_path_bug` (Rust `df4bw`, Go `df4c4`, Python `df4dk`, C `df4ep`), and the `case` spelling in the drawn tests (`df4bx`, `df4c5`, `df4dm`, `df4eq`).; 2026111019505861: the `2026110613470307-win` row of `the_save_checks_hold_on_every_past_path_bug` (Rust `df4bw`, Go `df4c4`, Python `df4dk`), and the Windows spellings in the drawn tests (`df4bx`, `df4c5`, `df4dm`).; 2026111020030146: the `2026110613470307-win` row of `the_save_checks_hold_on_every_past_path_bug` (C `df4ep`) and the Windows spellings in `the_save_checks_hold_on_drawn_paths_and_events` (C `df4eq`), held to Rust's answers by `df4cf` and `df4cg`.
+	- Closed: 20261110-205934
 
 - Filesystem property test: the macOS case rows on vmKt6m
 	- ID: 2026111019505842
