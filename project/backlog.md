@@ -6168,7 +6168,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- JC, 20261023: keep all 3 read tiers through the beta. Dropping plain `get_X` is v4's.
 		- JC, 20261023: scope the UTF-8 claim rather than make 4 parsers agree on bytes that aren't text.
 		- JC, 20261023: no v3 code change for the quadratic walk. The per-name index is v4's node handles.
-		- Left out on purpose: the "never made to satisfy the machine" goal stays as written (20261006, and the comma and colon decision), and "adn" and "wiht" are planted slips.
+		- Left out on purpose: the "never made to satisfy the machine" goal stays as written (20261006, and the comma and colon decision).
 	- Progress log:
 		- 20261023: spec.md, design.md, README.md, and examples.md changed as listed. The crate README's Rust example leads with `get_int_or` too.
 		- 20261023: the `--no-banner` help already says "leave out the info block", beside the flag's own name, in all 4 CLIs, so it stays as it is.
@@ -23907,7 +23907,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Code review 20261106:
 	- Decided against: refiling the 20261102 design review's findings, as in 20261103. JC moved all 13 to v4 (2026110217340701 to 13).
 	- Decided against: changing "skipped" in the `E014` and `E018` messages. README says a broken line is skipped with a note, which means the load passes over it and the file keeps it.
-	- Decided against: the spec's "adn" and "wiht". They're slips left in on purpose, per the writing rules.
 	- Decided against: writing the set on `srv.port` when only one `srv` has a `port`. 2026100717500010 chose a refusal at any step that matches more than one instance, and 2026110613470314 fixes the spec's reason.
 	- Decided against: C's `migrate` using about 7 times Rust's memory per 2.x bracket selector. It's linear, it runs once per file, and 2.x conversion is low stakes (JC, 2026-10-15).
 	- Decided against: running check-readme on a docs-only push to main. Main gets dev's docs, and dev's gates ran check-readme and check-docs on them.

@@ -196,6 +196,6 @@ The pipeline runs on Linux. macOS is untested for it, and some checks need Linux
 cicd/cicd.bash --merge-gate --no-remote
 ~~~
 
-`--merge-gate` is the whole gate: format check, build, lint, tests, the cross-binding differential, the release builds, and the leak checks. `--no-remote` leaves out the test boxes on the maintainer's network. GitHub runs the same on Linux without CodeQL and the cross targets, and it also runs jobs on Windows, Windows on ARM, Linux on ARM, and macOS. `--gate` is a check of about 4 minutes that leaves out the slow steps.
+`--merge-gate` is the whole gate: format check, build, lint, tests, the cross-binding differential, the release builds, and the leak checks. `--no-remote` leaves out the test boxes on the maintainer's network. GitHub runs the same on Linux without CodeQL and the cross targets, and it also runs jobs on Windows, Windows on ARM, Linux on ARM, and macOS. `--gate` runs the quick checks and leaves out the slow steps.
 
 [`contributing.md`](../contributing.md) has the full list. It gives every toolchain and linter with its install command, the per-binding test commands, the extra tools that a full cross-build and package run needs, and how to add a conformance case.
