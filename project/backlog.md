@@ -300,6 +300,111 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Regression test: cli-regress rows with U+2028, U+2029 and U+0085 inside a value, for `instances` and `get --array`, output quoted and byte-identical across the 4 CLIs; a crosscheck corpus case with the same values.
 	- Estimated effort: Low
 
+- Format versions: every file stamped, and every published format read and converted
+	- ID: 2026111018212700
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-182127
+	- Opened by: JC
+	- Related IDs: 2026100115403385, 2026101407100010, 2026111016205702, 2026111016205703, 2026111014552300
+	- Problem description: no release before beta1 wrote a stamp, and beta1 writes the same `##    Format   3` that earlier dev builds with other syntax wrote. gitsby and slodworld1 have files that say `Format 3` and read differently under beta1.
+	- Requirements:
+		- A format version, `MAJOR.MINOR`, apart from the program's semver. The current format is 3.0.
+		- Every save writes the stamp. A plain save writes `## SHCL format 3.0`, and the info block's row is `##    Format   3.0`.
+		- An unstamped file's format comes from a content scan and its mtime. When the content says newer, it wins. When it can't tell, the mtime decides.
+		- The stamp names the newest format the file reads the same under.
+		- Every release and pre-release on GitHub, plus the dev snapshots consumers pinned, is read and converted. A pre-release folds into its release's format. A pin gets a short commit name, such as `3.0-a37`.
+		- A load never writes. A save, `upgrade_file` and `shcl upgrade` do.
+		- All 4 bindings and the 4 CLIs.
+	- Decisions:
+		- 20261110: all of the above (JC). Design: `project/design_docs/20261110-182127_format-versions.md`.
+		- 20261110: it replaces 2026100115403385's "pre-release files are on their own", and 2026111016205706 (JC).
+	- Estimated effort: High
+
+- Format versions: the reading rules of each published format, and the pins
+	- ID: 2026111018212701
+	- Type: Task
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-182127
+	- Opened by: JC
+	- Parent ID: 2026111018212700
+	- Requirements:
+		- Build the CLI at each of the 8 tags, and find where each one reads the corpus differently from the one before. That settles which releases start a format.
+		- List the dev snapshots that consumers pinned, from each one's lockfiles and vendored copies, with the shortest commit name for each.
+		- A table of tells per format, for the content scan.
+	- Estimated effort: Avg
+
+- Format versions: the stamp on every save, and the format constants
+	- ID: 2026111018212702
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-182127
+	- Opened by: JC
+	- Parent ID: 2026111018212700
+	- Prereq IDs: 2026111018212701
+	- Requirements:
+		- `FORMAT_MAJOR` and a minor, and the format name table, in all 4.
+		- Every save and every text call that saves writes the stamp, or rewrites the one there.
+		- beta1's `##    Format   3` and the new forms all read.
+	- Estimated effort: Avg
+
+- Format versions: find an unstamped file's format, and convert any older one
+	- ID: 2026111018212703
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-182127
+	- Opened by: JC
+	- Parent ID: 2026111018212700
+	- Prereq IDs: 2026111018212701, 2026111018212702
+	- Requirements:
+		- The content scan and the mtime rule from the design doc.
+		- One table-driven step per format, in order, run in memory on load.
+		- `from` and `--from=FORMAT` in place of `from_v2` and `--from-2x`.
+		- Each published format and pin round-trips against its own tag's CLI in a gate.
+	- Estimated effort: High
+
+- A program that migrates in memory, or saves through text, gets none of the save's guards
+	- ID: 2026111016205704
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-162057
+	- Opened by: gitniblet and slodworld2 feedback
+	- Parent ID: 2026111018212700
+	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
+	- Problem description: a program whose files might be old reads the text, runs `migrate_unstamped`, then `parse`, so the document isn't tied to its path. Its save then has no changed check, no lost-content gate, no newer-format refusal, no atomic rename and no `mode`. gitniblet saves with `to_text_keep_lines` and its own `O_TRUNC` open for that reason. `parse_keep_lines("a: 1\n##    Format   4\n", Standard)`, then `set_int("a", 2)`, gives Ok, and `to_text_keep_lines()` gives the text and true, so gitniblet writes over a file a newer gitniblet wrote. `upgrade_file` is the only call that knows migration, and it rewrites the file at start.
+	- Requirements:
+		- A `load_file` option that migrates in memory and keeps the path, so a later save goes through every guard.
+		- A text call on a document naming a newer major refuses, as the save does with `TooNew`.
+		- The same in all 4 and the C++ interface.
+	- Estimated effort: Avg
+
+- A save can't choose whether to add the info block
+	- ID: 2026111016205705
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-162057
+	- Opened by: gitniblet, slodworld1 and slodworld2 feedback
+	- Parent ID: 2026111018212700
+	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
+	- Problem description: a library save never writes a Format line, and `format_version` on the saved file is none, the same as a 2.x file. A program that follows the `format_version` doc then sends its own files through migrate, where with `from_v2` a quoted `\\` comes back as one backslash. `set_banner` is the only way to stamp, and it writes the whole info block with the Home, Syntax and Legal lines. That puts shcl's copyright and MIT line in an app's user files, and a Syntax link to `v3.0.0-beta1` for good. So gitniblet writes `##    Format   3` by hand on a fresh file and gets the full block on an upgraded one.
+	- Requirements:
+		- Every save writes the stamp, per 2026111018212700. What's left here is a `SaveOptions` choice to add the info block or not, in all 4 and the C++ interface.
+		- `upgrade` and `upgrade_file` take the same choice.
+	- Note: the standing rule that only `init` and a creating `set --write` add the info block isn't touched. This is opt-in, and the Format line alone isn't the block.
+	- Estimated effort: Avg
+
 - Schema check costs the square of the nesting depth in all 4 bindings
 	- ID: 2026110711492228
 	- Type: Bug
@@ -398,55 +503,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- `lost` and `ambiguous` each come with the line numbers they count, in `Migration` and `Upgrade`, in all 4.
 	- Estimated effort: Low
-
-- A program that migrates in memory, or saves through text, gets none of the save's guards
-	- ID: 2026111016205704
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Target version: v3.0.0
-	- Opened: 20261110-162057
-	- Opened by: gitniblet and slodworld2 feedback
-	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
-	- Problem description: a program whose files might be old reads the text, runs `migrate_unstamped`, then `parse`, so the document isn't tied to its path. Its save then has no changed check, no lost-content gate, no newer-format refusal, no atomic rename and no `mode`. gitniblet saves with `to_text_keep_lines` and its own `O_TRUNC` open for that reason. `parse_keep_lines("a: 1\n##    Format   4\n", Standard)`, then `set_int("a", 2)`, gives Ok, and `to_text_keep_lines()` gives the text and true, so gitniblet writes over a file a newer gitniblet wrote. `upgrade_file` is the only call that knows migration, and it rewrites the file at start.
-	- Requirements:
-		- A `load_file` option that migrates in memory and keeps the path, so a later save goes through every guard.
-		- A text call on a document naming a newer major refuses, as the save does with `TooNew`.
-		- The same in all 4 and the C++ interface.
-	- Estimated effort: Avg
-
-- No way to stamp only the Format line
-	- ID: 2026111016205705
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Target version: v3.0.0
-	- Opened: 20261110-162057
-	- Opened by: gitniblet, slodworld1 and slodworld2 feedback
-	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
-	- Problem description: a library save never writes a Format line, and `format_version` on the saved file is none, the same as a 2.x file. A program that follows the `format_version` doc then sends its own files through migrate, where with `from_v2` a quoted `\\` comes back as one backslash. `set_banner` is the only way to stamp, and it writes the whole info block with the Home, Syntax and Legal lines. That puts shcl's copyright and MIT line in an app's user files, and a Syntax link to `v3.0.0-beta1` for good. So gitniblet writes `##    Format   3` by hand on a fresh file and gets the full block on an upgraded one.
-	- Requirements:
-		- A `SaveOptions` stamp choice: none, the Format line alone, or the info block. The same in all 4 and the C++ interface.
-		- `upgrade` and `upgrade_file` take the same choice.
-	- Note: the standing rule that only `init` and a creating `set --write` add the info block isn't touched. This is opt-in, and the Format line alone isn't the block.
-	- Estimated effort: Avg
-
-- Pre-beta, pin-era and beta1 files all say `Format 3`, though their syntax differs
-	- ID: 2026111016205706
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Target version: v3.0.0
-	- Opened: 20261110-162057
-	- Opened by: gitsby and slodworld1 feedback
-	- Related IDs: 2026100115403385, 2026101407100010
-	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
-	- Problem description: beta1 reads gitsby's pin-era `name: "C:\\Bob's\\new"` with every backslash doubled, at Good, with no diagnostic. slodworld1's dev-tree files from `a37aa2ce` read `a, b` as an array, `[#N]` as an index, and `\t` as an escape, and stamp the same line. beta1 reads them another way or loads them with errors, and `upgrade(from_v2)` writes nothing while any error is left. gitsby tells its files apart by mtime. Pre-release files are on their own by 2026100115403385, and 2026101407100010 takes a stamped file with errors as 2.x when the caller says so. A clean file that reads differently is still unseen.
-	- Requirements:
-		- A cut after beta1 that changes what any clean Format 3 line means also changes something a program can read.
-		- A read that gives the info block's Syntax tag, so a program can tell a beta1 file from a later one.
-	- Question: change the stamp for such a cut, or keep Format 3 and rely on the Syntax tag read? v4's goal is no Format 4.
-	- Estimated effort: Avg
 
 - A line the load refused reads `NotFound`, the same as a missing line
 	- ID: 2026111016205707
@@ -1162,6 +1218,25 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- spec.md and the `upgrade` docs say 2.x includes 1.x, and that a 1.x file's backup is named `format-v2`.
 		- The next changelog's upgrading notes say C's `SHCL_SET_OK` is 0, so old code testing a setter `!= 0` reads every success as a failure, and that a string read of an array gives its bracket text. The released beta1 section stays as it is.
 	- Estimated effort: Low
+
+- Pre-beta, pin-era and beta1 files all say `Format 3`, though their syntax differs
+	- ID: 2026111016205706
+	- Type: Enhancement
+	- Status: Moot
+	- Priority: Avg
+	- Target version: v3.0.0
+	- Opened: 20261110-162057
+	- Opened by: gitsby and slodworld1 feedback
+	- Related IDs: 2026100115403385, 2026101407100010
+	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
+	- Problem description: beta1 reads gitsby's pin-era `name: "C:\\Bob's\\new"` with every backslash doubled, at Good, with no diagnostic. slodworld1's dev-tree files from `a37aa2ce` read `a, b` as an array, `[#N]` as an index, and `\t` as an escape, and stamp the same line. beta1 reads them another way or loads them with errors, and `upgrade(from_v2)` writes nothing while any error is left. gitsby tells its files apart by mtime. Pre-release files are on their own by 2026100115403385, and 2026101407100010 takes a stamped file with errors as 2.x when the caller says so. A clean file that reads differently is still unseen.
+	- Requirements:
+		- A cut after beta1 that changes what any clean Format 3 line means also changes something a program can read.
+		- A read that gives the info block's Syntax tag, so a program can tell a beta1 file from a later one.
+	- Question: change the stamp for such a cut, or keep Format 3 and rely on the Syntax tag read? v4's goal is no Format 4.
+	- Estimated effort: Avg
+	- Note: 20261110, replaced by the format versions design (JC). The stamp question is settled there.
+	- Superseded by ID: 2026111018212700
 
 - `install.ps1` refuses pwsh on Linux and macOS
 	- ID: 2026110215285715
@@ -11458,6 +11533,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `escnote`
 	- Commit: `8c216fa7`
 	- Closed: 20261007-143147
+	- Note: 20261110, superseded by 2026111018212700, where every published format is read and converted (JC).
 
 - cli-regress fails 3 rows on macOS's own tools
 	- ID: 2026100617010925
