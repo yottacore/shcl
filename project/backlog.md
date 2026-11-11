@@ -35,6 +35,41 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- `set_comment` making a field after a kept last line puts its blank above the kept line's comments
+	- ID: 2026111021153725
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261110-211537
+	- Opened by: found while working 2026111012160121
+	- Related IDs: 2026111012160121, 2026111021095858
+	- Version and build: r1111 at `cddbda9f`
+	- Steps to reproduce: `printf 'a: 1\n# c: 3\nb: 1, , 2\n' > f.shcl`, then `printf 'comment\tz0\tadded\n' | shcl set f.shcl`.
+	- Incorrect behavior: the output is `a: 1`, a blank, `# c: 3`, `b: 1, , 2`, `# added`, `z0:`. The blank that should set off the new `z0` goes above the comment on the kept `E026` line instead.
+	- Expected behavior: `a: 1`, `# c: 3`, `b: 1, , 2`, a blank, `# added`, `z0:`, as when the last line is a field (`b: 2`), and as `int z0 7` gives.
+	- Reproduced: 20261111, the Rust, Go and C CLIs.
+	- Estimated effort: Low
+	- Note: the placement property in `dd3t9` excuses this class with a check keyed by this ID. The fix takes it out.
+
+- `clear_comments` takes a comment on the far side of a kept line above its target
+	- ID: 2026111021095858
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261110-210958
+	- Opened by: found while working 2026111012160121
+	- Related IDs: 2026111012160121, 2026100307163901
+	- Version and build: r1111 at `cddbda9f`
+	- Steps to reproduce: `printf 'k2: 78\n# note 3\nport4: a, b,  c\n# on srv5\nsrv5: 1\n' > f.shcl`, then `printf 'clear-comments\tsrv5\n' | shcl set f.shcl`.
+	- Incorrect behavior: both comments go, `# note 3` too, which sits above the kept `E026` line `port4: a, b,  c`, not against `srv5`.
+	- Expected behavior: only `# on srv5` goes. design.md's remove rule says a comment on the far side of a kept line stays with that line, and `remove srv5` keeps it.
+	- Reproduced: 20261111, the Rust, Go and C CLIs.
+	- Possible cause: a kept line and the comments above it sit in the next field's leading lines, and `clear_comments` clears every comment there, where the remove stops at the last kept line. `set_comment` likely the same.
+	- Estimated effort: Low
+	- Note: the placement property in `dd3t9` excuses this class with a check keyed by this ID. The fix takes it out.
+
 - vmFreeBSD: let bsdtest mount a tmpfs, so the box's fs suite gets one
 	- ID: 2026111019385135
 	- Type: Task
@@ -402,12 +437,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Regression test: this item is the test. Each past case in its table is watched to fail in a worktree at the commit before that case's fix, and the property on `343334df`.
 	- Estimated effort: Avg
 	- Progress log:
-		- 20261110: split in 4. The table and its Rust runner (2026111012160064), the Go, Python and C runners (2026111012160083), and each row watched to fail before its fix (2026111012160102) are done. The fuzz property, with the cross check, is 2026111012160121, still Queued.
+		- 20261110: split in 4. The table and its Rust runner (2026111012160064), the Go, Python and C runners (2026111012160083), and each row watched to fail before its fix (2026111012160102) are done. The fuzz property, with the cross check, is 2026111012160121, waiting on the 2M release fuzz.
 
 - A comment placement property in the fuzz, replayed in all 4 bindings
 	- ID: 2026111012160121
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz (`SHCL_FUZZ_ITERS=2000000`), for `dd3t9` and `dderx`, which draw new shapes and ops now. Both passed at 200,000.
 	- Priority: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261110-121601
@@ -417,6 +453,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: the property, generators and guard in 2026110616475903's Requirements, in `dd3t9`, `dderx` and the merge step, with the cross check replaying the dumps. Watched to fail on `343334df` with 2026110613470311's case.
 	- Note: the cross check already replays `dderx`'s `kept/` dump through every CLI, so its new shapes reach the other 3 bindings that way. `dd3t9` dumps nothing yet, and a merge has no CLI form, so it isn't dumped.
 	- Estimated effort: High
+	- Actual effort: Avg
+	- Progress log:
+		- 20261111: `placement_slips` in `fuzz_smoke.rs` reads each comment's anchor, its run and the blank above from the canonical text before and after an edit. `dd3t9` and `dderx` hold every setter, remove, comment edit, banner and merge step to it. `dd3t9`'s configs now have item lists with comments on the items, and a comment and a blank above them, and its ops a `set_literal` of `[9, 8]`, mostly over a list. A guard counts the 3 shapes. `dd3t9` dumps its inputs into `kept/` beside `dderx`'s, so the cross check replays them through every CLI.
+		- 20261111: it found 2 bugs, filed as 2026111021095858 (`clear_comments` takes a comment past a kept line) and 2026111021153725 (`set_comment` making a field puts its blank above a kept line's comments). The property excuses each by a check keyed by its ID.
+	- Decisions:
+		- me, 20261111: the property follows design.md where the item's wording differs. Lines an edit takes from a node go under the heir's own comments ("Lines an edit takes from their node"). A remove takes the comments under its target up to the first kept line. A setter puts the kept lines among a list's items above the field, under its comments. The banner takes info block lines, and a format or migrate stamp is no comment.
+		- me, 20261111: a run is the comments at the anchor's own depth. A deeper comment above a line is the block above's trailing line.
+		- me, 20261111: the edit's target is found by the line `lines()` gives its path in the text before, since a path quotes and escapes names the text writes bare. The rest is read from the text. Only a key written once in both texts is held.
+		- me, 20261111: `dd3t9` dumps into `kept/` as `pNNNNN`, so the cross check needs no change and `ddesf` covers both. `dderx`'s generators stay as they were; the shape guard is on `dd3t9`.
+	- Swept: every fuzz test that edits. `dd3t9` and `dderx` hold the property. `ddc6m` edits lines written apart from the canonical form on purpose, so it's left alone.
+	- Test case: `df50j` (the oracle on 2026110613470311's case, and the library's list replace through it), `dd3t9`, `dderx`, crosscheck `ddesf`.
+	- Verified: `df50j`, `dd3t9` and `dderx` fail on `343334df`'s library, all on 2026110613470311's class: `df50j` on the blank, `dd3t9` at iteration 74, and `dderx`'s merge step at iteration 35. All 3 pass on `r1111`.
+	- Verified: `dd3t9` and `dderx` at 200,000 iterations, the rust area of `--backlog-run-quick`, clippy, `lint-report.bash --check`, `test-ids.py check`, and the cross check over the corpus and a dump with 100 `dd3t9` inputs (4 bindings agree).
+	- Branch: `r1111`
 
 - Quote the other line breaks in `instances` and `get --array` output
 	- ID: 2026110613470324

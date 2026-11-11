@@ -2209,7 +2209,8 @@ fn a_remove_keeps_a_settled_line_below_it() {
 
 /// A config the way people write one: a steady indent of tabs or spaces,
 /// comments, blank lines, odd spacing, quoted values, lists and raw blocks,
-/// sometimes with CRLF line ends.
+/// sometimes with CRLF line ends. Some item lists have comments on their
+/// items, and a comment and a blank above them.
 fn tidy(rng: &mut Rng) -> String {
 	let unit = ["\t", "  ", "    "][rng.below(3)];
 	let eol = if rng.below(5) == 0 { "\r\n" } else { "\n" };
@@ -2222,7 +2223,7 @@ fn tidy(rng: &mut Rng) -> String {
 		let ind = unit.repeat(depth);
 		let inner = unit.repeat(depth + 1);
 		let name = format!("{}{}", ["k", "Srv", "port", "x_y"][rng.below(4)], n);
-		let line = match rng.below(10) {
+		let line = match rng.below(11) {
 			0 => format!("{ind}# note {n}"),
 			1 => String::new(),
 			2 => {
@@ -2236,6 +2237,28 @@ fn tidy(rng: &mut Rng) -> String {
 				"{ind}{name}:{eol}{inner}```{eol}{inner}body {n}{eol}{inner}  deeper{eol}{inner}```"
 			),
 			7 => format!("{ind}{name}.sub: {}", rng.below(100)),
+			9 => {
+				let mut l = String::new();
+				if rng.below(2) == 0 {
+					l.push_str(eol);
+				}
+				if rng.below(2) == 0 {
+					l.push_str(&format!("{ind}# about {n}{eol}"));
+				}
+				l.push_str(&format!("{ind}{name}:{eol}"));
+				if rng.below(2) == 0 {
+					l.push_str(&format!("{inner}# first {n}{eol}"));
+				}
+				l.push_str(&format!("{inner}- one{eol}"));
+				if rng.below(2) == 0 {
+					l.push_str(&format!("{inner}# before two{eol}"));
+				}
+				l.push_str(&format!("{inner}- two"));
+				if rng.below(2) == 0 {
+					l.push_str(&format!("  # on two {n}"));
+				}
+				l
+			}
 			_ => format!("{ind}{name}: {}", rng.below(100)),
 		};
 		out.push_str(&line);
@@ -2297,6 +2320,479 @@ fn a_remove_that_moves_a_misplaced_line_adds_no_error() {
 	assert!(no_new_errors(&back, base), "a new error:\n{text}");
 }
 
+/// A line of canonical text the placement property files comments under:
+/// not blank, no comment, no raw body or fence. Read from the text alone.
+#[derive(Debug)]
+struct Anchor {
+	/// The names of the lines it sits under by tab depth, then its own: a
+	/// field's name, `- ` and an item's value, or a kept line's whole text.
+	key: String,
+	/// The comments right above it at its own depth, with the blanks among
+	/// them and under them as "".
+	lead: Vec<String>,
+	/// A blank sits right above the lead, or above the line when it has none.
+	blank: bool,
+	/// Only the start of the text or the parent's line is above the lead.
+	first: bool,
+	/// The text after a trailing comment's `#`.
+	trailing: Option<String>,
+	/// Its place in the text, 0-based.
+	line: usize,
+	/// The line above the lead, when it's no blank.
+	above: Option<usize>,
+	/// Its depth in tabs and its trimmed text.
+	depth: usize,
+	text: String,
+}
+
+/// A format or migrate stamp, which is the save's and no comment. The load
+/// reads one loosely.
+fn stamp(line: &str) -> bool {
+	let t = line.trim_matches(BLANKS);
+	t.strip_prefix("##")
+		.is_some_and(|r| r.trim_start_matches(BLANKS).starts_with(['F', 'M']))
+}
+
+/// The comments over line `at` of `text` at `depth`, past any line whose
+/// trimmed text is in `moved`, as Anchor's lead, and whether a blank is above
+/// them. A setter puts the kept lines among a list's items right above the
+/// field, under its comments.
+fn lead_over(text: &str, at: usize, depth: usize, moved: &[&str]) -> (Vec<String>, bool) {
+	let lines: Vec<&str> = text.lines().collect();
+	let raw = raw_spans(text);
+	let mut lead = Vec::new();
+	for (k, up) in lines[..at].iter().enumerate().rev() {
+		let t = up.trim_matches(BLANKS);
+		if raw.iter().any(|&(o, c)| k + 1 >= o && k < c) {
+			break;
+		}
+		if t.is_empty() {
+			lead.push(String::new());
+		} else if moved.contains(&t)
+			|| up.len() - up.trim_start_matches('\t').len() > depth
+				&& t.strip_prefix("# ").is_some_and(|c| moved.contains(&c))
+			|| stamp(up)
+		{
+			// A moved line, or one under it the setter wrote as a comment.
+			continue;
+		} else if t.starts_with('#') && up.len() - up.trim_start_matches('\t').len() == depth {
+			lead.push(t.to_string());
+		} else {
+			break;
+		}
+	}
+	lead.reverse();
+	let blanks = lead.iter().take_while(|l| l.is_empty()).count();
+	lead.drain(..blanks);
+	(lead, blanks > 0)
+}
+
+fn anchors(canon: &str) -> Vec<Anchor> {
+	let lines: Vec<&str> = canon.lines().collect();
+	let raw = raw_spans(canon);
+	// A fence on a line of its own is the block's too.
+	let in_raw = |k: usize| {
+		raw.iter().any(|&(o, c)| {
+			(k >= o && k < c) || k + 1 == o && fence_run(lines[k].trim_matches(BLANKS)).is_some()
+		})
+	};
+	let tabs = |l: &str| l.len() - l.trim_start_matches('\t').len();
+	// A misplaced line keeps a space in its indent, and sits under nothing.
+	let odd = |l: &str| l.trim_start_matches('\t').starts_with(' ');
+	let mut tok = Tokens::default();
+	let mut names: Vec<String> = Vec::new();
+	let mut out = Vec::new();
+	for (k, line) in lines.iter().enumerate() {
+		let rest = line.trim_matches(BLANKS);
+		if rest.is_empty() || rest.starts_with('#') || in_raw(k) {
+			continue;
+		}
+		let depth = tabs(line);
+		let (name, trailing) = if let Some(item) = rest.strip_prefix("- ") {
+			tokenize_value(item, 0, Rules::Current, &mut tok);
+			let note = tok.comment.map(|c| item[c + 1..].trim_end().to_string());
+			(format!("- {}", &item[tok.value.0..tok.value.1]), note)
+		} else {
+			tokenize(rest, b':', false, Rules::Current, &mut tok);
+			match tok.sep {
+				Some(sep) if tok.fault.is_none() => (
+					rest[..sep].trim_end().to_string(),
+					tok.comment.map(|c| rest[c + 1..].trim_end().to_string()),
+				),
+				_ => (rest.to_string(), None),
+			}
+		};
+		let key = if odd(line) {
+			format!("~{rest}")
+		} else {
+			names.truncate(depth);
+			names.resize(depth, "?".to_string());
+			names.push(name);
+			plain_path(&names.join("."))
+		};
+		let mut lead = Vec::new();
+		let mut j = k;
+		let mut stop = None;
+		while j > 0 {
+			j -= 1;
+			let up = lines[j];
+			let t = up.trim_matches(BLANKS);
+			if in_raw(j) {
+				stop = Some(j);
+				break;
+			}
+			if t.is_empty() {
+				lead.push(String::new());
+			} else if stamp(up) {
+				continue;
+			} else if t.starts_with('#') && tabs(up) == depth && !odd(up) {
+				lead.push(t.to_string());
+			} else {
+				stop = Some(j);
+				break;
+			}
+		}
+		lead.reverse();
+		let blanks = lead.iter().take_while(|l| l.is_empty()).count();
+		lead.drain(..blanks);
+		if lead.iter().all(String::is_empty) {
+			lead.clear();
+		}
+		let first = stop.is_none_or(|s| {
+			let up = lines[s];
+			!in_raw(s) && !odd(up) && tabs(up) < depth && !up.trim_start().starts_with('#')
+		});
+		out.push(Anchor {
+			key,
+			lead,
+			blank: blanks > 0,
+			first,
+			trailing,
+			line: k,
+			above: stop,
+			depth,
+			text: rest.to_string(),
+		});
+	}
+	out
+}
+
+/// A path with the quotes taken off each segment that needs none for its
+/// dots, since a path quotes a name the text writes bare.
+fn plain_path(path: &str) -> String {
+	let mut segs = vec![String::new()];
+	let mut quoted = false;
+	for c in path.chars() {
+		match c {
+			'"' => quoted = !quoted,
+			'.' if !quoted => segs.push(String::new()),
+			_ => {}
+		}
+		if (c != '.' || quoted)
+			&& let Some(s) = segs.last_mut()
+		{
+			s.push(c);
+		}
+	}
+	segs.iter()
+		.map(
+			|s| match s.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+				Some(inner) if !inner.contains(['.', '"']) => inner.to_string(),
+				_ => s.clone(),
+			},
+		)
+		.collect::<Vec<_>>()
+		.join(".")
+}
+
+/// The anchor written with this key, when there is just the one.
+fn one_anchor<'a>(v: &'a [Anchor], key: &str) -> Option<&'a Anchor> {
+	let mut hits = v.iter().filter(|a| a.key == key);
+	hits.next().filter(|_| hits.next().is_none())
+}
+
+/// What an edit did to the comments of the path it named, for the placement
+/// property.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Placed {
+	/// A setter, which keeps the target's line and takes in the lines of
+	/// whatever it replaced under it.
+	Set,
+	Remove,
+	/// `set_comment` or `clear_comments`: the target's own comments change.
+	Comment,
+	/// Anything that names no path, such as the banner.
+	Other,
+	/// A merge of a layer: what the layer names may change, and the rest is
+	/// held as for a remove.
+	Merge,
+}
+
+/// A path with every `(...)` selector taken out.
+fn without_selectors(path: &str) -> String {
+	let mut out = String::with_capacity(path.len());
+	let (mut quoted, mut depth) = (false, 0usize);
+	for c in path.chars() {
+		match c {
+			'"' if depth == 0 => quoted = !quoted,
+			'(' if !quoted => depth += 1,
+			')' if !quoted && depth > 0 => {
+				depth -= 1;
+				continue;
+			}
+			_ => {}
+		}
+		if depth == 0 {
+			out.push(c);
+		}
+	}
+	out
+}
+
+/// Where a comment must be after an edit, from the 2 canonical texts alone
+/// (2026110616475903). A comment's anchor is the next line below it that is
+/// not blank or a comment, at its own depth, and it carries the blank above
+/// its run. Where the edit left the anchor, the run is still right above it
+/// with the same blank above; an edit that took lines away may give the
+/// anchor more, under its own (design.md, Lines an edit takes from their
+/// node). Where a setter, or a merge, wrote a list anew, the comments among
+/// its items, and the trailing ones on them, sit above the field's line, below
+/// its own, with its blank above. A trailing comment stays on its line. Only a key
+/// written once in both texts is held. `layer` is a merge's layer.
+fn placement_slips(
+	before: &str,
+	after: &str,
+	path: &str,
+	edit: Placed,
+	layer: &str,
+) -> Vec<String> {
+	let (was, now) = (anchors(before), anchors(after));
+	let theirs: Vec<String> = anchors(&Document::parse(layer).to_canonical())
+		.into_iter()
+		.map(|a| a.key)
+		.collect();
+	let layered = |key: &str| {
+		theirs.iter().any(|k| {
+			key == k
+				|| key
+					.strip_prefix(k.as_str())
+					.is_some_and(|r| r.starts_with('.'))
+		})
+	};
+	// The target's key is the one its line has, since a path spells some
+	// names apart from the text.
+	let base = Document::parse(before);
+	let named = path;
+	let path = base
+		.lines(path)
+		.first()
+		.and_then(|&n| was.iter().find(|a| a.line + 1 == n))
+		.map_or_else(|| plain_path(&without_selectors(path)), |a| a.key.clone());
+	let below =
+		|owner: &str, key: &str| key.strip_prefix(owner).is_some_and(|r| r.starts_with('.'));
+	let under = |key: &str| below(&path, key);
+	// An item of `owner` the edit wrote anew, which went even where the new
+	// one reads the same. One that kept its comments is a line it left.
+	let new_item = |owner: &str, g: &Anchor| {
+		g.key
+			.strip_prefix(owner)
+			.is_some_and(|r| r.starts_with(".- "))
+			&& match one_anchor(&now, &g.key) {
+				Some(b) => b.lead != g.lead || b.trailing != g.trailing,
+				// Repeated items are held only by their count.
+				None => {
+					let count = |v: &[Anchor]| v.iter().filter(|a| a.key == g.key).count();
+					count(&now) < count(&was)
+				}
+			}
+	};
+	// A setter writes its target's list anew, and a merge may write any list
+	// as a bracket array.
+	let rewrites = |owner: &str| match edit {
+		Placed::Set => owner == path,
+		Placed::Merge => was.iter().any(|g| new_item(owner, g)),
+		_ => false,
+	};
+	let item = |a: &Anchor| {
+		a.key
+			.rfind(".- ")
+			.is_some_and(|k| rewrites(&a.key[..k]) && new_item(&a.key[..k], a))
+	};
+	let went = |a: &Anchor| item(a) || !now.iter().any(|b| b.key == a.key);
+	// 2026111021095858: a comment edit takes the comments above a kept line
+	// that sits right above its target, past the kept line. Lines with an
+	// error are the kept ones.
+	let kept: std::collections::BTreeSet<usize> = base
+		.diagnostics()
+		.iter()
+		.filter(|d| d.severity == Severity::Error && d.line > 0)
+		.map(|d| d.line - 1)
+		.collect();
+	let past_kept = |a: &Anchor| {
+		kept.contains(&a.line)
+			&& was
+				.iter()
+				.skip_while(|b| b.line <= a.line)
+				.find(|b| !kept.contains(&b.line) || b.key == path)
+				.is_some_and(|b| b.key == path || under(&b.key))
+	};
+	let had: std::collections::HashSet<&str> =
+		before.lines().map(|l| l.trim_matches(BLANKS)).collect();
+	let mut slips = Vec::new();
+	for a in &was {
+		if one_anchor(&was, &a.key).is_none() {
+			continue;
+		}
+		let Some(b) = one_anchor(&now, &a.key) else {
+			continue;
+		};
+		let target = a.key == path;
+		if item(a)
+			|| edit == Placed::Comment && (target || under(&a.key) || past_kept(a))
+			|| edit == Placed::Merge && layered(&a.key)
+		{
+			continue;
+		}
+		// A remove takes the comments under its target up to the first kept
+		// line, by design.md's table.
+		let after_target = a.above.and_then(|k| was.iter().rev().find(|w| w.line <= k));
+		if edit == Placed::Remove
+			&& kept.contains(&a.line)
+			&& after_target.is_some_and(|w| w.key == path || under(&w.key))
+		{
+			continue;
+		}
+		// A setter that writes a kept line heading its target as a comment
+		// puts it, and the comments above it, over the target's own, and the
+		// line it writes is a new one.
+		let old = format!("# {}", a.text);
+		let noted = b.lead.iter().any(|l| l.contains("  ## ") || *l == old);
+		if a.trailing.is_some() && b.trailing != a.trailing && !(target && noted) {
+			slips.push(format!(
+				"{}: trailing {:?} is now {:?}",
+				a.key, a.trailing, b.trailing
+			));
+		}
+		// The banner takes an info block's lines wherever it finds one, and
+		// reads them loosely.
+		let ours = |l: &String| edit != Placed::Other || !l.starts_with("##");
+		let mut want: Vec<String> = a.lead.iter().filter(|l| ours(l)).cloned().collect();
+		let (mut lead, mut blank) = (
+			b.lead
+				.iter()
+				.filter(|l| ours(l))
+				.cloned()
+				.collect::<Vec<_>>(),
+			b.blank,
+		);
+		let rewritten = rewrites(&a.key);
+		if rewritten {
+			// The kept lines among a list's items move up with them, the
+			// lines under them too. One the setter wrote as a comment stays
+			// where it was, with its own.
+			// A dotted line above it is no line under it.
+			let mine = |g: &&Anchor| g.line > a.line && below(&a.key, &g.key);
+			let moved: Vec<&str> = was.iter().filter(mine).map(|g| g.text.as_str()).collect();
+			for gone in was.iter().filter(mine).filter(|g| went(g)) {
+				let commented = format!("# {}", gone.text);
+				let gone_as = |t: &str| after.lines().any(|l| l.trim_matches(BLANKS) == t);
+				if gone.text.starts_with("- ") && !gone_as(&commented) {
+					want.extend(gone.lead.iter().filter(|l| !l.is_empty()).cloned());
+					// A kept item moves up whole, its trailing comment too.
+					if !gone_as(&gone.text) {
+						want.extend(gone.trailing.iter().map(|t| format!("#{t}")));
+					}
+				}
+			}
+			(lead, blank) = lead_over(after, b.line, b.depth, &moved);
+		}
+		// Blanks alone, once the banner's lines are out, are no run.
+		for v in [&mut want, &mut lead] {
+			if v.iter().all(String::is_empty) {
+				v.clear();
+			}
+		}
+		let placed = match edit {
+			_ if rewritten => {
+				let mut rest = lead.iter();
+				// A setter writes the blank between its comments and its line above them.
+				want.iter()
+					.filter(|w| !w.is_empty())
+					.all(|w| rest.any(|l| l == w))
+			}
+			// Lines the edit left above it join its comments, on top: a kept
+			// line the setter or a settle wrote as a comment in place, or the
+			// comments a remove leaves. Its own blank is then the one above
+			// its own comments.
+			Placed::Set | Placed::Remove | Placed::Merge => {
+				let known = |l: &String| {
+					l.is_empty()
+						|| l.contains("  ## ")
+						|| had.contains(l.as_str())
+						|| l.strip_prefix("# ")
+							.is_some_and(|t| was.iter().any(|w| w.text == t.trim_matches(BLANKS)))
+				};
+				let top = (0..=lead.len())
+					.find(|&p| lead[p..].starts_with(&want) && lead[..p].iter().all(known));
+				if let Some(p) = top.filter(|&p| p > 0) {
+					blank = lead[p - 1].is_empty();
+				}
+				top.is_some()
+			}
+			_ => lead == want,
+		};
+		if !placed {
+			slips.push(format!("{}: comments {want:?} are now {lead:?}", a.key));
+		}
+		let fresh = !a.lead.is_empty() || want.len() > a.lead.len();
+		// 2026111021153725: a comment edit that makes its field after a kept
+		// last line puts the new blank above that line's comments.
+		let made = edit == Placed::Comment && base.lines(named).is_empty();
+		let unheld = a.first || b.first || noted || made && kept.contains(&a.line);
+		if fresh && !unheld && a.blank != blank {
+			slips.push(format!(
+				"{}: blank above its comments {} is now {}",
+				a.key, a.blank, blank
+			));
+		}
+	}
+	slips
+}
+
+/// The oracle on 2026110613470311's case, the text the fix gives and the one
+/// it gave before.
+#[test]
+fn the_placement_property_reads_a_list_replace() {
+	let _id = test_id("df50j");
+	let before =
+		"server:\n\tport: 8080\n\nitems:\n\t# first element\n\t- one\n\t- two  # second\n\nz: 1\n";
+	let good =
+		"server:\n\tport: 8080\n\n# first element\n# second\nitems:\n\t- one\n\t- two\n\nz: 1\n";
+	let bad =
+		"server:\n\tport: 8080\n# first element\n# second\n\nitems:\n\t- one\n\t- two\n\nz: 1\n";
+	assert_eq!(
+		placement_slips(before, good, "items", Placed::Set, ""),
+		Vec::<String>::new()
+	);
+	assert!(!placement_slips(before, bad, "items", Placed::Set, "").is_empty());
+	// The same text from any other edit moved the comments.
+	assert!(!placement_slips(before, good, "z", Placed::Set, "").is_empty());
+	let tail = "a: 1  # one\nb: 2\n";
+	assert!(!placement_slips(tail, "a: 1\nb: 2\n", "b", Placed::Set, "").is_empty());
+	assert!(placement_slips(tail, tail, "b", Placed::Remove, "").is_empty());
+	let mut doc = Document::parse(before);
+	assert_eq!(doc.set_literal("items", "[one, two]"), shcl::SetStatus::Ok);
+	let after = doc.to_canonical();
+	let slips = placement_slips(
+		&Document::parse(before).to_canonical(),
+		&after,
+		"items",
+		Placed::Set,
+		"",
+	);
+	assert!(slips.is_empty(), "{slips:?}\n{after}");
+}
+
 /// The save that keeps lines writes text that reloads as the document with
 /// no error the base did not have, or the canonical form when it cannot; a
 /// load with no edits writes its own text back. On tidy configs, plain
@@ -2315,6 +2811,19 @@ fn keeping_lines_reloads_as_the_document() {
 	let seeds = seed_texts();
 	let mut rng = Rng(0x5EED_0925_4B33_0001);
 	let (mut tries, mut kept_tidy) = (0usize, 0usize);
+	// The placement property's shapes: an item with a comment of its own, a
+	// comment run with a blank above, and a list replace over such an item.
+	let (mut item_notes, mut set_off, mut list_swaps) = (0usize, 0usize, 0usize);
+	// SHCL_FUZZ_DUMP: each input with the edits that took, beside dderx's in
+	// kept/, so the cross-binding check holds the other three to the same
+	// bytes over these shapes too.
+	let dump_dir = std::env::var("SHCL_FUZZ_DUMP")
+		.ok()
+		.map(|d| format!("{d}/kept"));
+	if let Some(dir) = &dump_dir {
+		std::fs::create_dir_all(dir).unwrap_or_else(|e| panic!("dump dir {dir}: {e}"));
+	}
+	let mut dumped = 0usize;
 	for i in 0..iters {
 		let shape = rng.below(4);
 		let base = match shape {
@@ -2359,26 +2868,113 @@ fn keeping_lines_reloads_as_the_document() {
 			);
 		}
 		let mut log = format!("base:\n{base}");
+		let mut ops = String::new();
+		let had = anchors(&doc.to_canonical());
+		item_notes += usize::from(
+			had.iter()
+				.any(|a| a.key.contains(".- ") && (!a.lead.is_empty() || a.trailing.is_some())),
+		);
+		set_off += usize::from(had.iter().any(|a| a.blank && !a.lead.is_empty()));
 		for step in 0..(1 + rng.below(3)) {
 			let paths = doc.paths();
-			let path = if paths.is_empty() || rng.below(4) == 0 {
+			let mut path = if paths.is_empty() || rng.below(4) == 0 {
 				format!("z{step}")
 			} else {
 				paths[rng.below(paths.len())].clone()
 			};
-			let op = rng.below(9);
-			let _ = match op {
-				0 => doc.set_int(&path, 7) == shcl::SetStatus::Ok,
-				1 => doc.set_string(&path, "new text") == shcl::SetStatus::Ok,
-				2 => doc.remove(&path) > 0,
-				3 => doc.set_comment(&path, "added") == shcl::SetStatus::Ok,
-				4 => doc.clear_comments(&path) > 0,
-				5 => doc.set_int(&format!("{path}.kid{step}"), 3) == shcl::SetStatus::Ok,
-				6 => doc.set_empty(&path) == shcl::SetStatus::Ok,
-				7 => doc.set_banner(true) > 0,
-				_ => doc.set_raw(&path, "one\n\ttwo", "sh") == shcl::SetStatus::Ok,
+			let op = rng.below(10);
+			// The list replace goes for a list most of the time.
+			let lists: Vec<&String> = paths
+				.iter()
+				.filter(|p| doc.kind(p) == shcl::ValueKind::Array)
+				.collect();
+			if op == 9 && !lists.is_empty() && rng.below(4) != 0 {
+				path = lists[rng.below(lists.len())].clone();
+			}
+			let before = doc.to_canonical();
+			let (took, line, edit) = match op {
+				0 => (
+					doc.set_int(&path, 7) == shcl::SetStatus::Ok,
+					format!("int\t{path}\t7"),
+					Placed::Set,
+				),
+				1 => (
+					doc.set_string(&path, "new text") == shcl::SetStatus::Ok,
+					format!("string\t{path}\tnew text"),
+					Placed::Set,
+				),
+				2 => (
+					doc.remove(&path) > 0,
+					format!("remove\t{path}"),
+					Placed::Remove,
+				),
+				3 => (
+					doc.set_comment(&path, "added") == shcl::SetStatus::Ok,
+					format!("comment\t{path}\tadded"),
+					Placed::Comment,
+				),
+				4 => (
+					doc.clear_comments(&path) > 0,
+					format!("clear-comments\t{path}"),
+					Placed::Comment,
+				),
+				5 => {
+					path = format!("{path}.kid{step}");
+					(
+						doc.set_int(&path, 3) == shcl::SetStatus::Ok,
+						format!("int\t{path}\t3"),
+						Placed::Set,
+					)
+				}
+				6 => (
+					doc.set_empty(&path) == shcl::SetStatus::Ok,
+					format!("empty\t{path}"),
+					Placed::Set,
+				),
+				7 => (
+					doc.set_banner(true) > 0,
+					"banner\ton".to_string(),
+					Placed::Other,
+				),
+				8 => (
+					doc.set_raw(&path, "one\n\ttwo", "sh") == shcl::SetStatus::Ok,
+					format!("raw\t{path}\tsh\tone◉NEWLINE◉◉TAB◉two"),
+					Placed::Set,
+				),
+				_ => (
+					doc.set_literal(&path, "[9, 8]") == shcl::SetStatus::Ok,
+					format!("literal\t{path}\t[9, 8]"),
+					Placed::Set,
+				),
 			};
 			log.push_str(&format!("op {op} at {path:?}\n"));
+			if !took {
+				continue;
+			}
+			ops.push_str(&line);
+			ops.push('\n');
+			let after = doc.to_canonical();
+			if op == 9 {
+				let key = plain_path(&without_instances(&path));
+				list_swaps += usize::from(anchors(&before).iter().any(|a| {
+					a.key
+						.strip_prefix(key.as_str())
+						.is_some_and(|r| r.starts_with(".- "))
+						&& (!a.lead.is_empty() || a.trailing.is_some())
+				}));
+			}
+			let slips = placement_slips(&before, &after, &path, edit, "");
+			assert!(
+				slips.is_empty(),
+				"iteration {i}: comments moved {slips:?}:\n{log}--- before\n{before}--- after\n{after}"
+			);
+		}
+		if let Some(dir) = &dump_dir
+			&& dumped < 100
+		{
+			std::fs::write(format!("{dir}/p{i:05}.shcl"), &base).expect("dump input");
+			std::fs::write(format!("{dir}/p{i:05}.ops"), &ops).expect("dump ops");
+			dumped += 1;
 		}
 		let want = doc.to_canonical();
 		let (text, kept) = doc.to_text_keep_lines();
@@ -2417,6 +3013,10 @@ fn keeping_lines_reloads_as_the_document() {
 	assert!(
 		kept_tidy * 100 >= tries * 85,
 		"only {kept_tidy} of {tries} tidy configs kept their lines"
+	);
+	assert!(
+		item_notes * 10 >= iters && set_off * 20 >= iters && list_swaps * 100 >= iters,
+		"placement shapes too rare: {item_notes} item comments, {set_off} runs with a blank above, {list_swaps} list replaces over them, of {iters}"
 	);
 }
 
@@ -3707,6 +4307,7 @@ fn kept_lines_survive_edits() {
 				path.push_str("(q)");
 			}
 			let before = doc.to_canonical();
+			let mut layered = String::new();
 			let op = rng.below(15);
 			let (took, line) = match op {
 				0 => (
@@ -3751,6 +4352,7 @@ fn kept_lines_survive_edits() {
 				),
 				10 => {
 					let layer = kept_soup(&mut rng);
+					layered.clone_from(&layer);
 					let over = Document::parse(&layer);
 					lost += over.lost_count();
 					let theirs = kept_text(&layer);
@@ -3832,6 +4434,21 @@ fn kept_lines_survive_edits() {
 			if took {
 				ops.push_str(&line);
 				ops.push('\n');
+			}
+			if took || op == 10 {
+				let edit = match op {
+					0 | 1 | 2 | 5 | 6 | 9 => Placed::Set,
+					3 | 4 => Placed::Comment,
+					7 | 8 => Placed::Other,
+					10 => Placed::Merge,
+					_ => Placed::Remove,
+				};
+				let after = doc.to_canonical();
+				let slips = placement_slips(&before, &after, &path, edit, &layered);
+				assert!(
+					slips.is_empty(),
+					"iteration {i}: comments moved {slips:?}:\n{log}op {op} at {path:?}\n--- before\n{before}--- after\n{after}"
+				);
 			}
 			// A setter writes the kept line heading its target as a comment
 			// with a note naming the path, and it is a comment from then on.
