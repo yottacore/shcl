@@ -12,6 +12,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A save checks the bytes at the path it writes, every time, whatever file the path names now. It writes when they're what the load read or what this document's last save wrote, or when nothing is there, as an editor does. So a file deleted since the load is written back, where beta1 refused it as changed, and a save-as to a new name is still written. Unless `force` is set, a save onto a file the document never read is refused as changed, where it used to write. A save-as is one case, and a document from `parse` over an existing file is another. A save to the same relative name from another working folder is refused the same way.
 
+- `set --write` and `fmt --write` write back a FILE deleted while they ran, and say `FILE: created`, as the library's save does. They refused it as changed since it was read.
+
+- A comment run that a blank line sets off from the field below it belongs to the line above it, or to the file at the top, in every binding. So a remove, `clear_comments` or `comments` on that field leaves it alone, where they took it as the field's own comment, and a remove of the first field no longer takes the file's header comment or its info block. A comment added to the field goes right above it, under the blank. A remove still takes the comments right above the field and right under it, up to a blank line.
+
+- `instances`, `get --array` and `get --slots` print a value quoted when it holds any line break Python's `splitlines()` splits at: VT, FF, U+001C to U+001E, U+0085, U+2028 and U+2029 as well as LF and CR. Those printed bare, so a consumer splitting the output counted more values than there were.
+
 ### Fixed
 
 - `set_literal`, `set_literal_default`, `--set-literal` and the `literal` op refuse text with a `#` outside quotes as not one value, in every binding. They stored only the text before it and reported success, so `x#y` became `x` and `https://a.b/c#frag` lost its fragment. Quote the text, or use `set_string`, to keep a `#` in a value.

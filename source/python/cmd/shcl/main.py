@@ -1090,6 +1090,17 @@ def unchanged_since_read(file, before):
 	return False
 
 
+def gone_since_read(file):
+	# Nothing is at FILE now, so the save writes it as a new file.
+	try:
+		os.stat(file)
+	except FileNotFoundError:
+		return True
+	except (OSError, ValueError):
+		pass
+	return False
+
+
 def read_regular(path):
 	# The bytes of the regular file at PATH, or None when something else is
 	# there, such as a FIFO swapped in, which the open doesn't wait on. Raises
@@ -1119,6 +1130,10 @@ def write_back(doc, file, o, read=None, keep=False):
 	if doc.newer_format():
 		sys.stderr.write(f"{file}: refusing to rewrite: the document holds lines from a newer format than this reader's (see H006)\n")
 		return 7
+	# A file removed since the read is written as a new one, as the library's
+	# save and an editor write it (2026110914412379).
+	if read is not None and gone_since_read(file):
+		read = None
 	if read is not None and not unchanged_since_read(file, read):
 		return EXIT_IO
 	# Nothing to write: what the save would publish is already on disk. A
@@ -2547,6 +2562,14 @@ def do_init(o):
 	return 0
 
 
+# The characters a listing quotes as a line break: each one a consumer's line
+# split may break at, and each one fmt escapes (2026110613470324).
+# gen-escapes.py: begin
+# Generated from Unicode 18.0 by cicd/utility/gen-escapes.py. Edit the script, not this block.
+LINE_BREAKS = "\u000A\u000B\u000C\u000D\u001C\u001D\u001E\u0085\u2028\u2029"
+# gen-escapes.py: end
+
+
 def one_line(v):
 	"""A value for a one-per-line listing. instances promises one line per
 	instance, and a value holding a line break broke that, so a caller splitting
@@ -2554,7 +2577,7 @@ def one_line(v):
 	changes. It comes out quoted with the writer's escapes, "a◉NEWLINE◉b", as
 	init writes a default. A line break is never bare in a name either, so
 	quote_segment gives exactly that."""
-	if "\n" not in v and "\r" not in v:
+	if not any(c in LINE_BREAKS for c in v):
 		return v
 	return shcl.quote_segment(v)
 

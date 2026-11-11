@@ -732,7 +732,7 @@ Where a kept line is comes from canonical output before the edit. Under the targ
 
 - A field opened from a kept line goes with the last line under it, and the kept line stays where it was. A raw block of the same name after it had its fence on the name's line only because of that empty field, so the fence moves to a line of its own. That's the one rewrite a remove makes.
 
-- A remove takes the comments written against its target. Above it, that's the ones after the last kept line, and below it, the ones before the first kept line. A comment on the far side of a kept line stays with that line. A kept line the settle wrote as a comment counts as kept here, even though a reload of the canonical text reads it as a plain comment.
+- A remove takes the comments written against its target. Above it, that's the ones after the last kept line, and below it, the ones before the first kept line or blank line. A comment on the far side of a kept line stays with that line, and so does a run a blank line sets off from the target below it, which is the target's trailing lines only up to that blank (2026110712372276). A kept line the settle wrote as a comment counts as kept here, even though a reload of the canonical text reads it as a plain comment.
 
 - A repeated header goes when the last line under it is removed, since an earlier block already has that instance, and the blank line above it goes too. While anything stays under it, the header and its blank line both stay.
 
@@ -758,7 +758,7 @@ Where a kept line is comes from canonical output before the edit. Under the targ
 
 - The merge exception for a settled line on a replaced leaf dates from 2026-09-28. The line goes the way it would in a merge onto the reload of the saved base, where it's a comment.
 
-- A leaf's comments, for a merge that replaces it, are the ones a remove would take. Above it, that's the ones after its last kept line, and below it, the ones before its first. A settled line counts as the comment a reload reads it as. A comment or a settled line past a kept line beside the leaf stays with that line.
+- A leaf's comments, for a merge that replaces it, are the ones a remove would take. Above it, that's the ones after its last kept line, and below it, the ones before its first kept line or blank line. A settled line counts as the comment a reload reads it as. A comment or a settled line past a kept line beside the leaf stays with that line.
 
 - The save gate counts kept lines. The load records how many it kept, and each edit takes off only what this table allows. A document with fewer than that counts the rest as lost, so `LostCount` includes them, the save refuses, and the save that keeps lines falls back and refuses with it. `--lossy` writes anyway, as for a dropped line. Of checking each edit site and checking the count at the save, the count was chosen, since the sites were the problem.
 
@@ -768,15 +768,23 @@ Where a kept line is comes from canonical output before the edit. Under the targ
 
 When an edit removes, replaces, folds, or merges a node, or replaces a list's items, the comments and blank lines around what went need a new node to belong to. Each edit handled that in its own code. There was `unstack` for a replaced item list, `beside_kept` with `leave_above` and `leave_last` for a merged duplicate, `refile_folded` and `settle_first_blank` for a fold at load, `drop_banners` for the info block, and the remove's own path. Each got the blank line wrong at least once, and fixing the site at hand closed one case per round (2026110616475902).
 
-- Every comment line and blank line belongs to one node from the parse on, as its leading lines or its trailing lines. The emitter writes a node's lines in one fixed order, which is the blank, the comments, the line, the children, and the trailing lines.
+- Every comment line and blank line belongs to one node from the parse on, as its leading lines or its trailing lines. The emitter writes a node's lines in one fixed order, which is the blank, the comments, the line, the lines that open its block, the children, and the trailing lines.
+
+- A node's leading lines are the comment run right above its line, with no blank line between, and its blank is the one above that run. A comment run a blank line sets off from the line below it is the trailing lines of the node written above it at that line's level. With none, it's the lines that open the parent's block, which sit above its first child. The root's are the top of the file. So in `# c`, a blank, `b: 2`, the comment is the file's and stays when `b` goes, and in `a: 1`, `# c`, a blank, `b: 2`, it's `a`'s (2026110712372276).
+	- A run is set off only before the first kept line above the field line, so no comment crosses a kept line. A run between kept lines, or between a kept line and the field line, stays as built, with the field's leading lines, and a remove of the field still takes the comments after its last kept line. A kept line the settle wrote as a comment is set off as the comment a reload reads it as, and when the settle writes one, or moves one from among a list's items to right above the list with the list's blank above it, the lines around it are filed again.
+	- A run between 2 blank lines is the line above's too. A remove of that line leaves it, since a remove takes the trailing lines only up to a blank line.
+	- A dotted line is written as its last name, so that name's place decides. A run before a kept line that sits level with the line's first name goes above that name.
+	- A run with no field line after it is the footer, as it always was. An edit that leaves one at the end of the top level, or leaves a block's opening lines with no child, files them as a reload does: in the footer, or as the lines inside the block.
+	- A merge puts a layer's opening lines after the base node's, and the top of a layer's file after the top of the base's, with a blank above and below it. A line the base already has there isn't written twice, as for the footer.
+	- `SetBanner` looks for an info block in the trailing lines and opening lines too, where the parse now files one set off by blank lines. The top of the file is the root's opening lines with the first field's leading lines, and a block there stays.
 
 - The lines of something an edit takes away go to what takes its place, or else the next sibling, or else the parent's trailing lines. They go right above the heir's line, after the comments it already has, and the heir's blank goes above them. So a comment stays against a line, and the blank that set the heir off from the line above it still does. A blank between 2 of the lines that moved stays. One above the first of them goes, since it would set the heir off where the file didn't.
 
 - `adopt` is the one function that does it, with the same name and the same call sites in all 4 bindings. No edit moves a comment or a blank any other way, so a new kind of edit can't get the blank wrong on its own.
 
-- A replaced item list goes through it. A setter or a merge that writes the list anew puts the comments among its items, and the ones on them, right above the field (2026110613470311). Before that they went above the field's blank, so they read as part of the block above.
+- A replaced item list goes through it. A setter or a merge that writes the list anew puts the comments among its items, and the ones on them, right above the field (2026110613470311). Before that they went above the field's blank, so they read as part of the block above. The ones above a blank between 2 of them are then set off from the field, so they're filed as the line above's, as a reload files them.
 
-- The code still differs in places. The parse still gives a node the blank between its comments and its line, so in `# c`, a blank, `b: 2`, the comment is `b`'s and goes with it. The fixed order is 2026110712372276. The remove, the folds, the merge of a duplicate and the banner toggle still use their own helpers, which go once the comment placement suite (2026110616475903) passes with both in place (2026110712372281).
+- The code still differs in places. The remove, the folds, the merge of a duplicate and the banner toggle still use their own helpers, which go once the comment placement suite (2026110616475903) passes with both in place (2026110712372281).
 
 ### Default forms
 

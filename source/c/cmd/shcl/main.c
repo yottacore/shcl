@@ -583,6 +583,22 @@ static const char *RETIRED =
 
 static void outln(const char *p, size_t n) { fwrite(p, 1, n, stdout); fputc('\n', stdout); }
 
+// The characters a listing quotes as a line break: each one a consumer's line
+// split may break at, and each one fmt escapes (2026110613470324).
+// gen-escapes.py: begin
+/* Generated from Unicode 18.0 by cicd/utility/gen-escapes.py. Edit the script, not this block. */
+static const char *const line_breaks[] = {"\x0A", "\x0B", "\x0C", "\x0D", "\x1C", "\x1D", "\x1E", "\xC2\x85", "\xE2\x80\xA8", "\xE2\x80\xA9"};
+// gen-escapes.py: end
+
+static int has_line_break(const char *p, size_t n) {
+	for (size_t i = 0; i < n; i++)
+		for (size_t k = 0; k < sizeof line_breaks / sizeof *line_breaks; k++) {
+			size_t len = strlen(line_breaks[k]);
+			if (len <= n - i && !memcmp(p + i, line_breaks[k], len)) return 1;
+		}
+	return 0;
+}
+
 /* A value for a one-per-line listing. `instances` promises one line per
    instance, and a value holding a line break broke that, so a caller splitting
    on newlines counted more instances than `count` reports. Only such a value
@@ -590,9 +606,7 @@ static void outln(const char *p, size_t n) { fwrite(p, 1, n, stdout); fputc('\n'
    writer's escapes, "a◉NEWLINE◉b", as `init` writes a default. A line break is
    never bare in a name either, so shcl_quote_segment gives exactly that. */
 static void out_one_line(shcl_doc *d, const char *p, size_t n) {
-	size_t i = 0;
-	while (i < n && p[i] != '\n' && p[i] != '\r') i++;
-	if (i == n) { outln(p, n); return; }
+	if (!has_line_break(p, n)) { outln(p, n); return; }
 	shcl_str q = shcl_quote_segment(d, p, n);
 	outln(q.p, q.n);
 }
@@ -1277,6 +1291,12 @@ static int unchanged_since_read(const char *file, const char *before, size_t n) 
 	return same;
 }
 
+// Nothing is at FILE now, so the save writes it as a new file.
+static int gone_since_read(const char *file) {
+	struct stat st;
+	return stat(file, &st) != 0 && errno == ENOENT;
+}
+
 // read is the bytes FILE held when the command read it, and NULL when this
 // write is creating FILE.
 static int write_back(shcl_doc *d, const char *file, Opts *o, const char *read, size_t read_len, int keep) {
@@ -1286,6 +1306,9 @@ static int write_back(shcl_doc *d, const char *file, Opts *o, const char *read, 
 		fprintf(stderr, "%s: refusing to rewrite: the document holds lines from a newer format than this reader's (see H006)\n", file);
 		return 7;
 	}
+	// A file removed since the read is written as a new one, as the library's
+	// save and an editor write it (2026110914412379).
+	if (read && gone_since_read(file)) read = NULL;
 	if (read && !unchanged_since_read(file, read, read_len)) return EXIT_IO;
 	// Nothing to write: what the save would publish is already on disk. A
 	// rewrite would give the file a new inode and mtime for nothing, so an

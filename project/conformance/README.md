@@ -235,7 +235,7 @@ Case `095` pins that a refused item keeps its level. What is written under an `E
 
 Cases `096` and `097` pin a raw block that never closes, with and without a final newline. It's `E005`, and the block reads `body` either way.
 
-Case `098` pins a comment added to a node that already has one, with a blank line above the node. The new comment goes under the old one, and the blank moves above both.
+Case `098` pins a comment added to a node with a blank line above it, under a comment that blank sets off from the node. That comment is the line above's, so it stays where it is, and the new one goes right above the node with the blank above it (2026110712372276). Placement row 20260904-18 has a node with a comment of its own, where the new comment goes under the old one and the blank stays above both.
 
 Case `099` pins `literal` on text that only looks like syntax. A fence opener is stored as a quoted string, while a bare string with a colon then a space (`E025`), an unclosed quote in the first or a later piece and a leading `[` are refused.
 
@@ -480,6 +480,8 @@ Case `219` pins a remove of one field of a dotted pair. The other line stays as 
 Case `220` pins the schema check through a fragment that mounts itself, 60 levels down. It has a legal chain, an unknown leaf, a wrong type, a wrong name halfway, and a mount whose path is two names, followed 20 times and then cut short. Only the topmost unknown name is reported. The cost at depth is timed by `mem_bounds` (`df080`), since C used to compare each path against the whole rest of the chain at every level.
 
 Case `221` pins where a replaced stacked list's comments go. A setter writing the list anew, and a merge, put the comments among its items and on them right above the field, with the field's blank line above them. The same is true after a comment of the field's own, with a blank among the items, and in a block.
+
+Case `222` pins instance values and array elements that hold U+2028, U+2029 and U+0085. The library hands them back as they are, and the CLI listings, `instances` and `get --array`, print each such value quoted with the escapes `fmt` writes, so one value stays one line.
 
 Beyond the fixed corpus, the differential harness (`cicd/utility/crosscheck.bash`) also derives accessor coverage over the fuzz set. The reference's fuzz dump writes a `<name>.reads.tsv` beside each dumped input, with paths it knows exist and a type and strictness that cycle, and the `--extra` replay runs it through the same row machinery. Every scalar read row, from the corpus and from the fuzz set, is also replayed under `--on-bad=error` as an exit-code differential and under `--default=<x>` as a stdout differential, so the on-bad and default policy is pinned across bindings too. The harness also runs 3 `set` edits (a changed value, a new child, and a removal) on the first paths of every input, corpus and fuzz alike, so the save that keeps lines is compared well past the goldens. The reference's line-ending fuzz dumps up to 100 more inputs into an `eol/` folder beside the rest, and each one mixes LF and CRLF and has its edits as a write-ops script. Each goes through `set --write` in every binding, and the files left on disk must match byte for byte.
 

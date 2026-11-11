@@ -110,6 +110,12 @@ WHITE_SPACE = [
 	(0x3000, 0x3000),
 ]
 
+## What the CLIs quote as a line break in a one-per-line listing: each
+## character Python's str.splitlines() breaks at, all of which fmt escapes, so
+## a quoted value is one line however a consumer splits it. main() checks the
+## escaping.
+LINE_BREAKS = [(0x0A, 0x0D), (0x1C, 0x1E), (0x85, 0x85), (0x2028, 0x2029)]
+
 ## The escape character, U+25C9 FISHEYE, which opens and closes an escape.
 ESCAPE_MARK = 0x25C9
 
@@ -285,11 +291,48 @@ def fSpec() -> list[str]:
 	return out + [""]
 
 
+def fBreaks() -> list[str]:
+	return [chr(c) for lo, hi in LINE_BREAKS for c in range(lo, hi + 1)]
+
+
+def fRustCli() -> list[str]:
+	chars = ", ".join(f"'\\u{{{ord(c):X}}}'" for c in fBreaks())
+	return [f"// {HEAD}", "#[rustfmt::skip]", f"const LINE_BREAKS: [char; {len(fBreaks())}] = [{chars}];"]
+
+
+def fGoCli() -> list[str]:
+	## gofmt wants the blank line here too.
+	return [f"// {HEAD}", f"const lineBreaks = {fGoText(''.join(fBreaks()))}", ""]
+
+
+def fPythonCli() -> list[str]:
+	return [f"# {HEAD}", f"LINE_BREAKS = {fPyText(''.join(fBreaks()))}"]
+
+
+def fCCli() -> list[str]:
+	## UTF-8 is self-synchronizing, so a byte match on valid text is a match on
+	## the character.
+	chars = ", ".join(fCText(c) for c in fBreaks())
+	return [f"/* {HEAD} */", f"static const char *const line_breaks[] = {{{chars}}};"]
+
+
+def fCheckBreaks() -> str:
+	named = {text for _, text in ESCAPE_NAMES if len(text) == 1}
+	for c in fBreaks():
+		if c not in named and not any(lo <= ord(c) <= hi for lo, hi in INVISIBLE):
+			return f"gen-escapes: U+{ord(c):04X} is in LINE_BREAKS but fmt does not escape it"
+	return ""
+
+
 TARGETS = [
 	("source/rust/src/lib.rs", "// ", fRust),
 	("source/go/shcl.go", "// ", fGo),
 	("source/python/shcl.py", "# ", fPython),
 	("source/c/shcl.h", "// ", fC),
+	("source/rust/src/main.rs", "// ", fRustCli),
+	("source/go/cmd/shcl/main.go", "// ", fGoCli),
+	("source/python/cmd/shcl/main.py", "# ", fPythonCli),
+	("source/c/cmd/shcl/main.c", "// ", fCCli),
 	("project/grammar.abnf", "; ", fAbnf),
 	("project/spec.md", "<!-- ", fSpec),
 ]
@@ -299,6 +342,9 @@ def main() -> int:
 	args = sys.argv[1:]
 	if args not in ([], ["--write"]):
 		print("usage: gen-escapes.py [--write]", file=sys.stderr)
+		return 2
+	if fCheckBreaks():
+		print(fCheckBreaks(), file=sys.stderr)
 		return 2
 	root = Path(__file__).resolve().parent.parent.parent
 	rc = 0
@@ -340,3 +386,4 @@ if __name__ == "__main__":
 ##		            White_Space.
 ##		2026-10-06  Python takes them too.
 ##		2026-10-06  C takes them too.
+##		2026-11-11  The line breaks a CLI listing quotes, into the four CLIs.

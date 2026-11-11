@@ -1,0 +1,6 @@
+query	type	expected	status
+-	load	ok	-
+srv	count	3	Good
+srv	instances	a b|c d|ef	Good
+tags	string[]	a b|c d|ef|g	Good
+srv(1).port	int	2	Good

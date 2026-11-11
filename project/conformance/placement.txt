@@ -41,8 +41,8 @@ z: 1
 :: row 20260904-18 a comment added to a node with one keeps the blank above both
 :: before
 a: 1
-# note
 
+# note
 b: 2
 :: ops
 comment	b	new
@@ -308,3 +308,149 @@ e: 5
 :: expected
 e: 5
 f: 1
+
+:: row 2026110712372276-1 a remove leaves the comments a blank sets off from its line
+:: before
+# c
+
+b: 2
+:: ops
+remove	b
+:: expected
+# c
+:: keep
+# c
+
+:: row 2026110712372276-2 a run a blank sets off from the line below is the line above's
+:: before
+a: 1
+# c
+
+b: 2
+:: ops
+remove	b
+:: expected
+a: 1
+# c
+:: keep
+a: 1
+# c
+
+:: row 2026110712372276-3 a comment added under a run a blank sets off goes right above its node
+:: before
+a: 1
+# c
+
+b: 2
+:: ops
+comment	b	new
+:: expected
+a: 1
+# c
+
+# new
+b: 2
+:: keep
+a: 1
+# c
+
+# new
+b: 2
+
+:: row 2026110712372276-4 clearing a node's comments leaves a run a blank sets off from it
+:: before
+a: 1
+# c
+
+b: 2
+:: ops
+clear-comments	b
+:: expected
+a: 1
+# c
+
+b: 2
+:: keep
+a: 1
+# c
+
+b: 2
+
+:: row 2026110712372276-5 a run stays the line above's through a set, a reload and a remove
+:: before
+a: 1
+# c
+
+# new
+b: 2
+:: ops
+remove	b
+:: expected
+a: 1
+# c
+:: keep
+a: 1
+# c
+
+:: row 2026110712372276-6 the info block set off from the first field stays when the field goes
+:: before
+##
+## This config file format is SHCL.
+##    Format   3
+##
+
+port: 80
+
+q: 1
+:: ops
+remove	port
+:: expected
+##
+## This config file format is SHCL.
+##    Format   3
+##
+
+q: 1
+:: keep
+##
+## This config file format is SHCL.
+##    Format   3
+##
+
+q: 1
+
+:: row 2026110712372276-7 a run a blank sets off from a block's first field is the block's
+:: before
+p:
+	# c
+
+	a: 1
+q: 1
+:: ops
+remove	p.a
+:: expected
+p:
+	# c
+q: 1
+:: keep
+p:
+	# c
+q: 1
+
+:: row 2026110712372276-8 a run between 2 blanks is the line above's
+:: before
+a: 1
+
+# section
+
+b: 2
+:: ops
+remove	b
+:: expected
+a: 1
+
+# section
+:: keep
+a: 1
+
+# section
