@@ -620,9 +620,9 @@ writes a two-element array,
 .B title="My App"
 a string and
 .B color=`#FF8800`
-a backtick value. A
+a backtick value. Text with a
 .B #
-outside quotes ends the value, and text spanning lines is rejected.
+outside quotes, which a file would read as a comment, is rejected, and so is text spanning lines.
 .TP
 .BI \-\-set\-default= PATH = VALUE
 .TQ

@@ -1057,7 +1057,8 @@ shcl_set_status shcl_set_datetime_array(shcl_doc *d, const char *path, size_t pl
 // SHCL_SET_NOT_ONE_VALUE for text that could not be one line's value: a line
 // break, or what a file line is refused for in a value (a malformed array, a
 // bare comma, a quote that never closes, a bad escape, or what bare text may
-// not hold). A # outside quotes ends the value as it would in a file.
+// not hold), and for text holding a # outside quotes, which a file would read
+// as a comment, so the text after it would be lost.
 shcl_set_status shcl_set_literal(shcl_doc *d, const char *path, size_t plen, const char *text, size_t tlen);
 
 // Default forms - the "emit defaults" half of the Writer. Each writes unless
@@ -8924,13 +8925,15 @@ shcl_set_status shcl_set_string(shcl_doc *d, const char *path, size_t plen, cons
 
 /* Read text as the value half of a line, for the setters that take value
    syntax rather than data: whatever a file line means with this text is what
-   gets stored, so a trailing blank comes off and a `#` outside quotes ends
-   the value exactly as they would in a file. What is refused is what a
-   file reports as an error, since a setter has no diagnostic to report it
-   with: a line break, which no file line can hold, a malformed bracket array
-   (E019), and whatever a value is refused for on a line: a loose comma
-   (E026), an unterminated quote (E017), a bad escape (E023), or what bare
-   text may not hold (E025). A bracket array is stored as an array. */
+   gets stored, so a trailing blank comes off as it would in a file. What is
+   refused is what a file reports as an error, since a setter has no
+   diagnostic to report it with: a line break, which no file line can hold, a
+   malformed bracket array (E019), and whatever a value is refused for on a
+   line: a loose comma (E026), an unterminated quote (E017), a bad escape
+   (E023), or what bare text may not hold (E025). A `#` outside quotes is
+   refused too. In a file it opens a comment and the value ends there, so the
+   text after it would be dropped with nothing to say so. A bracket array is
+   stored as an array. */
 static int literal_value(ShclArena *a, ShclArena *tmp, ShclStr text, ShclValue *out) {
 	for (size_t i = 0; i < text.n; i++) { if (text.p[i] == '\n') return 0; }
 	/* One copy of the value text up front: the elements slice it, and the
@@ -8941,7 +8944,7 @@ static int literal_value(ShclArena *a, ShclArena *tmp, ShclStr text, ShclValue *
 	   before backtick values. */
 	int fence = fence_open(s_slice(line, tok.value_start, tok.value_end)).ok;
 	ShclFault f;
-	if (array_fault(tmp, &tok, &f) || (tok.nelem > 1 && !tok.has_array) || (!fence && value_fault(tmp, &tok, line, &f))) return 0;
+	if (tok.has_comment || array_fault(tmp, &tok, &f) || (tok.nelem > 1 && !tok.has_array) || (!fence && value_fault(tmp, &tok, line, &f))) return 0;
 	*out = cell_of_tokens(a, tmp, &tok, line);
 	/* No source wrote it either, so bare text the save quotes counts as
 	   quoted, as from the other setters. The author's quotes stay. */

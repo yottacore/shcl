@@ -94,7 +94,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `set_literal` cuts a value at an unquoted `#` and returns Ok
 	- ID: 2026111016205700
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261110-162057
@@ -108,7 +108,22 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- The same refusal in all 4 bindings and the C++ interface.
 		- The setter doc says text with a comment is refused.
+	- Actual cause [Bug]: `literal_value` read the text as a file line's value half, where a `#` outside quotes opens a comment, and took the value before it without checking whether a comment was there.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Progress log:
+		- 20261110: tests changed for the new rule. Corpus 044's `commented`, `hexcolor`, `midhash` and `tailhash` literal ops moved from write.ops to write-bad.ops, and the goldens lost those fields. Corpus 065's `p4` lost its ` # c` (it stays to pin the blank trim), and ` [x] # c` went to its write-bad.ops. The veneer smoke's `set_literal("lit", "[80, 443] # two")` went from `Ok` to `NotOneValue`. cli-regress `dcegf` went from exit 0 writing `color: red` to exit 1 with the file left alone.
+	- Decisions:
+		- 20261110: this is the third swing on `#` in literal text. Code review 20260909 item 7 kept `#ff0000` as the value, then the settled comment rule (design.md, Lexical edges) made it a comment. The comment rule stands for files. Only the setter changed: it refuses rather than storing part of the text, which fits "an error never throws out good lines" (me).
+		- 20261110: a trailing or leading blank still comes off, as on a file line. Only a comment is refused, since a blank carries no text the caller would miss (me).
+		- 20261110: the `#` is judged before anything else, so a fence opener with a comment after it is refused too (me).
+	- Actual fix [Bug]: `literal_value` (Rust, C), `literalValue` (Go) and `_literal_value` (Python) refuse text whose value half has a comment, as `NotOneValue`. `set_literal_default`, `--set-literal`, `--set-literal-default` and the `literal` op go through it. A `#` inside quotes or a backtick value still writes. The setter docs in all four and `shcl.hpp`, the help text in all four CLIs, the man page, spec.md, design.md (the SetLiteral bullet and the Write outcomes table) and the changelog say so.
+	- Swept: every caller of the four `literal_value` functions (only `set_literal`), the corpus `write.ops` files and the runner, veneer and cli-regress tests for a literal holding a `#`.
+	- Verified: with the fix backed out, Rust `write_bad_ops_are_rejected` (`dacv9`), Go `TestWriteBadOpsAreRejected` (`dacva`), Python `datds` and `dbzdt`, the C runner on 044 and the veneer smoke (`d9v59`) fail. With it, all pass: `cargo test --test conformance`, Go tests in both modules, the Python and C runners (221 cases each), the veneer smoke, cli-regress (666 rows, 3935 checks), crosscheck (23778 comparisons), check-docs, check-doc-examples, rustfmt, go vet, gofmt, ruff, mypy, shellcheck, markdownlint and the markdown check.
+	- Branch: `r1111`
+	- Test case: corpus `044-write-literal` (`datds`) and `065-bracket-array` (`dbzdt`) write-bad rows, veneer smoke `d9v59`, cli-regress `dcegf`.
+	- Acceptance signoff: Self-closed 20261110: the expected behavior on the item, and the tests fail before and pass after.
+	- Closed: 20261110-190133
 
 - Removes, folds, merges and the banner toggle hand lines on through `adopt`
 	- ID: 2026110712372281

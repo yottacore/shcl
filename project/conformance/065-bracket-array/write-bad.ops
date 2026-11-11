@@ -3,3 +3,4 @@ literal	r	[a,, b]
 literal	r	[INFO] up
 literal	r	[[1], 2]
 literal	r	80, 443
+literal	r	 [x] # c

@@ -11810,13 +11810,15 @@ impl Document {
 
 /// Read text as the value half of a line, for the setters that take value
 /// syntax rather than data: whatever a file line means with this text is
-/// what gets stored, so a trailing blank comes off and a `#` outside quotes
-/// ends the value exactly as they would in a file. What is refused is what
-/// a file reports as an error, since a setter has no diagnostic to report it
-/// with: a line break, which no file line can hold, a malformed bracket
-/// array (E019), and whatever a value is refused for on a line: a loose comma
-/// (E026), an unterminated quote (E017), a bad escape (E023), or what bare
-/// text may not hold (E025). A bracket array is stored as an array.
+/// what gets stored, so a trailing blank comes off as it would in a file.
+/// What is refused is what a file reports as an error, since a setter has no
+/// diagnostic to report it with: a line break, which no file line can hold, a
+/// malformed bracket array (E019), and whatever a value is refused for on a
+/// line: a loose comma (E026), an unterminated quote (E017), a bad escape
+/// (E023), or what bare text may not hold (E025). A `#` outside quotes is
+/// refused too. In a file it opens a comment and the value ends there, so the
+/// text after it would be dropped with nothing to say so. A bracket array is
+/// stored as an array.
 fn literal_value(text: &str) -> Option<Value> {
 	if text.contains('\n') {
 		return None;
@@ -11826,7 +11828,8 @@ fn literal_value(text: &str) -> Option<Value> {
 	// A fence opener has no body here, so it is stored as the text it is,
 	// as before backtick values.
 	let fence = fence_open(&line[tok.value.0..tok.value.1]).is_some();
-	if array_fault(&tok).is_some()
+	if tok.comment.is_some()
+		|| array_fault(&tok).is_some()
 		|| tok.elements.len() > 1 && tok.array.is_none()
 		|| (!fence && value_fault(&tok, &line).is_some())
 	{
@@ -13312,8 +13315,9 @@ impl Document {
 	/// two-element array where `set_string` would store one string that has to
 	/// be quoted. This is how a caller holding value text - a config line, a
 	/// user's `--set` argument - writes it without knowing its shape first.
-	/// Fails on text that could not be one line's value (`NotOneValue`, see
-	/// `literal_value`). An array on a field with lines under it is
+	/// Fails on text that could not be one line's value, and on text holding a
+	/// `#` outside quotes, which a file would read as a comment (`NotOneValue`,
+	/// see `literal_value`). An array on a field with lines under it is
 	/// `HasChildren`, as from the array setters.
 	pub fn set_literal(&mut self, path: &str, text: &str) -> SetStatus {
 		// Text that parsed as one value and still has no line that reads

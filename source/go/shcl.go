@@ -11510,13 +11510,15 @@ func boolText(v bool) string {
 
 // literalValue reads text as the value half of a line, for the setters that
 // take value syntax rather than data: whatever a file line means with this
-// text is what gets stored, so a trailing blank comes off and a # outside
-// quotes ends the value exactly as they would in a file. What is refused is
-// what a file reports as an error, since a setter has no diagnostic to report
-// it with: a line break, which no file line can hold, a malformed bracket
-// array (E019), and whatever a value is refused for on a line: a loose comma
-// (E026), an unterminated quote (E017), a bad escape (E023), or what bare
-// text may not hold (E025). A bracket array is stored as an array.
+// text is what gets stored, so a trailing blank comes off as it would in a
+// file. What is refused is what a file reports as an error, since a setter
+// has no diagnostic to report it with: a line break, which no file line can
+// hold, a malformed bracket array (E019), and whatever a value is refused for
+// on a line: a loose comma (E026), an unterminated quote (E017), a bad escape
+// (E023), or what bare text may not hold (E025). A # outside quotes is
+// refused too. In a file it opens a comment and the value ends there, so the
+// text after it would be dropped with nothing to say so. A bracket array is
+// stored as an array.
 func literalValue(text string) (value, bool) {
 	if strings.Contains(text, "\n") {
 		return value{}, false
@@ -11526,7 +11528,7 @@ func literalValue(text string) (value, bool) {
 	// A fence opener has no body here, so it is stored as the text it is, as
 	// before backtick values.
 	_, _, _, fence := fenceOpen(line[tok.Value[0]:tok.Value[1]])
-	if arrayFault(&tok) != nil || (len(tok.Elements) > 1 && tok.Array < 0) || (!fence && valueFault(&tok, line) != nil) {
+	if tok.Comment >= 0 || arrayFault(&tok) != nil || (len(tok.Elements) > 1 && tok.Array < 0) || (!fence && valueFault(&tok, line) != nil) {
 		return value{}, false
 	}
 	// No source wrote it either, so bare text the save quotes counts as
@@ -13120,8 +13122,9 @@ func (d *Document) SetBoolDefault(path string, v bool) SetStatus {
 // becomes a two-element array where SetString would store one string that has
 // to be quoted. This is how a caller holding value text - a config line, a
 // user's --set argument - writes it without knowing its shape first. Fails on
-// text that could not be one line's value (SetNotOneValue, see literalValue).
-// An array on a field with lines under it is SetHasChildren, as from the
+// text that could not be one line's value, and on text holding a # outside
+// quotes, which a file would read as a comment (SetNotOneValue, see
+// literalValue). An array on a field with lines under it is SetHasChildren, as from the
 // array setters, and text that is not valid UTF-8 is SetNotUtf8.
 func (d *Document) SetLiteral(path, text string) SetStatus {
 	d.ready()
