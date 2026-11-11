@@ -1138,8 +1138,7 @@ if [[ -n "${help}" ]]; then
 	guide="${repoDir}/project/style-guide_ui-ux.md"
 	exitRows="$(sed -n '/^## Exit codes$/,/^## /p' "${guide}" | { grep -E '^\| [0-9]' || true ;})"
 	[[ -n "${exitRows}" ]] || fBad "style-guide_ui-ux.md: no exit-code table to compare with the help"
-	helpCodes="$(sed -n '/^Exit codes:/,$p' <<<"${help}" | sed 's/^Exit codes: //' \
-		| { grep -oE '(^|, )[0-9] ' || true ;} | tr -dc '0-9\n' | sort -u)"
+	helpCodes="$(sed -n '/^Exit codes:/,$p' <<<"${help}" | sed -n 's/^  \([0-9]\)  .*/\1/p' | sort -u)"
 	[[ -n "${helpCodes}" ]] || fBad "the help has no 'Exit codes:' paragraph to read the codes out of"
 	guideCodes="$(awk '{ print $2 }' <<<"${exitRows}" | sort -u)"
 	[[ "${helpCodes}" == "${guideCodes}" ]] \

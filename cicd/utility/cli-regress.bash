@@ -623,8 +623,8 @@ rows=(
 	'dct56|init-strictness-see-help|init --strictness=1 --schema=%S2%|-|1||^option --strictness not valid for init: .*\(see --help\)$'
 	## 20260918 items 19 and 20: explain gave a file spelling that is a comment,
 	## and left out the V097 a user meets most.
-	'dct4v|explain-e003|explain E003|-|0|\nE003  error       selector names an instance that does not exist\n  a(5).b where there is one a. An index selects an existing instance by\n  position and never creates one, so a binding line should select by value\n  instead.\n\n|-'
-	'dct4w|explain-v097|explain V097|-|0|\nV097  error       generated output does not load, or fails its own schema\n  init checks its own output before returning it, so a starter config that\n  would fail its first check is a fault instead. A default outside its\n  field'"'"'s constraints is one cause. A required path nothing can generate is\n  the other, such as one with an index selector, a(0), or a * name. Line 0.\n\n|-'
+	'dct4v|explain-e003|explain E003|-|0|\nE003  error       selector names an instance that doesn\x27t exist\n  This happens with a(5).b when there\x27s only one a. An index selects an\n  existing instance by position and never creates one, so a binding line\n  should select by value instead.\n\n|-'
+	'dct4w|explain-v097|explain V097|-|0|\nV097  error       generated output doesn\x27t load, or fails its own schema\n  init checks its own output before returning it, so a starter config that\n  would fail its first check is a fault instead. A default outside its\n  field\x27s constraints is one cause. A required path nothing can generate is\n  the other, such as one with an index selector, a(0), or a * name. The\n  line number is 0.\n\n|-'
 	## 20260830 item 35: -h and --help after FILE were an unknown option, though
 	## every other option is read there.
 	'dbzrd|help-after-file|get %F% -h|-|0|-|-'
@@ -881,7 +881,7 @@ rows=(
 	'ddkcz|get-paren-index|get %F% a(0)|-|0|1\n|-'
 	'ddkd0|e025-paren-in-selector|check -|a(x(y).b: 1\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a paren in a bare selector; quote it$'
 	'ddkd1|get-quoted-paren-selector|get - a("x)y")|a: "x)y"\n|0|x)y\n|-'
-	'ddkd2|explain-e029|explain E029|-|0|\nE029  error       a selector in brackets, the old spelling\n  Selectors are written in parens: person(Bucky).city, person("New York"),\n  person(0) and person(*). Brackets are only for arrays. The line is kept\n  as written and binds nothing. When it selects by value, the lines under\n  it still load, under the instance it names. On a command line, quote the\n  path, since a bare ( is a syntax error in most shells.\n\n|-'
+	'ddkd2|explain-e029|explain E029|-|0|\nE029  error       a selector in brackets, the old spelling\n  Selectors are written in parens, as in person(Bucky).city,\n  person("New York"), person(0), and person(*). Brackets are only for\n  arrays. The line is kept as written and binds nothing. When it selects by\n  value, the lines under it still load, under the instance it names. On a\n  command line, quote the path, since a bare ( is a syntax error in most\n  shells.\n\n|-'
 	## 2026100717500001: a read took a PATH that cannot parse as not found, so
 	## get --default printed the default at exit 0 and count printed 0. Every
 	## read's PATH is refused at 1 now, as --remove's is, before the load. A
@@ -1007,18 +1007,18 @@ rows=(
 	## A bare value may hold spaces since 20261006, so this line binds now.
 	#ddhew|kept-value-e025-empty|get - a|a: My App\n\tb: 1\n|2|\n|E025'
 	'ddjyb|kept-value-e025-colon-empty|get - a|a: host: a.com port: 80\n\tb: 1\n|2|\n|E025'
-	'ddghr|explain-e019-read|explain E019|-|0|\nE019  error       a bracket array that is not well formed\n  An array is one line, ports: [80, 443], and [] is the empty array. Text\n  after the closing \x27]\x27, a bare \x27[\x27 or \x27]\x27 inside, an empty element, or no\n  closing \x27]\x27 on the line is malformed. Quote the value if it is text:\n  log: "[INFO] started". A list item that is an array is E019 too, since\n  arrays do not nest. The line is kept verbatim: it binds nothing and\n  nothing counts as lost. The lines under it still load, under the field\n  with no value, so a read on the field is Empty when one of them loads and\n  NotFound when none does.\n\n|-'
-	'ddhp6|explain-e013|explain E013|-|0|\nE013  error       a line starting with \x27*\x27, the old list item marker\n  A list item is written \x27- value\x27 now. The line is kept as written and\n  binds nothing, and the other items still load. What is written under it\n  goes with it.\n\n|-'
-	'ddhp7|explain-e026|explain E026|-|0|\nE026  error       a bare comma with a space or the end after it\n  ports: 80, 443 is an error. Write the array in brackets, ports: [80, 443],\n  or quote text that has a comma. A comma with text right after it is text,\n  so opts: rw,noatime is one string. The line is kept verbatim and binds\n  nothing. The lines under it still load, under the field with no value. A\n  list item with a bare comma, - a, b, is kept the same way, and the other\n  items still load.\n\n|-'
-	'ddhws|explain-e028|explain E028|-|0|\nE028  error       an array on a field with lines under it\n  A field with fields under it takes one plain value or none, so\n  route: [GET, POST] with lines under it is an error. Give the field one\n  value and put the list in a field under it: methods: [GET, POST]. The line\n  is kept verbatim, and the lines under it load under the field with no\n  value.\n\n|-'
+	'ddghr|explain-e019-read|explain E019|-|0|\nE019  error       a bracket array that isn\x27t well formed\n  An array is one line, ports: [80, 443], and [] is the empty array. Text\n  after the closing \x27]\x27, a bare \x27[\x27 or \x27]\x27 inside, an empty element, or no\n  closing \x27]\x27 on the line is malformed. Quote the value if it\x27s text, as in\n  log: "[INFO] started". A list item that is an array is E019 too, since\n  arrays don\x27t nest. The line is kept verbatim. It binds nothing, and\n  nothing counts as lost. The lines under it still load, under the field\n  with no value, so a read on the field is Empty when one of them loads and\n  NotFound when none does.\n\n|-'
+	'ddhp6|explain-e013|explain E013|-|0|\nE013  error       a line starting with \x27*\x27, the old list item marker\n  A list item is written \x27- value\x27 now. The line is kept as written and\n  binds nothing, and the other items still load. What\x27s written under it\n  goes with it.\n\n|-'
+	'ddhp7|explain-e026|explain E026|-|0|\nE026  error       a bare comma with a space or the end after it\n  ports: 80, 443 is an error. Write the array in brackets, ports: [80, 443],\n  or quote text that has a comma. A comma with text right after it is text,\n  so opts: rw,noatime is one string. The line is kept verbatim and binds\n  nothing. The lines under it still load, under the field with no value. A\n  list item with a bare comma, such as - a, b, is kept the same way, and the\n  other items still load.\n\n|-'
+	'ddhws|explain-e028|explain E028|-|0|\nE028  error       an array on a field with lines under it\n  A field with fields under it takes one plain value or none, so\n  route: [GET, POST] with lines under it is an error. Give the field one\n  value, and put the list in a field under it, such as methods: [GET, POST].\n  The line is kept verbatim, and the lines under it load under the field\n  with no value.\n\n|-'
 	'ddhwt|explain-e010-retired|explain E010|-|0|\nE010  retired     error, replaced by E026\n  Loads no longer report E010. \x27shcl explain E026\x27 has the rule now.\n\n|-'
-	'depcx|explain-e008|explain E008|-|0|\nE008  error       stacked \x27- \x27 list item under a parent with field children\n  The parent already holds named children, so the item is kept as\n  written and binds nothing. What is written under it goes with it\n  (E018).\n\n|-'
+	'depcx|explain-e008|explain E008|-|0|\nE008  error       stacked \x27- \x27 list item under a parent with field children\n  The parent already has named children, so the item is kept as written\n  and binds nothing. What\x27s written under it goes with it (E018).\n\n|-'
 	'depcy|explain-e011|explain E011|-|0|\nE011  error       stacked \x27- \x27 item for a field that already has a value\n  The field\x27s value is kept. The item is kept as written and binds\n  nothing. A field is written one way or the other, not both.\n\n|-'
-	'ddhp8|explain-e027|explain E027|-|0|\nE027  error       a list item like - name: or - name: value\n  A colon with a space or the end after it is how YAML starts an object in\n  a list, and SHCL writes one as an instance. A colon with text after it is\n  fine, as in - localhost:8080. Quote the item if it is text: - "name: a".\n  The line is kept as written, and the other items still load.\n\n|-'
-	'ddjys|explain-e025|explain E025|-|0|\nE025  error       a tab, a quote, a bracket or a loose colon in bare text\n  A bare value or list item may hold spaces, kept as typed. A tab or other\n  whitespace, a quote, a bracket, or a colon with a space or the end after\n  it is an error: host: a.com port: 80 is two fields on one line. Put each\n  field on its own line, or quote the value. An apostrophe inside a word,\n  as in O\x27Brien, is text. An array element or a selector body takes no\n  whitespace or quote, and a selector body no colon, comma or paren either.\n  Whitespace at either end is trimmed first. The line is kept verbatim and\n  binds nothing. In a value, the lines under it still load, under the field\n  with no value.\n\n|-'
+	'ddhp8|explain-e027|explain E027|-|0|\nE027  error       a list item like - name: or - name: value\n  A colon with a space or the end after it is how YAML starts an object in\n  a list, and SHCL writes one as an instance. A colon with text after it is\n  fine, as in - localhost:8080. Quote the item if it\x27s text, as in\n  - "name: a". The line is kept as written, and the other items still load.\n\n|-'
+	'ddjys|explain-e025|explain E025|-|0|\nE025  error       a tab, a quote, a bracket, or a loose colon in bare text\n  A bare value or list item may contain spaces, which are kept as typed. A\n  tab or other whitespace, a quote, a bracket, or a colon with a space or\n  the end after it is an error. For example, host: a.com port: 80 is two\n  fields on one line. Put each field on its own line, or quote the value.\n  An apostrophe inside a word, as in O\x27Brien, is text. An array element or\n  a selector body takes no whitespace or quote, and a selector body takes\n  no colon, comma, or paren either. Whitespace at either end is trimmed\n  first. The line is kept verbatim and binds nothing. In a value, the lines\n  under it still load, under the field with no value.\n\n|-'
 	## 2026-10-05: explain E023 prints the mark itself, not the text U+25C9.
 	#'ddghv|explain-e023-read|explain E023|-|0|\nE023  error       a bad escape\n  An escape is a name from the escape list between two U+25C9 marks, such as\n  TAB, NEWLINE or U+200B, and a real U+25C9 is the name ESCAPE_CHAR. Anything\n  else between two marks is an error, and so is a mark with no partner. A\n  backslash is plain text. The line is kept verbatim: it binds nothing and a\n  read on it is NotFound. When only the value is wrong, the lines under it\n  still load, under the field with no value, and a read on the field is Empty\n  once one of them loads. When the name is, a raw block the line opens is kept\n  with it.\n\n|-'
-	'ddj1d|explain-e023-mark|explain E023|-|0|\nE023  error       a bad escape\n  An escape is a name from the escape list between two \xe2\x97\x89 marks, such as\n  \xe2\x97\x89TAB\xe2\x97\x89, \xe2\x97\x89NEWLINE\xe2\x97\x89 or \xe2\x97\x89U+200B\xe2\x97\x89, and a real \xe2\x97\x89 is written \xe2\x97\x89ESCAPE_CHAR\xe2\x97\x89.\n  Anything else between two marks is an error, and so is a mark with no\n  partner. A backslash is plain text. The line is kept verbatim: it binds\n  nothing and a read on it is NotFound. When only the value is wrong, the\n  lines under it still load, under the field with no value, and a read on the\n  field is Empty once one of them loads. When the name is, a raw block the\n  line opens is kept with it.\n\n|-'
+	'ddj1d|explain-e023-mark|explain E023|-|0|\nE023  error       a bad escape\n  An escape is a name from the escape list between a pair of \xe2\x97\x89 marks, such\n  as \xe2\x97\x89TAB\xe2\x97\x89, \xe2\x97\x89NEWLINE\xe2\x97\x89, or \xe2\x97\x89U+200B\xe2\x97\x89, and a real \xe2\x97\x89 is written \xe2\x97\x89ESCAPE_CHAR\xe2\x97\x89.\n  Anything else between two marks is an error, and so is a mark with no\n  partner. A backslash is plain text. The line is kept verbatim. It binds\n  nothing, and a read on it is NotFound. When only the value is wrong, the\n  lines under it still load, under the field with no value, and a read on\n  the field is Empty once one of them loads. When the name is wrong, a raw\n  block the line opens is kept with it.\n\n|-'
 	## E024 is retired (2026100207032800), so explain says so.
 	#'ddgj4|explain-e024-read|explain E024|-|0|\nE024  error       a Windows path in double quotes with a \\t or \\n escape\n  "C:\\temp" would read as C:, a tab, then emp, which a path almost never\n  means. The line is kept verbatim like E023: it binds nothing, and the\n  lines under it still load. A read on the field is Empty when one of them\n  loads and NotFound when none does. Use single quotes or no quotes, or\n  double each backslash.\n\n|-'
 	'ddher|explain-e024-retired|explain E024|-|0|\nE024  retired     error, with no replacement\n  Loads no longer report E024, and no other code took its rule.\n\n|-'
@@ -1094,31 +1094,31 @@ rows=(
 	"de0zm|stamp-hint-long-number|check -|##    Format   1$(printf '%0200d' 0)\n|0|line 1: Hint: H006\nok (1 diagnostic(s))\n|^line 1: Hint: H006 the file names format 10{99}[.]{3}0{100} [(]201 chars[)], newer"
 	'ddqhg|stamp-garbled-quiet|check -|a: 1\n##    Format   3x\n|0|ok (0 diagnostic(s))\n|-'
 	'ddqhh|stamp-hint-strict-passes|check --strictness=strict -|a: 1\n##    Format   4\n|0|line 2: Hint: H006\nok (1 diagnostic(s))\n|-'
-	"ddqhj|explain-h006|explain H006|-|0|\nH006  hint        the file names a newer format than this reader\n  The info block's Format line names a format past the one this shcl reads,\n  so the file may use rules it does not know, and a line can read\n  differently than its author meant. The load goes on as usual, and a save\n  is refused, since it would write each line by these rules. A shcl made\n  for that format reads it as written.\n\n|-"
-	"ddqhk|explain-h007|explain H007|-|0|\nH007  hint        the file names an older format than this reader\n  The info block's Format line names a format before the one this shcl\n  reads, and some lines read differently now: p: a,b was an array in 2.x\n  and is one string here. 'shcl upgrade FILE --from-2x --write' rewrites\n  the file for these rules and keeps the original beside it. A file with\n  nothing else to change gets this format on its Format line.\n\n|-"
+	"ddqhj|explain-h006|explain H006|-|0|\nH006  hint        the file names a newer format than this reader\n  The info block's Format line names a format past the one this shcl reads,\n  so the file may use rules it doesn't know, and a line can read\n  differently than its author meant. The load goes on as usual, but a save\n  is refused, since it would write each line by these rules. A shcl made\n  for that format reads it as written.\n\n|-"
+	"ddqhk|explain-h007|explain H007|-|0|\nH007  hint        the file names an older format than this reader\n  The info block's Format line names a format before the one this shcl\n  reads, and some lines read differently now. For example, p: a,b was an\n  array in 2.x and is one string here.\n  'shcl upgrade FILE --from-2x --write' rewrites the file for these rules and\n  saves the original beside it. A file with nothing else to change gets this\n  format on its Format line.\n\n|-"
 	## 2026102910482344: a file naming a newer format reads as usual, and
 	## nothing writes it back. --write and set's print refuse at 7, --lossy
 	## or not, and fmt --check says so. fmt still prints. A newer layer under
 	## FILE refuses the print too, since the merge holds its lines.
-	'dekvz|set-write-newer-refused|set --write %NWW% --set=a=2|-|7|-|refusing to rewrite: the document holds lines from a newer format|a: 1\n\n##    Format   4\n'
-	'dekw0|fmt-write-newer-refused|fmt --write %NWW%|-|7|-|refusing to rewrite: the document holds lines from a newer format|a: 1\n\n##    Format   4\n'
+	'dekvz|set-write-newer-refused|set --write %NWW% --set=a=2|-|7|-|refusing to rewrite: the document has lines from a newer format|a: 1\n\n##    Format   4\n'
+	'dekw0|fmt-write-newer-refused|fmt --write %NWW%|-|7|-|refusing to rewrite: the document has lines from a newer format|a: 1\n\n##    Format   4\n'
 	'dekw5|set-write-newer-lossy-refused|set --write --lossy %NWW% --set=a=2|-|7|-|refusing to rewrite|a: 1\n\n##    Format   4\n'
-	'dekw4|set-print-newer-layer-refused|set --set=q=1 --layer=%NW% %F%|-|7||refusing to print: the document holds lines from a newer format'
-	'dekw1|set-print-newer-refused|set --set=a=2 -|a: 1\n##    Format   4\n|7||refusing to print: the document holds lines from a newer format'
-	'dekw2|fmt-check-newer-refused|fmt --check -|a: 1\n##    Format   4\n|7||fmt --write would refuse: the document holds lines from a newer format'
+	'dekw4|set-print-newer-layer-refused|set --set=q=1 --layer=%NW% %F%|-|7||refusing to print: the document has lines from a newer format'
+	'dekw1|set-print-newer-refused|set --set=a=2 -|a: 1\n##    Format   4\n|7||refusing to print: the document has lines from a newer format'
+	'dekw2|fmt-check-newer-refused|fmt --check -|a: 1\n##    Format   4\n|7||fmt --write would refuse: the document has lines from a newer format'
 	'dekw3|fmt-print-newer|fmt -|a: 1\n##    Format   4\n|0|a: 1\n##    Format   4\n|!refus'
 	## 2026110312163203: the highest Format line decides, so a newer one
 	## after a current one still makes the file newer.
 	'detr1|check-newer-after-current|check -|##    Format   3\np: x\n##    Format   4\n|0|line 3: Hint: H006\nok (1 diagnostic(s))\n|-'
-	'detr2|set-print-newer-after-current|set --set=p=y -|##    Format   3\np: x\n##    Format   4\n|7||refusing to print: the document holds lines from a newer format'
-	'detr3|fmt-check-newer-after-current|fmt --check -|##    Format   3\np: x\n##    Format   4\n|7||fmt --write would refuse: the document holds lines from a newer format'
+	'detr2|set-print-newer-after-current|set --set=p=y -|##    Format   3\np: x\n##    Format   4\n|7||refusing to print: the document has lines from a newer format'
+	'detr3|fmt-check-newer-after-current|fmt --check -|##    Format   3\np: x\n##    Format   4\n|7||fmt --write would refuse: the document has lines from a newer format'
 	'detr4|upgrade-newer-after-current|upgrade --from-2x -|##    Format   3\np: a, b\n##    Format   4\n|0|##    Format   3\np: a, b\n##    Format   4\n|^line 3: Hint: H006 the file names format 4, newer'
 	## 2026102307035776: a '#' against text opens a comment as any other does,
 	## and the load hints H008 so the cut is not silent. A blank before it gets
 	## none, and Strict still passes. The prose is the same in all four.
 	"deawt|glued-hash-hint|check -|url: http://h/#frag\ncolor: #fff\nport: 80   # main\n|0|line 1: Hint: H008\nline 2: Hint: H008\nok (2 diagnostic(s))\n|=line 1: Hint: H008 a '#' against text opens a comment; quote the value if the '#' is part of it\nline 2: Hint: H008 a '#' against text opens a comment; quote the value if the '#' is part of it\n(run 'shcl explain CODE' for the rule behind a code)\n"
 	'deaww|glued-hash-strict-passes|check --strictness=strict -|tags:\n\t- c#\n|0|line 2: Hint: H008\nok (1 diagnostic(s))\n|-'
-	"deawv|explain-h008|explain H008|-|0|\nH008  hint        a '#' against text opens a comment\n  A '#' outside quotes opens a comment wherever it sits, so\n  url: http://h/#frag reads http://h/, color: #fff reads nothing and\n  lang: c# reads c. Quote the value to keep the '#': color: \"#fff\". The\n  hint comes when text sits right before the '#' in a bare value, an array\n  element, a selector body or a fence label, or right after it where that\n  piece is empty. A blank before it, as in port: 80  # main, makes a plain\n  comment. A fence label can't hold a '#'.\n\n|-"
+	"deawv|explain-h008|explain H008|-|0|\nH008  hint        a '#' against text opens a comment\n  A '#' outside quotes opens a comment wherever it sits, so\n  url: http://h/#frag reads http://h/, color: #fff reads nothing, and\n  lang: c# reads c. Quote the value to keep the '#', as in color: \"#fff\".\n  The hint comes when text sits right before the '#' in a bare value, an\n  array element, a selector body, or a fence label, or right after it where\n  that piece is empty. A blank before it, as in port: 80  # main, makes a\n  plain comment. A fence label can't contain a '#'.\n\n|-"
 	## 20260928 idea 4: a hint found after the parse's pass, here a late fold,
 	## was listed after every other diagnostic. The prose is the same in all
 	## four, so stderr is pinned whole.
@@ -1126,7 +1126,7 @@ rows=(
 	## A Schema line names the schema check uses when --schema is not given,
 	## read from the config file's directory. A URL is left to editors.
 	'dd5qs|schema-line-check|check %SP%|-|6|line 2: Error: V003\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
-	'dd5qt|schema-line-url|check %SPU%|-|0|ok (0 diagnostic(s))\n|does not fetch'
+	'dd5qt|schema-line-url|check %SPU%|-|0|ok (0 diagnostic(s))\n|doesn.t fetch'
 	'dd5qv|schema-line-gone|check %SPG%|-|8||gone\.schema\.shcl'
 	'dd5qw|schema-line-overridden|check --schema=%SPS% %SPU%|-|6|line 2: Error: V003\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
 	## An indented line counts, or fmt would turn the check off. Only a regular
@@ -2239,9 +2239,8 @@ fTest ddyde help-lists-refusals
 typeOpts=' --int --float --bool --datetime --string --raw --rawinfo --duration --size '
 for b in "${bindings[@]}"; do
 	name="${b%%|*}"; cli="${b#*|}"
-	refused="$("${cli}" help 2>/dev/null </dev/null | tr -s ' \n' '  ' || true)"
-	refused="${refused#*Also refused: }"; refused="${refused%%Two options that ask*}"
-	mapfile -t entries < <(tr ';' '\n' <<<"${refused}")
+	refused="$("${cli}" help 2>/dev/null </dev/null | sed -n '/also refused:$/,/^Two options that ask/p' | sed -n 's/^  //p' || true)"
+	mapfile -t entries <<<"${refused}"
 	if ((${#entries[@]} < 10)) || [[ ! -s "${tmpDir}/usage-${name}" ]]; then
 		echo "cli-regress: help-lists-refusals [${name}]: ${#entries[@]} refused entries, or no row exited 1" >&2; nBad+=1; continue
 	fi
@@ -2275,11 +2274,11 @@ done
 ## set-print-says-canonical and flag-zero-missing-int.
 fTest ddydf help-says
 helpSays=(
-	'--remove=PATH (same) delete every field the path reaches'
+	'--remove=PATH (same) delete every field the path matches'
 	"A raw op's INFO is taken as written"
-	'write nothing at exit 8 when that name is taken'
-	'without --layer a note on stderr says so'
-	"flag: print the value, or the type's zero"
+	'When that name is taken, they write nothing and exit 8'
+	'Without --layer, a note on stderr says so'
+	"flag prints the value, or the type's zero"
 )
 for b in "${bindings[@]}"; do
 	name="${b%%|*}"; cli="${b#*|}"
