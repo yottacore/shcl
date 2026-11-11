@@ -9,13 +9,9 @@ quoted: ["a, b", c]
 
 trimmed: [x, y]
 
-commented: v
+quotedhash: "a # b"
 
-hexcolor:
-
-midhash: a
-
-tailhash: x
+hexcolor: `#ff0000`
 
 empty:
 

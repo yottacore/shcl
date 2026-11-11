@@ -682,7 +682,7 @@ This is the mirror of the load outcomes, on the write side. A setter builds its 
 
 - The typed setters keep their render-and-parse-back on top of the round trip. It checks something else. The round trip asks whether the same text comes back, but a float or a datetime has to come back as that type. `inf` reads back as the text `inf` and not as any float at all.
 
-- `SetLiteral` takes syntax rather than data, so whatever a file line gives with its text is what gets stored. A trailing blank comes off, and a `#` outside quotes ends the value. It refuses what a file reports as an error, since a setter has no diagnostic to report one with. That's a line break, and any code a value can get on a file line, such as `E017`, `E019`, `E025`, or `E026`. A bracket array is a value there, so `--set-literal 'x=[80, 443]'` writes 2 elements.
+- `SetLiteral` takes syntax rather than data, so whatever a file line gives with its text is what gets stored. A trailing blank comes off. It refuses what a file reports as an error, since a setter has no diagnostic to report one with. That's a line break, and any code a value can get on a file line, such as `E017`, `E019`, `E025`, or `E026`. It also refuses a `#` outside quotes, which a file reads as a comment, since the text after it would be dropped with no status to say so. A bracket array is a value there, so `--set-literal 'x=[80, 443]'` writes 2 elements.
 
 - A path may have a line break in either half. A name and a selector value both go through the one quoter, which writes it as `◉NEWLINE◉` and reads it back. The selector was refused until the tokenizer cut, while elements were still stored in their source spelling and the value emitter had nothing to escape with.
 
@@ -704,7 +704,7 @@ This is the mirror of the load outcomes, on the write side. A setter builds its 
 | `BadRawInfo`  | value | A raw block's info string with a `#` or a line break in it.
 | `BadRawBody`  | value | A raw block's body line ending in a carriage return, or one that would close the block.
 | `BadComment`  | value | Comment text with a line break in it.
-| `NotOneValue` | value | `SetLiteral` text a file line wouldn't read as one value.
+| `NotOneValue` | value | `SetLiteral` text a file line wouldn't read as one value, or that holds a `#` outside quotes.
 | `NotUtf8`     | value | Text that isn't valid UTF-8. Go, Python, and C only, since a Rust string always is.
 | `OutOfRange`  | value | An int past the 64-bit range. Python only.
 | `NoReadBack`  | value | Any other value that doesn't read back. None is known, but it keeps the rule above true for a value nobody has thought of.

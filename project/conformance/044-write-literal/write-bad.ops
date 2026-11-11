@@ -4,3 +4,11 @@ literal	bad(*)	1
 literal	bad	80, 443
 literal	bad	[1, 2
 literal	bad	[INFO] up
+literal	commented	v # not part of the value
+literal	hexcolor	#ff0000
+literal	midhash	a#b
+literal	tailhash	x#
+literal	bad	https://a.b/c#frag
+literal	bad	Monitor 35in|3440x1440 #2
+literal	bad	# all comment
+literal	bad	[a, b] # c

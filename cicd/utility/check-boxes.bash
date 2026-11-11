@@ -6,8 +6,9 @@
 ##		same stdout, stderr and exit code as the Linux release built from the
 ##		same source (2026102419263412).
 ##		A row that ends in |suites also builds the 4 bindings there from a
-##		copy of the tracked source, and runs their conformance suites and
-##		cli-regress through box-suites.bash (2026102419263417). |suites=LIST
+##		copy of the tracked source, and runs their conformance suites,
+##		cli-regress and their filesystem property tests (2026111010331517)
+##		through box-suites.bash (2026102419263417). |suites=LIST
 ##		runs only those, such as the Go suite on a slow box (2026102419263422).
 ##		A Windows build, BIN ending in .exe, means a Windows box. Its ssh opens
 ##		in cmd, so box-cases.ps1 runs the cases there in place of the sh half,
@@ -28,7 +29,7 @@
 ##		  SSH_TARGET        user@host for ssh
 ##		  BIN               the release build that box runs; empty when none
 ##		  suites            also run the suites there
-##		  LIST              a comma list of rust, go, python, c and cli
+##		  LIST              a comma list of rust, go, python, c, cli and fs
 ##		  perf              also run perf-gate.bash there, Windows boxes only
 ##		  SHCL_VM_STATE     the VM state helper (default: vm-state on PATH)
 ##		  SHCL_BOX_WAIT     seconds to wait for a box another session holds
@@ -82,7 +83,7 @@ if [ -d src ]; then
 	if [ -n "${bsh}" ]; then
 		(cd src && env -i PATH="${p}" HOME="${w}" ${io} nice -n 19 "${bsh}" cicd/utility/box-suites.bash "${w}/s" "${want}") > /dev/null 2>&1
 	else
-		mkdir -p s; for x in rust go python c cli; do
+		mkdir -p s; for x in rust go python c cli fs; do
 			case ",${want}," in ,all,|*,${x},*) echo "skip ${x} no bash on the box" ;; esac
 		done > s/suites.lst
 	fi
@@ -193,8 +194,8 @@ source "${meDir}/include/corpus-cases.bash"
 
 fBad(){ echo "check-boxes: $1" >&2; nBad+=1 ;}
 fOsErr(){ find "$1" -name '*.e' -size +0 -exec sed -i -E 's/: [^:]+ \(os error ([0-9]+)\)/: (os error \1)/' {} + ;}
-suiteNames=(rust go python c cli)
-suitesRe='^suites(=(rust|go|python|c|cli)(,(rust|go|python|c|cli))*)?$'
+suiteNames=(rust go python c cli fs)
+suitesRe='^suites(=(rust|go|python|c|cli|fs)(,(rust|go|python|c|cli|fs))*)?$'
 ##	fRowWords ROW: sets box, target, bin, suites and perf from a row, and fails
 ##	on a word it has no name for.
 fRowWords(){
@@ -212,12 +213,12 @@ fRowWords(){
 ##	fWants LIST NAME: whether a box's suite list, all or a comma list, has NAME.
 fWants(){ [[ "$1" == all || ",$1," == *",$2,"* ]] ;}
 ##	fSrcTree DIR [PATH...]: the tracked files of source/ and project/, as they
-##	are in the tree, plus what box-suites.bash and cli-regress need from cicd/,
-##	and any PATH given.
+##	are in the tree, plus what box-suites.bash, cli-regress and fs-property.bash
+##	need from cicd/, and any PATH given.
 fSrcTree(){
 	local d="$1"; shift
 	mkdir -p "${d}"
-	git -C "${root}" ls-files -z --cached --others --exclude-standard -- source project cicd/utility/box-suites.bash cicd/utility/cli-regress.bash cicd/utility/include/test-id.bash cicd/utility/include/safe-rm.bash "$@" \
+	git -C "${root}" ls-files -z --cached --others --exclude-standard -- source project cicd/utility/box-suites.bash cicd/utility/cli-regress.bash cicd/utility/fs-property.bash cicd/utility/include/test-id.bash cicd/utility/include/safe-rm.bash "$@" \
 		| tar -C "${root}" --null --ignore-failed-read -T - -cf - | tar -C "${d}" -xf -
 }
 ##	What win-runners.bash and winpath-regress.ps1 read besides.
@@ -337,6 +338,8 @@ fTest demxn each suites box builds the C binding and passes its conformance suit
 fSuiteRows c
 fTest demxp each suites box passes cli-regress over the CLIs it built
 fSuiteRows cli
+fTest df4x7 each suites box passes the filesystem property tests of the bindings it has, on its own tmpfs route
+fSuiteRows fs
 fTest den85 each Windows suites box passes win-runners.bash, winpath-regress.ps1 included
 declare -i nWin=0
 while read -r bx rest; do
@@ -383,3 +386,4 @@ echo "check-boxes: OK"
 ##		2026-10-31  A Windows box gets the PowerShell guard with win-runners' source, for 2026103114555334.
 ##		2026-11-02  The VM state helper is SHCL_VM_STATE or vm-state on PATH, for 2026110215285701.
 ##		2026-11-07  The box guard refuses .. only as a whole path part, for 2026110613470318.
+##		2026-11-11  The fs suite, each box's filesystem property tests on its own tmpfs route, for 2026111010331517.

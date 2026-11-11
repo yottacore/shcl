@@ -381,7 +381,8 @@ LEAKCHECK_TESTS=(
 
 ## The filesystem property test of each binding, as "name|command", run by
 ## fs-property.bash with SHCL_FS_DIR and SHCL_FUZZ_DUMP set. The first is the
-## reference whose answers the rest must give.
+## reference whose answers the rest must give. box-suites.bash keeps its own
+## copy for a box, without the cap and the quiet wrapper.
 FS_PROPERTY_TESTS=(
 	'rust|cicd/utility/libtest-quiet.bash cargo test -j "${CPU_CAP}" --manifest-path source/rust/Cargo.toml --test fs_property'
 	'go|GOMAXPROCS="${CPU_CAP}" go -C source/go test -count=1 -run TestTheSaveChecksHold'

@@ -104,15 +104,15 @@ def read_rules() -> Rules:
 	return r
 
 
-# Windows and macOS rows wait for their boxes (2026111010012360), so they
-# skip everywhere for now, rather than run untried.
 def on_this_os(os_name: str) -> bool:
 	if os_name == "any":
 		return True
 	if os_name == "posix":
 		return os.name != "nt"
-	if os_name in ("windows", "macos"):
-		return False
+	if os_name == "macos":
+		return sys.platform == "darwin"
+	if os_name == "windows":
+		return os.name == "nt"
 	raise Fatal(f"fs-rules.tsv: no such os {os_name!r}")
 
 
@@ -208,7 +208,23 @@ def at(p: str) -> At:
 
 # The spelling's path, as the library gets it from its working folder.
 def spelled(rule: Rule, w: str) -> str:
-	return rule.path.replace("{W}", w)
+	p = rule.path.replace("{W}", w)
+	if "{S}" in p:
+		p = p.replace("{S}", short_form(w))
+	return p
+
+
+# The 8.3 short form of a folder that's there, from the OS.
+def short_form(p: str) -> str:
+	if sys.platform != "win32":
+		return p
+	import ctypes
+
+	buf = ctypes.create_unicode_buffer(1024)
+	n = ctypes.windll.kernel32.GetShortPathNameW(p, buf, len(buf))
+	if not 0 < n < len(buf):
+		raise Fatal(f"no short form of {p}")
+	return buf.value
 
 
 # The same path from the case's root, for reading and events. Plain text, not
@@ -582,6 +598,8 @@ ROWS = (
 	Row("2026110408432594-dot", "windows", False, False, "nddot", "nd", ("mkdir", "write-load"), False, CHANGED),
 	Row("2026110613470307", "any", False, False, "nodir", "nodir", ("mkdir", "write-save"), False, CHANGED),
 	Row("2026110613470307-otherwd", "any", True, True, "bare", "bare", ("chdir",), False, CHANGED),
+	Row("2026110613470307-win", "windows", True, False, "wnodir", "bare", ("write-load",), False, CHANGED),
+	Row("2026110613470307-case", "macos", True, False, "case", "bare", ("write-load",), False, CHANGED),
 	Row("2026110613470308-trail", "any", True, False, "bare", "trail", ("none",), False, IS_DIRECTORY),
 	Row("2026110613470308-dot", "any", True, False, "bare", "traildot", ("none",), True, IS_DIRECTORY),
 	Row("2026110613470308-swap", "any", True, False, "bare", "bare", ("dir-load",), False, IS_DIRECTORY),
@@ -665,7 +683,8 @@ def the_save_checks_hold_on_drawn_paths_and_events(r: Rules) -> None:
 	dump("python-drawn", lines)
 	missed = [f"{seed} cases never drew the spelling {s.name}" for i, s in enumerate(r.spells) if on_this_os(s.os) and i not in spells]
 	missed += [f"{seed} cases never drew the event {e.name}" for i, e in enumerate(r.events) if on_this_os(e.os) and i not in events]
-	missed += [f"{seed} cases never gave {o}" for o in OUTCOMES if o not in outcomes]
+	# Only a FIFO is neither a file nor a folder here, and Windows has none.
+	missed += [f"{seed} cases never gave {o}" for o in OUTCOMES if o not in outcomes and (o != NOT_REGULAR or on_this_os("posix"))]
 	if len(sames) != 2:
 		missed.append(f"{seed} cases never gave both one file and 2")
 	if missed:
@@ -673,12 +692,8 @@ def the_save_checks_hold_on_drawn_paths_and_events(r: Rules) -> None:
 	remove_tree(base)
 
 
-def run_test(test: Any, r: Rules | None) -> None:
+def run_test(test: Any, r: Rules) -> None:
 	start = len(FAILS)
-	if r is None:
-		# The Windows rows wait for b29w (2026111010012360).
-		test_id_end("SKIP")
-		return
 	# The cases change the working folder, so it's put back after each test.
 	back = os.getcwd()
 	try:
@@ -694,7 +709,7 @@ def main() -> int:
 	sys.unraisablehook = _unraisable
 	# The clock every runner pins, as conformance.py does.
 	os.environ["SHCL_TEST_CLOCK"] = "2026-10-04 00:15:00 -420 PDT"
-	r = None if os.name == "nt" else read_rules()
+	r = read_rules()
 	test_id("df4dk", "the_save_checks_hold_on_every_past_path_bug")
 	run_test(the_save_checks_hold_on_every_past_path_bug, r)
 	test_id("df4dm", "the_save_checks_hold_on_drawn_paths_and_events")

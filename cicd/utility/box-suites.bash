@@ -5,7 +5,9 @@
 ##		Runs on a test box, from a copy of the source tree check-boxes.bash sent
 ##		there: builds the 4 bindings with that box's own toolchains and runs
 ##		their conformance suites, then cli-regress over the compiled CLIs that
-##		built (2026102419263417). A suite whose tool the box lacks is skipped.
+##		built (2026102419263417), and the filesystem property tests of the
+##		bindings it has through fs-property.bash, on the box's own tmpfs route
+##		(2026111010331517). A suite whose tool the box lacks is skipped.
 ##		A box can run only some of them, such as the Go suite on a slow one
 ##		(2026102419263422).
 ##		Everything it writes stays under OUT_DIR and the tree's parent, which
@@ -13,7 +15,7 @@
 ##	Syntax:
 ##		box-suites.bash OUT_DIR [SUITES]   run from the tree's root
 ##		  SUITES                  all (the default), or a comma list of rust,
-##		                          go, python, c and cli. The rest get no line
+##		                          go, python, c, cli and fs. The rest get no line
 ##		  OUT_DIR/suites.lst      one line per suite: "pass NAME SECS s", "fail
 ##		                          NAME exit RC, SECS s" or "skip NAME WHY"
 ##		  OUT_DIR/NAME.log        each suite's output
@@ -62,9 +64,9 @@ fSuite(){
 }
 
 fSuite rust cargo rust source/rust/target/debug/shcl \
-	'cargo build --locked --manifest-path source/rust/Cargo.toml && cargo test --locked --manifest-path source/rust/Cargo.toml'
+	'cargo build --locked --manifest-path source/rust/Cargo.toml && cargo test --locked --manifest-path source/rust/Cargo.toml -- --skip the_save_checks_hold'
 fSuite go go go source/go/shcl \
-	'go -C source/go/cmd build -o ../shcl ./shcl && go -C source/go test -count=1 && go -C source/go/cmd test -count=1 ./...'
+	'go -C source/go/cmd build -o ../shcl ./shcl && go -C source/go test -count=1 -skip TestTheSaveChecksHold && go -C source/go/cmd test -count=1 ./...'
 ##	No Python CLI for cli-regress here: it starts an interpreter per call, which
 ##	held about 270 s of the box's 290 s of cli-regress on vmFreeBSD, and its
 ##	conformance suite still runs.
@@ -75,8 +77,24 @@ fSuite c cc c source/c/shcl \
 if ! fWants cli; then :
 elif ((${#clis[@]} == 0)); then echo "skip cli no binding CLI built" >> "${out}/suites.lst"
 else fSuite cli bash - - 'bash cicd/utility/cli-regress.bash "${clis[@]}"'; fi
+##	The same commands as config.bash's FS_PROPERTY_TESTS, for the bindings whose
+##	tool is here, Rust first as the reference when it is. One the box lacks is
+##	named in fs.log, as fSuite names a suite it skips, and fails the suite
+##	under SHCL_GATE_STRICT.
+fsTests=(); fsLack=""
+fFsTest(){  ## fFsTest TOOL NAME|COMMAND
+	if command -v "$1" > /dev/null 2>&1; then fsTests+=("$2"); else fsLack+="${fsLack:+, }${2%%|*} (no $1)"; fi
+}
+fFsTest cargo 'rust|cargo test --locked --manifest-path source/rust/Cargo.toml --test fs_property'
+fFsTest go 'go|go -C source/go test -count=1 -run TestTheSaveChecksHold'
+fFsTest python3 'python|python3 -X dev -W error::ResourceWarning source/python/tests/fs_property.py'
+fFsTest cc 'c|cc -std=c11 -O2 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -Isource/c source/c/tests/fs_property.c -o "${TMPDIR}/cfs" -lm && "${TMPDIR}/cfs" project/fs-rules.tsv'
+if ! fWants fs; then :
+elif ((${#fsTests[@]} == 0)); then echo "skip fs no binding's tool on the box" >> "${out}/suites.lst"
+else fSuite fs bash - - 'if [[ -n "${fsLack}" ]]; then echo "skip: not on this box: ${fsLack}"; [[ -z "${SHCL_GATE_STRICT:-}" ]] || exit 1; fi; bash cicd/utility/fs-property.bash "${fsTests[@]}"'; fi
 exit 0
 
 ##	History:
 ##		2026-10-30  Created, for 2026102419263417.
 ##		2026-10-30  SUITES picks some of them, for 2026102419263422.
+##		2026-11-11  The fs suite, the filesystem property tests through fs-property.bash, for 2026111010331517.

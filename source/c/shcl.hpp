@@ -649,8 +649,9 @@ public:
 	// two-element array where set_string would store one string. NotOneValue
 	// for text no single line could hold, a line break, or what a file line is refused
 	// for in a value: a malformed array, a bare comma, a quote that never
-	// closes, a bad escape, or what bare text may not hold. A `#` outside quotes
-	// ends the value as it would in a file.
+	// closes, a bad escape, or what bare text may not hold. NotOneValue too for
+	// text holding a `#` outside quotes, which a file would read as a comment,
+	// so the text after it would be lost.
 	[[nodiscard]] SetStatus set_literal(std::string_view path, std::string_view text);
 
 	// Default forms of the setters above. Each writes unless the field already

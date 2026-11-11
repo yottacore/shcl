@@ -35,80 +35,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- The changed check misses a file reached through a second spelling of its path
-	- ID: 2026110613470307
-	- Type: Bug
-	- Status: Waiting on automated testing
-	- Needs external testing: the Windows and macOS rows of 2026110616475901, on b29w and vmKt6m or b26.
-	- Severity: High
-	- Target version: v3.0.0-beta2
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 7
-	- Prereq IDs: 2026110616475901, 2026110907535001
-	- Related IDs: 2026110312163201, 2026110314064292, 2026110314240418, 2026110408432594
-	- Version and build: dev at `343334df`
-	- Steps to reproduce:
-		- Load `nodir/../q.shcl` with no `nodir` there.
-		- Another program makes `nodir` and writes `q.shcl`.
-		- Save to `nodir/../q.shcl`.
-	- Incorrect behavior: the save says OK in all 4, and the other program's text is gone.
-	- Expected behavior: spec.md says a file made where the load found nothing is a change, and one file gives one answer however its path is spelled. `nodir/./q.shcl` refuses as it should.
-	- Reproduced: 20261106, library calls in all 4.
-	- Possible cause: the load records the path with `..` kept, since `nodir` wasn't there. At the save the folder exists, so the resolve cancels `..` and gets another path, and the check doesn't run.
-	- Twins, read only, each with a probe kept for the next visit to that box:
-		- Windows Go: `nodir\..\x.shcl` keeps `..` in the record, while Windows cancels it, so a later save to `x.shcl` skips the check.
-		- macOS Go and Python: on a volume that ignores case, a load of `Conf.shcl` and a save to `conf.shcl` skip the check, since `EvalSymlinks` and `realpath` keep the case given. Rust and C get the case on disk from Darwin's `realpath`.
-	- Origin: `2c878191` (2026-11-03) in Go and Python, `2f38f68b` (2026-11-03) in Rust, `0710c634` (2026-11-04) in C. A missed twin of 2026110314240418, which kept `..` as written without the folder showing up later. Confirmed on Linux, Plausible on Windows and macOS.
-	- Requirements (JC, 2026-11-06, after the review's recurring-problems question):
-		- Stop asking whether the save path is the file the load read. Check the destination every time, by its bytes, the way an editor checks the file at its one path: at save time read what sits at the save path as given, right now. Nothing there and the load found nothing: write. Nothing there and the load read a file: refuse as Changed. Bytes equal to what the load read, or to what this document's last save wrote: write. Other bytes: refuse as Changed, unless `force`. The byte compare is `holds` as it is today.
-		- No path compare is left. The recorded resolved path and `real_nearest` go, in all 4 bindings. `resolve_target` stays for the write alone, to follow a link and rename the temp file in place, resolved once at save time and compared against nothing later.
-		- Behavior change, into spec.md's save section: a save onto an existing file the document never read, a save-as, is refused unless `force`, where today it's written when the path happens to resolve apart. `detpn`'s "same name from another working folder" case flips to a refusal. Nobody read those bytes, so writing over them is the bug, and the overwrite prompt every editor shows is the precedent.
-		- A hard link comes right for free: 2 names, 2 real paths, one set of bytes.
-		- The filesystem property test 2026110616475901 is the proof. This item closes when that test runs in all 4 bindings and passes every case it lists, and the Windows and macOS rows ran on their boxes.
-	- Why not the alternatives (JC's questions, 2026-11-06):
-		- A save-time re-resolve of both paths plus an OS identity check (inode, Windows file index): works, but needs Windows FFI in Rust and C, and only tells "same file edited" from "different file", a distinction the bytes rule doesn't need.
-		- A property test over spellings alone: finds the next spelling, holds nothing. Each fix since 2026110312163201 closed one spelling with a hand rule in `real_nearest`, in 4 languages, and a compare of 2 strings resolved at 2 different times breaks on the next event nobody listed.
-		- Canonicalize with realpath and write temp-and-rename over it: already done for the write. It can't help the check, since realpath has no answer for a path that doesn't fully exist yet, which every case in this class is, and a canonical path taken at load isn't canonical at save once a component becomes a link.
-	- Note: still a check, not a lock. An edit between the read and the rename is lost either way, and only a file lock would close that, which is a separate call.
-	- Test case: the `nodir/..`, hard-link and other-folder rows in `a_changed_check_knows_its_file_by_any_spelling` (`detpn`, `detpp`, `detpq`, `detpr`), the save-as and parse rows in `a_save_over_a_file_changed_since_the_load_is_refused` (`dekj7`, `dekk8`, `dekkm`, `dekkn`). The item closes with 2026110616475901's run, per the requirements.
-	- Branch: `r1107b`
-	- Regression test: 2026110616475901, with the `nodir/..` row and the flipped `detpn` row (a save-as over unread bytes refuses) as fixed cases, in all 4 bindings; watched to fail on `343334df`.
-	- Estimated effort: Avg
-	- Actual effort: Avg
-	- Actual cause: confirmed. The check asked whether the save path was the file the load read, by 2 paths resolved at 2 different times. `nodir/..` kept its `..` at the load and lost it at the save, once the folder was there.
-	- Actual fix: JC's destination-bytes rule, in all 4 and the veneer. The save reads the path as given just before the write. It writes when the bytes there are what the load read or what this document's last save wrote, or when nothing is there and the load read no file, and refuses as Changed otherwise, unless force. The load's path record, `real_nearest`/`realNearest`/`_real_nearest`/C's nearest-folder part, `tidyRest`/`_tidy_rest`, Go's `absReal` and `rawBase`, C's `s_save_target`, its windows mode 2 and `s_win_read_link` are gone. `resolve_target` is the write's alone. spec.md, design.md, examples.md and the changelog say so.
-	- Decisions:
-		- me, 20261107: the 4 CLIs save with force, since their own check just before the write is the changed check, and the library's would refuse every file, as their documents come from a parse.
-		- me, 20261107: besides a FIFO or a folder, the check leaves to the write a path it can't reach a file through: part of it a file (ENOTDIR), a link cycle (ELOOP), and a file gone with its folder. The write's own error is the true one there, and nothing could be written, so a caller isn't sent to force.
-		- me, 20261107: the Changed message is now `PATH: refusing to save: what is there is not what this document read or wrote; nothing written (force overrides)`, since "changed since it was loaded" was wrong for a save-as.
-		- me, 20261107: the create check looks at the path as given (lstat, `GetFileAttributesW` on windows), so on windows too a link to nowhere is now Exists. That may close the create half of 2026110408432594, unchecked.
-		- me, 20261107: the soak tests in Rust, Go and Python save each case with force, since each case's document never read what the last one saved.
-		- 20261107, 2 more tests that saved over bytes their document never read, found on b29w: the C runner's Windows-only `dc476` (winlink) saved a parse through a link, and now loads through it first; the veneer's `de1a5` saves one document from 8 threads to 8 paths, so the record of its last save was another thread's, and each save now starts with nothing there. Both failed on b29w every run and passed on dev.
-		- 20261107, tests whose assert only needed the new rule (a parse or another load saving over a file it never read): `lost_and_save_gate` and its twins (`dbcxf`, `dd5h6`, `d9v59`), the newer-format loop (`dekvw`, `dekvx` and twins), the read-only and hidden saves (`dbxkq`, `dbxm2` and twins), and the soaks now remove the file first or force. The changed tests (`dekj7`, `dekk8`, `dekkm`, `dekkn`) and the spelling tests' other-folder row flip from Ok to Changed, as asked.
-		- JC, 20261109, on the `Check:` for this item: do what's least surprising to people used to text and document editors. So a save where nothing is at the path always writes, as an editor does for a save-as to a new name or a file deleted since it was opened. The overwrite refusals stay, since an editor asks first there too. Filed as 2026110907535001, which this item now waits on.
-	- Swept: every caller of the resolve and the record in all 4 and the veneer (load, save, create check, write, C's `dir_takes_a_temp`), the 4 CLIs' save calls, every test that saves a parse or a second document over a file, Windows-only ones included as far as a read shows.
-	- Verified: on the old code, the new rows fail: Python saves through `nodir/../q.shcl` over the other program's file, and Go `detpq`, C `detpr`, Rust `detpn` fail the other-folder row, Go `dekk8`, C `dekkm`, Rust and Python `dekj7` the save-as rows. All pass on the new code. Rust `cargo test` (all binaries), clippy for the host and windows, fmt; Go tests in both modules, vet and staticcheck for the host and windows, a wasip1 build; Python conformance, ruff, mypy (after `c2243d04`, which fixes an error from `df027`); the C runner, the veneer smoke, oom_hook, oom_recover, mem_bounds, analyze-c (202 s), a mingw build; cli-regress (658 rows); perf-gate; `test-ids.py check`. On b29w with a short-name TEMP: Python conformance whole, and Go `detpq`, `dekk8`, `dc42k`, `dbcxf`, `dekvw` and the read-only save.
-		- Not run: `--backlog-run-quick` with every area (past one call), check-c-compilers (past one call), check-docs, crosscheck.
-		- 20261107, b29w with a short-name TEMP, at `30887e7e` plus the 2 test fixes below: Rust `cargo test` whole (all binaries, `detpn`, `dc42j`, `dekj7`, `save_rewrites_a_read_only_file` included), the C runner whole (`dekkm`, `detpr`, `dc42n`, `dbxm2`), and the veneer smoke (`dekkn`, `detps`) linked static, 3 runs. The dynamic veneer build dies at startup on b29w on dev too, so that build is the box's.
-
-- `set_literal` cuts a value at an unquoted `#` and returns Ok
-	- ID: 2026111016205700
+- The comment placement property fails the 2M release fuzz in dd3t9
+	- ID: 2026111022322992
 	- Type: Bug
 	- Status: Queued
 	- Severity: High
 	- Target version: v3.0.0-beta2
-	- Opened: 20261110-162057
-	- Opened by: tradeclanker and slodworld1 feedback
-	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
-	- Steps to reproduce:
-		- `set_literal("k", "x # y")`, then `read_string("k")`. Then the same with `x#y` and `https://a.b/c#frag`.
-	- Incorrect behavior: each set returns Ok and stores `x`, `x` and `https://a.b/c`. The rest of the text is gone with no status saying so. slodworld1 hit it on free text like `Monitor 35"|3440x1440 #2`, and reads back after every `shcl_set_literal` to fall back to `shcl_set_string`.
-	- Expected behavior: `NotOneValue`, as `a, b` gets, for text whose value would end before its last character.
-	- Reproduced: Yes, 20261110, Python on dev `5626194a`. All 3 cases.
-	- Requirements:
-		- The same refusal in all 4 bindings and the C++ interface.
-		- The setter doc says text with a comment is refused.
-	- Estimated effort: Low
+	- Opened: 20261110-223229
+	- Opened by:
+	- Related IDs: 2026111012160121, 2026111021095858, 2026111021153725, 2026111022100191
+	- Progress log:
+		- 20261110, round r1111: 2026111012160121's property (e0b1f62d, 05cca0fa) passes dd3t9 and dderx at 200,000 but not at 2,000,000 in release. The first run failed both at about 212,000. A fix worker judged 9 more failures as 7 property misreads and 1 library bug (2026111022100191), and fixed the property, but dd3t9 still fails at 780675.
+		- That last one: a set_literal over a list moves its kept lines above the field, with a blank among them and an item's comment under them, and the property reads that blank as the one above the field's comments. Probably a misread, not yet checked.
+		- The work is on wip/r1111-2026111012160121. fuzz_smoke.rs on the round branch went back to e4d295d4, so dev has no placement property. Each failure so far needed a release run past 200,000 to show, so the next try runs 2M in release before reporting.
 
 - Removes, folds, merges and the banner toggle hand lines on through `adopt`
 	- ID: 2026110712372281
@@ -151,80 +90,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: a remove that leaves a comment it used to take changes what a user sees. That is the rule's point, and it goes in the changelog.
 	- Regression test: 2026110616475903's table gets rows for a comment run set off by a blank, through a remove, a set and a reload, in all 4 bindings.
 	- Estimated effort: High
-
-- The fuzz counts inputs where comment and kept lines take the node cap
-	- ID: 2026110707441268
-	- Type: Task
-	- Status: Queued
-	- Priority: High
-	- Target version: v3.0.0-beta2
-	- Opened: 20261107-074413
-	- Opened by: me
-	- Parent ID: 2026110613470304
-	- Requirements:
-		- The parent's fuzz guard: a property over fuzzed documents with comment and kept lines mixed in, parsed under a small node cap, that the parse holds no more than the cap allows and stops at the first line past it, with a guard that counts such inputs each run.
-		- The fuzz can't read the held-line count today. It needs a count it can see, or a property that doesn't need one. Raw bodies and `- ` items make a count of output lines a poor stand-in.
-	- Estimated effort: Avg
-
-- A filesystem property test for the save's checks, over every past path bug
-	- ID: 2026110616475901
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Target version: v3.0.0-beta2
-	- Opened: 20261106-164759
-	- Opened by: Code review 20261106 follow-up (JC)
-	- Related IDs: 2026102910482342, 2026110312163201, 2026110312163202, 2026110312163207, 2026110313211991, 2026110314064292, 2026110314240418, 2026110408432594, 2026110613470307, 2026110613470308
-	- Problem description: every test of the changed, create-only and FIFO checks is a list of examples (`detpn`, `detpp`, `detpq`, `detpr`, `detps`, `dekm5`, `dekmf`, `dd5h4`), each case added after its own bug. The fuzz suite runs on text in memory and never opens a file, so no generated case has a folder, a link or a file appear between the load and the save. 8 items in 2 weeks came from this one class, and each closed one spelling.
-	- Requirements:
-		- A seeded property test that works in a temp folder, each case a pure function of its seed, with a wall-clock budget from an env var, the way the text fuzz does. It runs in all 4 bindings beside the conformance suites, from one set of generator rules, and the cross-binding check holds them to the same answer. A dump of the cases a run drew, as `SHCL_FUZZ_DUMP` does for the kept fuzz, so a failure can be replayed.
-		- The files live on a tmpfs made for the cicd run and torn down with it, never `/dev/shm` (small, shared, and meant for shared memory), the project tree or the host's temp folder. No sudo on any route:
-			- In the container run, a `--mount type=tmpfs,destination=/tmp/shcl-fs,tmpfs-size=256m` on the `docker run` line. Docker makes it fresh for the container and drops it with the container. check-push-gate's fake docker needs the branch for the new option.
-			- On the host, a user namespace around the test command: `unshare -Urm sh -c 'mount -t tmpfs -o size=256m shcl-fs DIR && exec CMD'`, with DIR under the run's folder. The mount exists only inside that process tree and is gone when it exits, so there's nothing to unmount. Works on b23 (`kernel.unprivileged_userns_clone = 1`, checked 2026-11-06). Inside it the test is the namespace's root, so the read-bit rows take the existing "root reads it anyway" skip.
-			- macOS: a RAM disk from `hdiutil attach -nomount ram://`, detached at the end, which also gives the case-insensitive volume the case rows need. FreeBSD: a `tmpfs` mount where the box script can make one. Windows: the temp folder.
-			- Where no route works, a plain folder under the run's folder, and the run says so with a `note:` line. The test never falls back to the project tree or `/dev/shm` on its own.
-			- The size is fixed at 256 MB, so a runaway case ends in ENOSPC instead of eating the box's memory.
-		- Reason for the tmpfs: a fresh filesystem per run, so no object left by a past run answers for a new one (a reused folder name gave a false Changed during the review), no disk wear from thousands of small writes, and nothing in the ZFS snapshots.
-		- The load spelling and the save spelling each come from a small grammar: bare name, `./x`, absolute, `//`, `/./`, `dir/../x`, through a link to the folder, a link to the file, a dangling link, a link cycle, from another working folder, a trailing `.` or `..`, and on Windows `\`, mixed separators, an 8.3 short name and a `\\?\` prefix, and on macOS a case variant.
-		- An event between the load and the save, drawn from: nothing, the file rewritten, removed, swapped for a FIFO, made where the load found nothing, a folder on the path made, a link on the path made or pointed elsewhere, the working folder changed, the read bit taken off.
-		- An oracle that doesn't ask the library. Write a marker through the save spelling and read through the load spelling to learn whether the 2 name one file. Then: the save refuses as Changed iff something is at the save path and its bytes are neither what the load read nor what this document last wrote, per 2026110613470307 and 2026110907535001; refuses as Exists iff create-only and anything is at the path; refuses a FIFO as not regular; and a refused save writes nothing anywhere.
-		- Every case in the Related list is a fixed row the generator also has to be able to draw, and a run fails when the generator didn't draw each kind at least once, as the fuzz guards do.
-		- Windows and macOS rows run on b29w with a short-name TEMP and on vmKt6m or b26, through the box step. Until a box runs them, they're skipped by platform, never dropped.
-		- Watched to fail: run it on `343334df` and see the `nodir/..` row and 2026110613470308's folder row go red before 2026110613470307's fix.
-	- Reason: a property over the whole space of spellings and events is the only test that finds the next member of the class before a user does. The example lists found none of the 8.
-	- Regression test: this item is the test. Its rows for every Related ID are the regression tests for those items, each watched to fail in a worktree at the commit before its fix.
-	- Estimated effort: Avg
-	- Progress log:
-		- 20261110: split for the time cap. Rust with the generator rules and the dump is child 2026111010012269, the cicd tmpfs 2026111010012287, Go 2026111010012304, Python 2026111010012324, C 2026111010012342, and the Windows and macOS box rows 2026111010012360.
-		- 20261110: Rust (2026111010012269), Go (2026111010012304), Python (2026111010012324), C (2026111010012342) and the cicd tmpfs (2026111010012287) are Done. The tmpfs routes on the boxes went to a new child, 2026111010331517. The other 2 children are Queued.
-
-- Filesystem property test: the Windows and macOS rows on their boxes
-	- ID: 2026111010012360
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Target version: v3.0.0-beta2
-	- Opened: 20261110-100123
-	- Opened by: 2026110616475901's split
-	- Parent ID: 2026110616475901
-	- Prereq IDs: 2026111010012269, 2026111010012287, 2026111010012304, 2026111010012324, 2026111010012342, 2026111010331517
-	- Problem description: the parent's Windows rows on b29w with a short-name TEMP and its macOS rows on vmKt6m or b26, through the box step, in all 4 bindings.
-	- Estimated effort: Avg
-	- Waits on 2026111010331517 too, since the macOS rows need its case-insensitive RAM disk (me).
-
-- Filesystem property test: the tmpfs routes on the boxes
-	- ID: 2026111010331517
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Target version: v3.0.0-beta2
-	- Opened: 20261110-103315
-	- Opened by: 2026111010012287's split
-	- Parent ID: 2026110616475901
-	- Prereq IDs: 2026111010012287
-	- Related IDs: 2026111010012360
-	- Problem description: the parent's routes for the other platforms, which 2026111010012287 left on the plain folder with a note: line: a macOS RAM disk from `hdiutil attach -nomount ram://`, case-insensitive and detached at the end, a FreeBSD `tmpfs` mount where the box can make one, and the Windows temp folder. `box-suites.bash` runs the fs tests through `fs-property.bash`, so vmFreeBSD's run uses the route too. Each route runs on its box.
-	- Estimated effort: Avg
 
 - One helper reattaches the lines around a node an edit takes away
 	- ID: 2026110616475902
@@ -270,12 +135,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Regression test: this item is the test. Each past case in its table is watched to fail in a worktree at the commit before that case's fix, and the property on `343334df`.
 	- Estimated effort: Avg
 	- Progress log:
-		- 20261110: split in 4. The table and its Rust runner (2026111012160064), the Go, Python and C runners (2026111012160083), and each row watched to fail before its fix (2026111012160102) are done. The fuzz property, with the cross check, is 2026111012160121, still Queued.
+		- 20261110: split in 4. The table and its Rust runner (2026111012160064), the Go, Python and C runners (2026111012160083), and each row watched to fail before its fix (2026111012160102) are done. The fuzz property, with the cross check, is 2026111012160121, waiting on the 2M release fuzz.
 
 - A comment placement property in the fuzz, replayed in all 4 bindings
 	- ID: 2026111012160121
 	- Type: Enhancement
 	- Status: Queued
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz (`SHCL_FUZZ_ITERS=2000000`), for `dd3t9` and `dderx`, once `dd3t9`'s failure at iteration 780675 is judged. Both pass at 250,000.
 	- Priority: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261110-121601
@@ -285,6 +151,26 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: the property, generators and guard in 2026110616475903's Requirements, in `dd3t9`, `dderx` and the merge step, with the cross check replaying the dumps. Watched to fail on `343334df` with 2026110613470311's case.
 	- Note: the cross check already replays `dderx`'s `kept/` dump through every CLI, so its new shapes reach the other 3 bindings that way. `dd3t9` dumps nothing yet, and a merge has no CLI form, so it isn't dumped.
 	- Estimated effort: High
+	- Actual effort: Avg
+	- Progress log:
+		- 20261111: `placement_slips` in `fuzz_smoke.rs` reads each comment's anchor, its run and the blank above from the canonical text before and after an edit. `dd3t9` and `dderx` hold every setter, remove, comment edit, banner and merge step to it. `dd3t9`'s configs now have item lists with comments on the items, and a comment and a blank above them, and its ops a `set_literal` of `[9, 8]`, mostly over a list. A guard counts the 3 shapes. `dd3t9` dumps its inputs into `kept/` beside `dderx`'s, so the cross check replays them through every CLI.
+		- 20261111: it found 2 bugs, filed as 2026111021095858 (`clear_comments` takes a comment past a kept line) and 2026111021153725 (`set_comment` making a field puts its blank above a kept line's comments). The property excuses each by a check keyed by its ID.
+		- 20261111: the 2M release fuzz failed `dd3t9` and `dderx` 9 times past 200,000, and each was judged. 8 were misreads of the property, fixed there: a kept line's raw body, and a kept line the settle writes as a comment at the field's level, read as the run's end; a trailing comment's U+3000 trimmed; a kept line the setter comments in place above the field's blank read as part of the run; a misplaced line among a list's items not taken as moved; the blanks the banner leaves where it takes an info block; and a kept item commented in place read as a new item. Each but the banner's blank is a row in `df50j`. 1 is a library bug, filed as 2026111022100191 and excused by its ID.
+		- 20261111: open: `dd3t9` fails at iteration 780675. A `set_literal` over a list moves its kept lines above the field, with a blank among them and an item's comment under them, and the property reads that blank as the one above the field's comments. Not judged yet.
+		- 20261110: the property failed the 2M release fuzz after a fix try. The work moved to wip/r1111-2026111012160121 and fuzz_smoke.rs on r1111 went back to e4d295d4. See 2026111022322992.
+	- Decisions:
+		- me, 20261111: the property follows design.md where the item's wording differs. Lines an edit takes from a node go under the heir's own comments ("Lines an edit takes from their node"). A remove takes the comments under its target up to the first kept line. A setter puts the kept lines among a list's items above the field, under its comments. The banner takes info block lines, and a format or migrate stamp is no comment.
+		- me, 20261111: a run is the comments at the anchor's own depth. A deeper comment above a line is the block above's trailing line.
+		- me, 20261111: the edit's target is found by the line `lines()` gives its path in the text before, since a path quotes and escapes names the text writes bare. The rest is read from the text. Only a key written once in both texts is held.
+		- me, 20261111: `dd3t9` dumps into `kept/` as `pNNNNN`, so the cross check needs no change and `ddesf` covers both. `dderx`'s generators stay as they were; the shape guard is on `dd3t9`.
+		- me, 20261111: a trailing comment's text ends at the blanks the load trims, so a U+3000 is text. Under the banner, the blank above a run that held info block lines is the banner's, so it isn't held.
+	- Swept: every fuzz test that edits. `dd3t9` and `dderx` hold the property. `ddc6m` edits lines written apart from the canonical form on purpose, so it's left alone.
+	- Test case: `df50j` (the oracle on 2026110613470311's case, and the library's list replace through it), `dd3t9`, `dderx`, crosscheck `ddesf`.
+	- Verified: `df50j`, `dd3t9` and `dderx` fail on `343334df`'s library, all on 2026110613470311's class: `df50j` on the blank, `dd3t9` at iteration 74, and `dderx`'s merge step at iteration 35. All 3 pass on `r1111`.
+	- Verified: the 6 new `df50j` rows fail on the property at `e0b1f62d` and pass now. `dd3t9` and `dderx` at 250,000 in release, the rust area of `--backlog-run-quick`, clippy `--all-targets`, `lint-report.bash --check` and `test-ids.py check`.
+	- Verified: `dd3t9` and `dderx` at 200,000 iterations, the rust area of `--backlog-run-quick`, clippy, `lint-report.bash --check`, `test-ids.py check`, and the cross check over the corpus and a dump with 100 `dd3t9` inputs (4 bindings agree).
+	- Branch: wip/r1111-2026111012160121
+	- Prereq IDs: 2026111022322992
 
 - Quote the other line breaks in `instances` and `get --array` output
 	- ID: 2026110613470324
@@ -406,6 +292,62 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: the standing rule that only `init` and a creating `set --write` add the info block isn't touched. This is opt-in, and the Format line alone isn't the block.
 	- Estimated effort: Avg
 
+- A default form's replaced-value comment puts the field's blank above a kept line's comments
+	- ID: 2026111022100191
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261110-221001
+	- Opened by: found while working 2026111012160121
+	- Related IDs: 2026111012160121, 2026111021153725
+	- Version and build: r1111 at `e0b1f62d`
+	- Steps to reproduce: `printf 'b:\n# note\nq: [1\n\nz: "t"\n' > f.shcl`, then `printf 'int-default\tz\t5\n' | shcl set f.shcl`.
+	- Incorrect behavior: the output is `b:`, a blank, `# note`, `q: [1`, the `# z: "t"  ## replaced by shcl ...` comment, `z: "5"`. The blank that set off `z` goes above the comment on the kept `E019` line. A `comment` op on `z` does the same.
+	- Expected behavior: `b:`, `# note`, `q: [1`, a blank, the replaced-value comment, `z: "5"`, as `int z 5` keeps the blank above `z`.
+	- Reproduced: 20261111, the Rust, Go and C CLIs.
+	- Possible cause: the same as 2026111021153725. A comment added to a node counts the kept lines held in its leading lines, and their comments, as the node's own comments, and puts its blank above them all.
+	- Estimated effort: Low
+	- Note: the placement property in `dderx` and `dd3t9` excuses this class with a check keyed by this ID. The fix takes it out.
+	- 20261110: the property that excuses this is on wip/r1111-2026111012160121, not dev. The CLI reproduction stands.
+
+- `set_comment` making a field after a kept last line puts its blank above the kept line's comments
+	- ID: 2026111021153725
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261110-211537
+	- Opened by: found while working 2026111012160121
+	- Related IDs: 2026111012160121, 2026111021095858
+	- Version and build: r1111 at `cddbda9f`
+	- Steps to reproduce: `printf 'a: 1\n# c: 3\nb: 1, , 2\n' > f.shcl`, then `printf 'comment\tz0\tadded\n' | shcl set f.shcl`.
+	- Incorrect behavior: the output is `a: 1`, a blank, `# c: 3`, `b: 1, , 2`, `# added`, `z0:`. The blank that should set off the new `z0` goes above the comment on the kept `E026` line instead.
+	- Expected behavior: `a: 1`, `# c: 3`, `b: 1, , 2`, a blank, `# added`, `z0:`, as when the last line is a field (`b: 2`), and as `int z0 7` gives.
+	- Reproduced: 20261111, the Rust, Go and C CLIs.
+	- Estimated effort: Low
+	- Note: the placement property in `dd3t9` excuses this class with a check keyed by this ID. The fix takes it out.
+	- 20261110: the property that excuses this is on wip/r1111-2026111012160121, not dev. The CLI reproduction stands.
+
+- `clear_comments` takes a comment on the far side of a kept line above its target
+	- ID: 2026111021095858
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261110-210958
+	- Opened by: found while working 2026111012160121
+	- Related IDs: 2026111012160121, 2026100307163901
+	- Version and build: r1111 at `cddbda9f`
+	- Steps to reproduce: `printf 'k2: 78\n# note 3\nport4: a, b,  c\n# on srv5\nsrv5: 1\n' > f.shcl`, then `printf 'clear-comments\tsrv5\n' | shcl set f.shcl`.
+	- Incorrect behavior: both comments go, `# note 3` too, which sits above the kept `E026` line `port4: a, b,  c`, not against `srv5`.
+	- Expected behavior: only `# on srv5` goes. design.md's remove rule says a comment on the far side of a kept line stays with that line, and `remove srv5` keeps it.
+	- Reproduced: 20261111, the Rust, Go and C CLIs.
+	- Possible cause: a kept line and the comments above it sit in the next field's leading lines, and `clear_comments` clears every comment there, where the remove stops at the last kept line. `set_comment` likely the same.
+	- Estimated effort: Low
+	- Note: the placement property in `dd3t9` excuses this class with a check keyed by this ID. The fix takes it out.
+	- 20261110: the property that excuses this is on wip/r1111-2026111012160121, not dev. The CLI reproduction stands.
+
 - Schema check costs the square of the nesting depth in all 4 bindings
 	- ID: 2026110711492228
 	- Type: Bug
@@ -445,6 +387,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A `V` error for a repeated field or merged block that the schema doesn't give a `repeat` above 1, in all 4.
 		- Without a schema, a repeated block whose children repeat as bare leaves is a warning, not a hint.
 	- Estimated effort: Avg
+
+- vmFreeBSD: let bsdtest mount a tmpfs, so the box's fs suite gets one
+	- ID: 2026111019385135
+	- Type: Task
+	- Status: Queued
+		- Waits on its question in questions.md: whether to set `vfs.usermount=1` on vmFreeBSD for good.
+	- Priority: Avg
+	- Target version: v3.0.0
+	- Opened: 20261110-193851
+	- Opened by: 2026111010331517's run (me)
+	- Related IDs: 2026111010331517
+	- Problem description: the fs suite on vmFreeBSD runs as bsdtest, and `vfs.usermount` is 0 there, so fs-property.bash's FreeBSD route can't mount its tmpfs and the cases go in a plain folder with a `note:` line. With `vfs.usermount=1` set for a moment (20261110), bsdtest mounted a 256 MB tmpfs on its own folder, a read-bit file there was unreadable to it, and the unmount worked. Setting it for good is a root change on a shared VM, a line in its `/etc/sysctl.conf`.
+	- Estimated effort: Low
+	- JC, 20261110: option (b), add vfs.usermount=1 to vmFreeBSD's /etc/sysctl.conf as root.
 
 - The default run takes over an hour
 	- ID: 2026110215285706
@@ -1219,6 +1175,273 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- spec.md and the `upgrade` docs say 2.x includes 1.x, and that a 1.x file's backup is named `format-v2`.
 		- The next changelog's upgrading notes say C's `SHCL_SET_OK` is 0, so old code testing a setter `!= 0` reads every success as a failure, and that a string read of an array gives its bracket text. The released beta1 section stays as it is.
 	- Estimated effort: Low
+
+- The changed check misses a file reached through a second spelling of its path
+	- ID: 2026110613470307
+	- Type: Bug
+	- Status: Done
+	- Needs external testing: No
+	- Severity: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 7
+	- Prereq IDs: 2026110616475901, 2026110907535001
+	- Related IDs: 2026110312163201, 2026110314064292, 2026110314240418, 2026110408432594
+	- Version and build: dev at `343334df`
+	- Steps to reproduce:
+		- Load `nodir/../q.shcl` with no `nodir` there.
+		- Another program makes `nodir` and writes `q.shcl`.
+		- Save to `nodir/../q.shcl`.
+	- Incorrect behavior: the save says OK in all 4, and the other program's text is gone.
+	- Expected behavior: spec.md says a file made where the load found nothing is a change, and one file gives one answer however its path is spelled. `nodir/./q.shcl` refuses as it should.
+	- Reproduced: 20261106, library calls in all 4.
+	- Possible cause: the load records the path with `..` kept, since `nodir` wasn't there. At the save the folder exists, so the resolve cancels `..` and gets another path, and the check doesn't run.
+	- Twins, read only, each with a probe kept for the next visit to that box:
+		- Windows Go: `nodir\..\x.shcl` keeps `..` in the record, while Windows cancels it, so a later save to `x.shcl` skips the check.
+		- macOS Go and Python: on a volume that ignores case, a load of `Conf.shcl` and a save to `conf.shcl` skip the check, since `EvalSymlinks` and `realpath` keep the case given. Rust and C get the case on disk from Darwin's `realpath`.
+	- Origin: `2c878191` (2026-11-03) in Go and Python, `2f38f68b` (2026-11-03) in Rust, `0710c634` (2026-11-04) in C. A missed twin of 2026110314240418, which kept `..` as written without the folder showing up later. Confirmed on Linux, Plausible on Windows and macOS.
+	- Requirements (JC, 2026-11-06, after the review's recurring-problems question):
+		- Stop asking whether the save path is the file the load read. Check the destination every time, by its bytes, the way an editor checks the file at its one path: at save time read what sits at the save path as given, right now. Nothing there and the load found nothing: write. Nothing there and the load read a file: refuse as Changed. Bytes equal to what the load read, or to what this document's last save wrote: write. Other bytes: refuse as Changed, unless `force`. The byte compare is `holds` as it is today.
+		- No path compare is left. The recorded resolved path and `real_nearest` go, in all 4 bindings. `resolve_target` stays for the write alone, to follow a link and rename the temp file in place, resolved once at save time and compared against nothing later.
+		- Behavior change, into spec.md's save section: a save onto an existing file the document never read, a save-as, is refused unless `force`, where today it's written when the path happens to resolve apart. `detpn`'s "same name from another working folder" case flips to a refusal. Nobody read those bytes, so writing over them is the bug, and the overwrite prompt every editor shows is the precedent.
+		- A hard link comes right for free: 2 names, 2 real paths, one set of bytes.
+		- The filesystem property test 2026110616475901 is the proof. This item closes when that test runs in all 4 bindings and passes every case it lists, and the Windows and macOS rows ran on their boxes.
+	- Why not the alternatives (JC's questions, 2026-11-06):
+		- A save-time re-resolve of both paths plus an OS identity check (inode, Windows file index): works, but needs Windows FFI in Rust and C, and only tells "same file edited" from "different file", a distinction the bytes rule doesn't need.
+		- A property test over spellings alone: finds the next spelling, holds nothing. Each fix since 2026110312163201 closed one spelling with a hand rule in `real_nearest`, in 4 languages, and a compare of 2 strings resolved at 2 different times breaks on the next event nobody listed.
+		- Canonicalize with realpath and write temp-and-rename over it: already done for the write. It can't help the check, since realpath has no answer for a path that doesn't fully exist yet, which every case in this class is, and a canonical path taken at load isn't canonical at save once a component becomes a link.
+	- Note: still a check, not a lock. An edit between the read and the rename is lost either way, and only a file lock would close that, which is a separate call.
+	- Test case: the `nodir/..`, hard-link and other-folder rows in `a_changed_check_knows_its_file_by_any_spelling` (`detpn`, `detpp`, `detpq`, `detpr`), the save-as and parse rows in `a_save_over_a_file_changed_since_the_load_is_refused` (`dekj7`, `dekk8`, `dekkm`, `dekkn`). The item closes with 2026110616475901's run, per the requirements.
+	- Branch: `r1107b`
+	- Regression test: 2026110616475901, with the `nodir/..` row and the flipped `detpn` row (a save-as over unread bytes refuses) as fixed cases, in all 4 bindings; watched to fail on `343334df`.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Actual cause: confirmed. The check asked whether the save path was the file the load read, by 2 paths resolved at 2 different times. `nodir/..` kept its `..` at the load and lost it at the save, once the folder was there.
+	- Actual fix: JC's destination-bytes rule, in all 4 and the veneer. The save reads the path as given just before the write. It writes when the bytes there are what the load read or what this document's last save wrote, or when nothing is there and the load read no file, and refuses as Changed otherwise, unless force. The load's path record, `real_nearest`/`realNearest`/`_real_nearest`/C's nearest-folder part, `tidyRest`/`_tidy_rest`, Go's `absReal` and `rawBase`, C's `s_save_target`, its windows mode 2 and `s_win_read_link` are gone. `resolve_target` is the write's alone. spec.md, design.md, examples.md and the changelog say so.
+	- Decisions:
+		- me, 20261107: the 4 CLIs save with force, since their own check just before the write is the changed check, and the library's would refuse every file, as their documents come from a parse.
+		- me, 20261107: besides a FIFO or a folder, the check leaves to the write a path it can't reach a file through: part of it a file (ENOTDIR), a link cycle (ELOOP), and a file gone with its folder. The write's own error is the true one there, and nothing could be written, so a caller isn't sent to force.
+		- me, 20261107: the Changed message is now `PATH: refusing to save: what is there is not what this document read or wrote; nothing written (force overrides)`, since "changed since it was loaded" was wrong for a save-as.
+		- me, 20261107: the create check looks at the path as given (lstat, `GetFileAttributesW` on windows), so on windows too a link to nowhere is now Exists. That may close the create half of 2026110408432594, unchecked.
+		- me, 20261107: the soak tests in Rust, Go and Python save each case with force, since each case's document never read what the last one saved.
+		- 20261107, 2 more tests that saved over bytes their document never read, found on b29w: the C runner's Windows-only `dc476` (winlink) saved a parse through a link, and now loads through it first; the veneer's `de1a5` saves one document from 8 threads to 8 paths, so the record of its last save was another thread's, and each save now starts with nothing there. Both failed on b29w every run and passed on dev.
+		- 20261107, tests whose assert only needed the new rule (a parse or another load saving over a file it never read): `lost_and_save_gate` and its twins (`dbcxf`, `dd5h6`, `d9v59`), the newer-format loop (`dekvw`, `dekvx` and twins), the read-only and hidden saves (`dbxkq`, `dbxm2` and twins), and the soaks now remove the file first or force. The changed tests (`dekj7`, `dekk8`, `dekkm`, `dekkn`) and the spelling tests' other-folder row flip from Ok to Changed, as asked.
+		- JC, 20261109, on the `Check:` for this item: do what's least surprising to people used to text and document editors. So a save where nothing is at the path always writes, as an editor does for a save-as to a new name or a file deleted since it was opened. The overwrite refusals stay, since an editor asks first there too. Filed as 2026110907535001, which this item now waits on.
+	- Swept: every caller of the resolve and the record in all 4 and the veneer (load, save, create check, write, C's `dir_takes_a_temp`), the 4 CLIs' save calls, every test that saves a parse or a second document over a file, Windows-only ones included as far as a read shows.
+	- Verified: on the old code, the new rows fail: Python saves through `nodir/../q.shcl` over the other program's file, and Go `detpq`, C `detpr`, Rust `detpn` fail the other-folder row, Go `dekk8`, C `dekkm`, Rust and Python `dekj7` the save-as rows. All pass on the new code. Rust `cargo test` (all binaries), clippy for the host and windows, fmt; Go tests in both modules, vet and staticcheck for the host and windows, a wasip1 build; Python conformance, ruff, mypy (after `c2243d04`, which fixes an error from `df027`); the C runner, the veneer smoke, oom_hook, oom_recover, mem_bounds, analyze-c (202 s), a mingw build; cli-regress (658 rows); perf-gate; `test-ids.py check`. On b29w with a short-name TEMP: Python conformance whole, and Go `detpq`, `dekk8`, `dc42k`, `dbcxf`, `dekvw` and the read-only save.
+		- Not run: `--backlog-run-quick` with every area (past one call), check-c-compilers (past one call), check-docs, crosscheck.
+		- 20261107, b29w with a short-name TEMP, at `30887e7e` plus the 2 test fixes below: Rust `cargo test` whole (all binaries, `detpn`, `dc42j`, `dekj7`, `save_rewrites_a_read_only_file` included), the C runner whole (`dekkm`, `detpr`, `dc42n`, `dbxm2`), and the veneer smoke (`dekkn`, `detps`) linked static, 3 runs. The dynamic veneer build dies at startup on b29w on dev too, so that build is the box's.
+	- Closed: 20261110-205935
+	- Verified: 20261110, the fs property test ran in all 4 bindings on b29w with a short-name TEMP and on vmKt6m (2026111019505842, 2026111019505861, 2026111020030146, round r1111).
+
+- `set_literal` cuts a value at an unquoted `#` and returns Ok
+	- ID: 2026111016205700
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-162057
+	- Opened by: tradeclanker and slodworld1 feedback
+	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
+	- Steps to reproduce:
+		- `set_literal("k", "x # y")`, then `read_string("k")`. Then the same with `x#y` and `https://a.b/c#frag`.
+	- Incorrect behavior: each set returns Ok and stores `x`, `x` and `https://a.b/c`. The rest of the text is gone with no status saying so. slodworld1 hit it on free text like `Monitor 35"|3440x1440 #2`, and reads back after every `shcl_set_literal` to fall back to `shcl_set_string`.
+	- Expected behavior: `NotOneValue`, as `a, b` gets, for text whose value would end before its last character.
+	- Reproduced: Yes, 20261110, Python on dev `5626194a`. All 3 cases.
+	- Requirements:
+		- The same refusal in all 4 bindings and the C++ interface.
+		- The setter doc says text with a comment is refused.
+	- Actual cause [Bug]: `literal_value` read the text as a file line's value half, where a `#` outside quotes opens a comment, and took the value before it without checking whether a comment was there.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Progress log:
+		- 20261110: tests changed for the new rule. Corpus 044's `commented`, `hexcolor`, `midhash` and `tailhash` literal ops moved from write.ops to write-bad.ops, and the goldens lost those fields. Corpus 065's `p4` lost its ` # c` (it stays to pin the blank trim), and ` [x] # c` went to its write-bad.ops. The veneer smoke's `set_literal("lit", "[80, 443] # two")` went from `Ok` to `NotOneValue`. cli-regress `dcegf` went from exit 0 writing `color: red` to exit 1 with the file left alone.
+	- Decisions:
+		- 20261110: this is the third swing on `#` in literal text. Code review 20260909 item 7 kept `#ff0000` as the value, then the settled comment rule (design.md, Lexical edges) made it a comment. The comment rule stands for files. Only the setter changed: it refuses rather than storing part of the text, which fits "an error never throws out good lines" (me).
+		- 20261110: a trailing or leading blank still comes off, as on a file line. Only a comment is refused, since a blank carries no text the caller would miss (me).
+		- 20261110: the `#` is judged before anything else, so a fence opener with a comment after it is refused too (me).
+	- Actual fix [Bug]: `literal_value` (Rust, C), `literalValue` (Go) and `_literal_value` (Python) refuse text whose value half has a comment, as `NotOneValue`. `set_literal_default`, `--set-literal`, `--set-literal-default` and the `literal` op go through it. A `#` inside quotes or a backtick value still writes. The setter docs in all four and `shcl.hpp`, the help text in all four CLIs, the man page, spec.md, design.md (the SetLiteral bullet and the Write outcomes table) and the changelog say so.
+	- Swept: every caller of the four `literal_value` functions (only `set_literal`), the corpus `write.ops` files and the runner, veneer and cli-regress tests for a literal holding a `#`.
+	- Verified: with the fix backed out, Rust `write_bad_ops_are_rejected` (`dacv9`), Go `TestWriteBadOpsAreRejected` (`dacva`), Python `datds` and `dbzdt`, the C runner on 044 and the veneer smoke (`d9v59`) fail. With it, all pass: `cargo test --test conformance`, Go tests in both modules, the Python and C runners (221 cases each), the veneer smoke, cli-regress (666 rows, 3935 checks), crosscheck (23778 comparisons), check-docs, check-doc-examples, rustfmt, go vet, gofmt, ruff, mypy, shellcheck, markdownlint and the markdown check.
+	- Branch: `r1111`
+	- Test case: corpus `044-write-literal` (`datds`) and `065-bracket-array` (`dbzdt`) write-bad rows, veneer smoke `d9v59`, cli-regress `dcegf`.
+	- Acceptance signoff: Self-closed 20261110: the expected behavior on the item, and the tests fail before and pass after.
+	- Closed: 20261110-190133
+
+- The fuzz counts inputs where comment and kept lines take the node cap
+	- ID: 2026110707441268
+	- Type: Task
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261107-074413
+	- Opened by: me
+	- Parent ID: 2026110613470304
+	- Requirements:
+		- The parent's fuzz guard: a property over fuzzed documents with comment and kept lines mixed in, parsed under a small node cap, that the parse holds no more than the cap allows and stops at the first line past it, with a guard that counts such inputs each run.
+		- The fuzz can't read the held-line count today. It needs a count it can see, or a property that doesn't need one. Raw bodies and `- ` items make a count of output lines a poor stand-in.
+	- Estimated effort: Avg
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261110: a property that needs no count. The generator knows each line's cost: fresh names, so a field line costs a node per segment, comment and kept lines 1, items and raw bodies 0. The library gets no new public count, which all 4 bindings would have to carry.
+		- me, 20261110: the property is in the Rust fuzz only, like every other fuzz property. No CLI takes a cap, so the cross check can't replay it. Go, Python and C keep their budget tests from the parent.
+	- Actual fix: `comment_and_kept_lines_take_the_node_cap` in the fuzz. Under a random cap, `E020` is on the first line the parse checks with the count past the cap, the capped document's canonical text and diagnostics match a parse of the lines above that line, and a stopped parse counts lost lines. The guard counts the stops that comment and kept lines decide, and the stops that hold an item or raw body line, each over an eighth of the run.
+		- Swept: no Go, Python or C fuzz exists. `dcv3k` covers the element cap only.
+	- Test case: `df4wt` (`comment_and_kept_lines_take_the_node_cap`). It fails on `c26f8dc1~1`, the code before the parent's fix, with no `E020` where the cap is past, and with either half of the count taken out. It passes now.
+	- Verified: `df4wt` at 300, 20,000 and 200,000 iterations, with guards of 176 and 132 of 300 and 123,160 and 94,905 of 200,000. `--backlog-run-quick rust`, lint-report, rustfmt, clippy, test-ids.
+	- Acceptance signoff: Self-closed: the property and its guard are in, and the test was seen to fail on the old code.
+	- Closed: 20261110-191231
+
+- A filesystem property test for the save's checks, over every past path bug
+	- ID: 2026110616475901
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261106-164759
+	- Opened by: Code review 20261106 follow-up (JC)
+	- Related IDs: 2026102910482342, 2026110312163201, 2026110312163202, 2026110312163207, 2026110313211991, 2026110314064292, 2026110314240418, 2026110408432594, 2026110613470307, 2026110613470308
+	- Problem description: every test of the changed, create-only and FIFO checks is a list of examples (`detpn`, `detpp`, `detpq`, `detpr`, `detps`, `dekm5`, `dekmf`, `dd5h4`), each case added after its own bug. The fuzz suite runs on text in memory and never opens a file, so no generated case has a folder, a link or a file appear between the load and the save. 8 items in 2 weeks came from this one class, and each closed one spelling.
+	- Requirements:
+		- A seeded property test that works in a temp folder, each case a pure function of its seed, with a wall-clock budget from an env var, the way the text fuzz does. It runs in all 4 bindings beside the conformance suites, from one set of generator rules, and the cross-binding check holds them to the same answer. A dump of the cases a run drew, as `SHCL_FUZZ_DUMP` does for the kept fuzz, so a failure can be replayed.
+		- The files live on a tmpfs made for the cicd run and torn down with it, never `/dev/shm` (small, shared, and meant for shared memory), the project tree or the host's temp folder. No sudo on any route:
+			- In the container run, a `--mount type=tmpfs,destination=/tmp/shcl-fs,tmpfs-size=256m` on the `docker run` line. Docker makes it fresh for the container and drops it with the container. check-push-gate's fake docker needs the branch for the new option.
+			- On the host, a user namespace around the test command: `unshare -Urm sh -c 'mount -t tmpfs -o size=256m shcl-fs DIR && exec CMD'`, with DIR under the run's folder. The mount exists only inside that process tree and is gone when it exits, so there's nothing to unmount. Works on b23 (`kernel.unprivileged_userns_clone = 1`, checked 2026-11-06). Inside it the test is the namespace's root, so the read-bit rows take the existing "root reads it anyway" skip.
+			- macOS: a RAM disk from `hdiutil attach -nomount ram://`, detached at the end, which also gives the case-insensitive volume the case rows need. FreeBSD: a `tmpfs` mount where the box script can make one. Windows: the temp folder.
+			- Where no route works, a plain folder under the run's folder, and the run says so with a `note:` line. The test never falls back to the project tree or `/dev/shm` on its own.
+			- The size is fixed at 256 MB, so a runaway case ends in ENOSPC instead of eating the box's memory.
+		- Reason for the tmpfs: a fresh filesystem per run, so no object left by a past run answers for a new one (a reused folder name gave a false Changed during the review), no disk wear from thousands of small writes, and nothing in the ZFS snapshots.
+		- The load spelling and the save spelling each come from a small grammar: bare name, `./x`, absolute, `//`, `/./`, `dir/../x`, through a link to the folder, a link to the file, a dangling link, a link cycle, from another working folder, a trailing `.` or `..`, and on Windows `\`, mixed separators, an 8.3 short name and a `\\?\` prefix, and on macOS a case variant.
+		- An event between the load and the save, drawn from: nothing, the file rewritten, removed, swapped for a FIFO, made where the load found nothing, a folder on the path made, a link on the path made or pointed elsewhere, the working folder changed, the read bit taken off.
+		- An oracle that doesn't ask the library. Write a marker through the save spelling and read through the load spelling to learn whether the 2 name one file. Then: the save refuses as Changed iff something is at the save path and its bytes are neither what the load read nor what this document last wrote, per 2026110613470307 and 2026110907535001; refuses as Exists iff create-only and anything is at the path; refuses a FIFO as not regular; and a refused save writes nothing anywhere.
+		- Every case in the Related list is a fixed row the generator also has to be able to draw, and a run fails when the generator didn't draw each kind at least once, as the fuzz guards do.
+		- Windows and macOS rows run on b29w with a short-name TEMP and on vmKt6m or b26, through the box step. Until a box runs them, they're skipped by platform, never dropped.
+		- Watched to fail: run it on `343334df` and see the `nodir/..` row and 2026110613470308's folder row go red before 2026110613470307's fix.
+	- Reason: a property over the whole space of spellings and events is the only test that finds the next member of the class before a user does. The example lists found none of the 8.
+	- Regression test: this item is the test. Its rows for every Related ID are the regression tests for those items, each watched to fail in a worktree at the commit before its fix.
+	- Estimated effort: Avg
+	- Progress log:
+		- 20261110: split for the time cap. Rust with the generator rules and the dump is child 2026111010012269, the cicd tmpfs 2026111010012287, Go 2026111010012304, Python 2026111010012324, C 2026111010012342, and the Windows and macOS box rows 2026111010012360.
+		- 20261110: Rust (2026111010012269), Go (2026111010012304), Python (2026111010012324), C (2026111010012342) and the cicd tmpfs (2026111010012287) are Done. The tmpfs routes on the boxes went to a new child, 2026111010331517. The other 2 children are Queued.
+		- 20261110: the tmpfs routes on the boxes (2026111010331517) are Done. The Windows and macOS rows (2026111010012360) are Queued.
+	- Test case: its children's: 2026111010012360: its children's: 2026111019505842: the `2026110613470307-case` row of `the_save_checks_hold_on_every_past_path_bug` (Rust `df4bw`, Go `df4c4`, Python `df4dk`, C `df4ep`), and the `case` spelling in the drawn tests (`df4bx`, `df4c5`, `df4dm`, `df4eq`).; 2026111019505861: the `2026110613470307-win` row of `the_save_checks_hold_on_every_past_path_bug` (Rust `df4bw`, Go `df4c4`, Python `df4dk`), and the Windows spellings in the drawn tests (`df4bx`, `df4c5`, `df4dm`).; 2026111020030146: the `2026110613470307-win` row of `the_save_checks_hold_on_every_past_path_bug` (C `df4ep`) and the Windows spellings in `the_save_checks_hold_on_drawn_paths_and_events` (C `df4eq`), held to Rust's answers by `df4cf` and `df4cg`.; 2026111010331517: shell-regress `df4xc`, check-boxes `df4x7`, fs-property `df4ch`.; 2026111010012269: `the_save_checks_hold_on_every_past_path_bug` (`df4bw`) and `the_save_checks_hold_on_drawn_paths_and_events` (`df4bx`).; 2026111010012287: fs-property `df4ch`, `df4cf`, `df4cg`, check-push-gate `df4cj`, shell-regress `df4cq`.; 2026111010012304: `TestTheSaveChecksHoldOnEveryPastPathBug` (`df4c4`) and `TestTheSaveChecksHoldOnDrawnPathsAndEvents` (`df4c5`).; 2026111010012324: `the_save_checks_hold_on_every_past_path_bug` (`df4dk`) and `the_save_checks_hold_on_drawn_paths_and_events` (`df4dm`).; 2026111010012342: `the_save_checks_hold_on_every_past_path_bug` (`df4ep`) and `the_save_checks_hold_on_drawn_paths_and_events` (`df4eq`).
+	- Closed: 20261110-205935
+
+- Filesystem property test: the Windows and macOS rows on their boxes
+	- ID: 2026111010012360
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-100123
+	- Opened by: 2026110616475901's split
+	- Parent ID: 2026110616475901
+	- Prereq IDs: 2026111010012269, 2026111010012287, 2026111010012304, 2026111010012324, 2026111010012342, 2026111010331517
+	- Problem description: the parent's Windows rows on b29w with a short-name TEMP and its macOS rows on vmKt6m or b26, through the box step, in all 4 bindings.
+	- Estimated effort: Avg
+	- Waits on 2026111010331517 too, since the macOS rows need its case-insensitive RAM disk (me).
+	- Progress log:
+		- 20261110: split for the time cap. The macOS rows are child 2026111019505842, the Windows rows 2026111019505861.
+		- 20261110: the macOS rows (2026111019505842) are Done. The Windows rows (2026111019505861) are Done for Rust, Go and Python. C's Windows rows went to a new child, 2026111020030146, which is Queued.
+		- 20261110: C's Windows rows (2026111020030146) are Done.
+	- Test case: its children's: 2026111019505842: the `2026110613470307-case` row of `the_save_checks_hold_on_every_past_path_bug` (Rust `df4bw`, Go `df4c4`, Python `df4dk`, C `df4ep`), and the `case` spelling in the drawn tests (`df4bx`, `df4c5`, `df4dm`, `df4eq`).; 2026111019505861: the `2026110613470307-win` row of `the_save_checks_hold_on_every_past_path_bug` (Rust `df4bw`, Go `df4c4`, Python `df4dk`), and the Windows spellings in the drawn tests (`df4bx`, `df4c5`, `df4dm`).; 2026111020030146: the `2026110613470307-win` row of `the_save_checks_hold_on_every_past_path_bug` (C `df4ep`) and the Windows spellings in `the_save_checks_hold_on_drawn_paths_and_events` (C `df4eq`), held to Rust's answers by `df4cf` and `df4cg`.
+	- Closed: 20261110-205934
+
+- Filesystem property test: the macOS case rows on vmKt6m
+	- ID: 2026111019505842
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-195058
+	- Opened by: 2026111010012360's split
+	- Parent ID: 2026111010012360
+	- Problem description: the parent's macOS part: the `case` spelling and a fixed row for the macOS twin of 2026110613470307 (a load of `T.SHCL`, a save to `t.shcl`), run in all 4 bindings on Darwin, on vmKt6m's RAM disk through the box step.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: the `macos` rows run on Darwin in all 4 bindings' fs tests, and each has a fixed row `2026110613470307-case`: load `T.SHCL`, another program writes through it, save to `t.shcl`, which refuses as Changed.
+	- Decisions:
+		- me, 20261110: the row's event is a write, so its answer is Changed on a volume that ignores case and one that doesn't, and stays a fixed row. fs-property.bash's RAM disk ignores case, so there it tests the twin.
+	- Verified: on vmKt6m, fs-property.bash ran Rust, Go, Python and C on the RAM disk (df4bw, df4bx, df4c4, df4c5, df4dk, df4dm, df4ep, df4eq, df4ch, df4cf, df4cg pass), and Go, Python and C agree with Rust on every row and drawn case. On `343334df` Python's case row fails there, as the twin said. Linux runs as before. Also `cicd.bash --backlog-run-quick rust go python c`, rustfmt, gofmt, go vet for darwin and windows, ruff and lint-report.
+	- Test case: the `2026110613470307-case` row of `the_save_checks_hold_on_every_past_path_bug` (Rust `df4bw`, Go `df4c4`, Python `df4dk`, C `df4ep`), and the `case` spelling in the drawn tests (`df4bx`, `df4c5`, `df4dm`, `df4eq`).
+	- Branch: `r1111`
+	- Acceptance signoff: Self-closed: the row runs on its box in all 4 bindings, went red on the code before the fix, and the gates are green.
+	- Closed: 20261110-200107
+
+- Filesystem property test: the Windows rows on b29w
+	- ID: 2026111019505861
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-195058
+	- Opened by: 2026111010012360's split
+	- Parent ID: 2026111010012360
+	- Problem description: the parent's Windows part: the `\`, mixed, 8.3 short and `\\?\` spellings, the Windows rows of 2026110408432594, a fixed row for the Windows twin of 2026110613470307 (`nodir\..\t.shcl`), and the fs tests no longer skipped on Windows, in Rust, Go and Python, run on b29w with a short-name TEMP through the box step.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Actual fix: the `windows` rows run on Windows in the Rust, Go and Python fs tests, which no longer skip there. `{S}` takes the folder's short form from `GetShortPathNameW`, and Rust drops the `\\?\` its canonical path gets on Windows. fs-rules.tsv has a `wnodir` spelling, `nodir\..\t.shcl`, and each binding a fixed row `2026110613470307-win` for the Windows twin: load through it, another program writes, save to `t.shcl`, which refuses as Changed. The draw guard asks for NotRegular only where there are FIFOs.
+	- Decisions:
+		- me, 20261110: C went to its own item, 2026111020030146, since its tree, events and snapshot are POSIX calls, and porting them is a job of its own. Its rows still list the new one, so the dumps match.
+		- me, 20261110: the row `2026110408432594-link` stays skipped on Windows, since its `dangle` spelling is a link and the tree makes no links there. Its `-dot` twin runs.
+		- me, 20261110: the new spelling shifts every seed, in all 4 bindings at once, which the dump compare holds.
+	- Verified: on b29w with TEMP at `C:\Users\COLLIE~1\...\202611~1`, fs-property.bash ran the Rust and Go test binaries built here for Windows and the Python test (df4bw, df4bx, df4c4, df4c5, df4dk, df4dm, df4cf, df4cg pass, df4ch SKIP as on that route), Go and Python agree with Rust on every row and 400 drawn cases, and no folder was left. On `343334df` Go's `-win` row fails there, as the twin said, and Python's drawn test fails at seed 24 (`bslash` after `chdir`). Linux runs as before. Also `cicd.bash --backlog-run-quick rust go python c`, rustfmt, clippy for windows, gofmt, go vet for windows and darwin, ruff, lint-report and `test-ids.py check`.
+	- Test case: the `2026110613470307-win` row of `the_save_checks_hold_on_every_past_path_bug` (Rust `df4bw`, Go `df4c4`, Python `df4dk`), and the Windows spellings in the drawn tests (`df4bx`, `df4c5`, `df4dm`).
+	- Branch: `r1111`
+	- Acceptance signoff: Self-closed: the rows ran on b29w with a short-name TEMP, the new row went red on the code before the fix, and the gates are green.
+	- Closed: 20261110-202817
+
+- Filesystem property test: the C port's Windows rows on b29w
+	- ID: 2026111020030146
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-200301
+	- Opened by: 2026111019505861's split
+	- Parent ID: 2026111010012360
+	- Prereq IDs: 2026111019505861
+	- Problem description: the C fs test still prints SKIP on Windows, since its tree, events and snapshot are POSIX calls. Port them for Windows as the Rust, Go and Python tests did in 2026111019505861, with the same {S} short form, and run it on b29w with a short-name TEMP through the box step.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Actual fix: the C fs test runs its `windows` rows on Windows and no longer skips there. Its file calls go through a few helpers with a POSIX and a Win32 body, the Win32 ones on wide paths, as shcl.h's are. The tree joins with `\` on Windows, since a `\\?\` path takes no `/`. `{S}` comes from `GetShortPathNameW`, the base folder's long form from `GetFinalPathNameByHandleW` without its `\\?\`, and the draw guard asks for NotRegular only where `posix` rows run.
+	- Decisions:
+		- me, 20261110: a path's kind comes from `CreateFileW` and `GetFileInformationByHandle`, the way Rust's `metadata` and `symlink_metadata` get it, so a spelling Windows reads oddly, such as `t.shcl/.`, gets the same answer, and the dumps match.
+		- me, 20261110: the file reads and writes use stdio on both, with `_wfopen` on Windows, so one body serves both. On Linux the dumps are byte for byte what they were.
+	- Verified: on b29w with TEMP at `C:\Users\COLLIE~1\...\202611~1`, fs-property.bash ran the C test built here with mingw, beside Rust, Go and Python (df4ep, df4eq, df4bw, df4bx, df4c4, df4c5, df4dk, df4dm, df4cf, df4cg pass, df4ch SKIP as on that route). C agrees with Rust on every row and 400 drawn cases, and no folder was left. Built against `343334df`'s shcl.h it fails there, on rows 2026110312163201-gone, 2026110613470307-otherwd and 2026110613470308-dot, and at seed 24 (`bslash` after `chdir`), as Python did. On Linux the rows and the first 400 drawn cases dump the same as before the change. Also `cicd.bash --backlog-run-quick c`, codeql-scan, the C test built with gcc and clang under `-Wconversion -Werror` and with mingw, and lint-report.
+		- Swept: every POSIX call in the file (stat, lstat, open, read, write, mkdir, unlink, rmdir, chdir, getcwd, opendir, readlink, realpath, getpid, clock_gettime, chmod) now goes through a helper or sits behind `#ifndef _WIN32` where its event or spelling is `posix` only. The Rust, Go and Python fs tests already ran on Windows.
+	- Test case: the `2026110613470307-win` row of `the_save_checks_hold_on_every_past_path_bug` (C `df4ep`) and the Windows spellings in `the_save_checks_hold_on_drawn_paths_and_events` (C `df4eq`), held to Rust's answers by `df4cf` and `df4cg`.
+	- Branch: `r1111`
+	- Acceptance signoff: Self-closed: the rows ran on b29w with a short-name TEMP, went red on the code before the fixes, and the gates are green.
+	- Closed: 20261110-205822
+
+- Filesystem property test: the tmpfs routes on the boxes
+	- ID: 2026111010331517
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-103315
+	- Opened by: 2026111010012287's split
+	- Parent ID: 2026110616475901
+	- Prereq IDs: 2026111010012287
+	- Related IDs: 2026111010012360
+	- Problem description: the parent's routes for the other platforms, which 2026111010012287 left on the plain folder with a note: line: a macOS RAM disk from `hdiutil attach -nomount ram://`, case-insensitive and detached at the end, a FreeBSD `tmpfs` mount where the box can make one, and the Windows temp folder. `box-suites.bash` runs the fs tests through `fs-property.bash`, so vmFreeBSD's run uses the route too. Each route runs on its box.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Actual fix: fs-property.bash takes the 3 routes. macOS attaches a 256 MB RAM disk, makes it HFS+ (blind to case), mounts it on the run's folder, and unmounts and detaches it at the end. FreeBSD mounts a 256 MB tmpfs on the run's folder where the user may, and says why in the `note:` line where it can't. Windows makes the folder in TEMP as TEMP spells it, hands it to the tests in Windows form, and removes it after. df4ch checks the folder is on the route's filesystem. box-suites.bash has an `fs` suite that runs the bindings the box has through fs-property.bash, and its cargo and go lines skip the fs tests by name, as config.bash's do. check-boxes.bash takes `fs` as a suite, sends fs-property.bash to the box, and reports it as `df4x7`. contributing.md says how each platform gets its folder.
+	- Decisions:
+		- me, 20261110: the RAM disk is mounted by hand on a folder in the run's, with `newfs_hfs` and `mount -t hfs`, not with `diskutil erasevolume`, which mounts under `/Volumes` by name. A volume mounted this way keeps owners, so the read-bit cases still hold.
+		- me, 20261110: the Windows folder is made under TEMP as TEMP spells it, before fSafeTmpDir points TEMP at a work folder it spells out long. Without that a short-name TEMP never reached the cases, as b29w showed.
+		- me, 20261110: on macOS and FreeBSD the script adds `/sbin` and `/usr/sbin` to PATH, since a box's PATH can lack them.
+		- me, 20261110: a box that lacks a binding's tool runs the fs suite over the rest and names the one left out in its log, as fSuite skips a suite. Under `SHCL_GATE_STRICT` that fails the suite.
+		- me, 20261110: vmFreeBSD's run takes the plain folder for now, since `vfs.usermount` is 0 there. Setting it is 2026111019385135.
+		- me, 20261110: on Windows each binding's fs tests still print SKIP, so a box run there gets no dump and df4cf fails with "no rows". Running those rows is 2026111010012360.
+	- Verified: on vmKt6m, fs-property.bash ran the C and Python fs tests on the RAM disk (df4ch, df4cf, df4cg pass), under bash 5.3 and the stock 3.2, and left no mount. On vmFreeBSD as root it ran them on a tmpfs and unmounted it. As bsdtest it took the plain folder with the `note:` line. check-boxes.bash's fs suite passed there (`df4x7`). On b29w with a short-name TEMP the cases went to `C:\Users\COLLIE~1\...\shcl-fs.*`, a folder the tests could see, removed after. On b23 the namespace route passed as before. shell-regress `df4xc` covers the 3 routes with stand-ins for their tools, and fails with the teardown taken out. Also shell-regress, shellcheck and `test-ids.py check`.
+	- Test case: shell-regress `df4xc`, check-boxes `df4x7`, fs-property `df4ch`.
+	- Branch: `r1111`
+	- Acceptance signoff: Self-closed: each route ran on its box and was checked, and the gates are green.
+	- Closed: 20261110-193935
 
 - Pre-beta, pin-era and beta1 files all say `Format 3`, though their syntax differs
 	- ID: 2026111016205706

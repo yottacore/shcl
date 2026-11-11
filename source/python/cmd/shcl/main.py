@@ -233,9 +233,9 @@ Options (the subcommands each belongs to are in parentheses):
                                          syntax the way a file writes it, so
                                          'ports=[80, 443]' writes a two-element
                                          array, 'title="My App"' a string and
-                                         'color=`#FF8800`' a backtick value. A
-                                         # outside quotes ends the value; text
-                                         spanning lines is rejected
+                                         'color=`#FF8800`' a backtick value.
+                                         Text with a # outside quotes, or
+                                         spanning lines, is rejected
   --set-default=PATH=VALUE               (same) as --set, but only where the
   --set-literal-default=PATH=TEXT        path is missing or has an empty
                                          value - the write-out-defaults half

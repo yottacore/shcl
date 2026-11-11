@@ -1652,8 +1652,9 @@ rows=(
 	'df03r|write-dir-shaped|set --write --set=a=2 %F%/|-|8|-|/: [Ii]s a directory$'
 	'df03s|write-dir-shaped-dot|set --write --set=a=2 %F%/.|-|8|-|/\.: [Ii]s a directory$'
 	## Literal text is read the way a file line is, so a # opens a comment
-	## there too and only what comes before it is written.
-	'dcegf|literal-hash|set --write --no-banner %C% --set-literal=color=red#ff0000|-|0|-|-|color: red\n'
+	## there too. Only what came before it would be written, so it is refused
+	## and the file is left alone (2026111016205700).
+	'dcegf|literal-hash|set --write --no-banner %C% --set-literal=color=red#ff0000|-|1|-|^--set-literal: cannot write color: the value text is not one value \(see --help\)$|-'
 	## 20260909 item 42: explain. A code is looked up whatever its case, an
 	## unknown one is a usage error that says where the list is, and the
 	## subcommand takes no options and no second code.

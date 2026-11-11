@@ -1000,7 +1000,9 @@ int main() {
 		CHECK(w.set_float_array("fs", {1.5, 2}) == S::Ok && w.read_float_array("fs").value == std::vector<double>({1.5, 2}));
 		CHECK(w.set_bool_array("flags", {true, false, true}) == S::Ok && w.read_bool_array("flags").value == std::vector<bool>({true, false, true}));
 		CHECK(w.set_string_array("tags", {"red", "a,b", ""}) == S::Ok && w.read_string_array("tags").value == std::vector<std::string>({"red", "a,b", ""}));
-		CHECK(w.set_literal("lit", "[80, 443] # two") == S::Ok && w.read_int_array("lit").value == std::vector<int64_t>({80, 443}));
+		CHECK(w.set_literal("lit", "[80, 443] # two") == S::NotOneValue && !w.exists("lit"));
+		CHECK(w.set_literal("lit", "x#y") == S::NotOneValue && !w.exists("lit"));
+		CHECK(w.set_literal("lit", "[80, 443]") == S::Ok && w.read_int_array("lit").value == std::vector<int64_t>({80, 443}));
 		CHECK(w.set_literal("lit3", "80, 443") == S::NotOneValue && !w.exists("lit3"));
 		CHECK(w.set_literal("lit2", "\"open") == S::NotOneValue && !w.exists("lit2"));
 		auto stamps = shcl::Document::parse("t: [2026-08-02T10:20:30.5Z, 2026-09-01]\n").read_datetime_array("t");
