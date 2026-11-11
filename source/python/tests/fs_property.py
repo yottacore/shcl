@@ -104,14 +104,16 @@ def read_rules() -> Rules:
 	return r
 
 
-# Windows and macOS rows wait for their boxes (2026111010012360), so they
-# skip everywhere for now, rather than run untried.
+# The Windows rows wait for b29w (2026111019505861), so they skip
+# everywhere for now, rather than run untried.
 def on_this_os(os_name: str) -> bool:
 	if os_name == "any":
 		return True
 	if os_name == "posix":
 		return os.name != "nt"
-	if os_name in ("windows", "macos"):
+	if os_name == "macos":
+		return sys.platform == "darwin"
+	if os_name == "windows":
 		return False
 	raise Fatal(f"fs-rules.tsv: no such os {os_name!r}")
 
@@ -582,6 +584,7 @@ ROWS = (
 	Row("2026110408432594-dot", "windows", False, False, "nddot", "nd", ("mkdir", "write-load"), False, CHANGED),
 	Row("2026110613470307", "any", False, False, "nodir", "nodir", ("mkdir", "write-save"), False, CHANGED),
 	Row("2026110613470307-otherwd", "any", True, True, "bare", "bare", ("chdir",), False, CHANGED),
+	Row("2026110613470307-case", "macos", True, False, "case", "bare", ("write-load",), False, CHANGED),
 	Row("2026110613470308-trail", "any", True, False, "bare", "trail", ("none",), False, IS_DIRECTORY),
 	Row("2026110613470308-dot", "any", True, False, "bare", "traildot", ("none",), True, IS_DIRECTORY),
 	Row("2026110613470308-swap", "any", True, False, "bare", "bare", ("dir-load",), False, IS_DIRECTORY),
@@ -676,7 +679,7 @@ def the_save_checks_hold_on_drawn_paths_and_events(r: Rules) -> None:
 def run_test(test: Any, r: Rules | None) -> None:
 	start = len(FAILS)
 	if r is None:
-		# The Windows rows wait for b29w (2026111010012360).
+		# The Windows rows wait for b29w (2026111019505861).
 		test_id_end("SKIP")
 		return
 	# The cases change the working folder, so it's put back after each test.

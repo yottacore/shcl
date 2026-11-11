@@ -46,7 +46,7 @@ static void test_id_end(const char *status) {
 
 #ifdef _WIN32
 
-// The Windows rows wait for b29w (2026111010012360), so both tests skip.
+// The Windows rows wait for b29w (2026111019505861), so both tests skip.
 static int fs_run(int drawn, const char *file) {
 	(void)drawn;
 	(void)file;
@@ -134,11 +134,16 @@ typedef struct {
 	char *text; // the file, split in place; the rules point into it
 } fs_rules;
 
-// Windows and macOS rows wait for their boxes (2026111010012360), so they
-// skip everywhere for now, rather than run untried.
+// The Windows rows wait for b29w (2026111019505861), so they skip everywhere
+// for now, rather than run untried.
 static int fs_on_this_os(const char *os) {
 	if (!strcmp(os, "any") || !strcmp(os, "posix")) return 1;
-	if (!strcmp(os, "windows") || !strcmp(os, "macos")) return 0;
+#ifdef __APPLE__
+	if (!strcmp(os, "macos")) return 1;
+#else
+	if (!strcmp(os, "macos")) return 0;
+#endif
+	if (!strcmp(os, "windows")) return 0;
 	fs_fatal("fs-rules.tsv: no such os \"%s\"", os);
 }
 
@@ -799,6 +804,7 @@ static const fs_row fs_rows[] = {
 	{"2026110408432594-dot", "windows", 0, 0, "nddot", "nd", {"mkdir", "write-load"}, 0, FS_CHANGED},
 	{"2026110613470307", "any", 0, 0, "nodir", "nodir", {"mkdir", "write-save"}, 0, FS_CHANGED},
 	{"2026110613470307-otherwd", "any", 1, 1, "bare", "bare", {"chdir"}, 0, FS_CHANGED},
+	{"2026110613470307-case", "macos", 1, 0, "case", "bare", {"write-load"}, 0, FS_CHANGED},
 	{"2026110613470308-trail", "any", 1, 0, "bare", "trail", {"none"}, 0, FS_IS_DIRECTORY},
 	{"2026110613470308-dot", "any", 1, 0, "bare", "traildot", {"none"}, 1, FS_IS_DIRECTORY},
 	{"2026110613470308-swap", "any", 1, 0, "bare", "bare", {"dir-load"}, 0, FS_IS_DIRECTORY},

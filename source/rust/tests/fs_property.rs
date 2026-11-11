@@ -74,13 +74,14 @@ fn rules() -> Rules {
 	r
 }
 
-/// Windows and macOS rows wait for their boxes (2026111010012360), so they
-/// skip everywhere for now, rather than run untried.
+/// The Windows rows wait for b29w (2026111019505861), so they skip
+/// everywhere for now, rather than run untried.
 fn on_this_os(os: &str) -> bool {
 	match os {
 		"any" => true,
 		"posix" => cfg!(unix),
-		"windows" | "macos" => false,
+		"macos" => cfg!(target_os = "macos"),
+		"windows" => false,
 		_ => panic!("fs-rules.tsv: no such os {os:?}"),
 	}
 }
@@ -640,6 +641,7 @@ const ROWS: &[Row] = &[
 	Row { id: "2026110408432594-dot", only: "windows", t: false, o: false, load: "nddot", save: "nd", events: &["mkdir", "write-load"], create: false, expected: Outcome::Changed },
 	Row { id: "2026110613470307", only: "any", t: false, o: false, load: "nodir", save: "nodir", events: &["mkdir", "write-save"], create: false, expected: Outcome::Changed },
 	Row { id: "2026110613470307-otherwd", only: "any", t: true, o: true, load: "bare", save: "bare", events: &["chdir"], create: false, expected: Outcome::Changed },
+	Row { id: "2026110613470307-case", only: "macos", t: true, o: false, load: "case", save: "bare", events: &["write-load"], create: false, expected: Outcome::Changed },
 	Row { id: "2026110613470308-trail", only: "any", t: true, o: false, load: "bare", save: "trail", events: &["none"], create: false, expected: Outcome::IsDirectory },
 	Row { id: "2026110613470308-dot", only: "any", t: true, o: false, load: "bare", save: "traildot", events: &["none"], create: true, expected: Outcome::IsDirectory },
 	Row { id: "2026110613470308-swap", only: "any", t: true, o: false, load: "bare", save: "bare", events: &["dir-load"], create: false, expected: Outcome::IsDirectory },
@@ -654,7 +656,7 @@ fn index(names: &[Rule], name: &str) -> usize {
 
 /// Every past bug of the class, as a fixed row the generator can draw too.
 #[cfg_attr(miri, ignore = "makes files, links and FIFOs on disk")]
-#[cfg_attr(windows, ignore = "the Windows rows wait for b29w (2026111010012360)")]
+#[cfg_attr(windows, ignore = "the Windows rows wait for b29w (2026111019505861)")]
 #[test]
 fn the_save_checks_hold_on_every_past_path_bug() {
 	let _id = test_id("df4bw");
@@ -701,7 +703,7 @@ fn the_save_checks_hold_on_every_past_path_bug() {
 /// drew each spelling, event, answer, and both one file and 2, fails, since
 /// it didn't test what it says.
 #[cfg_attr(miri, ignore = "makes files, links and FIFOs on disk")]
-#[cfg_attr(windows, ignore = "the Windows rows wait for b29w (2026111010012360)")]
+#[cfg_attr(windows, ignore = "the Windows rows wait for b29w (2026111019505861)")]
 #[test]
 fn the_save_checks_hold_on_drawn_paths_and_events() {
 	let _id = test_id("df4bx");

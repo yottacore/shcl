@@ -250,6 +250,42 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Problem description: the parent's Windows rows on b29w with a short-name TEMP and its macOS rows on vmKt6m or b26, through the box step, in all 4 bindings.
 	- Estimated effort: Avg
 	- Waits on 2026111010331517 too, since the macOS rows need its case-insensitive RAM disk (me).
+	- Progress log:
+		- 20261110: split for the time cap. The macOS rows are child 2026111019505842, the Windows rows 2026111019505861.
+		- 20261110: the macOS rows (2026111019505842) are Done. The Windows rows (2026111019505861) are Queued.
+
+- Filesystem property test: the macOS case rows on vmKt6m
+	- ID: 2026111019505842
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-195058
+	- Opened by: 2026111010012360's split
+	- Parent ID: 2026111010012360
+	- Problem description: the parent's macOS part: the `case` spelling and a fixed row for the macOS twin of 2026110613470307 (a load of `T.SHCL`, a save to `t.shcl`), run in all 4 bindings on Darwin, on vmKt6m's RAM disk through the box step.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: the `macos` rows run on Darwin in all 4 bindings' fs tests, and each has a fixed row `2026110613470307-case`: load `T.SHCL`, another program writes through it, save to `t.shcl`, which refuses as Changed.
+	- Decisions:
+		- me, 20261110: the row's event is a write, so its answer is Changed on a volume that ignores case and one that doesn't, and stays a fixed row. fs-property.bash's RAM disk ignores case, so there it tests the twin.
+	- Verified: on vmKt6m, fs-property.bash ran Rust, Go, Python and C on the RAM disk (df4bw, df4bx, df4c4, df4c5, df4dk, df4dm, df4ep, df4eq, df4ch, df4cf, df4cg pass), and Go, Python and C agree with Rust on every row and drawn case. On `343334df` Python's case row fails there, as the twin said. Linux runs as before. Also `cicd.bash --backlog-run-quick rust go python c`, rustfmt, gofmt, go vet for darwin and windows, ruff and lint-report.
+	- Test case: the `2026110613470307-case` row of `the_save_checks_hold_on_every_past_path_bug` (Rust `df4bw`, Go `df4c4`, Python `df4dk`, C `df4ep`), and the `case` spelling in the drawn tests (`df4bx`, `df4c5`, `df4dm`, `df4eq`).
+	- Branch: `r1111`
+	- Acceptance signoff: Self-closed: the row runs on its box in all 4 bindings, went red on the code before the fix, and the gates are green.
+	- Closed: 20261110-200107
+
+- Filesystem property test: the Windows rows on b29w
+	- ID: 2026111019505861
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-195058
+	- Opened by: 2026111010012360's split
+	- Parent ID: 2026111010012360
+	- Problem description: the parent's Windows part: the `\`, mixed, 8.3 short and `\\?\` spellings, the Windows rows of 2026110408432594, a fixed row for the Windows twin of 2026110613470307 (`nodir\..\t.shcl`), and the fs tests no longer skipped on Windows, in all 4 bindings, run on b29w with a short-name TEMP through the box step.
+	- Estimated effort: Avg
 
 - Filesystem property test: the tmpfs routes on the boxes
 	- ID: 2026111010331517

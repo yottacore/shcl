@@ -75,15 +75,17 @@ func fsReadRules(t *testing.T) fsRules {
 	return r
 }
 
-// Windows and macOS rows wait for their boxes (2026111010012360), so they
-// skip everywhere for now, rather than run untried.
+// The Windows rows wait for b29w (2026111019505861), so they skip
+// everywhere for now, rather than run untried.
 func fsOnThisOS(osName string) bool {
 	switch osName {
 	case "any":
 		return true
 	case "posix":
 		return runtime.GOOS != "windows"
-	case "windows", "macos":
+	case "macos":
+		return runtime.GOOS == "darwin"
+	case "windows":
 		return false
 	}
 	panic(fmt.Sprintf("fs-rules.tsv: no such os %q", osName))
@@ -623,6 +625,7 @@ var fsRows = []fsRow{
 	{"2026110408432594-dot", "windows", false, false, "nddot", "nd", []string{"mkdir", "write-load"}, false, fsChanged},
 	{"2026110613470307", "any", false, false, "nodir", "nodir", []string{"mkdir", "write-save"}, false, fsChanged},
 	{"2026110613470307-otherwd", "any", true, true, "bare", "bare", []string{"chdir"}, false, fsChanged},
+	{"2026110613470307-case", "macos", true, false, "case", "bare", []string{"write-load"}, false, fsChanged},
 	{"2026110613470308-trail", "any", true, false, "bare", "trail", []string{"none"}, false, fsIsDirectory},
 	{"2026110613470308-dot", "any", true, false, "bare", "traildot", []string{"none"}, true, fsIsDirectory},
 	{"2026110613470308-swap", "any", true, false, "bare", "bare", []string{"dir-load"}, false, fsIsDirectory},
@@ -644,7 +647,7 @@ func fsIndex(t *testing.T, rules []fsRule, name string) int {
 func fsEnter(t *testing.T) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
-		t.Skip("the Windows rows wait for b29w (2026111010012360)")
+		t.Skip("the Windows rows wait for b29w (2026111019505861)")
 	}
 	back, err := os.Getwd()
 	if err != nil {
