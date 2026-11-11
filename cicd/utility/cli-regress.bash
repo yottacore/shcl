@@ -549,17 +549,17 @@ rows=(
 	## 20260901 item 5: the self-check waved every V007 through, so a repeat
 	## lower bound of 1 - a must-exist path - went out as a config that fails
 	## its own schema at exit 0.
-	'dc269|init-star-repeat1|init --schema=%S1%|-|6||V097 required path cannot be generated: \* \(a \* name segment has no name to write\)'
+	'dc269|init-star-repeat1|init --schema=%S1%|-|6||V097 required path can.t be generated: \*, because a \* name segment has no name to write'
 	'dc26a|init-star-repeat2|init --schema=%S2%|-|0|-|^$'
 	## 20260902 item 19: an index selector or a path past the cap got the
 	## self-check's "required path missing", which points at the config rather
 	## than at the schema line nothing can generate.
-	'dc3tt|init-index-required|init --schema=%S4%|-|6||V097 required path cannot be generated: srv\(1\).port \(an index selector needs an instance'
+	'dc3tt|init-index-required|init --schema=%S4%|-|6||V097 required path can.t be generated: srv\(1\).port, because an index selector needs an instance'
 	## 20260909 item 49: one unwritable path took the whole schema with it and
 	## the message said only which path, so the reason and the other blockers
 	## were both left to guesswork.
-	'dcrrh|init-blocked-first|init --schema=%SF%|-|6||V097 required path cannot be generated: srv\(1\).port \(an index selector needs an instance'
-	'dcrrj|init-blocked-second|init --schema=%SF%|-|6||V097 required path cannot be generated: \* \(a \* name segment has no name to write\)'
+	'dcrrh|init-blocked-first|init --schema=%SF%|-|6||V097 required path can.t be generated: srv\(1\).port, because an index selector needs an instance'
+	'dcrrj|init-blocked-second|init --schema=%SF%|-|6||V097 required path can.t be generated: \*, because a \* name segment has no name to write'
 	## 20260902 item 20: V096 fired at exactly the ceiling, on a schema with no
 	## fragments, saying the schema expands past it.
 	'dc3tv|init-cap-at-limit|init --no-banner --schema=%S5%|-|0|-|^$'
@@ -580,7 +580,7 @@ rows=(
 	## commented at exit 0.
 	'dcnky|init-optional-bad-default|init --schema=%SD%|-|6||V097 generated value fails the schema that produced it: value above max 10 at .port.: 99'
 	## 20260918 item 4: the same for a default that names another instance.
-	'dct3m|init-optional-selector-default|init --schema=%SH%|-|6||V097 generated value fails the schema that produced it: default does not name the instance its path selects: env\(prod\)$'
+	'dct3m|init-optional-selector-default|init --schema=%SH%|-|6||V097 generated value fails the schema that produced it: default doesn.t name the instance its path selects: env\(prod\)$'
 	## Retired 2026-09-17: a commented child of a commented valued parent now
 	## selects the parent's default, so the dotted `srv.port` this row expected
 	## became two instances once both lines were uncommented. The row below is
@@ -596,7 +596,7 @@ rows=(
 	## with a default. Item 27: no selector spelling is a refusal, not a
 	## child under another instance.
 	'dcvbg|init-optional-no-default-read-back|init --schema=%SJ%|-|6||V097 generated value fails the schema that produced it: wrong type at .flag\(on\).'
-	'dcvbh|init-no-selector-spelling|init --schema=%SK%|-|6||V097 required path cannot be generated: tags.x \(its parent.s value has no selector spelling\)'
+	'dcvbh|init-no-selector-spelling|init --schema=%SK%|-|6||V097 required path can.t be generated: tags.x, because its parent.s value has no selector spelling'
 	## 20260918 item 9: an empty topic is an unknown command, as in the
 	## reference; the ports read it as no topic and printed the help at exit 0.
 	'dct4k|help-empty-topic|help %E%|-|1||^unknown command:  \(see --help\)$'
@@ -751,7 +751,7 @@ rows=(
 	'dcq4f|diag-name-dotted|check --schema=%SN% %DN%|-|6|line 1: Error: V001\nfailed: 1 diagnostic(s), 1 error(s)\n|unknown field ."x\.y".'
 	## 20260918 item 14: the same for schema text, which every code below printed raw.
 	'dct3y|schema-text-v002|check --schema=%SL% %DL%|-|6|-|V002 required path missing: a\."x◉NEWLINE◉y"$'
-	'dct3z|schema-text-v003|check --schema=%SL% %DL%|-|6|-|V003 wrong type at .c\."x◉NEWLINE◉y".: value is not a valid bool$'
+	'dct3z|schema-text-v003|check --schema=%SL% %DL%|-|6|-|V003 wrong type at .c\."x◉NEWLINE◉y".: value isn.t a valid bool$'
 	'dct40|schema-text-v004|check --schema=%SL% %DL%|-|6|-|V004 value not allowed at .b\."x◉NEWLINE◉y".: 9$'
 	'dct41|schema-text-v005|check --schema=%SL% %DL%|-|6|-|V005 value below min 5 at .b\."x◉NEWLINE◉y".: 1$'
 	'dct42|schema-text-v006|check --schema=%SL% %DL%|-|6|-|V006 value above max 6 at .b\."x◉NEWLINE◉y".: 9$'
@@ -794,10 +794,10 @@ rows=(
 	'ddhnz|array-e019-nested|check -|n: [[1, 2], 3]\n|6|line 1: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E019 malformed array, a .\[. inside an array; quote the value if it is text$'
 	'ddhp0|array-e019-empty-element|check -|g: [a,, b]\n|6|line 1: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E019 malformed array, an empty element; quote the value if it is text$'
 	'ddhp1|array-e019-unclosed|check -|o: [a, b\n|6|line 1: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E019 malformed array, no closing .\]. on the line; quote the value if it is text$'
-	'ddhp2|array-e026-bare-comma|check -|ports: 80, 443\n|6|line 1: Error: E026\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E026 a comma then a space or the end in a bare value; write an array in brackets, \[a, b\], or quote the text$'
-	'ddhp3|list-e013-old-marker|check -|a:\n\t* x\n|6|line 2: Error: E013\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E013 a list item is written .- . now, not .\*.$'
+	'ddhp2|array-e026-bare-comma|check -|ports: 80, 443\n|6|line 1: Error: E026\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E026 a comma then a space or the end in a bare value; write an array in brackets as \[a, b\], or quote the text$'
+	'ddhp3|list-e013-old-marker|check -|a:\n\t* x\n|6|line 2: Error: E013\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E013 a list item is written .- . now rather than .\*.$'
 	'ddhp4|list-e027-name|check -|a:\n\t- name:\n|6|line 2: Error: E027\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E027 a list item with a colon then a space or the end; write a list of objects as instances, or quote the item if it is text$'
-	'ddhp5|list-e019-nested|check -|a:\n\t- [x]\n|6|line 2: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E019 a list item is one value, and arrays do not nest; quote the item if it is text$'
+	'ddhp5|list-e019-nested|check -|a:\n\t- [x]\n|6|line 2: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E019 a list item is one value, and arrays don.t nest; quote the item if it is text$'
 	'ddhp9|h001-suggests-brackets|check -|x: a\nx: b\n|0|line 2: Hint: H001\nok (1 diagnostic(s))\n|did you mean .x: \[a, b\].\?$'
 	'ddhpa|fmt-keeps-stacked|fmt -|a:\n  - x\n  - "y z"\nb: [1,2]\n|0|a:\n\t- x\n\t- "y z"\nb: [1, 2]\n|-'
 	## An array on a field with fields under it is E028: the line is kept and
@@ -858,7 +858,7 @@ rows=(
 	#"ddhxc|get-bare-quote-selector-refused|get %Q% srv(O'Brien).port|-|3|\n|no value at that path"
 	## 2026100610073400: a selector is written in parens. One in brackets is
 	## E029, kept as written, and a path in brackets is refused with a reason.
-	'ddkcr|e029-check|check -|a[x].b: 1\n|6|line 1: Error: E029\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E029 selector in brackets; write it in parens, name\(value\), since brackets are only for arrays, at column 2$'
+	'ddkcr|e029-check|check -|a[x].b: 1\n|6|line 1: Error: E029\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E029 selector in brackets; write it in parens as name\(value\), since brackets are only for arrays, at column 2$'
 	'ddkcs|e029-lines-under-load|get - srv(web).host|srv: web\n\tport: 80\nsrv[web]:\n\thost: h\n|0|h\n|E029'
 	'ddkct|e029-fmt-keeps-line|fmt -|srv: web\n\tport: 80\nsrv[web]:\n\thost: h\n|0|srv[web]:\nsrv: web\n\tport: 80\n\thost: h\n|E029'
 	## Exit 1 since 2026100717500001, with the same reason; ddnzc below.
@@ -1040,7 +1040,7 @@ rows=(
 	'dd5sh|unit-bad|get --size --unit=Mb - c|c: 1\n|1||^bad --unit value for --size: Mb'
 	'dd5sj|unit-clash|get --duration --unit=s --unit=m - t|t: 1\n|1||^--unit=s cannot be combined with --unit=m'
 	'dd5sk|duration-no-array|get --duration --array - t|t: 1s\n|1||^--duration has no --array form'
-	'dd5sm|unit-hint|check -|t-ms: 5s\n|0|line 1: Hint: H005\nok (1 diagnostic(s))\n|H005 value is in s and the name says ms'
+	'dd5sm|unit-hint|check -|t-ms: 5s\n|0|line 1: Hint: H005\nok (1 diagnostic(s))\n|H005 value is in s but the name says ms'
 	## 2026100717500017: a Format line naming another major than this one gets
 	## a hint, H006 newer and H007 older, on every loading command. A hint
 	## changes no outcome, so Strict still passes. A line whose number does
@@ -1078,7 +1078,7 @@ rows=(
 	## its raw block, so the Format and Schema reads find the lines after the
 	## block, and none inside it. The block's closing fence opened one that ran
 	## to the end, and upgrade --write made a backup every run.
-	'de02p|upgrade-odd-name-block|upgrade -|~x: \x60\x60\x60\n\tbody\n\t\x60\x60\x60\n##    Format   3\n|0|~x: \x60\x60\x60\n\tbody\n\t\x60\x60\x60\n##    Format   3\n|=line 1: Error: E014 field name needs quotes; a bare name is a letter, then letters, digits, \x27-\x27 and \x27_\x27\n-: nothing to upgrade, left as is\n'
+	'de02p|upgrade-odd-name-block|upgrade -|~x: \x60\x60\x60\n\tbody\n\t\x60\x60\x60\n##    Format   3\n|0|~x: \x60\x60\x60\n\tbody\n\t\x60\x60\x60\n##    Format   3\n|=line 1: Error: E014 field name needs quotes; a bare name is a letter, then letters, digits, \x27-\x27, and \x27_\x27\n-: nothing to upgrade, left as is\n'
 	'de02q|check-odd-name-newer|check -|~x: \x60\x60\x60\n\tbody\n\t\x60\x60\x60\n##    Format   4\n|6|line 1: Error: E014\nline 4: Hint: H006\nfailed: 2 diagnostic(s), 1 error(s)\n|-'
 	'de02r|check-backtick-schema-body|check -|\x60y: \x60\x60\x60\n\t##    Schema   mark.shcl\n\t\x60\x60\x60\n|6|line 1: Error: E014\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
 	## 2026101514324705: a Format number too big for 32 bits names a newer
@@ -1122,7 +1122,7 @@ rows=(
 	## 20260928 idea 4: a hint found after the parse's pass, here a late fold,
 	## was listed after every other diagnostic. The prose is the same in all
 	## four, so stderr is pinned whole.
-	"dd9p5|diag-line-order|check -|a: [1, 2]\nb: 0\na:\n\t- 1\n\t- 2\nc: [x\n|6|line 3: Hint: H002\nline 6: Error: E019\nfailed: 2 diagnostic(s), 1 error(s)\n|=line 3: Hint: H002 merged with 'a' at line 1 (same name and value combine)\nline 6: Error: E019 malformed array, no closing ']' on the line; quote the value if it is text\n(run 'shcl explain CODE' for the rule behind a code)\n"
+	"dd9p5|diag-line-order|check -|a: [1, 2]\nb: 0\na:\n\t- 1\n\t- 2\nc: [x\n|6|line 3: Hint: H002\nline 6: Error: E019\nfailed: 2 diagnostic(s), 1 error(s)\n|=line 3: Hint: H002 merged with 'a' at line 1, since lines with the same name and value combine\nline 6: Error: E019 malformed array, no closing ']' on the line; quote the value if it is text\n(run 'shcl explain CODE' for the rule behind a code)\n"
 	## A Schema line names the schema check uses when --schema is not given,
 	## read from the config file's directory. A URL is left to editors.
 	'dd5qs|schema-line-check|check %SP%|-|6|line 2: Error: V003\nfailed: 1 diagnostic(s), 1 error(s)\n|-'

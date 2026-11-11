@@ -24,7 +24,7 @@ doc.layout.kind:
 ## any
 # doc.layout.children:
 
-## Paths needing an instance name (not generated):
+## These paths need an instance name, so they weren't generated:
 ##   layout.children   node
 ##   doc.layout.children   node
 

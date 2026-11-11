@@ -335,12 +335,12 @@ typedef enum {
    failures are separate values rather than one falsey answer because they
    need different handling: a refusal is the caller's to reverse, a write
    failure is the disk's answer with errno describing it. CHANGED is the
-   other bindings' "PATH: refusing to save: what is there is not what this
-   document read or wrote; nothing written (force overrides)", EXISTS their
-   "PATH: refusing to save: the file is already there and create asks for a
-   new one; nothing written", and TOO_NEW their "PATH: refusing to save: the
-   document holds lines from a newer format than this reader's; nothing
-   written". */
+   other bindings' "PATH: refusing to save: what's there isn't what this
+   document read or wrote; nothing written, and force writes over it", EXISTS
+   their "PATH: refusing to save: a file is already there, but create asks
+   for a new one; nothing written", and TOO_NEW their "PATH: refusing to
+   save: the document has lines from a newer format than this reader's;
+   nothing written". */
 typedef enum {
 	SHCL_SAVE_OK,      /* written */
 	SHCL_SAVE_REFUSED, /* the lost-content gate fired; lossy overrides */
@@ -2938,7 +2938,7 @@ static int unit_clash(ShclArena *a, ShclStr name, ShclStr text, ShclStr *msg) { 
 	}
 	if (!v) return 0;
 	ShclSB m = {0};
-	sb_puts(a, &m, "value is in "); sb_puts(a, &m, v); sb_puts(a, &m, " and the name says "); sb_puts(a, &m, nm);
+	sb_puts(a, &m, "value is in "); sb_puts(a, &m, v); sb_puts(a, &m, " but the name says "); sb_puts(a, &m, nm);
 	sb_puts(a, &m, "; the value's unit is the one read");
 	*msg = sb_S(&m); return 1;
 }
@@ -2998,7 +2998,7 @@ static int bare_trouble(ShclArena *a, ShclStr raw, ShclBare kind, ShclStr *why) 
 	/* The old `[#N]` index. A file line reads that `#` as a comment, so only
 	   a lookup path gets here with one. */
 	if (kind == BARE_SELECTOR && raw.n && raw.p[0] == '#') {
-		*why = s_lit("a '#' at the start of a bare selector; an index is a bare number, x(0), and a value starting with '#' is quoted");
+		*why = s_lit("a '#' at the start of a bare selector; an index is a bare number as in x(0), and a value that starts with '#' is quoted");
 		return 1;
 	}
 	for (size_t i = 0; i < raw.n;) {
@@ -3069,7 +3069,7 @@ static int value_fault(ShclArena *a, const ShclTokens *tok, ShclStr s, ShclFault
 		if (piece_fault(a, &tok->elements[i], s, kind, &code, &msg)) return fault_set(f, code, msg, 1);
 	}
 	if (!tok->has_array && tok->nelem > 1)
-		return fault_set(f, "E026", s_lit("a comma then a space or the end in a bare value; write an array in brackets, [a, b], or quote the text"), 1);
+		return fault_set(f, "E026", s_lit("a comma then a space or the end in a bare value; write an array in brackets as [a, b], or quote the text"), 1);
 	return 0;
 }
 
@@ -3078,7 +3078,7 @@ static int value_fault(ShclArena *a, const ShclTokens *tok, ShclStr s, ShclFault
    whitespace or the end after it, the way YAML starts an object in a list
    (E027). */
 static int item_fault(ShclArena *a, const ShclTokens *tok, ShclStr s, ShclFault *f) {
-	if (tok->has_array) return fault_set(f, "E019", s_lit("a list item is one value, and arrays do not nest; quote the item if it is text"), 1);
+	if (tok->has_array) return fault_set(f, "E019", s_lit("a list item is one value, and arrays don't nest; quote the item if it is text"), 1);
 	for (size_t i = 0; i < tok->nelem; i++) {
 		const char *code; ShclStr msg;
 		if (piece_fault(a, &tok->elements[i], s, BARE_ITEM, &code, &msg)) return fault_set(f, code, msg, 1);
@@ -3126,13 +3126,13 @@ static int name_fault(ShclArena *a, const ShclTokens *tok, ShclStr s, ShclFault 
 	if (tok->has_bracket_selector) {
 		ShclFault pf;
 		int opens = !path_fault(a, tok, s, &pf);
-		fault_set(f, "E029", s_lit("selector in brackets; write it in parens, name(value), since brackets are only for arrays"), opens);
+		fault_set(f, "E029", s_lit("selector in brackets; write it in parens as name(value), since brackets are only for arrays"), opens);
 		f->has_at = 1; f->at = tok->bracket_selector;
 		return 1;
 	}
 	if (path_fault(a, tok, s, f)) return 1;
 	if (!tok->has_misspelled) return wildcard_fault(a, tok, s, f);
-	if (tok->has_sep) return fault_set(f, "E014", s_lit("field name needs quotes; a bare name is a letter, then letters, digits, '-' and '_'"), 1);
+	if (tok->has_sep) return fault_set(f, "E014", s_lit("field name needs quotes; a bare name is a letter, then letters, digits, '-', and '_'"), 1);
 	size_t blank = 0; int found = 0;
 	for (size_t i = 0; i < tok->nseg && !found; i++) {
 		const ShclPiece *nm = &tok->segments[i].name;
@@ -4446,10 +4446,10 @@ static ShclPathScan path_of(ShclArena *a, const ShclTokens *tok, ShclStr text) {
 }
 
 /* Why a lookup path with a selector in brackets is refused. */
-#define BRACKET_LOOKUP "selector in brackets; write it in parens, name(value)"
+#define BRACKET_LOOKUP "selector in brackets; write it in parens as name(value)"
 
 /* Why a lookup path with a `#` outside quotes and selectors is refused. */
-#define COMMENT_LOOKUP "a '#' opens a comment; quote a name that holds one"
+#define COMMENT_LOOKUP "a '#' opens a comment; quote a name that contains one"
 
 /* Scan a lookup path `a . b (sel) . c`: the document-line spelling plus the
    bare `*` segment (the name wildcard - any child name), which document lines
@@ -5948,7 +5948,7 @@ static void hint_fold(ShclParser *P, size_t parent, size_t kept, size_t gone, in
 		ShclSB m = {0};
 		sb_putS(P->line, &m, h002_head(P->line, NODE(P->d, kept).name));
 		sb_puts(P->line, &m, "line "); sb_put_u64(P->line, &m, at);
-		sb_puts(P->line, &m, " (same name and value combine)");
+		sb_puts(P->line, &m, ", since lines with the same name and value combine");
 		p_diag(P, line, SHCL_SEV_HINT, "H002", sb_S(&m));
 		reent_set(P, kept, line);
 	}
@@ -6115,7 +6115,7 @@ static int attach_path(ShclParser *P, size_t parent, ShclSegment *segs, size_t n
 					ShclSB m = {0};
 					sb_putS(P->line, &m, h002_head(P->line, seg->name));
 					sb_puts(P->line, &m, "line "); sb_put_u64(P->line, &m, NODE(P->d, cur).line);
-					sb_puts(P->line, &m, " (same name and value combine)");
+					sb_puts(P->line, &m, ", since lines with the same name and value combine");
 					p_diag(P, line, SHCL_SEV_HINT, "H002", sb_S(&m));
 					reent_set(P, cur, line);
 				}
@@ -6993,7 +6993,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 			   to retain, and the items around it still load. The BOM exception
 			   the field arm makes cannot apply here: this line starts with the
 			   '*' that brought us in. */
-			p_refuse(&P, lineno, "E013", s_lit("a list item is written '- ' now, not '*'"), out_retained(trim_wsp_end(rest), had_blank), indent);
+			p_refuse(&P, lineno, "E013", s_lit("a list item is written '- ' now rather than '*'"), out_retained(trim_wsp_end(rest), had_blank), indent);
 			i++; continue;
 		}
 		/* Field line. */
@@ -13355,7 +13355,7 @@ static void v_contexts(ShclArena *a, shcl_doc *d, const size_t *start, size_t ns
 static void v_wrong_type(ShclArena *a, ShclVecDiag *out, size_t line, const ShclVCons *c) {
 	ShclSB s = {0, 0, 0};
 	sb_puts(a, &s, "wrong type at '"); sb_putS(a, &s, schema_text(a, c->path));
-	sb_puts(a, &s, "': value is not a valid "); sb_puts(a, &s, c->ty ? c->ty : "string");
+	sb_puts(a, &s, "': value isn't a valid "); sb_puts(a, &s, c->ty ? c->ty : "string");
 	v_diag(a, out, line, "V003", sb_S(&s));
 }
 /* Value text for a diagnostic message. See v_one_line_in. */
@@ -15302,7 +15302,7 @@ static void s_read_schema_file(shcl_named_schema *ns) {
 		n += got;
 		if (n > SHCL_SCHEMA_FILE_MAX) {
 			free(buf); fclose(f);
-			s_schema_refuse(ns, SHCL_SCHEMA_TOO_LARGE, "too large for a schema (over 16 MiB)");
+			s_schema_refuse(ns, SHCL_SCHEMA_TOO_LARGE, "too large for a schema, which can't be over 16 MiB");
 			return;
 		}
 		/* Short only at the end or on an error, and reading on from either is
@@ -15358,7 +15358,7 @@ shcl_named_schema shcl_read_named_schema(const char *text, size_t len, const cha
 	if (two || (n >= 4 && memcmp(named, "\\??\\", 4) == 0)) {
 		free(ns.path);
 		ns.path = s_join_n(named, n, "", 0, &ns.path_len);
-		s_schema_refuse(&ns, SHCL_SCHEMA_NETWORK_PATH, "a Schema line cannot name a network or device path");
+		s_schema_refuse(&ns, SHCL_SCHEMA_NETWORK_PATH, "a Schema line can't name a network or device path");
 		return ns;
 	}
 	absolute = absolute || c == '\\' || (n >= 2 && named[1] == ':' && (c | 0x20) >= 'a' && (c | 0x20) <= 'z');
@@ -15706,14 +15706,14 @@ shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgrade
 	if (!text) {
 		if (fst == SHCL_FILE_NOT_FOUND) return upgrade_fail(message, SHCL_UPGRADE_NOT_FOUND, "%s: no such file", path);
 		if (rerr) return upgrade_why(why, s_write_status_of(rerr), upgrade_fail(message, SHCL_UPGRADE_IO, "%s: %s", path, strerror(rerr)));
-		return upgrade_why(why, SHCL_WRITE_UNREADABLE, upgrade_fail(message, SHCL_UPGRADE_IO, "%s: cannot be read as UTF-8 text", path));
+		return upgrade_why(why, SHCL_WRITE_UNREADABLE, upgrade_fail(message, SHCL_UPGRADE_IO, "%s: can't be read as UTF-8 text", path));
 	}
 	shcl_upgraded up = shcl_upgrade(text, len, from_v2);
 	shcl_upgrade_error r = SHCL_UPGRADE_OK;
 	if (up.current) { // NOLINT(bugprone-branch-clone): already current and just written both hand the result back
 		*out = up;
 	} else if (up.ambiguous != 0) {
-		r = upgrade_fail(message, SHCL_UPGRADE_AMBIGUOUS, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file does not say which it was written for; nothing written", path, up.ambiguous);
+		r = upgrade_fail(message, SHCL_UPGRADE_AMBIGUOUS, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; nothing written", path, up.ambiguous);
 		out->ambiguous = up.ambiguous;
 		shcl_upgraded_free(&up);
 	} else if (up.errors_left_n) {
@@ -15882,10 +15882,10 @@ static int g_has_wild(const ShclVCons *c) {
 // The reason doubles as the predicate, so the refusal cannot name a path for a
 // reason generation did not act on.
 static const char *g_why_unwritable(const ShclVCons *c) {
-	if (c->segs.len > SHCL_MAX_DEPTH) return "nests past the depth cap";
+	if (c->segs.len > SHCL_MAX_DEPTH) return "it nests past the depth cap";
 	for (size_t si = 0; si < c->segs.len; si++) {
 		const ShclSegment *sg = &c->segs.data[si];
-		if (sg->sel.tag == SEL_INDEX) return "an index selector needs an instance that does not exist yet";
+		if (sg->sel.tag == SEL_INDEX) return "an index selector needs an instance that doesn't exist yet";
 		if (sg->star) return "a * name segment has no name to write";
 	}
 	return "";
@@ -16244,11 +16244,10 @@ static shcl_str generate_in(shcl_doc *schema, int no_banner, int *ok, ShclGenOwn
 		const ShclVCons *c = &cons.data[i];
 		if (!g_cannot_satisfy(c) || !g_unwritable(c) || g_has_wild(c)) continue;
 		ShclSB m = {0, 0, 0};
-		sb_puts(a, &m, "required path cannot be generated: ");
+		sb_puts(a, &m, "required path can't be generated: ");
 		sb_putS(a, &m, schema_text(a, c->path));
-		sb_puts(a, &m, " (");
+		sb_puts(a, &m, ", because ");
 		sb_puts(a, &m, g_why_unwritable(c));
-		sb_puts(a, &m, ")");
 		push_gen_diag(schema, 0, SHCL_SEV_ERROR, "V097", sb_S(&m));
 		blocked = 1;
 	}
@@ -16319,9 +16318,9 @@ static shcl_str generate_in(shcl_doc *schema, int no_banner, int *ok, ShclGenOwn
 			spelled = gen_path_text(a, &c->segs, values, &path);
 		if (!spelled) {
 			ShclSB m = {0, 0, 0};
-			sb_puts(a, &m, "required path cannot be generated: ");
+			sb_puts(a, &m, "required path can't be generated: ");
 			sb_putS(a, &m, schema_text(a, c->path));
-			sb_puts(a, &m, " (its parent's value has no selector spelling)");
+			sb_puts(a, &m, ", because its parent's value has no selector spelling");
 			push_gen_diag(schema, 0, SHCL_SEV_ERROR, "V097", sb_S(&m));
 			unspellable = 1;
 			continue;
@@ -16430,7 +16429,7 @@ static shcl_str generate_in(shcl_doc *schema, int no_banner, int *ok, ShclGenOwn
 	}
 	if (wild_path.len) {
 		if (nblk) sb_putc(a, &out, '\n');
-		sb_puts(a, &out, "## Paths needing an instance name (not generated):\n");
+		sb_puts(a, &out, "## These paths need an instance name, so they weren't generated:\n");
 		for (size_t i = 0; i < wild_path.len; i++) {
 			sb_puts(a, &out, "##   "); sb_putS(a, &out, wild_path.data[i]);
 			sb_puts(a, &out, "   "); sb_putS(a, &out, wild_type.data[i]); sb_putc(a, &out, '\n');
@@ -16462,7 +16461,7 @@ static shcl_str generate_in(shcl_doc *schema, int no_banner, int *ok, ShclGenOwn
 			const ShclDiag *dg = &self_->diags.data[i];
 			if (dg->sev != SHCL_SEV_ERROR) continue;
 			ShclSB m = {0, 0, 0};
-			sb_puts(a, &m, "generated text does not load: ");
+			sb_puts(a, &m, "generated text doesn't load: ");
 			sb_puts(a, &m, dg->code); sb_putc(a, &m, ' '); sb_putS(a, &m, dg->message);
 			/* the diag outlives this call and self_: its text must leave both */
 			push_gen_diag(schema, 0, SHCL_SEV_ERROR, "V097", sb_S(&m));
@@ -16500,7 +16499,7 @@ static shcl_str generate_in(shcl_doc *schema, int no_banner, int *ok, ShclGenOwn
 				const ShclDiag *dg = &one->diags.data[i];
 				if (dg->sev != SHCL_SEV_ERROR) continue;
 				ShclSB m = {0, 0, 0};
-				sb_puts(a, &m, "generated text does not load: ");
+				sb_puts(a, &m, "generated text doesn't load: ");
 				sb_puts(a, &m, dg->code); sb_putc(a, &m, ' '); sb_putS(a, &m, dg->message);
 				push_gen_diag(schema, 0, SHCL_SEV_ERROR, "V097", sb_S(&m));
 				nbad++;
@@ -16516,7 +16515,7 @@ static shcl_str generate_in(shcl_doc *schema, int no_banner, int *ok, ShclGenOwn
 				}
 				if (!nfound) {
 					ShclSB m = {0, 0, 0};
-					sb_puts(a, &m, "generated value fails the schema that produced it: default does not name the instance its path selects: ");
+					sb_puts(a, &m, "generated value fails the schema that produced it: default doesn't name the instance its path selects: ");
 					sb_putS(a, &m, schema_text(a, cc->path));
 					push_gen_diag(schema, 0, SHCL_SEV_ERROR, "V097", sb_S(&m));
 					nbad++;

@@ -725,7 +725,7 @@ public:
 	// undefined-symbol link error.
 	template <class T> Read<T> get(std::string_view) const {
 		static_assert(sizeof(T) == 0,
-			"shcl::Document::get<T>: T must be exactly int64_t, double, bool, std::string or shcl::DateTime, or a std::vector of one");
+			"shcl::Document::get<T>: T must be exactly int64_t, double, bool, std::string, or shcl::DateTime, or a std::vector of one");
 		return {};
 	}
 
