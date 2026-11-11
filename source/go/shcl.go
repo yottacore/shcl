@@ -9904,7 +9904,7 @@ func writeFileHow(file, data string, newOnly bool, mode os.FileMode) error {
 		last = oerr
 	}
 	if f == nil {
-		return writeFailed(last, "%s: cannot create temporary file: %w", file, osReason(last))
+		return writeFailed(last, "%s: can't create a temporary file: %w", file, osReason(last))
 	}
 	var err error
 	if _, werr := f.WriteString(data); werr != nil {

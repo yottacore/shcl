@@ -93,9 +93,11 @@ dependency-free executable, so it doubles as a config probe for shell scripts,
 makefiles and CI jobs.
 .PP
 Values are stored as plain text and coerced only when the reading side asks for
-a type, so a file can never silently decide that
+a type, so
 .B NO
-means false. A malformed line is skipped or repaired with a diagnostic rather
+in a config file never silently turns into
+.BR false .
+A malformed line is skipped or repaired with a diagnostic rather
 than taking down the whole file, which is why a read of an unrelated path still
 works after a typo three lines up.
 .PP

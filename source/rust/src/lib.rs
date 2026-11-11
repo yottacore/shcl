@@ -10020,7 +10020,7 @@ fn write_file_how(file: &str, data: &str, new_only: bool, mode: u32) -> Result<(
 		let why = last.map(|e| e.to_string()).unwrap_or_default();
 		return Err(SaveError::Io(WriteError::new(
 			status,
-			format!("{}: cannot create temporary file: {}", file, why),
+			format!("{}: can't create a temporary file: {}", file, why),
 		)));
 	};
 	let res = (|| -> std::io::Result<()> {

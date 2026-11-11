@@ -10970,7 +10970,7 @@ def _write_file_how(file, data, new_only, mode):
 		except (OSError, ValueError) as e:
 			last = e.with_traceback(None)  # as err in _windows_publish_file
 	if f is None:
-		raise WriteError(f"{file}: cannot create temporary file: {(getattr(last, 'strerror', None) or last) if last is not None else ''}",
+		raise WriteError(f"{file}: can't create a temporary file: {(getattr(last, 'strerror', None) or last) if last is not None else ''}",
 			_write_status_of(last) if last is not None else WriteStatus.Other)
 	try:
 		try:

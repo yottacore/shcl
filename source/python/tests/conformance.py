@@ -3722,7 +3722,7 @@ def main():
 		def deny_replace(*_a: Any, **_k: Any) -> None:
 			raise PermissionError(errno.EACCES, wdenied, wtmp, "C:\\Users\\x\\reason.shcl")
 
-		wcalls: list[tuple[str, Any, str]] = [("temp file", deny_open, f"{wtarget}: cannot create temporary file: {wdenied}")]
+		wcalls: list[tuple[str, Any, str]] = [("temp file", deny_open, f"{wtarget}: can't create a temporary file: {wdenied}")]
 		# A replace on windows is ReplaceFile first, so only POSIX gets here.
 		if os.name != "nt":
 			wcalls.append(("publish", deny_replace, f"{wtarget}: {wdenied}"))

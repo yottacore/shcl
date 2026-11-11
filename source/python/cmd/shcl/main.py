@@ -1215,7 +1215,7 @@ def write_back(doc, file, o, read=None, keep=False):
 	# The rule stays in the library; only the wording is the CLI's, because the
 	# override a user has here is a flag, not a function.
 	except shcl.SaveRefused as e:
-		sys.stderr.write(f"{file}: refusing to rewrite: this write would delete {e.lost} line(s)/value(s) from the file (--lossy overrides)\n")
+		sys.stderr.write(f"{file}: refusing to rewrite: this write would delete {e.lost} line(s) or value(s) from the file (--lossy overrides)\n")
 		return 7
 	except (shcl.SaveError, shcl.WriteError) as e:
 		sys.stderr.write(str(e) + "\n")
@@ -1765,7 +1765,7 @@ def do_fmt(o):
 			sys.stderr.write(f"{file}: fmt --write would refuse: the document has lines from a newer format than this reader's (see H006)\n")
 			return 7
 		if not o.lossy and doc.lost_count() != 0:
-			sys.stderr.write(f"{file}: fmt --write would refuse: it would delete {doc.lost_count()} line(s)/value(s) from the file (--lossy overrides)\n")
+			sys.stderr.write(f"{file}: fmt --write would refuse: it would delete {doc.lost_count()} line(s) or value(s) from the file (--lossy overrides)\n")
 			return 7
 		if doc.to_canonical() == read:
 			return 0
@@ -1821,7 +1821,7 @@ def do_migrate(o):
 		return 0
 	rc = 0
 	if m.ambiguous != 0:
-		sys.stderr.write(f"{file}: {m.ambiguous} value(s) read one way under 2.x and another under these rules, and the file does not say which it was written for; left as written (--from-2x rewrites them)\n")
+		sys.stderr.write(f"{file}: {m.ambiguous} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; left as written (--from-2x rewrites them)\n")
 		rc = 7
 	if m.lost != 0:
 		sys.stderr.write(f"{file}: {m.lost} line(s) bound a value under 2.x that nothing binds now: bracket text after the colon, a selector with a comma, a comma list with lines under it, or a quoted name with a backslash escape (--lossy overrides)\n")
@@ -1854,7 +1854,7 @@ def do_migrate(o):
 			sys.stderr.write(f"{file}: refusing to rewrite; nothing changed\n")
 			return rc
 		if doc.lost_count() != 0 and not o.lossy:
-			sys.stderr.write(f"{file}: refusing to rewrite: the migrated text drops {doc.lost_count()} line(s)/value(s) on load (--lossy overrides)\n")
+			sys.stderr.write(f"{file}: refusing to rewrite: the migrated text drops {doc.lost_count()} line(s) or value(s) on load (--lossy overrides)\n")
 			return 7
 		if misplaced != 0 and not o.lossy:
 			sys.stderr.write(f"{file}: refusing to rewrite: the migrated text leaves {misplaced} line(s) unread at an indent no open level matches (--lossy overrides)\n")
@@ -1913,7 +1913,7 @@ def migrate_would_refuse(file, doc, misplaced, o):
 	if o.lossy:
 		return 0
 	if doc.lost_count() != 0:
-		sys.stderr.write(f"{file}: migrate --write would refuse: the migrated text drops {doc.lost_count()} line(s)/value(s) on load (--lossy overrides)\n")
+		sys.stderr.write(f"{file}: migrate --write would refuse: the migrated text drops {doc.lost_count()} line(s) or value(s) on load (--lossy overrides)\n")
 		return 7
 	if misplaced != 0:
 		sys.stderr.write(f"{file}: migrate --write would refuse: the migrated text leaves {misplaced} line(s) unread at an indent no open level matches (--lossy overrides)\n")
@@ -1971,7 +1971,7 @@ def do_upgrade(o):
 		return 7
 	if up.lost != 0:
 		kept = "; the backup has them" if o.write else ""
-		sys.stderr.write(f"{file}: {up.lost} line(s)/value(s) aren't in the fresh file{kept}\n")
+		sys.stderr.write(f"{file}: {up.lost} line(s) or value(s) aren't in the fresh file{kept}\n")
 	if o.write:
 		sys.stderr.write(f"{file}: upgraded; the original is {up.backup}\n")
 	else:
@@ -2475,7 +2475,7 @@ def do_set(o):
 		return 7
 	text, kept = doc.to_text_keep_lines()
 	if not kept and not o.lossy and doc.lost_count() > 0:
-		sys.stderr.write(f"{file}: refusing to print: this result would delete {doc.lost_count()} line(s)/value(s) from the file (--lossy overrides)\n")
+		sys.stderr.write(f"{file}: refusing to print: this result would delete {doc.lost_count()} line(s) or value(s) from the file (--lossy overrides)\n")
 		return 7
 	sys.stdout.write(text)
 	if not kept and not o.layers:
