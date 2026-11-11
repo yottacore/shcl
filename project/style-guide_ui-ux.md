@@ -10,9 +10,9 @@ There are 4 CLIs, one per binding. Only the Rust one is distributed. The Go, Pyt
 
 ## Commands
 
-- The first argument is the subcommand. Each is one lower-case word: `get`, `set`, `fmt`, `check`, `init`, `count`, `instances`, `children`, `paths`, `migrate`, `upgrade`, `tokens`, `explain`.
+- The first argument is the subcommand. Each is one lower-case word: `get`, `set`, `fmt`, `check`, `init`, `count`, `instances`, `children`, `paths`, `migrate`, `upgrade`, `tokens`, and `explain`.
 
-- `help` also works as an option, `--help` or `-h`. The version, about, and donate texts are options only: `--version`, `-v` and `-V`, `--about`, `--donate`. `shcl version` is an unknown command that suggests `--version`. `shcl help CMD` and `shcl CMD --help` print that subcommand's part of the help.
+- `help` also works as an option, `--help` or `-h`. The version, about, and donate texts are options only, which are `--version`, `-v` and `-V`, `--about`, and `--donate`. `shcl version` is an unknown command that suggests `--version`. `shcl help CMD` and `shcl CMD --help` print that subcommand's part of the help.
 
 - Bare `shcl` prints the help and exits 0.
 
@@ -52,9 +52,9 @@ There are 4 CLIs, one per binding. Only the Rust one is distributed. The Go, Pyt
 
 ## Streams
 
-- Stdout is for data: the value read, the document, the list of names or paths, the version. Every line ends in a newline.
+- Stdout is for data, such as the value read, the document, the list of names or paths, and the version. Every line ends in a newline.
 
-- Stderr is for a person: errors, the load's diagnostics with their prose, and notes such as `n.shcl: migrated, 0 line(s) rewritten`.
+- Stderr is for a person. It gets errors, the load's diagnostics with their prose, and notes such as `n.shcl: migrated, 0 line(s) rewritten`.
 
 - `check` is the one command whose output is its diagnostics. It prints `line N: severity: CODE` on stdout for each, then a summary line, and the same line plus its prose on stderr. When there's at least one, stderr then gets `(run 'shcl explain CODE' for the rule behind a code)`. A diagnostic line always starts with `line ` and the summary never does.
 
@@ -66,15 +66,15 @@ There are 4 CLIs, one per binding. Only the Rust one is distributed. The Go, Pyt
 
 - A message starts lower case and has no trailing period.
 
-- It names what went wrong and where: `cannot read zz as int: no value at that path (in n.shcl)`.
+- It names what went wrong and where, as in `cannot read zz as int: no value at that path (in n.shcl)`.
 
-- A usage error ends with `(see --help)`, unless it says the fix itself: `missing value for --schema (try --schema=VALUE)`. `explain` points at `shcl explain` instead, since that's where its answer is.
+- A usage error ends with `(see --help)`, unless it says the fix itself, as `missing value for --schema (try --schema=VALUE)` does. `explain` points at `shcl explain` instead, since that's where its answer is.
 
 - The message for a file that can't be opened is `FILE: ` adn the system's own message.
 
 - A count that can be one or more is written as `N line(s)` or `N diagnostic(s)`.
 
-- Quotes around a suggested word are single quotes: `did you mean 'fmt'?`.
+- Quotes around a suggested word are single quotes, as in `did you mean 'fmt'?`.
 
 ## Exit codes
 
@@ -96,7 +96,7 @@ A new failure reuses one of these where one fits.
 
 - Nothing on disk changes without `--write` or `-w`. Without it the result goes to stdout.
 
-- An in-place write goes through the library's save: a temp file, then a rename over the original.
+- An in-place write goes through the library's save, which writes a temp file and then renames it over the original.
 
 - A write that would delete lines or values from the file is refused with exit 7, and the file is left alone. `--lossy` says the loss was meant. `set` and `migrate` without `--write` exit 7 the same way, so their stdout is never a result the write would refuse. `set` prints nothing then.
 
