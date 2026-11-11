@@ -40,7 +40,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261107-123722
 	- Opened by: split from 2026110616475902
 	- Parent ID: 2026110616475902
@@ -61,7 +61,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-164759
 	- Opened by: Code review 20261106 follow-up (JC)
 	- Related IDs: 2026110613470311, 2026110613470302, 2026110613470312, 2026100307163904, 2026100218185700, 2026092718195400, 2026110312163204, 2026110315051536
@@ -85,7 +85,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Feature
 	- Status: Queued
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-182127
 	- Opened by: JC
 	- Related IDs: 2026100115403385, 2026101407100010, 2026111016205702, 2026111016205703, 2026111014552300
@@ -109,7 +109,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Task
 	- Status: Queued
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-182127
 	- Opened by: JC
 	- Parent ID: 2026111018212700
@@ -124,7 +124,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Feature
 	- Status: Queued
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-182127
 	- Opened by: JC
 	- Parent ID: 2026111018212700
@@ -140,7 +140,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Feature
 	- Status: Queued
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-182127
 	- Opened by: JC
 	- Parent ID: 2026111018212700
@@ -157,7 +157,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-162057
 	- Opened by: gitniblet and slodworld2 feedback
 	- Parent ID: 2026111018212700
@@ -174,7 +174,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-162057
 	- Opened by: gitniblet, slodworld1 and slodworld2 feedback
 	- Parent ID: 2026111018212700
@@ -1120,7 +1120,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Done
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261107-123722
 	- Opened by: split from 2026110616475902
 	- Parent ID: 2026110616475902
@@ -1159,7 +1159,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Done
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 24
 	- Problem description: spec.md quotes an instance value with a line break in it, because a consumer splits the output on newlines. U+2028, U+2029, U+0085, VT and FF print as they are, though Python's `splitlines()` splits on them and `fmt` escapes them. A list of 3 values came out as 5 lines.
@@ -1183,7 +1183,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Done
 	- Priority: Low
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261109-144123
 	- Opened by: 2026110907535001's sweep
 	- Related IDs: 2026110907535001
@@ -1205,7 +1205,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Done
 	- Severity: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-223229
 	- Opened by:
 	- Related IDs: 2026111012160121, 2026111021095858, 2026111021153725, 2026111022100191, 2026111109022600, 2026111109371400
@@ -1232,7 +1232,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Status: Done
 	- Needs external testing: No
 	- Severity: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 7
 	- Prereq IDs: 2026110616475901, 2026110907535001
@@ -1289,7 +1289,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Done
 	- Severity: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-162057
 	- Opened by: tradeclanker and slodworld1 feedback
 	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
@@ -1323,7 +1323,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Task
 	- Status: Done
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261107-074413
 	- Opened by: me
 	- Parent ID: 2026110613470304
@@ -1347,7 +1347,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Done
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-164759
 	- Opened by: Code review 20261106 follow-up (JC)
 	- Related IDs: 2026102910482342, 2026110312163201, 2026110312163202, 2026110312163207, 2026110313211991, 2026110314064292, 2026110314240418, 2026110408432594, 2026110613470307, 2026110613470308
@@ -1382,7 +1382,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Done
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-100123
 	- Opened by: 2026110616475901's split
 	- Parent ID: 2026110616475901
@@ -1402,7 +1402,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Done
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-195058
 	- Opened by: 2026111010012360's split
 	- Parent ID: 2026111010012360
@@ -1423,7 +1423,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Done
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-195058
 	- Opened by: 2026111010012360's split
 	- Parent ID: 2026111010012360
@@ -1446,7 +1446,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Done
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-200301
 	- Opened by: 2026111019505861's split
 	- Parent ID: 2026111010012360
@@ -1470,7 +1470,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Done
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-103315
 	- Opened by: 2026111010012287's split
 	- Parent ID: 2026110616475901
@@ -1531,7 +1531,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Done
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-100122
 	- Opened by: 2026110616475901's split
 	- Parent ID: 2026110616475901
@@ -1559,7 +1559,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Done
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-100122
 	- Opened by: 2026110616475901's split
 	- Parent ID: 2026110616475901
@@ -1584,7 +1584,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Done
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-100123
 	- Opened by: 2026110616475901's split
 	- Parent ID: 2026110616475901
@@ -1607,7 +1607,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Done
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-100123
 	- Opened by: 2026110616475901's split
 	- Parent ID: 2026110616475901
@@ -1629,7 +1629,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Done
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-100123
 	- Opened by: 2026110616475901's split
 	- Parent ID: 2026110616475901
@@ -1653,7 +1653,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Done
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-164759
 	- Opened by: Code review 20261106 follow-up (JC)
 	- Related IDs: 2026110616475902, 2026110613470311, 2026110613470302, 2026100307163904, 2026100218185700, 2026092718195400
@@ -1680,7 +1680,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Done
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-121601
 	- Opened by: split from 2026110616475903
 	- Parent ID: 2026110616475903
@@ -1726,7 +1726,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Done
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-121600
 	- Opened by: split from 2026110616475903
 	- Parent ID: 2026110616475903
@@ -1754,7 +1754,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Done
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-121600
 	- Opened by: split from 2026110616475903
 	- Parent ID: 2026110616475903
@@ -1773,7 +1773,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Task
 	- Status: Done
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-121601
 	- Opened by: split from 2026110616475903
 	- Parent ID: 2026110616475903
@@ -1797,7 +1797,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Done
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 23
 	- Related IDs: 2026100818140260
@@ -1865,7 +1865,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Done
 	- Severity: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261109-133740
 	- Opened by: found while working 2026110714552634
 	- Related IDs: 2026110713595434, 2026110908100001
@@ -1887,7 +1887,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Status: Done
 	- Needs local test suite run?: No
 	- Severity: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 11
 	- Version and build: dev at `343334df`
@@ -1927,7 +1927,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Status: Done
 	- Needs local test suite run?: No
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261107-123722
 	- Opened by: split from 2026110616475902
 	- Parent ID: 2026110616475902
@@ -1958,7 +1958,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Done
 	- Severity: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261109-081000
 	- Opened by: me, from JC's run `run_20261108-141308`
 	- Version and build: dev, 2026-11-08
@@ -1993,7 +1993,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Done
 	- Severity: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261107-135954
 	- Opened by: Child of 2026110613470315
 	- Parent ID: 2026110613470315
@@ -2015,7 +2015,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Done
 	- Severity: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261107-135954
 	- Opened by: Child of 2026110613470315
 	- Parent ID: 2026110613470315
@@ -2040,7 +2040,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Done
 	- Severity: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 15
 	- Version and build: dev at `343334df`
@@ -2061,7 +2061,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Done
 	- Severity: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 20
 	- Version and build: dev at `343334df`
@@ -2087,7 +2087,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Done
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261109-075350
 	- Opened by: JC, from the `Check:` on 2026110613470307
 	- Parent ID: 2026110613470307
@@ -2118,7 +2118,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Done
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 22
 	- Related IDs: 2026110215285718
@@ -2148,7 +2148,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Done
 	- Priority: High
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 25
 	- Problem description: `var d shcl.Document`, then `d.SetString("a", "b")` or `d.GetStringOr(...)`, panics with an index out of range, and so does `d.Merge(nil)`. Rust has `Default`, Python's `Document()` works, and the C++ comment says a default Document is usable. Go's `Document` doc doesn't say to use `New()`.
@@ -2176,7 +2176,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Done
 	- Severity: Avg
-	- Target version: v3.0.0-beta2
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261107-145526
 	- Opened by: found while working 2026110613470311
 	- Related IDs: 2026110613470311, 2026110407313888, 2026110315051536, 2026110712372281
