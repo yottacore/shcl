@@ -2,21 +2,21 @@
 ## install.ps1
 ##
 ##	Release installer for shcl (Simple Hierarchical Config Language) on Windows.
-##	Downloads the latest release from GitHub, checks the sha256sums file against
-##	the release signing key before trusting a checksum out of it, and lays out
-##	the binary plus the drop-in source files. Idempotent: re-running updates
-##	an existing install in place, and takes out the retired shell wrappers an
+##	It downloads the latest release from GitHub, checks the sha256sums file
+##	against the release signing key before it trusts any checksum in it, and
+##	lays out the binary and the drop-in source files. Running it again updates
+##	an existing install in place, and removes the retired shell wrappers that an
 ##	older install put in scripts\.
 ##
 ##	Usage (one-liner, defaults):
 ##		irm https://raw.githubusercontent.com/yottacore/shcl/main/install.ps1 | iex
-##	With options (download first, or wrap in a script block):
+##	With options, download it first or wrap it in a script block:
 ##		& ([scriptblock]::Create((irm https://raw.githubusercontent.com/yottacore/shcl/main/install.ps1))) -Target system -Yes
 ##
 ##	Options:
-##		-Release <stable|dev>   stable (default) = newest full release, or the
-##		                        newest pre-release while there is no full one;
-##		                        dev = newest release including pre-releases.
+##		-Release <stable|dev>   stable (default): newest full release, or the
+##		                        newest pre-release while there is no full one.
+##		                        dev: newest release including pre-releases.
 ##		-Target <user|system>   user (default): %LOCALAPPDATA%\Programs\Shcl,
 ##		                        added to the user PATH. No elevation.
 ##		                        system: C:\Program Files\Shcl, added to the
@@ -28,7 +28,7 @@
 ##		-Version                print this installer's version and exit.
 ##		-Help                   print the options and exit.
 ##
-##	Needs Windows PowerShell 5.1 or pwsh 7.
+##	It needs Windows PowerShell 5.1 or pwsh 7.
 ##
 ##	Layout under the install dir:
 ##		shcl.exe    the CLI binary
@@ -43,7 +43,7 @@
 
 <#
 .SYNOPSIS
-Installs, updates or removes the shcl release binary on Windows.
+Installs, updates, or removes the shcl release binary on Windows.
 .DESCRIPTION
 Downloads a release from GitHub, checks the signed sha256sums file before trusting a checksum out of it, and installs the binary and the drop-in source files. Re-running updates an install in place, and removes the shell wrappers an older install put in scripts\.
 .PARAMETER Release
@@ -72,14 +72,14 @@ param(
 )
 
 ## The body runs in a scope of its own, so strict mode, the preference
-## variables and every function and variable below stay out of the shell that
+## variables, and every function and variable below stay out of the shell that
 ## piped this script into iex. The options go in as arguments, and so does
 ## whether a file was invoked, since inside the block $MyInvocation names the
-## block: under either documented one-liner there is no script file, and `exit`
-## there ends the shell that ran it. Only a file invocation may exit;
-## everything else returns or throws. Piped into iex from inside another
-## script, $MyInvocation names that script, but $PSCommandPath is empty, so
-## the two agree only when this file is what runs.
+## block. Under either documented one-liner there isn't a script file, and
+## `exit` there ends the shell that ran it. Only a file invocation may exit,
+## and everything else returns or throws. When this script is piped into iex
+## from inside another script, $MyInvocation names that script but
+## $PSCommandPath is empty, so the two agree only when this file is what runs.
 & {
 	## ShowVersion, not Version: names ignore case, and $version below is the release's.
 	param([string]$Release, [string]$Target, [bool]$Yes, [bool]$Uninstall, [bool]$ShowVersion, [bool]$Help, [bool]$invokedAsFile, [string]$scriptPath)
@@ -98,8 +98,9 @@ param(
 		return
 	}
 
-	## Spelled out here rather than left to Get-Help: the documented one-liner pipes
-	## this script straight into the shell, so there is no file left to ask about.
+	## The help is written out here rather than left to Get-Help, because the
+	## documented one-liner pipes this script straight into the shell, so there
+	## isn't a file for Get-Help to read.
 	if ($Help) {
 		@"
 install.ps1 $installerVersion - shcl installer for Windows
@@ -119,9 +120,9 @@ Options:
                             down, and nothing else.
     -Yes                    skip the confirmation prompt.
     -Version                print this installer's version and exit.
-    -Help                   this text.
+    -Help                   print this text and exit.
 
-Needs Windows PowerShell 5.1 or pwsh 7. The release signature is checked
+It needs Windows PowerShell 5.1 or pwsh 7. The release signature is checked
 before any checksum is read out of the sums file. Nothing unverified is
 installed.
 "@ | Write-Output
@@ -144,29 +145,31 @@ installed.
 		throw "install.ps1: $Message"
 	}
 
-	## 5.0 and older have no Get-FileHash, so a download could not be checked.
+	## 5.0 and older don't have Get-FileHash, so a download couldn't be checked.
 	if ($PSVersionTable.PSVersion -lt [version]'5.1') {
 		Exit-Install "needs Windows PowerShell 5.1 or pwsh 7, and this is $($PSVersionTable.PSVersion) - see https://aka.ms/powershell"
 	}
 
-	## Release signing key, stored as raw RSA parameters rather than PEM on purpose:
-	## ImportFromPem needs PowerShell 7, and 5.1 is still what most Windows boxes
-	## run. Modulus + exponent import the same on both. The sha256sums file is signed
-	## offline with the matching private key, so replacing a release asset is not
-	## enough - an attacker would have to forge this signature too. Baked in rather
-	## than fetched, because a key downloaded over the same channel as the artifact
-	## proves nothing. Rotating it means publishing a new installer.
+	## Release signing key. It's stored as raw RSA parameters rather than PEM,
+	## because ImportFromPem needs PowerShell 7, and most Windows boxes still run
+	## 5.1. The modulus and exponent import the same on both. The sha256sums file
+	## is signed offline with the matching private key, so an attacker who
+	## replaces a release asset would also have to forge this signature. The key
+	## is baked in rather than fetched, because a key downloaded over the same
+	## channel as the artifact proves nothing. Rotating it means publishing a new
+	## installer.
 	$signingModulus = 'k5W58wTiFTlHUCsIuHESqexain6AC8WwFmCDsjfliOIDa2vPhkSVOqMsSbYH/OL94pHZ+Bs0agNXrl99ANolzwQ4rvu6gAsc4GCb0Krbbq2B+jKqTM8xeN7tFLWKd5E08IOF2HA4ugQSlK+rC6ezbBqP1MuJFFxqxDhEtGef9v/nuhX2kWq3v0uN6Y0umbghuNAR7gmoSOwbb8uYfVOAH1OAWV2To2wyIe6WWt4BPmFJBpEI53k4rmoDVdjmJFoj2vETHmEh2QfTPA5541jPLeuO8p8V6+Aa8i32EtVeT1+ozwHidku/CZZOAdxYZ7yXAZdG3eOOxcHVfmXVwqRxPR+lA3E/KcRcN9oeeveXS35jwH0h3hSh6sJOr1q0qMtM7bB4Lxt47wXHTJ0VPneG5xbmO5pUS3LMcZwnXXavYjh2kYS52ZLhi1JbPFgPyYUiIv76IUbwtpEXbONi12g7fioZ6cStZAekJs33Wkee6NmSY54AozxTkcNUJTgs81eMa/gRL8l3jud8AWqL5vykqpG1PTN70vSgrHD4wNMp2QX29Iv+A6+FO4B1oxjrnokg212rwqX004Ep0csu/JjOl9XHvwp0Iucfi8zCg7ozDcU3dsDnUJ8A3PtJ47jEt1n37/oiM6pWDXVVBjz4DI9iACmdUphTcGhYvn91ORZVxt0='
 	$signingExponent = 'AQAB'
 
-	## PATH, idempotently - straight at the registry. [Environment]::Get expands
-	## %VAR% references before returning and Set writes the result back REG_SZ,
-	## which freezes every reference and downgrades the value type (user PATHs
-	## commonly contain %USERPROFILE%). Reading unexpanded and writing
-	## REG_EXPAND_SZ keeps the stored value intact. True when it wrote.
+	## Adds or removes the PATH entry directly in the registry, and running it
+	## twice changes nothing. [Environment]::Get expands %VAR% references before
+	## returning, and Set writes the result back as REG_SZ, which freezes every
+	## reference and downgrades the value type. User PATHs often contain
+	## %USERPROFILE%. Reading unexpanded and writing REG_EXPAND_SZ leaves the
+	## stored value intact. It returns true when it wrote.
 	function Update-ShclPath {
-		## The installer's own confirm prompt is the gate; a nested -WhatIf
-		## plumbing would dead-end at the irm|iex one-liner anyway.
+		## The installer's own confirm prompt is the gate. A nested -WhatIf
+		## would dead-end at the irm|iex one-liner anyway.
 		[CmdletBinding()]
 		[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
 		param([string]$Scope, [string]$Dir, [switch]$Remove)
@@ -176,9 +179,9 @@ installed.
 		try {
 			$current = [string]$envKey.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
 			if ($Remove) {
-				## Absent is no write: the rebuild below also drops empty
-				## segments, so a PATH ending in ';' read as changed and was
-				## rewritten with nothing of ours in it.
+				## When our entry is absent, don't write anything. The rebuild
+				## below also drops empty segments, so a PATH ending in ';' read
+				## as changed and was rewritten without anything of ours in it.
 				if (-not (($current -split ';') -contains $Dir)) { return $false }
 				$new = @($current -split ';' | Where-Object { $_ -and $_ -ne $Dir }) -join ';'
 				if ($new -eq $current) { return $false }
@@ -194,11 +197,11 @@ installed.
 		}
 	}
 
-	## The HTTP status behind a failed request, or 0 when there was no response
-	## at all (DNS, a refused connection, a proxy, a timeout). pwsh 7 throws an
-	## HttpRequestException with no Response member and 5.1 a WebException whose
-	## Response is null, and strict mode throws on reading either, so the
-	## network-down message could never be reached.
+	## Returns the HTTP status behind a failed request, or 0 when there wasn't
+	## any response, as with DNS, a refused connection, a proxy, or a timeout.
+	## pwsh 7 throws an HttpRequestException without a Response member, and 5.1
+	## throws a WebException whose Response is null. Strict mode throws on
+	## reading either, so the network-down message could never be reached.
 	function Get-HttpStatus {
 		[CmdletBinding()]
 		param([System.Management.Automation.ErrorRecord]$ErrorRecord)
@@ -208,7 +211,8 @@ installed.
 	}
 
 	## A failed download names the file and the reason. It used to show the raw
-	## exception, several lines of .NET text with the file name buried in it.
+	## exception, which was several lines of .NET text with the file name buried
+	## in it.
 	function Save-ReleaseAsset {
 		[CmdletBinding()]
 		param([string]$Uri, [string]$OutFile, [string]$Name)
@@ -223,22 +227,23 @@ installed.
 		}
 	}
 
-	## Why the install cannot write where it means to, or nothing when it can.
-	## Asked before any download. A running shcl.exe cannot be replaced, and
-	## Windows reports that as access denied at the move, which sent people
-	## looking at permissions. Opening the old file with no sharing tells the
-	## two apart: a running image refuses it as a sharing violation.
+	## Returns why the install can't write where it means to, or nothing when it
+	## can. It's asked before any download. A running shcl.exe can't be
+	## replaced, and Windows reports that as access denied at the move, which
+	## sent people looking at permissions. Opening the old file without sharing
+	## tells the two apart, because a running image refuses it as a sharing
+	## violation.
 	function Test-InstallTarget {
 		[CmdletBinding()]
 		param([string]$Dest)
 		$near = $Dest
 		while ($near -and -not (Test-Path -LiteralPath $near)) { $near = Split-Path -Path $near -Parent }
-		if (-not $near) { return "cannot write $Dest - no part of that path exists" }
+		if (-not $near) { return "can't write $Dest - no part of that path exists" }
 		$probe = Join-Path -Path $near -ChildPath ('.shcl-probe-' + [IO.Path]::GetRandomFileName())
 		try {
 			[IO.File]::Create($probe, 1, [IO.FileOptions]::DeleteOnClose).Dispose()
 		} catch {
-			return "cannot write $Dest - $near is not writable"
+			return "can't write $Dest - $near isn't writable"
 		}
 		$exe = Join-Path -Path $Dest -ChildPath 'shcl.exe'
 		if (Test-Path -LiteralPath $exe -PathType Leaf) {
@@ -247,18 +252,19 @@ installed.
 			} catch {
 				$ex = $_.Exception
 				while ($ex.InnerException) { $ex = $ex.InnerException }
-				if ($ex -is [UnauthorizedAccessException]) { return "cannot replace $exe - access denied" }
-				return "cannot replace $exe - it is in use. Close any running shcl and run the install again"
+				if ($ex -is [UnauthorizedAccessException]) { return "can't replace $exe - access denied" }
+				return "can't replace $exe - it's in use. Close any running shcl and run the install again"
 			}
 		}
 		return $null
 	}
 
-	## The shcl program that comes first on PATH when it is not $Installed, or
-	## nothing. On a first install there is none at all, since only the registry
-	## PATH was written, and reading .Source off nothing threw under strict mode
-	## after a good install, at exit 1. An Application, so a dot-sourced shcl
-	## wrapper function is not taken for a program.
+	## Returns the shcl program that comes first on PATH when it isn't
+	## $Installed, or nothing. On a first install there isn't one at all, since
+	## only the registry PATH was written, and reading .Source off nothing threw
+	## under strict mode after a good install, at exit 1. It asks for an
+	## Application, so a dot-sourced shcl wrapper function isn't taken for a
+	## program.
 	function Get-ShclShadow {
 		[CmdletBinding()]
 		param([string]$Installed)
@@ -267,8 +273,8 @@ installed.
 		return $null
 	}
 
-	## Stable falls back to the newest pre-release when there is no full release
-	## at all, so a first beta still installs by default.
+	## Stable falls back to the newest pre-release when there isn't any full
+	## release, so a first beta still installs by default.
 	function Select-ReleaseTag {
 		[CmdletBinding()]
 		param([string]$Channel, [object[]]$Releases)
@@ -286,9 +292,9 @@ installed.
 		@($all) | Sort-Object -Property $order | Select-Object -Last 1
 	}
 
-	## Detached PKCS#1 v1.5 / SHA-256 signature over a file. Any failure - malformed
-	## key, unreadable signature, bad maths - comes back false, never an exception
-	## that a caller might mistake for a pass.
+	## Checks a detached PKCS#1 v1.5 SHA-256 signature over a file. Any failure,
+	## such as a malformed key, an unreadable signature, or bad math, comes back
+	## false, never as an exception that a caller might mistake for a pass.
 	function Test-ReleaseSignature {
 		[CmdletBinding()]
 		param([string]$Path, [string]$SignaturePath)
@@ -308,26 +314,28 @@ installed.
 		}
 	}
 
-	## Runs `EXE version` and hands back its exit code and output. Redirected and
-	## status-tested rather than called bare, since a nonzero exit from a native
-	## command throws under this script's own error preference on 7.4 and later.
-	## Windows PowerShell 5.1 turns a native command's stderr into error records
-	## under this redirect, and a Stop preference then throws before the exit
-	## code is read, so the preference is Continue in here. A program that never
-	## starts (blocked by AV or AppLocker) does not touch $LASTEXITCODE, and the
-	## 0 tar left there read as a pass. So it is set to -1 first, and a start
-	## failure that throws comes back as -1 too.
+	## Runs `EXE --version` and returns its exit code and output. The call is
+	## redirected and its status tested rather than called bare, since a nonzero
+	## exit from a native command throws under this script's own error
+	## preference on 7.4 and later. Windows PowerShell 5.1 turns a native
+	## command's stderr into error records under this redirect, and a Stop
+	## preference then throws before the exit code is read, so the preference is
+	## Continue in here. A program that never starts, because AV or AppLocker
+	## blocked it, doesn't touch $LASTEXITCODE, and the 0 that tar left there
+	## read as a pass. So it's set to -1 first, and a start failure that throws
+	## comes back as -1 too.
 	function Invoke-ShclSmoke {
 		[CmdletBinding()]
 		param([string]$Exe)
 		$ErrorActionPreference = 'Continue'
-		## The global is the one a native command sets; a local would shadow it.
+		## A native command sets the global, and a local would shadow it.
 		$global:LASTEXITCODE = -1
 		## shcl writes UTF-8, and PowerShell decodes a native command's output
 		## with the console's code page, so under the usual 437 the copyright
-		## line in the receipt came back garbled. Put back after, since under
-		## iex this is the caller's own console. A host with no console can
-		## refuse the set, and then the output stays as it was.
+		## line in the receipt came back garbled. The encoding is put back
+		## after, since under iex this is the caller's own console. A host
+		## without a console can refuse the set, and then the output stays as
+		## it was.
 		$oldEncoding = $null
 		try {
 			$oldEncoding = [Console]::OutputEncoding
@@ -347,8 +355,9 @@ installed.
 		}
 	}
 
-	## The version the installed binary reports, or nothing when it does not run.
-	## Asked of the binary itself, so an install from before this check counts too.
+	## Returns the version the installed binary reports, or nothing when it
+	## doesn't run. The binary itself is asked, so an install from before this
+	## check counts too.
 	function Get-InstalledVersion {
 		[CmdletBinding()]
 		param([string]$Exe)
@@ -359,7 +368,8 @@ installed.
 		return ''
 	}
 
-	## Is A older than B? The same order Select-ReleaseTag ranks tags in.
+	## Is A older than B? It uses the same order that Select-ReleaseTag ranks
+	## tags in.
 	function Test-OlderVersion {
 		[CmdletBinding()]
 		param([string]$Older, [string]$Newer)
@@ -368,10 +378,10 @@ installed.
 		(Select-ReleaseTag -Channel dev -Releases $pair).tag_name -eq "v$Newer"
 	}
 
-	## Windows' own tar, by full path. A GNU tar from Git for Windows, MSYS2 or
-	## Cygwin ahead of System32 on PATH reads C:\... as a remote host and file,
-	## so a lookup by name could not unpack the payload. The exit code is left
-	## in $LASTEXITCODE for the caller.
+	## Use Windows' own tar, by full path. A GNU tar from Git for Windows, MSYS2,
+	## or Cygwin ahead of System32 on PATH reads C:\... as a remote host and
+	## file, so a lookup by name couldn't unpack the payload. The exit code is
+	## left in $LASTEXITCODE for the caller.
 	function Get-ShclTar {
 		[CmdletBinding()]
 		param()
@@ -383,16 +393,16 @@ installed.
 		& (Get-ShclTar) -xzf $Archive -C $Dest
 	}
 
-	## Removes the files an install writes, by name, the staging name an
-	## interrupted install leaves, and each install dir once it is empty.
+	## Removes the files an install writes, by name, the staging name that an
+	## interrupted install leaves, and each install dir once it's empty.
 	## scripts\ is from an install before the wrappers were retired.
 	## Deleting the whole code\ and scripts\ trees took whatever else someone
-	## had put there, and a populated dir stays, since the setup .exe installs
-	## here too. Hands back what would not go and whether anything this
-	## installer did not write is left, since a locked file left behind used
-	## to be reported as someone else's. What is left is judged by name within
-	## its own dir: a full path read back can be written differently from the
-	## one given, as a short 8.3 name is.
+	## had put there, and a dir with other files in it stays, since the setup
+	## .exe installs here too. It returns what wouldn't go, and whether
+	## anything this installer didn't write is left, because a locked file
+	## left behind used to be reported as someone else's. What's left is
+	## judged by name within its own dir, because a full path that's read back
+	## can be written differently from the one given, as a short 8.3 name is.
 	function Remove-ShclFile {
 		[CmdletBinding()]
 		[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
@@ -421,9 +431,9 @@ installed.
 		[PSCustomObject]@{ Stuck = $stuck.ToArray(); Foreign = $foreign }
 	}
 
-	## The shell wrappers are retired (project/legacy/). An update takes out the
+	## The shell wrappers are retired to project/legacy/. An update removes the
 	## copies an older install left in scripts\, and the dir once that empties
-	## it. A file that will not go stays, since the wrapper was only ever extra.
+	## it. A file that won't go stays, since the wrapper was only ever extra.
 	function Remove-OldWrapper {
 		[CmdletBinding()]
 		[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
@@ -437,8 +447,9 @@ installed.
 		if (@(Get-ChildItem -Force -LiteralPath $dir).Count -eq 0) { Remove-Item -Force -LiteralPath $dir -ErrorAction SilentlyContinue }
 	}
 
-	## A copy of cicd/utility/include/safe-rm.ps1's, since under irm there is no
-	## file beside this one to load. shell-regress holds the two to the same text.
+	## This is a copy of the function in cicd/utility/include/safe-rm.ps1, since
+	## under irm there isn't a file beside this one to load. shell-regress checks
+	## that the two have the same text.
 	function Remove-SafeTree {
 		[CmdletBinding()]
 		[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
@@ -495,42 +506,44 @@ installed.
 		}
 	}
 
-	## Windows only; elsewhere install.bash (Linux, macOS, FreeBSD) or build from source.
+	## This installer is for Windows only. Linux, macOS, and FreeBSD use
+	## install.bash, and anything else builds from source.
 	if (($PSVersionTable.PSVersion.Major -ge 6) -and -not $IsWindows) {
-		Exit-Install 'this installer is for Windows - on Linux, macOS or FreeBSD use install.bash, elsewhere build from source (see https://github.com/yottacore/shcl/blob/main/project/install.md#diy-install)'
+		Exit-Install 'this installer is for Windows - on Linux, macOS, or FreeBSD use install.bash, and elsewhere build from source, as described in https://github.com/yottacore/shcl/blob/main/project/install.md#diy-install'
 	}
 
-	## Destinations. A system install writes under Program Files and the machine
-	## PATH, so it needs an elevated shell.
+	## A system install writes under Program Files and the machine PATH, so it
+	## needs an elevated shell.
 	if ($Target -eq 'system') {
 		$principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 		if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
 			Exit-Install 'a system install needs an elevated shell (or pass -Target user)'
 		}
 		## A 32-bit host reads Program Files (x86) out of ProgramFiles, which is
-		## the wrong home for a 64-bit binary. ProgramW6432 is the 64-bit one and
-		## is only set where the two differ.
+		## the wrong place for a 64-bit binary. ProgramW6432 is the 64-bit one,
+		## and it's only set where the two differ.
 		$programFiles = if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }
 		$dest = Join-Path -Path $programFiles -ChildPath 'Shcl'
 		$pathScope = 'Machine'
 		$pathDir = $dest
 	} else {
-		## Per-user apps belong under LOCALAPPDATA\Programs - it is where Windows
-		## itself puts them, and it is already excluded from roaming profiles.
+		## Per-user apps belong under LOCALAPPDATA\Programs. Windows itself puts
+		## them there, and it's already excluded from roaming profiles.
 		$dest = Join-Path -Path $env:LOCALAPPDATA -ChildPath 'Programs\Shcl'
 		$pathScope = 'User'
 		$pathDir = $dest
 	}
 
-	## Uninstall: the reverse of what the install lays down, and nothing else - the
-	## binary, the two payload dirs, the install dir if it empties, and the PATH
-	## entry. Never a recursive delete of a path the user may have pointed elsewhere.
-	## It sits above the release lookup on purpose: removing needs no release to
-	## exist, and offline or rate-limited it used to refuse and remove nothing.
+	## The uninstall reverses what the install lays down, and nothing else. It
+	## removes the binary, the 2 payload dirs, the install dir if it empties,
+	## and the PATH entry. It never deletes recursively, since the user may have
+	## pointed a path elsewhere. It comes before the release lookup, because
+	## removing doesn't need a release to exist, and offline or rate-limited it
+	## used to refuse and remove nothing.
 	if ($Uninstall) {
-		## Nothing of an install here: say so rather than "removed". A system
-		## install from before user became the default is the usual case. A PATH
-		## entry left behind still goes.
+		## When there's nothing of an install here, say so rather than
+		## "removed". The usual case is a system install from before user became
+		## the default. A PATH entry left behind still goes.
 		if (-not (Test-Path -LiteralPath $dest)) {
 			if (Update-ShclPath -Scope $pathScope -Dir $pathDir -Remove) {
 				Write-Output "removed the $pathScope PATH entry; nothing else of shcl was in $dest"
@@ -546,7 +559,8 @@ installed.
 		}
 		## The setup .exe writes this same directory and registers itself with
 		## Add/Remove Programs. Deleting its files here would leave that entry
-		## pointing at nothing, so its own uninstaller has to run instead.
+		## pointing at nothing, so the setup's own uninstaller has to run
+		## instead.
 		$setupUninstaller = Join-Path -Path $dest -ChildPath 'uninstall.exe'
 		if (Test-Path -LiteralPath $setupUninstaller) {
 			Exit-Install "$dest was installed by the shcl setup - remove it from Add/Remove Programs, or run $setupUninstaller"
@@ -565,12 +579,12 @@ installed.
 		## PATH entry stays with it and a second run finishes the job.
 		$removal = Remove-ShclFile -Dest $dest
 		if ($removal.Stuck.Count -gt 0) {
-			Exit-Install "could not remove $($removal.Stuck -join ', ') - close any running shcl and run the uninstall again"
+			Exit-Install "couldn't remove $($removal.Stuck -join ', ') - close any running shcl and run the uninstall again"
 		}
 		$null = Update-ShclPath -Scope $pathScope -Dir $pathDir -Remove
 		if ($removal.Foreign) {
 			Write-Output 'removed what this installer laid down'
-			Write-Output "left $dest in place: it holds files this installer did not put there"
+			Write-Output "left $dest in place, since it has files this installer didn't put there"
 		} else {
 			Write-Output 'removed'
 		}
@@ -586,34 +600,35 @@ installed.
 		default { Exit-Install "no prebuilt binary for $archRaw" }
 	}
 
-	## Transport floor for every download: TLS 1.2+ (1.3 where the runtime knows it).
+	## Every download needs TLS 1.2 or newer, and 1.3 where the runtime knows it.
 	try {
 		[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
 	} catch {
 		[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 	}
-	## Windows PowerShell repaints the progress bar per chunk, which slows a download
-	## by an order of magnitude. Scoped to this script; nothing here needs the bar.
+	## Windows PowerShell repaints the progress bar per chunk, which slows a
+	## download by an order of magnitude. The setting is scoped to this script,
+	## and nothing here needs the bar.
 	$ProgressPreference = 'SilentlyContinue'
 
-	## Resolve the tag. Highest version wins, never newest by date: GitHub's
-	## /releases/latest is date-ordered, so a patch back-ported to an older line
-	## after a newer one shipped would be handed out as "stable". A draft has no
-	## published assets, so neither channel can install one; stable drops
-	## pre-releases on top of that. Within one version a
-	## final outranks its own pre-releases (v2.0.0-rc1 < v2.0.0); a pre-release
-	## suffix compares with its digit runs zero-padded, so rc2 < rc10 - the same
-	## order install.bash gets from sort -V.
+	## Resolve the tag. The highest version wins, never the newest by date.
+	## GitHub's /releases/latest is ordered by date, so a patch back-ported to
+	## an older line after a newer release was published would be handed out as
+	## "stable". A draft doesn't have any published assets, so neither channel
+	## can install one, and stable also drops pre-releases. Within one version
+	## a final outranks its own pre-releases, so v2.0.0-rc1 < v2.0.0. A
+	## pre-release suffix compares with its digit runs zero-padded, so
+	## rc2 < rc10, which is the same order install.bash gets from sort -V.
 	$api = "https://api.github.com/repos/$repo/releases?per_page=100"
-	## A 403 from an unauthenticated request is the API's rate limit, and behind
-	## a shared address it is common - "none published yet, or network down"
+	## A 403 from an unauthenticated request is the API's rate limit, and it's
+	## common behind a shared address. "none published yet, or network down"
 	## sent people looking in the wrong place. GITHUB_TOKEN is used when set.
 	$apiHeaders = @{}
 	if ($env:GITHUB_TOKEN) { $apiHeaders['Authorization'] = "Bearer $($env:GITHUB_TOKEN)" }
 	## Windows PowerShell 5.1 follows a redirect from https to plain http, which
-	## 7 refuses, and the release list picks the tag. The API answers this URL
-	## with no redirect at all, so 5.1 follows none. The downloads may redirect,
-	## and each is checked against its signature.
+	## 7 refuses, and the release list picks the tag. The API doesn't redirect
+	## this URL, so 5.1 isn't allowed to follow a redirect here. The downloads
+	## may redirect, and each is checked against its signature.
 	$apiRedirects = @{}
 	if ($PSVersionTable.PSVersion.Major -lt 6) { $apiRedirects['MaximumRedirection'] = 0 }
 	try {
@@ -621,12 +636,12 @@ installed.
 	} catch {
 		$status = Get-HttpStatus -ErrorRecord $_
 		if ($status -eq 403 -or $status -eq 429) {
-			Exit-Install "GitHub's API refused the request (rate limit). Wait, or set GITHUB_TOKEN to a token with public read access and re-run"
+			Exit-Install "GitHub's API refused the request because of its rate limit. Wait, or set GITHUB_TOKEN to a token with public read access and re-run"
 		}
 		if ($status -eq 401) {
 			Exit-Install 'GitHub rejected the credentials in GITHUB_TOKEN - unset it, or replace it with one that has public read access'
 		}
-		Exit-Install "cannot fetch the $Release release (none published yet, or network down)"
+		Exit-Install "can't fetch the $Release release (none published yet, or network down)"
 	}
 	$rel = Select-ReleaseTag -Channel $Release -Releases $rel
 	if (-not $rel -or -not $rel.tag_name) { Exit-Install "no $Release release found" }
@@ -635,15 +650,15 @@ installed.
 	$channel = $Release
 	if ($Release -eq 'stable' -and $rel.prerelease) { $channel = 'stable, but no full release yet, so the newest pre-release' }
 
-	## The drop-in payload is a tar.gz. Windows 10 1803 and Server 2019 ship tar;
-	## anything older finds out here, before a download, not after.
+	## The drop-in payload is a tar.gz. Windows 10 1803 and Server 2019 include
+	## tar, and anything older finds out here, before a download.
 	if (-not (Test-Path -LiteralPath (Get-ShclTar) -PathType Leaf)) {
-		Exit-Install 'needs tar to unpack the drop-in payload (Windows 10 1803, Server 2019 and later ship it) - on an older Windows use the setup .exe from the releases page'
+		Exit-Install 'needs tar to unpack the drop-in payload, which Windows 10 1803, Server 2019, and later include - on an older Windows use the setup .exe from the releases page'
 	}
 
 	## State the plan, then confirm.
-	## A plain run after -Release dev goes back to the stable release, and that
-	## used to read as an ordinary update.
+	## A plain run after -Release dev goes back to the stable release, and the
+	## plan used to show that as an ordinary update.
 	$existing = 'new install'
 	$installed = ''
 	$older = $false
@@ -675,7 +690,7 @@ installed.
 	$targetProblem = Test-InstallTarget -Dest $dest
 	if ($targetProblem) {
 		if ($Target -eq 'system') { Exit-Install $targetProblem }
-		Exit-Install "$targetProblem (check that the folder is not read-only, and that antivirus is not blocking it)"
+		Exit-Install "$targetProblem (check that the folder isn't read-only, and that antivirus isn't blocking it)"
 	}
 
 	$tmpParent = [IO.Path]::GetTempPath()
@@ -694,23 +709,24 @@ installed.
 		Save-ReleaseAsset -Uri "$base/shcl-$version-sha256sums.txt" -OutFile $sums -Name 'sha256sums'
 		Save-ReleaseAsset -Uri "$base/shcl-$version-sha256sums.txt.sig" -OutFile $sumsSig -Name 'sha256sums signature'
 
-		## Check the signature before trusting anything the sums file says. Order is
-		## the whole point: a checksum read out of an unverified file proves nothing.
+		## Check the signature before trusting anything the sums file says, because
+		## a checksum read out of an unverified file proves nothing.
 		if (-not (Test-ReleaseSignature -Path $sums -SignaturePath $sumsSig)) {
 			Exit-Install 'signature check failed on sha256sums - refusing to install'
 		}
 
-		## Anchored on the name, the way install.bash greps it: the sums file has a
-		## line per binary and per package, and an unanchored match would take
-		## whichever of those came first once one asset name contains another.
+		## The match is anchored on the name, the way install.bash greps it. The
+		## sums file has a line per binary and per package, and an unanchored
+		## match would take whichever of those came first once one asset name
+		## contains another.
 		$want = (Get-Content -LiteralPath $sums | Where-Object { $_ -cmatch ('\s' + [regex]::Escape($asset) + '$') } | ForEach-Object { ($_ -split '\s+')[0] } | Select-Object -First 1)
 		$got = (Get-FileHash -Algorithm SHA256 -LiteralPath $tmpExe).Hash.ToLower()
 		if (-not $want -or $got -ne $want.ToLower()) { Exit-Install "sha256 mismatch on $asset" }
 
-		## Drop-in code files come from a release asset covered by the
+		## Drop-in code files come from a release asset that's listed in the
 		## same signed sums file as the binary. They used to come from GitHub's
-		## generated source zipball, which has neither a signature nor a
-		## checksum. Releases predating the asset install the binary alone.
+		## generated source zipball, which doesn't have a signature or a
+		## checksum. A release from before the asset installs the binary alone.
 		$dropins = "shcl-$version-dropins.tar.gz"
 		$wantSrc = (Get-Content -LiteralPath $sums | Where-Object { $_ -cmatch ('\s' + [regex]::Escape($dropins) + '$') } | ForEach-Object { ($_ -split '\s+')[0] } | Select-Object -First 1)
 		$haveDropins = $false
@@ -723,23 +739,23 @@ installed.
 			$unpackDir = Join-Path -Path $tmp -ChildPath 'x'
 			New-Item -ItemType Directory -Path $unpackDir | Out-Null
 			Expand-ShclPayload -Archive (Join-Path -Path $tmp -ChildPath 'dropins.tgz') -Dest $unpackDir
-			if ($LASTEXITCODE -ne 0) { Exit-Install "cannot unpack $dropins" }
+			if ($LASTEXITCODE -ne 0) { Exit-Install "can't unpack $dropins" }
 			$srcroot = Get-Item -LiteralPath $unpackDir
 			$haveDropins = $true
 		}
 
-		## Run it from the temp dir before anything is written, the way the Linux
-		## installer does: a binary that will not start here should never become
-		## an install.
+		## Run it from the temp dir before anything is written, the way
+		## install.bash does, because a binary that won't start here should never
+		## become an install.
 		$smoke = Invoke-ShclSmoke -Exe $tmpExe
 		$smokeOut = $smoke.Out
 		if ($smoke.Code -ne 0) {
-			Exit-Install "the downloaded shcl.exe does not run here: $($smokeOut -join ' ')"
+			Exit-Install "the downloaded shcl.exe doesn't run here: $($smokeOut -join ' ')"
 		}
 
-		## Install. The binary goes in via a temp name + Move-Item in the same dir,
-		## so a running copy only ever sees the complete old or new file.
-		## A failure here is one message, not the raw exception.
+		## Install. The binary goes in through a temp name and a Move-Item in the
+		## same dir, so a running copy only ever sees the complete old or new
+		## file. A failure here prints one message instead of the raw exception.
 		try {
 			New-Item -ItemType Directory -Force -Path $dest | Out-Null
 			Copy-Item -LiteralPath $tmpExe -Destination (Join-Path -Path $dest -ChildPath '.shcl.exe.new')
@@ -749,10 +765,10 @@ installed.
 				$payloadRoot = $srcroot.FullName
 				Copy-Item -LiteralPath "$payloadRoot\source\rust\src\lib.rs", "$payloadRoot\source\go\shcl.go", "$payloadRoot\source\python\shcl.py", "$payloadRoot\source\c\shcl.h", "$payloadRoot\source\c\shcl.hpp" -Destination (Join-Path -Path $dest -ChildPath 'code')
 			}
-			## What this release does not ship goes, by name, when the install was
-			## another version: a newer release's drop-ins left beside an older
-			## binary describe the wrong format. On the same version they can
-			## only have been put there by hand, so they stay.
+			## When the install was another version, the files this release
+			## doesn't include are removed by name. A newer release's drop-ins
+			## left beside an older binary describe the wrong format. On the same
+			## version they can only have been put there by hand, so they stay.
 			$dropped = $false
 			$codeDir = Join-Path -Path $dest -ChildPath 'code'
 			if (-not $haveDropins -and $installed -ne $version -and (Test-Path -LiteralPath $codeDir -PathType Container)) {
@@ -767,12 +783,12 @@ installed.
 		} catch {
 			$ex = $_.Exception
 			while ($ex.InnerException) { $ex = $ex.InnerException }
-			Exit-Install "cannot write $dest - $($ex.Message)"
+			Exit-Install "can't write $dest - $($ex.Message)"
 		}
 
 		if (Update-ShclPath -Scope $pathScope -Dir $pathDir) {
 			Write-Output "added $pathDir to the $pathScope PATH (new shells pick it up)"
-			## Nudge running shells; best-effort.
+			## Nudge running shells, if Windows lets us.
 			try {
 				$sig = '[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)] public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);'
 				$w32 = Add-Type -MemberDefinition $sig -Name 'ShclEnvBroadcast' -Namespace 'Win32' -PassThru
@@ -791,26 +807,27 @@ installed.
 		}
 		if ($dropped) {
 			$was = if ($installed) { $installed } else { 'earlier' }
-			Write-Output "note: removed the drop-ins the $was install had, since this release does not ship them"
+			Write-Output "note: removed the drop-ins the $was install had, since this release doesn't include them"
 		}
-		## Written over a setup install: its Add/Remove Programs entry still
-		## names the version it put there, which is no longer what is on disk.
+		## After writing over a setup install, its Add/Remove Programs entry
+		## still names the version it put there, which isn't what's on disk now.
 		if (Test-Path -LiteralPath (Join-Path -Path $dest -ChildPath 'uninstall.exe')) {
 			Write-Output "note: $dest came from the shcl setup - its Add/Remove Programs entry still shows the version it installed"
 		}
-		if (-not $haveDropins) { Write-Output "note: this release ships no signed drop-in payload, so $dest\code was skipped - take the files from the repo if you want them" }
+		if (-not $haveDropins) { Write-Output "note: this release doesn't have a signed drop-in payload, so $dest\code was skipped - take the files from the repo if you want them" }
 		$rerun = if ($invokedAsFile) { "& '$scriptPath'" } else { '& ([scriptblock]::Create((irm https://raw.githubusercontent.com/yottacore/shcl/main/install.ps1)))' }
 		Write-Output "to remove it again: $rerun -Uninstall -Target $Target"
-		## And what `shcl` actually resolves to: the receipt below runs the copy
-		## just written, so another one earlier on PATH used to be invisible
-		## here. A user install cannot get ahead of a machine one - windows puts
-		## the machine entries first - so a setup.exe install shadows it until
-		## that one is removed, and saying so is all this can do.
+		## Also say what `shcl` resolves to. The receipt below runs the copy just
+		## written, so another one earlier on PATH used to go unseen here. A user
+		## install can't get ahead of a machine one, since Windows puts the
+		## machine entries first. So a setup.exe install shadows it until that
+		## one is removed, and the note is all the installer can do about it.
 		$onPath = Get-ShclShadow -Installed "$dest\shcl.exe"
 		if ($onPath) {
-			Write-Output "note: shcl on your PATH is $onPath, not the copy just installed - it comes first on PATH"
+			Write-Output "note: the shcl on your PATH is $onPath, which comes before the copy just installed"
 		}
-		## Already proved above, from the temp dir; this line is the receipt.
+		## The smoke test above already ran it from the temp dir, so this line
+		## is only the receipt.
 		Write-Output $smokeOut
 		Write-Output ''
 	} finally {

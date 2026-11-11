@@ -109,7 +109,7 @@ other_branch="$(git -C "${work}/other" branch --show-current)"
 if ( cd "${work}" && bash "${script}" --yes --dir other >"${work}/out" 2>&1 </dev/null ); then
 	fail "the default path accepted a repository that is not an shcl clone"
 fi
-grep -qF "is not an shcl clone" "${work}/out" || fail "the default path did not refuse a foreign repository up front"
+grep -qF "isn't an shcl clone" "${work}/out" || fail "the default path did not refuse a foreign repository up front"
 [[ "$(git -C "${work}/other" branch --show-current)" == "${other_branch}" ]] || fail "a refused run switched a foreign repository's branch"
 [[ -z "$(git -C "${work}/other" config --local core.hooksPath || true)" ]] || fail "the default path set hooksPath on a foreign repository"
 
@@ -119,7 +119,7 @@ mkdir -p "${work}/stuff" && : >"${work}/stuff/keep"
 if ( cd "${work}" && bash "${script}" --yes --dir stuff >"${work}/out" 2>&1 </dev/null ); then
 	fail "the default path accepted a non-empty directory that is not a clone"
 fi
-grep -qF "is not an shcl clone" "${work}/out" || fail "the default path did not refuse a non-empty directory up front"
+grep -qF "isn't an shcl clone" "${work}/out" || fail "the default path did not refuse a non-empty directory up front"
 
 fTest dcwqs the plan is built off the pins in the config
 ## 20260920 idea 6: everything between the option parse and the hook setup ran
