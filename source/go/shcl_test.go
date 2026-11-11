@@ -5178,7 +5178,7 @@ func TestAKeptLineGoneFromTheTreeRefusesTheSave(t *testing.T) {
 	if err := doc.SaveFile(path); !errors.As(err, &refused) || refused.Lost != 1 {
 		t.Fatalf("SaveFile: %v", err)
 	}
-	if want := path + ": refusing to save: this write would delete 1 line(s)/value(s) from the file (see diagnostics; SaveFileLossy overrides)"; refused.Error() != want {
+	if want := path + ": refusing to save: this write would delete 1 line(s) or value(s) from the file; the diagnostics say which, and SaveFileLossy writes anyway"; refused.Error() != want {
 		t.Fatalf("SaveFile said %q, want %q", refused.Error(), want)
 	}
 	if _, err := doc.SaveFileKeepLines(path); !errors.As(err, &refused) || refused.Lost != 1 {
@@ -7492,7 +7492,7 @@ func TestASaveOverAFileChangedSinceTheLoadIsRefused(t *testing.T) {
 	changed("save", doc.SaveFile(f), f)
 	changed("lossy save", doc.SaveFileLossy(f), f)
 	has(f, "a: 9\n")
-	if err := doc.SaveFile(f); err == nil || err.Error() != f+": refusing to save: what is there is not what this document read or wrote; nothing written (force overrides)" {
+	if err := doc.SaveFile(f); err == nil || err.Error() != f+": refusing to save: what's there isn't what this document read or wrote; nothing written, and force writes over it" {
 		t.Errorf("message: %v", err)
 	}
 	if k, err := doc.SaveFileWith(f, SaveOptions{Force: true}); err != nil || k {
@@ -7814,7 +7814,7 @@ func TestACreateOnlySaveRefusesAFileAlreadyThere(t *testing.T) {
 	doc.SetInt("a", 2)
 	_, err := doc.SaveFileWith(f, create)
 	exists("create over a file", err, f)
-	if err == nil || err.Error() != f+": refusing to save: the file is already there and create asks for a new one; nothing written" {
+	if err == nil || err.Error() != f+": refusing to save: a file is already there, but create asks for a new one; nothing written" {
 		t.Errorf("message: %v", err)
 	}
 	// Force is the changed check's override, not this one's.
@@ -7960,7 +7960,7 @@ func TestANewerFormatDocumentSavesNowhere(t *testing.T) {
 	}
 	err := doc.SaveFile(f)
 	tooNew("save", err, f)
-	if err == nil || err.Error() != f+": refusing to save: the document holds lines from a newer format than this reader's; nothing written" {
+	if err == nil || err.Error() != f+": refusing to save: the document has lines from a newer format than this reader's; nothing written" {
 		t.Errorf("message: %v", err)
 	}
 	tooNew("lossy", doc.SaveFileLossy(f), f)

@@ -4132,7 +4132,7 @@ fn generation_bounds_a_multiplying_schema() {
 	s.push_str("fragment: f2000\n\tfield: leaf\nfield: top\n\tinherits: f0\n");
 	let out = generate(&Document::parse(&s), false).expect("deep chain should generate");
 	assert!(
-		out.contains("not generated"),
+		out.contains("weren't generated"),
 		"deep chain should be noted, not expanded"
 	);
 	// And what it does emit still loads clean, which is generation's promise.
@@ -6351,7 +6351,7 @@ fn a_save_over_a_file_changed_since_the_load_is_refused() {
 	assert_eq!(
 		doc.save_file(&f).unwrap_err().to_string(),
 		format!(
-			"{f}: refusing to save: what is there is not what this document read or wrote; nothing written (force overrides)"
+			"{f}: refusing to save: what's there isn't what this document read or wrote; nothing written, and force writes over it"
 		)
 	);
 	assert_eq!(doc.save_file_with(&f, &force), Ok(false));
@@ -6461,7 +6461,7 @@ fn a_create_only_save_refuses_a_file_already_there() {
 	assert_eq!(
 		exists.to_string(),
 		format!(
-			"{f}: refusing to save: the file is already there and create asks for a new one; nothing written"
+			"{f}: refusing to save: a file is already there, but create asks for a new one; nothing written"
 		)
 	);
 	// force is the changed check's override, not this one's.
@@ -6591,7 +6591,7 @@ fn a_newer_format_document_saves_nowhere() {
 	assert_eq!(
 		too_new(&f).to_string(),
 		format!(
-			"{f}: refusing to save: the document holds lines from a newer format than this reader's; nothing written"
+			"{f}: refusing to save: the document has lines from a newer format than this reader's; nothing written"
 		)
 	);
 	assert_eq!(doc.save_file_lossy(&f), Err(too_new(&f)));

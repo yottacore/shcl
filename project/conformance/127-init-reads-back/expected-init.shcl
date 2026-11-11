@@ -37,7 +37,7 @@ repo("org/name#123").branch: main
 ## any
 # m.x:
 
-## Paths needing an instance name (not generated):
+## These paths need an instance name, so they weren't generated:
 ##   m.x   f◉NEWLINE◉b: 1
 
 ##

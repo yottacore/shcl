@@ -1,7 +1,7 @@
 ## string, one of: x\ny, z, required
 mode: "x\ny"
 
-## Paths needing an instance name (not generated):
+## These paths need an instance name, so they weren't generated:
 ##   a(2)   int
 ##   w(*).x   int
 
