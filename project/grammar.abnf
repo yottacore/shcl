@@ -1,14 +1,14 @@
 ; SHCL - Simple Hierarchical Config Language
 ; Formal grammar (ABNF, RFC 5234 + RFC 7405 case-sensitive strings).
 ;
-; ABNF cannot express indentation sensitivity or fenced-block termination on
-; its own; those are context-sensitive and are specified in prose in spec.md
-; (see "Structure & hierarchy" and "Raw blocks"). This grammar covers the
-; line-level and value-level syntax. Where a rule depends on runtime context
-; (current indent stack, active fence), that dependency is noted inline.
+; ABNF can't express indentation sensitivity or fenced-block termination on
+; its own. Both are context-sensitive, and spec.md gives them in prose under
+; "Structure and hierarchy" and "Raw blocks". This grammar is the line-level
+; and value-level syntax. Where a rule depends on runtime context (current
+; indent stack, active fence), that dependency is noted inline.
 ;
 ; The escape mark is U+25C9, written %x25C9 below. The escape names, the bare
-; text class and the formatter's bare class are generated from one list by
+; text class, and the formatter's bare class are generated from one list by
 ; cicd/utility/gen-escapes.py, in the block near the end.
 
 ;-----------------------------------------------------------------------------
@@ -40,16 +40,17 @@ field-line      = indent path *blank ":" *blank [ value ] *blank [ comment ]
                 ; Semantic (not expressible in ABNF): a selector on the LAST path
                 ; segment already supplies that instance's value, so a trailing
                 ; value (field(disc): value) is grammar-legal but not a valid
-                ; binding - the instance is created from the discriminator and the
-                ; value is reported (Error) and dropped. See spec.md "Selectors".
+                ; binding. The instance is created from the discriminator, and the
+                ; value is reported (Error) and dropped. See spec.md "Dot and
+                ; paren (inline form)".
                 ; Semantic likewise: the wildcard selector (*) is query-only. On
                 ; a binding line it is grammar-legal but reported (Error,
                 ; "wildcard selector is query-only") and the whole line skipped.
                 ; An index-sel on a binding line selects an existing instance
                 ; by position and creates nothing: with no instance there the
                 ; line is reported (Error E003) and dropped, since a file names
-                ; an instance by its value, not by a position the next edit
-                ; could move.
+                ; an instance by its value rather than by a position the next
+                ; edit could move.
                 ; Semantic too: a field with lines under it takes a scalar or
                 ; nothing. An array there is E028.
 
@@ -65,15 +66,15 @@ segment         = field-name *blank [ selector ]
 selector        = "(" *blank sel-body *blank ")"
 sel-body        = index-sel / value-sel
 index-sel       = [ "+" ] 1*DIGIT              ; bare integer = index
-                ; a leading "+" is accepted (list(+1) = list(1)); "-" is not
-                ; an index sign - (-1) is a value selector. The old "[#N]"
+                ; a leading "+" is accepted (list(+1) = list(1)). "-" isn't
+                ; an index sign, so (-1) is a value selector. The old "[#N]"
                 ; index is gone: a bare body that starts with "#" opens a
                 ; comment on a file line and is refused in a query.
 value-sel       = quoted / bare-sel           ; non-numeric bare, or quoted (forces value)
 bare-sel        = 1*( sel-text / escape )
                 ; a bare selector's scan runs to the first ")", so a "." passes
                 ; through (base(St.Paul).p resolves). It is stricter than a
-                ; value: whitespace, a quote, a ":", a ",", a bracket or a
+                ; value: whitespace, a quote, a ":", a ",", a bracket, or a
                 ; paren in it is E025, a quote that opens it and never closes
                 ; is E017, and a "#" opens a comment, which leaves the
                 ; selector unterminated (E014). To embed any of those, quote
@@ -92,7 +93,7 @@ name-char       = ALPHA / DIGIT / "-" / "_"
 ;-----------------------------------------------------------------------------
 ; Values
 ;-----------------------------------------------------------------------------
-; Type is NOT encoded in syntax; every value is stored as raw text and typed
+; Type isn't encoded in syntax. Every value is stored as raw text and typed
 ; on read by the consumer (accessor-driven). An array is the only value-level
 ; structural distinction. Numbers/bools/dates are recognized only at read time
 ; by the coercion rules in spec.md. A backslash is plain text everywhere.
@@ -106,21 +107,21 @@ array           = "[" *blank [ element *( *blank "," *blank element ) *blank ] "
 element         = quoted / backticked / bare-elem
 bare-elem       = *":" bare-unit *( *":" bare-unit )
                 ; every "," splits inside the brackets, with or without a blank
-                ; after it, so [a,b] is 2 elements. A bare element holds no
-                ; whitespace and does not end in ":" (E025).
+                ; after it, so [a,b] is 2 elements. A bare element can't have
+                ; whitespace or end in ":" (E025).
 scalar          = quoted / backticked / bareword
 
 quoted          = dquoted / squoted
 dquoted         = DQUOTE *( escape / dqchar ) DQUOTE
 squoted         = SQUOTE *( escape / sqchar ) SQUOTE
 dqchar          = %x00-09 / %x0B-21 / %x23-25C8 / %x25CA-10FFFF
-                ; anything but LF, DQUOTE and the escape mark
+                ; anything but LF, DQUOTE, and the escape mark
 sqchar          = %x00-09 / %x0B-26 / %x28-25C8 / %x25CA-10FFFF
-                ; anything but LF, "'" and the escape mark
-                ; The two quotes differ only in which one each can hold as
+                ; anything but LF, "'", and the escape mark
+                ; The 2 quotes differ only in which one each can contain as
                 ; text. A quoted piece is quoted only when its first char is
                 ; the quote and the matching quote that closes it is the last
-                ; thing before the piece ends (a ",", a "]", a comment or the
+                ; thing before the piece ends (a ",", a "]", a comment, or the
                 ; line end). A piece that opens one and never closes it that
                 ; way is E017: the line is kept as written and binds nothing.
 backticked      = "`" *btchar "`"
@@ -137,15 +138,15 @@ bare-joint      = bare-punct / SQUOTE
                 ; so an apostrophe with text right before and after it is
                 ; text, as in O'Brien. Next to a blank or an end it is E025.
 bare-unit       = bare-text / escape
-                ; what the PARSER takes. Everything after the ":" up to an
+                ; what the parser takes. Everything after the ":" up to an
                 ; unquoted "#" is the value, trimmed at both edges of a SP,
-                ; HTAB or CR only. Spaces inside are kept as typed, so
+                ; HTAB, or CR only. Spaces inside are kept as typed, so
                 ; "q: needs no quotes" is fine. Any other whitespace (a tab or
                 ; another White_Space character), a quote other than that
-                ; apostrophe, a backtick, a "[" or a "]" is E025, so
+                ; apostrophe, a backtick, a "[", or a "]" is E025, so
                 ; k: say "hi" is an error. A ":" or ","
-                ; needs a character other than whitespace right after it:
-                ; t: 12:30, d: :0 and o: rw,noatime are text. A ":" before a
+                ; needs a character other than whitespace right after it, so
+                ; t: 12:30, d: :0, and o: rw,noatime are text. A ":" before a
                 ; blank or the end is E025 (h: a.com port: 80), and a "," there
                 ; is E026, since an array is written in brackets. Only a
                 ; leading "[" opens an array.
@@ -157,21 +158,21 @@ bare-unit       = bare-text / escape
 escape          = %x25C9 escape-name %x25C9
 code-point      = code-prefix 1*6HEXDIG
                 ; Names are a closed list and ignore case. Anything else
-                ; between two marks, and a mark with no partner, is E023, and
+                ; between 2 marks, and a mark with no partner, is E023, and
                 ; so is a code point naming a surrogate (D800-DFFF) or a value
-                ; past 10FFFF. Escapes work in names, values, array elements
+                ; past 10FFFF. Escapes work in names, values, array elements,
                 ; and selector bodies, bare or quoted, but not in comments,
-                ; backtick values, fence labels or raw bodies. The writer uses
-                ; the first name of each and U+ with at least four digits.
+                ; backtick values, fence labels, or raw bodies. The writer uses
+                ; the first name of each and U+ with at least 4 digits.
 
 fmt-bareword    = 1*fmt-unit
 fmt-unit        = fmt-bare-char [ variation-sel ] / %x200C-200D / subdivision-flag
-                ; the bare shape the FORMATTER emits for a value, a list item
-                ; or an array element, reached from nothing above. Text
-                ; holding anything outside this class, or a run that would
-                ; read as a fence, comes back quoted, and so does a quoted
-                ; value, whatever it holds. The parser takes a space, ":",
-                ; ",", "(" and ")" bare, but the writer quotes them all
+                ; the bare form the formatter emits for a value, a list item,
+                ; or an array element. No rule above refers to it. Text with
+                ; anything outside this class, or a run that would read as a
+                ; fence, comes back quoted, and so does a quoted value,
+                ; whatever it contains. The parser takes a space, ":",
+                ; ",", "(", and ")" bare, but the writer quotes them all
                 ; (2:30PM, localhost:8080, rw,noatime).
 subdivision-flag= %x1F3F4 3*7flag-tag %xE007F
 flag-tag        = %xE0030-E0039 / %xE0061-E007A
@@ -215,45 +216,47 @@ code-prefix     = "U+" / "UNICODE+" / "UNICODE-" / "UNICODE_"
                 ; character the formatter writes as an escape (spec.md,
                 ; "Escapes"). "\" is in: the formatter leaves a backslash
                 ; bare. The joiners, a variation selector after a visible
-                ; character and the tags of a subdivision flag are written as
+                ; character, and the tags of a subdivision flag are written as
                 ; they are, so fmt-bareword places them. bare-text is every
                 ; character but White_Space and the reserved set, and it
-                ; keeps the parens.
+                ; includes the parens.
 
 ;-----------------------------------------------------------------------------
 ; Stacked lists
 ;-----------------------------------------------------------------------------
 ; The other spelling of an array: an empty-valued field whose child lines are
 ; all "- item" is identical to that field with the bracket array of the same
-; items. Context-sensitive (indentation), enforced in prose (spec.md,
-; "Arrays"):
-;   - opens only under a field-line whose inline value is EMPTY;
+; items. It depends on indentation, so spec.md gives the rules in prose under
+; "Arrays":
+;   - opens only under a field-line whose inline value is empty;
 ;   - uniform-or-nothing: at that child indent every line is an item or none;
-;   - one item per line; a "," before a blank or the end is E026, not a split;
+;   - one item per line; a "," before a blank or the end is E026 rather than
+;     a split;
 ;   - scalars only: an item has no "field: value" children, and an item that
 ;     is an array is E019.
-; "-" is not a name-char that can start a bare name, and the blank after it
+; "-" isn't a name-char that can start a bare name, and the blank after it
 ; is required, so an item never reads as a field line. A line led by "*", the
 ; old marker, is E013.
 
 list-item-line  = indent "-" 1*blank list-item *blank [ comment ]
 list-item       = quoted / backticked / bareword
                 ; a bare item takes spaces as a value does. A ":" before a
-                ; blank or the end is E027 (- name:, - name: value), since that
-                ; is how YAML starts an object in a list. - "name:" is the
+                ; blank or the end is E027 (- name:, - name: value), since
+                ; that's how YAML starts an object in a list. - "name:" is the
                 ; text, and - localhost:8080 is fine.
 
 ;-----------------------------------------------------------------------------
 ; Raw (fenced) blocks
 ;-----------------------------------------------------------------------------
 ; Fence termination and base-indent stripping are context-sensitive (spec.md).
-; A block opens with >=3 identical fence chars; it closes at the first later
-; line whose trimmed text is a run of the SAME char, length >= the opener.
+; A block opens with 3 or more identical fence chars, and it closes at the
+; first later line whose trimmed text is a run of the same char, with length
+; >= the opener.
 
 fence-line      = indent fence-open *blank [ comment ]
                 ; a value line for the parent field (spec.md): fills the parent's
                 ; empty value, or creates a new instance of the parent if it
-                ; already has one - same rule as a repeated leaf.
+                ; already has one, by the same rule as a repeated leaf.
 fence-open      = fence-run [ info-string ]
 fence-run       = 3*"`" / 3*"~"                 ; run length N captured for close-match
 info-string     = *blank 1*info-char *( *blank 1*info-char )
@@ -262,8 +265,8 @@ info-string     = *blank 1*info-char *( *blank 1*info-char )
                                                ; the line's comment, in either spelling,
                                                ; so ```c# labels the block c
 info-char       = %x00-08 / %x0B-0C / %x0E-1F / %x21-22 / %x24-10FFFF
-                ; any char but a blank, LF and "#". Wider than fmt-bare-char
-                ; on purpose: ":", ",", quotes, "[" and the escape mark are
+                ; any char but a blank, LF, and "#". Wider than fmt-bare-char
+                ; on purpose: ":", ",", quotes, "[", and the escape mark are
                 ; plain text in a label (```sql:pg, "v" [x] reads back as
                 ; written, and SetRaw writes it).
 raw-content-line= *non-newline                 ; verbatim; only while a fence is open

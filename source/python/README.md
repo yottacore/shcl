@@ -4,9 +4,9 @@
 
 **S**imple **H**ierarchical **C**onfig **L**anguage. Forgiving to write, predictable to read.
 
-Values are stored as plain text and coerced only when *your* code asks for a type, so a config file can never silently decide that `NO` means `false`. A bad line is skipped or repaired with a diagnostic instead of taking down the whole file.
+Values are stored as plain text and coerced only when *your* code asks for a type, so `NO` in a config file never silently turns into `false`. A bad line is skipped or repaired with a diagnostic instead of taking down the whole file.
 
-It uses only the standard library, and it's one module without any dependencies. A shared conformance corpus checks it byte-for-byte against the Rust reference.
+This package is one module, and it uses only the standard library. A shared conformance corpus checks it byte-for-byte against the Rust reference.
 
 ## Install
 
@@ -50,7 +50,7 @@ doc.save_file("server.shcl")
 
 `Document.parse` never raises, and neither does `load_file`. When you want a hard error instead, use `Document.parse_with(text, Strictness.Strict)` or `load_file_with(path, Strictness.Strict)`, which raise `LoadError`. A `get_*` call without a `default=` raises `StatusError` rather than inventing a value.
 
-The library also has `merge` for layered config such as defaults, site, and user, `validate` against a schema that is itself a SHCL file, a full writer, and a canonical formatter that preserves comments.
+The library also has `merge` for layered config, such as defaults, then site, then user. `validate` checks a document against a schema, which is itself a SHCL file. There's also a full writer, and a canonical formatter that preserves comments.
 
 Python 3.9 or newer.
 

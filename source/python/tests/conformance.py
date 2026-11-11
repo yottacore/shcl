@@ -2863,7 +2863,7 @@ def main():
 			except shcl.SaveRefused as e:
 				if e.lost != 1:
 					fails.append(f"kept gate: {save.__name__} refused with {e.lost}")
-				if str(e) != f"{kpath}: refusing to save: this write would delete 1 line(s)/value(s) from the file (see diagnostics; save_file_lossy overrides)":
+				if str(e) != f"{kpath}: refusing to save: this write would delete 1 line(s) or value(s) from the file; the diagnostics say which, and save_file_lossy writes anyway":
 					fails.append(f"kept gate: {save.__name__} said {e}")
 		with open(kpath, encoding="utf-8", newline="") as kf:
 			if kf.read() != kbase:
@@ -3722,7 +3722,7 @@ def main():
 		def deny_replace(*_a: Any, **_k: Any) -> None:
 			raise PermissionError(errno.EACCES, wdenied, wtmp, "C:\\Users\\x\\reason.shcl")
 
-		wcalls: list[tuple[str, Any, str]] = [("temp file", deny_open, f"{wtarget}: cannot create temporary file: {wdenied}")]
+		wcalls: list[tuple[str, Any, str]] = [("temp file", deny_open, f"{wtarget}: can't create a temporary file: {wdenied}")]
 		# A replace on windows is ReplaceFile first, so only POSIX gets here.
 		if os.name != "nt":
 			wcalls.append(("publish", deny_replace, f"{wtarget}: {wdenied}"))
@@ -5683,7 +5683,7 @@ def main():
 		refused("plain", lambda: cdoc.save_file(cf), cf)
 		refused("lossy", lambda: cdoc.save_file_lossy(cf), cf)
 		same("left", cread(cf), "a: 9\n")
-		same("message", refused("plain", lambda: cdoc.save_file(cf), cf), f"{cf}: refusing to save: what is there is not what this document read or wrote; nothing written (force overrides)")
+		same("message", refused("plain", lambda: cdoc.save_file(cf), cf), f"{cf}: refusing to save: what's there isn't what this document read or wrote; nothing written, and force writes over it")
 		same("force", cdoc.save_file_with(cf, force), False)
 		same("forced", cread(cf), "a: 2\n")
 		# The next save is checked against what that one wrote.
@@ -5944,7 +5944,7 @@ def main():
 		xsame("made text", xread(xf), "a: 1\n")
 		xdoc.set_int("a", 2)
 		xsame("message", xrefused("there", lambda: xdoc.save_file_with(xf, create), xf),
-			f"{xf}: refusing to save: the file is already there and create asks for a new one; nothing written")
+			f"{xf}: refusing to save: a file is already there, but create asks for a new one; nothing written")
 		# force is the changed check's override, not this one's.
 		xrefused("forced", lambda: xdoc.save_file_with(xf, shcl.SaveOptions(create=True, force=True)), xf)
 		xsame("left", xread(xf), "a: 1\n")
@@ -6042,7 +6042,7 @@ def main():
 		nsame("set", ndoc.set_int("a", 2), shcl.SetStatus.Ok)
 		nsame("read after", ndoc.get_int("a"), 2)
 		nsame("message", nrefused("save", lambda: ndoc.save_file(nf), nf),
-			f"{nf}: refusing to save: the document holds lines from a newer format than this reader's; nothing written")
+			f"{nf}: refusing to save: the document has lines from a newer format than this reader's; nothing written")
 		nrefused("lossy", lambda: ndoc.save_file_lossy(nf), nf)
 		nrefused("keep", lambda: ndoc.save_file_keep_lines(nf), nf)
 		# No option overrides it, and it comes before create's check.

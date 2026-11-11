@@ -62,20 +62,20 @@ _shcl() {
 	local -a cmds
 
 	cmds=(
-		'get:read one value (or array) at a path'
+		'get:read one value or array at a path'
 		'set:apply edits and print the file with the edited lines changed'
 		'fmt:print the canonical form of a file'
-		'check:load and print diagnostics'
+		'check:load a file and print its diagnostics'
 		'init:print a starter config from a schema'
-		'count:number of instances at a path'
-		'instances:instance values at a path'
-		'children:child field names under a path'
-		'paths:every field path in the document'
+		'count:print the number of instances at a path'
+		'instances:print the value of each instance at a path'
+		'children:print the child field names under a path'
+		'paths:print every field path in the document'
 		'migrate:rewrite a 2.x file for the current rules'
 		'upgrade:back up and rewrite an older file that does not load clean'
-		'tokens:the lexical spans of each line'
-		'explain:what a diagnostic code means'
-		'help:the help text'
+		'tokens:print the lexical spans of each line'
+		'explain:explain what a diagnostic code means'
+		'help:print the help text'
 	)
 
 	## Word 2 is the subcommand, or an informational flag.

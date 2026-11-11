@@ -178,23 +178,23 @@ impl std::fmt::Display for SaveError {
 		match self {
 			SaveError::Refused { path, lost } => write!(
 				f,
-				"{}: refusing to save: this write would delete {} line(s)/value(s) from the file (see diagnostics; save_file_lossy overrides)",
+				"{}: refusing to save: this write would delete {} line(s) or value(s) from the file; the diagnostics say which, and save_file_lossy writes anyway",
 				path, lost
 			),
 			SaveError::Io(e) => std::fmt::Display::fmt(e, f),
 			SaveError::Changed { path } => write!(
 				f,
-				"{}: refusing to save: what is there is not what this document read or wrote; nothing written (force overrides)",
+				"{}: refusing to save: what's there isn't what this document read or wrote; nothing written, and force writes over it",
 				path
 			),
 			SaveError::Exists { path } => write!(
 				f,
-				"{}: refusing to save: the file is already there and create asks for a new one; nothing written",
+				"{}: refusing to save: a file is already there, but create asks for a new one; nothing written",
 				path
 			),
 			SaveError::TooNew { path } => write!(
 				f,
-				"{}: refusing to save: the document holds lines from a newer format than this reader's; nothing written",
+				"{}: refusing to save: the document has lines from a newer format than this reader's; nothing written",
 				path
 			),
 		}
@@ -4124,7 +4124,7 @@ fn bare_trouble(raw: &str, kind: Bare) -> Option<String> {
 	// a lookup path gets here with one.
 	if kind == Bare::Selector && raw.starts_with('#') {
 		return Some(
-			"a '#' at the start of a bare selector; an index is a bare number, x(0), and a value starting with '#' is quoted"
+			"a '#' at the start of a bare selector; an index is a bare number as in x(0), and a value that starts with '#' is quoted"
 				.to_string(),
 		);
 	}
@@ -4212,7 +4212,7 @@ fn value_fault(tok: &Tokens, text: &str) -> Option<Fault> {
 	(tok.array.is_none() && tok.elements.len() > 1).then(|| {
 		Fault::new(
 			"E026",
-			"a comma then a space or the end in a bare value; write an array in brackets, [a, b], or quote the text",
+			"a comma then a space or the end in a bare value; write an array in brackets as [a, b], or quote the text",
 			true,
 		)
 	})
@@ -4226,7 +4226,7 @@ fn item_fault(tok: &Tokens, text: &str) -> Option<Fault> {
 	if tok.array.is_some() {
 		return Some(Fault::new(
 			"E019",
-			"a list item is one value, and arrays do not nest; quote the item if it is text",
+			"a list item is one value, and arrays don't nest; quote the item if it is text",
 			true,
 		));
 	}
@@ -4308,7 +4308,7 @@ fn name_fault(tok: &Tokens, text: &str) -> Option<Fault> {
 	if let Some(at) = tok.bracket_selector {
 		let mut f = Fault::new(
 			"E029",
-			"selector in brackets; write it in parens, name(value), since brackets are only for arrays",
+			"selector in brackets; write it in parens as name(value), since brackets are only for arrays",
 			path_fault(tok, text).is_none(),
 		);
 		f.at = Some(at);
@@ -4323,7 +4323,7 @@ fn name_fault(tok: &Tokens, text: &str) -> Option<Fault> {
 	if tok.sep.is_some() {
 		return Some(Fault::new(
 			"E014",
-			"field name needs quotes; a bare name is a letter, then letters, digits, '-' and '_'",
+			"field name needs quotes; a bare name is a letter, then letters, digits, '-', and '_'",
 			true,
 		));
 	}
@@ -4484,10 +4484,10 @@ fn path_of(tok: &Tokens, text: &str) -> Result<PathScan, String> {
 }
 
 /// Why a lookup path with a selector in brackets is refused.
-const BRACKET_LOOKUP: &str = "selector in brackets; write it in parens, name(value)";
+const BRACKET_LOOKUP: &str = "selector in brackets; write it in parens as name(value)";
 
 /// Why a lookup path with a `#` outside quotes and selectors is refused.
-const COMMENT_LOOKUP: &str = "a '#' opens a comment; quote a name that holds one";
+const COMMENT_LOOKUP: &str = "a '#' opens a comment; quote a name that contains one";
 
 /// Scan a lookup path `a . b (sel) . c`: the document-line spelling plus
 /// the bare `*` segment (the name wildcard - any child name), which document
@@ -5073,7 +5073,7 @@ impl<'a> Parser<'a> {
 		let cross_region = self.reentered.get(&parent).is_some_and(|&rl| at < rl);
 		if at != line && (apart || cross_region) {
 			let message = format!(
-				"{}line {} (same name and value combine)",
+				"{}line {}, since lines with the same name and value combine",
 				h002_head(&self.arena[kept].name),
 				at
 			);
@@ -5844,7 +5844,7 @@ impl<'a> Parser<'a> {
 						if non_last || cross_region {
 							let at = self.arena[cur].line;
 							let message = format!(
-								"{}line {} (same name and value combine)",
+								"{}line {}, since lines with the same name and value combine",
 								h002_head(&self.arena[cur].name),
 								at
 							);
@@ -6462,7 +6462,7 @@ impl<'a> Parser<'a> {
 				self.refuse(
 					lineno,
 					"E013",
-					"a list item is written '- ' now, not '*'",
+					"a list item is written '- ' now rather than '*'",
 					Outcome::Retained {
 						text: trim_wsp_end(rest).to_string(),
 						blank_before: had_blank,
@@ -9729,7 +9729,7 @@ pub fn read_named_schema(text: &str, file: &str) -> NamedSchema {
 	if cfg!(windows) && b.len() >= 2 && ((sep(b[0]) && sep(b[1])) || named.starts_with("\\??\\")) {
 		out.status = SchemaStatus::NetworkPath;
 		out.message = format!(
-			"{}: a Schema line cannot name a network or device path",
+			"{}: a Schema line can't name a network or device path",
 			named
 		);
 		out.path = named;
@@ -9864,7 +9864,10 @@ fn read_schema_file(path: &str) -> Result<String, (SchemaStatus, String)> {
 		if bytes.len() > SCHEMA_LINE_MAX {
 			return Err((
 				SchemaStatus::TooLarge,
-				format!("{}: too large for a schema (over 16 MiB)", path),
+				format!(
+					"{}: too large for a schema, which can't be over 16 MiB",
+					path
+				),
 			));
 		}
 	}
@@ -10017,7 +10020,7 @@ fn write_file_how(file: &str, data: &str, new_only: bool, mode: u32) -> Result<(
 		let why = last.map(|e| e.to_string()).unwrap_or_default();
 		return Err(SaveError::Io(WriteError::new(
 			status,
-			format!("{}: cannot create temporary file: {}", file, why),
+			format!("{}: can't create a temporary file: {}", file, why),
 		)));
 	};
 	let res = (|| -> std::io::Result<()> {
@@ -10114,7 +10117,7 @@ impl std::fmt::Display for UpgradeError {
 			UpgradeError::NotFound(path) => write!(f, "{}: no such file", path),
 			UpgradeError::Ambiguous { path, count } => write!(
 				f,
-				"{}: {} value(s) read one way under 2.x and another under these rules, and the file does not say which it was written for; nothing written",
+				"{}: {} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; nothing written",
 				path, count
 			),
 			UpgradeError::BackupTaken(name) => write!(
@@ -10292,7 +10295,7 @@ pub fn upgrade_file(path: &str, from_v2: bool) -> Result<Upgrade, UpgradeError> 
 	let Ok(text) = String::from_utf8(bytes) else {
 		return Err(UpgradeError::Io(WriteError::new(
 			WriteStatus::Unreadable,
-			format!("{}: cannot be read as UTF-8 text", path),
+			format!("{}: can't be read as UTF-8 text", path),
 		)));
 	};
 	let mut up = upgrade(&text, from_v2);
@@ -14630,7 +14633,7 @@ fn unit_named(name: &str) -> bool {
 fn unit_clash(name: &str, text: &str) -> Option<String> {
 	let said = |v: &str, n: &str| {
 		format!(
-			"value is in {} and the name says {}; the value's unit is the one read",
+			"value is in {} but the name says {}; the value's unit is the one read",
 			v, n
 		)
 	};
@@ -16279,11 +16282,11 @@ pub fn generate(schema: &Document, no_banner: bool) -> Result<String, Vec<Diagno
 	// path for a reason generation did not act on.
 	let why_unwritable = |c: &Constraint| -> &'static str {
 		if c.segs.len() > MAX_DEPTH {
-			return "nests past the depth cap";
+			return "it nests past the depth cap";
 		}
 		for s in &c.segs {
 			if matches!(s.selector, Some(Selector::ByIndex(_))) {
-				return "an index selector needs an instance that does not exist yet";
+				return "an index selector needs an instance that doesn't exist yet";
 			}
 			if s.star {
 				return "a * name segment has no name to write";
@@ -16382,7 +16385,7 @@ pub fn generate(schema: &Document, no_banner: bool) -> Result<String, Vec<Diagno
 			severity: Severity::Error,
 			code: "V097",
 			message: format!(
-				"required path cannot be generated: {} ({})",
+				"required path can't be generated: {}, because {}",
 				schema_text(&c.path),
 				why_unwritable(c)
 			),
@@ -16456,7 +16459,7 @@ pub fn generate(schema: &Document, no_banner: bool) -> Result<String, Vec<Diagno
 				severity: Severity::Error,
 				code: "V097",
 				message: format!(
-					"required path cannot be generated: {} (its parent's value has no selector spelling)",
+					"required path can't be generated: {}, because its parent's value has no selector spelling",
 					schema_text(&c.path)
 				),
 			});
@@ -16546,7 +16549,7 @@ pub fn generate(schema: &Document, no_banner: bool) -> Result<String, Vec<Diagno
 		if !blocks.is_empty() {
 			out.push('\n');
 		}
-		out.push_str("## Paths needing an instance name (not generated):\n");
+		out.push_str("## These paths need an instance name, so they weren't generated:\n");
 		for (p, t) in &wild {
 			out.push_str(&format!("##   {}   {}\n", p, t));
 		}
@@ -16579,7 +16582,7 @@ pub fn generate(schema: &Document, no_banner: bool) -> Result<String, Vec<Diagno
 			line: 0,
 			severity: Severity::Error,
 			code: "V097",
-			message: format!("generated text does not load: {} {}", d.code, d.message),
+			message: format!("generated text doesn't load: {} {}", d.code, d.message),
 		})
 		.chain(
 			gdoc.validate(schema)
@@ -16616,7 +16619,7 @@ pub fn generate(schema: &Document, no_banner: bool) -> Result<String, Vec<Diagno
 					line: 0,
 					severity: Severity::Error,
 					code: "V097",
-					message: format!("generated text does not load: {} {}", d.code, d.message),
+					message: format!("generated text doesn't load: {} {}", d.code, d.message),
 				}),
 		);
 		if one.arena[ROOT].children.is_empty() {
@@ -16631,7 +16634,7 @@ pub fn generate(schema: &Document, no_banner: bool) -> Result<String, Vec<Diagno
 				severity: Severity::Error,
 				code: "V097",
 				message: format!(
-					"generated value fails the schema that produced it: default does not name the instance its path selects: {}",
+					"generated value fails the schema that produced it: default doesn't name the instance its path selects: {}",
 					schema_text(&cons[*i].path)
 				),
 			});
@@ -17138,7 +17141,7 @@ impl Document {
 				line,
 				"V003",
 				format!(
-					"wrong type at '{}': value is not a valid {}",
+					"wrong type at '{}': value isn't a valid {}",
 					schema_text(&c.path),
 					kind.unwrap_or("string")
 				),
@@ -17867,7 +17870,7 @@ mod kept_gate {
 		assert_eq!(
 			refused.to_string(),
 			format!(
-				"{path}: refusing to save: this write would delete 1 line(s)/value(s) from the file (see diagnostics; save_file_lossy overrides)"
+				"{path}: refusing to save: this write would delete 1 line(s) or value(s) from the file; the diagnostics say which, and save_file_lossy writes anyway"
 			)
 		);
 		assert!(matches!(

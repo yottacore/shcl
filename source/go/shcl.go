@@ -4355,7 +4355,7 @@ func bareTrouble(raw string, kind bareKind) (string, bool) {
 	// The old `[#N]` index. A file line reads that `#` as a comment, so only
 	// a lookup path gets here with one.
 	if kind == bareSelector && strings.HasPrefix(raw, "#") {
-		return "a '#' at the start of a bare selector; an index is a bare number, x(0), and a value starting with '#' is quoted", true
+		return "a '#' at the start of a bare selector; an index is a bare number as in x(0), and a value that starts with '#' is quoted", true
 	}
 	for i, c := range raw {
 		var trouble string
@@ -4445,7 +4445,7 @@ func valueFault(tok *Tokens, text string) *fault {
 		}
 	}
 	if tok.Array < 0 && len(tok.Elements) > 1 {
-		return newFault("E026", "a comma then a space or the end in a bare value; write an array in brackets, [a, b], or quote the text", true)
+		return newFault("E026", "a comma then a space or the end in a bare value; write an array in brackets as [a, b], or quote the text", true)
 	}
 	return nil
 }
@@ -4456,7 +4456,7 @@ func valueFault(tok *Tokens, text string) *fault {
 // a list (E027).
 func itemFault(tok *Tokens, text string) *fault {
 	if tok.Array >= 0 {
-		return newFault("E019", "a list item is one value, and arrays do not nest; quote the item if it is text", true)
+		return newFault("E019", "a list item is one value, and arrays don't nest; quote the item if it is text", true)
 	}
 	for i := range tok.Elements {
 		if code, msg, bad := pieceFault(&tok.Elements[i], text, bareItem); bad {
@@ -4525,7 +4525,7 @@ func lineFault(tok *Tokens, text string) *fault {
 // would read as in parens, when that reads.
 func nameFault(tok *Tokens, text string) *fault {
 	if tok.BracketSelector >= 0 {
-		f := newFault("E029", "selector in brackets; write it in parens, name(value), since brackets are only for arrays", pathFault(tok, text) == nil)
+		f := newFault("E029", "selector in brackets; write it in parens as name(value), since brackets are only for arrays", pathFault(tok, text) == nil)
 		f.at = tok.BracketSelector
 		return f
 	}
@@ -4536,7 +4536,7 @@ func nameFault(tok *Tokens, text string) *fault {
 		return wildcardFault(tok, text)
 	}
 	if tok.Sep >= 0 {
-		return newFault("E014", "field name needs quotes; a bare name is a letter, then letters, digits, '-' and '_'", true)
+		return newFault("E014", "field name needs quotes; a bare name is a letter, then letters, digits, '-', and '_'", true)
 	}
 	blank := -1
 	for i := range tok.Segments {
@@ -4736,11 +4736,11 @@ func pathOf(tok *Tokens, text string) (pathScan, error) {
 }
 
 // bracketLookup is why a lookup path with a selector in brackets is refused.
-const bracketLookup = "selector in brackets; write it in parens, name(value)"
+const bracketLookup = "selector in brackets; write it in parens as name(value)"
 
 // commentLookup is why a lookup path with a `#` outside quotes and selectors
 // is refused.
-const commentLookup = "a '#' opens a comment; quote a name that holds one"
+const commentLookup = "a '#' opens a comment; quote a name that contains one"
 
 // scanLookup scans a lookup path `a . b (sel) . c`: the document-line
 // spelling plus the bare `*` segment (the name wildcard - any child name),
@@ -5133,7 +5133,7 @@ func (p *parser) hintFold(parent, kept, gone int, apart bool) {
 		p.diag(Diagnostic{
 			Line:     line,
 			Severity: SeverityHint,
-			Message:  fmt.Sprintf("%sline %d (same name and value combine)", h002Head(p.arena[kept].name), at),
+			Message:  fmt.Sprintf("%sline %d, since lines with the same name and value combine", h002Head(p.arena[kept].name), at),
 			Code:     "H002",
 		})
 		p.reentered[kept] = line
@@ -6010,7 +6010,7 @@ func (p *parser) attachPath(parent int, segs []segment, v value, line int, inden
 					p.diag(Diagnostic{
 						Line:     line,
 						Severity: SeverityHint,
-						Message:  fmt.Sprintf("%sline %d (same name and value combine)", h002Head(seg.name), p.arena[cur].line),
+						Message:  fmt.Sprintf("%sline %d, since lines with the same name and value combine", h002Head(seg.name), p.arena[cur].line),
 						Code:     "H002",
 					})
 					p.reentered[cur] = line
@@ -6555,7 +6555,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 			// to retain, and the items around it still load. The BOM
 			// exception the field arm makes cannot apply here: this line
 			// starts with the '*' that brought us in.
-			p.refuse(lineno, "E013", "a list item is written '- ' now, not '*'", outRetained(trimEndWS(rest), hadBlank), indent)
+			p.refuse(lineno, "E013", "a list item is written '- ' now rather than '*'", outRetained(trimEndWS(rest), hadBlank), indent)
 			i++
 			continue
 		}
@@ -9650,7 +9650,7 @@ func ReadNamedSchema(text, file string) NamedSchema {
 	isSep := func(c byte) bool { return c == '/' || c == '\\' }
 	if runtime.GOOS == "windows" && len(named) >= 2 && ((isSep(named[0]) && isSep(named[1])) || strings.HasPrefix(named, `\??\`)) {
 		out.Status = SchemaNetworkPath
-		out.Message = named + ": a Schema line cannot name a network or device path"
+		out.Message = named + ": a Schema line can't name a network or device path"
 		out.Path = named
 		return out
 	}
@@ -9776,7 +9776,7 @@ func readSchemaFile(path string) (string, SchemaStatus, error) {
 		n, err := f.Read(chunk)
 		b = append(b, chunk[:n]...)
 		if len(b) > schemaLineMax {
-			return "", SchemaTooLarge, fmt.Errorf("%s: too large for a schema (over 16 MiB)", path)
+			return "", SchemaTooLarge, fmt.Errorf("%s: too large for a schema, which can't be over 16 MiB", path)
 		}
 		if err == io.EOF {
 			break
@@ -9904,7 +9904,7 @@ func writeFileHow(file, data string, newOnly bool, mode os.FileMode) error {
 		last = oerr
 	}
 	if f == nil {
-		return writeFailed(last, "%s: cannot create temporary file: %w", file, osReason(last))
+		return writeFailed(last, "%s: can't create a temporary file: %w", file, osReason(last))
 	}
 	var err error
 	if _, werr := f.WriteString(data); werr != nil {
@@ -10018,7 +10018,7 @@ func (e *UpgradeError) Error() string {
 		return e.Path + ": no such file"
 	case UpgradeAmbiguous:
 		return fmt.Sprintf("%s: %d value(s) read one way under 2.x and another under these rules, and "+
-			"the file does not say which it was written for; nothing written", e.Path, e.Count)
+			"the file doesn't say which it was written for; nothing written", e.Path, e.Count)
 	case UpgradeBackupTaken:
 		return e.Path + ": already exists; the original would be kept there, so nothing was written"
 	case UpgradeErrorsLeft:
@@ -10172,7 +10172,7 @@ func UpgradeFile(path string, fromV2 bool) (Upgraded, error) {
 	case err != nil:
 		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: writeFailed(err, "%s: %w", path, osReason(err))}
 	case !utf8.Valid(data):
-		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: &WriteError{Status: WriteUnreadable, Err: fmt.Errorf("%s: cannot be read as UTF-8 text", path)}}
+		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: &WriteError{Status: WriteUnreadable, Err: fmt.Errorf("%s: can't be read as UTF-8 text", path)}}
 	}
 	text := string(data)
 	up := Upgrade(text, fromV2)
@@ -10488,8 +10488,8 @@ type SaveRefused struct {
 // Error states the refusal with the path and the count, so a log line says
 // which file and how much a lossy save would drop.
 func (e *SaveRefused) Error() string {
-	return fmt.Sprintf("%s: refusing to save: this write would delete %d line(s)/value(s) "+
-		"from the file (see diagnostics; SaveFileLossy overrides)", e.Path, e.Lost)
+	return fmt.Sprintf("%s: refusing to save: this write would delete %d line(s) or value(s) "+
+		"from the file; the diagnostics say which, and SaveFileLossy writes anyway", e.Path, e.Lost)
 }
 
 // SaveChanged is the error a save returns when what is at the path now is
@@ -10503,7 +10503,7 @@ type SaveChanged struct {
 
 // Error names the file and the override.
 func (e *SaveChanged) Error() string {
-	return e.Path + ": refusing to save: what is there is not what this document read or wrote; nothing written (force overrides)"
+	return e.Path + ": refusing to save: what's there isn't what this document read or wrote; nothing written, and force writes over it"
 }
 
 // SaveExists is the error a save returns when SaveOptions.Create found a file
@@ -10514,7 +10514,7 @@ type SaveExists struct {
 
 // Error names the file and the option.
 func (e *SaveExists) Error() string {
-	return e.Path + ": refusing to save: the file is already there and create asks for a new one; nothing written"
+	return e.Path + ": refusing to save: a file is already there, but create asks for a new one; nothing written"
 }
 
 // SaveTooNew is the error every save returns for a document read from a newer
@@ -10526,7 +10526,7 @@ type SaveTooNew struct {
 
 // Error names the file and the reason.
 func (e *SaveTooNew) Error() string {
-	return e.Path + ": refusing to save: the document holds lines from a newer format than this reader's; nothing written"
+	return e.Path + ": refusing to save: the document has lines from a newer format than this reader's; nothing written"
 }
 
 // SaveOptions is how SaveFileWith saves. The zero value is SaveFile.
@@ -14608,7 +14608,7 @@ func unitNamed(name string) bool {
 // hint.
 func unitClash(name, text string) (string, bool) {
 	said := func(v, n string) string {
-		return "value is in " + v + " and the name says " + n + "; the value's unit is the one read"
+		return "value is in " + v + " but the name says " + n + "; the value's unit is the one read"
 	}
 	if nu := nameUnit(name, durationNames); nu != DurationNone {
 		if _, units, ok := parseDurationText(text, DurationNone); ok {
@@ -16280,11 +16280,11 @@ func Generate(schema *Document, noBanner bool) (string, []Diagnostic) {
 	// path for a reason generation did not act on.
 	whyUnwritable := func(c *constraint) string {
 		if len(c.segs) > MaxDepth {
-			return "nests past the depth cap"
+			return "it nests past the depth cap"
 		}
 		for _, s := range c.segs {
 			if s.sel != nil && s.sel.kind == selByIndex {
-				return "an index selector needs an instance that does not exist yet"
+				return "an index selector needs an instance that doesn't exist yet"
 			}
 			if s.star {
 				return "a * name segment has no name to write"
@@ -16407,8 +16407,8 @@ func Generate(schema *Document, noBanner bool) (string, []Diagnostic) {
 		c := &cons[i]
 		cannotSatisfy := c.required || (c.repeat != nil && c.repeat[0] == 1)
 		if cannotSatisfy && unwritable(c) && !hasWild(c) {
-			msg := "required path cannot be generated: " + schemaText(c.path) +
-				" (" + whyUnwritable(c) + ")"
+			msg := "required path can't be generated: " + schemaText(c.path) +
+				", because " + whyUnwritable(c)
 			blocked = append(blocked, Diagnostic{Line: 0, Severity: SeverityError, Message: msg, Code: "V097"})
 		}
 	}
@@ -16486,7 +16486,7 @@ func Generate(schema *Document, noBanner bool) (string, []Diagnostic) {
 		}
 		if !spelled {
 			unspellable = append(unspellable, Diagnostic{Line: 0, Severity: SeverityError, Code: "V097",
-				Message: "required path cannot be generated: " + schemaText(c.path) + " (its parent's value has no selector spelling)"})
+				Message: "required path can't be generated: " + schemaText(c.path) + ", because its parent's value has no selector spelling"})
 			continue
 		}
 		dval := ""
@@ -16591,7 +16591,7 @@ func Generate(schema *Document, noBanner bool) (string, []Diagnostic) {
 		if len(blocks) > 0 {
 			b.WriteByte('\n')
 		}
-		b.WriteString("## Paths needing an instance name (not generated):\n")
+		b.WriteString("## These paths need an instance name, so they weren't generated:\n")
 		for _, w := range wild {
 			fmt.Fprintf(&b, "##   %s   %s\n", w[0], w[1])
 		}
@@ -16624,7 +16624,7 @@ func Generate(schema *Document, noBanner bool) (string, []Diagnostic) {
 				Line:     0,
 				Severity: SeverityError,
 				Code:     "V097",
-				Message:  "generated text does not load: " + d.Code + " " + d.Message,
+				Message:  "generated text doesn't load: " + d.Code + " " + d.Message,
 			})
 		}
 	}
@@ -16653,7 +16653,7 @@ func Generate(schema *Document, noBanner bool) (string, []Diagnostic) {
 					Line:     0,
 					Severity: SeverityError,
 					Code:     "V097",
-					Message:  "generated text does not load: " + d.Code + " " + d.Message,
+					Message:  "generated text doesn't load: " + d.Code + " " + d.Message,
 				})
 			}
 		}
@@ -16671,7 +16671,7 @@ func Generate(schema *Document, noBanner bool) (string, []Diagnostic) {
 				Line:     0,
 				Severity: SeverityError,
 				Code:     "V097",
-				Message:  "generated value fails the schema that produced it: default does not name the instance its path selects: " + schemaText(cons[cm.cons].path),
+				Message:  "generated value fails the schema that produced it: default doesn't name the instance its path selects: " + schemaText(cons[cm.cons].path),
 			})
 			continue
 		}
@@ -17194,7 +17194,7 @@ func (d *Document) vNode(c *constraint, n int, out *[]Diagnostic) {
 	base := strings.TrimSuffix(c.ty, "-array")
 	isArray := strings.HasSuffix(c.ty, "-array")
 	wrong := func() {
-		vdiag(out, line, "V003", fmt.Sprintf("wrong type at '%s': value is not a valid %s", schemaText(c.path), c.ty))
+		vdiag(out, line, "V003", fmt.Sprintf("wrong type at '%s': value isn't a valid %s", schemaText(c.path), c.ty))
 	}
 	switch node.value.kind {
 	// Empty passes everything; required already counted it as present.

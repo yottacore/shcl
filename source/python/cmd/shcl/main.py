@@ -70,67 +70,72 @@ VERSION_LINE = "shcl v" + VERSION + (" build " + BUILD if BUILD else "")
 HELP = """shcl - Simple Hierarchical Config Language (reference CLI)
 
 Usage:
-  shcl get [type] [options] FILE PATH    read one value (or array) at a path
-  shcl set [--write|-w] [options] FILE   apply edits (--set, or ops on stdin);
-                                         print FILE with the edited lines
-                                         changed (or rewrite FILE in place
-                                         with --write, which creates FILE
-                                         when it is not there yet)
-  shcl fmt [--write|-w] [options] FILE   print the canonical form (or rewrite
-                                         FILE in place with --write)
-  shcl check [options] FILE              load and print diagnostics
-                                         (--schema=SCHEMA, or the file's own
-                                         '##    Schema   PATH' line, also
-                                         validates FILE against a schema)
-  shcl init [--no-banner] --schema=S     print a commented starter config
-                                         from a schema (required fields live,
-                                         optional commented, wildcards noted)
-  shcl count [options] FILE PATH         number of instances at a path
-  shcl instances [options] FILE PATH     instance values at a path, one per line
-  shcl children [options] FILE [PATH]    child field names under a path, one per
-                                         line (the top level when PATH is left
-                                         out)
-  shcl paths [options] FILE              every field path in the document, one
-                                         per line
+  shcl get [type] [options] FILE PATH    read one value or array at a path
+  shcl set [--write|-w] [options] FILE   apply edits from --set or from ops on
+                                         stdin, and print FILE with the edited
+                                         lines changed. --write rewrites FILE
+                                         in place instead, and creates FILE
+                                         when it isn't there yet
+  shcl fmt [--write|-w] [options] FILE   print the canonical form, or rewrite
+                                         FILE in place with --write
+  shcl check [options] FILE              load FILE and print its diagnostics.
+                                         With --schema=SCHEMA, or the file's
+                                         own '##    Schema   PATH' line, it
+                                         also validates FILE against a schema
+  shcl init [--no-banner] --schema=S     print a commented starter config from
+                                         a schema. Required fields are live,
+                                         optional ones are commented out, and
+                                         wildcards get a note
+  shcl count [options] FILE PATH         print the number of instances at a
+                                         path
+  shcl instances [options] FILE PATH     print each instance's value at a
+                                         path, one per line
+  shcl children [options] FILE [PATH]    print the child field names under a
+                                         path, one per line. Without PATH, it
+                                         prints the names at the top level
+  shcl paths [options] FILE              print every field path in the
+                                         document, one per line
   shcl migrate [options] FILE            rewrite a 2.x file for the current
-                                         rules (print it, rewrite FILE with
-                                         --write or -w, keeping a backup of
-                                         the original beside it, or name the
-                                         lines it would change with --check)
-  shcl upgrade [options] FILE            when FILE does not load clean and
-                                         names no format or an older one, or
-                                         with --from-2x reads differently once
-                                         migrated, print it migrated with its
-                                         lines where they were and the info
-                                         block (or back it up and rewrite it
-                                         with --write); anything else is left
-                                         alone
-  shcl tokens FILE                       each line's lexical spans, for seeing
-                                         why the parser read a line as it did
-                                         (every line on its own, raw bodies
-                                         included)
-  shcl explain [CODE]                    what a diagnostic code means (every
-                                         code, one line each, when CODE is
-                                         left out)
-  shcl help [CMD]                        this help (or one subcommand's, with
-                                         CMD); also -h or --help, which after
-                                         CMD give that one's
-  shcl --version                         the version (also -v or -V)
-  shcl --about | --donate                what shcl is, or how to support it
+                                         rules and print it. --write or -w
+                                         rewrites FILE and saves a backup of
+                                         the original beside it. --check names
+                                         the lines that would change
+  shcl upgrade [options] FILE            print FILE migrated, with its lines
+                                         where they were, plus the info block.
+                                         That's only for a FILE that doesn't
+                                         load clean and names no format or an
+                                         older one, or with --from-2x one that
+                                         reads differently once migrated. With
+                                         --write, back FILE up and rewrite it.
+                                         Any other file is left alone
+  shcl tokens FILE                       print each line's lexical spans, to
+                                         see why the parser read a line as it
+                                         did. Each line is split on its own,
+                                         raw bodies included
+  shcl explain [CODE]                    explain what a diagnostic code means.
+                                         Without CODE, list every code, one
+                                         line each
+  shcl help [CMD]                        print this help, or one subcommand's
+                                         help with CMD. -h and --help do the
+                                         same, and after CMD they give that
+                                         subcommand's help
+  shcl --version                         print the version, also as -v or -V
+  shcl --about | --donate                show what shcl is, or how to support it
 
 set edits FILE, the base document. Edits go in as the repeatable --set,
---set-literal, --set-default, --set-literal-default and --remove options, which
-persist with --write; given any of them, no ops are read from stdin. Raw blocks
-go in only as a write-ops script on stdin, which can make the other edits too,
-one op per line, tab-separated. FILE '-' follows stdin: the document when an
-option holds the edits, an empty base when the ops script has stdin instead.
-With --write, a FILE that does not exist yet is created. Lines the edits leave
-alone come back as they were written; with --layer, or where the edited text
-would not load back the same, the whole document comes out canonical, the way
-fmt writes it, and without --layer a note on stderr says so. A result that
-would delete lines or values from the file is refused at exit 7, printed or
-written (--lossy overrides). PATH ends at the first '=' outside quotes and
-parens, so a selector may hold one. Ops:
+--set-literal, --set-default, --set-literal-default, and --remove options, which
+persist with --write. When any of them is given, no ops are read from stdin.
+Raw blocks go in only as a write-ops script on stdin, one op per line,
+tab-separated. That script can make the other edits too. A FILE of '-' reads
+stdin. When options give the edits, stdin is the document. When the ops script
+is on stdin, the base is empty instead. With --write, a FILE that doesn't exist
+yet is created. Lines the edits leave alone come back as they were written.
+With --layer, or where the edited text wouldn't load back the same, the whole
+document comes out canonical, the way fmt writes it. Without --layer, a note on
+stderr says so. A result that would delete lines or values from the file is
+refused at exit 7, whether it's printed or written. --lossy overrides that.
+PATH ends at the first '=' outside quotes and parens, so a selector may contain
+one. Ops:
   int|float|bool|string|datetime<TAB>PATH<TAB>VALUE       set a scalar
   <type>-array<TAB>PATH<TAB>V1<TAB>V2...                  set an inline array
   <type>[-array]-default<TAB>...                          set if not that type
@@ -139,167 +144,197 @@ parens, so a selector may hold one. Ops:
   empty<TAB>PATH   comment<TAB>PATH<TAB>TEXT   remove<TAB>PATH
   clear-comments<TAB>PATH                                 drop comments above
   banner<TAB>on|off                                       add or drop info block
-String, comment and raw CONTENT values read escapes as a file does: NEWLINE or
-TAB between two U+25C9 marks. A raw op's INFO is taken as written, since a
-fence label has no escapes. A backslash is text, and a line starting with # is
-a script comment, indented or not.
+String, comment, and raw CONTENT values read escapes the way a file does, as
+NEWLINE or TAB between a pair of U+25C9 marks. A raw op's INFO is taken as
+written, since a fence label has no escapes. A backslash is text. A line that
+starts with # is a script comment, indented or not.
 
-Types (get only; default --string):
+Types (get only, --string by default):
   --int --float --bool --datetime --string --raw --rawinfo --duration --size
   --array                                read the value as an array of the type
-  --rawinfo reads a raw block's info-string (the fence tag), not its content
-  --duration prints milliseconds and --size bytes; a bare number takes its
-  unit from the field name (timeout-ms, cache_mb), else from --unit
+  --rawinfo reads a raw block's info-string, which is its fence tag, instead
+  of its content
+  --duration prints milliseconds and --size prints bytes. A bare number takes
+  its unit from the field name, such as timeout-ms or cache_mb, or else from
+  the --unit option
 
 Options (the subcommands each belongs to are in parentheses):
-  --default=VALUE                        (get) value to print when the read is
-                                         not Good (implies --on-bad=default; for
-                                         arrays, substituted per bad slot)
-  --on-bad=error|default|flag            (get) error: fail loudly; default:
-                                         print the default; flag: print the
-                                         value, or the type's zero (0, false,
-                                         empty) when the read is not Good, and
-                                         report via exit code (the default)
+  --default=VALUE                        (get) print VALUE when the read isn't
+                                         Good. It implies --on-bad=default.
+                                         For an array, VALUE fills each bad
+                                         slot
+  --on-bad=error|default|flag            (get) error fails loudly. default
+                                         prints the --default value. flag
+                                         prints the value, or the type's zero,
+                                         such as 0, false, or empty, when the
+                                         read isn't Good, and reports that
+                                         through the exit code. flag is the
+                                         default
   --slots                                (get) prefix each line with its slot
-                                         status and a tab (per element, or per
-                                         wildcard slot)
+                                         status and a tab, with one line per
+                                         element or per wildcard slot
   --json                                 (get/instances/children/paths) print
                                          one JSON object per line, with the
-                                         field's path, value and line; the
-                                         full help has the details
+                                         field's path, value, and line. See
+                                         'shcl help' for the details
   --paths                                (instances) print the path that reads
-                                         each instance, such as shard(0), in
-                                         place of its value
-  --unit=UNIT                            (get) the unit a bare number is in,
-                                         for --duration (ms s m h d) or --size
-                                         (B kB KB MB GB TB KiB MiB GiB TiB),
-                                         when the field name gives none
-  --decimal                              (get) --size reads KB to TB as powers
-                                         of 1000, not 1024
+                                         each instance, such as shard(0),
+                                         instead of its value
+  --unit=UNIT                            (get) name the unit a bare number is
+                                         in, when the field name doesn't give
+                                         one. --duration takes ms s m h d, and
+                                         --size takes B kB KB MB GB TB KiB MiB
+                                         GiB TiB
+  --decimal                              (get) make --size read KB to TB as
+                                         powers of 1000 instead of 1024
   --no-banner                            (init, and set --write when it creates
-                                         FILE) leave out the info block naming
-                                         the format and pointing at its spec
+                                         FILE) leave out the info block, which
+                                         names the format and points to its
+                                         spec
   --write                                (fmt/set/migrate/upgrade) rewrite
-                                         FILE in place, written -w too,
-                                         through a temp file and a rename;
+                                         FILE in place through a temp file and
+                                         a rename. The short form is -w. It's
                                          refused with a FILE of '-'
   --lossy                                (fmt/set/migrate) go ahead even when
                                          the result would delete lines or
-                                         values from the file. Without it the
-                                         write refuses at exit 7 and changes
-                                         nothing; set and migrate without
-                                         --write exit 7 too, and set prints
-                                         nothing. fmt takes it with --write
-                                         only
-  --from-2x                              (migrate/upgrade) the file was
-                                         written for 2.x, so rewrite the
-                                         spellings the two rule sets read
-                                         differently; without it those are
-                                         left alone and the command exits 7;
-                                         upgrade with it writes nothing and
+                                         values from the file. Without --lossy,
+                                         the write is refused at exit 7 and
+                                         nothing changes. set and migrate
+                                         without --write exit 7 too, and set
+                                         prints nothing. fmt takes --lossy
+                                         only with --write
+  --from-2x                              (migrate/upgrade) say the file was
+                                         written for 2.x, and rewrite the
+                                         spellings the old and new rules read
+                                         differently. Without it, those are
+                                         left alone and the command exits 7.
+                                         With it, upgrade writes nothing and
                                          exits 7 when the fresh file would
-                                         still have an error, naming the
-                                         lines. On a file not written for
-                                         2.x it can change good lines; with
-                                         --write the backup keeps the
+                                         still have an error, and names the
+                                         lines. On a file that wasn't written
+                                         for 2.x, it can change good lines.
+                                         With --write, the backup has the
                                          original
   --check                                (fmt/migrate) print nothing and exit 6
                                          when fmt would change the file or
-                                         migrate would rewrite a line (named on
-                                         stderr), or 7 when --write would
-                                         refuse it
+                                         migrate would rewrite a line, which
+                                         is named on stderr. Exit 7 instead
+                                         when --write would refuse the file
   --strictness=loose|standard|strict     (get/set/fmt/check/count/instances/
-                                         children/paths) or 1|2|3 (default
-                                         standard)
+                                         children/paths) set how strictly FILE
+                                         loads. 1|2|3 also work. The default
+                                         is standard
   --schema=SCHEMA                        (check/init) validate FILE against a
-                                         schema; adds V### diagnostics. check
-                                         without it uses FILE's Schema line
+                                         schema, which adds V### diagnostics.
+                                         Without it, check uses FILE's Schema
+                                         line
   --layer=FILE                           (get/set/fmt/count/instances/children/
-                                         paths) merge a lower-priority layer
-                                         under FILE; repeatable, earlier =
-                                         lower priority
+                                         paths) merge a layer under FILE with
+                                         lower priority. It can repeat, and the
+                                         earlier ones rank lower
   --set=PATH=VALUE                       (get/set/fmt/count/instances/children/
-                                         paths) edit one path, after all files;
-                                         repeatable. A path matching several
-                                         fields is refused; name(0) picks one.
-                                         On 'set' it is an edit to the document
-                                         itself, so it persists with --write.
-                                         VALUE goes in as data: its type still
-                                         follows the text (8 is an int), but a
-                                         comma or quote in it is content, not
-                                         syntax
-  --set-literal=PATH=TEXT                (same subcommands) as --set, except
-                                         TEXT goes in as value
-                                         syntax the way a file writes it, so
-                                         'ports=[80, 443]' writes a two-element
-                                         array, 'title="My App"' a string and
+                                         paths) edit one path, applied after
+                                         all files. It can repeat. A path that
+                                         matches several fields is refused.
+                                         Use name(0) to pick one. On 'set' it
+                                         edits the document itself, so the
+                                         edit persists with --write. VALUE
+                                         goes in as data. Its type still
+                                         follows the text, so 8 is an int, but
+                                         a comma or quote in it is content
+                                         rather than syntax
+  --set-literal=PATH=TEXT                (same subcommands) like --set, except
+                                         TEXT goes in as value syntax, the way
+                                         a file writes it. 'ports=[80, 443]'
+                                         writes an array of 2 elements,
+                                         'title="My App"' a string, and
                                          'color=`#FF8800`' a backtick value.
-                                         Text with a # outside quotes, or
-                                         spanning lines, is rejected
-  --set-default=PATH=VALUE               (same) as --set, but only where the
+                                         Text with a # outside quotes is
+                                         refused, and so is text that spans
+                                         lines
+  --set-default=PATH=VALUE               (same) like --set, but only where the
   --set-literal-default=PATH=TEXT        path is missing or has an empty
-                                         value - the write-out-defaults half
-                                         of the writer
+                                         value. These write out defaults
   --remove=PATH                          (same) delete every field the path
-                                         reaches, with its subtree: each
-                                         instance of a repeated name, each
-                                         wildcard match. Removing nothing is
-                                         not an error, but a PATH that cannot
-                                         parse is
-The five above share one ordered list, so two of them touching the same path
-resolve in the order given. Raw blocks still go in through the ops script.
+                                         matches, along with its subtree. That
+                                         means each instance of a repeated
+                                         name and each wildcard match.
+                                         Removing nothing isn't an error, but
+                                         a PATH that can't parse is
+The 5 options above share one ordered list, so when 2 of them touch the same
+path, they apply in the order given. Raw blocks still go in through the ops
+script.
 
-With --json, each line is one JSON object, keys in this order: "path", the
-path that reads that one field, with (N) on a name its parent repeats; "name",
-on children only; "value", always a string: on get the value read, or the
---default in its place, and elsewhere the field's value (an array in brackets,
-a raw block's content, empty when it has none); "line", its line in the file
-it came from (0 for one an edit made); and "status", on get --slots only.
-paths --json lists every field, repeats included. A wildcard slot that reached
+With --json, each line is one JSON object, with its keys in this order:
+  "path"    the path that reads that one field, with (N) on a name that its
+            parent repeats
+  "name"    on children only
+  "value"   always a string. On get it's the value read, or the --default in
+            its place. Elsewhere it's the field's value. An array comes in
+            brackets, a raw block gives its content, and a field without a
+            value gives an empty string
+  "line"    the field's line in the file it came from, or 0 when an edit made
+            the field
+  "status"  on get --slots only
+paths --json lists every field, repeats included. A wildcard slot that matched
 nothing has an empty path and line 0.
 
-Value options accept either spelling: --default=VALUE or --default VALUE. In
-the space form the next argument is taken as the value whatever it looks like,
-so --default --int reads --int as the default. Use -- to end the options when a
+Value options take either form, such as --default=VALUE or --default VALUE.
+In the space form the next argument is the value whatever it looks like, so
+--default --int reads --int as the default. Use -- to end the options when a
 FILE or PATH begins with a dash. The flags -h, --help, -v, -V, --version,
---about and --donate count anywhere an option can go. Several in one run each
-print once, in the order given.
-An option a subcommand does not use is a usage error, not ignored. Also refused:
---write with --layer; --write with --set outside 'set'; --write with a FILE of
-'-'; --lossy on 'fmt' without --write; --no-banner on 'set' without --write;
---check with --write, --layer or --set; --paths with --json; --layer=- on
-'set'; --array with --raw, --rawinfo, --duration or --size; --default with
---on-bad=error or --on-bad=flag; --on-bad=default without --default; --unit
-without --duration or --size; --decimal without --size; '-' named more than
-once across FILE, --layer and --schema; a PATH that cannot parse, --default or
-not. Two options that ask for different answers are a usage error whichever
-order they came in, and both are named: two different type options, or one
-value option given two different values.
-Repeating an option with the same value is allowed, and --layer and --set are
-ordered lists, so they repeat.
-Every subcommand that loads a document prints the load's diagnostics to stderr,
-once per run; 'shcl explain CODE' gives the rule behind one of their codes. An
-in-place write also refuses when the rewrite would delete lines or values
-from the file (--lossy overrides), and set and migrate without --write exit 7
-where it would. fmt --write and set refuse a file that names a newer format
-(H006) the same way, with no override. migrate refuses a file that does not
-say which rules it was written for, when the two readings differ (--from-2x
-says it is 2.x), and reports a 2.x binding it cannot convert. With --write,
-migrate and upgrade keep the original beside FILE as
-NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local time, where N is the format
-it was written for, and write nothing at exit 8 when that name is taken.
-An upgrade writes even when the fresh file drops lines or values, since the
-backup keeps them.
-FILE may be '-' for stdin. With --layer, FILE is the highest file layer and
-each --layer is merged under it in order; --set applies last. 'fmt' with
+--about, and --donate count anywhere an option can go. When a run has several,
+each prints once, in the order given.
+An option that a subcommand doesn't use is a usage error instead of being
+ignored. These are also refused:
+  --write with --layer, with --set outside 'set', or with a FILE of '-'
+  --lossy on 'fmt' without --write
+  --no-banner on 'set' without --write
+  --check with --write, --layer, or --set
+  --paths with --json
+  --layer=- on 'set'
+  --array with --raw, --rawinfo, --duration, or --size
+  --default with --on-bad=error or --on-bad=flag
+  --on-bad=default without --default
+  --unit without --duration or --size
+  --decimal without --size
+  '-' named more than once across FILE, --layer, and --schema
+  a PATH that can't parse, with or without --default
+Two options that ask for different answers are a usage error, whichever order
+they come in, and the error names both. That means two different type
+options, or one value option given two different values. Repeating an option
+with the same value is allowed. --layer and --set are ordered lists, so they
+can repeat.
+Every subcommand that loads a document prints the load's diagnostics to
+stderr, once per run. 'shcl explain CODE' gives the rule behind a code. An
+in-place write is also refused when the rewrite would delete lines or values
+from the file, unless --lossy is given. Where that would happen, set and
+migrate without --write exit 7. fmt --write and set refuse a file that names a
+newer format (H006) the same way, with no override. migrate refuses a file
+that doesn't say which rules it was written for, when the 2.x and current
+readings differ. --from-2x says the file is 2.x. migrate also reports a 2.x
+binding that it can't convert. With --write, migrate and upgrade save the
+original beside FILE as NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local
+time. N is the format the original was written for. When that name is taken,
+they write nothing and exit 8. An upgrade writes even when the fresh file
+drops lines or values, since the backup has them.
+FILE may be '-' for stdin. With --layer, FILE is the highest file layer, and
+each --layer is merged under it in order. --set applies last. 'fmt' with
 layers prints the merged canonical document.
 
-Exit codes: 0 good, 1 usage error, 2 empty, 3 not found, 4 bad type,
-5 multiple instances, 6 check failed, strict load failed, init's schema has
-faults, or --check found a rewrite to make, 7 a result refused for deleting
-lines or values (--lossy overrides) or for a newer format, migrate left
-something behind, or upgrade refused a file that reads two ways or would keep
-an error, 8 a file or stream could not be read or written.
+Exit codes:
+  0  good
+  1  usage error
+  2  empty
+  3  not found
+  4  bad type
+  5  multiple instances
+  6  check failed, a strict load failed, init's schema has faults, or --check
+     found a rewrite to make
+  7  a result was refused for deleting lines or values without --lossy or for
+     naming a newer format, migrate left something behind, or upgrade refused
+     a file that reads two ways or would still have an error
+  8  a file or stream couldn't be read or written
 """
 
 # About and donate are stdout, so they are byte-for-byte contracts across the
@@ -337,20 +372,20 @@ are worth just as much.
 # spec.md's diagnostic tables are the long form; this is the same rules cut to
 # what a terminal shows. Like the help text it is byte-for-byte across the
 # bindings, and crosscheck compares every code.
-CODES = """E001|error|field line under a parent holding stacked '- ' list items
-  A parent holds list items or named children, not both. The field line
+CODES = """E001|error|field line under a parent that has stacked '- ' list items
+  A parent has list items or named children, but not both. The field line
   is kept and the items stay.
 E002|error|value after a last-segment selector (a.b(X): v)
   The selector already says which instance, so the value has nowhere to go
   and is ignored. Put the value on the line that creates the instance.
-E003|error|selector names an instance that does not exist
-  a(5).b where there is one a. An index selects an existing instance by
-  position and never creates one, so a binding line should select by value
-  instead.
+E003|error|selector names an instance that doesn't exist
+  This happens with a(5).b when there's only one a. An index selects an
+  existing instance by position and never creates one, so a binding line
+  should select by value instead.
 E004|error|wildcard selector on a binding line
-  Wildcards read every instance, so there is no single one to write to.
-  They are query-only.
-E005|error|unterminated raw block (closing fence never found)
+  Wildcards read every instance, so there's no single one to write to.
+  They only work in queries.
+E005|error|unterminated raw block, with no closing fence
   The block runs to the end of the file. Close it with a fence at the
   opening fence's indent.
 E006|error|raw-block fence with no parent field to bind to
@@ -358,9 +393,8 @@ E006|error|raw-block fence with no parent field to bind to
 E007|error|stacked '- ' list item with no parent field
   A '- value' line is an item of the field above it.
 E008|error|stacked '- ' list item under a parent with field children
-  The parent already holds named children, so the item is kept as
-  written and binds nothing. What is written under it goes with it
-  (E018).
+  The parent already has named children, so the item is kept as written
+  and binds nothing. What's written under it goes with it (E018).
 E009|error|empty stacked '- ' list item
   A '-' with nothing after it has no value to add.
 E011|error|stacked '- ' item for a field that already has a value
@@ -368,170 +402,177 @@ E011|error|stacked '- ' item for a field that already has a value
   nothing. A field is written one way or the other, not both.
 E012|error|indentation matches no open level
   The line is skipped, and anything written deeper is skipped with it
-  (E018). A save writes them back as they were when the indent holds a
-  space. One indented with tabs alone would bind there, so it is lost.
+  (E018). A save writes them back as they were when the indent has a
+  space. A line indented with tabs alone would bind there, so it's lost.
   Indent to a column some open parent already uses.
 E013|error|a line starting with '*', the old list item marker
   A list item is written '- value' now. The line is kept as written and
-  binds nothing, and the other items still load. What is written under it
+  binds nothing, and the other items still load. What's written under it
   goes with it.
 E014|error|malformed line, or a bare field name that needs quotes
-  A bare name is a letter, then letters, digits, '-' and '_'. One that
-  breaks only that rule, such as 404 or user name, still reads: the line is
+  A bare name is a letter, then letters, digits, '-', and '_'. A name that
+  breaks only that rule, such as 404 or user name, still reads. The line is
   kept, and the lines under it load under that name. Quote the name to fix
-  it. Any other malformed line is kept as written and the lines under it go
-  with it; the prose names the reason and the byte column. A quote that
-  never closes in a field name arrives here too. A raw block the line opens
-  is kept with it.
-E015|error|missing colon (repaired as an empty value)
-  The name binds with no value rather than the line being dropped.
-E016|error|nesting deeper than the 512-level cap (line skipped)
-  The cap is what makes any loadable document safe to format, merge and
-  copy in every binding.
+  it. Any other malformed line is kept as written, and the lines under it
+  go with it. The prose names the reason and the byte column. A field name
+  with a quote that never closes is E014 too. A raw block the line opens is
+  kept with it.
+E015|error|missing colon, repaired as an empty value
+  The name binds with no value instead of the line being dropped.
+E016|error|nesting deeper than the 512-level cap, so the line is skipped
+  The cap makes any loadable document safe to format, merge, and copy in
+  every binding.
 E017|error|an open quote or backtick in a value or selector body
   A piece that starts with a quote must end with the matching one. The line
   is kept verbatim and binds nothing. In a value, the lines under it still
   load, under the field with no value. The same typo in a field name is
   E014.
 E018|error|line written under a line that was skipped
-  It is skipped with it, so a skipped line's block never re-parents one
-  level up. Fix the line above and this one comes back with it.
-E019|error|a bracket array that is not well formed
+  The line is skipped along with the one above it, so the block under a
+  skipped line never binds one level up instead. Fix the line above and
+  this one comes back with it.
+E019|error|a bracket array that isn't well formed
   An array is one line, ports: [80, 443], and [] is the empty array. Text
   after the closing ']', a bare '[' or ']' inside, an empty element, or no
-  closing ']' on the line is malformed. Quote the value if it is text:
+  closing ']' on the line is malformed. Quote the value if it's text, as in
   log: "[INFO] started". A list item that is an array is E019 too, since
-  arrays do not nest. The line is kept verbatim: it binds nothing and
+  arrays don't nest. The line is kept verbatim. It binds nothing, and
   nothing counts as lost. The lines under it still load, under the field
   with no value, so a read on the field is Empty when one of them loads and
   NotFound when none does.
-E020|error|node cap exceeded (fires only under a caller-supplied cap)
+E020|error|node cap exceeded, only under a caller-supplied cap
   The parse stopped there and the unparsed remainder counts as lost, so a
-  later save refuses rather than writing a truncated file.
+  later save refuses instead of writing a truncated file.
 E021|error|array longer than the caller-supplied element cap
-  The line is skipped whole rather than truncated to a value the author
+  The line is skipped whole instead of being cut down to a value the author
   never wrote. A fence line's info string is split the same way.
 E022|error/hint|the diagnostics list was cut at the caller-supplied cap
-  This entry ends the list and counts what was not listed. An error when
-  any unlisted one was, so a scan for errors still finds one; a hint
-  otherwise.
+  This entry ends the list and counts what wasn't listed. It's an error
+  when any unlisted entry was an error, so a scan for errors still finds
+  one. Otherwise it's a hint.
 E023|error|a bad escape
-  An escape is a name from the escape list between two ◉ marks, such as
-  ◉TAB◉, ◉NEWLINE◉ or ◉U+200B◉, and a real ◉ is written ◉ESCAPE_CHAR◉.
+  An escape is a name from the escape list between a pair of ◉ marks, such
+  as ◉TAB◉, ◉NEWLINE◉, or ◉U+200B◉, and a real ◉ is written ◉ESCAPE_CHAR◉.
   Anything else between two marks is an error, and so is a mark with no
-  partner. A backslash is plain text. The line is kept verbatim: it binds
-  nothing and a read on it is NotFound. When only the value is wrong, the
-  lines under it still load, under the field with no value, and a read on the
-  field is Empty once one of them loads. When the name is, a raw block the
-  line opens is kept with it.
-E025|error|a tab, a quote, a bracket or a loose colon in bare text
-  A bare value or list item may hold spaces, kept as typed. A tab or other
-  whitespace, a quote, a bracket, or a colon with a space or the end after
-  it is an error: host: a.com port: 80 is two fields on one line. Put each
-  field on its own line, or quote the value. An apostrophe inside a word,
-  as in O'Brien, is text. An array element or a selector body takes no
-  whitespace or quote, and a selector body no colon, comma or paren either.
-  Whitespace at either end is trimmed first. The line is kept verbatim and
-  binds nothing. In a value, the lines under it still load, under the field
-  with no value.
+  partner. A backslash is plain text. The line is kept verbatim. It binds
+  nothing, and a read on it is NotFound. When only the value is wrong, the
+  lines under it still load, under the field with no value, and a read on
+  the field is Empty once one of them loads. When the name is wrong, a raw
+  block the line opens is kept with it.
+E025|error|a tab, a quote, a bracket, or a loose colon in bare text
+  A bare value or list item may contain spaces, which are kept as typed. A
+  tab or other whitespace, a quote, a bracket, or a colon with a space or
+  the end after it is an error. For example, host: a.com port: 80 is two
+  fields on one line. Put each field on its own line, or quote the value.
+  An apostrophe inside a word, as in O'Brien, is text. An array element or
+  a selector body takes no whitespace or quote, and a selector body takes
+  no colon, comma, or paren either. Whitespace at either end is trimmed
+  first. The line is kept verbatim and binds nothing. In a value, the lines
+  under it still load, under the field with no value.
 E026|error|a bare comma with a space or the end after it
   ports: 80, 443 is an error. Write the array in brackets, ports: [80, 443],
   or quote text that has a comma. A comma with text right after it is text,
   so opts: rw,noatime is one string. The line is kept verbatim and binds
   nothing. The lines under it still load, under the field with no value. A
-  list item with a bare comma, - a, b, is kept the same way, and the other
-  items still load.
+  list item with a bare comma, such as - a, b, is kept the same way, and the
+  other items still load.
 E027|error|a list item like - name: or - name: value
   A colon with a space or the end after it is how YAML starts an object in
   a list, and SHCL writes one as an instance. A colon with text after it is
-  fine, as in - localhost:8080. Quote the item if it is text: - "name: a".
-  The line is kept as written, and the other items still load.
+  fine, as in - localhost:8080. Quote the item if it's text, as in
+  - "name: a". The line is kept as written, and the other items still load.
 E028|error|an array on a field with lines under it
   A field with fields under it takes one plain value or none, so
   route: [GET, POST] with lines under it is an error. Give the field one
-  value and put the list in a field under it: methods: [GET, POST]. The line
-  is kept verbatim, and the lines under it load under the field with no
-  value.
+  value, and put the list in a field under it, such as methods: [GET, POST].
+  The line is kept verbatim, and the lines under it load under the field
+  with no value.
 E029|error|a selector in brackets, the old spelling
-  Selectors are written in parens: person(Bucky).city, person("New York"),
-  person(0) and person(*). Brackets are only for arrays. The line is kept
-  as written and binds nothing. When it selects by value, the lines under
-  it still load, under the instance it names. On a command line, quote the
-  path, since a bare ( is a syntax error in most shells.
+  Selectors are written in parens, as in person(Bucky).city,
+  person("New York"), person(0), and person(*). Brackets are only for
+  arrays. The line is kept as written and binds nothing. When it selects by
+  value, the lines under it still load, under the instance it names. On a
+  command line, quote the path, since a bare ( is a syntax error in most
+  shells.
 H001|hint|repeated bare leaf (an array written as repeated lines)
-  Repeated leaves are legal - that is how instances are written - but
+  Repeated leaves are legal, since that's how instances are written. But
   'tags: red' twice and 'tags: [red, blue]' look alike, so the parser says
-  which one it read. A schema's repeat bound above 1 disavows it.
+  which one it read. A schema's repeat bound above 1 turns the hint off.
 H002|hint|a binding merged with a non-adjacent earlier one
-  Same name and value, so the two combine. Legal, and only the parser can
-  see it happened. The prose names the earlier line, and a schema can
-  disavow it per section with 'reopen: true'.
+  The two have the same name and value, so they combine. That's legal, and
+  only the parser can see it happened. The prose names the earlier line,
+  and a schema can turn the hint off per section with 'reopen: true'.
 H005|hint|a value in another unit than its field name ends in
   timeout-ms: 5s reads as 5000 milliseconds, since a unit in the value
-  wins over the one the name gives a bare number. Legal, and often a slip.
+  wins over the one the name gives a bare number. It's legal, and often a
+  slip.
 H006|hint|the file names a newer format than this reader
   The info block's Format line names a format past the one this shcl reads,
-  so the file may use rules it does not know, and a line can read
-  differently than its author meant. The load goes on as usual, and a save
+  so the file may use rules it doesn't know, and a line can read
+  differently than its author meant. The load goes on as usual, but a save
   is refused, since it would write each line by these rules. A shcl made
   for that format reads it as written.
 H007|hint|the file names an older format than this reader
   The info block's Format line names a format before the one this shcl
-  reads, and some lines read differently now: p: a,b was an array in 2.x
-  and is one string here. 'shcl upgrade FILE --from-2x --write' rewrites
-  the file for these rules and keeps the original beside it. A file with
-  nothing else to change gets this format on its Format line.
+  reads, and some lines read differently now. For example, p: a,b was an
+  array in 2.x and is one string here.
+  'shcl upgrade FILE --from-2x --write' rewrites the file for these rules and
+  saves the original beside it. A file with nothing else to change gets this
+  format on its Format line.
 H008|hint|a '#' against text opens a comment
   A '#' outside quotes opens a comment wherever it sits, so
-  url: http://h/#frag reads http://h/, color: #fff reads nothing and
-  lang: c# reads c. Quote the value to keep the '#': color: "#fff". The
-  hint comes when text sits right before the '#' in a bare value, an array
-  element, a selector body or a fence label, or right after it where that
-  piece is empty. A blank before it, as in port: 80  # main, makes a plain
-  comment. A fence label can't hold a '#'.
+  url: http://h/#frag reads http://h/, color: #fff reads nothing, and
+  lang: c# reads c. Quote the value to keep the '#', as in color: "#fff".
+  The hint comes when text sits right before the '#' in a bare value, an
+  array element, a selector body, or a fence label, or right after it where
+  that piece is empty. A blank before it, as in port: 80  # main, makes a
+  plain comment. A fence label can't contain a '#'.
 V001|error|unknown field
-  No schema path covers it. Only the topmost unknown node is reported; its
-  subtree is skipped. The prose has the did-you-mean suggestion.
+  No schema path matches it. Only the topmost unknown node is reported,
+  and its subtree is skipped. The prose has the did-you-mean suggestion.
 V002|error|required path missing
-  Declared 'required: yes' and nothing in the document resolves it.
+  The path is declared 'required: yes', and nothing in the document
+  resolves it.
 V003|error|wrong type
-  The value does not read as the declared type.
+  The value doesn't read as the declared type.
 V004|error|value not in the allowed set
-  The line number is the node, at its first offending element.
+  The line number is where the node's first offending element is.
 V005|error|below the declared min
   The prose names the bound and the value that missed it.
 V006|error|above the declared max
   The prose names the bound and the value that missed it.
 V007|error|instance count out of repeat bounds
-  Too few or too many instances of a field the schema bounds with 'repeat'.
+  There are too few or too many instances of a field that the schema
+  bounds with 'repeat'.
 V090|error|unknown schema key
-  A schema fault: the key is dropped and the rest of the schema still
+  It's a schema fault. The key is dropped, and the rest of the schema still
   checks the document. The line number is a schema line.
 V091|error|unknown schema type name
-  A schema fault, on a schema line.
+  It's a schema fault, on a schema line.
 V092|error|bad schema constraint value
-  A schema fault, on a schema line. Also covers min or max without a
-  numeric type, and 'allowed' with 'type: raw'.
+  It's a schema fault, on a schema line. It also fires for min or max
+  without a numeric type, and for 'allowed' with 'type: raw'.
 V093|error|bad schema path
-  A schema fault, on a schema line. The path spelling could not be read, so
-  the unknown-field sweep turns off with it.
+  It's a schema fault, on a schema line. The path spelling couldn't be
+  read, so the unknown-field sweep turns off with it.
 V094|error|bad fragment declaration
-  No name, a duplicate, or a non-field key inside. A schema fault, on a
-  schema line.
+  The fragment has no name, is a duplicate, or has a non-field key inside.
+  It's a schema fault, on a schema line.
 V095|error|'inherits' names no declared fragment
-  A schema fault, on a schema line. A mount naming a missing fragment
+  It's a schema fault, on a schema line. A mount naming a missing fragment
   checks nothing at the mount.
 V096|error|schema expands to more fields than generation allows
   Generation lays every path out flat, so mounts multiply. The line number
-  is 0: this is about the output, not a schema line.
-V097|error|generated output does not load, or fails its own schema
+  is 0, since this is about the output rather than a schema line.
+V097|error|generated output doesn't load, or fails its own schema
   init checks its own output before returning it, so a starter config that
   would fail its first check is a fault instead. A default outside its
   field's constraints is one cause. A required path nothing can generate is
-  the other, such as one with an index selector, a(0), or a * name. Line 0.
+  the other, such as one with an index selector, a(0), or a * name. The
+  line number is 0.
 V099|error|schema failed to load
-  The schema had error diagnostics of its own; they are printed above this
-  with their own line numbers. Line 0.
+  The schema had error diagnostics of its own, and they're printed above
+  this one with their own line numbers. The line number is 0.
 """
 
 # Codes no load reports any more: CODE|severity it had|replacement, with the
@@ -1128,7 +1169,7 @@ def write_back(doc, file, o, read=None, keep=False):
 	# A newer format's lines would go back by these rules whatever the bytes
 	# say, so this refusal comes first, as in the library's save.
 	if doc.newer_format():
-		sys.stderr.write(f"{file}: refusing to rewrite: the document holds lines from a newer format than this reader's (see H006)\n")
+		sys.stderr.write(f"{file}: refusing to rewrite: the document has lines from a newer format than this reader's (see H006)\n")
 		return 7
 	# A file removed since the read is written as a new one, as the library's
 	# save and an editor write it (2026110914412379).
@@ -1174,7 +1215,7 @@ def write_back(doc, file, o, read=None, keep=False):
 	# The rule stays in the library; only the wording is the CLI's, because the
 	# override a user has here is a flag, not a function.
 	except shcl.SaveRefused as e:
-		sys.stderr.write(f"{file}: refusing to rewrite: this write would delete {e.lost} line(s)/value(s) from the file (--lossy overrides)\n")
+		sys.stderr.write(f"{file}: refusing to rewrite: this write would delete {e.lost} line(s) or value(s) from the file (--lossy overrides)\n")
 		return 7
 	except (shcl.SaveError, shcl.WriteError) as e:
 		sys.stderr.write(str(e) + "\n")
@@ -1338,7 +1379,7 @@ def check_opts(cmd, o):
 				# so it always loads at Standard - the same rule `check --schema`
 				# follows for the schema half.
 				sys.stderr.write(
-					"option --strictness not valid for init: a schema always loads at standard strictness, being a program artifact rather than user data (see --help)\n"
+					"option --strictness not valid for init: a schema always loads at standard strictness, since it's a program artifact rather than user data (see --help)\n"
 				)
 			elif cmd == "check" and s in ("--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove"):
 				# The one refusal a user is likely to want anyway: check reports
@@ -1721,10 +1762,10 @@ def do_fmt(o):
 		# The save gate --write goes through is asked first, so 6 never
 		# promises a rewrite the same command would refuse to make.
 		if doc.newer_format():
-			sys.stderr.write(f"{file}: fmt --write would refuse: the document holds lines from a newer format than this reader's (see H006)\n")
+			sys.stderr.write(f"{file}: fmt --write would refuse: the document has lines from a newer format than this reader's (see H006)\n")
 			return 7
 		if not o.lossy and doc.lost_count() != 0:
-			sys.stderr.write(f"{file}: fmt --write would refuse: it would delete {doc.lost_count()} line(s)/value(s) from the file (--lossy overrides)\n")
+			sys.stderr.write(f"{file}: fmt --write would refuse: it would delete {doc.lost_count()} line(s) or value(s) from the file (--lossy overrides)\n")
 			return 7
 		if doc.to_canonical() == read:
 			return 0
@@ -1780,10 +1821,10 @@ def do_migrate(o):
 		return 0
 	rc = 0
 	if m.ambiguous != 0:
-		sys.stderr.write(f"{file}: {m.ambiguous} value(s) read one way under 2.x and another under these rules, and the file does not say which it was written for; left as written (--from-2x rewrites them)\n")
+		sys.stderr.write(f"{file}: {m.ambiguous} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; left as written (--from-2x rewrites them)\n")
 		rc = 7
 	if m.lost != 0:
-		sys.stderr.write(f"{file}: {m.lost} line(s) bound a value under 2.x that nothing binds now: bracket text after the colon, a selector holding a comma, a comma list with lines under it, or a quoted name with a backslash escape (--lossy overrides)\n")
+		sys.stderr.write(f"{file}: {m.lost} line(s) bound a value under 2.x that nothing binds now: bracket text after the colon, a selector with a comma, a comma list with lines under it, or a quoted name with a backslash escape (--lossy overrides)\n")
 		if not o.lossy:
 			rc = 7
 	# With nothing ambiguous, the stamp is left off only when a raw block runs
@@ -1813,7 +1854,7 @@ def do_migrate(o):
 			sys.stderr.write(f"{file}: refusing to rewrite; nothing changed\n")
 			return rc
 		if doc.lost_count() != 0 and not o.lossy:
-			sys.stderr.write(f"{file}: refusing to rewrite: the migrated text drops {doc.lost_count()} line(s)/value(s) on load (--lossy overrides)\n")
+			sys.stderr.write(f"{file}: refusing to rewrite: the migrated text drops {doc.lost_count()} line(s) or value(s) on load (--lossy overrides)\n")
 			return 7
 		if misplaced != 0 and not o.lossy:
 			sys.stderr.write(f"{file}: refusing to rewrite: the migrated text leaves {misplaced} line(s) unread at an indent no open level matches (--lossy overrides)\n")
@@ -1872,7 +1913,7 @@ def migrate_would_refuse(file, doc, misplaced, o):
 	if o.lossy:
 		return 0
 	if doc.lost_count() != 0:
-		sys.stderr.write(f"{file}: migrate --write would refuse: the migrated text drops {doc.lost_count()} line(s)/value(s) on load (--lossy overrides)\n")
+		sys.stderr.write(f"{file}: migrate --write would refuse: the migrated text drops {doc.lost_count()} line(s) or value(s) on load (--lossy overrides)\n")
 		return 7
 	if misplaced != 0:
 		sys.stderr.write(f"{file}: migrate --write would refuse: the migrated text leaves {misplaced} line(s) unread at an indent no open level matches (--lossy overrides)\n")
@@ -1929,8 +1970,8 @@ def do_upgrade(o):
 		sys.stderr.write(f"{shcl.UpgradeErrorsLeft(file, up.errors_left)}\n")
 		return 7
 	if up.lost != 0:
-		kept = "; the backup keeps them" if o.write else ""
-		sys.stderr.write(f"{file}: {up.lost} line(s)/value(s) do not carry over to the fresh file{kept}\n")
+		kept = "; the backup has them" if o.write else ""
+		sys.stderr.write(f"{file}: {up.lost} line(s) or value(s) aren't in the fresh file{kept}\n")
 	if o.write:
 		sys.stderr.write(f"{file}: upgraded; the original is {up.backup}\n")
 	else:
@@ -2430,11 +2471,11 @@ def do_set(o):
 	# the lines could not be kept. Only a print with no layers tried to keep
 	# them (2026100717500003).
 	if doc.newer_format():
-		sys.stderr.write(f"{file}: refusing to print: the document holds lines from a newer format than this reader's (see H006)\n")
+		sys.stderr.write(f"{file}: refusing to print: the document has lines from a newer format than this reader's (see H006)\n")
 		return 7
 	text, kept = doc.to_text_keep_lines()
 	if not kept and not o.lossy and doc.lost_count() > 0:
-		sys.stderr.write(f"{file}: refusing to print: this result would delete {doc.lost_count()} line(s)/value(s) from the file (--lossy overrides)\n")
+		sys.stderr.write(f"{file}: refusing to print: this result would delete {doc.lost_count()} line(s) or value(s) from the file (--lossy overrides)\n")
 		return 7
 	sys.stdout.write(text)
 	if not kept and not o.layers:
@@ -2456,7 +2497,7 @@ def schema_for(o, file, text):
 	if named.status in (shcl.SchemaStatus.NotFound, shcl.SchemaStatus.Empty):
 		return None
 	if named.status is shcl.SchemaStatus.Url:
-		sys.stderr.write("the file names its schema by URL (" + named.path + "), which check does not fetch; pass --schema=SCHEMA to validate against it\n")
+		sys.stderr.write("the file names its schema by URL (" + named.path + "), which check doesn't fetch; pass --schema=SCHEMA to validate against it\n")
 		return None
 	raise OSError(named.message)
 

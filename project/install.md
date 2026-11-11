@@ -5,7 +5,7 @@
 <!-- TOC ignore:true -->
 # Installation
 
-This page covers how to get the `shcl` CLI and the libraries, from a package manager to building it yourself, and also how to set up a clone for development.
+This page explains how to get the `shcl` CLI and the libraries, from a package manager to building it yourself, and also how to set up a clone for development.
 
 The latest release, `v3.0.0-beta1`, has packages, prebuilt CLI binaries, and a checksums file on the [releases page](https://github.com/yottacore/shcl/releases). It's a beta. The newest full release is still `v2.0.0`, which reads files by the 2.x rules.
 
@@ -70,7 +70,7 @@ For version pinning and the dependency line per ecosystem, see [Example use-case
 
 ## Packages and installers
 
-This is the simplest route, if your system has a package manager. Download the `.deb`, `.rpm`, or Windows setup for your architecture (`x86_64` or `arm64`), or the FreeBSD `.pkg` (`x86_64` only), from the releases page.
+A package is the simplest route, if your system has a package manager. Download the `.deb`, `.rpm`, or Windows setup for your architecture (`x86_64` or `arm64`), or the FreeBSD `.pkg` (`x86_64` only), from the releases page.
 
 Packages put the binary at `/usr/bin/shcl`, and the drop-in sources under `/usr/share/shcl/`. They also install the man page and the bash and zsh completions where each shell already looks, so `man shcl` and tab completion work with nothing to configure.
 
@@ -100,13 +100,13 @@ Run `shcl-3.0.0-beta1-windows-x86_64-setup.exe`. It installs to `C:\Program File
 
 ## Install scripts, stable or dev
 
-Each script downloads a release, checks its signature, and installs the binary plus the drop-in files. It's idempotent. An update also removes the Bash and PowerShell wrappers that older releases put in `scripts/`. It uses sane defaults, states its plan, and asks before touching anything. Pass `--help` (`-Help` on Windows) for the options.
+Each script downloads a release, checks its signature, and installs the binary plus the drop-in files. It's idempotent. An update also removes the Bash and PowerShell wrappers that older releases put in `scripts/`. The script uses sane defaults, states its plan, and asks before touching anything. Pass `--help` (`-Help` on Windows) for the options.
 
-The default is the newest full release. Until 3.0.0 is out that's still 2.0.0, which reads files by the 2.x rules. For the 3.0 beta this page describes, add `--release dev` (`-Release dev` on Windows). Add it on each rerun too. A plain run goes back to 2.0.0, says so before it asks, and removes the 3.0 files 2.0.0 doesn't ship.
+The default is the newest full release. Until 3.0.0 is out that's still 2.0.0, which reads files by the 2.x rules. For the 3.0 beta this page describes, add `--release dev` (`-Release dev` on Windows). Add it on each rerun too. A plain run goes back to 2.0.0, says so before it asks, and removes the 3.0 files that 2.0.0 doesn't include.
 
-Each release includes a `shcl-<version>-sha256sums.txt` and a detached `.sig` over it. The sums file lists every asset, including the binary, the packages, and the drop-in payload. Both installers include the release public key and verify that signature before they read any checksum out of the file, so replacing a release asset isn't enough to get past them. Nothing unverified is installed. A release without a signed drop-in payload gets the binary and a note that says what was skipped. On Linux, macOS, and FreeBSD this needs `openssl`, alongside `curl` or `wget`. There isn't an install-anyway fallback, so use the [DIY install](#diy-install) route on a machine that lacks it.
+Each release includes a `shcl-<version>-sha256sums.txt` and a detached `.sig` over it. The sums file lists every asset, including the binary, the packages, and the drop-in payload. Both installers include the release public key and verify that signature before they read any checksum out of the file, so replacing a release asset isn't enough to get past them. Nothing unverified is installed. A release without a signed drop-in payload gets the binary and a note that says what was skipped. On Linux, macOS, and FreeBSD the check needs `openssl`, alongside `curl` or `wget`. There isn't an install-anyway fallback, so use the [DIY install](#diy-install) route on a machine that lacks it.
 
-`install.bash` also lays down the man page and the shell completions. It symlinks the man page into the target's own `man1` directory, so `man shcl` works once the install directory is on your `PATH`, because man derives its search path from the `bin` directories there. Completions are left under `<install dir>/completions/` for you to enable, and the installer prints the line to paste for each shell. There isn't a single directory that works everywhere, and writing into the distribution's own is the packages' job rather than a tarball installer's.
+`install.bash` also lays down the man page and the shell completions. It symlinks the man page into the target's own `man1` directory. man derives its search path from the `bin` directories on your `PATH`, so `man shcl` works once the install directory is there. Completions are left under `<install dir>/completions/` for you to enable, and the installer prints the line to paste for each shell. There isn't a single directory that works everywhere, and writing into the distribution's own is the packages' job rather than a tarball installer's.
 
 ### Linux, macOS, WSL and FreeBSD
 
@@ -146,7 +146,7 @@ The 3.0 beta installs the same way:
 
 The installer extracts the drop-in payload with `tar`, which Windows 10 1803, Server 2019, and later include. On an older Windows, use the setup `.exe` from the releases page instead.
 
-shcl's messages and `fmt` output write an escape with `◉`, as in `◉NEWLINE◉`. Windows Terminal shows it. Consolas, the old console window's default font, has no `◉`, so switch that window to Cascadia Mono. PowerShell reads a program's output in the console code page, so `$out = shcl fmt app.shcl` turns each `◉` into `Γùë`. Run `[Console]::OutputEncoding = [Text.Encoding]::UTF8` first. Output that cmd sends to a file is fine.
+shcl writes an escape with `◉` in its messages and `fmt` output, as in `◉NEWLINE◉`. Windows Terminal shows it. Consolas, the old console window's default font, has no `◉`, so switch that window to Cascadia Mono. PowerShell reads a program's output in the console code page, so `$out = shcl fmt app.shcl` turns each `◉` into `Γùë`. Run `[Console]::OutputEncoding = [Text.Encoding]::UTF8` first. Output that cmd sends to a file is fine.
 
 | Target           | Linux, macOS and FreeBSD                                 | Windows
 | :---             | :---                                                     | :---
@@ -155,7 +155,7 @@ shcl's messages and `fmt` output write an escape with `◉`, as in `◉NEWLINE�
 
 A `user` install needs no sudo or elevation. A `system` one does.
 
-NetBSD and OpenBSD have no prebuilt binaries yet. Use `cargo install shcl`, a drop-in source file, or build the CLI.
+There aren't any prebuilt binaries for NetBSD and OpenBSD yet. Use `cargo install shcl`, a drop-in source file, or build the CLI.
 
 ## DIY install
 
@@ -184,7 +184,7 @@ NetBSD and OpenBSD have no prebuilt binaries yet. Use `cargo install shcl`, a dr
 
 ## Set up a development environment
 
-`install-dev.bash` clones the repo, installs the toolchains and linters the pipeline gates on as far as it can without sudo, and prints the package-manager hint for anything left over. It states its plan first:
+`install-dev.bash` clones the repo, installs the toolchains and linters that the pipeline needs wherever it can do so without sudo, and prints the package-manager hint for anything left over. It states its plan first:
 
 ~~~sh
 bash <(curl -fsSL https://raw.githubusercontent.com/yottacore/shcl/main/install-dev.bash)
@@ -196,6 +196,6 @@ The pipeline runs on Linux. macOS is untested for it, and some checks need Linux
 cicd/cicd.bash --merge-gate --no-remote
 ~~~
 
-`--merge-gate` is the whole gate: format check, build, lint, tests, the cross-binding differential, the release builds, and the leak checks. `--no-remote` leaves out the test boxes on the maintainer's network. GitHub runs the same on Linux without CodeQL and the cross targets, and it also runs jobs on Windows, Windows on ARM, Linux on ARM, and macOS. `--gate` is a check of about 4 minutes that leaves out the slow steps.
+`--merge-gate` is the whole gate: format check, build, lint, tests, the cross-binding differential, the release builds, and the leak checks. `--no-remote` leaves out the test boxes on the maintainer's network. GitHub runs the same on Linux without CodeQL and the cross targets, and it also runs jobs on Windows, Windows on ARM, Linux on ARM, and macOS. `--gate` runs the quick checks and leaves out the slow steps.
 
-[`contributing.md`](../contributing.md) has the full list. It gives every toolchain and linter with its install command, the per-binding test commands, the extra tools a full cross-and-package run wants, and how to add a conformance case.
+[`contributing.md`](../contributing.md) has the full list. It gives every toolchain and linter with its install command, the per-binding test commands, the extra tools that a full cross-build and package run needs, and how to add a conformance case.

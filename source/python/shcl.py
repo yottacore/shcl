@@ -355,7 +355,7 @@ class SaveRefused(SaveError):
 	def __init__(self, path: str | os.PathLike[str], lost: int):
 		self.path = path
 		self.lost = lost
-		super().__init__(f"{path}: refusing to save: this write would delete {lost} line(s)/value(s) from the file (see diagnostics; save_file_lossy overrides)")
+		super().__init__(f"{path}: refusing to save: this write would delete {lost} line(s) or value(s) from the file; the diagnostics say which, and save_file_lossy writes anyway")
 
 
 class SaveFailed(SaveError):
@@ -377,7 +377,7 @@ class SaveChanged(SaveError):
 
 	def __init__(self, path: str | os.PathLike[str]):
 		self.path = path
-		super().__init__(f"{path}: refusing to save: what is there is not what this document read or wrote; nothing written (force overrides)")
+		super().__init__(f"{path}: refusing to save: what's there isn't what this document read or wrote; nothing written, and force writes over it")
 
 
 class SaveExists(SaveError):
@@ -387,7 +387,7 @@ class SaveExists(SaveError):
 
 	def __init__(self, path: str | os.PathLike[str]):
 		self.path = path
-		super().__init__(f"{path}: refusing to save: the file is already there and create asks for a new one; nothing written")
+		super().__init__(f"{path}: refusing to save: a file is already there, but create asks for a new one; nothing written")
 
 
 class SaveTooNew(SaveError):
@@ -398,7 +398,7 @@ class SaveTooNew(SaveError):
 
 	def __init__(self, path: str | os.PathLike[str]):
 		self.path = path
-		super().__init__(f"{path}: refusing to save: the document holds lines from a newer format than this reader's; nothing written")
+		super().__init__(f"{path}: refusing to save: the document has lines from a newer format than this reader's; nothing written")
 
 
 class SaveOptions:
@@ -3664,7 +3664,7 @@ def _bare_trouble(raw, kind):
 	# The old `[#N]` index. A file line reads that `#` as a comment, so only
 	# a lookup path gets here with one.
 	if kind == _BARE_SELECTOR and raw.startswith("#"):
-		return "a '#' at the start of a bare selector; an index is a bare number, x(0), and a value starting with '#' is quoted"
+		return "a '#' at the start of a bare selector; an index is a bare number as in x(0), and a value that starts with '#' is quoted"
 	for i, c in enumerate(raw):
 		if c == "'" and not strict and _in_word(raw, i):
 			continue
@@ -3735,7 +3735,7 @@ def _value_fault(tok, s):
 		if f is not None:
 			return _Fault(f[0], f[1], True)
 	if tok.array is None and len(tok.elements) > 1:
-		return _Fault("E026", "a comma then a space or the end in a bare value; write an array in brackets, [a, b], or quote the text", True)
+		return _Fault("E026", "a comma then a space or the end in a bare value; write an array in brackets as [a, b], or quote the text", True)
 	return None
 
 
@@ -3745,7 +3745,7 @@ def _item_fault(tok, s):
 	with whitespace or the end after it, the way YAML starts an object in a
 	list (E027)."""
 	if tok.array is not None:
-		return _Fault("E019", "a list item is one value, and arrays do not nest; quote the item if it is text", True)
+		return _Fault("E019", "a list item is one value, and arrays don't nest; quote the item if it is text", True)
 	for p in tok.elements:
 		f = _piece_fault(p, s, _BARE_ITEM)
 		if f is not None:
@@ -3802,7 +3802,7 @@ def _name_fault(tok):
 	would read as in parens, when that reads."""
 	s = tok.src
 	if tok.bracket_selector is not None:
-		f = _Fault("E029", "selector in brackets; write it in parens, name(value), since brackets are only for arrays", _path_fault(tok, s) is None)
+		f = _Fault("E029", "selector in brackets; write it in parens as name(value), since brackets are only for arrays", _path_fault(tok, s) is None)
 		f.at = tok.bracket_selector
 		return f
 	f = _path_fault(tok, s)
@@ -3811,7 +3811,7 @@ def _name_fault(tok):
 	if tok.misspelled is None:
 		return _wildcard_fault(tok, s)
 	if tok.sep is not None:
-		return _Fault("E014", "field name needs quotes; a bare name is a letter, then letters, digits, '-' and '_'", True)
+		return _Fault("E014", "field name needs quotes; a bare name is a letter, then letters, digits, '-', and '_'", True)
 	blank = None
 	for seg in tok.segments:
 		if seg.name.quote is not Quote.None_:
@@ -3961,10 +3961,10 @@ def _no_instance(tok, segs, at):
 
 
 # Why a lookup path with a selector in brackets is refused.
-_BRACKET_LOOKUP = "selector in brackets; write it in parens, name(value)"
+_BRACKET_LOOKUP = "selector in brackets; write it in parens as name(value)"
 
 # Why a lookup path with a `#` outside quotes and selectors is refused.
-_COMMENT_LOOKUP = "a '#' opens a comment; quote a name that holds one"
+_COMMENT_LOOKUP = "a '#' opens a comment; quote a name that contains one"
 
 
 def _scan_lookup(inp):
@@ -4327,7 +4327,7 @@ class _Parser:
 		if at != line and (apart or cross_region):
 			self._diag(Diagnostic(
 				line, Severity.Hint,
-				f"{_h002_head(self.arena[kept].name)}line {at} (same name and value combine)",
+				f"{_h002_head(self.arena[kept].name)}line {at}, since lines with the same name and value combine",
 				"H002"))
 			self.reentered[kept] = line
 
@@ -4855,7 +4855,7 @@ class _Parser:
 						at = self.arena[cur].line
 						self._diag(Diagnostic(
 							line, Severity.Hint,
-							f"{_h002_head(seg.name)}line {at} (same name and value combine)",
+							f"{_h002_head(seg.name)}line {at}, since lines with the same name and value combine",
 							"H002"))
 						self.reentered[cur] = line
 		return cur
@@ -5243,7 +5243,7 @@ class _Parser:
 				# to retain, and the items around it still load. The BOM
 				# exception the field arm makes cannot apply here: this line
 				# starts with the '*' that brought us in.
-				self._refuse(lineno, "E013", "a list item is written '- ' now, not '*'", _out_retained(_trim_wsp_end(rest), had_blank), indent)
+				self._refuse(lineno, "E013", "a list item is written '- ' now rather than '*'", _out_retained(_trim_wsp_end(rest), had_blank), indent)
 				i += 1
 				continue
 			# Field line.
@@ -9983,7 +9983,7 @@ class Document:
 		is_array = c.ty is not None and c.ty.endswith("-array")
 
 		def wrong():
-			_vdiag(out, line, "V003", f"wrong type at '{_schema_text(c.path)}': value is not a valid {c.ty}")
+			_vdiag(out, line, "V003", f"wrong type at '{_schema_text(c.path)}': value isn't a valid {c.ty}")
 
 		if node.value.kind == "empty":
 			# Empty passes everything; required already counted it as present.
@@ -10770,7 +10770,7 @@ def read_named_schema(text: str, file: str) -> NamedSchema:
 	# and a line in a file someone else wrote must not reach another host.
 	if os.name == "nt" and len(named) >= 2 and ((named[0] in "/\\" and named[1] in "/\\") or named.startswith("\\??\\")):
 		out.status = SchemaStatus.NetworkPath
-		out.message = f"{named}: a Schema line cannot name a network or device path"
+		out.message = f"{named}: a Schema line can't name a network or device path"
 		out.path = named
 		return out
 	c = named[0]
@@ -10820,7 +10820,7 @@ def _read_schema_file(path: str) -> tuple[SchemaStatus, str, str]:
 			while chunk := f.read(1 << 16):
 				data += chunk
 				if len(data) > _SCHEMA_LINE_MAX:
-					return SchemaStatus.TooLarge, "", f"{path}: too large for a schema (over 16 MiB)"
+					return SchemaStatus.TooLarge, "", f"{path}: too large for a schema, which can't be over 16 MiB"
 	except FileNotFoundError as e:
 		return SchemaStatus.FileNotFound, "", f"{path}: {e.strerror or e}"
 	except ValueError as e:
@@ -10970,7 +10970,7 @@ def _write_file_how(file, data, new_only, mode):
 		except (OSError, ValueError) as e:
 			last = e.with_traceback(None)  # as err in _windows_publish_file
 	if f is None:
-		raise WriteError(f"{file}: cannot create temporary file: {(getattr(last, 'strerror', None) or last) if last is not None else ''}",
+		raise WriteError(f"{file}: can't create a temporary file: {(getattr(last, 'strerror', None) or last) if last is not None else ''}",
 			_write_status_of(last) if last is not None else WriteStatus.Other)
 	try:
 		try:
@@ -11068,7 +11068,7 @@ class UpgradeAmbiguous(UpgradeError):
 	def __init__(self, path: str, count: int):
 		self.path = path
 		self.count = count
-		super().__init__(f"{path}: {count} value(s) read one way under 2.x and another under these rules, and the file does not say which it was written for; nothing written")
+		super().__init__(f"{path}: {count} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; nothing written")
 
 
 class UpgradeBackupTaken(UpgradeError):
@@ -11232,7 +11232,7 @@ def upgrade_file(path: str | os.PathLike[str], from_v2: bool) -> Upgrade:
 	try:
 		text = data.decode("utf-8")
 	except UnicodeDecodeError:
-		raise UpgradeFailed(f"{path}: cannot be read as UTF-8 text", WriteStatus.Unreadable) from None
+		raise UpgradeFailed(f"{path}: can't be read as UTF-8 text", WriteStatus.Unreadable) from None
 	up = upgrade(text, from_v2)
 	if up.current:
 		return up
@@ -12106,7 +12106,7 @@ def _unit_clash(name, text):
 	`timeout-ms: 5s`. The value's unit is the one read, so this is a hint."""
 
 	def said(v, n):
-		return "value is in " + v + " and the name says " + n + "; the value's unit is the one read"
+		return "value is in " + v + " but the name says " + n + "; the value's unit is the one read"
 
 	nu = _name_unit(name, _DURATION_NAMES)
 	if nu is not None:
@@ -12956,10 +12956,10 @@ def generate(schema: Document, no_banner: bool = False) -> tuple[str, list[Diagn
 	# path for a reason generation did not act on.
 	def why_unwritable(c):
 		if len(c.segs) > MAX_DEPTH:
-			return "nests past the depth cap"
+			return "it nests past the depth cap"
 		for s in c.segs:
 			if s.selector is not None and s.selector[0] == "idx":
-				return "an index selector needs an instance that does not exist yet"
+				return "an index selector needs an instance that doesn't exist yet"
 			if s.star:
 				return "a * name segment has no name to write"
 		return ""
@@ -13026,11 +13026,10 @@ def generate(schema: Document, no_banner: bool = False) -> tuple[str, list[Diagn
 				blocked,
 				0,
 				"V097",
-				"required path cannot be generated: "
+				"required path can't be generated: "
 				+ _schema_text(c.path)
-				+ " ("
-				+ why_unwritable(c)
-				+ ")",
+				+ ", because "
+				+ why_unwritable(c),
 			)
 	if blocked:
 		return "", blocked
@@ -13087,7 +13086,7 @@ def generate(schema: Document, no_banner: bool = False) -> tuple[str, list[Diagn
 				unspellable,
 				0,
 				"V097",
-				"required path cannot be generated: " + _schema_text(c.path) + " (its parent's value has no selector spelling)",
+				"required path can't be generated: " + _schema_text(c.path) + ", because its parent's value has no selector spelling",
 			)
 			continue
 		dval = c.default_text if c.default_text is not None else ""
@@ -13138,7 +13137,7 @@ def generate(schema: Document, no_banner: bool = False) -> tuple[str, list[Diagn
 	if wild:
 		if blocks:
 			out.append("\n")
-		out.append("## Paths needing an instance name (not generated):\n")
+		out.append("## These paths need an instance name, so they weren't generated:\n")
 		for path, tyname in wild:
 			out.append(f"##   {path}   {tyname}\n")
 	if unspellable:
@@ -13160,7 +13159,7 @@ def generate(schema: Document, no_banner: bool = False) -> tuple[str, list[Diagn
 	# does not load is refused even when validation happens to pass without it.
 	gdoc = Document.parse(text)
 	bad = [
-		Diagnostic(0, Severity.Error, f"generated text does not load: {d.code} {d.message}", "V097")
+		Diagnostic(0, Severity.Error, f"generated text doesn't load: {d.code} {d.message}", "V097")
 		for d in gdoc.diagnostics()
 		if d.severity == Severity.Error
 	]
@@ -13179,7 +13178,7 @@ def generate(schema: Document, no_banner: bool = False) -> tuple[str, list[Diagn
 	for i, line in commented:
 		one = Document.parse(line)
 		bad += [
-			Diagnostic(0, Severity.Error, f"generated text does not load: {d.code} {d.message}", "V097")
+			Diagnostic(0, Severity.Error, f"generated text doesn't load: {d.code} {d.message}", "V097")
 			for d in one.diagnostics()
 			if d.severity == Severity.Error
 		]
@@ -13190,7 +13189,7 @@ def generate(schema: Document, no_banner: bool = False) -> tuple[str, list[Diagn
 		nodes = [n for _, f in ctxs for n in f]
 		if not nodes:
 			path = _schema_text(cons[i].path)
-			bad.append(Diagnostic(0, Severity.Error, "generated value fails the schema that produced it: default does not name the instance its path selects: " + path, "V097"))
+			bad.append(Diagnostic(0, Severity.Error, "generated value fails the schema that produced it: default doesn't name the instance its path selects: " + path, "V097"))
 			continue
 		found: list[Diagnostic] = []
 		for n in nodes:
