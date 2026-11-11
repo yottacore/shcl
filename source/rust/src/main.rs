@@ -1957,7 +1957,7 @@ fn write_back(doc: &mut Document, file: &str, o: &Opts, read: Option<&str>, keep
 			// The rule stays in the library; only the wording is the CLI's,
 			// because the override a user has here is a flag, not a function.
 			errln!(
-				"{}: refusing to rewrite: this write would delete {} line(s)/value(s) from the file (--lossy overrides)",
+				"{}: refusing to rewrite: this write would delete {} line(s) or value(s) from the file (--lossy overrides)",
 				file,
 				lost
 			);
@@ -2518,7 +2518,7 @@ fn do_fmt(o: &Opts) -> u8 {
 		}
 		if !o.lossy && doc.lost_count() != 0 {
 			errln!(
-				"{}: fmt --write would refuse: it would delete {} line(s)/value(s) from the file (--lossy overrides)",
+				"{}: fmt --write would refuse: it would delete {} line(s) or value(s) from the file (--lossy overrides)",
 				file,
 				doc.lost_count()
 			);
@@ -2599,7 +2599,7 @@ fn do_migrate(o: &Opts) -> u8 {
 	let mut rc = 0;
 	if m.ambiguous != 0 {
 		errln!(
-			"{}: {} value(s) read one way under 2.x and another under these rules, and the file does not say which it was written for; left as written (--from-2x rewrites them)",
+			"{}: {} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; left as written (--from-2x rewrites them)",
 			file,
 			m.ambiguous
 		);
@@ -2656,7 +2656,7 @@ fn do_migrate(o: &Opts) -> u8 {
 		}
 		if doc.lost_count() != 0 && !o.lossy {
 			errln!(
-				"{}: refusing to rewrite: the migrated text drops {} line(s)/value(s) on load (--lossy overrides)",
+				"{}: refusing to rewrite: the migrated text drops {} line(s) or value(s) on load (--lossy overrides)",
 				file,
 				doc.lost_count()
 			);
@@ -2735,7 +2735,7 @@ fn migrate_would_refuse(file: &str, doc: &Document, misplaced: usize, o: &Opts) 
 	}
 	if doc.lost_count() != 0 {
 		errln!(
-			"{}: migrate --write would refuse: the migrated text drops {} line(s)/value(s) on load (--lossy overrides)",
+			"{}: migrate --write would refuse: the migrated text drops {} line(s) or value(s) on load (--lossy overrides)",
 			file,
 			doc.lost_count()
 		);
@@ -2835,7 +2835,7 @@ fn do_upgrade(o: &Opts) -> u8 {
 	}
 	if up.lost != 0 {
 		errln!(
-			"{}: {} line(s)/value(s) aren't in the fresh file{}",
+			"{}: {} line(s) or value(s) aren't in the fresh file{}",
 			file,
 			up.lost,
 			if o.write { "; the backup has them" } else { "" }
@@ -3380,7 +3380,7 @@ fn do_set(o: &Opts) -> u8 {
 	let (text, kept) = doc.to_text_keep_lines();
 	if !kept && !o.lossy && doc.lost_count() > 0 {
 		errln!(
-			"{}: refusing to print: this result would delete {} line(s)/value(s) from the file (--lossy overrides)",
+			"{}: refusing to print: this result would delete {} line(s) or value(s) from the file (--lossy overrides)",
 			file,
 			doc.lost_count()
 		);

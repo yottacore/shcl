@@ -1992,7 +1992,7 @@ func writeBack(doc *shcl.Document, file string, o *opts, read *string, keep bool
 	// override a user has here is a flag, not a function.
 	var refused *shcl.SaveRefused
 	if errors.As(werr, &refused) {
-		fmt.Fprintf(os.Stderr, "%s: refusing to rewrite: this write would delete %d line(s)/value(s) "+
+		fmt.Fprintf(os.Stderr, "%s: refusing to rewrite: this write would delete %d line(s) or value(s) "+
 			"from the file (--lossy overrides)\n", file, refused.Lost)
 		return 7
 	}
@@ -2395,7 +2395,7 @@ func doFmt(o *opts) int {
 			return 7
 		}
 		if !o.lossy && doc.LostCount() != 0 {
-			fmt.Fprintf(os.Stderr, "%s: fmt --write would refuse: it would delete %d line(s)/value(s) "+
+			fmt.Fprintf(os.Stderr, "%s: fmt --write would refuse: it would delete %d line(s) or value(s) "+
 				"from the file (--lossy overrides)\n", file, doc.LostCount())
 			return 7
 		}
@@ -2471,7 +2471,7 @@ func doMigrate(o *opts) int {
 	rc := 0
 	if m.Ambiguous != 0 {
 		fmt.Fprintf(os.Stderr, "%s: %d value(s) read one way under 2.x and another under these rules, and "+
-			"the file does not say which it was written for; left as written (--from-2x rewrites them)\n", file, m.Ambiguous)
+			"the file doesn't say which it was written for; left as written (--from-2x rewrites them)\n", file, m.Ambiguous)
 		rc = 7
 	}
 	if m.Lost != 0 {
@@ -2521,7 +2521,7 @@ func doMigrate(o *opts) int {
 			return rc
 		}
 		if doc.LostCount() != 0 && !o.lossy {
-			fmt.Fprintf(os.Stderr, "%s: refusing to rewrite: the migrated text drops %d line(s)/value(s) "+
+			fmt.Fprintf(os.Stderr, "%s: refusing to rewrite: the migrated text drops %d line(s) or value(s) "+
 				"on load (--lossy overrides)\n", file, doc.LostCount())
 			return 7
 		}
@@ -2588,7 +2588,7 @@ func migrateWouldRefuse(file string, doc *shcl.Document, misplaced int, o *opts)
 		return 0
 	}
 	if doc.LostCount() != 0 {
-		fmt.Fprintf(os.Stderr, "%s: migrate --write would refuse: the migrated text drops %d line(s)/value(s) "+
+		fmt.Fprintf(os.Stderr, "%s: migrate --write would refuse: the migrated text drops %d line(s) or value(s) "+
 			"on load (--lossy overrides)\n", file, doc.LostCount())
 		return 7
 	}
@@ -2668,7 +2668,7 @@ func doUpgrade(o *opts) int {
 		if o.write {
 			kept = "; the backup has them"
 		}
-		fmt.Fprintf(os.Stderr, "%s: %d line(s)/value(s) aren't in the fresh file%s\n", file, up.Lost, kept)
+		fmt.Fprintf(os.Stderr, "%s: %d line(s) or value(s) aren't in the fresh file%s\n", file, up.Lost, kept)
 	}
 	if o.write {
 		fmt.Fprintf(os.Stderr, "%s: upgraded; the original is %s\n", file, up.Backup)
@@ -3440,7 +3440,7 @@ func doSet(o *opts) int {
 	}
 	text, kept := doc.ToTextKeepLines()
 	if !kept && !o.lossy && doc.LostCount() > 0 {
-		fmt.Fprintf(os.Stderr, "%s: refusing to print: this result would delete %d line(s)/value(s) "+
+		fmt.Fprintf(os.Stderr, "%s: refusing to print: this result would delete %d line(s) or value(s) "+
 			"from the file (--lossy overrides)\n", file, doc.LostCount())
 		return 7
 	}

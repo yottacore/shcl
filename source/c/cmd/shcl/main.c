@@ -1388,14 +1388,14 @@ static int write_back(shcl_doc *d, const char *file, Opts *o, const char *read, 
 	// The rule stays in the library; only the wording is the CLI's, because the
 	// override a user has here is a flag, not a function.
 	if (r == SHCL_SAVE_REFUSED) {
-		fprintf(stderr, "%s: refusing to rewrite: this write would delete %zu line(s)/value(s) from the file (--lossy overrides)\n", file, shcl_lost_count(d));
+		fprintf(stderr, "%s: refusing to rewrite: this write would delete %zu line(s) or value(s) from the file (--lossy overrides)\n", file, shcl_lost_count(d));
 		return 7;
 	}
 	// The library reports a failed save through errno alone; the phase worth
 	// naming is the temp-file create, which is what failed when the target's
 	// directory cannot take one.
 	int e = errno;
-	if (e != EISDIR && !dir_takes_a_temp(file)) fprintf(stderr, "%s: cannot create temporary file: %s\n", file, strerror(e));
+	if (e != EISDIR && !dir_takes_a_temp(file)) fprintf(stderr, "%s: can't create a temporary file: %s\n", file, strerror(e));
 	else fprintf(stderr, "%s: %s\n", file, strerror(e));
 	return EXIT_IO;
 }
@@ -1421,7 +1421,7 @@ static int do_fmt(Opts *o) {
 			fprintf(stderr, "%s: fmt --write would refuse: the document has lines from a newer format than this reader's (see H006)\n", file);
 			rc = 7;
 		} else if (!o->lossy && shcl_lost_count(L.doc) != 0) {
-			fprintf(stderr, "%s: fmt --write would refuse: it would delete %zu line(s)/value(s) from the file (--lossy overrides)\n", file, shcl_lost_count(L.doc));
+			fprintf(stderr, "%s: fmt --write would refuse: it would delete %zu line(s) or value(s) from the file (--lossy overrides)\n", file, shcl_lost_count(L.doc));
 			rc = 7;
 		} else {
 			shcl_str c = shcl_to_canonical(L.doc);
@@ -1478,7 +1478,7 @@ static size_t rewritten_lines(const char *file, const char *before, size_t blen,
 static int migrate_would_refuse(const char *file, const shcl_doc *d, size_t misplaced, const Opts *o) {
 	if (o->lossy) return 0;
 	if (shcl_lost_count(d) != 0) {
-		fprintf(stderr, "%s: migrate --write would refuse: the migrated text drops %zu line(s)/value(s) on load (--lossy overrides)\n", file, shcl_lost_count(d));
+		fprintf(stderr, "%s: migrate --write would refuse: the migrated text drops %zu line(s) or value(s) on load (--lossy overrides)\n", file, shcl_lost_count(d));
 		return 7;
 	}
 	if (misplaced != 0) {
@@ -1512,7 +1512,7 @@ static int do_migrate(const Opts *o) {
 		return 0;
 	}
 	if (m.ambiguous) {
-		fprintf(stderr, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file does not say which it was written for; left as written (--from-2x rewrites them)\n", file, m.ambiguous);
+		fprintf(stderr, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; left as written (--from-2x rewrites them)\n", file, m.ambiguous);
 		rc = 7;
 	}
 	if (m.lost) {
@@ -1545,7 +1545,7 @@ static int do_migrate(const Opts *o) {
 		if (rc) {
 			fprintf(stderr, "%s: refusing to rewrite; nothing changed\n", file);
 		} else if (shcl_lost_count(d) != 0 && !o->lossy) {
-			fprintf(stderr, "%s: refusing to rewrite: the migrated text drops %zu line(s)/value(s) on load (--lossy overrides)\n", file, shcl_lost_count(d));
+			fprintf(stderr, "%s: refusing to rewrite: the migrated text drops %zu line(s) or value(s) on load (--lossy overrides)\n", file, shcl_lost_count(d));
 			rc = 7;
 		} else if (misplaced != 0 && !o->lossy) {
 			fprintf(stderr, "%s: refusing to rewrite: the migrated text leaves %zu line(s) unread at an indent no open level matches (--lossy overrides)\n", file, misplaced);
@@ -1564,7 +1564,7 @@ static int do_migrate(const Opts *o) {
 				rc = EXIT_IO;
 			} else if (!shcl_write_file_atomic(file, m.text, m.len, NULL)) {
 				int e = errno;
-				if (!dir_takes_a_temp(file)) fprintf(stderr, "%s: cannot create temporary file: %s\n", file, strerror(e));
+				if (!dir_takes_a_temp(file)) fprintf(stderr, "%s: can't create a temporary file: %s\n", file, strerror(e));
 				else fprintf(stderr, "%s: %s\n", file, strerror(e));
 				// With the original still in place the copy would only stand
 				// in the way of the next run. A replace that fails part way on
@@ -1643,7 +1643,7 @@ static int do_upgrade(const Opts *o) {
 	}
 	say_diagnostics_from("", up.diagnostics);
 	if (up.ambiguous != 0) {
-		fprintf(stderr, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file does not say which it was written for; nothing written (--from-2x rewrites them)\n", file, up.ambiguous);
+		fprintf(stderr, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; nothing written (--from-2x rewrites them)\n", file, up.ambiguous);
 		shcl_upgraded_free(&up);
 		return 7;
 	}
@@ -1655,7 +1655,7 @@ static int do_upgrade(const Opts *o) {
 		return 7;
 	}
 	if (up.lost != 0)
-		fprintf(stderr, "%s: %zu line(s)/value(s) aren't in the fresh file%s\n", file, up.lost, o->write ? "; the backup has them" : "");
+		fprintf(stderr, "%s: %zu line(s) or value(s) aren't in the fresh file%s\n", file, up.lost, o->write ? "; the backup has them" : "");
 	if (o->write) fprintf(stderr, "%s: upgraded; the original is %s\n", file, up.backup);
 	else fwrite(up.text, 1, up.len, stdout);
 	shcl_upgraded_free(&up);
@@ -2097,7 +2097,7 @@ static int do_set(Opts *o) {
 				fprintf(stderr, "%s: refusing to print: the document has lines from a newer format than this reader's (see H006)\n", file);
 				rc = 7;
 			} else if (!kept && !o->lossy && shcl_lost_count(d) > 0) {
-				fprintf(stderr, "%s: refusing to print: this result would delete %zu line(s)/value(s) from the file (--lossy overrides)\n", file, shcl_lost_count(d));
+				fprintf(stderr, "%s: refusing to print: this result would delete %zu line(s) or value(s) from the file (--lossy overrides)\n", file, shcl_lost_count(d));
 				rc = 7;
 			} else {
 				fwrite(c.p, 1, c.n, stdout);

@@ -939,7 +939,7 @@ rows=(
 	#'dd5qe|escape-unicode-bad|check -|a: "\\uD800"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 bad escape .\\u. in double quotes'
 	'dd5qc|escape-unicode-fmt|fmt -|a: x\xe2\x80\x8by\n|0|a: "x\xe2\x97\x89U+200B\xe2\x97\x89y"\n|-'
 	#'dd5qf|escape-unicode-name|paths -|"a\\u202Eb": 1\n|0|"a\\u202Eb"\n|-'
-	#'dd5qg|escape-unicode-migrate-refused|migrate -|q: "\\u0041"\n|7|q: "\\u0041"\n|does not say which it was written for'
+	#'dd5qg|escape-unicode-migrate-refused|migrate -|q: "\\u0041"\n|7|q: "\\u0041"\n|doesn.t say which it was written for'
 	#'dd5qh|escape-unicode-migrate-2x|migrate --from-2x -|q: "\\u0041"\n|0|q: "\\\\u0041"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	'ddheh|escape-mark-code-read|get - a|a: "caf\xe2\x97\x89U+00E9\xe2\x97\x89 \xe2\x97\x89u+1f600\xe2\x97\x89"\n|0|caf\xc3\xa9 \xf0\x9f\x98\x80\n|-'
 	'ddhej|escape-mark-surrogate|check -|a: "\xe2\x97\x89U+D800\xe2\x97\x89"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 escape .* names no Unicode character'
@@ -981,7 +981,7 @@ rows=(
 	'ddheq|backslash-migrate-same|migrate -|q: "C:\\work"\n|0|q: "C:\\work"\n##    Format   3\n|-'
 	## 2026101911300000: a backslash pair 2.x resolved, in a file that doesn't
 	## say it is 2.x, is left and asked about.
-	'de60r|backslash-migrate-ambiguous|migrate -|q: "C:\\\\work"\n|7|q: "C:\\\\work"\n|does not say which it was written for'
+	'de60r|backslash-migrate-ambiguous|migrate -|q: "C:\\\\work"\n|7|q: "C:\\\\work"\n|doesn.t say which it was written for'
 	## 2026102016593100: a value ending in a backslash is written as \" before
 	## the closing quote. The backslash is text, so it reads back as written.
 	'de79q|backslash-before-quote-migrate|migrate --from-2x -|a: x\\ty\\\\z\\q\\\n|0|a: "x\xe2\x97\x89TAB\xe2\x97\x89y\\z\\q\\"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
@@ -1148,7 +1148,7 @@ rows=(
 	## to refuse over.
 	## Back since 2026101911300000: migrate writes the text 2.x read, so the
 	## file reads two ways again.
-	'dcq6h|migrate-ambiguous-refused|migrate %BS%|-|7|-|does not say which it was written for'
+	'dcq6h|migrate-ambiguous-refused|migrate %BS%|-|7|-|doesn.t say which it was written for'
 	"dcq6j|migrate-ambiguous-kept|migrate %BS%|-|7|p: 'C:\\\\temp'\n|-"
 	'dcq6k|migrate-ambiguous-write-refused|migrate --write %BS%|-|7|-|refusing to rewrite'
 	## Wrong since 2026101911300000, as above. Don't uncomment.
@@ -1177,14 +1177,14 @@ rows=(
 	'dcq6m|migrate-stamped-noop|migrate %V3%|-|0|p: 1\n##    Format   3\n|nothing to migrate'
 	"dd83r|migrate-indented-stamp-noop|migrate %V3I%|-|0|p: 'C:\\\\temp'\nsrv:\n\t##    Format   3\n\tx: 1\n|nothing to migrate"
 	## 20260918 item 1: the version scan read raw bodies the rewrite skips.
-	'dct37|migrate-format-in-raw-old|migrate %RF2%|-|7|-|does not say which it was written for'
+	'dct37|migrate-format-in-raw-old|migrate %RF2%|-|7|-|doesn.t say which it was written for'
 	## The value beside it is no longer read two ways (2026-10-05), so this
 	## pins the scan by the stamp migrate adds; ddf43 holds the refusal.
 	## Back since 2026101911300000: the value reads two ways again. The stamp
 	## row below is wrong since then. Don't uncomment it.
-	'dct38|migrate-format-in-raw-new|migrate %RF3%|-|7|-|does not say which it was written for'
+	'dct38|migrate-format-in-raw-new|migrate %RF3%|-|7|-|doesn.t say which it was written for'
 	#'ddj1r|migrate-format-in-raw-stamps|migrate %RF3%|-|0|p: \x27C:\\temp\x27\nnote:\n\t\x60\x60\x60\n##    Format   3\n\t\x60\x60\x60\n##    Format   3\n|!nothing to migrate'
-	'ddf43|migrate-format-in-raw-after-backslash|migrate %RFQ%|-|7|-|does not say which it was written for'
+	'ddf43|migrate-format-in-raw-after-backslash|migrate %RFQ%|-|7|-|doesn.t say which it was written for'
 	## 20260918 item 2: C looked for the version line before taking off a BOM.
 	'dct39|migrate-bom-stamped|migrate %V3B%|-|0|-|nothing to migrate'
 	'dct3a|migrate-bom-stamped-from-2x|migrate --from-2x %V3B%|-|0|-|nothing to migrate'
@@ -1250,7 +1250,7 @@ rows=(
 	## 2026-10-05: nothing in the backslash file is rewritten now.
 	## Back since 2026101911300000: the tab 2.x read is written. The row after
 	## them is wrong since then. Don't uncomment it.
-	'dcqad|migrate-check-ambiguous|migrate --check %BS%|-|7||does not say which it was written for'
+	'dcqad|migrate-check-ambiguous|migrate --check %BS%|-|7||doesn.t say which it was written for'
 	'dcqae|migrate-check-from-2x|migrate --check --from-2x %BS%|-|6||bs\.shcl:1: migrate would rewrite'
 	#'ddj1s|migrate-check-backslash|migrate --check --from-2x %BS%|-|0||!.'
 	'dcqaf|migrate-check-write|migrate --check --write %W%|-|1|-|--check cannot be combined with --write'
@@ -1492,12 +1492,12 @@ rows=(
 	'ddgfx|layer-strict-then-missing|paths --strictness=strict --layer=%B% --layer=%M% %F%|-|8|-|not-there\.shcl'
 	'ddgfy|layer-strict-then-missing-set|set --set=q=1 --strictness=strict --layer=%B% --layer=%M% %F%|-|8|-|not-there\.shcl'
 	## 20260902 item 44: the failing phase is named, not guessed.
-	'dc43q|write-names-the-phase|set --write --set=a=2 %N%|-|8|-|cannot create temporary file'
+	'dc43q|write-names-the-phase|set --write --set=a=2 %N%|-|8|-|can.t create a temporary file'
 	## FILE: and the system's own message, without the temp file's name. Python
 	## printed that name as a repr, which doubles every backslash on windows,
 	## and Go named the call and the name again (2026100719122102).
-	'ddwmy|write-temp-reason-only|set --write --set=a=2 %N%|-|8|-|^[^ ]*nowrite.f\.shcl: cannot create temporary file: [^/\\]+$'
-	'ddwmz|write-temp-reason-no-dir|set --write --set=a=2 %D%/gone/f.shcl|-|8|-|^[^ ]*gone.f\.shcl: cannot create temporary file: [^/\\]+$'
+	'ddwmy|write-temp-reason-only|set --write --set=a=2 %N%|-|8|-|^[^ ]*nowrite.f\.shcl: can.t create a temporary file: [^/\\]+$'
+	'ddwmz|write-temp-reason-no-dir|set --write --set=a=2 %D%/gone/f.shcl|-|8|-|^[^ ]*gone.f\.shcl: can.t create a temporary file: [^/\\]+$'
 	## 20260902 item 41: the schema's own diagnostics were never printed, so the
 	## hint that explains a schema fault could not be seen.
 	'dc431|schema-own-hints|check --schema=%S7% %F%|-|6|-|schema line 4: Hint: H001'
@@ -2725,7 +2725,7 @@ saveCases=(
 	'dcvaq|dangling|set --write --set b=2 f.shcl|0|[[ -L f.shcl ]] && grep -qx "b: 2" sub/x.shcl'
 	## 2026101514324710: into a folder that isn't there, the temp create is what
 	## failed. C asked the link's folder, which takes one, and left the phase out.
-	'de138|dangling-nodir|set --write --set b=2 f.shcl|8|[[ -L f.shcl && ! -e sub ]] && grep -qE "^f\.shcl: cannot create temporary file: [^/]+$" "${tmpDir}/err"'
+	'de138|dangling-nodir|set --write --set b=2 f.shcl|8|[[ -L f.shcl && ! -e sub ]] && grep -qE "^f\.shcl: can.t create a temporary file: [^/]+$" "${tmpDir}/err"'
 	'dcvar|dotdot|set --write --set b=2 top/lnkdir/f.shcl|0|[[ -L real/sub/f.shcl && ! -e top/x.shcl ]] && grep -qx "b: 2" real/x.shcl'
 	## 20260830 item 32: Python cleaned the `..` against a directory that is not
 	## there and created f.shcl here at exit 0. The kernel refuses the path.

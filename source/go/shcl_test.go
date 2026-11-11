@@ -2656,7 +2656,7 @@ func TestWriteFailureNamesNoTempFile(t *testing.T) {
 		return nil, &fs.PathError{Op: "open", Path: tmp, Err: fs.ErrPermission}
 	}
 	err := WriteFileAtomic(target, "a: 1\n")
-	if want := target + ": cannot create temporary file: " + fs.ErrPermission.Error(); err == nil || err.Error() != want || !errors.Is(err, fs.ErrPermission) {
+	if want := target + ": can't create a temporary file: " + fs.ErrPermission.Error(); err == nil || err.Error() != want || !errors.Is(err, fs.ErrPermission) {
 		t.Errorf("a failed temp file says %v, want %q", err, want)
 	}
 	createTemp = oldCreate
