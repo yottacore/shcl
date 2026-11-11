@@ -4823,7 +4823,7 @@ brWant+="w^check-boxes.bash && win-runners.bash v^check-boxes.bash && win-runner
 ## Every row's words are ones fBoxRow takes, and the TCG box runs only Go in a
 ## run without --long.
 # shellcheck disable=SC2016  ## the inner shell's own variables
-brOut="$("${BASH}" -c 'set +u; source "$1"; l="(rust|go|python|c|cli)(,(rust|go|python|c|cli))*"
+brOut="$("${BASH}" -c 'set +u; source "$1"; l="(rust|go|python|c|cli|fs)(,(rust|go|python|c|cli|fs))*"
 	for r in "${REMOTE_BOXES[@]}"; do IFS="|" read -r b _ _ s <<< "${r}"; IFS="|" read -ra ws <<< "${s}"
 		for w in "${ws[@]}"; do [[ "${w}" =~ ^suites(-long)?(=${l})?$ || "${w}" == perf ]] || echo "${b}: ${w}"; done; done
 	for r in "${REMOTE_BOXES[@]}"; do case "${r}" in vmDebARM64\|*) [[ "${r}" == *"|suites=go|suites-long" ]] || echo "vmDebARM64 not suites=go|suites-long: ${r}" ;; esac; done; true' _ "${repoDir}/cicd/config.bash" 2>&1 || true)"
@@ -4893,6 +4893,53 @@ fsRun PATH="${tmpDir}/no-userns:${PATH}" -- "a|$(fsFake a 'r1\n' 's0\n')"
 [[ "${fsRc}" == 0 && "${fsOut}" == *"note: no tmpfs for the filesystem cases (a user namespace with a tmpfs failed: unshare: Operation not permitted)"* && "${fsOut}" == *"SKIP df4ch "* ]] || fBad "fs-property.bash with no user namespace: exit ${fsRc}: ${fsOut@Q}"
 fsDir="$(cat "${tmpDir}/fs-a.dir" 2> /dev/null || true)"
 [[ "${fsDir}" == "${TMPDIR}"/?*/plain ]] || fBad "fs-property.bash's plain folder is ${fsDir@Q}, not under ${TMPDIR}"
+
+fTest df4xc 2026111010331517-fs-property-box-routes
+##	The routes on the other platforms, with stand-ins for their tools: macOS
+##	mounts a RAM disk on the work folder and takes it down, unmount then
+##	detach; FreeBSD mounts a tmpfs where it may and says why where it can't;
+##	Windows makes the folder in TEMP as spelled and hands it on in Windows form,
+##	then removes it.
+fsStub(){  ## fsStub DIR NAME BODY -> an executable DIR/NAME running BODY in sh
+	mkdir -p "$1"; printf '#!/bin/sh\n%s\n' "$3" > "$1/$2"; chmod +x "$1/$2"
+}
+fsMock="${tmpDir}/fs-mock"; fsLog="${tmpDir}/fs-mock.log"; fsState="${tmpDir}/fs-mock.on"
+fsStub "${fsMock}/mac" uname 'echo Darwin'
+fsStub "${fsMock}/mac" stat 'exit 1'
+fsStub "${fsMock}/mac" hdiutil "echo \"hdiutil \$*\" >> '${fsLog}'; case \"\$1\" in attach) printf '/dev/disk9          \\t  \\t\\n' ;; esac"
+fsStub "${fsMock}/mac" newfs_hfs "echo \"newfs_hfs \$*\" >> '${fsLog}'"
+fsStub "${fsMock}/mac" mount "if [ \$# -eq 0 ]; then [ -f '${fsState}' ] && echo \"/dev/disk9 on \$(cat '${fsState}') (\${FS_MOCK_TYPE:-hfs}, local, nodev, nosuid)\"; exit 0; fi
+[ -z \"\${FS_MOCK_FAIL:-}\" ] || { echo \"mount: shcl-fs: Operation not permitted\" >&2; exit 1; }
+echo \"mount \$*\" >> '${fsLog}'; for a in \"\$@\"; do d=\"\$a\"; done; echo \"\$d\" > '${fsState}'"
+fsStub "${fsMock}/mac" umount "echo \"umount \$*\" >> '${fsLog}'; rm -f '${fsState}'"
+: > "${fsLog}"
+# shellcheck disable=SC2031  ## the PATH a subshell above set was its own
+fsRun PATH="${fsMock}/mac:${PATH}" -- "a|$(fsFake a 'r1\n' 's0\n')"
+fsDir="$(cat "${tmpDir}/fs-a.dir" 2> /dev/null || true)"
+[[ "${fsRc}" == 0 && "${fsOut}" == *"cases on a RAM disk, 256m, at ${fsDir}"* && "${fsDir}" == */fs && "${fsOut}" == *"PASS df4ch "* ]] || fBad "fs-property.bash on macOS: exit ${fsRc}: ${fsOut@Q}"
+fsWant="hdiutil attach -nomount ram://524288"$'\n'"newfs_hfs -v shcl-fs /dev/disk9"$'\n'"mount -t hfs /dev/disk9 ${fsDir}"$'\n'"umount ${fsDir}"$'\n'"hdiutil detach /dev/disk9"
+[[ "$(cat "${fsLog}")" == "${fsWant}" && ! -e "${fsState}" ]] || fBad "fs-property.bash's RAM disk steps: $(cat "${fsLog}")"
+fsStub "${fsMock}/bsd" uname 'echo FreeBSD'
+for t in stat mount umount; do cp "${fsMock}/mac/${t}" "${fsMock}/bsd/"; done
+: > "${fsLog}"
+# shellcheck disable=SC2031  ## the PATH a subshell above set was its own
+fsRun PATH="${fsMock}/bsd:${PATH}" FS_MOCK_TYPE=tmpfs -- "a|$(fsFake a 'r1\n' 's0\n')"
+fsDir="$(cat "${tmpDir}/fs-a.dir" 2> /dev/null || true)"
+[[ "${fsRc}" == 0 && "${fsOut}" == *"cases on a tmpfs, 256m, at ${fsDir}"* && "${fsOut}" == *"PASS df4ch "* ]] || fBad "fs-property.bash on FreeBSD: exit ${fsRc}: ${fsOut@Q}"
+[[ "$(cat "${fsLog}")" == "mount -t tmpfs -o size=256m shcl-fs ${fsDir}"$'\n'"umount ${fsDir}" && ! -e "${fsState}" ]] || fBad "fs-property.bash's FreeBSD tmpfs steps: $(cat "${fsLog}")"
+# shellcheck disable=SC2031  ## the PATH a subshell above set was its own
+fsRun PATH="${fsMock}/bsd:${PATH}" FS_MOCK_FAIL=1 -- "a|$(fsFake a 'r1\n' 's0\n')"
+fsDir="$(cat "${tmpDir}/fs-a.dir" 2> /dev/null || true)"
+[[ "${fsRc}" == 0 && "${fsOut}" == *"note: no tmpfs for the filesystem cases (mount -t tmpfs failed: mount: shcl-fs: Operation not permitted)"* && "${fsDir}" == */plain && "${fsOut}" == *"SKIP df4ch "* ]] || fBad "fs-property.bash on FreeBSD with no user mounts: exit ${fsRc}: ${fsOut@Q}"
+fsStub "${fsMock}/win" uname 'echo MINGW64_NT-10.0-26100'
+# shellcheck disable=SC2016  ## the stand-in's own arguments
+fsStub "${fsMock}/win" cygpath 'case "$1" in -w) echo "W:$2" ;; *) echo "$2" ;; esac'
+mkdir -p "${tmpDir}/win temp"
+# shellcheck disable=SC2031  ## the PATH a subshell above set was its own
+fsRun PATH="${fsMock}/win:${PATH}" TEMP="${tmpDir}/win temp/" -- "a|$(fsFake a 'r1\n' 's0\n')"
+fsDir="$(cat "${tmpDir}/fs-a.dir" 2> /dev/null || true)"
+[[ "${fsRc}" == 0 && "${fsOut}" == *"cases on the temp folder, at ${tmpDir}/win temp/shcl-fs."* && "${fsDir}" == "W:${tmpDir}/win temp/shcl-fs."?* && "${fsOut}" == *"SKIP df4ch "* && "${fsOut}" != *note:* ]] || fBad "fs-property.bash on Windows: exit ${fsRc}: ${fsOut@Q}, dir ${fsDir@Q}"
+[[ -z "$(ls -A "${tmpDir}/win temp")" ]] || fBad "fs-property.bash left $(ls -A "${tmpDir}/win temp") in TEMP"
 
 fTestEnd
 

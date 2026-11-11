@@ -35,6 +35,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- vmFreeBSD: let bsdtest mount a tmpfs, so the box's fs suite gets one
+	- ID: 2026111019385135
+	- Type: Task
+	- Status: Waiting for answers
+		- Waits on its question in questions.md: whether to set `vfs.usermount=1` on vmFreeBSD for good.
+	- Priority: Avg
+	- Target version: v3.0.0
+	- Opened: 20261110-193851
+	- Opened by: 2026111010331517's run (me)
+	- Related IDs: 2026111010331517
+	- Problem description: the fs suite on vmFreeBSD runs as bsdtest, and `vfs.usermount` is 0 there, so fs-property.bash's FreeBSD route can't mount its tmpfs and the cases go in a plain folder with a `note:` line. With `vfs.usermount=1` set for a moment (20261110), bsdtest mounted a 256 MB tmpfs on its own folder, a read-bit file there was unreadable to it, and the unmount worked. Setting it for good is a root change on a shared VM, a line in its `/etc/sysctl.conf`.
+	- Estimated effort: Low
+
 - The changed check misses a file reached through a second spelling of its path
 	- ID: 2026110613470307
 	- Type: Bug
@@ -222,6 +235,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261110: split for the time cap. Rust with the generator rules and the dump is child 2026111010012269, the cicd tmpfs 2026111010012287, Go 2026111010012304, Python 2026111010012324, C 2026111010012342, and the Windows and macOS box rows 2026111010012360.
 		- 20261110: Rust (2026111010012269), Go (2026111010012304), Python (2026111010012324), C (2026111010012342) and the cicd tmpfs (2026111010012287) are Done. The tmpfs routes on the boxes went to a new child, 2026111010331517. The other 2 children are Queued.
+		- 20261110: the tmpfs routes on the boxes (2026111010331517) are Done. The Windows and macOS rows (2026111010012360) are Queued.
 
 - Filesystem property test: the Windows and macOS rows on their boxes
 	- ID: 2026111010012360
@@ -240,7 +254,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Filesystem property test: the tmpfs routes on the boxes
 	- ID: 2026111010331517
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261110-103315
@@ -250,6 +264,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Related IDs: 2026111010012360
 	- Problem description: the parent's routes for the other platforms, which 2026111010012287 left on the plain folder with a note: line: a macOS RAM disk from `hdiutil attach -nomount ram://`, case-insensitive and detached at the end, a FreeBSD `tmpfs` mount where the box can make one, and the Windows temp folder. `box-suites.bash` runs the fs tests through `fs-property.bash`, so vmFreeBSD's run uses the route too. Each route runs on its box.
 	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Actual fix: fs-property.bash takes the 3 routes. macOS attaches a 256 MB RAM disk, makes it HFS+ (blind to case), mounts it on the run's folder, and unmounts and detaches it at the end. FreeBSD mounts a 256 MB tmpfs on the run's folder where the user may, and says why in the `note:` line where it can't. Windows makes the folder in TEMP as TEMP spells it, hands it to the tests in Windows form, and removes it after. df4ch checks the folder is on the route's filesystem. box-suites.bash has an `fs` suite that runs the bindings the box has through fs-property.bash, and its cargo and go lines skip the fs tests by name, as config.bash's do. check-boxes.bash takes `fs` as a suite, sends fs-property.bash to the box, and reports it as `df4x7`. contributing.md says how each platform gets its folder.
+	- Decisions:
+		- me, 20261110: the RAM disk is mounted by hand on a folder in the run's, with `newfs_hfs` and `mount -t hfs`, not with `diskutil erasevolume`, which mounts under `/Volumes` by name. A volume mounted this way keeps owners, so the read-bit cases still hold.
+		- me, 20261110: the Windows folder is made under TEMP as TEMP spells it, before fSafeTmpDir points TEMP at a work folder it spells out long. Without that a short-name TEMP never reached the cases, as b29w showed.
+		- me, 20261110: on macOS and FreeBSD the script adds `/sbin` and `/usr/sbin` to PATH, since a box's PATH can lack them.
+		- me, 20261110: a box that lacks a binding's tool runs the fs suite over the rest and names the one left out in its log, as fSuite skips a suite. Under `SHCL_GATE_STRICT` that fails the suite.
+		- me, 20261110: vmFreeBSD's run takes the plain folder for now, since `vfs.usermount` is 0 there. Setting it is 2026111019385135.
+		- me, 20261110: on Windows each binding's fs tests still print SKIP, so a box run there gets no dump and df4cf fails with "no rows". Running those rows is 2026111010012360.
+	- Verified: on vmKt6m, fs-property.bash ran the C and Python fs tests on the RAM disk (df4ch, df4cf, df4cg pass), under bash 5.3 and the stock 3.2, and left no mount. On vmFreeBSD as root it ran them on a tmpfs and unmounted it. As bsdtest it took the plain folder with the `note:` line. check-boxes.bash's fs suite passed there (`df4x7`). On b29w with a short-name TEMP the cases went to `C:\Users\COLLIE~1\...\shcl-fs.*`, a folder the tests could see, removed after. On b23 the namespace route passed as before. shell-regress `df4xc` covers the 3 routes with stand-ins for their tools, and fails with the teardown taken out. Also shell-regress, shellcheck and `test-ids.py check`.
+	- Test case: shell-regress `df4xc`, check-boxes `df4x7`, fs-property `df4ch`.
+	- Branch: `r1111`
+	- Acceptance signoff: Self-closed: each route ran on its box and was checked, and the gates are green.
+	- Closed: 20261110-193935
 
 - One helper reattaches the lines around a node an edit takes away
 	- ID: 2026110616475902
