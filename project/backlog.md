@@ -13532,6 +13532,29 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: the sort by line asked for, and its tests fail on dev.
 	- Closed: 20260930-073042
 
+- Read TOML, YAML, JSON and XML, and convert them to SHCL
+	- ID: 2026111018424200
+	- Type: Feature
+	- Status: Deferred
+	- Priority: Avg
+	- Target version: v5
+	- Opened: 20261110-184242
+	- Opened by: JC
+	- Related IDs: 2026111018212700, 2026111016205703
+	- Problem description: a program moving to SHCL has its users' configs in another format. Today each one writes its own converter.
+	- Requirements:
+		- A read call for each of the 4 formats in all 4 bindings, giving a SHCL document. Read only. SHCL is the only format written, and writing it is optional.
+		- `shcl convert --from=json|toml|xml|yaml FILE [--write]` in all 4 CLIs.
+		- No dependencies. Each parser is hand-written in each binding, so the drop-in files stay as they are.
+		- Comments come through for TOML, YAML and XML.
+		- What SHCL can't hold is reported by line, not dropped quietly: `null`, nested arrays, mixed arrays, XML attributes and mixed text, and YAML anchors, tags and multiple documents. Each gets a rule in a design doc first.
+		- A foreign format is a source in the format versions converter table, so it uses the same steps and line reports.
+		- Built in order of cost: JSON, TOML, XML, then a YAML subset.
+	- Decisions:
+		- 20261110: all 4 bindings, read only, for v5 (JC).
+	- Note: rough size is 7,000 to 9,000 lines per binding, about 30,000 in all, plus a corpus, crosscheck and fuzz for each format.
+	- Estimated effort: High
+
 - A validate builds the schema on every call, and `load_and_validate_with` builds it 3 times
 	- ID: 2026111016205716
 	- Type: Enhancement
