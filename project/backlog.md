@@ -253,6 +253,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261110: split for the time cap. The macOS rows are child 2026111019505842, the Windows rows 2026111019505861.
 		- 20261110: the macOS rows (2026111019505842) are Done. The Windows rows (2026111019505861) are Done for Rust, Go and Python. C's Windows rows went to a new child, 2026111020030146, which is Queued.
+		- 20261110: C's Windows rows (2026111020030146) are Done.
 
 - Filesystem property test: the macOS case rows on vmKt6m
 	- ID: 2026111019505842
@@ -301,7 +302,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Filesystem property test: the C port's Windows rows on b29w
 	- ID: 2026111020030146
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261110-200301
@@ -310,6 +311,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Prereq IDs: 2026111019505861
 	- Problem description: the C fs test still prints SKIP on Windows, since its tree, events and snapshot are POSIX calls. Port them for Windows as the Rust, Go and Python tests did in 2026111019505861, with the same {S} short form, and run it on b29w with a short-name TEMP through the box step.
 	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Actual fix: the C fs test runs its `windows` rows on Windows and no longer skips there. Its file calls go through a few helpers with a POSIX and a Win32 body, the Win32 ones on wide paths, as shcl.h's are. The tree joins with `\` on Windows, since a `\\?\` path takes no `/`. `{S}` comes from `GetShortPathNameW`, the base folder's long form from `GetFinalPathNameByHandleW` without its `\\?\`, and the draw guard asks for NotRegular only where `posix` rows run.
+	- Decisions:
+		- me, 20261110: a path's kind comes from `CreateFileW` and `GetFileInformationByHandle`, the way Rust's `metadata` and `symlink_metadata` get it, so a spelling Windows reads oddly, such as `t.shcl/.`, gets the same answer, and the dumps match.
+		- me, 20261110: the file reads and writes use stdio on both, with `_wfopen` on Windows, so one body serves both. On Linux the dumps are byte for byte what they were.
+	- Verified: on b29w with TEMP at `C:\Users\COLLIE~1\...\202611~1`, fs-property.bash ran the C test built here with mingw, beside Rust, Go and Python (df4ep, df4eq, df4bw, df4bx, df4c4, df4c5, df4dk, df4dm, df4cf, df4cg pass, df4ch SKIP as on that route). C agrees with Rust on every row and 400 drawn cases, and no folder was left. Built against `343334df`'s shcl.h it fails there, on rows 2026110312163201-gone, 2026110613470307-otherwd and 2026110613470308-dot, and at seed 24 (`bslash` after `chdir`), as Python did. On Linux the rows and the first 400 drawn cases dump the same as before the change. Also `cicd.bash --backlog-run-quick c`, codeql-scan, the C test built with gcc and clang under `-Wconversion -Werror` and with mingw, and lint-report.
+		- Swept: every POSIX call in the file (stat, lstat, open, read, write, mkdir, unlink, rmdir, chdir, getcwd, opendir, readlink, realpath, getpid, clock_gettime, chmod) now goes through a helper or sits behind `#ifndef _WIN32` where its event or spelling is `posix` only. The Rust, Go and Python fs tests already ran on Windows.
+	- Test case: the `2026110613470307-win` row of `the_save_checks_hold_on_every_past_path_bug` (C `df4ep`) and the Windows spellings in `the_save_checks_hold_on_drawn_paths_and_events` (C `df4eq`), held to Rust's answers by `df4cf` and `df4cg`.
+	- Branch: `r1111`
+	- Acceptance signoff: Self-closed: the rows ran on b29w with a short-name TEMP, went red on the code before the fixes, and the gates are green.
+	- Closed: 20261110-205822
 
 - Filesystem property test: the tmpfs routes on the boxes
 	- ID: 2026111010331517
