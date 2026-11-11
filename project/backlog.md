@@ -35,6 +35,24 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- A default form's replaced-value comment puts the field's blank above a kept line's comments
+	- ID: 2026111022100191
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261110-221001
+	- Opened by: found while working 2026111012160121
+	- Related IDs: 2026111012160121, 2026111021153725
+	- Version and build: r1111 at `e0b1f62d`
+	- Steps to reproduce: `printf 'b:\n# note\nq: [1\n\nz: "t"\n' > f.shcl`, then `printf 'int-default\tz\t5\n' | shcl set f.shcl`.
+	- Incorrect behavior: the output is `b:`, a blank, `# note`, `q: [1`, the `# z: "t"  ## replaced by shcl ...` comment, `z: "5"`. The blank that set off `z` goes above the comment on the kept `E019` line. A `comment` op on `z` does the same.
+	- Expected behavior: `b:`, `# note`, `q: [1`, a blank, the replaced-value comment, `z: "5"`, as `int z 5` keeps the blank above `z`.
+	- Reproduced: 20261111, the Rust, Go and C CLIs.
+	- Possible cause: the same as 2026111021153725. A comment added to a node counts the kept lines held in its leading lines, and their comments, as the node's own comments, and puts its blank above them all.
+	- Estimated effort: Low
+	- Note: the placement property in `dderx` and `dd3t9` excuses this class with a check keyed by this ID. The fix takes it out.
+
 - `set_comment` making a field after a kept last line puts its blank above the kept line's comments
 	- ID: 2026111021153725
 	- Type: Bug
@@ -442,8 +460,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A comment placement property in the fuzz, replayed in all 4 bindings
 	- ID: 2026111012160121
 	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz (`SHCL_FUZZ_ITERS=2000000`), for `dd3t9` and `dderx`, which draw new shapes and ops now. Both passed at 200,000.
+	- Status: Queued
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz (`SHCL_FUZZ_ITERS=2000000`), for `dd3t9` and `dderx`, once `dd3t9`'s failure at iteration 780675 is judged. Both pass at 250,000.
 	- Priority: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261110-121601
@@ -457,14 +475,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261111: `placement_slips` in `fuzz_smoke.rs` reads each comment's anchor, its run and the blank above from the canonical text before and after an edit. `dd3t9` and `dderx` hold every setter, remove, comment edit, banner and merge step to it. `dd3t9`'s configs now have item lists with comments on the items, and a comment and a blank above them, and its ops a `set_literal` of `[9, 8]`, mostly over a list. A guard counts the 3 shapes. `dd3t9` dumps its inputs into `kept/` beside `dderx`'s, so the cross check replays them through every CLI.
 		- 20261111: it found 2 bugs, filed as 2026111021095858 (`clear_comments` takes a comment past a kept line) and 2026111021153725 (`set_comment` making a field puts its blank above a kept line's comments). The property excuses each by a check keyed by its ID.
+		- 20261111: the 2M release fuzz failed `dd3t9` and `dderx` 9 times past 200,000, and each was judged. 8 were misreads of the property, fixed there: a kept line's raw body, and a kept line the settle writes as a comment at the field's level, read as the run's end; a trailing comment's U+3000 trimmed; a kept line the setter comments in place above the field's blank read as part of the run; a misplaced line among a list's items not taken as moved; the blanks the banner leaves where it takes an info block; and a kept item commented in place read as a new item. Each but the banner's blank is a row in `df50j`. 1 is a library bug, filed as 2026111022100191 and excused by its ID.
+		- 20261111: open: `dd3t9` fails at iteration 780675. A `set_literal` over a list moves its kept lines above the field, with a blank among them and an item's comment under them, and the property reads that blank as the one above the field's comments. Not judged yet.
 	- Decisions:
 		- me, 20261111: the property follows design.md where the item's wording differs. Lines an edit takes from a node go under the heir's own comments ("Lines an edit takes from their node"). A remove takes the comments under its target up to the first kept line. A setter puts the kept lines among a list's items above the field, under its comments. The banner takes info block lines, and a format or migrate stamp is no comment.
 		- me, 20261111: a run is the comments at the anchor's own depth. A deeper comment above a line is the block above's trailing line.
 		- me, 20261111: the edit's target is found by the line `lines()` gives its path in the text before, since a path quotes and escapes names the text writes bare. The rest is read from the text. Only a key written once in both texts is held.
 		- me, 20261111: `dd3t9` dumps into `kept/` as `pNNNNN`, so the cross check needs no change and `ddesf` covers both. `dderx`'s generators stay as they were; the shape guard is on `dd3t9`.
+		- me, 20261111: a trailing comment's text ends at the blanks the load trims, so a U+3000 is text. Under the banner, the blank above a run that held info block lines is the banner's, so it isn't held.
 	- Swept: every fuzz test that edits. `dd3t9` and `dderx` hold the property. `ddc6m` edits lines written apart from the canonical form on purpose, so it's left alone.
 	- Test case: `df50j` (the oracle on 2026110613470311's case, and the library's list replace through it), `dd3t9`, `dderx`, crosscheck `ddesf`.
 	- Verified: `df50j`, `dd3t9` and `dderx` fail on `343334df`'s library, all on 2026110613470311's class: `df50j` on the blank, `dd3t9` at iteration 74, and `dderx`'s merge step at iteration 35. All 3 pass on `r1111`.
+	- Verified: the 6 new `df50j` rows fail on the property at `e0b1f62d` and pass now. `dd3t9` and `dderx` at 250,000 in release, the rust area of `--backlog-run-quick`, clippy `--all-targets`, `lint-report.bash --check` and `test-ids.py check`.
 	- Verified: `dd3t9` and `dderx` at 200,000 iterations, the rust area of `--backlog-run-quick`, clippy, `lint-report.bash --check`, `test-ids.py check`, and the cross check over the corpus and a dump with 100 `dd3t9` inputs (4 bindings agree).
 	- Branch: `r1111`
 

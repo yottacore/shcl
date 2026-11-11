@@ -2356,24 +2356,38 @@ fn stamp(line: &str) -> bool {
 /// The comments over line `at` of `text` at `depth`, past any line whose
 /// trimmed text is in `moved`, as Anchor's lead, and whether a blank is above
 /// them. A setter puts the kept lines among a list's items right above the
-/// field, under its comments.
-fn lead_over(text: &str, at: usize, depth: usize, moved: &[&str]) -> (Vec<String>, bool) {
+/// field, under its comments. `had` is the trimmed lines of the text before.
+fn lead_over(
+	text: &str,
+	at: usize,
+	depth: usize,
+	moved: &[&str],
+	had: &std::collections::HashSet<&str>,
+) -> (Vec<String>, bool) {
 	let lines: Vec<&str> = text.lines().collect();
 	let raw = raw_spans(text);
 	let mut lead = Vec::new();
 	for (k, up) in lines[..at].iter().enumerate().rev() {
 		let t = up.trim_matches(BLANKS);
-		if raw.iter().any(|&(o, c)| k + 1 >= o && k < c) {
+		if let Some(&(o, _)) = raw.iter().find(|&&(o, c)| k + 1 >= o && k < c) {
+			// A moved line's raw body moves with it.
+			let fence = o >= 2 && fence_run(lines[o - 1].trim_matches(BLANKS)).is_some();
+			let opener = lines[if fence { o - 2 } else { o - 1 }].trim_matches(BLANKS);
+			if moved.contains(&opener) {
+				continue;
+			}
 			break;
 		}
 		if t.is_empty() {
 			lead.push(String::new());
 		} else if moved.contains(&t)
-			|| up.len() - up.trim_start_matches('\t').len() > depth
-				&& t.strip_prefix("# ").is_some_and(|c| moved.contains(&c))
+			|| t.strip_prefix("# ").is_some_and(|c| moved.contains(&c))
+				&& (up.len() - up.trim_start_matches('\t').len() > depth || !had.contains(t))
 			|| stamp(up)
 		{
-			// A moved line, or one under it the setter wrote as a comment.
+			// A moved line, or one the setter or the settle wrote as a
+			// comment: under it, or at the field's own level, where it would
+			// bind (design.md, Load outcomes).
 			continue;
 		} else if t.starts_with('#') && up.len() - up.trim_start_matches('\t').len() == depth {
 			lead.push(t.to_string());
@@ -2410,14 +2424,18 @@ fn anchors(canon: &str) -> Vec<Anchor> {
 		let depth = tabs(line);
 		let (name, trailing) = if let Some(item) = rest.strip_prefix("- ") {
 			tokenize_value(item, 0, Rules::Current, &mut tok);
-			let note = tok.comment.map(|c| item[c + 1..].trim_end().to_string());
+			// Only the blanks the load trims, so a trailing U+3000 is text.
+			let note = tok
+				.comment
+				.map(|c| item[c + 1..].trim_end_matches(BLANKS).to_string());
 			(format!("- {}", &item[tok.value.0..tok.value.1]), note)
 		} else {
 			tokenize(rest, b':', false, Rules::Current, &mut tok);
 			match tok.sep {
 				Some(sep) if tok.fault.is_none() => (
 					rest[..sep].trim_end().to_string(),
-					tok.comment.map(|c| rest[c + 1..].trim_end().to_string()),
+					tok.comment
+						.map(|c| rest[c + 1..].trim_end_matches(BLANKS).to_string()),
 				),
 				_ => (rest.to_string(), None),
 			}
@@ -2598,7 +2616,18 @@ fn placement_slips(
 			.strip_prefix(owner)
 			.is_some_and(|r| r.starts_with(".- "))
 			&& match one_anchor(&now, &g.key) {
-				Some(b) => b.lead != g.lead || b.trailing != g.trailing,
+				// A kept line above it the setter wrote as a comment in place
+				// joins its comments.
+				Some(b) => {
+					let extra = b.lead.len().saturating_sub(g.lead.len());
+					let left = b.lead.ends_with(&g.lead)
+						&& b.lead[..extra].iter().all(|l| {
+							l.is_empty()
+								|| l.strip_prefix("# ")
+									.is_some_and(|t| was.iter().any(|w| w.text == t))
+						});
+					!left || b.trailing != g.trailing
+				}
 				// Repeated items are held only by their count.
 				None => {
 					let count = |v: &[Anchor]| v.iter().filter(|a| a.key == g.key).count();
@@ -2638,6 +2667,21 @@ fn placement_slips(
 	};
 	let had: std::collections::HashSet<&str> =
 		before.lines().map(|l| l.trim_matches(BLANKS)).collect();
+	// 2026111022100191: a setter's new note comment, such as a default form's
+	// replaced value, puts its field's blank above the comments of the kept
+	// lines that head the field.
+	let noted_new = edit == Placed::Set
+		&& after
+			.lines()
+			.any(|l| l.contains("  ## ") && !had.contains(l.trim_matches(BLANKS)));
+	let heads_target = |a: &Anchor| {
+		kept.contains(&a.line)
+			&& was
+				.iter()
+				.skip_while(|w| w.line <= a.line)
+				.find(|w| !kept.contains(&w.line))
+				.is_some_and(|w| w.key == path)
+	};
 	let mut slips = Vec::new();
 	for a in &was {
 		if one_anchor(&was, &a.key).is_none() {
@@ -2690,8 +2734,15 @@ fn placement_slips(
 			// The kept lines among a list's items move up with them, the
 			// lines under them too. One the setter wrote as a comment stays
 			// where it was, with its own.
-			// A dotted line above it is no line under it.
-			let mine = |g: &&Anchor| g.line > a.line && below(&a.key, &g.key);
+			// A dotted line above it is no line under it. A misplaced line
+			// among the items sits under nothing, and moves with them.
+			let end = was
+				.iter()
+				.find(|g| g.line > a.line && g.depth <= a.depth && !g.key.starts_with('~'))
+				.map_or(usize::MAX, |g| g.line);
+			let mine = |g: &&Anchor| {
+				g.line > a.line && (below(&a.key, &g.key) || g.key.starts_with('~') && g.line < end)
+			};
 			let moved: Vec<&str> = was.iter().filter(mine).map(|g| g.text.as_str()).collect();
 			for gone in was.iter().filter(mine).filter(|g| went(g)) {
 				let commented = format!("# {}", gone.text);
@@ -2704,34 +2755,58 @@ fn placement_slips(
 					}
 				}
 			}
-			(lead, blank) = lead_over(after, b.line, b.depth, &moved);
+			(lead, blank) = lead_over(after, b.line, b.depth, &moved, &had);
 		}
-		// Blanks alone, once the banner's lines are out, are no run.
+		// Blanks alone, once the banner's lines are out, are no run. The
+		// blanks those lines leave are the banner's too.
 		for v in [&mut want, &mut lead] {
+			if edit == Placed::Other {
+				let mut tidy: Vec<String> = Vec::with_capacity(v.len());
+				for l in v.drain(..) {
+					if !l.is_empty() || tidy.last().is_some_and(|t| !t.is_empty()) {
+						tidy.push(l);
+					}
+				}
+				if tidy.last().is_some_and(String::is_empty) {
+					tidy.pop();
+				}
+				*v = tidy;
+			}
 			if v.iter().all(String::is_empty) {
 				v.clear();
 			}
 		}
+		// Lines the edit left above it join its comments, on top: a kept line
+		// the setter or a settle wrote as a comment in place, or the comments
+		// a remove leaves. Its own blank is then the one above its own
+		// comments.
+		let written = |l: &String| {
+			l.is_empty()
+				|| l.contains("  ## ")
+				|| l.strip_prefix("# ")
+					.is_some_and(|t| was.iter().any(|w| w.text == t.trim_matches(BLANKS)))
+		};
+		let known = |l: &String| written(l) || had.contains(l.as_str());
 		let placed = match edit {
 			_ if rewritten => {
 				let mut rest = lead.iter();
 				// A setter writes the blank between its comments and its line above them.
-				want.iter()
+				let held = want
+					.iter()
 					.filter(|w| !w.is_empty())
-					.all(|w| rest.any(|l| l == w))
+					.all(|w| rest.any(|l| l == w));
+				let top = want
+					.iter()
+					.find(|w| !w.is_empty())
+					.and_then(|w| lead.iter().position(|l| l == w))
+					// The comments that moved with a kept line are the run's.
+					.filter(|&p| p > 0 && lead[..p].iter().all(written));
+				if let Some(p) = top {
+					blank = lead[p - 1].is_empty();
+				}
+				held
 			}
-			// Lines the edit left above it join its comments, on top: a kept
-			// line the setter or a settle wrote as a comment in place, or the
-			// comments a remove leaves. Its own blank is then the one above
-			// its own comments.
 			Placed::Set | Placed::Remove | Placed::Merge => {
-				let known = |l: &String| {
-					l.is_empty()
-						|| l.contains("  ## ")
-						|| had.contains(l.as_str())
-						|| l.strip_prefix("# ")
-							.is_some_and(|t| was.iter().any(|w| w.text == t.trim_matches(BLANKS)))
-				};
 				let top = (0..=lead.len())
 					.find(|&p| lead[p..].starts_with(&want) && lead[..p].iter().all(known));
 				if let Some(p) = top.filter(|&p| p > 0) {
@@ -2744,11 +2819,16 @@ fn placement_slips(
 		if !placed {
 			slips.push(format!("{}: comments {want:?} are now {lead:?}", a.key));
 		}
-		let fresh = !a.lead.is_empty() || want.len() > a.lead.len();
+		// The banner sets the blank where it takes an info block's lines.
+		let fresh = (!a.lead.is_empty() || want.len() > a.lead.len())
+			&& (edit != Placed::Other || a.lead.iter().all(ours));
 		// 2026111021153725: a comment edit that makes its field after a kept
 		// last line puts the new blank above that line's comments.
 		let made = edit == Placed::Comment && base.lines(named).is_empty();
-		let unheld = a.first || b.first || noted || made && kept.contains(&a.line);
+		let unheld = a.first
+			|| b.first
+			|| noted || made && kept.contains(&a.line)
+			|| noted_new && heads_target(a);
 		if fresh && !unheld && a.blank != blank {
 			slips.push(format!(
 				"{}: blank above its comments {} is now {}",
@@ -2791,6 +2871,46 @@ fn the_placement_property_reads_a_list_replace() {
 		"",
 	);
 	assert!(slips.is_empty(), "{slips:?}\n{after}");
+	// The release fuzz failed on these 3, each a misread of the property. A
+	// kept line the setter moves above the field keeps its raw body, and the
+	// settle writes it as a comment where it would bind.
+	let before = "# note 0\nblk:\n\tbad name: ~~~\n\t\trun: 1\n\t\t~~~\n\t- 2\n\tlz: [0\n\t\tonly: 2\n\ta: 3\n\t- 4\n\t- name:\n";
+	let after =
+		"# note 0\nbad name: ~~~\n\trun: 1\n\t~~~\nlz: [0\n\t# only: 2\n# a: 3\nblk:\n\t- name:\n";
+	let slips = placement_slips(before, after, "blk", Placed::Set, "");
+	assert!(slips.is_empty(), "{slips:?}");
+	// A trailing comment's text ends at the blanks the load trims.
+	let before = ": [3]\nq:\n\t- 3  # n\u{feff}ot\u{3000}\n\t*~:6\n";
+	let after = ": [3]\n# n\u{feff}ot\u{3000}\nq:\n\t*~:6\n";
+	let slips = placement_slips(before, after, "q", Placed::Set, "");
+	assert!(slips.is_empty(), "{slips:?}");
+	// A kept line the setter wrote as a comment in place, above the field's
+	// blank, is no part of its run.
+	let before = "r\u{b}:\n\n# `\n\"r\u{25c9}VT\u{25c9}\":\n\t``\n\t- z\n";
+	let after = "# r\u{b}:  ## commented out by shcl when setting \"r\u{25c9}VT\u{25c9}\", 2026-10-04 00:15:00 PDT: E014 field name needs quotes\n\n# `\n``\n\"r\u{25c9}VT\u{25c9}\":\n\t```sh\n\tone\n\t\ttwo\n\t```\n";
+	let path = "\"r\u{25c9}VT\u{25c9}\"";
+	let slips = placement_slips(before, after, path, Placed::Set, "");
+	assert!(slips.is_empty(), "{slips:?}");
+	// The blank is still held where the setter left it.
+	let moved = after.replacen("\n\n# `", "\n# `", 1);
+	assert!(!placement_slips(before, &moved, path, Placed::Set, "").is_empty());
+	// A misplaced line among the items moves above the field with them.
+	let before = "outer:\n\t: 1\n\t# added\n\tlist:\n\t\t*first\n\t\t- a\n\t\t*bad\n\n\t\tq: [\u{3000}x\n  kept: 1\n\t\t- b\n\t\t*end\n\ty: 2\n";
+	let after = "outer:\n\t: 1\n\t# added\n\t*first\n\t*bad\n\n\tq: [\u{3000}x\n  kept: 1\n\tlist:\n\t\t- 9\n\t\t- 8\n\t\t*end\n\ty: 2\n";
+	let slips = placement_slips(before, after, "outer.list", Placed::Set, "");
+	assert!(slips.is_empty(), "{slips:?}");
+	// The banner drops an info block's stamp lines with a blank under them.
+	let before =
+		"a: 1\n\n# my notes\n\n##    Format   3\n##    Migrated from SHCL 2.x.\n\n# kept\nb: 2\n";
+	let after = "a: 1\n\n# my notes\n\n# kept\nb: 2\n";
+	let slips = placement_slips(before, after, "", Placed::Other, "");
+	assert!(slips.is_empty(), "{slips:?}");
+	// A kept item the setter writes as a comment joins the next item's
+	// comments, and that item stays.
+	let before = "srv: x\n\t- 3\n\n\t# note 5\n\t- name:\n\tb(x): [7\n";
+	let after = "srv:\n\t# - 3\n\n\t# note 5\n\t- name:\n\tb(x): [7\n";
+	let slips = placement_slips(before, after, "srv", Placed::Set, "");
+	assert!(slips.is_empty(), "{slips:?}");
 }
 
 /// The save that keeps lines writes text that reloads as the document with
