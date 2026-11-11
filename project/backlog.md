@@ -193,7 +193,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Severity: Avg
 	- Target version: v3.0.0
 	- Opened: 20261111-115609
-	- Opened by: found while working 2026111012160121, judged by the orchestrator of run b2bits
+	- Opened by: me, found while working 2026111012160121 in run b2bits
 	- Related IDs: 2026111012160121, 2026111109371400, 2026110712372276
 	- Version and build: b2bits at `f19d4f80`, with run b2bits' changes
 	- Steps to reproduce: `printf '# note 0\n\n    # note 2\n        b: [3\n' > f.shcl`, then `shcl fmt f.shcl`, and `printf 'int\tz0\t7\n' | shcl set f.shcl`.
@@ -1215,15 +1215,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The work is on wip/r1111-2026111012160121. fuzz_smoke.rs on the round branch went back to e4d295d4, so dev doesn't have a placement property. Each failure so far needed a release run past 200,000 to show, so the next try runs 2M in release before reporting.
 		- 20261111, run b2bits: the property is back from `05cca0fa`. 780675 is a misread. design.md puts the field's blank above all the lines a list replace moves up, and keeps a blank between 2 of them, and the property read that blank as the field's. Fixed, with a `df50j` row that fails on `05cca0fa`'s property.
 		- 20261111, run b2bits: it ran 3 rounds of 2M in release, which is the limit. Rounds 1 and 2 stopped at `dd3t9`'s failure, before `dderx`. Round 1 failed at 1219 on the first fix try. Round 2 failed at 740483 on a misread, where a line above had the text of one still under the field. Round 3 failed `dd3t9` at 804362 on library bug 2026111109022600, and `dderx` at 1104311 on a misread of the same kind, which had been there since `05cca0fa`. Moved lines are now matched by count, 2026111109022600 is excused by its ID, and each case is a `df50j` row.
-		- 20261111, run b2bits, round 4: the orchestrator's 2M run failed `dd3t9` at 1392776, a misread. A kept line among a list's items, not an item, moves up with its comments, and only items' comments were expected in the run, so the blank was read above the kept line the setter commented out in place. Fixed, with a `df50j` row.
+		- 20261111, run b2bits, round 4: the round's 2M run failed `dd3t9` at 1392776, a misread. A kept line among a list's items, not an item, moves up with its comments, and only items' comments were expected in the run, so the blank was read above the kept line the setter commented out in place. Fixed, with a `df50j` row.
 		- 20261111, run b2bits, round 5: that fix made the run expect those comments, and `dd3t9` failed at 288695, a misread. A deeper comment under a moved kept line stopped the walk up before the comments above that line. Fixed, with a `df50j` row. Both rows fail before their fix. `dd3t9` passes 300,000 and `dderx` 200,000 in release.
-		- 20261111, run b2bits, round 6: the orchestrator's 2M run failed `dd3t9` at 1503277, from the banner: `under the old footer block: comments [] are now ["# a nte"]`. It was a misread. The banner moves a comment nested under an info block it takes out to the block's column, as corpus 161 pins, and the property read it as the block above's trailing line. A narrow fix for the banner made `dd3t9` fail at 207445, also from the banner, and was backed out unjudged.
-		- 20261111, run b2bits: by the orchestrator's call, the property fails the fuzz only below iteration 1,000,000 (`PLACEMENT_ITERS`). 2026111109371400 lifts the cap. With it, `dd3t9` and `dderx` pass 2,000,000 in release.
+		- 20261111, run b2bits, round 6: the round's 2M run failed `dd3t9` at 1503277, from the banner: `under the old footer block: comments [] are now ["# a nte"]`. It was a misread. The banner moves a comment nested under an info block it takes out to the block's column, as corpus 161 pins, and the property read it as the block above's trailing line. A narrow fix for the banner made `dd3t9` fail at 207445, also from the banner, and was backed out unjudged.
+		- 20261111, run b2bits: the property fails the fuzz only below iteration 1,000,000 (`PLACEMENT_ITERS`). 2026111109371400 lifts the cap. With it, `dd3t9` and `dderx` pass 2,000,000 in release.
 	- Actual cause: the failures past 200,000 were misreads of the property, except 2026111022100191 and 2026111109022600, which are library bugs, filed and excused by their IDs.
 	- Actual fix: `lead_over` matches a list replace's moved lines by count, drops a blank between 2 moved lines, and skips a deeper comment under a moved line. `placement_slips` expects the comments of a kept line that moves up from among the items, and excuses 2026111109022600. The property fails the fuzz only below `PLACEMENT_ITERS`.
 	- Test case: `df50j` (a row per misread fixed in run b2bits, and 2026111109022600's excuse), `dd3t9`, `dderx`.
 	- Verified: each new `df50j` row fails on the property before its fix and passes now. `dd3t9` and `dderx` at 2,000,000 in release with the cap, all of `fuzz_smoke` in debug, clippy `--all-targets`, rustfmt, `test-ids.py check`, and the cross check over the corpus and a dump of 100 `dd3t9` inputs (4 bindings agree on 26670 comparisons, `ddesf` included).
-	- Acceptance signoff: Self-closed: the 2M release run passes, with the cap the orchestrator decided.
+	- Acceptance signoff: Self-closed: the 2M release run passes, with the iteration cap set in run b2bits.
 	- Closed: 20261111-095409
 
 - The changed check misses a file reached through a second spelling of its path
@@ -1696,7 +1696,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261111: open: `dd3t9` fails at iteration 780675. A `set_literal` over a list moves its kept lines above the field, with a blank among them and an item's comment under them, and the property reads that blank as the one above the field's comments. It hasn't been judged yet.
 		- 20261110: the property failed the 2M release fuzz after a fix try. The work moved to wip/r1111-2026111012160121 and fuzz_smoke.rs on r1111 went back to e4d295d4. See 2026111022322992.
 		- 20261111, run b2bits: the property is back from `05cca0fa`. 780675 and 3 later 2M failures are judged on 2026111022322992: 3 misreads, fixed, and library bug 2026111109022600, excused by its ID. What's left is a 2M round in release without a failure, and then this closes with 2026111022322992 and the parent 2026110616475903.
-		- 20261111, run b2bits: 2 more misreads after the orchestrator's round 4 (1392776, then 288695), fixed with `df50j` rows. A 2M round without a failure is still left.
+		- 20261111, run b2bits: 2 more misreads after round 4 (1392776, then 288695), fixed with `df50j` rows. A 2M round without a failure is still left.
 		- 20261111, run b2bits: round 6 failed `dd3t9` at 1503277 on the banner, a misread. With the cap below, both pass 2,000,000 in release. 2026111109371400 lifts the cap.
 	- Decisions:
 		- me, 20261111: the property follows design.md where the item's wording differs. Lines an edit takes from a node go under the heir's own comments ("Lines an edit takes from their node"). A remove takes the comments under its target up to the first kept line. A setter puts the kept lines among a list's items above the field, under its comments. The banner takes info block lines, and a format or migrate stamp isn't a comment.
@@ -1705,8 +1705,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 20261111: `dd3t9` dumps into `kept/` as `pNNNNN`, so the cross check doesn't need a change and `ddesf` replays both. `dderx`'s generators stay as they were. The shape guard is on `dd3t9`.
 		- me, 20261111: a trailing comment's text ends at the blanks the load trims, so a U+3000 is text. Under the banner, the blank above a run that had info block lines is the banner's, so it isn't checked.
 		- me, 20261111, run b2bits: a kept line among a list's items that moves up takes its comments, at its own depth, into the run above the field, as an item does, and a deeper comment under it moves with it. A misplaced line's comments aren't counted.
-		- me, 20261111, run b2bits, the orchestrator's call: the property doesn't check a banner op whose before text has an info block after the first field line, since corpus 161 pins that move.
-		- me, 20261111, run b2bits, the orchestrator's call: the property fails the fuzz only below iteration 1,000,000, one constant, `PLACEMENT_ITERS`. Past it nothing is checked, so the standard 2M release run after small changes stays usable for the other properties. The misreads past it should mostly go once 2026110712372276 and 2026110712372281 simplify where the library puts lines. 2026111109371400 lifts the cap.
+		- me, 20261111, run b2bits: the property doesn't check a banner op whose before text has an info block after the first field line, since corpus 161 pins that move.
+		- me, 20261111, run b2bits: the property fails the fuzz only below iteration 1,000,000, one constant, `PLACEMENT_ITERS`. Past it nothing is checked, so the standard 2M release run after small changes stays usable for the other properties. The misreads past it should mostly go once 2026110712372276 and 2026110712372281 simplify where the library puts lines. 2026111109371400 lifts the cap.
 		- me, 20261111, run b2bits: a list replace's moved lines are matched by count. A line is moved only as often as its text left the field's block, so a line above with the text of one still under the field isn't a moved line. A blank under a moved line at the field's level, or a misplaced one, is between 2 moved lines, and the field's blank is the one above them all, per design.md's "Lines an edit takes from their node".
 	- Swept: every fuzz test that edits. `dd3t9` and `dderx` check the property. `ddc6m` edits lines written apart from the canonical form on purpose, so it's left alone.
 	- Test case: `df50j` (the oracle on 2026110613470311's case, the library's list replace through it, and a row per misread fixed), `dd3t9`, `dderx`, crosscheck `ddesf`.
@@ -1718,7 +1718,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified, run b2bits, closing: `dd3t9` and `dderx` at 2,000,000 in release, with the property checked below `PLACEMENT_ITERS` (1,000,000). All of `fuzz_smoke` in debug, clippy `--all-targets`, rustfmt, `test-ids.py check`, and the cross check over the corpus and a dump of 100 `dd3t9` inputs (4 bindings agree on 26670 comparisons, `ddesf` included).
 	- Verified, run b2bits, on the tree after 2026110712372276 and corpus 222: `dd3t9` and `dderx` pass 2,000,000 in release with the cap, the case 161 banner check, and 2026111111560900 excused. `df50j`, all of `fuzz_smoke` in debug, clippy `--all-targets`, `cargo fmt --check`.
 	- Prereq IDs: 2026111022322992
-	- Acceptance signoff: Self-closed: the requirements are met, with the iteration cap the orchestrator decided, and each new test was seen to fail first.
+	- Acceptance signoff: Self-closed: the requirements are met, with the iteration cap set in run b2bits, and each new test was seen to fail first.
 	- Closed: 20261111-095409
 
 - The comment placement table and its Rust runner
