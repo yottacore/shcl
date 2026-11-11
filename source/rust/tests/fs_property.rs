@@ -74,14 +74,12 @@ fn rules() -> Rules {
 	r
 }
 
-/// The Windows rows wait for b29w (2026111019505861), so they skip
-/// everywhere for now, rather than run untried.
 fn on_this_os(os: &str) -> bool {
 	match os {
 		"any" => true,
 		"posix" => cfg!(unix),
 		"macos" => cfg!(target_os = "macos"),
-		"windows" => false,
+		"windows" => cfg!(windows),
 		_ => panic!("fs-rules.tsv: no such os {os:?}"),
 	}
 }
@@ -191,7 +189,35 @@ fn at(p: &Path) -> At {
 
 /// The spelling's path, as the library gets it from its working folder.
 fn spelled(rule: &Rule, w: &Path) -> String {
-	rule.path.replace("{W}", w.to_str().unwrap())
+	let mut p = rule.path.replace("{W}", w.to_str().unwrap());
+	if p.contains("{S}") {
+		p = p.replace("{S}", &short_form(w));
+	}
+	p
+}
+
+/// The 8.3 short form of a folder that's there, from the OS.
+#[cfg(windows)]
+fn short_form(p: &Path) -> String {
+	use std::os::windows::ffi::{OsStrExt, OsStringExt};
+	#[link(name = "kernel32")]
+	unsafe extern "system" {
+		fn GetShortPathNameW(long: *const u16, short: *mut u16, len: u32) -> u32;
+	}
+	let long: Vec<u16> = p.as_os_str().encode_wide().chain([0]).collect();
+	let mut buf = vec![0u16; 1024];
+	// SAFETY: `long` ends in a NUL, and `buf` holds the length passed.
+	let n = unsafe { GetShortPathNameW(long.as_ptr(), buf.as_mut_ptr(), buf.len() as u32) };
+	let n = n as usize;
+	assert!(n > 0 && n < buf.len(), "no short form of {}", p.display());
+	std::ffi::OsString::from_wide(&buf[..n])
+		.into_string()
+		.unwrap()
+}
+
+#[cfg(not(windows))]
+fn short_form(p: &Path) -> String {
+	p.to_str().unwrap().to_string()
 }
 
 /// The same path from the case's root, for reading and events. A join keeps
@@ -569,7 +595,13 @@ fn base_dir(test: &str) -> PathBuf {
 	let base = parent.join(format!("shcl-fs-{}-{test}", std::process::id()));
 	remove_tree(&base);
 	std::fs::create_dir_all(&base).unwrap();
-	base.canonicalize().unwrap()
+	let base = base.canonicalize().unwrap();
+	// Windows gives the long form with a `\\?\` prefix, which the `abs` and
+	// `short` spellings don't want, since `verbatim` adds its own.
+	match base.to_str().and_then(|s| s.strip_prefix(r"\\?\")) {
+		Some(s) if cfg!(windows) && s.as_bytes().get(1) == Some(&b':') => PathBuf::from(s),
+		_ => base,
+	}
 }
 
 /// The cases a test ran, in `fs/NAME.tsv` under `SHCL_FUZZ_DUMP`, up to
@@ -641,6 +673,7 @@ const ROWS: &[Row] = &[
 	Row { id: "2026110408432594-dot", only: "windows", t: false, o: false, load: "nddot", save: "nd", events: &["mkdir", "write-load"], create: false, expected: Outcome::Changed },
 	Row { id: "2026110613470307", only: "any", t: false, o: false, load: "nodir", save: "nodir", events: &["mkdir", "write-save"], create: false, expected: Outcome::Changed },
 	Row { id: "2026110613470307-otherwd", only: "any", t: true, o: true, load: "bare", save: "bare", events: &["chdir"], create: false, expected: Outcome::Changed },
+	Row { id: "2026110613470307-win", only: "windows", t: true, o: false, load: "wnodir", save: "bare", events: &["write-load"], create: false, expected: Outcome::Changed },
 	Row { id: "2026110613470307-case", only: "macos", t: true, o: false, load: "case", save: "bare", events: &["write-load"], create: false, expected: Outcome::Changed },
 	Row { id: "2026110613470308-trail", only: "any", t: true, o: false, load: "bare", save: "trail", events: &["none"], create: false, expected: Outcome::IsDirectory },
 	Row { id: "2026110613470308-dot", only: "any", t: true, o: false, load: "bare", save: "traildot", events: &["none"], create: true, expected: Outcome::IsDirectory },
@@ -656,7 +689,6 @@ fn index(names: &[Rule], name: &str) -> usize {
 
 /// Every past bug of the class, as a fixed row the generator can draw too.
 #[cfg_attr(miri, ignore = "makes files, links and FIFOs on disk")]
-#[cfg_attr(windows, ignore = "the Windows rows wait for b29w (2026111019505861)")]
 #[test]
 fn the_save_checks_hold_on_every_past_path_bug() {
 	let _id = test_id("df4bw");
@@ -703,7 +735,6 @@ fn the_save_checks_hold_on_every_past_path_bug() {
 /// drew each spelling, event, answer, and both one file and 2, fails, since
 /// it didn't test what it says.
 #[cfg_attr(miri, ignore = "makes files, links and FIFOs on disk")]
-#[cfg_attr(windows, ignore = "the Windows rows wait for b29w (2026111019505861)")]
 #[test]
 fn the_save_checks_hold_on_drawn_paths_and_events() {
 	let _id = test_id("df4bx");
@@ -759,6 +790,10 @@ fn the_save_checks_hold_on_drawn_paths_and_events() {
 		);
 	}
 	for o in OUTCOMES {
+		// Only a FIFO is neither a file nor a folder here, and Windows has none.
+		if o == Outcome::NotRegular && !on_this_os("posix") {
+			continue;
+		}
 		assert!(outcomes.contains(&o), "{seed} cases never gave {o:?}");
 	}
 	assert_eq!(

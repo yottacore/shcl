@@ -75,8 +75,6 @@ func fsReadRules(t *testing.T) fsRules {
 	return r
 }
 
-// The Windows rows wait for b29w (2026111019505861), so they skip
-// everywhere for now, rather than run untried.
 func fsOnThisOS(osName string) bool {
 	switch osName {
 	case "any":
@@ -86,7 +84,7 @@ func fsOnThisOS(osName string) bool {
 	case "macos":
 		return runtime.GOOS == "darwin"
 	case "windows":
-		return false
+		return runtime.GOOS == "windows"
 	}
 	panic(fmt.Sprintf("fs-rules.tsv: no such os %q", osName))
 }
@@ -193,7 +191,11 @@ func fsAtPath(p string) fsAt {
 // fsSpelled is the spelling's path, as the library gets it from its working
 // folder.
 func fsSpelled(rule fsRule, w string) string {
-	return strings.ReplaceAll(rule.path, "{W}", w)
+	p := strings.ReplaceAll(rule.path, "{W}", w)
+	if strings.Contains(p, "{S}") {
+		p = strings.ReplaceAll(p, "{S}", fsShortForm(w))
+	}
+	return p
 }
 
 // fsFromRoot is the same path from the case's root, for reading and events.
@@ -625,6 +627,7 @@ var fsRows = []fsRow{
 	{"2026110408432594-dot", "windows", false, false, "nddot", "nd", []string{"mkdir", "write-load"}, false, fsChanged},
 	{"2026110613470307", "any", false, false, "nodir", "nodir", []string{"mkdir", "write-save"}, false, fsChanged},
 	{"2026110613470307-otherwd", "any", true, true, "bare", "bare", []string{"chdir"}, false, fsChanged},
+	{"2026110613470307-win", "windows", true, false, "wnodir", "bare", []string{"write-load"}, false, fsChanged},
 	{"2026110613470307-case", "macos", true, false, "case", "bare", []string{"write-load"}, false, fsChanged},
 	{"2026110613470308-trail", "any", true, false, "bare", "trail", []string{"none"}, false, fsIsDirectory},
 	{"2026110613470308-dot", "any", true, false, "bare", "traildot", []string{"none"}, true, fsIsDirectory},
@@ -646,9 +649,6 @@ func fsIndex(t *testing.T, rules []fsRule, name string) int {
 // it.
 func fsEnter(t *testing.T) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("the Windows rows wait for b29w (2026111019505861)")
-	}
 	back, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -749,6 +749,10 @@ func TestTheSaveChecksHoldOnDrawnPathsAndEvents(t *testing.T) {
 		}
 	}
 	for _, o := range fsOutcomes {
+		// Only a FIFO is neither a file nor a folder here, and Windows has none.
+		if o == fsNotRegular && !fsOnThisOS("posix") {
+			continue
+		}
 		if !outcomes[o] {
 			t.Errorf("%d cases never gave %s", seed, o)
 		}

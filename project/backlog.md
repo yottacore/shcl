@@ -252,7 +252,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Waits on 2026111010331517 too, since the macOS rows need its case-insensitive RAM disk (me).
 	- Progress log:
 		- 20261110: split for the time cap. The macOS rows are child 2026111019505842, the Windows rows 2026111019505861.
-		- 20261110: the macOS rows (2026111019505842) are Done. The Windows rows (2026111019505861) are Queued.
+		- 20261110: the macOS rows (2026111019505842) are Done. The Windows rows (2026111019505861) are Done for Rust, Go and Python. C's Windows rows went to a new child, 2026111020030146, which is Queued.
 
 - Filesystem property test: the macOS case rows on vmKt6m
 	- ID: 2026111019505842
@@ -278,13 +278,37 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Filesystem property test: the Windows rows on b29w
 	- ID: 2026111019505861
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261110-195058
 	- Opened by: 2026111010012360's split
 	- Parent ID: 2026111010012360
-	- Problem description: the parent's Windows part: the `\`, mixed, 8.3 short and `\\?\` spellings, the Windows rows of 2026110408432594, a fixed row for the Windows twin of 2026110613470307 (`nodir\..\t.shcl`), and the fs tests no longer skipped on Windows, in all 4 bindings, run on b29w with a short-name TEMP through the box step.
+	- Problem description: the parent's Windows part: the `\`, mixed, 8.3 short and `\\?\` spellings, the Windows rows of 2026110408432594, a fixed row for the Windows twin of 2026110613470307 (`nodir\..\t.shcl`), and the fs tests no longer skipped on Windows, in Rust, Go and Python, run on b29w with a short-name TEMP through the box step.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Actual fix: the `windows` rows run on Windows in the Rust, Go and Python fs tests, which no longer skip there. `{S}` takes the folder's short form from `GetShortPathNameW`, and Rust drops the `\\?\` its canonical path gets on Windows. fs-rules.tsv has a `wnodir` spelling, `nodir\..\t.shcl`, and each binding a fixed row `2026110613470307-win` for the Windows twin: load through it, another program writes, save to `t.shcl`, which refuses as Changed. The draw guard asks for NotRegular only where there are FIFOs.
+	- Decisions:
+		- me, 20261110: C went to its own item, 2026111020030146, since its tree, events and snapshot are POSIX calls, and porting them is a job of its own. Its rows still list the new one, so the dumps match.
+		- me, 20261110: the row `2026110408432594-link` stays skipped on Windows, since its `dangle` spelling is a link and the tree makes no links there. Its `-dot` twin runs.
+		- me, 20261110: the new spelling shifts every seed, in all 4 bindings at once, which the dump compare holds.
+	- Verified: on b29w with TEMP at `C:\Users\COLLIE~1\...\202611~1`, fs-property.bash ran the Rust and Go test binaries built here for Windows and the Python test (df4bw, df4bx, df4c4, df4c5, df4dk, df4dm, df4cf, df4cg pass, df4ch SKIP as on that route), Go and Python agree with Rust on every row and 400 drawn cases, and no folder was left. On `343334df` Go's `-win` row fails there, as the twin said, and Python's drawn test fails at seed 24 (`bslash` after `chdir`). Linux runs as before. Also `cicd.bash --backlog-run-quick rust go python c`, rustfmt, clippy for windows, gofmt, go vet for windows and darwin, ruff, lint-report and `test-ids.py check`.
+	- Test case: the `2026110613470307-win` row of `the_save_checks_hold_on_every_past_path_bug` (Rust `df4bw`, Go `df4c4`, Python `df4dk`), and the Windows spellings in the drawn tests (`df4bx`, `df4c5`, `df4dm`).
+	- Branch: `r1111`
+	- Acceptance signoff: Self-closed: the rows ran on b29w with a short-name TEMP, the new row went red on the code before the fix, and the gates are green.
+	- Closed: 20261110-202817
+
+- Filesystem property test: the C port's Windows rows on b29w
+	- ID: 2026111020030146
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-200301
+	- Opened by: 2026111019505861's split
+	- Parent ID: 2026111010012360
+	- Prereq IDs: 2026111019505861
+	- Problem description: the C fs test still prints SKIP on Windows, since its tree, events and snapshot are POSIX calls. Port them for Windows as the Rust, Go and Python tests did in 2026111019505861, with the same {S} short form, and run it on b29w with a short-name TEMP through the box step.
 	- Estimated effort: Avg
 
 - Filesystem property test: the tmpfs routes on the boxes

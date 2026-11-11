@@ -16,7 +16,8 @@
 # other. nodir and nd are not there until an event makes them.
 #
 # spell	name	path	cwd	os
-#	{W} is w/'s absolute path, {S} its 8.3 short form.
+#	{W} is w/'s absolute path, {S} its 8.3 short form, which is {W} itself
+#	where the volume makes no short names.
 spell	bare	t.shcl	w	any
 spell	dot	./t.shcl	w	any
 spell	abs	{W}/t.shcl	w	any
@@ -38,6 +39,7 @@ spell	bslash	.\t.shcl	w	windows
 spell	mixed	{W}\./t.shcl	w	windows
 spell	short	{S}\t.shcl	w	windows
 spell	verbatim	\\?\{W}\t.shcl	w	windows
+spell	wnodir	nodir\..\t.shcl	w	windows
 spell	case	T.SHCL	w	macos
 #
 # event	name	-	-	os
