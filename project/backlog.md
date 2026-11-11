@@ -35,6 +35,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- The comment placement property fails the 2M release fuzz in dd3t9
+	- ID: 2026111022322992
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-223229
+	- Opened by:
+	- Related IDs: 2026111012160121, 2026111021095858, 2026111021153725, 2026111022100191
+	- Progress log:
+		- 20261110, round r1111: 2026111012160121's property (e0b1f62d, 05cca0fa) passes dd3t9 and dderx at 200,000 but not at 2,000,000 in release. The first run failed both at about 212,000. A fix worker judged 9 more failures as 7 property misreads and 1 library bug (2026111022100191), and fixed the property, but dd3t9 still fails at 780675.
+		- That last one: a set_literal over a list moves its kept lines above the field, with a blank among them and an item's comment under them, and the property reads that blank as the one above the field's comments. Probably a misread, not yet checked.
+		- The work is on wip/r1111-2026111012160121. fuzz_smoke.rs on the round branch went back to e4d295d4, so dev has no placement property. Each failure so far needed a release run past 200,000 to show, so the next try runs 2M in release before reporting.
+
 - A default form's replaced-value comment puts the field's blank above a kept line's comments
 	- ID: 2026111022100191
 	- Type: Bug
@@ -52,6 +66,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: the same as 2026111021153725. A comment added to a node counts the kept lines held in its leading lines, and their comments, as the node's own comments, and puts its blank above them all.
 	- Estimated effort: Low
 	- Note: the placement property in `dderx` and `dd3t9` excuses this class with a check keyed by this ID. The fix takes it out.
+	- 20261110: the property that excuses this is on wip/r1111-2026111012160121, not dev. The CLI reproduction stands.
 
 - `set_comment` making a field after a kept last line puts its blank above the kept line's comments
 	- ID: 2026111021153725
@@ -69,6 +84,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261111, the Rust, Go and C CLIs.
 	- Estimated effort: Low
 	- Note: the placement property in `dd3t9` excuses this class with a check keyed by this ID. The fix takes it out.
+	- 20261110: the property that excuses this is on wip/r1111-2026111012160121, not dev. The CLI reproduction stands.
 
 - `clear_comments` takes a comment on the far side of a kept line above its target
 	- ID: 2026111021095858
@@ -87,6 +103,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: a kept line and the comments above it sit in the next field's leading lines, and `clear_comments` clears every comment there, where the remove stops at the last kept line. `set_comment` likely the same.
 	- Estimated effort: Low
 	- Note: the placement property in `dd3t9` excuses this class with a check keyed by this ID. The fix takes it out.
+	- 20261110: the property that excuses this is on wip/r1111-2026111012160121, not dev. The CLI reproduction stands.
 
 - vmFreeBSD: let bsdtest mount a tmpfs, so the box's fs suite gets one
 	- ID: 2026111019385135
@@ -477,6 +494,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261111: it found 2 bugs, filed as 2026111021095858 (`clear_comments` takes a comment past a kept line) and 2026111021153725 (`set_comment` making a field puts its blank above a kept line's comments). The property excuses each by a check keyed by its ID.
 		- 20261111: the 2M release fuzz failed `dd3t9` and `dderx` 9 times past 200,000, and each was judged. 8 were misreads of the property, fixed there: a kept line's raw body, and a kept line the settle writes as a comment at the field's level, read as the run's end; a trailing comment's U+3000 trimmed; a kept line the setter comments in place above the field's blank read as part of the run; a misplaced line among a list's items not taken as moved; the blanks the banner leaves where it takes an info block; and a kept item commented in place read as a new item. Each but the banner's blank is a row in `df50j`. 1 is a library bug, filed as 2026111022100191 and excused by its ID.
 		- 20261111: open: `dd3t9` fails at iteration 780675. A `set_literal` over a list moves its kept lines above the field, with a blank among them and an item's comment under them, and the property reads that blank as the one above the field's comments. Not judged yet.
+		- 20261110: the property failed the 2M release fuzz after a fix try. The work moved to wip/r1111-2026111012160121 and fuzz_smoke.rs on r1111 went back to e4d295d4. See 2026111022322992.
 	- Decisions:
 		- me, 20261111: the property follows design.md where the item's wording differs. Lines an edit takes from a node go under the heir's own comments ("Lines an edit takes from their node"). A remove takes the comments under its target up to the first kept line. A setter puts the kept lines among a list's items above the field, under its comments. The banner takes info block lines, and a format or migrate stamp is no comment.
 		- me, 20261111: a run is the comments at the anchor's own depth. A deeper comment above a line is the block above's trailing line.
@@ -488,7 +506,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: `df50j`, `dd3t9` and `dderx` fail on `343334df`'s library, all on 2026110613470311's class: `df50j` on the blank, `dd3t9` at iteration 74, and `dderx`'s merge step at iteration 35. All 3 pass on `r1111`.
 	- Verified: the 6 new `df50j` rows fail on the property at `e0b1f62d` and pass now. `dd3t9` and `dderx` at 250,000 in release, the rust area of `--backlog-run-quick`, clippy `--all-targets`, `lint-report.bash --check` and `test-ids.py check`.
 	- Verified: `dd3t9` and `dderx` at 200,000 iterations, the rust area of `--backlog-run-quick`, clippy, `lint-report.bash --check`, `test-ids.py check`, and the cross check over the corpus and a dump with 100 `dd3t9` inputs (4 bindings agree).
-	- Branch: `r1111`
+	- Branch: wip/r1111-2026111012160121
+	- Prereq IDs: 2026111022322992
 
 - Quote the other line breaks in `instances` and `get --array` output
 	- ID: 2026110613470324
