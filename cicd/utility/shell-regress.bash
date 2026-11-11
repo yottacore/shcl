@@ -260,7 +260,7 @@ if fHave pwsh; then
 	[[ "$(tail -c 2 "${tmpDir}/ps.out" | od -An -c | tr -d ' ')" == '\n\n' ]] || fBad "install.ps1 -Help does not end on a blank line"
 	rc=0; fPs1 -Target user -Yes || rc=$?
 	if ! { [[ "${rc}" == 1 ]] && cmp -s "${tmpDir}/ps.out" <(printf '\n') \
-		&& cmp -s "${tmpDir}/ps.err" <(printf 'install.ps1: this installer is for Windows - on Linux, macOS or FreeBSD use install.bash, elsewhere build from source (see https://github.com/yottacore/shcl/blob/main/project/install.md#diy-install)\n\n'); }; then
+		&& cmp -s "${tmpDir}/ps.err" <(printf 'install.ps1: this installer is for Windows - on Linux, macOS, or FreeBSD use install.bash, and elsewhere build from source, as described in https://github.com/yottacore/shcl/blob/main/project/install.md#diy-install\n\n'); }; then
 		fBad "install.ps1 does not open and end a refusal on a blank line (exit ${rc}): $(od -c "${tmpDir}/ps.out" "${tmpDir}/ps.err" | head -n 5)"
 	fi
 
@@ -392,7 +392,7 @@ SRVEOF
 	[[ -e "${tmpDir}/lad/Programs/Shcl/shcl.exe" || -e "${tmpDir}/lad/Programs/Shcl/code/lib.rs" ]] \
 		&& fBad "install.ps1 -Uninstall left its files with the network down"
 	out="$(fNoNet -Target user -Yes || true)"
-	[[ "${out}" == *"cannot fetch the stable release (none published yet, or network down)"* ]] \
+	[[ "${out}" == *"can't fetch the stable release (none published yet, or network down)"* ]] \
 		|| fBad "install.ps1 does not say the network is down: ${out@Q}"
 	fTest dd51h 20260830-8-install-ps1-under-iex
 	##	20260830 item 8 and 20260829 item 16 under the documented `irm | iex`.
@@ -415,7 +415,7 @@ SRVEOF
 	} > "${tmpDir}/iex.ps1"
 	out="$(fNoNetFile "${tmpDir}/iex.ps1" || true)"
 	[[ "${out}" == *"alive"* ]]        || fBad "install.ps1 under iex ended the caller's session on a failure: ${out@Q}"
-	[[ "${out}" == *"threw=install.ps1: cannot fetch the stable release"* ]] \
+	[[ "${out}" == *"threw=install.ps1: can't fetch the stable release"* ]] \
 		|| fBad "install.ps1 under iex did not throw its failure to the caller: ${out@Q}"
 	[[ "${out}" == *"eap=Continue"* ]] || fBad "install.ps1 under iex changed the caller's error preference: ${out@Q}"
 	[[ "${out}" == *"fn=False"* ]]     || fBad "install.ps1 under iex left its functions in the caller: ${out@Q}"
@@ -473,9 +473,9 @@ SRVEOF
 	chmod 555 "${tmpDir}/lad/Programs/Shcl/code"
 	out="$(fNoNet -Uninstall -Target user -Yes || true)"
 	chmod 755 "${tmpDir}/lad/Programs/Shcl/code"
-	[[ "${out}" == *"could not remove ${tmpDir}/lad/Programs/Shcl/code/lib.rs"* ]] \
+	[[ "${out}" == *"couldn't remove ${tmpDir}/lad/Programs/Shcl/code/lib.rs"* ]] \
 		|| fBad "install.ps1 -Uninstall hid a file it could not remove: ${out@Q}"
-	[[ "${out}" == *"did not put there"* ]] && fBad "install.ps1 -Uninstall blamed its own file on someone else: ${out@Q}"
+	[[ "${out}" == *"didn't put there"* ]] && fBad "install.ps1 -Uninstall blamed its own file on someone else: ${out@Q}"
 	##	The other answers, from the function itself: a clean removal takes the
 	##	dir, and a file nobody installed keeps it and says so. The dirs are
 	##	named relative, which reads back written differently from the path
@@ -835,7 +835,7 @@ nBadBefore="${nBad}"
 ) || nBad=$((nBad + 1))
 # shellcheck disable=SC2016  ## install.bash's own $variable, matched literally
 downloadLine="$( { grep -n 'downloading \${asset}' "${repoDir}/install.bash" || true; } | head -n1 | cut -d: -f1)"
-probeLine="$( { grep -n 'is not writable' "${repoDir}/install.bash" || true; } | head -n1 | cut -d: -f1)"
+probeLine="$( { grep -n "isn't writable" "${repoDir}/install.bash" || true; } | head -n1 | cut -d: -f1)"
 if [[ -z "${downloadLine}" || -z "${probeLine}" ]] || ((probeLine >= downloadLine)); then
 	fBad "install.bash downloads before it knows the destination can be written"
 fi
@@ -861,11 +861,11 @@ out="$(fSmoke 127)"
 ##	20260830 item 42: the arm64 binary is built against an older glibc, and the
 ##	message named the x86_64 floor for both.
 out="$(fSmoke 127 arm64)"
-line="$(grep -F 'does not run here' <<<"${out}" || true)"
+line="$(grep -F "doesn't run here" <<<"${out}" || true)"
 [[ "${line}" == *"needs glibc 2.30 or newer"* && "${line}" != *"2.34"* && "${out}" != *"smoke passed"* ]] \
 	|| fBad "install.bash names the wrong glibc floor for arm64: ${out@Q}"
 out="$(fSmoke 1 x86_64 freebsd)"
-line="$(grep -F 'does not run here' <<<"${out}" || true)"
+line="$(grep -F "doesn't run here" <<<"${out}" || true)"
 [[ "${line}" == *"freebsd-x86_64 binary"*"FreeBSD 14 or newer"* && "${line}" != *glibc* && "${line}" != *musl* ]] \
 	|| fBad "install.bash names a Linux floor for the FreeBSD binary: ${out@Q}"
 out="$(fSmoke 126)"
@@ -882,7 +882,7 @@ fTest ddkck 2026100313461652-install-bash-macos-floor
 ##	The universal binary is built for macOS 13 and up, and dyld refuses it
 ##	below that with a raw abort. The lifted smoke step names that floor.
 out="$(fSmoke 134 universal macos)"
-line="$(grep -F 'does not run here' <<<"${out}" || true)"
+line="$(grep -F "doesn't run here" <<<"${out}" || true)"
 [[ "${line}" == *"macos-universal binary"*"macOS 13 or newer"* && "${line}" != *glibc* && "${line}" != *musl* && "${out}" != *"smoke passed"* ]] \
 	|| fBad "install.bash does not name the macOS floor for the macOS binary: ${out@Q}"
 
@@ -2166,7 +2166,7 @@ if fHave setsid && fHave openssl; then
 	[[ "${out}" == *$'\n'"  note     to keep 3.0.0-beta1, re-run with --release dev"$'\n'* ]] || fBad "install.bash does not say how to keep the beta: ${out@Q}"
 	[[ "${out}" == *$'\n'"installed shcl 2.0.0 -> ${bh}/.local/bin/shcl (older than the 3.0.0-beta1 it replaced)"$'\n'* ]] \
 		|| fBad "install.bash's receipt does not name the move back: ${out@Q}"
-	[[ "${out}" == *$'\n'"note: removed the drop-ins, the man page and completions the 3.0.0-beta1 install had, since this release does not ship them"$'\n'* ]] \
+	[[ "${out}" == *$'\n'"note: removed the drop-ins, the man page and completions the 3.0.0-beta1 install had, since this release doesn't include them"$'\n'* ]] \
 		|| fBad "install.bash does not say what it removed: ${out@Q}"
 	[[ -e "${bd}/code" || -e "${bd}/man" || -e "${bd}/completions" || -e "${bh}/.local/share/man/man1/shcl.1" || -L "${bh}/.local/share/man/man1/shcl.1" ]] \
 		&& fBad "install.bash left the beta's drop-ins, man page or completions beside 2.0.0"
@@ -2207,7 +2207,7 @@ if fHave setsid; then
 	chmod 755 "${tmpDir}/nobin/bin/curl" "${tmpDir}/nobin/bin/openssl" "${tmpDir}/nobin/bin/uname"
 	# shellcheck disable=SC2031  ## the gate's own PATH, which no subshell above changed for this one
 	out="$(HOME="${tmpDir}/nobin/home" PATH="${tmpDir}/nobin/bin:${PATH}" setsid -w bash "${repoDir}/install.bash" --release dev --yes </dev/null 2>&1 || true)"
-	[[ "${out}" == *"release v3.0.0-beta1 has no freebsd-x86_64 binary"* ]] || fBad "install.bash does not say the release lacks this platform's binary: ${out@Q}"
+	[[ "${out}" == *"release v3.0.0-beta1 doesn't have a freebsd-x86_64 binary"* ]] || fBad "install.bash does not say the release lacks this platform's binary: ${out@Q}"
 	grep -q 'freebsd-x86_64$' "${tmpDir}/nobin/fetched" && fBad "install.bash fetched a binary the sums file does not list: $(cat "${tmpDir}/nobin/fetched")"
 	[[ -e "${tmpDir}/nobin/home/.local/share/shcl" ]] && fBad "install.bash laid something down for a release with no binary"
 else
@@ -2319,9 +2319,9 @@ if fHave pwsh; then
 	chmod 755 "${tmpDir}/itarget/ro"
 	[[ "${out}" == *"rw=[]"* ]] || fBad "install.ps1 refused a writable target: ${out@Q}"
 	if ((EUID != 0)); then
-		[[ "${out}" == *"ro=[cannot write"*"not writable]"* ]] || fBad "install.ps1 did not see a read-only target before the download: ${out@Q}"
+		[[ "${out}" == *"ro=[can't write"*"isn't writable]"* ]] || fBad "install.ps1 did not see a read-only target before the download: ${out@Q}"
 	fi
-	[[ "${out}" == *"held=[cannot replace"*"in use"* ]] || fBad "install.ps1 did not see a shcl.exe held open: ${out@Q}"
+	[[ "${out}" == *"held=[can't replace"*"in use"* ]] || fBad "install.ps1 did not see a shcl.exe held open: ${out@Q}"
 else
 	fTestSkipBlock
 fi
@@ -3246,7 +3246,7 @@ if fHave pwsh; then
 		chmod 555 "${dpool}"
 		out="$(fDogfood z)" || true
 		chmod 755 "${dpool}"
-		grep -q 'could not remove shcl_202607' "${tmpDir}/df.err" || fBad "dogfood_shcl.ps1 said nothing about a version it failed to remove: $(cat "${tmpDir}/df.err")"
+		grep -q "couldn't remove shcl_202607" "${tmpDir}/df.err" || fBad "dogfood_shcl.ps1 said nothing about a version it failed to remove: $(cat "${tmpDir}/df.err")"
 	fi
 	rm -f "${dh}/.local/bin/shcl"; echo mine > "${dh}/.local/bin/shcl"
 	out="$(fDogfood w)" || true
@@ -3436,7 +3436,7 @@ PSEOF
 	## The newest version by its own path, which the fixed name links to.
 	[[ "${out}" == "${dh}/.local/bin/shcl_versions/"* && "${out}" -ef "${dh}/.local/bin/shcl" ]] || fBad "dogfood_shcl.ps1 --print-path gave ${out@Q}"
 	rc=0; out="$(env -u DISPLAY -u WAYLAND_DISPLAY HOME="${dh}" pwsh -NoProfile -File "${repoDir}/utility/dogfood_shcl.ps1" --print-path get 2>&1 </dev/null)" || rc=$?
-	[[ "${rc}" == 1 && "${out}" == *"takes no argument"* ]] || fBad "dogfood_shcl.ps1 --print-path took an argument for shcl: ${out@Q} rc ${rc}"
+	[[ "${rc}" == 1 && "${out}" == *"doesn't take an argument"* ]] || fBad "dogfood_shcl.ps1 --print-path took an argument for shcl: ${out@Q} rc ${rc}"
 
 	## pwsh's own Ctrl+C handling needs a terminal, so script gives it one. A
 	## background job starts with INT ignored, which the helper puts back.
@@ -3928,7 +3928,7 @@ if [[ -f "${repoDir}/install.bash" ]]; then
 	mkdir -p "${fake}/.local/share/shcl"
 	printf 'x\n' > "${fake}/.local/share/shcl/not-ours.txt"
 	out="$(HOME="${fake}" bash "${repoDir}/install.bash" --target user --uninstall --yes 2>&1 || true)"
-	grep -q 'did not put there' <<<"${out}" || fBad "install.bash --uninstall said nothing about the files it left behind: ${out}"
+	grep -q "didn't put there" <<<"${out}" || fBad "install.bash --uninstall said nothing about the files it left behind: ${out}"
 	[[ -f "${fake}/.local/share/shcl/not-ours.txt" ]] || fBad "install.bash --uninstall removed a file it did not install"
 else
 	fBad "install.bash is gone, so its uninstall row checks nothing"
