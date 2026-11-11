@@ -321,6 +321,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- 20261110: all of the above (JC). Design: `project/design_docs/20261110-182127_format-versions.md`.
 		- 20261110: it replaces 2026100115403385's "pre-release files are on their own", and 2026111016205706 (JC).
+		- 20261110: part of the next release, beta2 (JC).
 	- Estimated effort: High
 
 - Format versions: the reading rules of each published format, and the pins
