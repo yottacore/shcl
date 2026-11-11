@@ -863,6 +863,167 @@ fn a_cap_refuses_only_a_line_that_would_bind() {
 	);
 }
 
+/// One line of a cap soup: what the node cap charges for it, whether that is
+/// a comment or kept line, and whether the parse checks the cap before it. A
+/// raw body and its closer go with the line that opened the block, so the
+/// parse never checks inside one.
+struct CapLine {
+	text: String,
+	cost: usize,
+	trivia: bool,
+	check: bool,
+}
+
+/// A document whose cost under the node cap is known line by line: every name
+/// is new, so each field line builds a node per segment, an item or a raw body
+/// builds none, and each comment line and kept line costs one.
+fn cap_soup(rng: &mut Rng) -> Vec<CapLine> {
+	let mut out: Vec<CapLine> = Vec::new();
+	let mut push = |text: String, cost: usize, trivia: bool, check: bool| {
+		out.push(CapLine {
+			text,
+			cost,
+			trivia,
+			check,
+		})
+	};
+	let mut depth = 0usize;
+	for n in 0..(1 + rng.below(24)) {
+		if depth > 0 && rng.below(4) == 0 {
+			depth = rng.below(depth);
+		}
+		let ind = "\t".repeat(depth);
+		match rng.below(10) {
+			0 | 1 => push(format!("{ind}# note {n}"), 1, true, true),
+			2 | 3 => push(format!("{ind}kept line {n}"), 1, true, true),
+			4 => push(String::new(), 0, false, true),
+			5 => push(format!("{ind}d{n}.e{n}: {}", rng.below(9)), 2, false, true),
+			6 if depth < 4 => {
+				push(format!("{ind}s{n}:"), 1, false, true);
+				depth += 1;
+			}
+			7 => {
+				push(format!("{ind}l{n}:"), 1, false, true);
+				for k in 0..(1 + rng.below(3)) {
+					if rng.below(3) == 0 {
+						push(format!("{ind}\t# item note {k}"), 1, true, true);
+					}
+					push(format!("{ind}\t- {k}"), 0, false, true);
+				}
+			}
+			8 => {
+				push(format!("{ind}r{n}: ```"), 1, false, true);
+				for body in ["body", "# not a comment", "kept line"] {
+					if rng.below(2) == 0 {
+						push(format!("{ind}\t{body}"), 0, false, false);
+					}
+				}
+				push(format!("{ind}\t```"), 0, false, false);
+			}
+			_ => push(format!("{ind}f{n}: {}", rng.below(9)), 1, false, true),
+		}
+	}
+	out
+}
+
+/// The line `E020` belongs on under a node cap of `cap`, 1-based, when only
+/// the costs `charge` gives are counted: the first line the parse checks with
+/// the count already past the cap, when a non-blank line is left from there.
+fn cap_stop(lines: &[CapLine], cap: usize, charge: impl Fn(&CapLine) -> usize) -> Option<usize> {
+	let mut count = 0usize;
+	for (i, l) in lines.iter().enumerate() {
+		if l.check && count > cap {
+			return lines[i..]
+				.iter()
+				.any(|l| !l.text.is_empty())
+				.then_some(i + 1);
+		}
+		count += charge(l);
+	}
+	None
+}
+
+/// The parent's fuzz guard for 2026110613470304: comment lines and kept lines
+/// count against the node cap. Each document's cost is known from the
+/// generator, so the property needs no count from the library: `E020` sits on
+/// the first line past the cap, and the capped parse holds what a parse of the
+/// lines above it holds, no more.
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
+#[test]
+fn comment_and_kept_lines_take_the_node_cap() {
+	let _id = test_id("df4wt");
+	let iters = iter_count(300);
+	let mut rng = Rng(0x5EED_57A7_1C00_0031);
+	let (mut took, mut free_held) = (0usize, 0usize);
+	for i in 0..iters {
+		let lines = cap_soup(&mut rng);
+		let text: String = lines.iter().map(|l| format!("{}\n", l.text)).collect();
+		let total: usize = lines.iter().map(|l| l.cost).sum();
+		let cap = 1 + rng.below(total + 1);
+		let want = cap_stop(&lines, cap, |l| l.cost);
+		let capped = Document::parse_limited(&text, Strictness::Standard, cap, 0, 0).unwrap();
+		let stops: Vec<usize> = capped
+			.diagnostics()
+			.iter()
+			.filter(|d| d.code == "E020")
+			.map(|d| d.line)
+			.collect();
+		assert_eq!(
+			stops,
+			want.into_iter().collect::<Vec<_>>(),
+			"E020 lines under a node cap of {cap}, at iteration {i}:\n{text}"
+		);
+		let held = want.map_or(lines.len(), |l| l - 1);
+		let above: String = lines[..held]
+			.iter()
+			.map(|l| format!("{}\n", l.text))
+			.collect();
+		let open = Document::parse_limited(&above, Strictness::Standard, 0, 0, 0).unwrap();
+		assert_eq!(
+			capped.to_canonical(),
+			open.to_canonical(),
+			"the parse under a node cap of {cap} holds other than the {held} lines above its stop, at iteration {i}:\n{text}"
+		);
+		let codes = |d: &Document| -> Vec<(usize, &'static str)> {
+			d.diagnostics()
+				.iter()
+				.filter(|d| d.code != "E020")
+				.map(|d| (d.line, d.code))
+				.collect()
+		};
+		assert_eq!(
+			codes(&capped),
+			codes(&open),
+			"diagnostics under a node cap of {cap}, at iteration {i}:\n{text}"
+		);
+		if want.is_some() {
+			assert!(
+				capped.lost_count() > 0,
+				"a stopped parse counts nothing lost, at iteration {i}:\n{text}"
+			);
+		}
+		if want != cap_stop(&lines, cap, |l| if l.trivia { 0 } else { l.cost }) {
+			took += 1;
+		}
+		if want.is_some()
+			&& lines[..held]
+				.iter()
+				.any(|l| l.cost == 0 && !l.text.is_empty())
+		{
+			free_held += 1;
+		}
+	}
+	// A cap the comment and kept lines decide is the case the old count let
+	// through; a held item or raw body proves a line count can't stand in.
+	assert!(
+		took > iters / 8 && free_held > iters / 8,
+		"the soup had {took} stops decided by comment and kept lines and {free_held} holding free lines, of {iters}"
+	);
+}
+
 /// A field line's value, from the text past its indent: what follows the
 /// separator, as the tokenizer reads it. A line that did not tokenize still
 /// has one after its first colon past the fault, unless a comment comes

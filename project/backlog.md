@@ -170,7 +170,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The fuzz counts inputs where comment and kept lines take the node cap
 	- ID: 2026110707441268
 	- Type: Task
-	- Status: Queued
+	- Status: Done
 	- Priority: High
 	- Target version: v3.0.0-beta2
 	- Opened: 20261107-074413
@@ -180,6 +180,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The parent's fuzz guard: a property over fuzzed documents with comment and kept lines mixed in, parsed under a small node cap, that the parse holds no more than the cap allows and stops at the first line past it, with a guard that counts such inputs each run.
 		- The fuzz can't read the held-line count today. It needs a count it can see, or a property that doesn't need one. Raw bodies and `- ` items make a count of output lines a poor stand-in.
 	- Estimated effort: Avg
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261110: a property that needs no count. The generator knows each line's cost: fresh names, so a field line costs a node per segment, comment and kept lines 1, items and raw bodies 0. The library gets no new public count, which all 4 bindings would have to carry.
+		- me, 20261110: the property is in the Rust fuzz only, like every other fuzz property. No CLI takes a cap, so the cross check can't replay it. Go, Python and C keep their budget tests from the parent.
+	- Actual fix: `comment_and_kept_lines_take_the_node_cap` in the fuzz. Under a random cap, `E020` is on the first line the parse checks with the count past the cap, the capped document's canonical text and diagnostics match a parse of the lines above that line, and a stopped parse counts lost lines. The guard counts the stops that comment and kept lines decide, and the stops that hold an item or raw body line, each over an eighth of the run.
+		- Swept: no Go, Python or C fuzz exists. `dcv3k` covers the element cap only.
+	- Test case: `df4wt` (`comment_and_kept_lines_take_the_node_cap`). It fails on `c26f8dc1~1`, the code before the parent's fix, with no `E020` where the cap is past, and with either half of the count taken out. It passes now.
+	- Verified: `df4wt` at 300, 20,000 and 200,000 iterations, with guards of 176 and 132 of 300 and 123,160 and 94,905 of 200,000. `--backlog-run-quick rust`, lint-report, rustfmt, clippy, test-ids.
+	- Acceptance signoff: Self-closed: the property and its guard are in, and the test was seen to fail on the old code.
+	- Closed: 20261110-191231
 
 - A filesystem property test for the save's checks, over every past path bug
 	- ID: 2026110616475901
