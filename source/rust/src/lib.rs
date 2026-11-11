@@ -850,6 +850,12 @@ struct Trivia {
 	// could take them - a header whose children are all commented still owns
 	// those lines. Emitted after the subtree one level deeper than this node.
 	inside: Vec<Lead>,
+	// The comments that open this node's block: above its first child and
+	// set off from it by a blank, so they are the block's, not the child's.
+	// The root's are the top of the file. Emitted after the node's line, one
+	// level deeper. Never a kept line but one the settle wrote as a comment,
+	// since a run stops at one.
+	head: Vec<Lead>,
 	// Kept lines that sat among this node's stacked list elements, each with
 	// the number of elements before it. They keep the list stacked on output,
 	// so a line fixed by hand is still inside the list.
@@ -871,6 +877,9 @@ impl NodeData {
 	}
 	fn inside(&self) -> &[Lead] {
 		self.trivia.as_deref().map_or(&[], |t| &t.inside)
+	}
+	fn head(&self) -> &[Lead] {
+		self.trivia.as_deref().map_or(&[], |t| &t.head)
 	}
 	fn among(&self) -> &[(usize, Lead)] {
 		self.trivia.as_deref().map_or(&[], |t| &t.among)
@@ -1077,10 +1086,20 @@ fn fold_node_into(arena: &mut [NodeData], survivor: usize, loser: usize) {
 	for &k in &kids {
 		arena[k].parent = survivor;
 	}
+	// The lines that opened the loser's block sit right above its first
+	// child, which now follows the survivor's last one.
+	let above = arena[survivor].children.last().copied();
+	if let (Some(a), Some(lt)) = (above, arena[loser].trivia.as_deref_mut())
+		&& !lt.head.is_empty()
+	{
+		let moved = std::mem::take(&mut lt.head);
+		arena[a].triv_mut().after.extend(moved);
+	}
 	arena[survivor].children.extend(kids);
 	if let Some(mut lt) = arena[loser].trivia.take() {
 		let st = arena[survivor].triv_mut();
 		st.leading.append(&mut lt.leading);
+		st.head.append(&mut lt.head);
 		if !lt.trailing.is_empty() {
 			if st.trailing.is_empty() {
 				st.trailing = std::mem::take(&mut lt.trailing);
@@ -1121,8 +1140,47 @@ fn settle_block(arena: &mut [NodeData], n: usize, from: usize) -> bool {
 		settle_pairs(arena, n, 1);
 	}
 	// After the join, which can take the last child.
+	settle_head(arena, n);
 	settle_inside(arena, n);
 	joined
+}
+
+/// A block with no child left has no first child for its opening lines to
+/// sit above, and a reload files them as the lines inside it. The root's
+/// go to the footer, in settle_first_blank().
+fn settle_head(arena: &mut [NodeData], n: usize) {
+	if n == ROOT || !arena[n].children.is_empty() {
+		return;
+	}
+	if let Some(t) = arena[n].trivia.as_deref_mut()
+		&& !t.head.is_empty()
+	{
+		let mut moved = std::mem::take(&mut t.head);
+		moved.append(&mut t.inside);
+		t.inside = moved;
+	}
+}
+
+/// How many of a run of lines above a field line are set off from it: the
+/// comments before the first kept line, up to the last one a blank sets off
+/// from the line below it. Those are the node above's, or the parent's
+/// (design.md, Lines an edit takes from their node). `at` gives each line's
+/// (is a comment, has a blank above), and `blank` is the field line's blank.
+fn set_off(n: usize, blank: bool, at: impl Fn(usize) -> (bool, bool)) -> usize {
+	let mut cut = 0;
+	for i in 0..n {
+		let (comment, above) = at(i);
+		if above && i > 0 {
+			cut = i;
+		}
+		if !comment {
+			return cut;
+		}
+	}
+	if blank && n > 0 {
+		cut = n;
+	}
+	cut
 }
 
 /// A block's inside comments go to its last child's own, where a reload
@@ -1139,21 +1197,72 @@ fn settle_inside(arena: &mut [NodeData], n: usize) {
 	}
 }
 
-/// A child's comments at its own level go above the next sibling, from
-/// child `from` on.
+/// The lines between 2 children are filed as a reload files them, from
+/// child `from` on: a child's comments at its own level go above the next
+/// sibling, but for a run set off from it by a blank, which stays the
+/// child's. The first child does the same with the lines that open the
+/// block.
 fn settle_pairs(arena: &mut [NodeData], n: usize, from: usize) {
-	for i in from.max(1)..arena[n].children.len() {
-		let (prev, next) = (arena[n].children[i - 1], arena[n].children[i]);
-		let Some(t) = arena[prev].trivia.as_deref_mut() else {
-			continue;
-		};
-		let Some(at) = t.after.iter().position(|c| c.depth == 0) else {
-			continue;
-		};
-		let mut moved = t.after.split_off(at);
+	let start = if from <= 1 { 0 } else { from };
+	for i in start..arena[n].children.len() {
+		refile_pair(arena, n, i);
+	}
+}
+
+/// settle_pairs() for the lines above child `i` of `n` alone: the run is the
+/// lines that open the block, or the previous child's trailing lines from
+/// the first at its own level, then the child's leading lines. Only lines
+/// that change sides move.
+fn refile_pair(arena: &mut [NodeData], n: usize, i: usize) {
+	let next = arena[n].children[i];
+	let owner = if i == 0 { n } else { arena[n].children[i - 1] };
+	let (at, plen) = match arena[owner].trivia.as_deref() {
+		None => (0, 0),
+		Some(t) if i == 0 => (0, t.head.len()),
+		Some(t) => {
+			let at = t
+				.after
+				.iter()
+				.position(|c| c.depth == 0)
+				.unwrap_or(t.after.len());
+			(at, t.after.len() - at)
+		}
+	};
+	let lead = arena[next].leading();
+	if plen + lead.len() == 0 {
+		return;
+	}
+	let cut = {
+		let up = arena[owner].trivia.as_deref().map_or(&[][..], |t| {
+			if i == 0 { &t.head[..] } else { &t.after[at..] }
+		});
+		// A kept line the settle wrote as a comment is set off as the comment
+		// a reload reads it as.
+		set_off(plen + lead.len(), arena[next].blank_before, |k| {
+			let l = if k < plen { &up[k] } else { &lead[k - plen] };
+			(l.text.starts_with('#'), l.blank_before)
+		})
+	};
+	if cut == plen {
+		return;
+	}
+	if cut < plen {
+		let ot = arena[owner].triv_mut();
+		let list = if i == 0 { &mut ot.head } else { &mut ot.after };
+		let mut moved = list.split_off(at + cut);
 		let nt = arena[next].triv_mut();
 		moved.append(&mut nt.leading);
 		nt.leading = moved;
+		return;
+	}
+	let nt = arena[next].triv_mut();
+	let mut up: Vec<Lead> = nt.leading.drain(..cut - plen).collect();
+	restep(&mut nt.leading);
+	let ot = arena[owner].triv_mut();
+	if i == 0 {
+		ot.head.append(&mut up);
+	} else {
+		ot.after.append(&mut up);
 	}
 }
 
@@ -1231,8 +1340,9 @@ fn stacks(nd: &NodeData) -> bool {
 /// A list after an empty binding of its name cannot be written stacked: its
 /// bare header would merge into that binding on a reload. It goes in
 /// brackets, and the lines among its elements and the comments on them go
-/// above it, in order, where a reload files what sits there.
-fn unstack(nd: &mut NodeData) {
+/// above it, in order, where a reload files what sits there. True when it
+/// moved any line.
+fn unstack(nd: &mut NodeData) -> bool {
 	nd.star_list = false;
 	// An item the brackets will quote counts as quoted now, as a setter's
 	// does, so a read gives the same answer before the save as after it.
@@ -1242,7 +1352,7 @@ fn unstack(nd: &mut NodeData) {
 		}
 	}
 	let Some(t) = nd.trivia.as_deref_mut() else {
-		return;
+		return false;
 	};
 	let mut notes = t.notes.drain(..).peekable();
 	let mut orphans = Vec::new();
@@ -1253,7 +1363,9 @@ fn unstack(nd: &mut NodeData) {
 		orphans.push(l);
 	}
 	orphans.extend(notes.map(|n| Lead::plain(n.1)));
+	let moved = !orphans.is_empty();
 	adopt(nd, orphans);
+	moved
 }
 
 /// Lines an edit took off a node or a list item it took away go to `heir`:
@@ -1292,9 +1404,35 @@ fn trailing_to_leading(nd: &mut NodeData) {
 /// The emitter drops a blank before the first thing it prints, so a document
 /// that kept one there would not survive its own canonical form, and a merge
 /// or a new first line - where it is no longer first - would place a blank
-/// nobody wrote. Clear it wherever output starts.
-fn settle_first_blank(arena: &mut [NodeData], orphans: &mut [Lead]) {
-	if let Some(&first) = arena[ROOT].children.first() {
+/// nobody wrote. Clear it wherever output starts. The lines at the ends
+/// are filed as a reload files them first: the last top-level field's
+/// trailing lines at its own level, and the top of the file with no field
+/// under it, are the footer.
+fn settle_first_blank(arena: &mut [NodeData], orphans: &mut Vec<Lead>) {
+	let last = arena[ROOT].children.last().copied().unwrap_or(ROOT);
+	if let Some(t) = arena[last].trivia.as_deref_mut() {
+		let at = if last == ROOT {
+			0
+		} else {
+			t.after
+				.iter()
+				.position(|c| c.depth == 0)
+				.unwrap_or(t.after.len())
+		};
+		let list = if last == ROOT {
+			&mut t.head
+		} else {
+			&mut t.after
+		};
+		if at < list.len() {
+			let mut moved = list.split_off(at);
+			moved.append(orphans);
+			*orphans = moved;
+		}
+	}
+	if let Some(c) = arena[ROOT].trivia.as_mut().and_then(|t| t.head.first_mut()) {
+		c.blank_before = false;
+	} else if let Some(&first) = arena[ROOT].children.first() {
 		let n = &mut arena[first];
 		match n.trivia.as_mut().and_then(|t| t.leading.first_mut()) {
 			Some(c) => c.blank_before = false,
@@ -5253,7 +5391,7 @@ impl<'a> Parser<'a> {
 			}
 			self.stack[at].1 = node;
 			let count = l.pend.min(self.pending.len());
-			self.give_pending(self.head_of(node, nsegs), l.indent, count, false);
+			self.give_pending(self.head_of(node, nsegs), l.indent, count, Site::Leading);
 		}
 		node
 	}
@@ -5414,17 +5552,49 @@ impl<'a> Parser<'a> {
 		head
 	}
 
-	/// The first `count` pending lines become the node's leading lines, or
-	/// the lines inside its block, after its children.
-	fn give_pending(&mut self, node: usize, indent: &str, count: usize, inside: bool) {
+	/// The pending comments a blank sets off from the field line that just
+	/// bound `node` go to the node written above it, as its trailing lines,
+	/// or with none, to its parent as the lines that open its block. A dotted
+	/// line is written as its last name, so that name's place decides. A
+	/// line that joined an earlier node is written after the parent's last
+	/// child.
+	fn give_set_off(&mut self, node: usize, line: usize, indent: &str, blank: bool) {
+		let p = &self.pending;
+		let cut = set_off(p.len(), blank, |k| {
+			(p[k].text.starts_with('#'), p[k].blank_before)
+		});
+		if cut == 0 {
+			return;
+		}
+		let parent = self.arena[node].parent;
+		let kids = &self.arena[parent].children;
+		let above = if self.arena[node].line == line {
+			kids.iter()
+				.rposition(|&c| c == node)
+				.and_then(|k| k.checked_sub(1))
+				.map(|k| kids[k])
+		} else {
+			kids.last().copied()
+		};
+		match above {
+			Some(a) => self.give_pending(a, indent, cut, Site::After),
+			None => self.give_pending(parent, indent, cut, Site::Head),
+		}
+	}
+
+	/// The first `count` pending lines become the node's leading lines, the
+	/// lines inside its block after its children, its trailing lines, or the
+	/// lines that open its block.
+	fn give_pending(&mut self, node: usize, indent: &str, count: usize, site: Site) {
 		if count == 0 {
 			return;
 		}
 		let t = self.arena[node].triv_mut();
-		let list = if inside {
-			&mut t.inside
-		} else {
-			&mut t.leading
+		let list = match site {
+			Site::Inside => &mut t.inside,
+			Site::After => &mut t.after,
+			Site::Head => &mut t.head,
+			_ => &mut t.leading,
 		};
 		let (mut chain, mut held) = (Vec::new(), Vec::new());
 		for p in self.pending.drain(..count) {
@@ -6140,7 +6310,7 @@ impl<'a> Parser<'a> {
 						let count = moved.len();
 						moved.extend(misplaced);
 						self.pending.splice(0..0, moved);
-						self.give_pending(parent, base, count, true);
+						self.give_pending(parent, base, count, Site::Inside);
 					}
 					if let Some(node) = self.bind_block(parent, value, lineno, indent) {
 						self.ends.push((self.arena[node].line, next));
@@ -6489,9 +6659,22 @@ impl<'a> Parser<'a> {
 			// (a merge into an equal-valued node keeps the first line's span;
 			// a value dropped after a last-segment selector records nothing).
 			let vkey = src_text.as_ref().map(|_| value_hash(&value));
+			// A line held open by a kept line keeps its lines as built.
+			let held_open = parent == LAZY;
 			let parent = self.open_lazy(parent);
 			let nsegs = scan.segments.len();
 			if let Some(node) = self.attach_path(parent, scan.segments, value, lineno, indent) {
+				if !held_open {
+					// A kept line before a dotted line goes to its first name,
+					// below, so a run set off from it goes above that name.
+					let level = nsegs > 1 && self.pending.iter().any(|p| is_field(&p.text));
+					let at = if level {
+						self.head_of(node, nsegs)
+					} else {
+						node
+					};
+					self.give_set_off(at, lineno, indent, had_blank);
+				}
 				if src_text.is_some()
 					&& unit_named(&self.arena[node].name)
 					&& let Some(m) = tok
@@ -6535,7 +6718,7 @@ impl<'a> Parser<'a> {
 				if nsegs > 1
 					&& let Some(k) = self.pending.iter().rposition(|p| is_field(&p.text))
 				{
-					self.give_pending(self.head_of(node, nsegs), indent, k + 1, false);
+					self.give_pending(self.head_of(node, nsegs), indent, k + 1, Site::Leading);
 				}
 				if self.arena[node].line != lineno {
 					self.folded.push(node);
@@ -6744,7 +6927,9 @@ impl Document {
 	/// one beside its target is caught by the gate rather than allowed.
 	fn taken(&self, node: usize) -> usize {
 		let nd = &self.arena[node];
-		let mut n = kept_in(nd.inside()) + nd.among().iter().filter(|a| a.1.is_kept_line()).count();
+		let mut n = kept_in(nd.inside())
+			+ kept_in(nd.head())
+			+ nd.among().iter().filter(|a| a.1.is_kept_line()).count();
 		if heads_block(nd) && nd.leading().last().is_some_and(Lead::is_kept_line) {
 			n += 1;
 		}
@@ -7032,6 +7217,8 @@ impl Document {
 	}
 
 	fn emit_all(&self, e: &mut Emit) {
+		// The top of the file, set off from the first field.
+		push_leads(self, e, self.arena[ROOT].head(), 0, (ROOT, Site::Head, 0));
 		self.emit_children(&self.arena[ROOT].children, 0, e);
 		// Comments that never found a following line re-emit at the end.
 		e.near(ROOT, 0);
@@ -7143,6 +7330,26 @@ impl Document {
 		if !self.arrays {
 			return;
 		}
+		if self.settle_arrays_once() {
+			self.refile_all();
+		}
+	}
+
+	/// The lines between every 2 children filed again as a reload files
+	/// them, once the settle wrote kept lines as comments, which a run a
+	/// blank sets off can now take in.
+	fn refile_all(&mut self) {
+		let mut stack = vec![ROOT];
+		while let Some(n) = stack.pop() {
+			settle_pairs(&mut self.arena, n, 0);
+			stack.extend_from_slice(&self.arena[n].children);
+		}
+		settle_first_blank(&mut self.arena, &mut self.orphans);
+	}
+
+	/// settle_arrays(), true when it wrote any line as a comment.
+	fn settle_arrays_once(&mut self) -> bool {
+		let mut any = false;
 		let mut stack = self.arena[ROOT].children.clone();
 		while let Some(n) = stack.pop() {
 			stack.extend_from_slice(&self.arena[n].children);
@@ -7153,26 +7360,27 @@ impl Document {
 			let Some(t) = self.arena[n].trivia.as_deref_mut() else {
 				continue;
 			};
-			settle_array_run(&mut t.leading, heads);
+			any |= settle_array_run(&mut t.leading, heads);
 			if listed {
-				settle_array_run(&mut t.after, false);
+				any |= settle_array_run(&mut t.after, false);
 				continue;
 			}
-			settle_array_run(&mut t.inside, false);
-			settle_array_run(&mut t.after, false);
+			any |= settle_array_run(&mut t.inside, false);
+			any |= settle_array_run(&mut t.after, false);
 			let mut from = 0;
 			while from < t.among.len() {
 				let at = t.among[from].0;
 				let to = from + t.among[from..].iter().take_while(|a| a.0 == at).count();
 				let mut run: Vec<Lead> = t.among[from..to].iter().map(|a| a.1.clone()).collect();
-				settle_array_run(&mut run, false);
+				any |= settle_array_run(&mut run, false);
 				for (slot, l) in t.among[from..to].iter_mut().zip(run) {
 					slot.1 = l;
 				}
 				from = to;
 			}
 		}
-		settle_array_run(&mut self.orphans, false);
+		any |= settle_array_run(&mut self.orphans, false);
+		any
 	}
 
 	/// After an edit. A kept line binds or not by the lines between it and
@@ -7203,9 +7411,11 @@ impl Document {
 			h.dec(n);
 			h.dec(nd.children.len());
 			if n == ROOT {
-				h.dec(self.orphans.len());
-				for l in &self.orphans {
-					lead(&mut h, l);
+				for list in [&self.orphans[..], nd.head()] {
+					h.dec(list.len());
+					for l in list {
+						lead(&mut h, l);
+					}
 				}
 				continue;
 			}
@@ -7225,7 +7435,7 @@ impl Document {
 				h.byte(0);
 				continue;
 			};
-			for list in [&t.leading, &t.inside, &t.after] {
+			for list in [&t.leading, &t.inside, &t.after, &t.head] {
 				h.dec(list.len());
 				for l in list {
 					lead(&mut h, l);
@@ -7259,6 +7469,7 @@ impl Document {
 					match site {
 						Site::Leading => &mut t.leading,
 						Site::Inside => &mut t.inside,
+						Site::Head => &mut t.head,
 						_ => &mut t.after,
 					}
 				}
@@ -7267,6 +7478,9 @@ impl Document {
 			l.text = commented(&l.text);
 			l.depth = depth;
 			l.kept = true;
+		}
+		if e.fell.iter().any(|f| f.1 != Site::Among) {
+			self.refile_all();
 		}
 		// Out of each list latest first, so a removal leaves the earlier
 		// indices alone, then onto the end of the leading lines in order.
@@ -7284,13 +7498,17 @@ impl Document {
 				.rev()
 				.find(|c| !c.text.starts_with([' ', '\t']))
 				.map_or(0, |c| c.depth);
-			for mut l in moved.drain(..).rev() {
+			let mut lines: Vec<Lead> = moved.drain(..).rev().collect();
+			for l in &mut lines {
 				l.text = commented(&l.text);
 				l.depth = depth;
 				l.line = 0;
 				l.kept = true;
-				t.leading.push(l);
 			}
+			// Right above the line, with its blank above them, as a reload
+			// files them.
+			adopt(&mut self.arena[node], lines);
+			self.refile(node);
 		}
 		// A line moved above the first list in the file is now the first
 		// thing written, so its blank goes the way the load's did.
@@ -7317,6 +7535,14 @@ impl Document {
 
 	fn emit_node(&self, idx: usize, pos: usize, depth: usize, would_merge: bool, e: &mut Emit) {
 		self.emit_line(idx, pos, depth, would_merge, e);
+		// The comments that open this block, above its first child.
+		push_leads(
+			self,
+			e,
+			self.arena[idx].head(),
+			depth + 1,
+			(idx, Site::Head, 0),
+		);
 		self.emit_children(&self.arena[idx].children, depth + 1, e);
 		e.near(idx, pos);
 		// Comments this block owns with no child to take them, one deeper.
@@ -7646,6 +7872,7 @@ enum Site {
 	After,
 	Among,
 	Orphans,
+	Head,
 }
 
 /// True when a field's last leading line is one kept for its value alone,
@@ -7759,11 +7986,12 @@ fn place_folded(arena: &[NodeData], moves: &mut [(usize, usize, usize, Lead)]) {
 }
 
 /// What a remove of this node leaves of its lines, by design.md's kept-lines
-/// table: the kept lines beside it, with the comments that sit with them.
-/// Above it that is everything up to its last kept line, below it everything
-/// from its first, so a comment written against the node goes with it. The
-/// kept line written in place of its `name:` line goes too. What goes stays
-/// on the node, where a fold of two instances still wants it.
+/// table: the kept lines beside it, with the comments that sit with them,
+/// and the comments a blank sets off from it below. Above it that is
+/// everything up to its last kept line, below it everything from its first
+/// kept line or blank, so a comment written against the node goes with it.
+/// The kept line written in place of its `name:` line goes too. What goes
+/// stays on the node, where a fold of two instances still wants it.
 fn beside_kept(nd: &mut NodeData) -> Vec<Lead> {
 	let heads = heads_block(nd);
 	let Some(t) = nd.trivia.as_deref_mut() else {
@@ -7778,7 +8006,7 @@ fn beside_kept(nd: &mut NodeData) -> Vec<Lead> {
 	let from = t
 		.after
 		.iter()
-		.position(Lead::is_kept_line)
+		.position(|l| l.is_kept_line() || l.blank_before)
 		.unwrap_or(t.after.len());
 	left.extend(t.after.drain(from..));
 	left
@@ -7789,6 +8017,7 @@ fn kept_in_lists(nd: &NodeData) -> usize {
 	kept_in(nd.leading())
 		+ kept_in(nd.after())
 		+ kept_in(nd.inside())
+		+ kept_in(nd.head())
 		+ nd.among().iter().filter(|a| a.1.is_kept_line()).count()
 }
 
@@ -7801,8 +8030,8 @@ fn commented(text: &str) -> String {
 /// the line of a field with fields under it, the run's last when `heads`
 /// says so. Anywhere else no field binds under it on a reload, so it would
 /// bind itself. What sat under it goes the same way, since a comment holds
-/// no level.
-fn settle_array_run(run: &mut [Lead], heads: bool) {
+/// no level. True when it wrote any.
+fn settle_array_run(run: &mut [Lead], heads: bool) -> bool {
 	let mut settled = false;
 	for k in 0..run.len() {
 		let l = &run[k];
@@ -7828,6 +8057,7 @@ fn settle_array_run(run: &mut [Lead], heads: bool) {
 	if settled {
 		restep(run);
 	}
+	settled
 }
 
 /// A field line kept only for the lines under it: a whole array, and
@@ -11921,8 +12151,8 @@ impl Document {
 	fn new_child(&mut self, parent: usize, name: &str, name_src: &str, value: Value) -> usize {
 		// A list written stacked would get the child after its elements,
 		// which reloads as E001, so it goes inline.
-		if stacks(&self.arena[parent]) {
-			unstack(&mut self.arena[parent]);
+		if stacks(&self.arena[parent]) && unstack(&mut self.arena[parent]) {
+			self.refile(parent);
 		}
 		let idx = self.arena.len();
 		self.arena.push(NodeData {
@@ -12207,7 +12437,9 @@ impl Document {
 				self.arena[node].value = value;
 				self.arena[node].src = None; // written value has no source spelling
 				// No longer the list the lines among its elements sat in.
-				unstack(&mut self.arena[node]);
+				if unstack(&mut self.arena[node]) {
+					self.refile(node);
+				}
 				self.arena[node].star_list = stacked;
 				// place() has already done it for a field it created. After
 				// the unstack, so a line of its name from among the items,
@@ -12325,6 +12557,7 @@ impl Document {
 		match site {
 			Site::Leading => &mut t.leading,
 			Site::Inside => &mut t.inside,
+			Site::Head => &mut t.head,
 			_ => &mut t.after,
 		}
 	}
@@ -12340,8 +12573,8 @@ impl Document {
 		value: Value,
 		at: (Site, usize, usize),
 	) -> usize {
-		if stacks(&self.arena[parent]) {
-			unstack(&mut self.arena[parent]);
+		if stacks(&self.arena[parent]) && unstack(&mut self.arena[parent]) {
+			self.refile(parent);
 		}
 		let (site, owner, k) = at;
 		let leads = self.leads_mut(site, owner);
@@ -12664,6 +12897,9 @@ impl Document {
 			if !left.is_empty() {
 				self.leave_last(p, left);
 			}
+			// The lines around what went are filed as a reload files them.
+			settle_pairs(&mut self.arena, p, 0);
+			settle_head(&mut self.arena, p);
 		}
 		// A field opened only by the lines under it goes with the last of
 		// them, and its own kept line stays where it was (escblock).
@@ -12680,7 +12916,8 @@ impl Document {
 			let pp = self.arena[p].parent;
 			let t = self.arena[p].triv_mut();
 			let mut left = std::mem::take(&mut t.leading);
-			let mut under = std::mem::take(&mut t.inside);
+			let mut under = std::mem::take(&mut t.head);
+			under.append(&mut t.inside);
 			for l in &mut under {
 				l.depth += 1;
 			}
@@ -12793,6 +13030,21 @@ impl Document {
 		left.append(&mut t.leading);
 		t.leading = left;
 		restep(&mut t.leading);
+		self.refile(node);
+	}
+
+	/// The lines above a node filed as a reload files them: a run a blank
+	/// sets off from it is the one above's. A no-op for a node not in its
+	/// parent's list, as one a remove is rebuilding.
+	fn refile(&mut self, node: usize) {
+		let p = self.arena[node].parent;
+		if let Some(i) = self
+			.arena
+			.get(p)
+			.and_then(|nd| nd.children.iter().position(|&c| c == node))
+		{
+			refile_pair(&mut self.arena, p, i);
+		}
 	}
 
 	/// Lines a remove left after the last of `parent`'s children: the
@@ -13018,7 +13270,7 @@ impl Document {
 		let mut removed = 0;
 		// The first line's comments are the top of the file, on the first
 		// node down, as a dotted line puts them on its last name.
-		let mut top = Vec::new();
+		let mut top = vec![ROOT];
 		let mut n = ROOT;
 		while let Some(&c) = self.arena[n].children.first() {
 			top.push(c);
@@ -13028,18 +13280,29 @@ impl Document {
 		while let Some(n) = stack.pop() {
 			stack.extend_from_slice(&self.arena[n].children);
 			let at_top = top.contains(&n);
-			if at_top && !on {
-				continue;
-			}
 			for mark in marks {
 				let Some(tr) = self.arena[n].trivia.as_deref_mut() else {
 					continue;
 				};
+				// A block set off from the lines around it is filed as the
+				// trailing lines of the field above, or as the lines that open
+				// a block. A blank it leaves is the next line's, which has one.
+				removed += drop_banners(&mut tr.after, mark, true).0;
+				removed += drop_banners(&mut tr.head, mark, true).0;
+				if at_top && !on {
+					continue;
+				}
 				let (gone, blank) = drop_banners(&mut tr.leading, mark, !at_top);
 				if gone > 0 {
 					removed += gone;
 					self.arena[n].blank_before |= blank;
 				}
+			}
+		}
+		// The top of the file set off from the first field is the root's.
+		if on && let Some(tr) = self.arena[ROOT].trivia.as_deref_mut() {
+			for mark in marks {
+				removed += drop_banners(&mut tr.head, mark, false).0;
 			}
 		}
 		// A block that already ends the file as this release writes it stays
@@ -13061,7 +13324,12 @@ impl Document {
 			// this format too (2026102309053667).
 			for &n in &top {
 				if let Some(tr) = self.arena[n].trivia.as_deref_mut() {
-					for l in &mut tr.leading {
+					let list = if n == ROOT {
+						&mut tr.head
+					} else {
+						&mut tr.leading
+					};
+					for l in list {
 						if l.text.starts_with(FORMAT_LINE_HEAD) && l.text != FORMAT_LINE {
 							l.text = FORMAT_LINE.to_string();
 							l.line = 0;
@@ -13446,13 +13714,26 @@ impl Document {
 		// merge of the merged text gives the same text. After the first, only
 		// what the overlay brings or visits can be stacked.
 		if !self.bracketed {
-			for nd in &mut self.arena[1..] {
+			let mut moved = Vec::new();
+			for (n, nd) in self.arena.iter_mut().enumerate().skip(1) {
+				if nd
+					.trivia
+					.as_ref()
+					.is_some_and(|t| !t.among.is_empty() || !t.notes.is_empty())
+				{
+					moved.push(n);
+				}
 				bracket(nd);
+			}
+			// The lines a list's items had are filed as a reload files them.
+			for n in moved {
+				self.refile(n);
 			}
 			self.bracketed = true;
 		}
 		let mut touched = Vec::new();
 		self.overlay(ROOT, over, ROOT, &mut touched);
+		self.merge_top(over);
 		for n in touched {
 			self.settle(n, 1);
 		}
@@ -13508,6 +13789,36 @@ impl Document {
 		}
 	}
 
+	/// The top of a layer's file joins the top of this one, as its footer
+	/// joins the footer: a line already here is not written twice. A blank
+	/// sets it off from the lines above it and the first field.
+	fn merge_top(&mut self, over: &Document) {
+		let had = self.arena[ROOT].head().len();
+		let mut added = false;
+		for o in over.arena[ROOT].head() {
+			let t = self.arena[ROOT].triv_mut();
+			if t.head[..had]
+				.iter()
+				.any(|e| e.text == o.text && e.depth == o.depth)
+			{
+				continue;
+			}
+			let mut o = o.clone();
+			if !added {
+				o.blank_before = had > 0;
+			}
+			t.head.push(o);
+			added = true;
+		}
+		if let (true, Some(&first)) = (added, self.arena[ROOT].children.first()) {
+			let nd = &mut self.arena[first];
+			match nd.trivia.as_mut().and_then(|t| t.leading.first_mut()) {
+				Some(l) => l.blank_before = true,
+				None => nd.blank_before = true,
+			}
+		}
+	}
+
 	// One grouping pass over each side, then a single children rebuild: the
 	// old shape re-filtered the over side per distinct name and re-scanned
 	// (and re-keyed) the base side per over node - three O(K^2) terms at one
@@ -13530,6 +13841,7 @@ impl Document {
 		}
 		bt.after.extend_from_slice(&st.after);
 		bt.inside.extend_from_slice(&st.inside);
+		bt.head.extend_from_slice(&st.head);
 		bt.among.extend_from_slice(&st.among);
 		bt.among.sort_by_key(|a| a.0);
 		bt.notes.extend_from_slice(&st.notes);
@@ -13623,9 +13935,10 @@ impl Document {
 						let nd = &self.arena[b];
 						// The leaf's own comments are the ones a remove would
 						// take: above it those after its last kept line, below
-						// it those before its first. The rest sit with a kept
-						// line beside it and stay. A settled line counts as
-						// the comment a reload reads it as.
+						// it those before its first kept line or blank. The
+						// rest sit with a kept line beside it, or a blank sets
+						// them off, and stay. A settled line counts as the
+						// comment a reload reads it as.
 						let leading = nd.leading();
 						let above = leading
 							.iter()
@@ -13634,7 +13947,7 @@ impl Document {
 						let after = nd.after();
 						let below = after
 							.iter()
-							.position(|l| !l.text.starts_with('#'))
+							.position(|l| !l.text.starts_with('#') || l.blank_before)
 							.unwrap_or(after.len());
 						kept.extend_from_slice(&leading[..above]);
 						let among = nd.among().iter().map(|a| &a.1);

@@ -183,11 +183,12 @@ fUnclean2x(){
 ##	the current CLI writes it on one, quoted with escapes. The 2.x side is put
 ##	back together at each status, and such an element is written by the
 ##	current CLI through `--set`, which takes the text as data, so both sides
-##	are spelled by the one writer.
+##	are spelled by the one writer. A line break is any of gen-escapes.py's
+##	LINE_BREAKS, matched as UTF-8 bytes.
 fOneLine2x(){
 	local line text
-	awk '
-	function put() { if (!have) return; if (v ~ /[\n\r]/) { gsub(/\n/, "\004", v); gsub(/\r/, "\005", v); s = "\003" s } print s "\t" v }
+	LC_ALL=C awk '
+	function put() { if (!have) return; if (v ~ /[\n\v\f\r\034\035\036]|\302\205|\342\200[\250\251]/) { gsub(/\n/, "\004", v); gsub(/\r/, "\005", v); s = "\003" s } print s "\t" v }
 	/^(Good|Empty|NotFound|BadType|Multiple)\t/ { put(); i = index($0, "\t"); s = substr($0, 1, i - 1); v = substr($0, i + 1); have = 1; next }
 	{ v = v "\n" $0 }
 	END { put() }' | while IFS= read -r line; do

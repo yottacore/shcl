@@ -1682,6 +1682,13 @@ func unchangedSinceRead(file, before string) bool {
 	return false
 }
 
+// goneSinceRead says nothing is at FILE now, so the save writes it as a new
+// file.
+func goneSinceRead(file string) bool {
+	_, err := os.Stat(file)
+	return errors.Is(err, fs.ErrNotExist)
+}
+
 // readRegular gives the bytes of the regular file at path, with false and no
 // error when something else is there, such as a FIFO swapped in, which the
 // open doesn't wait on. The library's copy is unexported.
@@ -1883,6 +1890,11 @@ func writeBack(doc *shcl.Document, file string, o *opts, read *string, keep bool
 		fmt.Fprintf(os.Stderr, "%s: refusing to rewrite: the document holds lines from a newer format "+
 			"than this reader's (see H006)\n", file)
 		return 7
+	}
+	// A file removed since the read is written as a new one, as the library's
+	// save and an editor write it (2026110914412379).
+	if read != nil && goneSinceRead(file) {
+		read = nil
 	}
 	if read != nil && !unchangedSinceRead(file, *read) {
 		return exitIO
@@ -3554,6 +3566,14 @@ func doInit(o *opts) int {
 	return 0
 }
 
+// The characters a listing quotes as a line break: each one a consumer's line
+// split may break at, and each one fmt escapes (2026110613470324).
+// gen-escapes.py: begin
+// Generated from Unicode 18.0 by cicd/utility/gen-escapes.py. Edit the script, not this block.
+const lineBreaks = "\u000A\u000B\u000C\u000D\u001C\u001D\u001E\u0085\u2028\u2029"
+
+// gen-escapes.py: end
+
 // oneLine renders a value for a one-per-line listing. `instances` promises one
 // line per instance, and a value holding a line break broke that, so a caller
 // splitting on newlines counted more instances than `count` reports. Only such
@@ -3561,7 +3581,7 @@ func doInit(o *opts) int {
 // the writer's escapes, `"a◉NEWLINE◉b"`, as `init` writes a default. A line
 // break is never bare in a name either, so QuoteSegment gives exactly that.
 func oneLine(v string) string {
-	if !strings.ContainsAny(v, "\n\r") {
+	if !strings.ContainsAny(v, lineBreaks) {
 		return v
 	}
 	return shcl.QuoteSegment(v)

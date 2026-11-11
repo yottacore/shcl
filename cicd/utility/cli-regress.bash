@@ -466,8 +466,8 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	stdin: printf %b text, '-' none, '@closedin' / '@closedout' close that
 ##	stream, '@wronlyin' opens stdin for writing only, '@fullout' / '@fullerr'
 ##	point it at a device that is always full, '@appear' / '@change' / '@fifo'
-##	/ '@dir' make %C%, change it, or turn it into a FIFO or a folder while the
-##	command waits on stdin for its ops, '@asciilocale'
+##	/ '@dir' / '@gone' make %C%, change it, turn it into a FIFO or a folder, or
+##	remove it while the command waits on stdin for its ops, '@asciilocale'
 ##	none, with an ASCII-only locale and PYTHONIOENCODING, '@memcap' none,
 ##	under a 2 GB address-space cap so a read that never ends fails fast.
 ##	stdout and stderr: '-' means unchecked; an empty stdout field means exactly empty.
@@ -1342,6 +1342,12 @@ rows=(
 	## break, and a lone carriage return takes its own name.
 	'ddp1h|get-array-backslash-text|get --array - x|x: ["a\xe2\x97\x89NEWLINE\xe2\x97\x89b", \x27a\\nb\x27]\n|0|"a\xe2\x97\x89NEWLINE\xe2\x97\x89b"\na\\nb\n|-'
 	'ddp1j|instances-lone-cr|instances - x|x: "a\xe2\x97\x89CR\xe2\x97\x89b"\n|0|"a\xe2\x97\x89CR\xe2\x97\x89b"\n|-'
+	## 2026110613470324: the other line breaks a consumer's split breaks at
+	## printed bare, so 3 values came out as 5 lines. A tab is not one.
+	'df5rr|instances-line-separators|instances - x|x: "a\xe2\x97\x89U+2028\xe2\x97\x89b"\nx: "c\xe2\x97\x89U+2029\xe2\x97\x89d"\nx: "e\xe2\x97\x89U+0085\xe2\x97\x89f"\n|0|"a\xe2\x97\x89U+2028\xe2\x97\x89b"\n"c\xe2\x97\x89U+2029\xe2\x97\x89d"\n"e\xe2\x97\x89U+0085\xe2\x97\x89f"\n|-'
+	'df5rs|instances-vt-ff-record-sep|instances - x|x: "a\xe2\x97\x89VT\xe2\x97\x89b"\nx: "c\xe2\x97\x89FF\xe2\x97\x89d"\nx: "e\xe2\x97\x89U+001E\xe2\x97\x89f"\nx: "g\xe2\x97\x89TAB\xe2\x97\x89h"\n|0|"a\xe2\x97\x89VT\xe2\x97\x89b"\n"c\xe2\x97\x89FF\xe2\x97\x89d"\n"e\xe2\x97\x89U+001E\xe2\x97\x89f"\ng\th\n|-'
+	'df5rt|get-array-line-separators|get --array - a|a: ["a\xe2\x97\x89U+2028\xe2\x97\x89b", "c\xe2\x97\x89U+2029\xe2\x97\x89d", "e\xe2\x97\x89U+0085\xe2\x97\x89f", g]\n|0|"a\xe2\x97\x89U+2028\xe2\x97\x89b"\n"c\xe2\x97\x89U+2029\xe2\x97\x89d"\n"e\xe2\x97\x89U+0085\xe2\x97\x89f"\ng\n|-'
+	'df5rv|get-slots-line-separators|get --array --slots - a|a: ["a\xe2\x97\x89U+2028\xe2\x97\x89b", "c\xe2\x97\x89U+2029\xe2\x97\x89d", "e\xe2\x97\x89U+0085\xe2\x97\x89f", g]\n|0|Good\t"a\xe2\x97\x89U+2028\xe2\x97\x89b"\nGood\t"c\xe2\x97\x89U+2029\xe2\x97\x89d"\nGood\t"e\xe2\x97\x89U+0085\xe2\x97\x89f"\nGood\tg\n|-'
 	'dd28h|get-scalar-default-missing|get %DB% %NV% nope|-|0|q\nr\n|-'
 	## 2026100717500016 and 2026100814455655: a value is not a selector, since
 	## a number in parens is an index, so --paths prints the path that reads
@@ -1643,6 +1649,9 @@ rows=(
 	## 2026110313211991: a FIFO swapped in during the wait. The check read it
 	## with a plain open, which waits for a writer, before the save could
 	## refuse it.
+	## 2026110914412379: a file removed during the wait is written back as a
+	## new one, as the library's save writes it. It was refused as changed.
+	'df5rw|write-gone-during-wait|set --write %C%|@gone|0|-|created\.shcl: created$|a: 1\n\nk: 1\n'
 	'devy8|write-fifo-during-wait|set --write %C%|@fifo|8|-|created\.shcl: not a regular file$|-'
 	## 2026110613470308: a folder swapped in during the wait got the FIFO's
 	## words, where a folder there from the start is a directory. And a path
@@ -2039,7 +2048,7 @@ for row in "${rows[@]}"; do
 		echo "cli-regress ${id}" >> "${SHCL_GATE_SKIPS:-/dev/null}"
 		fTestSkip; continue
 	fi
-	if [[ "${onWindows}" == 1 && ( "${stdinSpec}" == @full* || "${stdinSpec}" == @memcap || "${stdinSpec}" == @closedout || "${stdinSpec}" == @wronlyin || "${stdinSpec}" == @appear || "${stdinSpec}" == @change || "${stdinSpec}" == @fifo || "${stdinSpec}" == @dir || "${argv}" == *%XF%* || "${argv}" == *"${tmpDir}/sp/zero"* || "${argv}" == *"${tmpDir}/sp/fifo"* || "${argv}" == *"${tmpDir}/sp/back"* ) ]]; then
+	if [[ "${onWindows}" == 1 && ( "${stdinSpec}" == @full* || "${stdinSpec}" == @memcap || "${stdinSpec}" == @closedout || "${stdinSpec}" == @wronlyin || "${stdinSpec}" == @appear || "${stdinSpec}" == @change || "${stdinSpec}" == @fifo || "${stdinSpec}" == @dir || "${stdinSpec}" == @gone || "${argv}" == *%XF%* || "${argv}" == *"${tmpDir}/sp/zero"* || "${argv}" == *"${tmpDir}/sp/fifo"* || "${argv}" == *"${tmpDir}/sp/back"* ) ]]; then
 		echo "cli-regress: skipping ${id} (POSIX fixture; not judged on windows)"
 		fTestSkip; continue
 	fi
@@ -2114,8 +2123,8 @@ for row in "${rows[@]}"; do
 			## holds returns only once the command is reading them. @fifo: the
 			## file is there first and turns into a FIFO during the wait, which
 			## nothing writes to, and it goes before the next row. @dir: the
-			## same with a folder.
-			@appear|@change|@fifo|@dir)
+			## same with a folder. @gone: the file is there first and is removed.
+			@appear|@change|@fifo|@dir|@gone)
 				[[ "${stdinSpec}" != @appear ]] && printf 'a: 1\n' >"${tmpDir}/created.shcl"
 				rm -f "${tmpDir}/in.fifo"; mkfifo "${tmpDir}/in.fifo"
 				timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" <"${tmpDir}/in.fifo" &
@@ -2128,6 +2137,8 @@ for row in "${rows[@]}"; do
 					rm -f "${tmpDir}/created.shcl"; mkfifo "${tmpDir}/created.shcl"
 				elif [[ "${stdinSpec}" == @dir ]]; then
 					rm -f "${tmpDir}/created.shcl"; mkdir "${tmpDir}/created.shcl"
+				elif [[ "${stdinSpec}" == @gone ]]; then
+					rm -f "${tmpDir}/created.shcl"
 				else
 					printf 'b: 2\n' >"${tmpDir}/created.shcl"
 				fi

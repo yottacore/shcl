@@ -35,20 +35,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- The comment placement property fails the 2M release fuzz in dd3t9
-	- ID: 2026111022322992
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Target version: v3.0.0-beta2
-	- Opened: 20261110-223229
-	- Opened by:
-	- Related IDs: 2026111012160121, 2026111021095858, 2026111021153725, 2026111022100191
-	- Progress log:
-		- 20261110, round r1111: 2026111012160121's property (e0b1f62d, 05cca0fa) passes dd3t9 and dderx at 200,000 but not at 2,000,000 in release. The first run failed both at about 212,000. A fix worker judged 9 more failures as 7 property misreads and 1 library bug (2026111022100191), and fixed the property, but dd3t9 still fails at 780675.
-		- That last one: a set_literal over a list moves its kept lines above the field, with a blank among them and an item's comment under them, and the property reads that blank as the one above the field's comments. Probably a misread, not yet checked.
-		- The work is on wip/r1111-2026111012160121. fuzz_smoke.rs on the round branch went back to e4d295d4, so dev has no placement property. Each failure so far needed a release run past 200,000 to show, so the next try runs 2M in release before reporting.
-
 - Removes, folds, merges and the banner toggle hand lines on through `adopt`
 	- ID: 2026110712372281
 	- Type: Enhancement
@@ -68,27 +54,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- design.md's "Where the code still differs" bullet loses its second half.
 		- A remove takes the node's comment lines, per spec.md's Remove, and hands its blank line to the heir. So `x`, a blank, `y`, `z`, minus `y`, gives `x`, a blank, `z`, and 2026110613470312's dotted pair keeps the blank above it (me, 20261109, from that item's `Check:`). spec.md's Remove sentence says so, and a corpus golden that changes is named on this item.
 	- Regression test: 2026110616475903's property and table, run against both the old helpers and `adopt` before the old ones go; plus a check-docs row that greps the 4 bindings for the retired helper names. The table gets the `x`, blank, `y`, `z` remove row and 2026110613470312's dotted pair with a blank above it.
-	- Estimated effort: High
-
-- A node's blank above its comments, from the parse on
-	- ID: 2026110712372276
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Target version: v3.0.0-beta2
-	- Opened: 20261107-123722
-	- Opened by: split from 2026110616475902
-	- Parent ID: 2026110616475902
-	- Prereq IDs: 2026110616475903
-	- Related IDs: 2026110712372271
-	- Problem description: design.md's "Lines an edit takes from their node" has the emitter write a node's lines in one fixed order: the blank, the comments, the line, the children, the trailing lines. The parse still gives a node the blank between its comments and its line, so in `# c`, a blank, `b: 2`, the comment is `b`'s, and a remove of `b` takes it.
-	- Requirements:
-		- Every comment line and blank line belongs to one node from the parse on, as its leading lines or its trailing lines, in that order, in all 4 bindings.
-		- A comment run set off from the next line by a blank is the trailing lines of the node above it, or of its parent. So a remove of `b` above leaves `# c`.
-		- The line-keeping save and every corpus golden agree. A golden that changes is named on this item with why.
-		- design.md's "Where the code still differs" bullet loses its first half, and spec.md's Remove sentence says which comment lines go.
-	- Note: a remove that leaves a comment it used to take changes what a user sees. That is the rule's point, and it goes in the changelog.
-	- Regression test: 2026110616475903's table gets rows for a comment run set off by a blank, through a remove, a set and a reload, in all 4 bindings.
 	- Estimated effort: High
 
 - One helper reattaches the lines around a node an edit takes away
@@ -114,77 +79,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: High
 	- Progress log:
 		- 20261107: split in 3. The design and `adopt`, with the item list replace through it, are child 2026110712372271. A node's blank above its comments from the parse on is child 2026110712372276. The other edits through `adopt`, and the old helpers gone, are child 2026110712372281, after 2026110616475903.
-
-- An exhaustive comment placement suite, with a placement property in the fuzz
-	- ID: 2026110616475903
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Target version: v3.0.0-beta2
-	- Opened: 20261106-164759
-	- Opened by: Code review 20261106 follow-up (JC)
-	- Related IDs: 2026110616475902, 2026110613470311, 2026110613470302, 2026100307163904, 2026100218185700, 2026092718195400
-	- Problem description: no test says where a comment must be after an edit. The kept-lines fuzz's `setter_moved` returns early when there are no kept lines, and a parsed comment isn't one. Its `stretches` helper anchors on non-blank lines only, so a comment that crossed a blank line passes it. `dd3t9` checks that the edited text reloads as the document, and a wrong placement that reloads the same is a fixpoint, so it passes too. The corpus goldens fix the placement after a load, not after an edit. Each past bug got one example test, and the next site had none. Past cases, old format: Code review 20260802 items 8 and 20 (comments dropped on merge, end-of-file comments multiply), 20260830 item 19 (a blank between a new node's comment and the node), 20260901b item 7 (footer comments collapse), 20260904 item 18 (`SetComment` leaves the blank between comment and node), 20260923 item 3 (filed differently after an edit than after a reload), 20260925b item 2 (a comment above a dotted line moves on any edit), the 2 `to_canonical()` items from the SilkTerm devs (blanks between comment regions dropped, a trailing run re-attaching to the next node), and the ones in the Related list.
-	- Requirements:
-		- A placement property computed from text alone, so it needs nothing from the library. For each comment line of the input, its anchor is the next line below that isn't blank or a comment, plus a flag for a blank directly above the comment run. After an edit that didn't remove or replace the anchor, the run sits directly above the same anchor, the blank above the run, and nothing between the run and the anchor. When the anchor went, the run sits above what took its place, by 2026110616475902's rule. A trailing comment stays on its line with the same text after the `#`.
-		- It runs in `dd3t9` and `dderx` both, since one has removes and the other the list-replacing `set_literal`, and at the merge step. `dd3t9` gets a `set_literal` with a bracket list over an item list. The generators have to make item lists with per-item comments and blanks between siblings, with a guard that counts the shape in each run, as the fuzz guards do.
-		- The 4-binding cross check replays the dumps, as it does for the kept fuzz.
-		- A fixed table, one row per past case above and each new one, as a before text, an edit and the exact expected text, in one file all 4 conformance suites read, as the corpus is. Watch each row fail in a worktree at the commit before its fix.
-		- Watch the property fail: on `343334df`, 2026110613470311's case goes red.
-	- Reason: an example per bug has found none of the next ones. A property over every comment in every generated edit finds the next site before a review does.
-	- Regression test: this item is the test. Each past case in its table is watched to fail in a worktree at the commit before that case's fix, and the property on `343334df`.
-	- Estimated effort: Avg
-	- Progress log:
-		- 20261110: split in 4. The table and its Rust runner (2026111012160064), the Go, Python and C runners (2026111012160083), and each row watched to fail before its fix (2026111012160102) are done. The fuzz property, with the cross check, is 2026111012160121, waiting on the 2M release fuzz.
-
-- A comment placement property in the fuzz, replayed in all 4 bindings
-	- ID: 2026111012160121
-	- Type: Enhancement
-	- Status: Queued
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz (`SHCL_FUZZ_ITERS=2000000`), for `dd3t9` and `dderx`, once `dd3t9`'s failure at iteration 780675 is judged. Both pass at 250,000.
-	- Priority: High
-	- Target version: v3.0.0-beta2
-	- Opened: 20261110-121601
-	- Opened by: split from 2026110616475903
-	- Parent ID: 2026110616475903
-	- Problem description: the property half of 2026110616475903. No fuzz says where a comment must be after an edit.
-	- Requirements: the property, generators and guard in 2026110616475903's Requirements, in `dd3t9`, `dderx` and the merge step, with the cross check replaying the dumps. Watched to fail on `343334df` with 2026110613470311's case.
-	- Note: the cross check already replays `dderx`'s `kept/` dump through every CLI, so its new shapes reach the other 3 bindings that way. `dd3t9` dumps nothing yet, and a merge has no CLI form, so it isn't dumped.
-	- Estimated effort: High
-	- Actual effort: Avg
-	- Progress log:
-		- 20261111: `placement_slips` in `fuzz_smoke.rs` reads each comment's anchor, its run and the blank above from the canonical text before and after an edit. `dd3t9` and `dderx` hold every setter, remove, comment edit, banner and merge step to it. `dd3t9`'s configs now have item lists with comments on the items, and a comment and a blank above them, and its ops a `set_literal` of `[9, 8]`, mostly over a list. A guard counts the 3 shapes. `dd3t9` dumps its inputs into `kept/` beside `dderx`'s, so the cross check replays them through every CLI.
-		- 20261111: it found 2 bugs, filed as 2026111021095858 (`clear_comments` takes a comment past a kept line) and 2026111021153725 (`set_comment` making a field puts its blank above a kept line's comments). The property excuses each by a check keyed by its ID.
-		- 20261111: the 2M release fuzz failed `dd3t9` and `dderx` 9 times past 200,000, and each was judged. 8 were misreads of the property, fixed there: a kept line's raw body, and a kept line the settle writes as a comment at the field's level, read as the run's end; a trailing comment's U+3000 trimmed; a kept line the setter comments in place above the field's blank read as part of the run; a misplaced line among a list's items not taken as moved; the blanks the banner leaves where it takes an info block; and a kept item commented in place read as a new item. Each but the banner's blank is a row in `df50j`. 1 is a library bug, filed as 2026111022100191 and excused by its ID.
-		- 20261111: open: `dd3t9` fails at iteration 780675. A `set_literal` over a list moves its kept lines above the field, with a blank among them and an item's comment under them, and the property reads that blank as the one above the field's comments. Not judged yet.
-		- 20261110: the property failed the 2M release fuzz after a fix try. The work moved to wip/r1111-2026111012160121 and fuzz_smoke.rs on r1111 went back to e4d295d4. See 2026111022322992.
-	- Decisions:
-		- me, 20261111: the property follows design.md where the item's wording differs. Lines an edit takes from a node go under the heir's own comments ("Lines an edit takes from their node"). A remove takes the comments under its target up to the first kept line. A setter puts the kept lines among a list's items above the field, under its comments. The banner takes info block lines, and a format or migrate stamp is no comment.
-		- me, 20261111: a run is the comments at the anchor's own depth. A deeper comment above a line is the block above's trailing line.
-		- me, 20261111: the edit's target is found by the line `lines()` gives its path in the text before, since a path quotes and escapes names the text writes bare. The rest is read from the text. Only a key written once in both texts is held.
-		- me, 20261111: `dd3t9` dumps into `kept/` as `pNNNNN`, so the cross check needs no change and `ddesf` covers both. `dderx`'s generators stay as they were; the shape guard is on `dd3t9`.
-		- me, 20261111: a trailing comment's text ends at the blanks the load trims, so a U+3000 is text. Under the banner, the blank above a run that held info block lines is the banner's, so it isn't held.
-	- Swept: every fuzz test that edits. `dd3t9` and `dderx` hold the property. `ddc6m` edits lines written apart from the canonical form on purpose, so it's left alone.
-	- Test case: `df50j` (the oracle on 2026110613470311's case, and the library's list replace through it), `dd3t9`, `dderx`, crosscheck `ddesf`.
-	- Verified: `df50j`, `dd3t9` and `dderx` fail on `343334df`'s library, all on 2026110613470311's class: `df50j` on the blank, `dd3t9` at iteration 74, and `dderx`'s merge step at iteration 35. All 3 pass on `r1111`.
-	- Verified: the 6 new `df50j` rows fail on the property at `e0b1f62d` and pass now. `dd3t9` and `dderx` at 250,000 in release, the rust area of `--backlog-run-quick`, clippy `--all-targets`, `lint-report.bash --check` and `test-ids.py check`.
-	- Verified: `dd3t9` and `dderx` at 200,000 iterations, the rust area of `--backlog-run-quick`, clippy, `lint-report.bash --check`, `test-ids.py check`, and the cross check over the corpus and a dump with 100 `dd3t9` inputs (4 bindings agree).
-	- Branch: wip/r1111-2026111012160121
-	- Prereq IDs: 2026111022322992
-
-- Quote the other line breaks in `instances` and `get --array` output
-	- ID: 2026110613470324
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Target version: v3.0.0-beta2
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 24
-	- Problem description: spec.md quotes an instance value with a line break in it, because a consumer splits the output on newlines. U+2028, U+2029, U+0085, VT and FF print as they are, though Python's `splitlines()` splits on them and `fmt` escapes them. A list of 3 values came out as 5 lines.
-	- Requirements: quote a value with any character `fmt` escapes as a line break.
-	- Origin: Confirmed in all 4 CLIs.
-	- Regression test: cli-regress rows with U+2028, U+2029 and U+0085 inside a value, for `instances` and `get --array`, output quoted and byte-identical across the 4 CLIs; a crosscheck corpus case with the same values.
-	- Estimated effort: Low
 
 - Format versions: every file stamped, and every published format read and converted
 	- ID: 2026111018212700
@@ -292,6 +186,43 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: the standing rule that only `init` and a creating `set --write` add the info block isn't touched. This is opt-in, and the Format line alone isn't the block.
 	- Estimated effort: Avg
 
+- A deeper comment above a top-level kept line is written one level in by `fmt` and at column 0 after any edit
+	- ID: 2026111111560900
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261111-115609
+	- Opened by: found while working 2026111012160121, judged by the orchestrator of run b2bits
+	- Related IDs: 2026111012160121, 2026111109371400, 2026110712372276
+	- Version and build: b2bits at `f19d4f80`, with run b2bits' changes
+	- Steps to reproduce: `printf '# note 0\n\n    # note 2\n        b: [3\n' > f.shcl`, then `shcl fmt f.shcl`, and `printf 'int\tz0\t7\n' | shcl set f.shcl`.
+	- Incorrect behavior: `fmt` writes `# note 0`, a blank, `\t# note 2`, `b: [3`. Any edit, even one far from the comment, writes `# note 2` at column 0. `int z0 7` and `comment z0 added` both do, in the canonical form and in the line-keeping save, which keeps `        b: [3` as written. So the file has one canonical form unedited and another after an edit.
+	- Expected behavior: `# note 2` at column 0 in both, the kept line's column. The blank breaks the run, so `# note 2` is its run's first comment, and design.md writes a run's first comment at the level of the place it ends up. No block is open at its column, so by spec.md's comment rule it belongs to the root.
+	- Reproduced: 20261111, the Rust, Go and C CLIs, all with the same output.
+	- Estimated effort: Low
+	- Note: the placement property in `dderx` and `dd3t9` excuses this class with a check keyed by this ID. It was found at iteration 759783 of `dderx`'s 2M release run. `df50j` has the case. The fix takes the excuse out.
+	- Decisions:
+		- me, 20261111: the kept line's column is the right form, per design.md's "A comment no deeper than the place it ends up is written at that place's level, as before, which also keeps a run's first comment there", and spec.md's "Then it belongs to the block it's in".
+
+- A remove that takes a field opened from a kept line moves a kept line's comments down with a misplaced line
+	- ID: 2026111109022600
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261111-090226
+	- Opened by: found while working 2026111022322992
+	- Related IDs: 2026111012160121, 2026111022322992, 2026110714552634
+	- Version and build: b2bits at `f19d4f80`
+	- Steps to reproduce: `printf 'a:\n\tx: 1\n - 2\n\tb: 3, , 4\n\t# note\n\tc: 1, , 2\n\t\tq: 1\n' > f.shcl`, then `printf 'remove\ta.c.q\n' | shcl set f.shcl`.
+	- Incorrect behavior: the output is `a:`, `x: 1`, `b: 3, , 4`, `c: 1, , 2`, the misplaced ` - 2`, then `# note` at the top level. `# note` leaves the kept `E026` line `c: 1, , 2` it was written against and goes down with the misplaced line, though the kept line `b: 3, , 4` is between them. Without `b: 3, , 4` the same happens.
+	- Expected behavior: `a:`, `x: 1`, `b: 3, , 4`, `# note`, `c: 1, , 2`, ` - 2`. That's what cutting `q: 1` by hand and formatting gives, and design.md says a comment on the far side of a kept line stays with that line. The misplaced line still goes down to the end of the block.
+	- Reproduced: 20261111, the Rust, Go, Python and C CLIs, all with the same output.
+	- Possible cause: when `c` goes with its last child, the misplaced line among the kept lines `c` held goes down "with the comments after it", and that takes every comment in those lines, not only the ones right after it.
+	- Estimated effort: Low
+	- Note: the placement property in `dd3t9` excuses this class with a check keyed by this ID, found at iteration 804362 of the 2M release run. `df50j` has the case, and checks the excuse holds only for a remove. The fix takes the excuse out, and that `df50j` check with it.
+
 - A default form's replaced-value comment puts the field's blank above a kept line's comments
 	- ID: 2026111022100191
 	- Type: Bug
@@ -309,7 +240,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: the same as 2026111021153725. A comment added to a node counts the kept lines held in its leading lines, and their comments, as the node's own comments, and puts its blank above them all.
 	- Estimated effort: Low
 	- Note: the placement property in `dderx` and `dd3t9` excuses this class with a check keyed by this ID. The fix takes it out.
-	- 20261110: the property that excuses this is on wip/r1111-2026111012160121, not dev. The CLI reproduction stands.
+	- 20261111: the property that excuses this is now in dev's `fuzz_smoke.rs`, on b2bits. The CLI reproduction stands.
 
 - `set_comment` making a field after a kept last line puts its blank above the kept line's comments
 	- ID: 2026111021153725
@@ -327,7 +258,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261111, the Rust, Go and C CLIs.
 	- Estimated effort: Low
 	- Note: the placement property in `dd3t9` excuses this class with a check keyed by this ID. The fix takes it out.
-	- 20261110: the property that excuses this is on wip/r1111-2026111012160121, not dev. The CLI reproduction stands.
+	- 20261111: the property that excuses this is now in dev's `fuzz_smoke.rs`, on b2bits. The CLI reproduction stands.
 
 - `clear_comments` takes a comment on the far side of a kept line above its target
 	- ID: 2026111021095858
@@ -346,7 +277,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: a kept line and the comments above it sit in the next field's leading lines, and `clear_comments` clears every comment there, where the remove stops at the last kept line. `set_comment` likely the same.
 	- Estimated effort: Low
 	- Note: the placement property in `dd3t9` excuses this class with a check keyed by this ID. The fix takes it out.
-	- 20261110: the property that excuses this is on wip/r1111-2026111012160121, not dev. The CLI reproduction stands.
+	- 20261111: the property that excuses this is now in dev's `fuzz_smoke.rs`, on b2bits. The CLI reproduction stands.
 
 - Schema check costs the square of the nesting depth in all 4 bindings
 	- ID: 2026110711492228
@@ -726,17 +657,25 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: No. Read from the code on dev: each `next.data` use in `resolve_from` sits under a `next.len` bound, so that one looks false. The leaks are of blocks still on the arena list.
 	- Estimated effort: Low
 
-- set --write refuses a file deleted during its wait, where the library's save writes it back
-	- ID: 2026110914412379
+- Lift the placement property's iteration cap in the fuzz
+	- ID: 2026111109371400
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
-	- Target version: v3.0.0-beta2
-	- Opened: 20261109-144123
-	- Opened by: 2026110907535001's sweep
-	- Related IDs: 2026110907535001
-	- Problem description: since 2026110907535001 the library's save writes where nothing is at the path, as an editor does. The 4 CLIs' own check before `--write` (`unchanged_since_read` / `unchangedSinceRead`) still refuses a FILE removed between the read and the write, as `FILE: changed since it was read; nothing written`. Decide whether the CLI follows the library, and if so say `FILE: created` as for a new file.
-	- Estimated effort: Low
+	- Target version: v3.0.0
+	- Opened: 20261111-093714
+	- Opened by: run b2bits, from 2026111022322992
+	- Related IDs: 2026111012160121, 2026111022322992, 2026110712372276, 2026110712372281
+	- Problem description: the placement property in `fuzz_smoke.rs` fails `dd3t9` and `dderx` only below iteration 1,000,000 (`PLACEMENT_ITERS`), and checks nothing past it. The 2M release run still found failures past it, each so far a misread of the property.
+	- Failures past the cap:
+		- `dd3t9` at 1503277, `op 7`, the banner: `under the old footer block: comments [] are now ["# a nte"]`. The banner moves `\t# a nte`, nested under a footer info block it takes, out to the block's column, as corpus 161 pins. The property reads a deeper comment as the block above's trailing line, so the comment isn't in the run it joins.
+		- A fix for that alone, adding such a comment to the run on the banner, made `dd3t9` fail at 207445, also from the banner: `ck: comments ["# a note under the old footer blo"] are now []`. Not judged, and the fix was backed out.
+		- On the tree after 2026110712372276 and corpus 222, `dd3t9` at 561196, `op 7`, the banner: `ck: comments [] are now ["# a nte under the old footer bl"]`, under the cap.
+		- 207445 and 561196 are the same class as 1503277: a banner over an info block after the first field line. The property no longer holds those ops (`info_block_inside`, corpus 161), so lifting the cap includes holding them again.
+	- Requirements: the cap goes, and `dd3t9` and `dderx` pass 2,000,000 in release with the property checked on every iteration.
+	- Note: the misreads left should mostly go once 2026110712372276 and 2026110712372281 simplify where the library puts lines, so this waits on them.
+	- Prereq IDs: 2026110712372276, 2026110712372281
+	- Estimated effort: Avg
 
 - check-migrate compares 2.x reads with the pinned dev build, not 2.0.0
 	- ID: 2026110409565662
@@ -1176,6 +1115,117 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The next changelog's upgrading notes say C's `SHCL_SET_OK` is 0, so old code testing a setter `!= 0` reads every success as a failure, and that a string read of an array gives its bracket text. The released beta1 section stays as it is.
 	- Estimated effort: Low
 
+- A node's blank above its comments, from the parse on
+	- ID: 2026110712372276
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261107-123722
+	- Opened by: split from 2026110616475902
+	- Parent ID: 2026110616475902
+	- Prereq IDs: 2026110616475903
+	- Related IDs: 2026110712372271
+	- Problem description: design.md's "Lines an edit takes from their node" has the emitter write a node's lines in one fixed order: the blank, the comments, the line, the children, the trailing lines. The parse still gives a node the blank between its comments and its line, so in `# c`, a blank, `b: 2`, the comment is `b`'s, and a remove of `b` takes it.
+	- Requirements:
+		- Every comment line and blank line belongs to one node from the parse on, as its leading lines or its trailing lines, in that order, in all 4 bindings.
+		- A comment run set off from the next line by a blank is the trailing lines of the node above it, or of its parent. So a remove of `b` above leaves `# c`.
+		- The line-keeping save and every corpus golden agree. A golden that changes is named on this item with why.
+		- design.md's "Where the code still differs" bullet loses its first half, and spec.md's Remove sentence says which comment lines go.
+	- Note: a remove that leaves a comment it used to take changes what a user sees. That is the rule's point, and it goes in the changelog.
+	- Regression test: 2026110616475903's table gets rows for a comment run set off by a blank, through a remove, a set and a reload, in all 4 bindings.
+	- Estimated effort: High
+	- Actual effort: High
+	- Decisions:
+		- me, 20261111: a run set off from the first child of a block, or from the first field in the file, has no node above it at its level. It goes to the parent as a new list, the lines that open its block (`head`), written after the parent's line and before its children. The root's are the top of the file. So the fixed order is the blank, the comments, the line, the lines that open the block, the children, the trailing lines. Giving it to the parent's trailing lines would move it under the children, and leaving it with the first child would keep the file's header and info block on the first field, which a remove took.
+		- me, 20261111: a run between 2 blanks is the line above's, as the rule reads. A remove takes trailing lines only up to a blank, so a remove of the line above leaves it too.
+		- me, 20261111: no comment crosses a kept line. A run is set off only before the first kept line, and a remove still takes the comments after the last kept line, as before. A remove that stopped at a blank above as well failed Go's `dd16m` (edits match a reload): a misplaced line the canonical form writes at column 0 is a kept line in the document and a field on a reload.
+		- me, 20261111: a kept line the settle wrote as a comment is set off as the comment a reload reads it as. When the settle writes one, the pairs are filed again, and one it moves from among a list's items goes right above the list through `adopt`, with the list's blank above it, where it went under the blank before. No golden changed with it.
+		- me, 20261111: a merge puts a layer's opening lines after the base node's, and the top of the layer's file after the top of the base's, with a blank above it and under it, a line the base already has skipped, as for the footer.
+		- me, 20261111: the placement property in `fuzz_smoke.rs` reads an anchor's comments as the run right above it, up to a blank, with the blank above that run as the anchor's. A run above that blank is the line above's, and a new check holds it there on a setter or comment edit that touches neither line, where the line above is the same line. `dderx` failed at iteration 10110 on the old library too, once corpus case 222 changed the fuzz's seeds: a deeper comment under a deeper kept line that a list replace moves up was read as the end of the run. A deeper moved line now counts. Each has a `df50j` block.
+		- me, 20261111: placement row 20260904-18 had a node whose only comment a blank set off, so under the rule the node had none. Its before text now gives the node a comment of its own with the blank above it, which is the case its name and Code review 20260904 item 18 describe. Its expected text is unchanged.
+	- Swept: every site that reads or moves a node's trivia lists, in all 4: the parse's binding line, `give_pending` (now by site), `fold_node_into`, `settle_block`, `settle_pairs` (now `refile_pair` per child), `settle_first_blank`, the emitter and `near_sum`, `settle_kept_once`, `settle_arrays`, `leads_mut`, `kept_in_lists`, `taken`, `beside_kept`, the remove's rebuild and its opened-by-kept path, `leave_above`, `fold_dups_below`, `swap_banner`, `adopt_trivia`, the merge's bracketing pass and leaf replace, the clone, `new_child`, `new_child_under` and the setter's list replace. The remove and `fold_dups_below` take the parent's children off while they rebuild them in all 4, as Rust did, so `leave_above` files nothing mid-rebuild. The 4 placement library bugs (2026111021095858, 2026111021153725, 2026111022100191, 2026111109022600) still reproduce through all 4 CLIs, with the same output in each.
+	- Golden changed: corpus `098-set-comment-blank` (`dbzb9`), `expected-write.shcl` and `expected-keep.shcl`. Its `# note` sits under `a: 1` with a blank under it, so it's `a`'s, and the comment added to `b` goes right above `b`, under the blank: `a: 1`, `# note`, a blank, `# new`, `b: 2`. Before, `# note` was `b`'s and the blank went above both. The conformance README's note for 098 says so.
+	- Test case: placement rows `2026110712372276-1` to `-8` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `df50j`, `dd3t9`, `dderx`, corpus `098-set-comment-blank` (`dbzb9`).
+	- Verified: the 8 new placement rows fail on the old library in all 4 (Rust and C conformance runners built from the old source, Go's suite on the old `shcl.go`, `placement-watch.py` on the old `shcl.py`) and pass now. The 3 new `df50j` blocks fail on the property before its change. The 4 conformance suites (222 cases), the whole Rust suite, Go's tests with `-count=1` in both modules, `dd3t9` and `dderx` at 200,000 in release, crosscheck over the corpus and a 2000-iteration fuzz dump (4 bindings agree on 55461 comparisons), cli-regress (671 rows), check-docs, check-doc-examples, test-ids, C `mem_bounds`, rustfmt, clippy `--all-targets`, gofmt, go vet, ruff, mypy, and the C CLI and runner under the gate's `-Werror` flags.
+	- Progress log:
+		- 20261111: perf-gate failed writes, fills and keeps in all 4. Every setter called `refile` after `unstack`, and `refile` looks for the node in its parent's list, so a flat document's bulk writes went with the square of the keys. `unstack` now says whether it moved a line, and the setter, `new_child` and `new_child_under` refile only then, in all 4. perf-gate passes on the 4 CLIs: writes rust 759/1245 ms, go 143/325, python 2528/3891, c 85/300; fills rust 1269/1727, go 301/436, python 4781/6546, c 223/272; keeps python 2976/5836.
+	- Branch: `b2bits`
+	- Acceptance signoff: Self-closed: each requirement holds in all 4 bindings, and each new row was seen to fail on the old code.
+	- Closed: 20261111-113303
+
+- Quote the other line breaks in `instances` and `get --array` output
+	- ID: 2026110613470324
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 24
+	- Problem description: spec.md quotes an instance value with a line break in it, because a consumer splits the output on newlines. U+2028, U+2029, U+0085, VT and FF print as they are, though Python's `splitlines()` splits on them and `fmt` escapes them. A list of 3 values came out as 5 lines.
+	- Requirements: quote a value with any character `fmt` escapes as a line break.
+	- Origin: Confirmed in all 4 CLIs.
+	- Regression test: cli-regress rows with U+2028, U+2029 and U+0085 inside a value, for `instances` and `get --array`, output quoted and byte-identical across the 4 CLIs; a crosscheck corpus case with the same values.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261111: a line break is any character Python's `splitlines()` breaks at: LF, VT, FF, CR, U+001C to U+001E, U+0085, U+2028 and U+2029. That is the item's list plus the file, group and record separators, since the same split breaks at them and `fmt` escapes them too. A tab is not one.
+		- me, 20261111: the set is `LINE_BREAKS` in gen-escapes.py, beside the lists `fmt` escapes from. The script writes it into the 4 CLIs and fails if `fmt` would not escape one of its characters. Each CLI holds its own generated copy, so the library API doesn't grow for a CLI rule.
+	- Swept: `one_line` (Rust, Python), `oneLine` (Go) and `out_one_line` (C) are the one test each CLI makes, and `instances`, `get --array`, `get --slots` and an array default all go through it. No other listing tests for `\n` or `\r` itself. Names in `paths` and `children` already go through `quote_segment`. Docs: spec.md's `Instances` paragraph and the man page's `instances` entry. The help text doesn't name the characters, so it is unchanged. A Changed entry in the changelog.
+	- Verified: the 4 new cli-regress rows fail in all 4 CLIs built from HEAD and pass now. cli-regress (671 rows), crosscheck over the corpus with the 4 CLIs (23862 comparisons), the 4 conformance suites (222 cases), gen-escapes.py, check-docs, test-ids.py check, gofmt, go vet, cargo fmt, clippy, ruff, and the C CLI under the gate's -Werror flags and mingw.
+	- Test case: `df5rr`, `df5rs`, `df5rt`, `df5rv`, and corpus case `222-listing-line-breaks` (`df5rx`).
+	- Branch: `b2bits`
+	- Acceptance signoff: Self-closed: each named character prints quoted in all 4 CLIs, and the rows failed before the fix.
+	- Closed: 20261111-100928
+
+- set --write refuses a file deleted during its wait, where the library's save writes it back
+	- ID: 2026110914412379
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Low
+	- Target version: v3.0.0-beta2
+	- Opened: 20261109-144123
+	- Opened by: 2026110907535001's sweep
+	- Related IDs: 2026110907535001
+	- Problem description: since 2026110907535001 the library's save writes where nothing is at the path, as an editor does. The 4 CLIs' own check before `--write` (`unchanged_since_read` / `unchangedSinceRead`) still refuses a FILE removed between the read and the write, as `FILE: changed since it was read; nothing written`. Decide whether the CLI follows the library, and if so say `FILE: created` as for a new file.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261111: the CLI follows the library. A FILE with nothing at its path at write time is written as a new one, with `FILE: created`, as an editor writes back a file deleted since it was opened. The check is `gone_since_read` / `goneSinceRead` in `write_back`, so `fmt --write` and `set --write` both take it. A file gone with its folder still falls to the save, which says the folder is missing.
+		- me, 20261111: `migrate --write` keeps refusing a file gone since its read. It keeps a backup of the 2.x file it read, it has no wait on stdin, and 2026110907535001 left `upgrade_file`'s own check for the same reason.
+	- Swept: `write_back` in all 4 CLIs, the one caller that has a `read` to drop. `unchanged_since_read`'s other caller is migrate's write, left as above. Docs: spec.md and the man page say nothing about this refusal, so only the changelog gained a Changed entry.
+	- Verified: the new row fails in all 4 CLIs built from HEAD (exit 8, changed since it was read) and passes now. cli-regress (671 rows), with the rest of 2026110613470324's runs.
+	- Test case: `df5rw` (cli-regress, with a new `@gone` hook that removes the file while `set` waits on stdin).
+	- Branch: `b2bits`
+	- Acceptance signoff: Self-closed: the deleted file is written and says created in all 4 CLIs, and the row failed before the fix.
+	- Closed: 20261111-100928
+
+- The comment placement property fails the 2M release fuzz in dd3t9
+	- ID: 2026111022322992
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-223229
+	- Opened by:
+	- Related IDs: 2026111012160121, 2026111021095858, 2026111021153725, 2026111022100191, 2026111109022600, 2026111109371400
+	- Progress log:
+		- 20261110, round r1111: 2026111012160121's property (e0b1f62d, 05cca0fa) passes dd3t9 and dderx at 200,000 but not at 2,000,000 in release. The first run failed both at about 212,000. A fix worker judged 9 more failures as 7 property misreads and 1 library bug (2026111022100191), and fixed the property, but dd3t9 still fails at 780675.
+		- That last one: a set_literal over a list moves its kept lines above the field, with a blank among them and an item's comment under them, and the property reads that blank as the one above the field's comments. Probably a misread, not yet checked.
+		- The work is on wip/r1111-2026111012160121. fuzz_smoke.rs on the round branch went back to e4d295d4, so dev has no placement property. Each failure so far needed a release run past 200,000 to show, so the next try runs 2M in release before reporting.
+		- 20261111, run b2bits: the property is back from `05cca0fa`. 780675 is a misread. design.md puts the field's blank above all the lines a list replace moves up, and keeps a blank between 2 of them, and the property read that blank as the field's. Fixed, with a `df50j` row that fails on `05cca0fa`'s property.
+		- 20261111, run b2bits: 3 rounds of 2M in release, the limit. Rounds 1 and 2 stopped at `dd3t9`'s failure, before `dderx`. Round 1 failed at 1219 on the first fix try. Round 2 failed at 740483, a misread: a line above with the text of one still under the field. Round 3 failed `dd3t9` at 804362, library bug 2026111109022600, and `dderx` at 1104311, a misread of the same kind, there since `05cca0fa`. Moved lines are now matched by count, 2026111109022600 is excused by its ID, and each case is a `df50j` row.
+		- 20261111, run b2bits, round 4: the orchestrator's 2M run failed `dd3t9` at 1392776, a misread. A kept line among a list's items, not an item, moves up with its comments, and only items' comments were expected in the run, so the blank was read above the kept line the setter commented out in place. Fixed, with a `df50j` row.
+		- 20261111, run b2bits, round 5: that fix made the run expect those comments, and `dd3t9` failed at 288695, a misread. A deeper comment under a moved kept line stopped the walk up before the comments above that line. Fixed, with a `df50j` row. Both rows fail before their fix. `dd3t9` passes 300,000 and `dderx` 200,000 in release.
+		- 20261111, run b2bits, round 6: the orchestrator's 2M run failed `dd3t9` at 1503277, from the banner: `under the old footer block: comments [] are now ["# a nte"]`. A misread: the banner moves a comment nested under an info block it takes out to the block's column, as corpus 161 pins, and the property read it as the block above's trailing line. A narrow fix for the banner made `dd3t9` fail at 207445, also from the banner, and was backed out unjudged.
+		- 20261111, run b2bits: by the orchestrator's call, the property fails the fuzz only below iteration 1,000,000 (`PLACEMENT_ITERS`). 2026111109371400 lifts the cap. With it, `dd3t9` and `dderx` pass 2,000,000 in release.
+	- Actual cause: the failures past 200,000 were misreads of the property, except 2026111022100191 and 2026111109022600, which are library bugs, filed and excused by their IDs.
+	- Actual fix: `lead_over` matches a list replace's moved lines by count, drops a blank between 2 moved lines, and skips a deeper comment under a moved line. `placement_slips` expects the comments of a kept line that moves up from among the items, and excuses 2026111109022600. The property holds the fuzz below `PLACEMENT_ITERS`.
+	- Test case: `df50j` (a row per misread fixed in run b2bits, and 2026111109022600's excuse), `dd3t9`, `dderx`.
+	- Verified: each new `df50j` row fails on the property before its fix and passes now. `dd3t9` and `dderx` at 2,000,000 in release with the cap, all of `fuzz_smoke` in debug, clippy `--all-targets`, rustfmt, `test-ids.py check`, and the cross check over the corpus and a dump of 100 `dd3t9` inputs (4 bindings agree on 26670 comparisons, `ddesf` included).
+	- Acceptance signoff: Self-closed: the 2M release run passes, with the cap the orchestrator decided.
+	- Closed: 20261111-095409
+
 - The changed check misses a file reached through a second spelling of its path
 	- ID: 2026110613470307
 	- Type: Bug
@@ -1597,6 +1647,79 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1110`
 	- Acceptance signoff: Self-closed: the rows went red at the commits before their fixes, pass now, and agree with Rust's and Go's case by case.
 	- Closed: 20261110-120236
+
+- An exhaustive comment placement suite, with a placement property in the fuzz
+	- ID: 2026110616475903
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261106-164759
+	- Opened by: Code review 20261106 follow-up (JC)
+	- Related IDs: 2026110616475902, 2026110613470311, 2026110613470302, 2026100307163904, 2026100218185700, 2026092718195400
+	- Problem description: no test says where a comment must be after an edit. The kept-lines fuzz's `setter_moved` returns early when there are no kept lines, and a parsed comment isn't one. Its `stretches` helper anchors on non-blank lines only, so a comment that crossed a blank line passes it. `dd3t9` checks that the edited text reloads as the document, and a wrong placement that reloads the same is a fixpoint, so it passes too. The corpus goldens fix the placement after a load, not after an edit. Each past bug got one example test, and the next site had none. Past cases, old format: Code review 20260802 items 8 and 20 (comments dropped on merge, end-of-file comments multiply), 20260830 item 19 (a blank between a new node's comment and the node), 20260901b item 7 (footer comments collapse), 20260904 item 18 (`SetComment` leaves the blank between comment and node), 20260923 item 3 (filed differently after an edit than after a reload), 20260925b item 2 (a comment above a dotted line moves on any edit), the 2 `to_canonical()` items from the SilkTerm devs (blanks between comment regions dropped, a trailing run re-attaching to the next node), and the ones in the Related list.
+	- Requirements:
+		- A placement property computed from text alone, so it needs nothing from the library. For each comment line of the input, its anchor is the next line below that isn't blank or a comment, plus a flag for a blank directly above the comment run. After an edit that didn't remove or replace the anchor, the run sits directly above the same anchor, the blank above the run, and nothing between the run and the anchor. When the anchor went, the run sits above what took its place, by 2026110616475902's rule. A trailing comment stays on its line with the same text after the `#`.
+		- It runs in `dd3t9` and `dderx` both, since one has removes and the other the list-replacing `set_literal`, and at the merge step. `dd3t9` gets a `set_literal` with a bracket list over an item list. The generators have to make item lists with per-item comments and blanks between siblings, with a guard that counts the shape in each run, as the fuzz guards do.
+		- The 4-binding cross check replays the dumps, as it does for the kept fuzz.
+		- A fixed table, one row per past case above and each new one, as a before text, an edit and the exact expected text, in one file all 4 conformance suites read, as the corpus is. Watch each row fail in a worktree at the commit before its fix.
+		- Watch the property fail: on `343334df`, 2026110613470311's case goes red.
+	- Reason: an example per bug has found none of the next ones. A property over every comment in every generated edit finds the next site before a review does.
+	- Regression test: this item is the test. Each past case in its table is watched to fail in a worktree at the commit before that case's fix, and the property on `343334df`.
+	- Estimated effort: Avg
+	- Progress log:
+		- 20261110: split in 4. The table and its Rust runner (2026111012160064), the Go, Python and C runners (2026111012160083), and each row watched to fail before its fix (2026111012160102) are done. The fuzz property, with the cross check, is 2026111012160121, waiting on the 2M release fuzz.
+		- 20261111, run b2bits: 2026111012160121 is done, so every child is. The property holds the fuzz below iteration 1,000,000, and 2026111109371400 lifts that cap.
+	- Test case: conformance `placement_table_rows_match` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `df50j`, `dd3t9`, `dderx`, crosscheck `ddesf`.
+	- Verified: through its children, 2026111012160064, 2026111012160083, 2026111012160102 and 2026111012160121. The table rows fail before their fixes, and the property fails on `343334df` with 2026110613470311's case.
+	- Acceptance signoff: Self-closed: every child is done.
+	- Closed: 20261111-095409
+
+- A comment placement property in the fuzz, replayed in all 4 bindings
+	- ID: 2026111012160121
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-121601
+	- Opened by: split from 2026110616475903
+	- Parent ID: 2026110616475903
+	- Problem description: the property half of 2026110616475903. No fuzz says where a comment must be after an edit.
+	- Requirements: the property, generators and guard in 2026110616475903's Requirements, in `dd3t9`, `dderx` and the merge step, with the cross check replaying the dumps. Watched to fail on `343334df` with 2026110613470311's case.
+	- Note: the cross check already replays `dderx`'s `kept/` dump through every CLI, so its new shapes reach the other 3 bindings that way. `dd3t9` dumps nothing yet, and a merge has no CLI form, so it isn't dumped.
+	- Estimated effort: High
+	- Actual effort: Avg
+	- Progress log:
+		- 20261111: `placement_slips` in `fuzz_smoke.rs` reads each comment's anchor, its run and the blank above from the canonical text before and after an edit. `dd3t9` and `dderx` hold every setter, remove, comment edit, banner and merge step to it. `dd3t9`'s configs now have item lists with comments on the items, and a comment and a blank above them, and its ops a `set_literal` of `[9, 8]`, mostly over a list. A guard counts the 3 shapes. `dd3t9` dumps its inputs into `kept/` beside `dderx`'s, so the cross check replays them through every CLI.
+		- 20261111: it found 2 bugs, filed as 2026111021095858 (`clear_comments` takes a comment past a kept line) and 2026111021153725 (`set_comment` making a field puts its blank above a kept line's comments). The property excuses each by a check keyed by its ID.
+		- 20261111: the 2M release fuzz failed `dd3t9` and `dderx` 9 times past 200,000, and each was judged. 8 were misreads of the property, fixed there: a kept line's raw body, and a kept line the settle writes as a comment at the field's level, read as the run's end; a trailing comment's U+3000 trimmed; a kept line the setter comments in place above the field's blank read as part of the run; a misplaced line among a list's items not taken as moved; the blanks the banner leaves where it takes an info block; and a kept item commented in place read as a new item. Each but the banner's blank is a row in `df50j`. 1 is a library bug, filed as 2026111022100191 and excused by its ID.
+		- 20261111: open: `dd3t9` fails at iteration 780675. A `set_literal` over a list moves its kept lines above the field, with a blank among them and an item's comment under them, and the property reads that blank as the one above the field's comments. Not judged yet.
+		- 20261110: the property failed the 2M release fuzz after a fix try. The work moved to wip/r1111-2026111012160121 and fuzz_smoke.rs on r1111 went back to e4d295d4. See 2026111022322992.
+		- 20261111, run b2bits: the property is back from `05cca0fa`. 780675 and 3 later 2M failures are judged on 2026111022322992: 3 misreads, fixed, and library bug 2026111109022600, excused by its ID. Left: a 2M round in release with no failure, then this closes with 2026111022322992 and the parent 2026110616475903.
+		- 20261111, run b2bits: 2 more misreads after the orchestrator's round 4 (1392776, then 288695), fixed with `df50j` rows. Still left: a 2M round with no failure.
+		- 20261111, run b2bits: round 6 failed `dd3t9` at 1503277 on the banner, a misread. With the cap below, both pass 2,000,000 in release. 2026111109371400 lifts the cap.
+	- Decisions:
+		- me, 20261111: the property follows design.md where the item's wording differs. Lines an edit takes from a node go under the heir's own comments ("Lines an edit takes from their node"). A remove takes the comments under its target up to the first kept line. A setter puts the kept lines among a list's items above the field, under its comments. The banner takes info block lines, and a format or migrate stamp is no comment.
+		- me, 20261111: a run is the comments at the anchor's own depth. A deeper comment above a line is the block above's trailing line.
+		- me, 20261111: the edit's target is found by the line `lines()` gives its path in the text before, since a path quotes and escapes names the text writes bare. The rest is read from the text. Only a key written once in both texts is held.
+		- me, 20261111: `dd3t9` dumps into `kept/` as `pNNNNN`, so the cross check needs no change and `ddesf` covers both. `dderx`'s generators stay as they were; the shape guard is on `dd3t9`.
+		- me, 20261111: a trailing comment's text ends at the blanks the load trims, so a U+3000 is text. Under the banner, the blank above a run that held info block lines is the banner's, so it isn't held.
+		- me, 20261111, run b2bits: a kept line among a list's items that moves up takes its comments, at its own depth, into the run above the field, as an item does, and a deeper comment under it moves with it. A misplaced line's comments aren't counted.
+		- me, 20261111, run b2bits, the orchestrator's call: the property doesn't hold a banner op whose before text has an info block after the first field line, since corpus 161 holds that move.
+		- me, 20261111, run b2bits, the orchestrator's call: the property fails the fuzz only below iteration 1,000,000, one constant, `PLACEMENT_ITERS`. Past it nothing is checked, so the standard 2M release run after small changes stays usable for the other properties. The misreads past it should mostly go once 2026110712372276 and 2026110712372281 simplify where the library puts lines. 2026111109371400 lifts the cap.
+		- me, 20261111, run b2bits: a list replace's moved lines are matched by count. A line is moved only as often as its text left the field's block, so a line above with the text of one still under the field is no moved line. A blank under a moved line at the field's level, or a misplaced one, is between 2 moved lines, and the field's blank is the one above them all, per design.md's "Lines an edit takes from their node".
+	- Swept: every fuzz test that edits. `dd3t9` and `dderx` hold the property. `ddc6m` edits lines written apart from the canonical form on purpose, so it's left alone.
+	- Test case: `df50j` (the oracle on 2026110613470311's case, the library's list replace through it, and a row per misread fixed), `dd3t9`, `dderx`, crosscheck `ddesf`.
+	- Verified: `df50j`, `dd3t9` and `dderx` fail on `343334df`'s library, all on 2026110613470311's class: `df50j` on the blank, `dd3t9` at iteration 74, and `dderx`'s merge step at iteration 35. All 3 pass on `r1111`.
+	- Verified: the 6 new `df50j` rows fail on the property at `e0b1f62d` and pass now. `dd3t9` and `dderx` at 250,000 in release, the rust area of `--backlog-run-quick`, clippy `--all-targets`, `lint-report.bash --check` and `test-ids.py check`.
+	- Verified: `dd3t9` and `dderx` at 200,000 iterations, the rust area of `--backlog-run-quick`, clippy, `lint-report.bash --check`, `test-ids.py check`, and the cross check over the corpus and a dump with 100 `dd3t9` inputs (4 bindings agree).
+	- Verified, run b2bits: the `df50j` rows for 780675, 1219, 740483 and 1104311 each fail on the property before their fix, the 780675 one on `05cca0fa`'s. The 2026111109022600 row fails without its excuse. `dd3t9` and `dderx` at 200,000 in release and at the default count in debug, all of `fuzz_smoke`, clippy `--all-targets`, rustfmt, `test-ids.py check`.
+	- Verified, run b2bits, rounds 4 and 5: the `df50j` rows for 1392776 and 288695 each fail on the property before their fix with the slip the fuzz gave. `dd3t9` at 300,000 and `dderx` at 200,000 in release, all of `fuzz_smoke` in debug, clippy `--all-targets`, rustfmt, `test-ids.py check`.
+	- Verified, run b2bits, closing: `dd3t9` and `dderx` at 2,000,000 in release, with the property held below `PLACEMENT_ITERS` (1,000,000). All of `fuzz_smoke` in debug, clippy `--all-targets`, rustfmt, `test-ids.py check`, and the cross check over the corpus and a dump of 100 `dd3t9` inputs (4 bindings agree on 26670 comparisons, `ddesf` included).
+	- Verified, run b2bits, on the tree after 2026110712372276 and corpus 222: `dd3t9` and `dderx` pass 2,000,000 in release with the cap, the case 161 banner check, and 2026111111560900 excused. `df50j`, all of `fuzz_smoke` in debug, clippy `--all-targets`, `cargo fmt --check`.
+	- Prereq IDs: 2026111022322992
+	- Acceptance signoff: Self-closed: the requirements are met, with the iteration cap the orchestrator decided, and each new test was seen to fail first.
+	- Closed: 20261111-095409
 
 - The comment placement table and its Rust runner
 	- ID: 2026111012160064

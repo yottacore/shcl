@@ -830,6 +830,12 @@ type trivia struct {
 	// could take them - a header whose children are all commented still owns
 	// those lines. Emitted after the subtree one level deeper than this node.
 	inside []lead
+	// The comments that open this node's block: above its first child and
+	// set off from it by a blank, so they are the block's, not the child's.
+	// The root's are the top of the file. Emitted after the node's line, one
+	// level deeper. Never a kept line but one the settle wrote as a comment,
+	// since a run stops at one.
+	head []lead
 	// Kept lines that sat among this node's stacked list elements, each with
 	// the number of elements before it. They keep the list stacked on output,
 	// so a line fixed by hand is still inside the list.
@@ -877,6 +883,13 @@ func (n *nodeData) inside() []lead {
 		return nil
 	}
 	return n.trivia.inside
+}
+
+func (n *nodeData) head() []lead {
+	if n.trivia == nil {
+		return nil
+	}
+	return n.trivia.head
 }
 
 func (n *nodeData) among() []amongLead {
@@ -1124,11 +1137,21 @@ func foldNodeInto(arena []nodeData, survivor, loser int) {
 	for _, k := range kids {
 		arena[k].parent = survivor
 	}
+	// The lines that opened the loser's block sit right above its first
+	// child, which now follows the survivor's last one.
+	if sk := arena[survivor].children; len(sk) > 0 {
+		if lt := arena[loser].trivia; lt != nil && len(lt.head) > 0 {
+			at := arena[sk[len(sk)-1]].trivMut()
+			at.after = append(at.after, lt.head...)
+			lt.head = nil
+		}
+	}
 	arena[survivor].children = append(arena[survivor].children, kids...)
 	if lt := arena[loser].trivia; lt != nil {
 		arena[loser].trivia = nil
 		st := arena[survivor].trivMut()
 		st.leading = append(st.leading, lt.leading...)
+		st.head = append(st.head, lt.head...)
 		if lt.trailing != "" {
 			if st.trailing == "" {
 				st.trailing = lt.trailing
@@ -1168,8 +1191,45 @@ func settleBlock(arena []nodeData, n, from int) bool {
 		settlePairs(arena, n, 1)
 	}
 	// After the join, which can take the last child.
+	settleHead(arena, n)
 	settleInside(arena, n)
 	return joined
+}
+
+// settleHead: a block with no child left has no first child for its opening
+// lines to sit above, and a reload files them as the lines inside it. The
+// root's go to the footer, in settleFirstBlank.
+func settleHead(arena []nodeData, n int) {
+	if n == root || len(arena[n].children) > 0 {
+		return
+	}
+	if t := arena[n].trivia; t != nil && len(t.head) > 0 {
+		t.inside = append(t.head, t.inside...)
+		t.head = nil
+	}
+}
+
+// setOff gives how many of a run of lines above a field line are set off
+// from it: the comments before the first kept line, up to the last one a
+// blank sets off from the line below it. Those are the node above's, or the
+// parent's (design.md, Lines an edit takes from their node). at gives each
+// line's (is a comment, has a blank above), and blank is the field line's
+// blank.
+func setOff(n int, blank bool, at func(int) (bool, bool)) int {
+	cut := 0
+	for i := 0; i < n; i++ {
+		comment, above := at(i)
+		if above && i > 0 {
+			cut = i
+		}
+		if !comment {
+			return cut
+		}
+	}
+	if blank && n > 0 {
+		cut = n
+	}
+	return cut
 }
 
 // settleInside: a block's inside comments go to its last child's own, where
@@ -1186,30 +1246,76 @@ func settleInside(arena []nodeData, n int) {
 	}
 }
 
-// settlePairs: a child's comments at its own level go above the next
-// sibling, from child from on.
+// settlePairs files the lines between 2 children as a reload files them,
+// from child from on: a child's comments at its own level go above the next
+// sibling, but for a run set off from it by a blank, which stays the child's.
+// The first child does the same with the lines that open the block.
 func settlePairs(arena []nodeData, n, from int) {
-	kids := arena[n].children
-	if from < 1 {
-		from = 1
+	start := from
+	if from <= 1 {
+		start = 0
 	}
-	for i := from; i < len(kids); i++ {
-		t := arena[kids[i-1]].trivia
-		if t == nil {
-			continue
-		}
-		at := 0
-		for at < len(t.after) && t.after[at].depth != 0 {
-			at++
-		}
-		if at == len(t.after) {
-			continue
-		}
-		nt := arena[kids[i]].trivMut()
-		moved := make([]lead, 0, len(t.after)-at+len(nt.leading))
-		nt.leading = append(append(moved, t.after[at:]...), nt.leading...)
-		t.after = t.after[:at:at]
+	for i := start; i < len(arena[n].children); i++ {
+		refilePair(arena, n, i)
 	}
+}
+
+// refilePair is settlePairs for the lines above child i of n alone: the run
+// is the lines that open the block, or the previous child's trailing lines
+// from the first at its own level, then the child's leading lines. Only lines
+// that change sides move.
+func refilePair(arena []nodeData, n, i int) {
+	next := arena[n].children[i]
+	owner := n
+	if i > 0 {
+		owner = arena[n].children[i-1]
+	}
+	var up []lead
+	at := 0
+	if t := arena[owner].trivia; t != nil {
+		if i == 0 {
+			up = t.head
+		} else {
+			for at < len(t.after) && t.after[at].depth != 0 {
+				at++
+			}
+			up = t.after[at:]
+		}
+	}
+	plen := len(up)
+	ld := arena[next].leading()
+	if plen+len(ld) == 0 {
+		return
+	}
+	// A kept line the settle wrote as a comment is set off as the comment a
+	// reload reads it as.
+	cut := setOff(plen+len(ld), arena[next].blankBefore, func(k int) (bool, bool) {
+		var l *lead
+		if k < plen {
+			l = &up[k]
+		} else {
+			l = &ld[k-plen]
+		}
+		return strings.HasPrefix(l.text, "#"), l.blankBefore
+	})
+	if cut == plen {
+		return
+	}
+	ot := arena[owner].trivMut()
+	list := &ot.after
+	if i == 0 {
+		list = &ot.head
+	}
+	nt := arena[next].trivMut()
+	if cut < plen {
+		moved := append(append([]lead(nil), (*list)[at+cut:]...), nt.leading...)
+		*list = (*list)[: at+cut : at+cut]
+		nt.leading = moved
+		return
+	}
+	*list = append(*list, nt.leading[:cut-plen]...)
+	nt.leading = append([]lead(nil), nt.leading[cut-plen:]...)
+	restep(nt.leading)
 }
 
 // settleFenceTrailing: a raw block after an empty binding of its name is
@@ -1295,8 +1401,9 @@ func stacks(nd *nodeData) bool {
 // unstack: a list after an empty binding of its name cannot be written
 // stacked, since its bare header would merge into that binding on a reload.
 // It goes in brackets, and the lines among its elements and the comments on
-// them go above it, in order, where a reload files what sits there.
-func unstack(nd *nodeData) {
+// them go above it, in order, where a reload files what sits there. True when
+// it moved any line.
+func unstack(nd *nodeData) bool {
 	nd.starList = false
 	// An item the brackets will quote counts as quoted now, as a setter's
 	// does, so a read gives the same answer before the save as after it.
@@ -1309,7 +1416,7 @@ func unstack(nd *nodeData) {
 	}
 	t := nd.trivia
 	if t == nil {
-		return
+		return false
 	}
 	notes := t.notes
 	k := 0
@@ -1327,6 +1434,7 @@ func unstack(nd *nodeData) {
 	t.among = nil
 	t.notes = nil
 	adopt(nd, orphans)
+	return len(orphans) > 0
 }
 
 // adopt gives heir the lines an edit took off a node or a list item it took
@@ -1362,16 +1470,41 @@ func trailingToLeading(nd *nodeData) {
 // prints, so a document that kept one there would not survive its own
 // canonical form, and a merge or a new first line - where it is no longer
 // first - would place a blank nobody wrote. Clear it wherever output starts.
-func settleFirstBlank(arena []nodeData, orphans []lead) {
+// The lines at the ends are filed as a reload files them first: the last
+// top-level field's trailing lines at its own level, and the top of the file
+// with no field under it, are the footer.
+func settleFirstBlank(arena []nodeData, orphans *[]lead) {
+	last := root
 	if kids := arena[root].children; len(kids) > 0 {
+		last = kids[len(kids)-1]
+	}
+	if t := arena[last].trivia; t != nil {
+		list := &t.after
+		at := 0
+		if last == root {
+			list = &t.head
+		} else {
+			for at < len(t.after) && t.after[at].depth != 0 {
+				at++
+			}
+		}
+		if at < len(*list) {
+			moved := append(append([]lead(nil), (*list)[at:]...), *orphans...)
+			*list = (*list)[:at:at]
+			*orphans = moved
+		}
+	}
+	if t := arena[root].trivia; t != nil && len(t.head) > 0 {
+		t.head[0].blankBefore = false
+	} else if kids := arena[root].children; len(kids) > 0 {
 		n := &arena[kids[0]]
 		if n.trivia != nil && len(n.trivia.leading) > 0 {
 			n.trivia.leading[0].blankBefore = false
 		} else {
 			n.blankBefore = false
 		}
-	} else if len(orphans) > 0 {
-		orphans[0].blankBefore = false
+	} else if len(*orphans) > 0 {
+		(*orphans)[0].blankBefore = false
 	}
 }
 
@@ -5433,7 +5566,7 @@ func (p *parser) openLazy(parent int) int {
 		if count > len(p.pending) {
 			count = len(p.pending)
 		}
-		p.givePending(p.headOf(node, len(l.segs)), l.indent, count, false)
+		p.givePending(p.headOf(node, len(l.segs)), l.indent, count, siteLeading)
 	}
 	return node
 }
@@ -5624,14 +5757,19 @@ func (p *parser) headOf(node, nsegs int) int {
 
 // givePending makes the first count pending lines the node's leading lines,
 // or the lines inside its block, after its children.
-func (p *parser) givePending(node int, indent string, count int, inside bool) {
+func (p *parser) givePending(node int, indent string, count int, st site) {
 	if count == 0 {
 		return
 	}
 	t := p.arena[node].trivMut()
 	list := &t.leading
-	if inside {
+	switch st {
+	case siteInside:
 		list = &t.inside
+	case siteAfter:
+		list = &t.after
+	case siteHead:
+		list = &t.head
 	}
 	var chain, held []depthEnt
 	for _, pn := range p.pending[:count] {
@@ -5649,6 +5787,41 @@ func (p *parser) givePending(node int, indent string, count int, inside bool) {
 		if p.lazies[j].pend < 0 {
 			p.lazies[j].pend = 0
 		}
+	}
+}
+
+// giveSetOff gives the pending comments a blank sets off from the field line
+// that just bound node to the node written above it, as its trailing lines,
+// or with none, to its parent as the lines that open its block. A dotted line
+// is written as its last name, so that name's place decides. A line that
+// joined an earlier node is written after the parent's last child.
+func (p *parser) giveSetOff(node, line int, indent string, blank bool) {
+	pend := p.pending
+	cut := setOff(len(pend), blank, func(k int) (bool, bool) {
+		return strings.HasPrefix(pend[k].text, "#"), pend[k].blankBefore
+	})
+	if cut == 0 {
+		return
+	}
+	parent := p.arena[node].parent
+	kids := p.arena[parent].children
+	above := -1
+	if p.arena[node].line == line {
+		for k := len(kids) - 1; k >= 0; k-- {
+			if kids[k] == node {
+				if k > 0 {
+					above = kids[k-1]
+				}
+				break
+			}
+		}
+	} else if len(kids) > 0 {
+		above = kids[len(kids)-1]
+	}
+	if above >= 0 {
+		p.givePending(above, indent, cut, siteAfter)
+	} else {
+		p.givePending(parent, indent, cut, siteHead)
 	}
 }
 
@@ -6269,7 +6442,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 						count := len(moved)
 						moved = append(moved, misplaced...)
 						p.pending = append(moved, p.pending[k+1:]...)
-						p.givePending(parent, p.stack[si].indent, count, true)
+						p.givePending(parent, p.stack[si].indent, count, siteInside)
 					}
 					if node := p.bindBlock(parent, v, lineno, indent); node >= 0 {
 						p.ends = append(p.ends, [2]int{p.arena[node].line, next})
@@ -6522,9 +6695,25 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		if haveSrc {
 			vkey = valueHash(&v)
 		}
+		// A line held open by a kept line keeps its lines as built.
+		heldOpen := parent == lazy
 		parent = p.openLazy(parent)
 		nsegs := len(scan.segments)
 		if node, ok := p.attachPath(parent, scan.segments, v, lineno, indent); ok {
+			if !heldOpen {
+				// A kept line before a dotted line goes to its first name,
+				// below, so a run set off from it goes above that name.
+				at := node
+				if nsegs > 1 {
+					for k := range p.pending {
+						if isField(p.pending[k].text) {
+							at = p.headOf(node, nsegs)
+							break
+						}
+					}
+				}
+				p.giveSetOff(at, lineno, indent, hadBlank)
+			}
 			if haveSrc {
 				for i := 0; unitNamed(p.arena[node].name) && i < len(tok.Elements); i++ {
 					if m, ok := unitClash(p.arena[node].name, pieceText(&tok.Elements[i], rest)); ok {
@@ -6560,7 +6749,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 			if nsegs > 1 {
 				for k := len(p.pending) - 1; k >= 0; k-- {
 					if isField(p.pending[k].text) {
-						p.givePending(p.headOf(node, nsegs), indent, k+1, false)
+						p.givePending(p.headOf(node, nsegs), indent, k+1, siteLeading)
 						break
 					}
 				}
@@ -6596,7 +6785,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		orphans = append(orphans, lead{text: pn.text, blankBefore: pn.blankBefore, depth: commentDepth(&chain, &held, "", pn.text, pn.indent), line: pn.line})
 	}
 	p.pending = p.pending[:0]
-	settleFirstBlank(p.arena, orphans)
+	settleFirstBlank(p.arena, &orphans)
 	// The one entry past the cap: what was not listed, and whether any of it
 	// was an error, so a consumer scanning the list for errors still finds
 	// one and a Strict load still fails.
@@ -6743,7 +6932,7 @@ func (d *Document) keptLines() int {
 // beside its target is caught by the gate rather than allowed.
 func (d *Document) taken(node int) int {
 	nd := &d.arena[node]
-	n := keptIn(nd.inside()) + keptAmong(nd.among())
+	n := keptIn(nd.inside()) + keptIn(nd.head()) + keptAmong(nd.among())
 	if headsBlock(nd) {
 		if l := nd.leading(); l[len(l)-1].isKeptLine() {
 			n++
@@ -6781,7 +6970,7 @@ func keptAmong(among []amongLead) int {
 
 // keptInLists counts kept lines in all of one node's trivia lists.
 func keptInLists(nd *nodeData) int {
-	return keptIn(nd.leading()) + keptIn(nd.after()) + keptIn(nd.inside()) + keptAmong(nd.among())
+	return keptIn(nd.leading()) + keptIn(nd.after()) + keptIn(nd.inside()) + keptIn(nd.head()) + keptAmong(nd.among())
 }
 
 // restep: a reload starts a comment run at 0 and steps one level at a time
@@ -6898,10 +7087,11 @@ func placeFolded(arena []nodeData, moves []refileMove) {
 
 // besideKept is what a remove of this node leaves of its lines, by
 // design.md's kept-lines table: the kept lines beside it, with the comments
-// that sit with them. Above it that is everything up to its last kept line,
-// below it everything from its first, so a comment written against the node
-// goes with it. The kept line written in place of its `name:` line goes too.
-// What goes stays on the node, where a fold of two instances still wants it.
+// that sit with them, and the comments a blank sets off from it below. Above
+// it that is everything up to its last kept line, below it everything from its
+// first kept line or blank, so a comment written against the node goes with
+// it. The kept line written in place of its `name:` line goes too. What goes
+// stays on the node, where a fold of two instances still wants it.
 func besideKept(nd *nodeData) []lead {
 	heads := headsBlock(nd)
 	t := nd.trivia
@@ -6925,7 +7115,7 @@ func besideKept(nd *nodeData) []lead {
 	left = left[:end]
 	from := len(t.after)
 	for k := range t.after {
-		if t.after[k].isKeptLine() {
+		if t.after[k].isKeptLine() || t.after[k].blankBefore {
 			from = k
 			break
 		}
@@ -7177,6 +7367,8 @@ func (d *Document) writtenStep(cur, upto int, seg segment) (int, bool) {
 }
 
 func (d *Document) emitAll(e *emit) {
+	// The top of the file, set off from the first field.
+	pushLeads(d, e, d.arena[root].head(), 0, root, siteHead, 0)
 	d.emitChildren(d.arena[root].children, 0, e)
 	// Comments that never found a following line re-emit at the end.
 	e.near(root, 0)
@@ -7213,6 +7405,28 @@ func (d *Document) settleArrays() {
 	if !d.arrays {
 		return
 	}
+	if d.settleArraysOnce() {
+		d.refileAll()
+	}
+}
+
+// refileAll files the lines between every 2 children again as a reload files
+// them, once the settle wrote kept lines as comments, which a run a blank
+// sets off can now take in.
+func (d *Document) refileAll() {
+	stack := []int{root}
+	for len(stack) > 0 {
+		n := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		settlePairs(d.arena, n, 0)
+		stack = append(stack, d.arena[n].children...)
+	}
+	settleFirstBlank(d.arena, &d.orphans)
+}
+
+// settleArraysOnce is settleArrays, true when it wrote any line as a comment.
+func (d *Document) settleArraysOnce() bool {
+	anyNew := false
 	stack := append([]int(nil), d.arena[root].children...)
 	for len(stack) > 0 {
 		n := stack[len(stack)-1]
@@ -7223,15 +7437,15 @@ func (d *Document) settleArrays() {
 		if t == nil {
 			continue
 		}
-		settleArrayRun(t.leading, heads)
+		anyNew = settleArrayRun(t.leading, heads) || anyNew
 		// Among a stacked list's items and after them, an array line is kept
 		// for where it sits (E001), and a reload keeps it again.
 		if stacks(&d.arena[n]) {
-			settleArrayRun(t.after, false)
+			anyNew = settleArrayRun(t.after, false) || anyNew
 			continue
 		}
-		settleArrayRun(t.inside, false)
-		settleArrayRun(t.after, false)
+		anyNew = settleArrayRun(t.inside, false) || anyNew
+		anyNew = settleArrayRun(t.after, false) || anyNew
 		for from := 0; from < len(t.among); {
 			at := t.among[from].before
 			to := from
@@ -7242,14 +7456,15 @@ func (d *Document) settleArrays() {
 			for _, a := range t.among[from:to] {
 				run = append(run, a.lead)
 			}
-			settleArrayRun(run, false)
+			anyNew = settleArrayRun(run, false) || anyNew
 			for k := range run {
 				t.among[from+k].lead = run[k]
 			}
 			from = to
 		}
 	}
-	settleArrayRun(d.orphans, false)
+	anyNew = settleArrayRun(d.orphans, false) || anyNew
+	return anyNew
 }
 
 // resettleKept runs after an edit. A kept line binds or not by the lines
@@ -7281,9 +7496,11 @@ func (d *Document) nearSum() uint64 {
 		h.dec(n)
 		h.dec(len(nd.children))
 		if n == root {
-			h.dec(len(d.orphans))
-			for _, l := range d.orphans {
-				addLead(l)
+			for _, list := range [][]lead{d.orphans, nd.head()} {
+				h.dec(len(list))
+				for _, l := range list {
+					addLead(l)
+				}
 			}
 			continue
 		}
@@ -7315,7 +7532,7 @@ func (d *Document) nearSum() uint64 {
 			h.byte(0)
 			continue
 		}
-		for _, list := range [][]lead{t.leading, t.inside, t.after} {
+		for _, list := range [][]lead{t.leading, t.inside, t.after, t.head} {
 			h.dec(len(list))
 			for _, l := range list {
 				addLead(l)
@@ -7349,12 +7566,20 @@ func (d *Document) settleKeptOnce() bool {
 			list = d.arena[f.node].trivia.leading
 		case siteInside:
 			list = d.arena[f.node].trivia.inside
+		case siteHead:
+			list = d.arena[f.node].trivia.head
 		default:
 			list = d.arena[f.node].trivia.after
 		}
 		list[f.i].text = commented(list[f.i].text)
 		list[f.i].depth = f.depth
 		list[f.i].kept = true
+	}
+	for _, f := range e.fell {
+		if f.site != siteAmong {
+			d.refileAll()
+			break
+		}
 	}
 	// Out of each list latest first, so a removal leaves the earlier indices
 	// alone, then onto the end of the leading lines in order.
@@ -7376,20 +7601,25 @@ func (d *Document) settleKeptOnce() bool {
 				break
 			}
 		}
+		lines := make([]lead, 0, len(moved))
 		for j := len(moved) - 1; j >= 0; j-- {
 			l := moved[j]
 			l.text = commented(l.text)
 			l.depth = depth
 			l.line = 0
 			l.kept = true
-			t.leading = append(t.leading, l)
+			lines = append(lines, l)
 		}
 		moved = moved[:0]
+		// Right above the line, with its blank above them, as a reload files
+		// them.
+		adopt(&d.arena[f.node], lines)
+		d.refile(f.node)
 	}
 	// A line moved above the first list in the file is now the first
 	// thing written, so its blank goes the way the load's did.
 	if movedAny {
-		settleFirstBlank(d.arena, d.orphans)
+		settleFirstBlank(d.arena, &d.orphans)
 	}
 	return movedAny
 }
@@ -7467,6 +7697,7 @@ const (
 	siteAfter
 	siteAmong
 	siteOrphans
+	siteHead
 )
 
 func newEmit(capacity int, record bool) *emit {
@@ -7596,8 +7827,8 @@ func commented(text string) string {
 // in place of the line of a field with fields under it, the run's last when
 // heads says so. Anywhere else no field binds under it on a reload, so it
 // would bind itself. What sat under it goes the same way, since a comment
-// holds no level.
-func settleArrayRun(run []lead, heads bool) {
+// holds no level. True when it wrote any.
+func settleArrayRun(run []lead, heads bool) bool {
 	settled := false
 	for k := range run {
 		l := &run[k]
@@ -7623,6 +7854,7 @@ func settleArrayRun(run []lead, heads bool) {
 	if settled {
 		restep(run)
 	}
+	return settled
 }
 
 // arrayKept reports a field line kept only for the lines under it: a whole
@@ -8984,6 +9216,8 @@ func (d *Document) emitChildren(kids []int, depth int, e *emit) {
 
 func (d *Document) emitNode(idx, pos, depth int, wouldMerge bool, e *emit) {
 	d.emitLine(idx, pos, depth, wouldMerge, e)
+	// The comments that open this block, above its first child.
+	pushLeads(d, e, d.arena[idx].head(), depth+1, idx, siteHead, 0)
 	d.emitChildren(d.arena[idx].children, depth+1, e)
 	e.near(idx, pos)
 	// Comments this block owns with no child to take them, one deeper.
@@ -11628,8 +11862,8 @@ func New() *Document {
 func (d *Document) newChild(parent int, name, nameSrc string, v value) int {
 	// A list written stacked would get the child after its elements, which
 	// reloads as E001, so it goes inline.
-	if stacks(&d.arena[parent]) {
-		unstack(&d.arena[parent])
+	if stacks(&d.arena[parent]) && unstack(&d.arena[parent]) {
+		d.refile(parent)
 	}
 	idx := len(d.arena)
 	// Hand-written files separate top-level sections with a blank line;
@@ -11912,7 +12146,9 @@ func (d *Document) setValueAs(path string, v value, keepQuotes bool) SetStatus {
 	d.arena[idx].value = v
 	d.arena[idx].src = nil // written value has no source spelling
 	// No longer the list the lines among its elements sat in.
-	unstack(&d.arena[idx])
+	if unstack(&d.arena[idx]) {
+		d.refile(idx)
+	}
 	d.arena[idx].starList = stacked
 	// place has already done it for a field it created. After the unstack,
 	// so a line of its name from among the items, now above it, is a
@@ -11928,7 +12164,7 @@ func (d *Document) setValueAs(path string, v value, keepQuotes bool) SetStatus {
 	if fenceSide {
 		d.settleFenceName(parent, name)
 	}
-	settleFirstBlank(d.arena, d.orphans)
+	settleFirstBlank(d.arena, &d.orphans)
 	d.resettleKept()
 	return SetOk
 }
@@ -12050,6 +12286,8 @@ func (d *Document) leadsMut(st site, owner int) *[]lead {
 		return &t.leading
 	case siteInside:
 		return &t.inside
+	case siteHead:
+		return &t.head
 	default:
 		return &t.after
 	}
@@ -12059,8 +12297,8 @@ func (d *Document) leadsMut(st site, owner int) *[]lead {
 // setter just wrote as a comment. The lines written under that line go under
 // the field, where a reload files them.
 func (d *Document) newChildUnder(parent int, name, nameSrc string, v value, at keptAt) int {
-	if stacks(&d.arena[parent]) {
-		unstack(&d.arena[parent])
+	if stacks(&d.arena[parent]) && unstack(&d.arena[parent]) {
+		d.refile(parent)
 	}
 	leads := d.leadsMut(at.site, at.owner)
 	all := *leads
@@ -12384,9 +12622,13 @@ func (d *Document) TryRemove(path string) Read[int] {
 		// A list written stacked for the fields under it stays stacked: a
 		// remove only takes lines away.
 		stacked := stacks(&d.arena[pr.parent])
-		kids := d.arena[pr.parent].children[:0]
+		// Off the parent while it is rebuilt, as in Rust, so leaveAbove finds
+		// no place to file at; the settle below files the whole list.
+		old := d.arena[pr.parent].children
+		d.arena[pr.parent].children = nil
+		kids := old[:0]
 		var left []lead
-		for _, c := range d.arena[pr.parent].children {
+		for _, c := range old {
 			if d.arena[c].parent == dead {
 				d.arena[c].parent = pr.parent
 				left = append(left, besideKept(&d.arena[c])...)
@@ -12405,6 +12647,9 @@ func (d *Document) TryRemove(path string) Read[int] {
 		if len(left) > 0 {
 			d.leaveLast(pr.parent, left)
 		}
+		// The lines around what went are filed as a reload files them.
+		settlePairs(d.arena, pr.parent, 0)
+		settleHead(d.arena, pr.parent)
 	}
 	// A field opened only by the lines under it goes with the last of them,
 	// and its own kept line stays where it was (escblock).
@@ -12422,12 +12667,12 @@ func (d *Document) TryRemove(path string) Read[int] {
 		pp := d.arena[p].parent
 		t := d.arena[p].trivMut()
 		left := t.leading
-		for _, l := range t.inside {
+		for _, l := range append(t.head, t.inside...) {
 			l.depth++
 			left = append(left, l)
 		}
 		left = append(left, t.after...)
-		t.leading, t.inside, t.after = nil, nil, nil
+		t.leading, t.head, t.inside, t.after = nil, nil, nil, nil
 		if ix := d.index.Load(); ix != nil {
 			ix.unlink(nameKey(pp, d.arena[p].name), p)
 		}
@@ -12463,7 +12708,7 @@ func (d *Document) TryRemove(path string) Read[int] {
 			d.settleFenceName(d.arena[p].parent, d.arena[p].name)
 		}
 	}
-	settleFirstBlank(d.arena, d.orphans)
+	settleFirstBlank(d.arena, &d.orphans)
 	d.resettleKept()
 	return Read[int]{Value: len(targets), Status: status}.at(line, nil)
 }
@@ -12544,7 +12789,7 @@ func (d *Document) refileFolded(folded []int) {
 	}
 	// The first node can have lost the lines above it, and with them the room
 	// for a blank a re-mention left it.
-	settleFirstBlank(d.arena, d.orphans)
+	settleFirstBlank(d.arena, &d.orphans)
 }
 
 // leaveAbove puts lines a remove left above the sibling that followed them.
@@ -12552,6 +12797,23 @@ func (d *Document) leaveAbove(node int, left []lead) {
 	t := d.arena[node].trivMut()
 	t.leading = append(left, t.leading...)
 	restep(t.leading)
+	d.refile(node)
+}
+
+// refile files the lines above a node as a reload files them: a run a blank
+// sets off from it is the one above's. A no-op for a node not in its
+// parent's list, as one a remove is rebuilding.
+func (d *Document) refile(node int) {
+	p := d.arena[node].parent
+	if p < 0 || p >= len(d.arena) {
+		return
+	}
+	for i, c := range d.arena[p].children {
+		if c == node {
+			refilePair(d.arena, p, i)
+			return
+		}
+	}
 }
 
 // leaveLast puts lines a remove left after the last of parent's children: the
@@ -12685,7 +12947,7 @@ func (d *Document) pushComment(idx int, text string) {
 		}
 	}
 	t.leading = append(t.leading, l)
-	settleFirstBlank(d.arena, d.orphans)
+	settleFirstBlank(d.arena, &d.orphans)
 	d.resettleKept()
 }
 
@@ -12778,7 +13040,7 @@ func (d *Document) TryClearComments(path string) Read[int] {
 		}
 	}
 	if cleared > 0 {
-		settleFirstBlank(d.arena, d.orphans)
+		settleFirstBlank(d.arena, &d.orphans)
 		d.resettleKept()
 	}
 	return Read[int]{Value: cleared, Status: Good}.at(line, nil)
@@ -12819,7 +13081,7 @@ func (d *Document) swapBanner(on, v2 bool) int {
 	removed := 0
 	// The first line's comments are the top of the file, on the first node
 	// down, as a dotted line puts them on its last name.
-	var top []int
+	top := []int{root}
 	for n := root; len(d.arena[n].children) > 0; {
 		n = d.arena[n].children[0]
 		top = append(top, n)
@@ -12833,15 +13095,32 @@ func (d *Document) swapBanner(on, v2 bool) int {
 			first = first || t == n
 		}
 		tr := d.arena[n].trivia
-		if (first && !on) || tr == nil {
+		if tr == nil {
 			continue
 		}
 		for _, mark := range marks {
+			// A block set off from the lines around it is filed as the
+			// trailing lines of the field above, or as the lines that open a
+			// block. A blank it leaves is the next line's, which has one.
+			gone, _ := dropBanners(&tr.after, mark, true)
+			removed += gone
+			gone, _ = dropBanners(&tr.head, mark, true)
+			removed += gone
+			if first && !on {
+				continue
+			}
 			gone, blank := dropBanners(&tr.leading, mark, !first)
 			if gone > 0 {
 				removed += gone
 				d.arena[n].blankBefore = d.arena[n].blankBefore || blank
 			}
+		}
+	}
+	// The top of the file set off from the first field is the root's.
+	if tr := d.arena[root].trivia; on && tr != nil {
+		for _, mark := range marks {
+			gone, _ := dropBanners(&tr.head, mark, false)
+			removed += gone
 		}
 	}
 	// A block that already ends the file as this release writes it stays as
@@ -12865,8 +13144,12 @@ func (d *Document) swapBanner(on, v2 bool) int {
 		// format too (2026102309053667).
 		for _, n := range top {
 			if tr := d.arena[n].trivia; tr != nil {
-				for k := range tr.leading {
-					if l := &tr.leading[k]; strings.HasPrefix(l.text, FormatLineHead) && l.text != FormatLine {
+				list := tr.leading
+				if n == root {
+					list = tr.head
+				}
+				for k := range list {
+					if l := &list[k]; strings.HasPrefix(l.text, FormatLineHead) && l.text != FormatLine {
 						l.text, l.line = FormatLine, 0
 					}
 				}
@@ -12881,7 +13164,7 @@ func (d *Document) swapBanner(on, v2 bool) int {
 			d.orphans = append(d.orphans, l)
 		}
 	}
-	settleFirstBlank(d.arena, d.orphans)
+	settleFirstBlank(d.arena, &d.orphans)
 	d.resettleKept()
 	return removed
 }
@@ -13248,13 +13531,22 @@ func (d *Document) Merge(over *Document) {
 	// of the merged text gives the same text. After the first, only what the
 	// overlay brings or visits can be stacked.
 	if !d.bracketed {
+		var moved []int
 		for n := 1; n < len(d.arena); n++ {
+			if t := d.arena[n].trivia; t != nil && (len(t.among) > 0 || len(t.notes) > 0) {
+				moved = append(moved, n)
+			}
 			bracket(&d.arena[n])
+		}
+		// The lines a list's items had are filed as a reload files them.
+		for _, n := range moved {
+			d.refile(n)
 		}
 		d.bracketed = true
 	}
 	var touched []int
 	d.overlay(root, over, root, &touched)
+	d.mergeTop(over)
 	for _, n := range touched {
 		d.settle(n, 1)
 	}
@@ -13311,7 +13603,7 @@ func (d *Document) Merge(over *Document) {
 			}
 		}
 	}
-	settleFirstBlank(d.arena, d.orphans)
+	settleFirstBlank(d.arena, &d.orphans)
 	if fresh {
 		d.settleKept()
 	} else {
@@ -13345,10 +13637,42 @@ func (d *Document) adoptTrivia(base int, over *Document, ok int) {
 	}
 	bt.after = append(bt.after, st.after...)
 	bt.inside = append(bt.inside, st.inside...)
+	bt.head = append(bt.head, st.head...)
 	bt.among = append(bt.among, st.among...)
 	sort.SliceStable(bt.among, func(i, j int) bool { return bt.among[i].before < bt.among[j].before })
 	bt.notes = append(bt.notes, st.notes...)
 	sort.SliceStable(bt.notes, func(i, j int) bool { return bt.notes[i].at < bt.notes[j].at })
+}
+
+// mergeTop: the top of a layer's file joins the top of this one, as its
+// footer joins the footer: a line already here is not written twice. A blank
+// sets it off from the lines above it and the first field.
+func (d *Document) mergeTop(over *Document) {
+	had := len(d.arena[root].head())
+	added := false
+	for _, o := range over.arena[root].head() {
+		t := d.arena[root].trivMut()
+		dup := false
+		for _, e := range t.head[:had] {
+			dup = dup || e.text == o.text && e.depth == o.depth
+		}
+		if dup {
+			continue
+		}
+		if !added {
+			o.blankBefore = had > 0
+		}
+		t.head = append(t.head, o)
+		added = true
+	}
+	if kids := d.arena[root].children; added && len(kids) > 0 {
+		nd := &d.arena[kids[0]]
+		if nd.trivia != nil && len(nd.trivia.leading) > 0 {
+			nd.trivia.leading[0].blankBefore = true
+		} else {
+			nd.blankBefore = true
+		}
+	}
 }
 
 func (d *Document) overlay(baseParent int, over *Document, overParent int, touched *[]int) {
@@ -13428,9 +13752,10 @@ func (d *Document) overlay(baseParent int, over *Document, overParent int, touch
 					nd := &d.arena[b]
 					// The leaf's own comments are the ones a remove would
 					// take: above it those after its last kept line, below
-					// it those before its first. The rest sit with a kept
-					// line beside it and stay. A settled line counts as
-					// the comment a reload reads it as.
+					// it those before its first kept line or blank. The
+					// rest sit with a kept line beside it, or a blank sets
+					// them off, and stay. A settled line counts as the
+					// comment a reload reads it as.
 					leading := nd.leading()
 					above := 0
 					for k := len(leading) - 1; k >= 0; k-- {
@@ -13442,7 +13767,7 @@ func (d *Document) overlay(baseParent int, over *Document, overParent int, touch
 					after := nd.after()
 					below := len(after)
 					for k, l := range after {
-						if !strings.HasPrefix(l.text, "#") {
+						if !strings.HasPrefix(l.text, "#") || l.blankBefore {
 							below = k
 							break
 						}
@@ -13573,6 +13898,7 @@ func cloneTrivia(t *trivia) *trivia {
 		trailing: t.trailing,
 		after:    append([]lead(nil), t.after...),
 		inside:   append([]lead(nil), t.inside...),
+		head:     append([]lead(nil), t.head...),
 		among:    append([]amongLead(nil), t.among...),
 		notes:    append([]itemNote(nil), t.notes...),
 	}

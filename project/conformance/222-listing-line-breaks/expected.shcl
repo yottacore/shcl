@@ -1,0 +1,8 @@
+# Values that hold a line break other than LF, which the CLI listings quote
+srv: "a◉U+2028◉b"
+	port: 1
+srv: "c◉U+2029◉d"
+	port: 2
+srv: "e◉U+0085◉f"
+	port: 3
+tags: ["a◉U+2028◉b", "c◉U+2029◉d", "e◉U+0085◉f", g]

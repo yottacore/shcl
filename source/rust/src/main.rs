@@ -1845,7 +1845,9 @@ fn write_back(doc: &mut Document, file: &str, o: &Opts, read: Option<&str>, keep
 		return 7;
 	}
 	// `read` is the bytes FILE held when the command read it, and None when
-	// this write is creating FILE.
+	// this write is creating FILE. A file removed since the read is written as
+	// a new one, as the library's save and an editor write it (2026110914412379).
+	let read = read.filter(|_| !gone_since_read(file));
 	if let Some(before) = read
 		&& !unchanged_since_read(file, before)
 	{
@@ -1949,6 +1951,11 @@ fn unchanged_since_read(file: &str, before: &str) -> bool {
 			false
 		}
 	}
+}
+
+/// Nothing is at FILE now, so the save writes it as a new file.
+fn gone_since_read(file: &str) -> bool {
+	matches!(std::fs::metadata(file), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
 }
 
 /// The bytes of the regular file at PATH, or Ok(None) when something else is
@@ -3517,6 +3524,14 @@ fn do_init(o: &Opts) -> u8 {
 	}
 }
 
+// The characters a listing quotes as a line break: each one a consumer's
+// line split may break at, and each one `fmt` escapes (2026110613470324).
+// gen-escapes.py: begin
+// Generated from Unicode 18.0 by cicd/utility/gen-escapes.py. Edit the script, not this block.
+#[rustfmt::skip]
+const LINE_BREAKS: [char; 10] = ['\u{A}', '\u{B}', '\u{C}', '\u{D}', '\u{1C}', '\u{1D}', '\u{1E}', '\u{85}', '\u{2028}', '\u{2029}'];
+// gen-escapes.py: end
+
 /// A value in a one-per-line listing. `instances` promises one line per
 /// instance, and a value holding a line break broke that, so a caller splitting
 /// on newlines counted more instances than `count` reports. Only such a value
@@ -3524,7 +3539,7 @@ fn do_init(o: &Opts) -> u8 {
 /// writer's escapes, `"a◉NEWLINE◉b"`, as `init` writes a default. A line break
 /// is never bare in a name either, so `quote_segment` gives exactly that.
 fn one_line(v: &str) -> String {
-	if !v.contains('\n') && !v.contains('\r') {
+	if !v.contains(&LINE_BREAKS[..]) {
 		return v.to_string();
 	}
 	shcl::quote_segment(v)

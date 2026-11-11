@@ -1641,6 +1641,12 @@ typedef struct {
 	   could take them - a header whose children are all commented still owns
 	   those lines. Emitted after the subtree one level deeper than this node. */
 	ShclVecLead inside;
+	/* The comments that open this node's block: above its first child and
+	   set off from it by a blank, so they are the block's, not the child's.
+	   The root's are the top of the file. Emitted after the node's line, one
+	   level deeper. Never a kept line but one the settle wrote as a comment,
+	   since a run stops at one. */
+	ShclVecLead head;
 	/* Kept lines that sat among this node's stacked list elements. They keep
 	   the list stacked on output, so a line fixed by hand is still inside the
 	   list. */
@@ -1841,12 +1847,16 @@ static ShclVecLead triv_leading(const ShclNode *n) { if (n->trivia) return n->tr
 static ShclStr triv_trailing(const ShclNode *n) { return n->trivia ? n->trivia->trailing : s_empty(); }
 static ShclVecLead triv_after(const ShclNode *n) { if (n->trivia) return n->trivia->after; ShclVecLead v; memset(&v, 0, sizeof v); return v; }
 static ShclVecLead triv_inside(const ShclNode *n) { if (n->trivia) return n->trivia->inside; ShclVecLead v; memset(&v, 0, sizeof v); return v; }
+static ShclVecLead triv_head(const ShclNode *n) { if (n->trivia) return n->trivia->head; ShclVecLead v; memset(&v, 0, sizeof v); return v; }
 static ShclVecAmong triv_among(const ShclNode *n) { if (n->trivia) return n->trivia->among; ShclVecAmong v; memset(&v, 0, sizeof v); return v; }
 static ShclVecNote triv_notes(const ShclNode *n) { if (n->trivia) return n->trivia->notes; ShclVecNote v; memset(&v, 0, sizeof v); return v; }
 static ShclTrivia *triv_mut(ShclArena *a, ShclNode *n) {
 	if (!n->trivia) { n->trivia = (ShclTrivia *)arena_alloc(a, sizeof(ShclTrivia)); memset(n->trivia, 0, sizeof(ShclTrivia)); }
 	return n->trivia;
 }
+
+/* Which trivia list a line sits in. */
+typedef enum { SITE_LEADING, SITE_INSIDE, SITE_AFTER, SITE_AMONG, SITE_ORPHANS, SITE_HEAD } ShclSite;
 
 /* The as-authored name spelling; empty name_src means "same as name". */
 static ShclStr node_authored(const ShclNode *n) { return n->name_src.n ? n->name_src : n->name; }
@@ -1882,6 +1892,15 @@ static void notes_sort(ShclVecNote *v) {
 static void fold_node_into(shcl_doc *d, size_t survivor, size_t loser) { // NOLINT(bugprone-easily-swappable-parameters): survivor first, as in the Rust twin
 	ShclArena *a = &d->arena;
 	ShclVecSize kids = NODE(d, loser).children;
+	/* The lines that opened the loser's block sit right above its first
+	   child, which now follows the survivor's last one. */
+	ShclTrivia *lh = NODE(d, loser).trivia;
+	if (lh && lh->head.len && NODE(d, survivor).children.len) {
+		ShclVecSize *sk = &NODE(d, survivor).children;
+		ShclTrivia *at = triv_mut(a, &NODE(d, sk->data[sk->len - 1]));
+		for (size_t k = 0; k < lh->head.len; k++) ShclVecLead_push(a, &at->after, lh->head.data[k]);
+		lh->head.len = 0;
+	}
 	for (size_t k = 0; k < kids.len; k++) {
 		NODE(d, kids.data[k]).parent = survivor;
 		ShclVecSize_push(a, &NODE(d, survivor).children, kids.data[k]);
@@ -1893,6 +1912,8 @@ static void fold_node_into(shcl_doc *d, size_t survivor, size_t loser) { // NOLI
 		ShclTrivia *st = triv_mut(a, &NODE(d, survivor));
 		for (size_t k = 0; k < lt->leading.len; k++)
 			ShclVecLead_push(a, &st->leading, lt->leading.data[k]);
+		for (size_t k = 0; k < lt->head.len; k++)
+			ShclVecLead_push(a, &st->head, lt->head.data[k]);
 		if (lt->trailing.n) {
 			if (st->trailing.n == 0) st->trailing = lt->trailing;
 			else ShclVecLead_push(a, &st->leading, lead_plain(lt->trailing));
@@ -5207,8 +5228,9 @@ static void adopt(shcl_doc *d, ShclNode *heir, ShclVecLead lines) {
 /* A list after an empty binding of its name cannot be written stacked: its
    bare header would merge into that binding on a reload. It goes in
    brackets, and the lines among its elements and the comments on them go
-   above it, in order, where a reload files what sits there. */
-static void unstack(shcl_doc *d, ShclNode *nd) {
+   above it, in order, where a reload files what sits there. True when it
+   moved any line. */
+static int unstack(shcl_doc *d, ShclNode *nd) {
 	nd->star_list = 0;
 	/* An item the brackets will quote counts as quoted now, as a setter's
 	   does, so a read gives the same answer before the save as after it. */
@@ -5216,7 +5238,7 @@ static void unstack(shcl_doc *d, ShclNode *nd) {
 		for (size_t i = 0; i < nd->value.nels; i++)
 			if (!el_quoted(&nd->value.els[i])) nd->value.els[i].mark = writer_mark(nd->value.els[i].text);
 	ShclTrivia *t = nd->trivia;
-	if (!t) return;
+	if (!t) return 0;
 	ShclArena *a = &d->arena;
 	ShclVecLead orphans = {0};
 	size_t k = 0;
@@ -5229,6 +5251,7 @@ static void unstack(shcl_doc *d, ShclNode *nd) {
 	t->among.len = 0;
 	t->notes.len = 0;
 	adopt(d, nd, orphans);
+	return orphans.len > 0;
 }
 
 /* A merge writes a list in brackets. */
@@ -5318,8 +5341,12 @@ static int settle_fence_trailing(shcl_doc *d, size_t n) {
    costs one pair; it cannot put a fence after an empty binding either, so
    only a full pass looks for one. */
 static void settle_pairs(shcl_doc *d, size_t n, size_t from);
+static void settle_head(shcl_doc *d, size_t n);
 static int settle_block(shcl_doc *d, size_t n, size_t from) {
-	if (!NODE(d, n).children.len) return 0;
+	if (!NODE(d, n).children.len) {
+		settle_head(d, n);
+		return 0;
+	}
 	int joined = from <= 1 && settle_fence_trailing(d, n);
 	settle_pairs(d, n, from);
 	/* A line the pass above moved off an empty binding no longer holds its
@@ -5329,28 +5356,98 @@ static int settle_block(shcl_doc *d, size_t n, size_t from) {
 		settle_pairs(d, n, 1);
 	}
 	/* After the join, which can take the last child. */
+	settle_head(d, n);
 	settle_inside(d, n);
 	return joined;
 }
 
-/* A child's comments at its own level go above the next sibling, from child
-   `from` on. */
-static void settle_pairs(shcl_doc *d, size_t n, size_t from) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
+/* A block with no child left has no first child for its opening lines to sit
+   above, and a reload files them as the lines inside it. The root's go to
+   the footer, in settle_first_blank. */
+static void settle_head(shcl_doc *d, size_t n) {
+	if (n == ROOT || NODE(d, n).children.len) return;
+	ShclTrivia *t = NODE(d, n).trivia;
+	if (!t || !t->head.len) return;
 	ShclArena *a = &d->arena;
-	ShclVecSize *kids = &NODE(d, n).children;
-	for (size_t i = from ? from : 1; i < kids->len; i++) {
-		ShclTrivia *t = NODE(d, kids->data[i - 1]).trivia;
-		if (!t) continue;
-		size_t at = 0;
-		while (at < t->after.len && t->after.data[at].depth != 0) at++;
-		if (at == t->after.len) continue;
-		ShclTrivia *nt = triv_mut(a, &NODE(d, kids->data[i]));
-		ShclVecLead lead = {0};
-		for (size_t k = at; k < t->after.len; k++) ShclVecLead_push(a, &lead, t->after.data[k]);
-		for (size_t k = 0; k < nt->leading.len; k++) ShclVecLead_push(a, &lead, nt->leading.data[k]);
-		nt->leading = lead;
-		t->after.len = at;
+	ShclVecLead ins = {0};
+	for (size_t k = 0; k < t->head.len; k++) ShclVecLead_push(a, &ins, t->head.data[k]);
+	for (size_t k = 0; k < t->inside.len; k++) ShclVecLead_push(a, &ins, t->inside.data[k]);
+	t->inside = ins;
+	t->head.len = 0;
+}
+
+/* How many of a run of lines above a field line are set off from it: the
+   comments before the first kept line, up to the last one a blank sets off
+   from the line below it. Those are the node above's, or the parent's
+   (design.md, Lines an edit takes from their node). comment[i] and above[i]
+   say whether line i is a comment and has a blank above, and blank is the
+   field line's blank. */
+static size_t set_off(size_t n, int blank, const unsigned char *comment, const unsigned char *above) {
+	size_t cut = 0;
+	for (size_t i = 0; i < n; i++) {
+		if (above[i] && i > 0) cut = i;
+		if (!comment[i]) return cut;
 	}
+	if (blank && n > 0) cut = n;
+	return cut;
+}
+
+/* The lines between 2 children are filed as a reload files them, from child
+   `from` on: a child's comments at its own level go above the next sibling,
+   but for a run set off from it by a blank, which stays the child's. The
+   first child does the same with the lines that open the block. */
+static void refile_pair(shcl_doc *d, size_t n, size_t i);
+static void settle_pairs(shcl_doc *d, size_t n, size_t from) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
+	for (size_t i = from <= 1 ? 0 : from; i < NODE(d, n).children.len; i++) refile_pair(d, n, i);
+}
+
+/* settle_pairs() for the lines above child i of n alone: the run is the
+   lines that open the block, or the previous child's trailing lines from the
+   first at its own level, then the child's leading lines. Only lines that
+   change sides move. */
+static void restep(ShclVecLead *v);
+static void refile_pair(shcl_doc *d, size_t n, size_t i) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
+	ShclArena *a = &d->arena;
+	size_t next = NODE(d, n).children.data[i];
+	size_t owner = i == 0 ? n : NODE(d, n).children.data[i - 1];
+	ShclTrivia *ot = NODE(d, owner).trivia;
+	size_t at = 0, plen = 0;
+	if (ot && i == 0) plen = ot->head.len;
+	else if (ot) {
+		while (at < ot->after.len && ot->after.data[at].depth != 0) at++;
+		plen = ot->after.len - at;
+	}
+	ShclVecLead ld = triv_leading(&NODE(d, next));
+	size_t total = plen + ld.len;
+	if (!total) return;
+	/* A kept line the settle wrote as a comment is set off as the comment a
+	   reload reads it as. */
+	unsigned char *comment = (unsigned char *)arena_alloc(&d->scratch, total * 2);
+	unsigned char *above = comment + total;
+	for (size_t k = 0; k < total; k++) {
+		const ShclLead *l = k < plen ? (i == 0 ? &ot->head.data[k] : &ot->after.data[at + k]) : &ld.data[k - plen];
+		comment[k] = l->text.n && l->text.p[0] == '#';
+		above[k] = (unsigned char)l->blank_before;
+	}
+	size_t cut = set_off(total, NODE(d, next).blank_before, comment, above);
+	if (cut == plen) return;
+	ShclTrivia *nt = triv_mut(a, &NODE(d, next));
+	if (cut < plen) {
+		ShclVecLead *list = i == 0 ? &ot->head : &ot->after;
+		ShclVecLead moved = {0};
+		for (size_t k = at + cut; k < list->len; k++) ShclVecLead_push(a, &moved, list->data[k]);
+		for (size_t k = 0; k < nt->leading.len; k++) ShclVecLead_push(a, &moved, nt->leading.data[k]);
+		list->len = at + cut;
+		nt->leading = moved;
+		return;
+	}
+	ot = triv_mut(a, &NODE(d, owner));
+	ShclVecLead *list = i == 0 ? &ot->head : &ot->after;
+	size_t up = cut - plen;
+	for (size_t k = 0; k < up; k++) ShclVecLead_push(a, list, nt->leading.data[k]);
+	memmove(nt->leading.data, nt->leading.data + up, (nt->leading.len - up) * sizeof(ShclLead));
+	nt->leading.len -= up;
+	restep(&nt->leading);
 }
 
 /* The emitter drops a blank before the first thing it prints, so a document
@@ -5362,13 +5459,60 @@ static void refile_folded(shcl_doc *d, ShclVecSize *folded);
 static void resettle_kept(shcl_doc *d);
 static void settle_first_blank(shcl_doc *d) {
 	ShclVecSize kids = NODE(d, ROOT).children;
-	if (kids.len) {
+	/* The lines at the ends are filed as a reload files them first: the last
+	   top-level field's trailing lines at its own level, and the top of the
+	   file with no field under it, are the footer. */
+	size_t last = kids.len ? kids.data[kids.len - 1] : ROOT;
+	ShclTrivia *lt = NODE(d, last).trivia;
+	if (lt) {
+		ShclVecLead *list = last == ROOT ? &lt->head : &lt->after;
+		size_t at = 0;
+		if (last != ROOT)
+			while (at < list->len && list->data[at].depth != 0) at++;
+		if (at < list->len) {
+			ShclVecLead moved = {0};
+			for (size_t k = at; k < list->len; k++) ShclVecLead_push(&d->arena, &moved, list->data[k]);
+			for (size_t k = 0; k < d->orphans.len; k++) ShclVecLead_push(&d->arena, &moved, d->orphans.data[k]);
+			d->orphans = moved;
+			list->len = at;
+		}
+	}
+	ShclTrivia *rt = NODE(d, ROOT).trivia;
+	if (rt && rt->head.len) {
+		rt->head.data[0].blank_before = 0;
+	} else if (kids.len) {
 		ShclNode *n = &NODE(d, kids.data[0]);
 		if (n->trivia && n->trivia->leading.len) n->trivia->leading.data[0].blank_before = 0;
 		else n->blank_before = 0;
 	} else if (d->orphans.len) {
 		d->orphans.data[0].blank_before = 0;
 	}
+}
+
+/* The lines above a node filed as a reload files them: a run a blank sets
+   off from it is the one above's. A no-op for a node not in its parent's
+   list, as one a remove is rebuilding. */
+static void refile(shcl_doc *d, size_t node) {
+	size_t p = NODE(d, node).parent;
+	if (p >= d->nodes.len) return;
+	const ShclVecSize *kids = &NODE(d, p).children;
+	for (size_t i = 0; i < kids->len; i++)
+		if (kids->data[i] == node) { refile_pair(d, p, i); return; }
+}
+
+/* The lines between every 2 children filed again as a reload files them,
+   once the settle wrote kept lines as comments, which a run a blank sets off
+   can now take in. */
+static void refile_all(shcl_doc *d) {
+	ShclVecSize stack = {0};
+	ShclVecSize_push(&d->scratch, &stack, ROOT);
+	while (stack.len) {
+		size_t n = stack.data[--stack.len];
+		settle_pairs(d, n, 0);
+		const ShclVecSize *kids = &NODE(d, n).children;
+		for (size_t k = 0; k < kids->len; k++) ShclVecSize_push(&d->scratch, &stack, kids->data[k]);
+	}
+	settle_first_blank(d);
 }
 
 /* A value that mutates after its sibling group was keyed - an empty field
@@ -6164,13 +6308,14 @@ static size_t head_of(ShclParser *P, size_t node, size_t nsegs) { // NOLINT(bugp
 	return node;
 }
 
-/* The first count pending lines become the node's leading lines, or the lines
-   inside its block, after its children. */
-static void give_pending(ShclParser *P, size_t node, ShclStr indent, size_t count, int inside) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
+/* The first count pending lines become the node's leading lines, the lines
+   inside its block after its children, its trailing lines, or the lines that
+   open its block. */
+static void give_pending(ShclParser *P, size_t node, ShclStr indent, size_t count, ShclSite site) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	if (!count) return;
 	ShclArena *a = &P->d->arena;
 	ShclTrivia *t = triv_mut(a, &NODE(P->d, node));
-	ShclVecLead *list = inside ? &t->inside : &t->leading;
+	ShclVecLead *list = site == SITE_INSIDE ? &t->inside : site == SITE_AFTER ? &t->after : site == SITE_HEAD ? &t->head : &t->leading;
 	P->depth_chain.len = 0;
 	P->held_chain.len = 0;
 	for (size_t j = 0; j < count; j++) {
@@ -6181,6 +6326,40 @@ static void give_pending(ShclParser *P, size_t node, ShclStr indent, size_t coun
 	P->pending.len -= count;
 	for (size_t j = 0; j < P->pend_marks.len; j++) P->pend_marks.data[j].end = P->pend_marks.data[j].end > count ? P->pend_marks.data[j].end - count : 0;
 	for (size_t j = 0; j < P->lazies.len; j++) P->lazies.data[j].pend = P->lazies.data[j].pend > count ? P->lazies.data[j].pend - count : 0;
+}
+
+/* The pending comments a blank sets off from the field line that just bound
+   node go to the node written above it, as its trailing lines, or with none,
+   to its parent as the lines that open its block. A dotted line is written as
+   its last name, so that name's place decides. A line that joined an earlier
+   node is written after the parent's last child. */
+static void give_set_off(ShclParser *P, size_t node, size_t line, ShclStr indent, int blank) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
+	size_t n = P->pending.len;
+	if (!n) return;
+	unsigned char *comment = (unsigned char *)arena_alloc(P->tmp, n * 2);
+	unsigned char *above = comment + n;
+	for (size_t k = 0; k < n; k++) {
+		const ShclPend *pn = &P->pending.data[k];
+		comment[k] = pn->text.n && pn->text.p[0] == '#';
+		above[k] = (unsigned char)pn->blank_before;
+	}
+	size_t cut = set_off(n, blank, comment, above);
+	if (!cut) return;
+	shcl_doc *d = P->d;
+	size_t parent = NODE(d, node).parent;
+	const ShclVecSize *kids = &NODE(d, parent).children;
+	size_t up = NIL;
+	if (NODE(d, node).line == line) {
+		for (size_t k = kids->len; k-- > 0;)
+			if (kids->data[k] == node) {
+				if (k > 0) up = kids->data[k - 1];
+				break;
+			}
+	} else if (kids->len) {
+		up = kids->data[kids->len - 1];
+	}
+	if (up != NIL) give_pending(P, up, indent, cut, SITE_AFTER);
+	else give_pending(P, parent, indent, cut, SITE_HEAD);
 }
 
 /* The node a line binds under: a LAZY level, and any LAZY one it sits under,
@@ -6205,7 +6384,7 @@ static size_t open_lazy(ShclParser *P, size_t parent) {
 		if (attach_path(P, node, lz.segs, lz.nsegs, v_empty(), lz.line, lz.indent, &opened)) node = opened;
 		P->stack.data[at].node = node;
 		size_t count = lz.pend < P->pending.len ? lz.pend : P->pending.len;
-		give_pending(P, head_of(P, node, lz.nsegs), lz.indent, count, 0);
+		give_pending(P, head_of(P, node, lz.nsegs), lz.indent, count, SITE_LEADING);
 	}
 	return node;
 }
@@ -6730,7 +6909,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 						else misplaced[off++] = P.pending.data[r];
 					}
 					memcpy(P.pending.data + moved, misplaced, off * sizeof(ShclPend));
-					give_pending(&P, parent, P.stack.data[si - 1].indent, moved, 1);
+					give_pending(&P, parent, P.stack.data[si - 1].indent, moved, SITE_INSIDE);
 				}
 				size_t bnode = bind_block(&P, parent, val, lineno, indent);
 				if (bnode != (size_t)-1) {
@@ -6934,10 +7113,21 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 		   dropped after a last-segment selector records nothing). */
 		uint64_t vkey = celled ? value_hash(&value) : 0;
 		size_t node = 0; /* attach_path fills it; the init quiets gcc's inlining-dependent maybe-uninitialized */
+		/* A line held open by a kept line keeps its lines as built. */
+		int held_open = parent == LAZY;
 		parent = open_lazy(&P, parent);
 		size_t nsegs = scan.segs.len;
 		int arrayed = tok.has_array;
 		if (attach_path(&P, parent, scan.segs.data, scan.segs.len, value, lineno, indent, &node)) {
+			if (!held_open) {
+				/* A kept line before a dotted line goes to its first name,
+				   below, so a run set off from it goes above that name. */
+				size_t at = node;
+				if (nsegs > 1)
+					for (size_t k = 0; k < P.pending.len; k++)
+						if (is_field(P.pending.data[k].text)) { at = head_of(&P, node, nsegs); break; }
+				give_set_off(&P, at, lineno, indent, had_blank);
+			}
 			for (size_t k = 0; celled && unit_named(NODE(d, node).name) && k < tok.nelem; k++) {
 				ShclStr clash;
 				if (unit_clash(P.tmp, NODE(d, node).name, piece_text(P.tmp, &tok.elements[k], rest), &clash)) { p_diag(&P, lineno, SHCL_SEV_HINT, "H005", clash); break; }
@@ -6958,7 +7148,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 			if (nsegs > 1) {
 				size_t kf = P.pending.len;
 				while (kf > 0 && !is_field(P.pending.data[kf - 1].text)) kf--;
-				give_pending(&P, head_of(&P, node, nsegs), indent, kf, 0);
+				give_pending(&P, head_of(&P, node, nsegs), indent, kf, SITE_LEADING);
 			}
 			if (NODE(d, node).line != lineno) ShclVecSize_push(P.tmp, &P.folded, node);
 			attach_trivia(&P, node, indent, comment);
@@ -7812,7 +8002,7 @@ static void w_settle(shcl_doc *d, size_t n, size_t from) {
 static size_t w_new_child(shcl_doc *d, size_t parent, ShclStr name, ShclStr name_src, ShclValue value) {
 	/* A list written stacked would get the child after its elements, which
 	   reloads as E001, so it goes inline. */
-	if (stacks(&NODE(d, parent))) unstack(d, &NODE(d, parent));
+	if (stacks(&NODE(d, parent)) && unstack(d, &NODE(d, parent))) refile(d, parent);
 	ShclArena *a = &d->arena;
 	size_t idx = d->nodes.len;
 	ShclNode n; memset(&n, 0, sizeof n);
@@ -8006,7 +8196,11 @@ static void w_fold_dups_below(shcl_doc *d, size_t start) {
 	while (stack.len) {
 		size_t parent = stack.data[--stack.len];
 		ShclCMap first; memset(&first, 0, sizeof first);
-		ShclVecSize *ch = &NODE(d, parent).children;
+		/* Off the parent while it is rebuilt, as in Rust, so leave_above
+		   finds no place to file at; the settle below files the whole list. */
+		ShclVecSize kids = NODE(d, parent).children;
+		ShclVecSize *ch = &kids;
+		NODE(d, parent).children.len = 0;
 		if (ch->len) cmap_reserve(t, &first, ch->len);
 		size_t w = 0;
 		/* What a folded node leaves, as in w_collapse_dup, for the next node
@@ -8038,6 +8232,7 @@ static void w_fold_dups_below(shcl_doc *d, size_t start) {
 			}
 		}
 		ch->len = w;
+		NODE(d, parent).children = kids;
 		if (left.len) leave_last(d, parent, &left);
 		w_settle(d, parent, 1);
 	}
@@ -8123,8 +8318,6 @@ static size_t w_same_instance(shcl_doc *d, ShclStr path, const ShclValue *v) {
 	return (size_t)-1;
 }
 
-/* Which trivia list a line sits in. */
-typedef enum { SITE_LEADING, SITE_INSIDE, SITE_AFTER, SITE_AMONG, SITE_ORPHANS } ShclSite;
 /* Where a lead sits: its list, the node that list is on, and its place in it. */
 typedef struct { ShclSite site; size_t owner, k; } ShclKeptAt;
 static int comment_out_kept(shcl_doc *d, size_t parent, ShclStr name, ShclStr path, int anchor, ShclKeptAt *first);
@@ -8195,7 +8388,7 @@ static shcl_set_status w_set_marked_as(shcl_doc *d, ShclStr path, ShclValue v, S
 	NODE(d, idx).value = v;
 	NODE(d, idx).src = s_empty(); /* written value has no source spelling */
 	/* No longer the list the lines among its elements sat in. */
-	unstack(d, &NODE(d, idx));
+	if (unstack(d, &NODE(d, idx))) refile(d, idx);
 	NODE(d, idx).star_list = stacked;
 	/* w_place has already done it for a field it created. After the unstack,
 	   so a line of its name from among the items, now above it, is a comment
@@ -8259,11 +8452,11 @@ static void restep(ShclVecLead *v) {
 
 /* What a remove of this node leaves of its lines, by design.md's kept-lines
    table, onto the end of left: the kept lines beside it, with the comments
-   that sit with them. Above it that is everything up to its last kept line,
-   below it everything from its first, so a comment written against the node
-   goes with it. The kept line written in place of its `name:` line goes
-   too. What goes stays on the node, where a fold of two instances still
-   wants it. */
+   that sit with them, and the comments a blank sets off from it below. Above
+   it that is everything up to its last kept line, below it everything from
+   its first kept line or blank, so a comment written against the node goes
+   with it. The kept line written in place of its `name:` line goes too. What
+   goes stays on the node, where a fold of two instances still wants it. */
 static void beside_kept(shcl_doc *d, ShclNode *nd, ShclVecLead *left) {
 	int heads = heads_block(&d->scratch, nd);
 	ShclTrivia *t = nd->trivia;
@@ -8278,7 +8471,7 @@ static void beside_kept(shcl_doc *d, ShclNode *nd, ShclVecLead *left) {
 	}
 	size_t from = t->after.len;
 	for (size_t k = 0; k < t->after.len; k++)
-		if (lead_is_kept_line(&t->after.data[k])) { from = k; break; }
+		if (lead_is_kept_line(&t->after.data[k]) || t->after.data[k].blank_before) { from = k; break; }
 	for (size_t k = from; k < t->after.len; k++) ShclVecLead_push(&d->arena, left, t->after.data[k]);
 	t->after.len = from;
 }
@@ -8321,6 +8514,7 @@ static void leave_above(shcl_doc *d, size_t node, ShclVecLead *left) {
 	t->leading = *left;
 	restep(&t->leading);
 	memset(left, 0, sizeof *left);
+	refile(d, node);
 }
 
 /* The same, as the document's footer. */
@@ -8550,7 +8744,11 @@ shcl_read_usize shcl_try_remove(shcl_doc *d, const char *path, size_t plen) {
 		/* A list written stacked for the fields under it stays stacked: a
 		   remove only takes lines away. */
 		int stacked = stacks(&NODE(d, pn));
-		ShclVecSize *kids = &NODE(d, pn).children;
+		/* Off the parent while it is rebuilt, as in Rust, so leave_above
+		   finds no place to file at; the settle below files the whole list. */
+		ShclVecSize old = NODE(d, pn).children;
+		ShclVecSize *kids = &old;
+		NODE(d, pn).children.len = 0;
 		ShclVecLead left = {0};
 		size_t w = 0;
 		for (size_t k = 0; k < kids->len; k++) {
@@ -8564,10 +8762,14 @@ shcl_read_usize shcl_try_remove(shcl_doc *d, const char *path, size_t plen) {
 			}
 		}
 		kids->len = w;
+		NODE(d, pn).children = old;
 		NODE(d, pn).star_list = NODE(d, pn).star_list || stacked;
 		/* The next merge has a stacked list to put in brackets. */
 		d->bracketed = d->bracketed && !stacked;
 		if (left.len) leave_last(d, pn, &left);
+		/* The lines around what went are filed as a reload files them. */
+		settle_pairs(d, pn, 0);
+		settle_head(d, pn);
 	}
 	/* A field opened only by the lines under it goes with the last of them,
 	   and its own kept line stays where it was (escblock). */
@@ -8579,6 +8781,11 @@ shcl_read_usize shcl_try_remove(shcl_doc *d, const char *path, size_t plen) {
 		size_t pp = NODE(d, pn).parent;
 		ShclTrivia *t = NODE(d, pn).trivia;
 		ShclVecLead left = t->leading;
+		for (size_t k = 0; k < t->head.len; k++) {
+			ShclLead l = t->head.data[k];
+			l.depth++;
+			ShclVecLead_push(&d->arena, &left, l);
+		}
 		for (size_t k = 0; k < t->inside.len; k++) {
 			ShclLead l = t->inside.data[k];
 			l.depth++;
@@ -8586,6 +8793,7 @@ shcl_read_usize shcl_try_remove(shcl_doc *d, const char *path, size_t plen) {
 		}
 		for (size_t k = 0; k < t->after.len; k++) ShclVecLead_push(&d->arena, &left, t->after.data[k]);
 		memset(&t->leading, 0, sizeof t->leading);
+		t->head.len = 0;
 		t->inside.len = 0;
 		t->after.len = 0;
 		if (d->index_built == 1) index_unlink(d, name_key(pp, NODE(d, pn).name), pn);
@@ -8855,6 +9063,7 @@ static size_t swap_banner(shcl_doc *d, int on, int v2) { // NOLINT(bugprone-easi
 	/* The first line's comments are the top of the file, on the first node
 	   down, as a dotted line puts them on its last name. */
 	ShclVecSize top = {0};
+	ShclVecSize_push(t, &top, ROOT);
 	for (size_t n = ROOT; NODE(d, n).children.len;) {
 		n = NODE(d, n).children.data[0];
 		ShclVecSize_push(t, &top, n);
@@ -8866,9 +9075,14 @@ static size_t swap_banner(shcl_doc *d, int on, int v2) { // NOLINT(bugprone-easi
 		for (size_t i = 0; i < NODE(d, n).children.len; i++) ShclVecSize_push(t, &stack, NODE(d, n).children.data[i]);
 		int at_top = 0;
 		for (size_t i = 0; i < top.len && !at_top; i++) at_top = top.data[i] == n;
-		if (at_top && !on) continue;
 		for (size_t k = 0; k < nmarks; k++) {
 			if (!NODE(d, n).trivia) continue;
+			/* A block set off from the lines around it is filed as the trailing
+			   lines of the field above, or as the lines that open a block. A
+			   blank it leaves is the next line's, which has one. */
+			removed += drop_banners(&NODE(d, n).trivia->after, marks[k], 1, &owed);
+			removed += drop_banners(&NODE(d, n).trivia->head, marks[k], 1, &owed);
+			if (at_top && !on) continue;
 			size_t gone = drop_banners(&NODE(d, n).trivia->leading, marks[k], !at_top, &owed);
 			if (gone) {
 				removed += gone;
@@ -8876,6 +9090,9 @@ static size_t swap_banner(shcl_doc *d, int on, int v2) { // NOLINT(bugprone-easi
 			}
 		}
 	}
+	/* The top of the file set off from the first field is the root's. */
+	if (on && NODE(d, ROOT).trivia)
+		for (size_t k = 0; k < nmarks; k++) removed += drop_banners(&NODE(d, ROOT).trivia->head, marks[k], 0, &owed);
 	ShclVecLead *o = &d->orphans;
 	/* A block that already ends the file as this release writes it stays as
 	   it is, and so do the author's lines in it. */
@@ -8890,8 +9107,9 @@ static size_t swap_banner(shcl_doc *d, int on, int v2) { // NOLINT(bugprone-easi
 		   format too (2026102309053667). */
 		for (size_t i = 0; i < top.len; i++) {
 			ShclTrivia *tr = NODE(d, top.data[i]).trivia;
-			for (size_t k = 0; tr && k < tr->leading.len; k++) {
-				ShclLead *l = &tr->leading.data[k];
+			ShclVecLead *list = !tr ? NULL : top.data[i] == ROOT ? &tr->head : &tr->leading;
+			for (size_t k = 0; list && k < list->len; k++) {
+				ShclLead *l = &list->data[k];
 				if (s_starts(l->text, SHCL_FORMAT_LINE_HEAD) && !s_eq(l->text, s_lit(SHCL_FORMAT_LINE))) { l->text = s_lit(SHCL_FORMAT_LINE); l->line = 0; }
 			}
 		}
@@ -9182,6 +9400,7 @@ static ShclTrivia *w_clone_trivia(ShclArena *a, const ShclTrivia *st) {
 	for (size_t i = 0; i < st->leading.len; i++) ShclVecLead_push(a, &nt->leading, lead_copy(a, &st->leading.data[i]));
 	for (size_t i = 0; i < st->after.len; i++) ShclVecLead_push(a, &nt->after, lead_copy(a, &st->after.data[i]));
 	for (size_t i = 0; i < st->inside.len; i++) ShclVecLead_push(a, &nt->inside, lead_copy(a, &st->inside.data[i]));
+	for (size_t i = 0; i < st->head.len; i++) ShclVecLead_push(a, &nt->head, lead_copy(a, &st->head.data[i]));
 	for (size_t i = 0; i < st->among.len; i++) {
 		ShclAmong am; am.before = st->among.data[i].before;
 		am.lead = lead_copy(a, &st->among.data[i].lead);
@@ -9248,6 +9467,34 @@ static size_t w_clone_subtree(shcl_doc *d, const shcl_doc *over, size_t oi, size
 	return root;
 }
 
+/* The top of a layer's file joins the top of this one, as its footer joins
+   the footer: a line already here is not written twice. A blank sets it off
+   from the lines above it and the first field. */
+static void merge_top(shcl_doc *d, const shcl_doc *over) {
+	ShclArena *a = &d->arena;
+	const ShclTrivia *ot = over->nodes.data[ROOT].trivia;
+	if (!ot || !ot->head.len) return;
+	size_t had = triv_head(&NODE(d, ROOT)).len;
+	int added = 0;
+	for (size_t i = 0; i < ot->head.len; i++) {
+		const ShclLead *o = &ot->head.data[i];
+		ShclTrivia *t = triv_mut(a, &NODE(d, ROOT));
+		int dup = 0;
+		for (size_t k = 0; k < had && !dup; k++) dup = s_eq(t->head.data[k].text, o->text) && t->head.data[k].depth == o->depth;
+		if (dup) continue;
+		ShclLead c = lead_copy(a, o);
+		if (!added) c.blank_before = had > 0;
+		ShclVecLead_push(a, &t->head, c);
+		added = 1;
+	}
+	ShclVecSize kids = NODE(d, ROOT).children;
+	if (added && kids.len) {
+		ShclNode *nd = &NODE(d, kids.data[0]);
+		if (nd->trivia && nd->trivia->leading.len) nd->trivia->leading.data[0].blank_before = 1;
+		else nd->blank_before = 1;
+	}
+}
+
 /* A matched instance keeps the base node, so the over side's comments have to
    move onto it or they are lost. Same rule as an in-file merge: leading
    concatenates in layer order, first trailing wins. Text is dup'd into d's
@@ -9267,6 +9514,8 @@ static void adopt_trivia(shcl_doc *d, size_t base, const shcl_doc *over, size_t 
 		ShclVecLead_push(a, &bt->after, lead_moved(a, &st->after.data[i]));
 	for (size_t i = 0; i < st->inside.len; i++)
 		ShclVecLead_push(a, &bt->inside, lead_moved(a, &st->inside.data[i]));
+	for (size_t i = 0; i < st->head.len; i++)
+		ShclVecLead_push(a, &bt->head, lead_moved(a, &st->head.data[i]));
 	for (size_t i = 0; i < st->among.len; i++) {
 		ShclAmong am; am.before = st->among.data[i].before;
 		am.lead = lead_moved(a, &st->among.data[i].lead);
@@ -9395,14 +9644,15 @@ static void w_overlay_level(shcl_doc *d, size_t bp, const shcl_doc *over, size_t
 					if (!bt) continue;
 					/* The leaf's own comments are the ones a remove would
 					   take: above it those after its last kept line, below it
-					   those before its first. The rest sit with a kept line
-					   beside it and stay. A settled line counts as the comment
-					   a reload reads it as. */
+					   those before its first kept line or blank. The rest sit
+					   with a kept line beside it, or a blank sets them off,
+					   and stay. A settled line counts as the comment a reload
+					   reads it as. */
 					size_t above = 0, below = bt->after.len;
 					for (size_t k = bt->leading.len; k > 0; k--)
 						if (!(bt->leading.data[k - 1].text.n && bt->leading.data[k - 1].text.p[0] == '#')) { above = k; break; }
 					for (size_t k = 0; k < bt->after.len; k++)
-						if (!(bt->after.data[k].text.n && bt->after.data[k].text.p[0] == '#')) { below = k; break; }
+						if (!(bt->after.data[k].text.n && bt->after.data[k].text.p[0] == '#') || bt->after.data[k].blank_before) { below = k; break; }
 					for (size_t k = 0; k < above; k++) ShclVecLead_push(t, &kept, bt->leading.data[k]);
 					const ShclVecLead *lists[3] = { &bt->leading, &bt->inside, &bt->after };
 					size_t from[3] = { above, 0, 0 }, to[3] = { bt->leading.len, bt->inside.len, below };
@@ -9568,11 +9818,19 @@ void shcl_merge(shcl_doc *d, const shcl_doc *over) {
 	   the merged text gives the same text. After the first, only what the
 	   overlay brings or visits can be stacked. */
 	if (!d->bracketed) {
-		for (size_t n = 1; n < d->nodes.len; n++) bracket(d, &NODE(d, n));
+		ShclVecSize moved = {0};
+		for (size_t n = 1; n < d->nodes.len; n++) {
+			const ShclTrivia *tr = NODE(d, n).trivia;
+			if (tr && (tr->among.len || tr->notes.len)) ShclVecSize_push(&d->scratch, &moved, n);
+			bracket(d, &NODE(d, n));
+		}
+		/* The lines a list's items had are filed as a reload files them. */
+		for (size_t k = 0; k < moved.len; k++) refile(d, moved.data[k]);
 		d->bracketed = 1;
 	}
 	ShclVecSize touched = {0};
 	w_overlay(d, ROOT, over, ROOT, &touched);
+	merge_top(d, over);
 	for (size_t k = 0; k < touched.len; k++) w_settle(d, touched.data[k], 1);
 	// Layers commonly share a footer; keeping one copy of each keeps a stack
 	// of files from repeating it once per layer. Only the lines already here
@@ -10494,7 +10752,7 @@ static size_t run_under(const ShclVecLead *v, size_t k) {
 static ShclVecLead *leads_mut(shcl_doc *d, ShclSite site, size_t owner) {
 	if (site == SITE_ORPHANS) return &d->orphans;
 	ShclTrivia *t = triv_mut(&d->arena, &NODE(d, owner));
-	return site == SITE_LEADING ? &t->leading : site == SITE_INSIDE ? &t->inside : &t->after;
+	return site == SITE_LEADING ? &t->leading : site == SITE_INSIDE ? &t->inside : site == SITE_HEAD ? &t->head : &t->after;
 }
 
 typedef struct { ShclKeptAt at; const char *code; ShclStr msg; } ShclKeptName;
@@ -10559,7 +10817,7 @@ static int comment_out_kept(shcl_doc *d, size_t parent, ShclStr name, ShclStr pa
    a comment. The lines written under that line go under the field, where a
    reload files them. */
 static size_t w_new_child_under(shcl_doc *d, size_t parent, ShclStr name, ShclStr name_src, ShclValue value, ShclKeptAt at) {
-	if (stacks(&NODE(d, parent))) unstack(d, &NODE(d, parent));
+	if (stacks(&NODE(d, parent)) && unstack(d, &NODE(d, parent))) refile(d, parent);
 	ShclArena *a = &d->arena;
 	ShclVecLead *leads = leads_mut(d, at.site, at.owner);
 	size_t k = at.k, end = k + 1 + run_under(leads, k);
@@ -10867,6 +11125,9 @@ static void emit_tree(shcl_doc *d, ShclEmit *e) {
 			continue;
 		}
 		emit_line(d, s.idx, s.pos, s.depth, s.would_merge, e);
+		/* The comments that open this block, above its first child. */
+		ShclVecLead hd = triv_head(&NODE(d, s.idx));
+		push_leads(d, e, hd.data, hd.len, s.depth + 1, s.idx, SITE_HEAD, 0);
 		/* Under the children, so it pops after them. */
 		s.post = 1;
 		ShclVecEmitStep_push(e->a, &todo, s);
@@ -10973,6 +11234,9 @@ static void emit_line(shcl_doc *d, size_t idx, size_t pos, size_t depth, int wou
 }
 
 static void emit_all(shcl_doc *d, ShclEmit *e) {
+	/* The top of the file, set off from the first field. */
+	ShclVecLead top = triv_head(&NODE(d, ROOT));
+	push_leads(d, e, top.data, top.len, 0, ROOT, SITE_HEAD, 0);
 	emit_tree(d, e);
 	/* Comments that never found a following line re-emit at the end. */
 	emit_near(e, ROOT, 0);
@@ -11013,13 +11277,14 @@ static int settle_kept_once(shcl_doc *d) {
 		if (f->site == SITE_ORPHANS) list = &d->orphans;
 		else {
 			ShclTrivia *t = triv_mut(a, &NODE(d, f->node));
-			list = f->site == SITE_LEADING ? &t->leading : f->site == SITE_INSIDE ? &t->inside : &t->after;
+			list = f->site == SITE_LEADING ? &t->leading : f->site == SITE_INSIDE ? &t->inside : f->site == SITE_HEAD ? &t->head : &t->after;
 		}
 		ShclLead *l = &list->data[f->i];
 		l->text = commented(a, l->text);
 		l->depth = f->depth;
 		l->kept = 1;
 	}
+	if (e.fell.len > among) refile_all(d);
 	/* Out of each list latest first, so a removal leaves the earlier indices
 	   alone, then onto the end of the leading lines in order. */
 	ShclVecLead moved = {0};
@@ -11035,15 +11300,20 @@ static int settle_kept_once(shcl_doc *d) {
 		if (j != (size_t)-1 && e.fell.data[j].node == f->node) continue;
 		size_t depth = 0;
 		for (size_t q = t->leading.len; q-- > 0;) if (!s_starts(t->leading.data[q].text, " ") && !s_starts(t->leading.data[q].text, "\t")) { depth = t->leading.data[q].depth; break; }
+		ShclVecLead lines = {0};
 		for (size_t q = moved.len; q-- > 0;) {
 			ShclLead l = moved.data[q];
 			l.text = commented(a, l.text);
 			l.depth = depth;
 			l.line = 0;
 			l.kept = 1;
-			ShclVecLead_push(a, &t->leading, l);
+			ShclVecLead_push(&d->scratch, &lines, l);
 		}
 		moved.len = 0;
+		/* Right above the line, with its blank above them, as a reload files
+		   them. */
+		adopt(d, &NODE(d, f->node), lines);
+		refile(d, f->node);
 	}
 	/* A line moved above the first list in the file is now the first thing
 	   written, so its blank goes the way the load's did. */
@@ -11077,8 +11347,12 @@ static uint64_t near_sum(const shcl_doc *d) {
 		h = fnv_dec(h, n);
 		h = fnv_dec(h, nd->children.len);
 		if (n == ROOT) {
-			h = fnv_dec(h, d->orphans.len);
-			for (size_t i = 0; i < d->orphans.len; i++) h = lead_sum(h, &d->orphans.data[i]);
+			ShclVecLead top = triv_head(nd);
+			const ShclVecLead *ends[2] = { &d->orphans, &top };
+			for (size_t j = 0; j < 2; j++) {
+				h = fnv_dec(h, ends[j]->len);
+				for (size_t i = 0; i < ends[j]->len; i++) h = lead_sum(h, &ends[j]->data[i]);
+			}
 			continue;
 		}
 		int linked = nd->parent < d->nodes.len && pos < NODE(d, nd->parent).children.len && NODE(d, nd->parent).children.data[pos] == n;
@@ -11087,8 +11361,8 @@ static uint64_t near_sum(const shcl_doc *d) {
 		h = fnv_byte(h, (unsigned char)nd->value.kind);
 		if (nd->value.kind == V_ARRAY) h = fnv_dec(h, nd->value.nels);
 		if (!nd->trivia) { h = fnv_byte(h, 0u); continue; }
-		const ShclVecLead *lists[3] = { &nd->trivia->leading, &nd->trivia->inside, &nd->trivia->after };
-		for (size_t j = 0; j < 3; j++) {
+		const ShclVecLead *lists[4] = { &nd->trivia->leading, &nd->trivia->inside, &nd->trivia->after, &nd->trivia->head };
+		for (size_t j = 0; j < 4; j++) {
 			h = fnv_dec(h, lists[j]->len);
 			for (size_t i = 0; i < lists[j]->len; i++) h = lead_sum(h, &lists[j]->data[i]);
 		}
@@ -11122,8 +11396,8 @@ static int array_kept(ShclArena *t, ShclStr text) {
    line of a field with fields under it, the run's last when heads says so.
    Anywhere else no field binds under it on a reload, so it would bind
    itself. What sat under it goes the same way, since a comment holds no
-   level. */
-static void settle_array_run(shcl_doc *d, ShclVecLead *run, int heads) {
+   level. True when it wrote any. */
+static int settle_array_run(shcl_doc *d, ShclVecLead *run, int heads) {
 	int settled = 0;
 	for (size_t k = 0; k < run->len; k++) {
 		ShclLead *l = &run->data[k];
@@ -11140,14 +11414,16 @@ static void settle_array_run(shcl_doc *d, ShclVecLead *run, int heads) {
 		settled = 1;
 	}
 	if (settled) restep(run);
+	return settled;
 }
 
 /* A kept array line stays kept only while it heads a field with fields under
    it (E028). One a merge or an edit leaves anywhere else would bind on a
    reload, so it is written as a comment, the way the settle writes a
    misplaced line that would read differently. */
-static void settle_arrays(shcl_doc *d) {
-	if (!d->arrays) return;
+/* settle_arrays(), true when it wrote any line as a comment. */
+static int settle_arrays_once(shcl_doc *d) {
+	int any = 0;
 	ShclArena *t = &d->scratch;
 	ShclVecSize stack = {0};
 	for (size_t k = 0; k < NODE(d, ROOT).children.len; k++) ShclVecSize_push(t, &stack, NODE(d, ROOT).children.data[k]);
@@ -11157,26 +11433,32 @@ static void settle_arrays(shcl_doc *d) {
 		int heads = heads_block(t, &NODE(d, n));
 		ShclTrivia *tr = NODE(d, n).trivia;
 		if (!tr) continue;
-		settle_array_run(d, &tr->leading, heads);
+		any |= settle_array_run(d, &tr->leading, heads);
 		/* Among a stacked list's items and after them, an array line is kept
 		   for where it sits (E001), and a reload keeps it again. */
 		if (stacks(&NODE(d, n))) {
-			settle_array_run(d, &tr->after, 0);
+			any |= settle_array_run(d, &tr->after, 0);
 			continue;
 		}
-		settle_array_run(d, &tr->inside, 0);
-		settle_array_run(d, &tr->after, 0);
+		any |= settle_array_run(d, &tr->inside, 0);
+		any |= settle_array_run(d, &tr->after, 0);
 		for (size_t from = 0; from < tr->among.len;) {
 			size_t at = tr->among.data[from].before, to = from;
 			while (to < tr->among.len && tr->among.data[to].before == at) to++;
 			ShclVecLead run = {0};
 			for (size_t k = from; k < to; k++) ShclVecLead_push(t, &run, tr->among.data[k].lead);
-			settle_array_run(d, &run, 0);
+			any |= settle_array_run(d, &run, 0);
 			for (size_t k = 0; k < run.len; k++) tr->among.data[from + k].lead = run.data[k];
 			from = to;
 		}
 	}
-	settle_array_run(d, &d->orphans, 0);
+	any |= settle_array_run(d, &d->orphans, 0);
+	return any;
+}
+
+static void settle_arrays(shcl_doc *d) {
+	if (!d->arrays) return;
+	if (settle_arrays_once(d)) refile_all(d);
 }
 
 static void settle_kept(shcl_doc *d) {
@@ -13914,7 +14196,7 @@ static size_t kept_among(const ShclVecAmong *v) {
 static size_t kept_in_lists(const ShclNode *nd) {
 	const ShclTrivia *t = nd->trivia;
 	if (!t) return 0;
-	return kept_in(&t->leading) + kept_in(&t->after) + kept_in(&t->inside) + kept_among(&t->among);
+	return kept_in(&t->leading) + kept_in(&t->after) + kept_in(&t->inside) + kept_in(&t->head) + kept_among(&t->among);
 }
 
 /* Kept lines in every list of the subtree under the nodes in stack[0..len),
@@ -13962,7 +14244,7 @@ static size_t kept_shortfall(const shcl_doc *d) {
 static size_t kept_taken(shcl_doc *d, size_t node) {
 	const ShclNode *nd = &NODE(d, node);
 	size_t n = 0;
-	if (nd->trivia) n = kept_in(&nd->trivia->inside) + kept_among(&nd->trivia->among);
+	if (nd->trivia) n = kept_in(&nd->trivia->inside) + kept_in(&nd->trivia->head) + kept_among(&nd->trivia->among);
 	if (nd->trivia && heads_block(&d->scratch, nd) && lead_is_kept_line(&nd->trivia->leading.data[nd->trivia->leading.len - 1])) n++;
 	size_t *stack = kept_stack(d);
 	for (size_t k = 0; k < nd->children.len; k++) stack[k] = nd->children.data[k];

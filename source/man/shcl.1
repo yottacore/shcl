@@ -3,7 +3,7 @@
 .\"
 .\" Has no version string on purpose: the release bump touches eight files
 .\" and this is not one of them. Keep it in step with HELP in the four CLIs.
-.TH SHCL 1 2026-11-10 shcl "User Commands"
+.TH SHCL 1 2026-11-11 shcl "User Commands"
 .SH NAME
 shcl \- read, edit, validate and format Simple Hierarchical Config Language files
 .SH SYNOPSIS
@@ -194,10 +194,11 @@ Print the number of instances at
 .B instances
 Print the instance values at
 .IR PATH ,
-one per line. A value holding a line break is printed quoted, with the line
-break as the NEWLINE escape the way
+one per line. A value holding a line break, which is any character Python's
+splitlines() breaks at, such as LF, CR, U+0085 or U+2028, is printed quoted,
+with the escapes
 .B fmt
-writes it, so one instance is always one line. With
+writes, so one instance is always one line. With
 .BR \-\-paths ,
 each line is instead the path that reads that one instance, such as
 .BR shard(0) ,

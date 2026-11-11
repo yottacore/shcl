@@ -935,7 +935,7 @@ class _Trivia:
 	of line. Never part of identity or reads; merged instances concatenate
 	leading, first trailing wins (later ones demote to leading - a canonical
 	line has room for one)."""
-	__slots__ = ("leading", "trailing", "after", "inside", "among", "notes")
+	__slots__ = ("leading", "trailing", "after", "inside", "head", "among", "notes")
 
 	def __init__(self):
 		self.leading = []
@@ -950,6 +950,12 @@ class _Trivia:
 		# still owns those lines. Emitted after the subtree one level deeper
 		# than this node.
 		self.inside = []
+		# The comments that open this node's block: above its first child and
+		# set off from it by a blank, so they are the block's, not the child's.
+		# The root's are the top of the file. Emitted after the node's line,
+		# one level deeper. Never a kept line but one the settle wrote as a
+		# comment, since a run stops at one.
+		self.head = []
 		# Kept lines that sat among this node's stacked list elements, each
 		# with the number of elements before it. They keep the list stacked on
 		# output, so a line fixed by hand is still inside the list.
@@ -1014,6 +1020,10 @@ class _Node:
 		t = self.trivia
 		return t.inside if t is not None else ()
 
+	def head(self):
+		t = self.trivia
+		return t.head if t is not None else ()
+
 	def among(self):
 		t = self.trivia
 		return t.among if t is not None else ()
@@ -1059,12 +1069,19 @@ def _fold_node_into(arena, survivor, loser):
 	arena[loser].children = []
 	for k in kids:
 		arena[k].parent = survivor
-	arena[survivor].children.extend(kids)
+	# The lines that opened the loser's block sit right above its first
+	# child, which now follows the survivor's last one.
+	sk = arena[survivor].children
 	lt = arena[loser].trivia
+	if sk and lt is not None and lt.head:
+		arena[sk[-1]]._triv().after.extend(lt.head)
+		lt.head = []
+	arena[survivor].children.extend(kids)
 	if lt is not None:
 		arena[loser].trivia = None
 		st = arena[survivor]._triv()
 		st.leading.extend(lt.leading)
+		st.head.extend(lt.head)
 		if lt.trailing:
 			if not st.trailing:
 				st.trailing = lt.trailing
@@ -1100,8 +1117,39 @@ def _settle_block(arena, n, start):
 		joined = True
 		_settle_pairs(arena, n, 1)
 	# After the join, which can take the last child.
+	_settle_head(arena, n)
 	_settle_inside(arena, n)
 	return joined
+
+
+def _settle_head(arena, n):
+	"""A block with no child left has no first child for its opening lines to
+	sit above, and a reload files them as the lines inside it. The root's go to
+	the footer, in _settle_first_blank."""
+	if n == _ROOT or arena[n].children:
+		return
+	t = arena[n].trivia
+	if t is not None and t.head:
+		t.inside[:0] = t.head
+		t.head = []
+
+
+def _set_off(n, blank, at):
+	"""How many of a run of lines above a field line are set off from it: the
+	comments before the first kept line, up to the last one a blank sets off
+	from the line below it. Those are the node above's, or the parent's
+	(design.md, Lines an edit takes from their node). at gives each line's
+	(is a comment, has a blank above), and blank is the field line's blank."""
+	cut = 0
+	for i in range(n):
+		comment, above = at(i)
+		if above and i > 0:
+			cut = i
+		if not comment:
+			return cut
+	if blank and n > 0:
+		cut = n
+	return cut
 
 
 def _settle_inside(arena, n):
@@ -1117,19 +1165,51 @@ def _settle_inside(arena, n):
 
 
 def _settle_pairs(arena, n, start):
-	"""A child's comments at its own level go above the next sibling, from
-	child start on."""
-	kids = arena[n].children
-	for i in range(max(start, 1), len(kids)):
-		t = arena[kids[i - 1]].trivia
-		if t is None:
-			continue
-		at = next((k for k, c in enumerate(t.after) if c.depth == 0), None)
-		if at is None:
-			continue
-		nt = arena[kids[i]]._triv()
-		nt.leading[:0] = t.after[at:]
-		del t.after[at:]
+	"""The lines between 2 children are filed as a reload files them, from
+	child start on: a child's comments at its own level go above the next
+	sibling, but for a run set off from it by a blank, which stays the
+	child's. The first child does the same with the lines that open the
+	block."""
+	for i in range(0 if start <= 1 else start, len(arena[n].children)):
+		_refile_pair(arena, n, i)
+
+
+def _refile_pair(arena, n, i):
+	"""_settle_pairs() for the lines above child i of n alone: the run is the
+	lines that open the block, or the previous child's trailing lines from the
+	first at its own level, then the child's leading lines. Only lines that
+	change sides move."""
+	nxt = arena[n].children[i]
+	owner = n if i == 0 else arena[n].children[i - 1]
+	t = arena[owner].trivia
+	at = 0
+	up = []
+	if t is not None:
+		if i == 0:
+			up = t.head
+		else:
+			at = next((k for k, c in enumerate(t.after) if c.depth == 0), len(t.after))
+			up = t.after[at:]
+	plen = len(up)
+	ld = arena[nxt].leading()
+	if plen + len(ld) == 0:
+		return
+	# A kept line the settle wrote as a comment is set off as the comment a
+	# reload reads it as.
+	run = [*up, *ld]
+	cut = _set_off(len(run), arena[nxt].blank_before, lambda k: (run[k].text.startswith("#"), run[k].blank_before))
+	if cut == plen:
+		return
+	ot = arena[owner]._triv()
+	lst = ot.head if i == 0 else ot.after
+	nt = arena[nxt]._triv()
+	if cut < plen:
+		nt.leading = lst[at + cut:] + nt.leading
+		del lst[at + cut:]
+		return
+	lst.extend(nt.leading[:cut - plen])
+	nt.leading = nt.leading[cut - plen:]
+	_restep(nt.leading)
 
 
 def _settle_fence_trailing(arena, n):
@@ -1196,7 +1276,7 @@ def _unstack(nd):
 	"""A list after an empty binding of its name cannot be written stacked: its
 	bare header would merge into that binding on a reload. It goes in brackets,
 	and the lines among its elements and the comments on them go above it, in
-	order, where a reload files what sits there."""
+	order, where a reload files what sits there. True when it moved any line."""
 	nd.star_list = False
 	# An item the brackets will quote counts as quoted now, as a setter's
 	# does, so a read gives the same answer before the save as after it.
@@ -1206,7 +1286,7 @@ def _unstack(nd):
 				el.mark = _writer_mark(el.text)
 	t = nd.trivia
 	if t is None:
-		return
+		return False
 	notes = t.notes
 	k = 0
 	orphans = []
@@ -1220,6 +1300,7 @@ def _unstack(nd):
 	t.among = []
 	t.notes = []
 	_adopt(nd, orphans)
+	return bool(orphans)
 
 
 def _adopt(heir, lines):
@@ -1252,9 +1333,26 @@ def _settle_first_blank(arena, orphans):
 	"""The emitter drops a blank before the first thing it prints, so a document
 	that kept one there would not survive its own canonical form, and a merge or
 	a new first line - where it is no longer first - would place a blank nobody
-	wrote. Clear it wherever output starts."""
+	wrote. Clear it wherever output starts. The lines at the ends are filed as
+	a reload files them first: the last top-level field's trailing lines at its
+	own level, and the top of the file with no field under it, are the
+	footer."""
 	kids = arena[_ROOT].children
-	if kids:
+	last = kids[-1] if kids else _ROOT
+	t = arena[last].trivia
+	if t is not None:
+		if last == _ROOT:
+			lst, at = t.head, 0
+		else:
+			lst = t.after
+			at = next((k for k, c in enumerate(lst) if c.depth == 0), len(lst))
+		if at < len(lst):
+			orphans[:0] = lst[at:]
+			del lst[at:]
+	rt = arena[_ROOT].trivia
+	if rt is not None and rt.head:
+		rt.head[0].blank_before = False
+	elif kids:
 		n = arena[kids[0]]
 		if n.trivia is not None and n.trivia.leading:
 			n.trivia.leading[0].blank_before = False
@@ -4468,7 +4566,7 @@ class _Parser:
 				node = opened
 			self.stack[at] = (self.stack[at][0], node)
 			count = min(pend, len(self.pending))
-			self._give_pending(self._head_of(node, len(segs)), indent, count, False)
+			self._give_pending(self._head_of(node, len(segs)), indent, count, "leading")
 		return node
 
 	def _under_items(self, parent):
@@ -4584,13 +4682,38 @@ class _Parser:
 			head = self.arena[head].parent
 		return head
 
-	def _give_pending(self, node, indent, count, inside):
-		"""The first `count` pending lines become the node's leading lines, or
-		the lines inside its block, after its children."""
+	def _give_set_off(self, node, line, indent, blank):
+		"""The pending comments a blank sets off from the field line that just
+		bound node go to the node written above it, as its trailing lines, or
+		with none, to its parent as the lines that open its block. A dotted
+		line is written as its last name, so that name's place decides. A line
+		that joined an earlier node is written after the parent's last child."""
+		p = self.pending
+		cut = _set_off(len(p), blank, lambda k: (p[k].text.startswith("#"), p[k].blank_before))
+		if cut == 0:
+			return
+		parent = self.arena[node].parent
+		kids = self.arena[parent].children
+		above = None
+		if self.arena[node].line == line:
+			k = next((j for j in range(len(kids) - 1, -1, -1) if kids[j] == node), None)
+			if k is not None and k > 0:
+				above = kids[k - 1]
+		elif kids:
+			above = kids[-1]
+		if above is not None:
+			self._give_pending(above, indent, cut, "after")
+		else:
+			self._give_pending(parent, indent, cut, "head")
+
+	def _give_pending(self, node, indent, count, site):
+		"""The first `count` pending lines become the node's leading lines, the
+		lines inside its block after its children, its trailing lines, or the
+		lines that open its block."""
 		if count == 0:
 			return
 		t = self.arena[node]._triv()
-		target = t.inside if inside else t.leading
+		target = {"inside": t.inside, "after": t.after, "head": t.head}.get(site, t.leading)
 		chain: list[tuple[str, int]] = []
 		held: list[tuple[str, int]] = []
 		for pn in self.pending[:count]:
@@ -5026,7 +5149,7 @@ class _Parser:
 						moved = [p for p in self.pending[:k + 1] if not p.text.startswith((" ", "\t"))]
 						misplaced = [p for p in self.pending[:k + 1] if p.text.startswith((" ", "\t"))]
 						self.pending[:k + 1] = moved + misplaced
-						self._give_pending(parent, base, len(moved), True)
+						self._give_pending(parent, base, len(moved), "inside")
 					node = self._bind_block(parent, value, lineno, indent)
 					if node is not None:
 						self.ends.append((self.arena[node].line, nxt))
@@ -5232,10 +5355,18 @@ class _Parser:
 			# Record only when the bound node holds exactly this line's value
 			# (a merge into an equal-valued node keeps the first line's span;
 			# a value dropped after a last-segment selector records nothing).
+			# A line held open by a kept line keeps its lines as built.
+			held_open = parent == _LAZY
 			parent = self._open_lazy(parent)
 			nsegs = len(segments)
 			node = self._attach_path(parent, segments, value, lineno, indent)
 			if node is not None:
+				if not held_open:
+					# A kept line before a dotted line goes to its first name,
+					# below, so a run set off from it goes above that name.
+					level = nsegs > 1 and any(_is_field(pn.text) for pn in self.pending)
+					at = self._head_of(node, nsegs) if level else node
+					self._give_set_off(at, lineno, indent, had_blank)
 				if src_text is not None and _unit_named(self.arena[node].name):
 					for p in tok.elements:
 						clash = _unit_clash(self.arena[node].name, _piece_text(p, tok.src))
@@ -5266,7 +5397,7 @@ class _Parser:
 				if nsegs > 1:
 					k = next((j for j in range(len(self.pending) - 1, -1, -1) if _is_field(self.pending[j].text)), None)
 					if k is not None:
-						self._give_pending(self._head_of(node, nsegs), indent, k + 1, False)
+						self._give_pending(self._head_of(node, nsegs), indent, k + 1, "leading")
 				if self.arena[node].line != lineno:
 					self.folded.append(node)
 				self._attach_trivia(node, indent, comment)
@@ -5469,7 +5600,8 @@ def _kept_in(leads):
 
 def _kept_in_lists(nd):
 	"""Kept lines in all of one node's trivia lists."""
-	return _kept_in(nd.leading()) + _kept_in(nd.after()) + _kept_in(nd.inside()) + _kept_in(a[1] for a in nd.among())
+	return (_kept_in(nd.leading()) + _kept_in(nd.after()) + _kept_in(nd.inside()) + _kept_in(nd.head())
+		+ _kept_in(a[1] for a in nd.among()))
 
 
 def _restep(leads):
@@ -5551,10 +5683,11 @@ def _place_folded(arena, moves):
 def _beside_kept(nd):
 	"""What a remove of this node leaves of its lines, by design.md's
 	kept-lines table: the kept lines beside it, with the comments that sit
-	with them. Above it that is everything up to its last kept line, below it
-	everything from its first, so a comment written against the node goes
-	with it. The kept line written in place of its `name:` line goes too.
-	What goes stays on the node, where a fold of two instances still wants it."""
+	with them, and the comments a blank sets off from it below. Above it that
+	is everything up to its last kept line, below it everything from its first
+	kept line or blank, so a comment written against the node goes with it.
+	The kept line written in place of its `name:` line goes too. What goes
+	stays on the node, where a fold of two instances still wants it."""
 	heads = _heads_block(nd)
 	t = nd.trivia
 	if t is None:
@@ -5564,7 +5697,7 @@ def _beside_kept(nd):
 	end = next((k + 1 for k in range(last - 1, -1, -1) if left[k].is_kept_line()), 0)
 	t.leading = left[end:]
 	del left[end:]
-	start = next((k for k, c in enumerate(t.after) if c.is_kept_line()), len(t.after))
+	start = next((k for k, c in enumerate(t.after) if c.is_kept_line() or c.blank_before), len(t.after))
 	left.extend(t.after[start:])
 	del t.after[start:]
 	return left
@@ -5609,7 +5742,7 @@ def _settle_array_run(run, heads):
 	the line of a field with fields under it, the run's last when heads says
 	so. Anywhere else no field binds under it on a reload, so it would bind
 	itself. What sat under it goes the same way, since a comment holds no
-	level."""
+	level. True when it wrote any."""
 	settled = False
 	for k, lead in enumerate(run):
 		if not lead.text or lead.text[0] in "# \t" or not _array_kept(lead.text) or (heads and k + 1 == len(run)):
@@ -5623,6 +5756,7 @@ def _settle_array_run(run, heads):
 		settled = True
 	if settled:
 		_restep(run)
+	return settled
 
 
 def _array_kept(text):
@@ -6913,7 +7047,7 @@ class Document:
 		from where the lines sit before the edit, so a remove that drops one
 		beside its target is caught by the gate rather than allowed."""
 		nd = self.arena[node]
-		n = _kept_in(nd.inside()) + _kept_in(a[1] for a in nd.among())
+		n = _kept_in(nd.inside()) + _kept_in(nd.head()) + _kept_in(a[1] for a in nd.among())
 		if _heads_block(nd) and nd.leading()[-1].is_kept_line():
 			n += 1
 		stack = list(nd.children)
@@ -7118,6 +7252,8 @@ class Document:
 		# Explicit stack, children pushed in reverse: the reference handles depths
 		# far past Python's recursion limit, so emit must not recurse.
 		stack: list = []
+		# The top of the file, set off from the first field.
+		_push_leads(self, e, self.arena[_ROOT].head(), 0, (_ROOT, "head", 0))
 		self._emit_children(self.arena[_ROOT].children, 0, stack)
 		while stack:
 			idx, depth, would_merge, pos = stack.pop()
@@ -7132,6 +7268,8 @@ class Document:
 				_push_leads(self, e, nd.after(), depth, (idx, "after", 0))
 				continue
 			self._emit_line(idx, pos, depth, would_merge, e)
+			# The comments that open this block, above its first child.
+			_push_leads(self, e, self.arena[idx].head(), depth + 1, (idx, "head", 0))
 			if e.record or self.arena[idx].after() or self.arena[idx].inside():
 				# The marker sits under the children, so it pops after them.
 				stack.append((idx, depth, None, pos))
@@ -7167,6 +7305,23 @@ class Document:
 		misplaced line that would read differently."""
 		if not self._arrays:
 			return
+		if self._settle_arrays_once():
+			self._refile_all()
+
+	def _refile_all(self):
+		"""The lines between every 2 children filed again as a reload files
+		them, once the settle wrote kept lines as comments, which a run a blank
+		sets off can now take in."""
+		stack = [_ROOT]
+		while stack:
+			n = stack.pop()
+			_settle_pairs(self.arena, n, 0)
+			stack.extend(self.arena[n].children)
+		_settle_first_blank(self.arena, self.orphans)
+
+	def _settle_arrays_once(self):
+		"""_settle_arrays(), True when it wrote any line as a comment."""
+		any_new = False
 		arena = self.arena
 		stack = list(arena[_ROOT].children)
 		while stack:
@@ -7176,23 +7331,23 @@ class Document:
 			t = arena[n].trivia
 			if t is None:
 				continue
-			_settle_array_run(t.leading, heads)
+			any_new = _settle_array_run(t.leading, heads) or any_new
 			# Among a stacked list's items and after them, an array line is
 			# kept for where it sits (E001), and a reload keeps it again.
 			if _stacks(arena[n]):
-				_settle_array_run(t.after, False)
+				any_new = _settle_array_run(t.after, False) or any_new
 				continue
-			_settle_array_run(t.inside, False)
-			_settle_array_run(t.after, False)
+			any_new = _settle_array_run(t.inside, False) or any_new
+			any_new = _settle_array_run(t.after, False) or any_new
 			start = 0
 			while start < len(t.among):
 				at = t.among[start][0]
 				end = start
 				while end < len(t.among) and t.among[end][0] == at:
 					end += 1
-				_settle_array_run([a[1] for a in t.among[start:end]], False)
+				any_new = _settle_array_run([a[1] for a in t.among[start:end]], False) or any_new
 				start = end
-		_settle_array_run(self.orphans, False)
+		return _settle_array_run(self.orphans, False) or any_new
 
 	def _resettle_kept(self):
 		"""After an edit. A kept line binds or not by the lines between it and
@@ -7215,7 +7370,8 @@ class Document:
 		for n, pos in self._kept_near:
 			nd = arena[n]
 			if n == _ROOT:
-				parts.append((n, len(nd.children), tuple((c.depth, c.text) for c in self.orphans)))
+				parts.append((n, len(nd.children), tuple((c.depth, c.text) for c in self.orphans),
+					tuple((c.depth, c.text) for c in nd.head())))
 				continue
 			kids = arena[nd.parent].children if 0 <= nd.parent < len(arena) else ()
 			v = nd.value
@@ -7227,6 +7383,7 @@ class Document:
 					tuple((c.depth, c.text) for c in t.leading),
 					tuple((c.depth, c.text) for c in t.inside),
 					tuple((c.depth, c.text) for c in t.after),
+					tuple((c.depth, c.text) for c in t.head),
 					tuple((b, c.depth, c.text) for b, c in t.among))))
 		return tuple(parts)
 
@@ -7245,11 +7402,13 @@ class Document:
 				lst = self.orphans
 			else:
 				t = self.arena[node]._triv()
-				lst = t.leading if site == "leading" else t.inside if site == "inside" else t.after
+				lst = {"leading": t.leading, "inside": t.inside, "head": t.head}.get(site, t.after)
 			lead = lst[i]
 			lead.text = _commented(lead.text)
 			lead.depth = depth
 			lead.kept = True
+		if any(f[1] != "among" for f in e.fell):
+			self._refile_all()
 		# Out of each list latest first, so a removal leaves the earlier
 		# indices alone, then onto the end of the leading lines in order.
 		moved_any = bool(among)
@@ -7261,13 +7420,17 @@ class Document:
 			if among and among[-1][0] == node:
 				continue
 			depth = next((c.depth for c in reversed(t.leading) if not c.text.startswith((" ", "\t"))), 0)
-			for lead in reversed(moved):
+			lines = list(reversed(moved))
+			for lead in lines:
 				lead.text = _commented(lead.text)
 				lead.depth = depth
 				lead.line = 0
 				lead.kept = True
-				t.leading.append(lead)
 			moved = []
+			# Right above the line, with its blank above them, as a reload
+			# files them.
+			_adopt(self.arena[node], lines)
+			self._refile(node)
 		# A line moved above the first list in the file is now the first
 		# thing written, so its blank goes the way the load's did.
 		if moved_any:
@@ -7863,8 +8026,8 @@ class Document:
 	def _new_child(self, parent, name, name_src, value):
 		# A list written stacked would get the child after its elements, which
 		# reloads as E001, so it goes inline.
-		if _stacks(self.arena[parent]):
-			_unstack(self.arena[parent])
+		if _stacks(self.arena[parent]) and _unstack(self.arena[parent]):
+			self._refile(parent)
 		idx = len(self.arena)
 		node = _Node(name, value, parent, 0, name_src)
 		# Hand-written files separate top-level sections with a blank line;
@@ -8078,7 +8241,8 @@ class Document:
 		self.arena[idx].value = value
 		self.arena[idx].src = None   # written value has no source spelling
 		# No longer the list the lines among its elements sat in.
-		_unstack(self.arena[idx])
+		if _unstack(self.arena[idx]):
+			self._refile(idx)
 		self.arena[idx].star_list = stacked
 		# _place() has already done it for a field it created. After the
 		# unstack, so a line of its name from among the items, now above it,
@@ -8168,14 +8332,14 @@ class Document:
 		if site == "orphans":
 			return self.orphans
 		t = self.arena[owner]._triv()
-		return t.leading if site == "leading" else t.inside if site == "inside" else t.after
+		return {"leading": t.leading, "inside": t.inside, "head": t.head}.get(site, t.after)
 
 	def _new_child_under(self, parent, name, name_src, value, at):
 		"""A new field right under the kept line at `at`, which a setter just
 		wrote as a comment. The lines written under that line go under the
 		field, where a reload files them."""
-		if _stacks(self.arena[parent]):
-			_unstack(self.arena[parent])
+		if _stacks(self.arena[parent]) and _unstack(self.arena[parent]):
+			self._refile(parent)
 		site, owner, k = at
 		leads = self._leads_mut(site, owner)
 		end = k + 1 + _run_under(leads, k)
@@ -8295,6 +8459,9 @@ class Document:
 		while stack:
 			parent = stack.pop()
 			kids = self.arena[parent].children
+			# Off the parent while it is rebuilt, as in Rust, so _leave_above
+			# finds no place to file at; the settle below files the whole list.
+			self.arena[parent].children = []
 			first: dict = {}
 			keep = []
 			# What a folded node leaves, as in _collapse_dup(), for the next
@@ -8414,7 +8581,11 @@ class Document:
 			stacked = _stacks(self.arena[p])
 			keep: list[int] = []
 			left: list[_Lead] = []
-			for c in self.arena[p].children:
+			# Off the parent while it is rebuilt, as in Rust, so _leave_above
+			# finds no place to file at; the settle below files the whole list.
+			old = self.arena[p].children
+			self.arena[p].children = []
+			for c in old:
 				if self.arena[c].parent == _DEAD:
 					self.arena[c].parent = p
 					left.extend(_beside_kept(self.arena[c]))
@@ -8429,6 +8600,9 @@ class Document:
 			self._bracketed = self._bracketed and not stacked
 			if left:
 				self._leave_last(p, left)
+			# The lines around what went are filed as a reload files them.
+			_settle_pairs(self.arena, p, 0)
+			_settle_head(self.arena, p)
 		# A field opened only by the lines under it goes with the last of
 		# them, and its own kept line stays where it was (escblock).
 		open_ = [p for _, p in pairs]
@@ -8440,11 +8614,12 @@ class Document:
 			pp = self.arena[p].parent
 			t = self.arena[p]._triv()
 			left = t.leading
-			for c in t.inside:
+			for c in t.head + t.inside:
 				c.depth += 1
+			left.extend(t.head)
 			left.extend(t.inside)
 			left.extend(t.after)
-			t.leading, t.inside, t.after = [], [], []
+			t.leading, t.head, t.inside, t.after = [], [], [], []
 			if self._index is not None:
 				self._index.unlink(_name_key(pp, self.arena[p].name), p)
 			kids = self.arena[pp].children
@@ -8521,6 +8696,20 @@ class Document:
 		t = self.arena[node]._triv()
 		t.leading = left + t.leading
 		_restep(t.leading)
+		self._refile(node)
+
+	def _refile(self, node: int) -> None:
+		"""The lines above a node filed as a reload files them: a run a blank
+		sets off from it is the one above's. A no-op for a node not in its
+		parent's list, as one a remove is rebuilding."""
+		p = self.arena[node].parent
+		if not 0 <= p < len(self.arena):
+			return
+		kids = self.arena[p].children
+		for i, c in enumerate(kids):
+			if c == node:
+				_refile_pair(self.arena, p, i)
+				return
 
 	def _leave_last(self, parent: int, left: list[_Lead]) -> None:
 		"""Lines a remove left after the last of `parent`'s children: the
@@ -8711,7 +8900,7 @@ class Document:
 		removed = 0
 		# The first line's comments are the top of the file, on the first node
 		# down, as a dotted line puts them on its last name.
-		top = []
+		top = [_ROOT]
 		n = _ROOT
 		while self.arena[n].children:
 			n = self.arena[n].children[0]
@@ -8722,15 +8911,28 @@ class Document:
 			nd = self.arena[n]
 			stack.extend(nd.children)
 			at_top = n in top
-			if at_top and not on:
-				continue
 			for mark in marks:
 				if nd.trivia is None:
+					continue
+				# A block set off from the lines around it is filed as the
+				# trailing lines of the field above, or as the lines that open a
+				# block. A blank it leaves is the next line's, which has one.
+				gone, _, nd.trivia.after = _drop_banners(nd.trivia.after, mark, True)
+				removed += gone
+				gone, _, nd.trivia.head = _drop_banners(nd.trivia.head, mark, True)
+				removed += gone
+				if at_top and not on:
 					continue
 				gone, blank, nd.trivia.leading = _drop_banners(nd.trivia.leading, mark, not at_top)
 				if gone:
 					removed += gone
 					nd.blank_before = nd.blank_before or blank
+		# The top of the file set off from the first field is the root's.
+		rt = self.arena[_ROOT].trivia
+		if on and rt is not None:
+			for mark in marks:
+				gone, _, rt.head = _drop_banners(rt.head, mark, False)
+				removed += gone
 		# A block that already ends the file as this release writes it stays
 		# as it is, and so do the author's lines in it.
 		current = _current_footer(self.orphans) if on else -1
@@ -8748,7 +8950,7 @@ class Document:
 				tr = self.arena[n].trivia
 				if tr is None:
 					continue
-				for c in tr.leading:
+				for c in tr.head if n == _ROOT else tr.leading:
 					if c.text.startswith(FORMAT_LINE_HEAD) and c.text != FORMAT_LINE:
 						c.text, c.line = FORMAT_LINE, 0
 		if on and current < 0:
@@ -9027,10 +9229,19 @@ class Document:
 		# of the merged text gives the same text. After the first, only what the
 		# overlay brings or visits can be stacked.
 		if not self._bracketed:
+			moved: list[int] = []
 			for n in range(1, len(self.arena)):
+				t = self.arena[n].trivia
+				if t is not None and (t.among or t.notes):
+					moved.append(n)
 				_bracket(self.arena[n])
+			# The lines a list's items had are filed as a reload files them.
+			for n in moved:
+				self._refile(n)
 			self._bracketed = True
-		for n in self._overlay(_ROOT, over, _ROOT):
+		touched = self._overlay(_ROOT, over, _ROOT)
+		self._merge_top(over)
+		for n in touched:
 			self._settle(n, 1)
 		# Layers commonly share a footer; keeping one copy of each keeps a
 		# stack of files from repeating it once per layer. Only the lines
@@ -9069,6 +9280,29 @@ class Document:
 	# old shape re-filtered the over side per distinct name and re-scanned
 	# (and re-keyed) the base side per over node - three O(K^2) terms at one
 	# parent, plus a full list rebuild per replaced name.
+	def _merge_top(self, over):
+		"""The top of a layer's file joins the top of this one, as its footer
+		joins the footer: a line already here is not written twice. A blank sets
+		it off from the lines above it and the first field."""
+		had = len(self.arena[_ROOT].head())
+		added = False
+		for o in over.arena[_ROOT].head():
+			t = self.arena[_ROOT]._triv()
+			if any(e.text == o.text and e.depth == o.depth for e in t.head[:had]):
+				continue
+			c = _Lead(o.text, o.blank_before, o.depth, o.line, o.kept)
+			if not added:
+				c.blank_before = had > 0
+			t.head.append(c)
+			added = True
+		kids = self.arena[_ROOT].children
+		if added and kids:
+			nd = self.arena[kids[0]]
+			if nd.trivia is not None and nd.trivia.leading:
+				nd.trivia.leading[0].blank_before = True
+			else:
+				nd.blank_before = True
+
 	def _adopt_trivia(self, base, over, ok):
 		"""A matched instance keeps the base node, so the over side's comments have
 		to move onto it or they are lost. Same rule as an in-file merge: leading
@@ -9087,6 +9321,7 @@ class Document:
 				bt.leading.append(_Lead(st.trailing, False))
 		bt.after.extend(_Lead(c.text, c.blank_before, c.depth, kept=c.kept) for c in st.after)
 		bt.inside.extend(_Lead(c.text, c.blank_before, c.depth, kept=c.kept) for c in st.inside)
+		bt.head.extend(_Lead(c.text, c.blank_before, c.depth, kept=c.kept) for c in st.head)
 		bt.among.extend((pos, _Lead(c.text, c.blank_before, c.depth, kept=c.kept)) for pos, c in st.among)
 		bt.among.sort(key=lambda a: a[0])
 		bt.notes.extend(st.notes)
@@ -9168,13 +9403,14 @@ class Document:
 						nd = self.arena[b]
 						# The leaf's own comments are the ones a remove would
 						# take: above it those after its last kept line, below
-						# it those before its first. The rest sit with a kept
-						# line beside it and stay. A settled line counts as the
-						# comment a reload reads it as.
+						# it those before its first kept line or blank. The rest
+						# sit with a kept line beside it, or a blank sets them
+						# off, and stay. A settled line counts as the comment a
+						# reload reads it as.
 						leading = nd.leading()
 						above = next((k + 1 for k in range(len(leading) - 1, -1, -1) if not leading[k].text.startswith("#")), 0)
 						after = nd.after()
-						below = next((k for k, c in enumerate(after) if not c.text.startswith("#")), len(after))
+						below = next((k for k, c in enumerate(after) if not c.text.startswith("#") or c.blank_before), len(after))
 						kept.extend(_Lead(c.text, c.blank_before, c.depth, c.line, c.kept) for c in leading[:above])
 						lines = [*leading[above:], *(a[1] for a in nd.among()), *after[:below]]
 						kept.extend(_Lead(lead.text, lead.blank_before, lead.depth) for lead in lines if not lead.text.startswith("#"))
@@ -9280,6 +9516,7 @@ class Document:
 			t.trailing = st.trailing
 			t.after = [_Lead(c.text, c.blank_before, c.depth, kept=c.kept) for c in st.after]
 			t.inside = [_Lead(c.text, c.blank_before, c.depth, kept=c.kept) for c in st.inside]
+			t.head = [_Lead(c.text, c.blank_before, c.depth, kept=c.kept) for c in st.head]
 			t.among = [(pos, _Lead(c.text, c.blank_before, c.depth, kept=c.kept)) for pos, c in st.among]
 			t.notes = list(st.notes)
 		node.blank_before = src.blank_before
