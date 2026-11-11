@@ -91,19 +91,24 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Not run: `--backlog-run-quick` with every area (past one call), check-c-compilers (past one call), check-docs, crosscheck.
 		- 20261107, b29w with a short-name TEMP, at `30887e7e` plus the 2 test fixes below: Rust `cargo test` whole (all binaries, `detpn`, `dc42j`, `dekj7`, `save_rewrites_a_read_only_file` included), the C runner whole (`dekkm`, `detpr`, `dc42n`, `dbxm2`), and the veneer smoke (`dekkn`, `detps`) linked static, 3 runs. The dynamic veneer build dies at startup on b29w on dev too, so that build is the box's.
 
-- `install.ps1` refuses pwsh on Linux and macOS
-	- ID: 2026110215285715
-	- Type: Enhancement
-	- Status: Deferred
-	- Priority: Avg
-	- Target version: v4.0.0
-	- Opened: 20261102-152857
-	- Opened by: Code review 20261102 item 15
-	- Problem description: `install.ps1` exits off Windows and points at install.bash. The shared installer rules want it to work wherever PowerShell runs, as silkterm's does. The original item was titled cross-platform, and shell-regress `dc0bt` pins the refusal, but no recorded call covers it.
-	- Question: port it, using install.bash's paths, or record the refusal as decided?
-		- Port it, but v4.
-	- Estimated effort: Avg
-	- Held for v4 (JC, 2026-11-02).
+- `set_literal` cuts a value at an unquoted `#` and returns Ok
+	- ID: 2026111016205700
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-162057
+	- Opened by: tradeclanker and slodworld1 feedback
+	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
+	- Steps to reproduce:
+		- `set_literal("k", "x # y")`, then `read_string("k")`. Then the same with `x#y` and `https://a.b/c#frag`.
+	- Incorrect behavior: each set returns Ok and stores `x`, `x` and `https://a.b/c`. The rest of the text is gone with no status saying so. slodworld1 hit it on free text like `Monitor 35"|3440x1440 #2`, and reads back after every `shcl_set_literal` to fall back to `shcl_set_string`.
+	- Expected behavior: `NotOneValue`, as `a, b` gets, for text whose value would end before its last character.
+	- Reproduced: Yes, 20261110, Python on dev `5626194a`. All 3 cases.
+	- Requirements:
+		- The same refusal in all 4 bindings and the C++ interface.
+		- The setter doc says text with a comment is refused.
+	- Estimated effort: Low
 
 - Removes, folds, merges and the banner toggle hand lines on through `adopt`
 	- ID: 2026110712372281
@@ -193,128 +198,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261110: split for the time cap. Rust with the generator rules and the dump is child 2026111010012269, the cicd tmpfs 2026111010012287, Go 2026111010012304, Python 2026111010012324, C 2026111010012342, and the Windows and macOS box rows 2026111010012360.
 		- 20261110: Rust (2026111010012269), Go (2026111010012304), Python (2026111010012324), C (2026111010012342) and the cicd tmpfs (2026111010012287) are Done. The tmpfs routes on the boxes went to a new child, 2026111010331517. The other 2 children are Queued.
 
-- Filesystem property test: Rust, with the shared generator rules and the case dump
-	- ID: 2026111010012269
-	- Type: Enhancement
-	- Status: Done
-	- Priority: High
-	- Target version: v3.0.0-beta2
-	- Opened: 20261110-100122
-	- Opened by: 2026110616475901's split
-	- Parent ID: 2026110616475901
-	- Problem description: the first part of the parent: the seeded test in Rust, the generator rules the other 3 bindings take, the fixed rows for every Related ID of the parent, the draw guard and the dump.
-	- Requirements: the parent's, for Rust. The test takes its folder from an env var. Windows and macOS rows skip by platform.
-	- Estimated effort: Avg
-	- Actual effort: Avg
-	- Actual fix: `source/rust/tests/fs_property.rs`, its own test binary, over the rules in `project/fs-rules.tsv`. A fixed row per Related ID of the parent, and cases drawn by seed for `SHCL_FS_SECS` (2 when unset) with a floor of 400. The expected answer comes from reading the folder, never the library, and a refused save must leave the whole case tree as it was. `SHCL_FUZZ_DUMP` gets `fs/rust-rows.tsv` and `fs/rust-drawn.tsv`, and `SHCL_FS_SEED` replays one seed.
-	- Decisions:
-		- me, 20261110: the rules are a TSV the 4 runners read, drawn with splitmix64. Every row counts in every platform's draw, so a seed is one case everywhere, and a case that drew a row not for this platform is skipped.
-		- me, 20261110: with no `SHCL_FS_DIR` the cases go under the temp folder, with a `note:` line, so a plain `cargo test` runs them. The pipeline sets it to the tmpfs in 2026111010012287.
-		- me, 20261110: the Windows and macOS rows skip on every platform until 2026111010012360 runs them on their boxes, and the test is ignored on Windows, so the hosted windows job doesn't run code no box tried.
-		- me, 20261110: the oracle judges Changed by the bytes at the save path. The marker through the save spelling and back through the load spelling only says whether the 2 name one file, for the dump and the draw guard, since the bytes rule doesn't need it.
-		- me, 20261110: 2026110313211991 was the CLIs' own check, so it has no library row. Its library twin is the FIFO row, and cli-regress `devy8` holds the CLIs.
-		- me, 20261110: the guard asks for every spelling, event and answer, and both one file and 2. The first 400 seeds always run, so it can't turn red by load.
-	- Verified: on `343334df` the `nodir/..` row of 2026110613470307, its other-folder row, and 2026110613470308's `t.shcl/` and `t.shcl/.` rows fail, and the drawn test fails at seed 0. On `625b3676^` 2026110312163207's link row fails. On `2f38f68b^` the rows of 2026110312163201 (made), 2026110312163202 (unread), 2026110312163207 and 2026110314240418 fail, and the FIFO row hangs until killed. All pass now, and so does a 40 s run. The draw guard fails with the floor cut to 5. Also `cicd.bash --backlog-run-quick rust`, all 5 steps, clippy for the host and windows, rustfmt and `test-ids.py check`.
-		- Rows Rust can't show red: 2026110312163201's absolute row and 2026110314064292 were Go and Python bugs, 2026110314240418 at `0710c634^` was not in Rust, and 2026102910482342 came with the check itself.
-	- Test case: `the_save_checks_hold_on_every_past_path_bug` (`df4bw`) and `the_save_checks_hold_on_drawn_paths_and_events` (`df4bx`).
-	- Branch: `r1110`
-	- Acceptance signoff: Self-closed: the rows went red at the commits before their fixes and pass now, and the gates are green.
-	- Closed: 20261110-101653
-
-- Filesystem property test: a tmpfs made for each cicd run
-	- ID: 2026111010012287
-	- Type: Enhancement
-	- Status: Done
-	- Priority: High
-	- Target version: v3.0.0-beta2
-	- Opened: 20261110-100122
-	- Opened by: 2026110616475901's split
-	- Parent ID: 2026110616475901
-	- Prereq IDs: 2026111010012269
-	- Problem description: the parent's tmpfs routes: the container's tmpfs mount with check-push-gate's fake docker branch, the host's user namespace, the macOS RAM disk, FreeBSD's tmpfs, the Windows temp folder, and the plain folder with a note: line where none works. The run points `SHCL_FS_DIR` at it, and runs each binding's fs tests with `SHCL_FUZZ_DUMP` set and compares their `fs/` dumps over the seeds they share, which is the parent's cross-binding check.
-	- Estimated effort: Avg
-	- Actual effort: Avg
-	- Actual fix: `cicd/utility/fs-property.bash`, a test step of its own, runs each binding's fs tests from config.bash's `FS_PROPERTY_TESTS` with `SHCL_FS_DIR` and `SHCL_FUZZ_DUMP` set. Then it holds each binding's fixed rows to Rust's whole, and its drawn cases over the seeds both ran. The folder is the image's tmpfs, a `--mount` on the stage run named by `SHCL_FS_TMPFS`. On a Linux host it's a tmpfs in a user namespace around each binding's command. Elsewhere it's a plain folder with a `note:` line. The cargo and go test lines skip the fs tests by name, and the 4 binding areas hold the new step. check-push-gate's fake docker takes `--mount`. contributing.md says how it works.
-	- Decisions:
-		- me, 20261110: the namespace maps the caller's uid back after the mount (`unshare --map-user`), so the read-bit cases run as the caller and don't take the root skip. Where that fails the run takes the plain folder, not a root namespace.
-		- me, 20261110: docker's tmpfs root is root's and 775, so the mount adds `tmpfs-mode=1777`. Without it the caller can't write there.
-		- me, 20261110: the macOS RAM disk, FreeBSD's tmpfs and the Windows temp folder went to child 2026111010331517, since only their boxes can run them. Until then those platforms take the plain folder with a `note:` line.
-		- me, 20261110: the fs tests run once, in their own step, so the other test lines skip them (`--skip the_save_checks_hold`, `-skip TestTheSaveChecksHold`). Each binding gets a fresh tmpfs on the host, since the namespace goes with its command.
-	- Verified: in the image, the quick run's step put the cases on `/tmp/shcl-fs`, a tmpfs, and Go agreed with Rust on 3259 drawn cases. On b23 the host route mounted a 256 MB tmpfs as the caller's own uid, with a read-bit file unreadable inside it, and Go agreed with Rust on 5000. check-push-gate `df4cj` fails with the mount line taken out of cicd.bash. shell-regress `df4cq` holds the compare to a differing row and a differing drawn case, a failing binding, a `SHCL_FS_TMPFS` that isn't a tmpfs, and the plain folder when the namespace fails. Also `cicd.bash --backlog-run-quick rust go cicd`, shell-regress, check-push-gate, shellcheck, `test-ids.py check`, markdownlint.
-	- Test case: fs-property `df4ch`, `df4cf`, `df4cg`, check-push-gate `df4cj`, shell-regress `df4cq`.
-	- Branch: `r1110`
-	- Acceptance signoff: Self-closed: each route this item kept ran and was checked, the compare goes red on a differing dump, and the gates are green.
-	- Closed: 20261110-104504
-
-- Filesystem property test: the Go port
-	- ID: 2026111010012304
-	- Type: Enhancement
-	- Status: Done
-	- Priority: High
-	- Target version: v3.0.0-beta2
-	- Opened: 20261110-100123
-	- Opened by: 2026110616475901's split
-	- Parent ID: 2026110616475901
-	- Prereq IDs: 2026111010012269
-	- Problem description: the parent's test in Go, from the generator rules the Rust part set down, with its dump held to Rust's answers by the cross-binding check.
-	- Estimated effort: Avg
-	- Actual effort: Low
-	- Actual fix: `source/go/fs_property_test.go`, function for function with Rust's, with the FIFO call in `fs_property_unix_test.go` and `fs_property_other_test.go`. Its dump goes in `fs/go-rows.tsv` and `fs/go-drawn.tsv`.
-	- Decisions:
-		- me, 20261110: the pipeline's compare of the dumps is in 2026111010012287, with the rest of the cicd part, since it needs the tests run with `SHCL_FUZZ_DUMP` on the tmpfs.
-		- me, 20261110: Go's `os.Remove` also takes an empty folder, so the events remove only what isn't a folder, as Rust's `remove_file` does. Otherwise the 2 trees part and so do the answers.
-	- Verified: Go's dump matches Rust's byte for byte, 16 rows and the first 5000 drawn cases of a 40 s run each. On `343334df` the `nodir/..` and other-folder rows of 2026110613470307 fail. On `2f38f68b` the rows of 2026110312163207, 2026110314064292 and 2026110613470308 (`t.shcl/.`) fail. All pass now. Also `cicd.bash --backlog-run-quick go`, all 5 steps, go vet for the host and windows, staticcheck and gofmt.
-	- Test case: `TestTheSaveChecksHoldOnEveryPastPathBug` (`df4c4`) and `TestTheSaveChecksHoldOnDrawnPathsAndEvents` (`df4c5`).
-	- Branch: `r1110`
-	- Acceptance signoff: Self-closed: the rows went red at the commits before their fixes, pass now, and agree with Rust's case by case.
-	- Closed: 20261110-101653
-
-- Filesystem property test: the Python port
-	- ID: 2026111010012324
-	- Type: Enhancement
-	- Status: Done
-	- Priority: High
-	- Target version: v3.0.0-beta2
-	- Opened: 20261110-100123
-	- Opened by: 2026110616475901's split
-	- Parent ID: 2026110616475901
-	- Prereq IDs: 2026111010012269
-	- Problem description: the parent's test in Python, from the generator rules the Rust part set down, with its dump held to Rust's answers by the cross-binding check.
-	- Estimated effort: Avg
-	- Actual effort: Low
-	- Actual fix: `source/python/tests/fs_property.py`, function for function with Rust's and Go's, a plain script beside `soak.py`. Its line is in config.bash's `FS_PROPERTY_TESTS`, so fs-property.bash runs it on the tmpfs and holds its dump, `fs/python-rows.tsv` and `fs/python-drawn.tsv`, to Rust's. Also in the py_compile build line and mypy's file list.
-	- Decisions:
-		- me, 20261110: a script of its own, not a part of conformance.py, since the pipeline runs it only through fs-property.bash, as cargo and go skip theirs by name. On Windows both tests print SKIP, as Go's skip, until 2026111010012360.
-	- Verified: Python's dump matches Go's byte for byte, 16 rows and the first 5000 drawn cases of a 40 s run each, and the quick run's step had it agree with Rust on 3635. On `343334df` the `nodir/..` and other-folder rows of 2026110613470307 fail. On `2f38f68b` the rows of 2026110312163207, 2026110314064292, and 2026110613470308 (`t.shcl/`, `t.shcl/.`) fail, and the drawn test fails at seed 0. All pass now. Also `cicd.bash --backlog-run-quick python`, shell-regress, ruff, mypy, `test-ids.py check` and codeql-scan.
-	- Test case: `the_save_checks_hold_on_every_past_path_bug` (`df4dk`) and `the_save_checks_hold_on_drawn_paths_and_events` (`df4dm`).
-	- Branch: `r1110`
-	- Acceptance signoff: Self-closed: the rows went red at the commits before their fixes, pass now, and agree with Rust's and Go's case by case.
-	- Closed: 20261110-110830
-
-- Filesystem property test: the C port
-	- ID: 2026111010012342
-	- Type: Enhancement
-	- Status: Done
-	- Priority: High
-	- Target version: v3.0.0-beta2
-	- Opened: 20261110-100123
-	- Opened by: 2026110616475901's split
-	- Parent ID: 2026110616475901
-	- Prereq IDs: 2026111010012269
-	- Problem description: the parent's test in C, from the generator rules the Rust part set down, with its dump held to Rust's answers by the cross-binding check.
-	- Estimated effort: Avg
-	- Actual effort: Low
-	- Actual fix: `source/c/tests/fs_property.c`, function for function with Go's, a plain program beside `soak.c` that takes the rules file as its argument. Its line is in config.bash's `FS_PROPERTY_TESTS`, built with the conformance runner's flags, so fs-property.bash runs it on the tmpfs and holds its dump, `fs/c-rows.tsv` and `fs/c-drawn.tsv`, to Rust's.
-	- Decisions:
-		- me, 20261110: not in the cppcheck line, which covers main.c and conformance.c only, as soak.c, mem_bounds.c and the oom tests aren't. Each file there analyzes all of shcl.h again, which a cold run pays for in tens of minutes. CodeQL takes every file under `source/c/tests/`, so it gets this one.
-		- me, 20261110: on Windows both tests print SKIP, as Go's and Python's do, until 2026111010012360.
-		- me, 20261110: CodeQL's path-injection findings on the case paths (from the rules file) and the dump folder (from `SHCL_FUZZ_DUMP`), and a toctou one in the tree removal, are suppressed at their lines with the reason, since the test's whole job is to work on paths it's handed in its own folder.
-	- Verified: C's dump matches Go's byte for byte, 16 rows and the first 5000 drawn cases of a 40 s run each, and the quick run's step had it agree with Rust on 4604. On `343334df` the `nodir/..` and other-folder rows of 2026110613470307 and 2026110613470308's `t.shcl/` and `t.shcl/.` rows fail, and the drawn test fails at seed 0. On `0710c634^` 2026110314240418's row fails, and passes at `0710c634`. On `625b3676^` and `2f38f68b` 2026110312163207's link row fails, and on `2f38f68b^` the rows test hangs until killed, where Rust's FIFO row hung. All pass now, also under ASan and UBSan. The `2026110312163201-gone` row fails at all of those, since its answer came with 2026110907535001. Also `cicd.bash --backlog-run-quick c`, all 5 steps, shell-regress, `test-ids.py check`, a mingw build of the Windows skip, codeql-scan, and cppcheck with the Lint line's flags over this file.
-	- Test case: `the_save_checks_hold_on_every_past_path_bug` (`df4ep`) and `the_save_checks_hold_on_drawn_paths_and_events` (`df4eq`).
-	- Branch: `r1110`
-	- Acceptance signoff: Self-closed: the rows went red at the commits before their fixes, pass now, and agree with Rust's and Go's case by case.
-	- Closed: 20261110-120236
-
 - Filesystem property test: the Windows and macOS rows on their boxes
 	- ID: 2026111010012360
 	- Type: Enhancement
@@ -389,77 +272,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261110: split in 4. The table and its Rust runner (2026111012160064), the Go, Python and C runners (2026111012160083), and each row watched to fail before its fix (2026111012160102) are done. The fuzz property, with the cross check, is 2026111012160121, still Queued.
 
-- The comment placement table and its Rust runner
-	- ID: 2026111012160064
-	- Type: Enhancement
-	- Status: Done
-	- Priority: High
-	- Target version: v3.0.0-beta2
-	- Opened: 20261110-121600
-	- Opened by: split from 2026110616475903
-	- Parent ID: 2026110616475903
-	- Problem description: the fixed half of 2026110616475903: one row per past placement case, as a before text, an edit and the exact expected text, in one file the conformance suites read.
-	- Requirements: `project/conformance/placement.txt`, read by the Rust conformance runner, with its format in the conformance README.
-	- Estimated effort: Avg
-	- Actual effort: Low
-	- Progress log:
-		- 20261110: placement.txt has 15 rows: 2026110613470311, Code review 20260904 item 18, 20260830 item 19, 20260925b item 2, 20260802 items 8 and 20, 20260901b item 7, 20260923 item 3 (a merge in one go and the same from saved text), the 2 SilkTerm `to_canonical()` items, 2026100307163904, 2026110613470302, 2026100218185700 and 2026092718195400. Each has a before text, ops or merged layers, the canonical text, and the line-keeping save's text where there's no merge. The conformance README has the format.
-	- Decisions:
-		- me, 20261110: a text file with `:: ` section markers, since a row holds several texts with line breaks and tabs, which a TSV row would have to escape. It sits beside the case folders, which every runner and test-ids.py pass over.
-		- me, 20261110: one test ID per runner for the whole table, as a corpus test has, with the failed rows named in its output. An ID per row would need test-ids.py to read the file.
-		- me, 20261110: the 2 banner rows use `banner off`. `banner on` writes the release's links and Legal line, which change every release, and corpus 217 keeps that case.
-		- me, 20261110: corpus 221 stays, since it also covers a list in a block and the merge.
-		- me, 20261110: a dotted line's comment goes inside `db:`, above `host`, in the canonical text, as corpus 153 has it. 20260925b item 2 was about the line-keeping save, and that row's keep text keeps the dotted line.
-		- me, 20261110: the 2026092718195400 row pins its 2026-09-28 call, that a replaced leaf's comments go with it, since it had no fix.
-	- Test case: conformance `placement_table_rows_match` (`df4g0` Rust).
-	- Verified: the 2026110613470311 and 2026110613470302 rows fail on the Rust library at `343334df` and pass now. The 4 conformance suites, the Go tests, clippy, rustfmt, gofmt, go vet, staticcheck, ruff, mypy, the C runner at `-Werror` and under ASan and UBSan with gcc 15, the exhaustive cppcheck line, codeql-scan, check-docs, test-ids, markdownlint.
-	- Branch: `r1110`
-	- Acceptance signoff: Self-closed: the rows fail before their fixes (2026111012160102) and pass now.
-	- Closed: 20261110-122900
-
-- The comment placement table in the Go, Python and C runners
-	- ID: 2026111012160083
-	- Type: Enhancement
-	- Status: Done
-	- Priority: High
-	- Target version: v3.0.0-beta2
-	- Opened: 20261110-121600
-	- Opened by: split from 2026110616475903
-	- Parent ID: 2026110616475903
-	- Problem description: the Rust runner reads 2026110616475903's placement table. The other 3 conformance suites don't yet.
-	- Requirements: the Go, Python and C runners read the same file and check each row as the Rust runner does, by the format in the conformance README.
-	- Estimated effort: Avg
-	- Actual effort: Low
-	- Test case: conformance `placement_table_rows_match` (`df4g2` Go, `df4g3` Python, `df4g4` C).
-	- Verified: all 3 pass. The Go and C runners fail on a row with 2026110613470311's old text, and on a keep text without 2026110613470302's line.
-	- Branch: `r1110`
-	- Acceptance signoff: Self-closed: same rows and checks as the Rust runner.
-	- Closed: 20261110-122900
-
-- Each placement table row watched to fail before its fix
-	- ID: 2026111012160102
-	- Type: Task
-	- Status: Done
-	- Priority: High
-	- Target version: v3.0.0-beta2
-	- Opened: 20261110-121601
-	- Opened by: split from 2026110616475903
-	- Parent ID: 2026110616475903
-	- Problem description: 2026110616475903 asks that each row of its table be seen to fail in a worktree at the commit before that case's fix.
-	- Requirements: for each row, a worktree at the parent of the fix commit, the row run against that library, and the result on the item. A row that passes there is rewritten until it fails, or says why it can't.
-	- Estimated effort: Avg
-	- Actual effort: Low
-	- Progress log:
-		- 20261110: each row fails on the Python library at the commit before its fix and passes at the fix: 20260802 items 8 and 20 at `f1271852`, the 2 SilkTerm rows at `4ed9ed95`, 20260830 item 19 at `e3694990`, 20260901b item 7 at `d7d0b1fc`, 20260904 item 18 at `fc7b6c16`, 20260923 item 3 at `186b2017`, 20260925b item 2 at `921e0748`, 2026100218185700 at `cdc750c3`, 2026100307163904 at `6c00b70d`. 2026110613470311 and 2026110613470302 fail at `343334df` in Python and Rust.
-	- Decisions:
-		- me, 20261110: watched on the Python library, since the calls the rows use are the same there back to August, so one runner reads every commit. Where a fix went in per binding, the commit named is the Python one.
-		- me, 20261110: 20260923-3b passes before its fix, as it should. It's the merge from saved text, and the bug was the one-step merge, 20260923-3, coming out different from it.
-		- me, 20261110: 2026092718195400 had no fix, only a call, so its row has nothing to fail on.
-	- Test case: conformance `placement_table_rows_match` (`df4g0`, `df4g2`, `df4g3`, `df4g4`).
-	- Branch: `r1110`
-	- Acceptance signoff: Self-closed: every row with a fix was seen to fail before it.
-	- Closed: 20261110-122900
-
 - A comment placement property in the fuzz, replayed in all 4 bindings
 	- ID: 2026111012160121
 	- Type: Enhancement
@@ -473,32 +285,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: the property, generators and guard in 2026110616475903's Requirements, in `dd3t9`, `dderx` and the merge step, with the cross check replaying the dumps. Watched to fail on `343334df` with 2026110613470311's case.
 	- Note: the cross check already replays `dderx`'s `kept/` dump through every CLI, so its new shapes reach the other 3 bindings that way. `dd3t9` dumps nothing yet, and a merge has no CLI form, so it isn't dumped.
 	- Estimated effort: High
-
-- Make `children` and `instances` exit 3 on a path that isn't there
-	- ID: 2026110613470323
-	- Type: Enhancement
-	- Status: Done
-	- Priority: High
-	- Target version: v3.0.0-beta2
-	- Opened: 20261106-134703
-	- Opened by: Code review 20261106 item 23
-	- Related IDs: 2026100818140260
-	- Problem description: the CLI exits 0 with no output both for a missing path and for an empty section, so a script can't tell them apart. The library's `read_children` and `read_instances` give `NotFound` for one and `Good` for the other since 2026100818140260, and `get` exits 3 on a miss.
-	- Requirements: exit 3 on `NotFound`, as `get` does. `count` could do the same.
-	- Origin: Confirmed in all 4 CLIs.
-	- Regression test: cli-regress rows for `children` and `instances` on a path that isn't there, exit 3 and the same stderr from all 4 CLIs.
-	- Estimated effort: Low
-	- Decisions:
-		- The message is `cannot list PATH: no field at that path (in FILE)`, shaped like `get`'s miss. It goes to stderr every time, as `get`'s does outside `--default`.
-		- `count` stays at 0 and exit 0. Its 0 already tells a miss from a match, and a script that reads it under `set -e` would break on a 3.
-		- `--json` and `--paths` exit 3 the same way. A wildcard with no slots is a miss, as in the library, and one whose slots are all missing still lists them at 0.
-		- 20261110: cli-regress `dc09s` (`children-missing`) expected exit 0 and now expects 3 with the message.
-	- Swept: the plain, `--paths` and `--json` arms of `instances` and `children` in all 4 CLIs. `count` and `paths` are left as they are. The man page, changelog and UI guide's exit table (already "nothing at the path") say so. Scripts in cicd/ that call either guard the exit.
-	- Verified: the new rows and `dc09s` failed on the old Rust, Go and C CLIs (15 checks) and pass in all 4. cli-regress (666 rows, 3935 checks), crosscheck over the corpus, check-doc-examples, check-docs, test-ids check, lint-report, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, shellcheck, markdownlint.
-	- Branch: `r1110`
-	- Commit: `6be031a6`
-	- Test case: cli-regress `df4hf`, `df4hg`, `df4hh`, `df4hj`, `df4hk`, `df4hm`, and `dc09s`.
-	- Closed: 20261110-131441
 
 - Quote the other line breaks in `instances` and `get --array` output
 	- ID: 2026110613470324
@@ -533,6 +319,27 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Regression test: the `df080` fixture in every runner, with four times the depth under 8 times the time.
 	- Estimated effort: Avg
 
+- A repeat the schema doesn't allow passes Strict, and a near-miss table merges with only a hint
+	- ID: 2026111016205701
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261110-162057
+	- Opened by: tradeclanker and slodworld1 feedback
+	- Related IDs: 2026102911041660
+	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
+	- Steps to reproduce:
+		- `bot:\n\tname: a\n\tname: b\n` through `load_and_validate_with` at Strict, with a schema that declares `bot.name` as a string and no `repeat`.
+		- With no schema, `planet:` twice, each with a `name:` and an `r:` under it.
+	- Incorrect behavior: the first gives only `H001`, and `read_string("bot.name")` is `Multiple`, so a file that passed Strict can't be read. The second gives 0 errors and `count("planet")` 1. The only sign is `H001` on `name`, which nothing shows by default.
+	- Expected behavior: validation refuses a repeat the schema doesn't declare. A table written as repeated plain blocks gets at least a warning.
+	- Reproduced: Yes, 20261110, Python on dev `5626194a`. Both cases.
+	- Requirements:
+		- A `V` error for a repeated field or merged block that the schema doesn't give a `repeat` above 1, in all 4.
+		- Without a schema, a repeated block whose children repeat as bare leaves is a warning, not a hint.
+	- Estimated effort: Avg
+
 - The default run takes over an hour
 	- ID: 2026110215285706
 	- Type: Enhancement
@@ -558,6 +365,118 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Problem description: an array setter writes the bracket form. Only a list already stacked with `- ` items in the file stays stacked.
 	- Requirements:
 		- Allow callers to request the multiline list form for arrays.
+	- Note: 20261110, nemo-anywhere asked for it too.
+
+- `Upgrade` and `migrate` split a backtick value or a call at its commas, and count nothing
+	- ID: 2026111016205702
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Target version: v3.0.0
+	- Opened: 20261110-162057
+	- Opened by: gitniblet and tradeclanker feedback
+	- Related IDs: 2026102911041665, 2026111016205703
+	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
+	- Problem description: ``upgrade("query: `select a, b from t`\n", true)`` gives ``query: ["`select a", "b from t`"]``, and `migrate_unstamped("k: sma(close, 10)\n", true)` gives `k: ["sma(close", "10)"]`. `ambiguous`, `lost` and `errors_left` are all empty, and `from_v2` false does the same. That's how 2.x read them, but nobody means a backtick or a paren cut in half inside an element. gitniblet swaps backtick lines out before the upgrade and puts them back after.
+	- Requirements:
+		- A split that cuts a backtick pair, or a paren or bracket pair, counts as ambiguous, even with `from_v2`, so nothing is written without a look.
+		- The same count in all 4.
+		- Values with no tell, such as a regex holding `, `, stay with 2026102911041665.
+	- Estimated effort: Avg
+
+- `Migration` and `Upgrade` give counts with no line numbers
+	- ID: 2026111016205703
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Target version: v3.0.0
+	- Opened: 20261110-162057
+	- Opened by: slodworld2 feedback
+	- Related IDs: 2026111014552300, 2026111016205702
+	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
+	- Problem description: `migrate_unstamped("vel: [1.5, 2.5]\nnames: [a, b]\n", true)` gives `lost` 2, but the text comes back unchanged and both lines read as arrays. `lost` means 2.x's reading is gone, which the doc says, but a caller can't tell a dropped line from one that now reads another way. `Upgrade.errors_left` already gives lines.
+	- Requirements:
+		- `lost` and `ambiguous` each come with the line numbers they count, in `Migration` and `Upgrade`, in all 4.
+	- Estimated effort: Low
+
+- A program that migrates in memory, or saves through text, gets none of the save's guards
+	- ID: 2026111016205704
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Target version: v3.0.0
+	- Opened: 20261110-162057
+	- Opened by: gitniblet and slodworld2 feedback
+	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
+	- Problem description: a program whose files might be old reads the text, runs `migrate_unstamped`, then `parse`, so the document isn't tied to its path. Its save then has no changed check, no lost-content gate, no newer-format refusal, no atomic rename and no `mode`. gitniblet saves with `to_text_keep_lines` and its own `O_TRUNC` open for that reason. `parse_keep_lines("a: 1\n##    Format   4\n", Standard)`, then `set_int("a", 2)`, gives Ok, and `to_text_keep_lines()` gives the text and true, so gitniblet writes over a file a newer gitniblet wrote. `upgrade_file` is the only call that knows migration, and it rewrites the file at start.
+	- Requirements:
+		- A `load_file` option that migrates in memory and keeps the path, so a later save goes through every guard.
+		- A text call on a document naming a newer major refuses, as the save does with `TooNew`.
+		- The same in all 4 and the C++ interface.
+	- Estimated effort: Avg
+
+- No way to stamp only the Format line
+	- ID: 2026111016205705
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Target version: v3.0.0
+	- Opened: 20261110-162057
+	- Opened by: gitniblet, slodworld1 and slodworld2 feedback
+	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
+	- Problem description: a library save never writes a Format line, and `format_version` on the saved file is none, the same as a 2.x file. A program that follows the `format_version` doc then sends its own files through migrate, where with `from_v2` a quoted `\\` comes back as one backslash. `set_banner` is the only way to stamp, and it writes the whole info block with the Home, Syntax and Legal lines. That puts shcl's copyright and MIT line in an app's user files, and a Syntax link to `v3.0.0-beta1` for good. So gitniblet writes `##    Format   3` by hand on a fresh file and gets the full block on an upgraded one.
+	- Requirements:
+		- A `SaveOptions` stamp choice: none, the Format line alone, or the info block. The same in all 4 and the C++ interface.
+		- `upgrade` and `upgrade_file` take the same choice.
+	- Note: the standing rule that only `init` and a creating `set --write` add the info block isn't touched. This is opt-in, and the Format line alone isn't the block.
+	- Estimated effort: Avg
+
+- Pre-beta, pin-era and beta1 files all say `Format 3`, though their syntax differs
+	- ID: 2026111016205706
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Target version: v3.0.0
+	- Opened: 20261110-162057
+	- Opened by: gitsby and slodworld1 feedback
+	- Related IDs: 2026100115403385, 2026101407100010
+	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
+	- Problem description: beta1 reads gitsby's pin-era `name: "C:\\Bob's\\new"` with every backslash doubled, at Good, with no diagnostic. slodworld1's dev-tree files from `a37aa2ce` read `a, b` as an array, `[#N]` as an index, and `\t` as an escape, and stamp the same line. beta1 reads them another way or loads them with errors, and `upgrade(from_v2)` writes nothing while any error is left. gitsby tells its files apart by mtime. Pre-release files are on their own by 2026100115403385, and 2026101407100010 takes a stamped file with errors as 2.x when the caller says so. A clean file that reads differently is still unseen.
+	- Requirements:
+		- A cut after beta1 that changes what any clean Format 3 line means also changes something a program can read.
+		- A read that gives the info block's Syntax tag, so a program can tell a beta1 file from a later one.
+	- Question: change the stamp for such a cut, or keep Format 3 and rely on the Syntax tag read? v4's goal is no Format 4.
+	- Estimated effort: Avg
+
+- A line the load refused reads `NotFound`, the same as a missing line
+	- ID: 2026111016205707
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Target version: v3.0.0
+	- Opened: 20261110-162057
+	- Opened by: slodworld2 feedback
+	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
+	- Problem description: `state: launch, rising-start` in a Format 3 file loads with `E026`, and `read_string_array("state")` gives `NotFound` with `line` 0. A program that falls back to a default can't warn that it threw the user's setting away.
+	- Requirements:
+		- A read of a path whose only line was refused gives a status of its own, with `line` set to that line, in all 4.
+	- Estimated effort: Avg
+
+- The `_or` getters give the default on a repeat, with no sign
+	- ID: 2026111016205708
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Target version: v3.0.0
+	- Opened: 20261110-162057
+	- Opened by: gitsby feedback
+	- Related IDs: 2026102911041671
+	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
+	- Problem description: `get_string_array_or("account(w).path", None)` is the default when `path:` is given twice, or when 2 `account: w` blocks merge. `read_string_array` says `Multiple`, but the `_or` forms are the easy path, and gitsby took them first.
+	- Requirements:
+		- A read that gives every value across repeats and arrays, in file order.
+		- The `_or` doc says a repeat gives the default, and points to that read.
+	- Estimated effort: Avg
 
 - install.ps1 lists a drop-ins line in the plan for a release that has none
 	- ID: 2026110915493402
@@ -776,6 +695,22 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Accept a `.git` file too, as tukfs-hash's copy does: `[[ -f "${dirPath_GitProj}/.git/HEAD" || -f "${dirPath_GitProj}/.git" ]]`.
 		- The same patch in the canonical copy under the synced tree.
+	- Estimated effort: Low
+
+- Infer reports a null dereference, 2 leaks and 2 dead stores in `shcl.h`
+	- ID: 2026111016205714
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261110-162057
+	- Opened by: slodworld1 feedback
+	- Version and build: `3.0.0-beta1`
+	- Steps to reproduce:
+		- Infer over beta1's `shcl.h`.
+	- Incorrect behavior: a null dereference of `next.data` in `resolve_from`, leaks of arena blocks in `settle_kept_once` and `put_note_text`, and 2 dead stores in `w_place`.
+	- Expected behavior: each site judged, a real one fixed, the rest suppressed at the line with a reason.
+	- Reproduced: No. Read from the code on dev: each `next.data` use in `resolve_from` sits under a `next.len` bound, so that one looks false. The leaks are of blocks still on the arena list.
 	- Estimated effort: Low
 
 - set --write refuses a file deleted during its wait, where the library's save writes it back
@@ -1134,6 +1069,332 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Filed to look at again from a consumer's side, as 2026100115323227 was for `H004`.
 		- Options: a string read of an array with 2 or more elements is `BadType`, or it stays Good and spec.md and the README tell a program reading a one-value setting to check `kind()`.
 	- Estimated effort: Low
+	- Note: 20261110, slodworld1 hit it too. 1.x's `Dell, Inc.` comes back as `[Dell, Inc.]` from `shcl_read_string`.
+
+- A selector body built from a name has no helper to quote it
+	- ID: 2026111016205709
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Target version: v3.0.0
+	- Opened: 20261110-162057
+	- Opened by: gitsby feedback
+	- Related IDs: 2026110217340701
+	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
+	- Problem description: with accounts `7`, `2024` and `Work`, `account(7).email` is `NotFound`, and `account(1).email` gives the `2024` block's email at Good. Only `account("7")` finds account 7. spec.md says a bare number is an index, but `quote_segment` covers field names, not selector bodies, so a caller building paths from names walks into it.
+	- Requirements:
+		- A helper such as `selector_path(field, value)` that quotes a value that would read as an index, in all 4.
+	- Note: the format change itself is 2026110217340701, with v4. This helper doesn't wait on it.
+	- Estimated effort: Low
+
+- `children` repeats a name per instance, and its doc says names come back as stored
+	- ID: 2026111016205710
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Target version: v3.0.0
+	- Opened: 20261110-162057
+	- Opened by: gitniblet and tradeclanker feedback
+	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
+	- Problem description: under 2 `item` instances holding `Name`, `name` and `NAME`, `children("item")` gives `name` 3 times. The doc says "Names come back as stored", which reads as the author's spelling, though names are folded at parse. gitniblet's `Names` has its own dedupe loop.
+	- Requirements:
+		- The `children` doc says names are folded, and points to `authored_name` for the author's spelling. All 4 and the C++ interface.
+		- A distinct-names form, in all 4.
+	- Estimated effort: Low
+
+- `read_authored_name` is empty on a repeated field, and `H001` suggests the folded name
+	- ID: 2026111016205711
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Target version: v3.0.0
+	- Opened: 20261110-162057
+	- Opened by: tradeclanker feedback
+	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
+	- Problem description: for `FastMA: v` twice, `read_authored_name("fastma")` is empty at `Multiple`, so a duplicate-field message can't echo the author's spelling. `H001` suggests `fastma: [v, x]` where the file said `FastMA`.
+	- Requirements:
+		- On a repeat, `read_authored_name` gives the first binding's spelling with status `Multiple`, as merged instances already do.
+		- `H001`'s suggestion uses the author's spelling. Same bytes in all 4.
+	- Estimated effort: Low
+
+- `shcl.h` has no version macro
+	- ID: 2026111016205712
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Target version: v3.0.0
+	- Opened: 20261110-162057
+	- Opened by: nemo-anywhere feedback
+	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
+	- Problem description: only the Syntax link inside `SHCL_GEN_BANNER` names the tag, so code can't check at compile time which release it vendored.
+	- Requirements:
+		- `SHCL_VERSION_MAJOR`, `_MINOR`, `_PATCH` and a `SHCL_VERSION` string in `shcl.h`, held to the Rust crate's version by a check, and the same in `shcl.hpp`.
+	- Estimated effort: Low
+
+- A backup name taken in the same second stops the upgrade
+	- ID: 2026111016205713
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Target version: v3.0.0
+	- Opened: 20261110-162057
+	- Opened by: nemo-anywhere feedback
+	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
+	- Problem description: `write_backup` and `upgrade_file` refuse with backup-taken when the name exists. Names go to the second with no counter, so 2 runs in one second stop the second one. nemo-anywhere has its own `backup_old_format` for this.
+	- Requirements:
+		- A taken name gets a counter, such as `_2`, before the extension. A backup is still never written over. All 4 and the CLIs.
+	- Estimated effort: Low
+
+- Docs leave out what beta1 consumers had to find by probing
+	- ID: 2026111016205715
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Target version: v3.0.0
+	- Opened: 20261110-162057
+	- Opened by: nemo-anywhere, slodworld1 and slodworld2 feedback
+	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
+	- Requirements:
+		- `shcl.h`, next to `SHCL_IMPLEMENTATION`: gcc's `-fanalyzer` doesn't finish on that file without `--param=analyzer-bb-explosion-factor=2`, and it's best defined in a file of its own. nemo-anywhere's analyzer run grew to 67 GB without it.
+		- `shcl.h`'s knobs list names `SHCL_ARENA_MALLOC` for sanitizer builds. slodworld1 asked for that switch, not knowing it's there.
+		- `shcl_paths`'s comment points to `shcl_instance_paths` for indexed paths, and the same in the other 3.
+		- spec.md says names fold case but not `-` and `_`, next to case folding. `day_length` and `day-length` are 2 fields.
+		- spec.md and the `upgrade` docs say 2.x includes 1.x, and that a 1.x file's backup is named `format-v2`.
+		- The next changelog's upgrading notes say C's `SHCL_SET_OK` is 0, so old code testing a setter `!= 0` reads every success as a failure, and that a string read of an array gives its bracket text. The released beta1 section stays as it is.
+	- Estimated effort: Low
+
+- `install.ps1` refuses pwsh on Linux and macOS
+	- ID: 2026110215285715
+	- Type: Enhancement
+	- Status: Deferred
+	- Priority: Avg
+	- Target version: v4.0.0
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 15
+	- Problem description: `install.ps1` exits off Windows and points at install.bash. The shared installer rules want it to work wherever PowerShell runs, as silkterm's does. The original item was titled cross-platform, and shell-regress `dc0bt` pins the refusal, but no recorded call covers it.
+	- Question: port it, using install.bash's paths, or record the refusal as decided?
+		- Port it, but v4.
+	- Estimated effort: Avg
+	- Held for v4 (JC, 2026-11-02).
+
+- Filesystem property test: Rust, with the shared generator rules and the case dump
+	- ID: 2026111010012269
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-100122
+	- Opened by: 2026110616475901's split
+	- Parent ID: 2026110616475901
+	- Problem description: the first part of the parent: the seeded test in Rust, the generator rules the other 3 bindings take, the fixed rows for every Related ID of the parent, the draw guard and the dump.
+	- Requirements: the parent's, for Rust. The test takes its folder from an env var. Windows and macOS rows skip by platform.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Actual fix: `source/rust/tests/fs_property.rs`, its own test binary, over the rules in `project/fs-rules.tsv`. A fixed row per Related ID of the parent, and cases drawn by seed for `SHCL_FS_SECS` (2 when unset) with a floor of 400. The expected answer comes from reading the folder, never the library, and a refused save must leave the whole case tree as it was. `SHCL_FUZZ_DUMP` gets `fs/rust-rows.tsv` and `fs/rust-drawn.tsv`, and `SHCL_FS_SEED` replays one seed.
+	- Decisions:
+		- me, 20261110: the rules are a TSV the 4 runners read, drawn with splitmix64. Every row counts in every platform's draw, so a seed is one case everywhere, and a case that drew a row not for this platform is skipped.
+		- me, 20261110: with no `SHCL_FS_DIR` the cases go under the temp folder, with a `note:` line, so a plain `cargo test` runs them. The pipeline sets it to the tmpfs in 2026111010012287.
+		- me, 20261110: the Windows and macOS rows skip on every platform until 2026111010012360 runs them on their boxes, and the test is ignored on Windows, so the hosted windows job doesn't run code no box tried.
+		- me, 20261110: the oracle judges Changed by the bytes at the save path. The marker through the save spelling and back through the load spelling only says whether the 2 name one file, for the dump and the draw guard, since the bytes rule doesn't need it.
+		- me, 20261110: 2026110313211991 was the CLIs' own check, so it has no library row. Its library twin is the FIFO row, and cli-regress `devy8` holds the CLIs.
+		- me, 20261110: the guard asks for every spelling, event and answer, and both one file and 2. The first 400 seeds always run, so it can't turn red by load.
+	- Verified: on `343334df` the `nodir/..` row of 2026110613470307, its other-folder row, and 2026110613470308's `t.shcl/` and `t.shcl/.` rows fail, and the drawn test fails at seed 0. On `625b3676^` 2026110312163207's link row fails. On `2f38f68b^` the rows of 2026110312163201 (made), 2026110312163202 (unread), 2026110312163207 and 2026110314240418 fail, and the FIFO row hangs until killed. All pass now, and so does a 40 s run. The draw guard fails with the floor cut to 5. Also `cicd.bash --backlog-run-quick rust`, all 5 steps, clippy for the host and windows, rustfmt and `test-ids.py check`.
+		- Rows Rust can't show red: 2026110312163201's absolute row and 2026110314064292 were Go and Python bugs, 2026110314240418 at `0710c634^` was not in Rust, and 2026102910482342 came with the check itself.
+	- Test case: `the_save_checks_hold_on_every_past_path_bug` (`df4bw`) and `the_save_checks_hold_on_drawn_paths_and_events` (`df4bx`).
+	- Branch: `r1110`
+	- Acceptance signoff: Self-closed: the rows went red at the commits before their fixes and pass now, and the gates are green.
+	- Closed: 20261110-101653
+
+- Filesystem property test: a tmpfs made for each cicd run
+	- ID: 2026111010012287
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-100122
+	- Opened by: 2026110616475901's split
+	- Parent ID: 2026110616475901
+	- Prereq IDs: 2026111010012269
+	- Problem description: the parent's tmpfs routes: the container's tmpfs mount with check-push-gate's fake docker branch, the host's user namespace, the macOS RAM disk, FreeBSD's tmpfs, the Windows temp folder, and the plain folder with a note: line where none works. The run points `SHCL_FS_DIR` at it, and runs each binding's fs tests with `SHCL_FUZZ_DUMP` set and compares their `fs/` dumps over the seeds they share, which is the parent's cross-binding check.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Actual fix: `cicd/utility/fs-property.bash`, a test step of its own, runs each binding's fs tests from config.bash's `FS_PROPERTY_TESTS` with `SHCL_FS_DIR` and `SHCL_FUZZ_DUMP` set. Then it holds each binding's fixed rows to Rust's whole, and its drawn cases over the seeds both ran. The folder is the image's tmpfs, a `--mount` on the stage run named by `SHCL_FS_TMPFS`. On a Linux host it's a tmpfs in a user namespace around each binding's command. Elsewhere it's a plain folder with a `note:` line. The cargo and go test lines skip the fs tests by name, and the 4 binding areas hold the new step. check-push-gate's fake docker takes `--mount`. contributing.md says how it works.
+	- Decisions:
+		- me, 20261110: the namespace maps the caller's uid back after the mount (`unshare --map-user`), so the read-bit cases run as the caller and don't take the root skip. Where that fails the run takes the plain folder, not a root namespace.
+		- me, 20261110: docker's tmpfs root is root's and 775, so the mount adds `tmpfs-mode=1777`. Without it the caller can't write there.
+		- me, 20261110: the macOS RAM disk, FreeBSD's tmpfs and the Windows temp folder went to child 2026111010331517, since only their boxes can run them. Until then those platforms take the plain folder with a `note:` line.
+		- me, 20261110: the fs tests run once, in their own step, so the other test lines skip them (`--skip the_save_checks_hold`, `-skip TestTheSaveChecksHold`). Each binding gets a fresh tmpfs on the host, since the namespace goes with its command.
+	- Verified: in the image, the quick run's step put the cases on `/tmp/shcl-fs`, a tmpfs, and Go agreed with Rust on 3259 drawn cases. On b23 the host route mounted a 256 MB tmpfs as the caller's own uid, with a read-bit file unreadable inside it, and Go agreed with Rust on 5000. check-push-gate `df4cj` fails with the mount line taken out of cicd.bash. shell-regress `df4cq` holds the compare to a differing row and a differing drawn case, a failing binding, a `SHCL_FS_TMPFS` that isn't a tmpfs, and the plain folder when the namespace fails. Also `cicd.bash --backlog-run-quick rust go cicd`, shell-regress, check-push-gate, shellcheck, `test-ids.py check`, markdownlint.
+	- Test case: fs-property `df4ch`, `df4cf`, `df4cg`, check-push-gate `df4cj`, shell-regress `df4cq`.
+	- Branch: `r1110`
+	- Acceptance signoff: Self-closed: each route this item kept ran and was checked, the compare goes red on a differing dump, and the gates are green.
+	- Closed: 20261110-104504
+
+- Filesystem property test: the Go port
+	- ID: 2026111010012304
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-100123
+	- Opened by: 2026110616475901's split
+	- Parent ID: 2026110616475901
+	- Prereq IDs: 2026111010012269
+	- Problem description: the parent's test in Go, from the generator rules the Rust part set down, with its dump held to Rust's answers by the cross-binding check.
+	- Estimated effort: Avg
+	- Actual effort: Low
+	- Actual fix: `source/go/fs_property_test.go`, function for function with Rust's, with the FIFO call in `fs_property_unix_test.go` and `fs_property_other_test.go`. Its dump goes in `fs/go-rows.tsv` and `fs/go-drawn.tsv`.
+	- Decisions:
+		- me, 20261110: the pipeline's compare of the dumps is in 2026111010012287, with the rest of the cicd part, since it needs the tests run with `SHCL_FUZZ_DUMP` on the tmpfs.
+		- me, 20261110: Go's `os.Remove` also takes an empty folder, so the events remove only what isn't a folder, as Rust's `remove_file` does. Otherwise the 2 trees part and so do the answers.
+	- Verified: Go's dump matches Rust's byte for byte, 16 rows and the first 5000 drawn cases of a 40 s run each. On `343334df` the `nodir/..` and other-folder rows of 2026110613470307 fail. On `2f38f68b` the rows of 2026110312163207, 2026110314064292 and 2026110613470308 (`t.shcl/.`) fail. All pass now. Also `cicd.bash --backlog-run-quick go`, all 5 steps, go vet for the host and windows, staticcheck and gofmt.
+	- Test case: `TestTheSaveChecksHoldOnEveryPastPathBug` (`df4c4`) and `TestTheSaveChecksHoldOnDrawnPathsAndEvents` (`df4c5`).
+	- Branch: `r1110`
+	- Acceptance signoff: Self-closed: the rows went red at the commits before their fixes, pass now, and agree with Rust's case by case.
+	- Closed: 20261110-101653
+
+- Filesystem property test: the Python port
+	- ID: 2026111010012324
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-100123
+	- Opened by: 2026110616475901's split
+	- Parent ID: 2026110616475901
+	- Prereq IDs: 2026111010012269
+	- Problem description: the parent's test in Python, from the generator rules the Rust part set down, with its dump held to Rust's answers by the cross-binding check.
+	- Estimated effort: Avg
+	- Actual effort: Low
+	- Actual fix: `source/python/tests/fs_property.py`, function for function with Rust's and Go's, a plain script beside `soak.py`. Its line is in config.bash's `FS_PROPERTY_TESTS`, so fs-property.bash runs it on the tmpfs and holds its dump, `fs/python-rows.tsv` and `fs/python-drawn.tsv`, to Rust's. Also in the py_compile build line and mypy's file list.
+	- Decisions:
+		- me, 20261110: a script of its own, not a part of conformance.py, since the pipeline runs it only through fs-property.bash, as cargo and go skip theirs by name. On Windows both tests print SKIP, as Go's skip, until 2026111010012360.
+	- Verified: Python's dump matches Go's byte for byte, 16 rows and the first 5000 drawn cases of a 40 s run each, and the quick run's step had it agree with Rust on 3635. On `343334df` the `nodir/..` and other-folder rows of 2026110613470307 fail. On `2f38f68b` the rows of 2026110312163207, 2026110314064292, and 2026110613470308 (`t.shcl/`, `t.shcl/.`) fail, and the drawn test fails at seed 0. All pass now. Also `cicd.bash --backlog-run-quick python`, shell-regress, ruff, mypy, `test-ids.py check` and codeql-scan.
+	- Test case: `the_save_checks_hold_on_every_past_path_bug` (`df4dk`) and `the_save_checks_hold_on_drawn_paths_and_events` (`df4dm`).
+	- Branch: `r1110`
+	- Acceptance signoff: Self-closed: the rows went red at the commits before their fixes, pass now, and agree with Rust's and Go's case by case.
+	- Closed: 20261110-110830
+
+- Filesystem property test: the C port
+	- ID: 2026111010012342
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-100123
+	- Opened by: 2026110616475901's split
+	- Parent ID: 2026110616475901
+	- Prereq IDs: 2026111010012269
+	- Problem description: the parent's test in C, from the generator rules the Rust part set down, with its dump held to Rust's answers by the cross-binding check.
+	- Estimated effort: Avg
+	- Actual effort: Low
+	- Actual fix: `source/c/tests/fs_property.c`, function for function with Go's, a plain program beside `soak.c` that takes the rules file as its argument. Its line is in config.bash's `FS_PROPERTY_TESTS`, built with the conformance runner's flags, so fs-property.bash runs it on the tmpfs and holds its dump, `fs/c-rows.tsv` and `fs/c-drawn.tsv`, to Rust's.
+	- Decisions:
+		- me, 20261110: not in the cppcheck line, which covers main.c and conformance.c only, as soak.c, mem_bounds.c and the oom tests aren't. Each file there analyzes all of shcl.h again, which a cold run pays for in tens of minutes. CodeQL takes every file under `source/c/tests/`, so it gets this one.
+		- me, 20261110: on Windows both tests print SKIP, as Go's and Python's do, until 2026111010012360.
+		- me, 20261110: CodeQL's path-injection findings on the case paths (from the rules file) and the dump folder (from `SHCL_FUZZ_DUMP`), and a toctou one in the tree removal, are suppressed at their lines with the reason, since the test's whole job is to work on paths it's handed in its own folder.
+	- Verified: C's dump matches Go's byte for byte, 16 rows and the first 5000 drawn cases of a 40 s run each, and the quick run's step had it agree with Rust on 4604. On `343334df` the `nodir/..` and other-folder rows of 2026110613470307 and 2026110613470308's `t.shcl/` and `t.shcl/.` rows fail, and the drawn test fails at seed 0. On `0710c634^` 2026110314240418's row fails, and passes at `0710c634`. On `625b3676^` and `2f38f68b` 2026110312163207's link row fails, and on `2f38f68b^` the rows test hangs until killed, where Rust's FIFO row hung. All pass now, also under ASan and UBSan. The `2026110312163201-gone` row fails at all of those, since its answer came with 2026110907535001. Also `cicd.bash --backlog-run-quick c`, all 5 steps, shell-regress, `test-ids.py check`, a mingw build of the Windows skip, codeql-scan, and cppcheck with the Lint line's flags over this file.
+	- Test case: `the_save_checks_hold_on_every_past_path_bug` (`df4ep`) and `the_save_checks_hold_on_drawn_paths_and_events` (`df4eq`).
+	- Branch: `r1110`
+	- Acceptance signoff: Self-closed: the rows went red at the commits before their fixes, pass now, and agree with Rust's and Go's case by case.
+	- Closed: 20261110-120236
+
+- The comment placement table and its Rust runner
+	- ID: 2026111012160064
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-121600
+	- Opened by: split from 2026110616475903
+	- Parent ID: 2026110616475903
+	- Problem description: the fixed half of 2026110616475903: one row per past placement case, as a before text, an edit and the exact expected text, in one file the conformance suites read.
+	- Requirements: `project/conformance/placement.txt`, read by the Rust conformance runner, with its format in the conformance README.
+	- Estimated effort: Avg
+	- Actual effort: Low
+	- Progress log:
+		- 20261110: placement.txt has 15 rows: 2026110613470311, Code review 20260904 item 18, 20260830 item 19, 20260925b item 2, 20260802 items 8 and 20, 20260901b item 7, 20260923 item 3 (a merge in one go and the same from saved text), the 2 SilkTerm `to_canonical()` items, 2026100307163904, 2026110613470302, 2026100218185700 and 2026092718195400. Each has a before text, ops or merged layers, the canonical text, and the line-keeping save's text where there's no merge. The conformance README has the format.
+	- Decisions:
+		- me, 20261110: a text file with `:: ` section markers, since a row holds several texts with line breaks and tabs, which a TSV row would have to escape. It sits beside the case folders, which every runner and test-ids.py pass over.
+		- me, 20261110: one test ID per runner for the whole table, as a corpus test has, with the failed rows named in its output. An ID per row would need test-ids.py to read the file.
+		- me, 20261110: the 2 banner rows use `banner off`. `banner on` writes the release's links and Legal line, which change every release, and corpus 217 keeps that case.
+		- me, 20261110: corpus 221 stays, since it also covers a list in a block and the merge.
+		- me, 20261110: a dotted line's comment goes inside `db:`, above `host`, in the canonical text, as corpus 153 has it. 20260925b item 2 was about the line-keeping save, and that row's keep text keeps the dotted line.
+		- me, 20261110: the 2026092718195400 row pins its 2026-09-28 call, that a replaced leaf's comments go with it, since it had no fix.
+	- Test case: conformance `placement_table_rows_match` (`df4g0` Rust).
+	- Verified: the 2026110613470311 and 2026110613470302 rows fail on the Rust library at `343334df` and pass now. The 4 conformance suites, the Go tests, clippy, rustfmt, gofmt, go vet, staticcheck, ruff, mypy, the C runner at `-Werror` and under ASan and UBSan with gcc 15, the exhaustive cppcheck line, codeql-scan, check-docs, test-ids, markdownlint.
+	- Branch: `r1110`
+	- Acceptance signoff: Self-closed: the rows fail before their fixes (2026111012160102) and pass now.
+	- Closed: 20261110-122900
+
+- The comment placement table in the Go, Python and C runners
+	- ID: 2026111012160083
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-121600
+	- Opened by: split from 2026110616475903
+	- Parent ID: 2026110616475903
+	- Problem description: the Rust runner reads 2026110616475903's placement table. The other 3 conformance suites don't yet.
+	- Requirements: the Go, Python and C runners read the same file and check each row as the Rust runner does, by the format in the conformance README.
+	- Estimated effort: Avg
+	- Actual effort: Low
+	- Test case: conformance `placement_table_rows_match` (`df4g2` Go, `df4g3` Python, `df4g4` C).
+	- Verified: all 3 pass. The Go and C runners fail on a row with 2026110613470311's old text, and on a keep text without 2026110613470302's line.
+	- Branch: `r1110`
+	- Acceptance signoff: Self-closed: same rows and checks as the Rust runner.
+	- Closed: 20261110-122900
+
+- Each placement table row watched to fail before its fix
+	- ID: 2026111012160102
+	- Type: Task
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261110-121601
+	- Opened by: split from 2026110616475903
+	- Parent ID: 2026110616475903
+	- Problem description: 2026110616475903 asks that each row of its table be seen to fail in a worktree at the commit before that case's fix.
+	- Requirements: for each row, a worktree at the parent of the fix commit, the row run against that library, and the result on the item. A row that passes there is rewritten until it fails, or says why it can't.
+	- Estimated effort: Avg
+	- Actual effort: Low
+	- Progress log:
+		- 20261110: each row fails on the Python library at the commit before its fix and passes at the fix: 20260802 items 8 and 20 at `f1271852`, the 2 SilkTerm rows at `4ed9ed95`, 20260830 item 19 at `e3694990`, 20260901b item 7 at `d7d0b1fc`, 20260904 item 18 at `fc7b6c16`, 20260923 item 3 at `186b2017`, 20260925b item 2 at `921e0748`, 2026100218185700 at `cdc750c3`, 2026100307163904 at `6c00b70d`. 2026110613470311 and 2026110613470302 fail at `343334df` in Python and Rust.
+	- Decisions:
+		- me, 20261110: watched on the Python library, since the calls the rows use are the same there back to August, so one runner reads every commit. Where a fix went in per binding, the commit named is the Python one.
+		- me, 20261110: 20260923-3b passes before its fix, as it should. It's the merge from saved text, and the bug was the one-step merge, 20260923-3, coming out different from it.
+		- me, 20261110: 2026092718195400 had no fix, only a call, so its row has nothing to fail on.
+	- Test case: conformance `placement_table_rows_match` (`df4g0`, `df4g2`, `df4g3`, `df4g4`).
+	- Branch: `r1110`
+	- Acceptance signoff: Self-closed: every row with a fix was seen to fail before it.
+	- Closed: 20261110-122900
+
+- Make `children` and `instances` exit 3 on a path that isn't there
+	- ID: 2026110613470323
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta2
+	- Opened: 20261106-134703
+	- Opened by: Code review 20261106 item 23
+	- Related IDs: 2026100818140260
+	- Problem description: the CLI exits 0 with no output both for a missing path and for an empty section, so a script can't tell them apart. The library's `read_children` and `read_instances` give `NotFound` for one and `Good` for the other since 2026100818140260, and `get` exits 3 on a miss.
+	- Requirements: exit 3 on `NotFound`, as `get` does. `count` could do the same.
+	- Origin: Confirmed in all 4 CLIs.
+	- Regression test: cli-regress rows for `children` and `instances` on a path that isn't there, exit 3 and the same stderr from all 4 CLIs.
+	- Estimated effort: Low
+	- Decisions:
+		- The message is `cannot list PATH: no field at that path (in FILE)`, shaped like `get`'s miss. It goes to stderr every time, as `get`'s does outside `--default`.
+		- `count` stays at 0 and exit 0. Its 0 already tells a miss from a match, and a script that reads it under `set -e` would break on a 3.
+		- `--json` and `--paths` exit 3 the same way. A wildcard with no slots is a miss, as in the library, and one whose slots are all missing still lists them at 0.
+		- 20261110: cli-regress `dc09s` (`children-missing`) expected exit 0 and now expects 3 with the message.
+	- Swept: the plain, `--paths` and `--json` arms of `instances` and `children` in all 4 CLIs. `count` and `paths` are left as they are. The man page, changelog and UI guide's exit table (already "nothing at the path") say so. Scripts in cicd/ that call either guard the exit.
+	- Verified: the new rows and `dc09s` failed on the old Rust, Go and C CLIs (15 checks) and pass in all 4. cli-regress (666 rows, 3935 checks), crosscheck over the corpus, check-doc-examples, check-docs, test-ids check, lint-report, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, shellcheck, markdownlint.
+	- Branch: `r1110`
+	- Commit: `6be031a6`
+	- Test case: cli-regress `df4hf`, `df4hg`, `df4hh`, `df4hj`, `df4hk`, `df4hm`, and `dc09s`.
+	- Closed: 20261110-131441
 
 - perf-gate's `deqqs` self-test passes on vm925w, so the gate fails there
 	- ID: 2026110810540701
@@ -13194,6 +13455,35 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: the sort by line asked for, and its tests fail on dev.
 	- Closed: 20260930-073042
 
+- A validate builds the schema on every call, and `load_and_validate_with` builds it 3 times
+	- ID: 2026111016205716
+	- Type: Enhancement
+	- Status: Deferred
+	- Priority: Low
+	- Opened: 20261110-162057
+	- Opened by: tradeclanker and gitniblet feedback
+	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
+	- Problem description: `validate` builds the schema once per call, even with a parsed schema passed in. `suppress_declared_repeats` and `suppress_declared_reopens` each build it again through `disavowed_names`. tradeclanker measured one call at 387 us: parse 59, validate 134, and the 2 filters 109. Every caller makes the 2 suppress calls as a pair.
+	- Requirements:
+		- A compiled schema value that validate and the suppress filters share.
+		- One call in place of the 2 suppress calls.
+	- Note: performance and API ideas wait until 3.0.0 is out, so with v4 (me).
+	- Estimated effort: Avg
+
+- "Raw" names 2 things
+	- ID: 2026111016205717
+	- Type: Enhancement
+	- Status: Deferred
+	- Priority: Low
+	- Opened: 20261110-162057
+	- Opened by: gitniblet feedback
+	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
+	- Problem description: `Read.raw` is the value's text as written, quotes included. `read_raw` reads raw blocks only, and gives `BadType` for anything else. gitniblet's `cursor.raw` mixes the 2.
+	- Requirements:
+		- One of them gets another name, in all 4 and the C++ interface.
+	- Note: v4 settles the programming interface, so with v4 (me).
+	- Estimated effort: Low
+
 - Bulk edits slow down with the square of the count when many blocks hold a kept line
 	- ID: 2026110312163210
 	- Type: Enhancement
@@ -13410,6 +13700,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Problem description: an unknown `nullable` under `table: users` and `column: id` is `V001 unknown field 'table.column.nullable'`. With repeated instances that path doesn't say which one. The line helps, but the path could name it, `table(users).column(id).nullable`.
 	- Estimated effort: Low
 	- Note: with v4 (JC).
+	- Note: 20261110, tradeclanker feedback. A type error names the schema's pattern, not the path: `wrong type at 'signals.*.period'` where `signals.x.period` was meant. The line number is right.
 
 - README's bad-line bullet leaves out the lines under a line whose name can't be read
 	- ID: 2026110217340713
@@ -13492,6 +13783,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A load option names the hint codes that count as errors.
 	- Note: moved from shclwrap 2026101513330026.
 	- Note: with v4 (me).
+	- Note: 20261110, tradeclanker feedback. `k: https://x.y/a?b=c#frag` reads as `https://x.y/a?b=c` with only `H008`, so a consumer that shows only errors cuts the URL with no message. tradeclanker asks for a warning.
 
 - Write and read a list of records
 	- ID: 2026102911041661
@@ -13557,6 +13849,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: gitniblet swaps those lines out before the upgrade and puts them back after.
 	- Note: moved from shclwrap 2026102618065645.
 	- Note: with v4, which redoes upgrade (me).
+	- Note: 20261110, gitniblet feedback. A value 2.x read as whole text with no tell splits too. `upgrade("pattern: ^[a-z]+, [0-9]$\n", true)` gives `pattern: ["^[a-z]+", "[0-9]$"]`, and `read_string` then gives the bracket text at Good. An upgrade that takes a schema, and keeps one string wherever it says `string`, would cover this and the backtick case. The backtick case, which has a tell, is 2026111016205702.
 
 - The Python binding parses about 25% slower than on 2026-09-19
 	- ID: 2026100221215300
