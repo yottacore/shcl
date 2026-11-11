@@ -5053,13 +5053,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 20261029: the accessor is `newer_format()` (Go `NewerFormat`, C `shcl_newer_format`), beside `lost_count`.
 		- me, 20261029: every save of such a document is refused, wherever it goes, with nothing written: Rust `SaveError::TooNew { path }`, Python `SaveTooNew`, Go `*SaveTooNew`, C `SHCL_SAVE_TOO_NEW` on the end of `shcl_save_result`, the veneer `SaveResult::TooNew`. It's checked first, before the lost-content, create and changed checks, and no option overrides it. The message is `PATH: refusing to save: the document holds lines from a newer format than this reader's; nothing written`.
 		- me, 20261029: setters work in memory. `write_file_atomic` writes what it's given, and `upgrade_file` and `migrate` already leave such a file alone.
-		- me, 20261029: the CLI's `fmt --write` and `set --write` refuse at exit 7, first, so before the changed-since-read and nothing-to-write checks. `set`'s print refuses at 7 too, since it answers as `--write` would (2026100717500003), and `fmt --check` does, since it asks the save gate. `fmt` to stdout still prints. `--lossy` doesn't override. `--write` takes no `--layer`, so a newer layer refuses only the print. The help gets a sentence and the exit 7 line, and `explain H006` says a save is refused.
+		- me, 20261029: the CLI's `fmt --write` and `set --write` refuse at exit 7, first, so before the changed-since-read and nothing-to-write checks. `set`'s print refuses at 7 too, since it prints what `--write` would write (2026100717500003), and `fmt --check` does, since it consults the save gate. `fmt` to stdout still prints. `--lossy` doesn't override. `--write` takes no `--layer`, so a newer layer refuses only the print. The help gets a sentence and the exit 7 line, and `explain H006` says a save is refused.
 		- Decided against: shclwrap's `ReadOnly` as the name, since `ReadOnly` is already a write status, for a read-only filesystem. Refusing only a save over the file the load read, since the lines are this reader's guess wherever they go. Letting `set` print, as the print mirrors `--write`.
 	- Progress log:
 		- 20261029: all 4 bindings and the veneer. The parse notes a newer format from the reading the hint uses, a merge ORs it in, and C's compact copies it. `save_file_with` checks it first. The 4 CLIs refuse in `write_back`, `fmt --check` and `set`'s print. crosscheck wants 7 and the file untouched for a corpus case with `H006` (`204-format-newer-hint`), as for one with a lost line. cli-regress `ddqhj` has the new `explain H006` text. Docs: design.md (a bullet under the `H006` one, and a Save outcomes row), spec.md (the `H006` row, the CLI bullet, a file tier bullet, the separate-values bullet, the Format paragraph), examples.md, the changelog's New, the Rust README, the style guide and check-docs' Python-only names.
-		- 20261029: the quick run failed the Python soak (`de2w1`), which caught only `SaveFailed` and so stopped on the newer corpus case. It takes `SaveTooNew` too now. Go's soak checks for nil, and Rust's and C's ignore the result.
-		- Verified: the 5 library tests and the 6 refusal rows fail with the parse's newer forced off and pass with it. `fmt-print-newer` passes both ways, as it pins that `fmt` still prints. Also cargo test, go test in both modules, the Python, C and veneer suites, check-veneer, cli-regress (637 rows), crosscheck (22938), check-docs (only `dcbc2`, the known installer sync), test-ids, shellcheck, shell-regress, markdownlint, rustfmt, gofmt, clippy and ruff. Then `cicd.bash --skip=check-docs.bash --backlog-run-quick rust go python c cli`, all 5 steps, since `dcbc2` stops it otherwise.
-	- Swept: every save in all 4 and the veneer goes through `save_file_with`, and no library code saves otherwise. Every parse entry, the loads, `load_and_validate` and `new` go through the one parser. Merge in all 4, C's compact; no other copy of a document. `write_file_atomic`, `upgrade_file` (leaves a newer file, exit 0) and `migrate` (nothing to migrate) unchanged. CLIs: `write_back` (fmt and set `--write`), `fmt --check` and `set`'s print in all 4; `migrate --write` and `upgrade --write` leave the file; `set`'s create makes a new file. The 4 runners have no save op. The 4 soak tests save every corpus case: Python's caught only `SaveFailed`, fixed. `cicd/utility/comparison` saves a document it built.
+		- 20261029: the quick run failed the Python soak (`de2w1`), which caught only `SaveFailed` and so stopped on the newer corpus case. It catches `SaveTooNew` too now. Go's soak checks for nil, and Rust's and C's ignore the result.
+		- Verified: the 5 library tests and the 6 refusal rows fail with the parse's newer forced off and pass with it. `fmt-print-newer` passes both ways, as it pins that `fmt` still prints. Also cargo test, go test in both modules, the Python, C and veneer suites, check-veneer, cli-regress (637 rows), crosscheck (22938), check-docs (only `dcbc2`, the known installer sync), test-ids, shellcheck, shell-regress, markdownlint, rustfmt, gofmt, clippy, and ruff pass. Then `cicd.bash --skip=check-docs.bash --backlog-run-quick rust go python c cli` passed all 5 steps, with check-docs skipped because `dcbc2` stops it otherwise.
+	- Swept: every save in all 4 and the veneer goes through `save_file_with`, and no library code saves otherwise. Every parse entry, the loads, `load_and_validate` and `new` go through the one parser. Merge in all 4 and C's compact were checked, and nothing else copies a document. `write_file_atomic`, `upgrade_file` (leaves a newer file, exit 0), and `migrate` (nothing to migrate) are unchanged. CLIs: `write_back` (fmt and set `--write`), `fmt --check` and `set`'s print in all 4; `migrate --write` and `upgrade --write` leave the file; `set`'s create makes a new file. The 4 runners have no save op. The 4 soak tests save every corpus case, and Python's caught only `SaveFailed`, which is fixed. `cicd/utility/comparison` saves a document it built.
 	- Test case: `a_newer_format_document_saves_nowhere` in Rust (`dekvt`), Python (`dekvv`), Go `TestANewerFormatDocumentSavesNowhere` (`dekvw`), the C runner (`dekvx`) and the veneer smoke (`dekvy`). cli-regress `dekvz`, `dekw0`, `dekw1`, `dekw2`, `dekw3`, `dekw4`, `dekw5`.
 	- Branch: `r1029b-ro`
 	- Commit: `7f2aa27c`, `ddfe3333`
@@ -5101,10 +5101,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Steps to reproduce:
 		- `shcl fmt` on `srv.srv: 2` / `srv: [v1]` / `\t* 7` / `\t- 0` / `\tc: 1`.
-	- Incorrect behavior: `fmt` writes `* 7` at the root, above `srv: [v1]`. It still binds nothing and nothing more is lost, but it is no longer written back in place.
+	- Incorrect behavior: `fmt` writes `* 7` at the root, above `srv: [v1]`. It still binds nothing and nothing more is lost, but it isn't written back in place anymore.
 	- Expected behavior: `* 7` stays under `srv`, as it does with the `- 0` line taken out.
 	- Reproduced: 20261028, on `r1028b`, with `E013` and with `E004` in the same spot.
-	- 2026-10-28: no longer reproduces at 050b4d38 (2026102821334870), where fmt keeps `* 7` under `srv`. Needs only a regression case to close.
+	- 2026-10-28: no longer reproduces at 050b4d38 (2026102821334870), where fmt keeps `* 7` under `srv`. It needs only a regression case to close.
 	- Progress log:
 		- 20261029: fixed by 050b4d38, where the `E011` item is kept. cli-regress has the case now.
 	- Swept: the 4 CLIs give the same `fmt` output for the case, for the `E004` line in the same spot (`a.*: 7`), and with the `- 0` line taken out.
@@ -5130,8 +5130,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261029: `WriteFileAtomic` wraps `writeFileHow`, which takes the create and the mode. `SaveFileWith` checks for anything at the target before the changed check.
 		- Verified: 20261029, hosted ci.yml run 40965510877, windows job, win-runners OK.
-	- Swept: Go. `WriteFileAtomic` and `UpgradeFile` pass no create and no mode. No caller builds `SaveOptions` by position.
-	- Verified: `dekmf` fails with the create checks turned off, and with the mode turned off, and passes with both. Also `go vet` for linux, windows and darwin. Also `cicd.bash --backlog-run-quick` with every area, all 5 steps, and lint-report `--check --no-mark`.
+	- Swept: in Go, `WriteFileAtomic` and `UpgradeFile` don't pass a create or a mode. No caller builds `SaveOptions` by position.
+	- Verified: `dekmf` fails with the create checks turned off, and with the mode turned off, and passes with both. `go vet` passes for linux, windows, and darwin, and so do all 5 steps of `cicd.bash --backlog-run-quick` with every area, and lint-report `--check --no-mark`.
 	- Test case: `TestACreateOnlySaveRefusesAFileAlreadyThere` (`dekmf`).
 	- Branch: `r1029`
 	- Commit: `a618835c`
@@ -5154,8 +5154,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261029: `write_file_atomic` wraps a private write that takes the create and the mode, and gives `Exists` when create finds something there or loses the publish. `save_file_with` checks for anything at the target before the changed check.
 		- Verified: 20261029, hosted ci.yml run 40965510877, windows job, win-runners OK.
-	- Swept: Rust and Python. `write_file_atomic`, `upgrade_file` and the CLI's saves pass no create and no mode, so they write as before. The CLI matches `SaveError` with a catch-all arm. The 3 short saves go through `save_file_with`.
-	- Verified: `dekm5` and `dekm6` fail with the create checks turned off, and with the mode turned off, and pass with both. Also `cicd.bash --backlog-run-quick` with every area, all 5 steps, and lint-report `--check --no-mark`.
+	- Swept: in Rust and Python, `write_file_atomic`, `upgrade_file`, and the CLI's saves don't pass a create or a mode, so they write as before. The CLI matches `SaveError` with a catch-all arm. The 3 short saves go through `save_file_with`.
+	- Verified: `dekm5` and `dekm6` fail with the create checks turned off, and with the mode turned off, and pass with both. All 5 steps of `cicd.bash --backlog-run-quick` with every area pass, and so does lint-report `--check --no-mark`.
 	- Test case: `a_create_only_save_refuses_a_file_already_there` in Rust (`dekm5`) and Python (`dekm6`).
 	- Branch: `r1029`
 	- Commit: `a618835c`
@@ -5175,13 +5175,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- check-boxes' box half works out its cap from that box's CPU count and load, by the same rule as this box.
 		- It already runs under `nice -n 19`. Add `ionice -c 3` where the box has it.
 	- Progress log:
-		- 20261024: the box half runs its cases one at a time, so it never uses more than 1 job, which is the rule's floor on any box, busy or not. Left: `ionice -c 3` there, set on the box's own `sh` before `env -i ... nice -n 19 sh run.sh`, since the box half goes over ssh as `sh -c '...'` and can't hold single quotes. Its check would go with check-boxes' stand-ins, kept outside the repo.
+		- 20261024: the box half runs its cases one at a time, so it never uses more than 1 job, which is the rule's floor on any box, busy or not. Left: `ionice -c 3` there, set on the box's own `sh` before `env -i ... nice -n 19 sh run.sh`, since the box half goes over ssh as `sh -c '...'` and can't contain single quotes. Its check would go with check-boxes' stand-ins, kept outside the repo.
 		- 20261029: the box half sets `ionice -c 3` before `nice -n 19` when the box has an ionice that takes the class, found by absolute path since `env -i` clears PATH. A box without one, such as FreeBSD, runs at nice only. The cap needs no code: one case at a time is the rule's floor.
 		- Verified: 20261029, cicd.bash --backlog-run-full --no-lint --no-tests on ee700b61: ok decyk, PASS vmFreeBSD 4471 CLI runs.
 	- Decisions:
-		- The ionice is a prefix on the `env -i` line, not on the box's own `sh`, so the check doesn't need `$$` and the line still holds no single quote (me).
+		- The ionice is a prefix on the `env -i` line rather than on the box's own `sh`, so the check doesn't need `$$` and the line still has no single quote (me).
 	- Swept: the one `nice -n 19` in the box half. The host run in check-boxes.bash, and check-freebsd's run, are on this box and already under cicd.bash's ionice. The other 3 bindings have no box step.
-	- Verified: the box half run alone: with ionice on PATH the cases run in class `idle` at nice 19, with none on PATH `none: prio 0` at nice 19, and with the ionice prefix taken out the first case reads `none` (red). The stand-in boxes pass, skip and fail as before (4471 CLI runs). shellcheck -x and the whole of shell-regress pass.
+	- Verified: with the box half run alone and ionice on PATH, the cases run in class `idle` at nice 19. Without an ionice on PATH they run as `none: prio 0` at nice 19, and with the ionice prefix taken out the first case reads `none` (red). The stand-in boxes pass, skip and fail as before (4471 CLI runs). shellcheck -x and the whole of shell-regress pass.
 	- Needs external testing: No
 	- Test case: check-boxes `decyk` (the box half still runs and matches); `ionice-probe.bash` in the stub tools folder for the class.
 	- Acceptance signoff: me, 20261029, decyk passed with vmFreeBSD in the full run
@@ -5205,8 +5205,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261029: a load records where the path resolved to and the text it read, or that nothing was there. Every save call goes through `save_file_with`, which checks a save over that file before the write and records what it wrote. The CLI's `write_back` takes the document as `&mut`. check-docs and the style guide name `SaveChanged` as a Python-only class.
 		- Verified: 20261029, hosted ci.yml run 40965510877, windows job, win-runners OK.
-	- Swept: Rust and Python. Every load that reads a file goes through one function, `load_file_any` (`_load_file_any`), for `load_file`, `load_file_with` and `load_file_keep_lines`. `parse`, `parse_keep_lines`, `load_and_validate` and `new` read no file, so they save as before. A merge keeps the record. The 3 save calls go through `save_file_with`. The 4 CLIs parse the text they read, so they keep their own check. `cicd/utility/comparison` saves a document it holds as `mut`. Go, C and the veneer are the other 2 children.
-	- Verified: `dekj6` and `dekj7` fail with the check turned off and pass with it. `dekj6` passes for windows under wine. Also `cicd.bash --backlog-run-quick rust python cli cicd`, cli-regress over the Rust and Python CLIs (629 rows), shell-regress, and lint-report `--check --no-mark`.
+	- Swept: in Rust and Python, every load that reads a file goes through one function, `load_file_any` (`_load_file_any`), for `load_file`, `load_file_with`, and `load_file_keep_lines`. `parse`, `parse_keep_lines`, `load_and_validate`, and `new` don't read a file, so they save as before. A merge keeps the record. The 3 save calls go through `save_file_with`. The 4 CLIs parse the text they read, so they keep their own check. `cicd/utility/comparison` saves a document it declares as `mut`. Go, C, and the veneer are the other 2 children.
+	- Verified: `dekj6` and `dekj7` fail with the check turned off and pass with it. `dekj6` passes for windows under wine. `cicd.bash --backlog-run-quick rust python cli cicd`, cli-regress over the Rust and Python CLIs (629 rows), shell-regress, and lint-report `--check --no-mark` pass too.
 	- Test case: `a_save_over_a_file_changed_since_the_load_is_refused` in Rust (`dekj6`) and Python (`dekj7`).
 	- Branch: `r1029`
 	- Commit: `e799b7c6`
@@ -5229,7 +5229,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `--cpus` and `--cpu-shares 256` on each `docker run`, and `nice` inside the image too.
 		- The same rules on other hosts, with that host's CPU count and load.
 	- Progress log:
-		- 20261024: split in 3. This box's cap and priority is 2026102421025778, the containers 2026102421025783, the test boxes 2026102421025788. This item closes with the last of them.
+		- 20261024: split in 3. This box's cap and priority are 2026102421025778, the containers 2026102421025783, and the test boxes 2026102421025788. This item closes with the last of them.
 		- 20261024: 2026102421025778 and 2026102421025783 are in on `r1024c`, waiting on the full run. 2026102421025788 is next.
 		- 20261029: 2026102421025788 closed on r1029, the last child.
 	- Test case: its children's tests: 2026102421025778, 2026102421025783, and decyk with ionice-probe.bash for 2026102421025788.
@@ -5253,12 +5253,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 20261029: the receivers were already pointers, so no Go caller changes. A save now records what it wrote, so it's a write and isn't safe beside another call on the same document. Its doc comment says so.
 	- Progress log:
 		- 20261029: a load records where the path resolved to and the text it read, or that nothing was there. `SaveFile`, `SaveFileLossy` and `SaveFileKeepLines` go through `SaveFileWith`, which checks a save over that file before the write and records what it wrote.
-	- Swept: Go. Every load that reads a file goes through `loadFileAny`, for `LoadFile`, `LoadFileWith` and `LoadFileKeepLines`. `Parse`, `ParseKeepLines`, `LoadAndValidate` and `New` read no file. `Merge` changes the document in place, so it keeps the record. The Go CLI and `soak_test.go` save parsed documents or save elsewhere, so they save as before. `UpgradeFile` keeps its own check. Rust and Python are done in 2026102912203339, and C and the veneer are 2026102912203343.
-	- Verified: `dekk8` fails with the check turned off and passes with it. It passes for windows under wine, with the link part skipped there as in the other POSIX link tests. Also `go vet` for linux, windows and darwin, `cicd.bash --backlog-run-quick go`, cli-regress over the Go CLI (629 rows), and lint-report `--check --no-mark`.
+	- Swept: in Go, every load that reads a file goes through `loadFileAny`, for `LoadFile`, `LoadFileWith`, and `LoadFileKeepLines`. `Parse`, `ParseKeepLines`, `LoadAndValidate`, and `New` don't read a file. `Merge` changes the document in place, so it keeps the record. The Go CLI and `soak_test.go` save parsed documents or save elsewhere, so they save as before. `UpgradeFile` keeps its own check. Rust and Python are done in 2026102912203339, and C and the veneer are 2026102912203343.
+	- Verified: `dekk8` fails with the check turned off and passes with it. It passes for windows under wine, with the link part skipped there as in the other POSIX link tests. `go vet` for linux, windows, and darwin, `cicd.bash --backlog-run-quick go`, cli-regress over the Go CLI (629 rows), and lint-report `--check --no-mark` pass too.
 	- Test case: `TestASaveOverAFileChangedSinceTheLoadIsRefused` (`dekk8`).
 	- Branch: `r1029`
 	- Commit: `34536e68`
-	- Acceptance signoff: Self-closed: the new test failed with the check off and passes with it, and every gate run is green. The API shape follows Rust and Python, whose Check: entry stays open.
+	- Acceptance signoff: Self-closed: the new test failed with the check off and passes with it, and every gate run is green. The API follows Rust's and Python's, and their Check: entry stays open.
 	- Closed: 20261029-125838
 
 - `E004` and `E009` are retained
@@ -5272,23 +5272,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Parent ID: 2026102307143758
 	- Estimated effort: Avg
 	- Requirements:
-		- `E004` and `E009` lines are retained: kept as written, binding nothing, counting nothing lost. Both are refused for their content, so a reload refuses them the same way wherever they sit, and the emitter needs no check for them.
+		- `E004` and `E009` lines are retained. They're kept as written, they don't bind anything, and they don't count as lost. Both are refused for their content, so a reload refuses them the same way wherever they sit, and the emitter needs no check for them.
 		- All 4 bindings, the Load outcomes table, spec.md's code table, and the goldens that change.
 	- Progress log:
 		- 20261028, all 4 bindings:
-			- A wildcard selector is a fault of the path now, judged in `name_fault` after the name's own faults and before the element cap. Its line is kept as written with any raw block it opens, and opens none of its path's fields. The emitter and setters see a faulted line, so none takes it for one refused only for where it sits.
+			- A wildcard selector is a fault of the path now, judged in `name_fault` after the name's own faults and before the element cap. Its line is kept as written with any raw block it opens, and doesn't open any of its path's fields. The emitter and setters see a faulted line, so neither takes it for a line refused only for where it sits.
 			- An empty item is an item fault, judged with the others before `E007`, `E008`, `E001` and `E011`, so it is kept among the items, and at the root. A `-` alone is an item, so a kept one reloads as `E009`. The CLI's tokens dump reads it the same way.
-			- Docs: design.md's 2 table rows, the refusal order and a paragraph with the reasons, spec.md's 2 code rows and the item marker, the changelog, the conformance README.
+			- Docs: design.md's 2 table rows, the refusal order and a paragraph with the reasons, spec.md's 2 code rows and the item marker, the changelog, and the conformance README.
 			- Goldens: `057` (the wildcard line kept, lost 4), `060` (the empty item kept among the items, lost 2), `095` (kept, lost 4, and its comment on a lone `-`). New case `211`.
 			- Verified: the 4 conformance suites, the whole Rust and Go suites, cli-regress (629 rows), crosscheck over the corpus plus a 2000-iteration dump (54282 comparisons), check-docs, check-abnf, check-migrate, shell-regress, clippy, rustfmt, go vet, staticcheck, gofmt, ruff, mypy, shellcheck, markdownlint, and a 2,000,000-iteration release fuzz. Case `211` fails on the old C library.
 			- Verified: `--backlog-run-quick rust go python c cli cicd` passed its format, build and lint steps, and its tests up to check-push-gate. That failed once under load (2026102821264857) and passed on a rerun alone, and check-locale, the step after it, passed alone.
 	- Decisions:
-		- me, 20261028: a `-` alone is an empty item, with or without a blank after it, so a kept one written back with its blank trimmed reloads as the same line, not as an `E014` name. Writing it back as `- ` was rejected, since canonical output has no trailing blanks and editors strip them. A `Check:` in questions.md.
-		- me, 20261028: `E004` is judged with the path, not while the path is walked, so it no longer waits on an earlier index finding its instance, and a raw block it opens is kept with it, as `E014`'s is.
+		- me, 20261028: a `-` alone is an empty item, with or without a blank after it, so a kept one written back with its blank trimmed reloads as the same line rather than as an `E014` name. Writing it back as `- ` was rejected, since canonical output has no trailing blanks and editors strip them. There's a `Check:` for it in questions.md.
+		- me, 20261028: `E004` is judged with the path rather than while the path is walked, so it no longer waits on an earlier index finding its instance, and a raw block it opens is kept with it, as `E014`'s is.
 		- me, 20261028: an empty item past the element cap is still `E021`, as any faulted item is.
 		- 20261030: JC left the Check to me (questions.md), so the empty-item reading stands.
 	- Test case: corpus `dejmt` (`211-kept-wildcard-and-empty-item`) in all 4 runners, with `dbxjv` (`057`), `dbxjy` (`060`) and `dc7fq` (`095`). Fuzz `dcavy` counts both codes as kept. cli-regress `dd6zj`.
-		- 20261028: fuzz `deav0`'s comment assert went from `\n\t# c: 1\n` to `\n\tc: 1\n`. The wildcard line it starts with is kept now, so the item after it is the lost line (`E011`), no list forms, and the field binds. Its lost count of 1 and its no-list-with-a-field check stay.
+		- 20261028: fuzz `deav0`'s comment assert went from `\n\t# c: 1\n` to `\n\tc: 1\n`. The wildcard line it starts with is kept now, so the item after it is the lost line (`E011`), no list is formed, and the field binds. Its lost count of 1 and its no-list-with-a-field check stay.
 		- 20261028: cli-regress `dd6zj`'s line for a `-` alone went from `4:1 name=0-1` to `4:1 item value=1-1 elem=1-1`.
 		- Swept: the `E004` and `E009` arms, `is_item`, the parser's item test and the tokens dump in all 4 bindings and CLIs. `attach_path`'s wildcard arm stays, unreachable from a load, with a comment. Go, Python and C have no twin of the fuzz properties.
 	- Acceptance signoff: Self-closed: its test passes.
@@ -5305,24 +5305,24 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened by: me
 	- Parent ID: 2026102820321403
 	- Requirements:
-		- An item with no field above it (`E007`) and an item under a field that has a value (`E011`) are retained: kept as written, binding nothing, counting nothing lost. The emitter asks the reload before it writes one, and writes it as a comment where it would bind.
+		- An item with no field above it (`E007`) and an item under a field that has a value (`E011`) are retained. They're kept as written, they don't bind anything, and they don't count as lost. The emitter checks with a reload before it writes one, and writes it as a comment where it would bind.
 		- All 4 bindings, the Load outcomes table, spec.md's code table, and the goldens that change.
 	- Estimated effort: Avg
 	- Progress log:
 		- 20261028, all 4 bindings:
 			- The item arm judges both before it adds the item, beside `E008`, and keeps the line whole, its comment included. `add_star_element` no longer refuses either, and the root branch that filed the item's comment on its own is gone.
-			- The emitter's level model also knows whether each open binding line has a value an item cannot join. A clean kept item stays as written under such a line (`E011`) and at the root (`E007`), and is a comment anywhere else, so an edit that empties the field can't make it bind.
-			- Docs: design.md's 2 table rows, the emitter paragraph and a paragraph with the reasons, spec.md's 2 code rows, the changelog, the conformance README.
+			- The emitter's level model also knows whether each open binding line has a value an item can't join. A clean kept item stays as written under such a line (`E011`) and at the root (`E007`), and is a comment anywhere else, so an edit that empties the field can't make it bind.
+			- Docs: design.md's 2 table rows, the emitter paragraph and a paragraph with the reasons, spec.md's 2 code rows, the changelog, and the conformance README.
 			- Goldens: `060` (both kept, lost 0), `095` (kept, lost 3, its first comment), `104` (kept with its comment, lost 0), `160` (kept through the edit, lost 0, its comment). New case `212`.
 			- Verified: the 4 conformance suites, the whole Rust and Go suites, cli-regress (629 rows), crosscheck over the corpus plus a 2000-iteration dump (54219 comparisons), check-docs, check-abnf, check-migrate, shell-regress, shellcheck, clippy, rustfmt, go vet, staticcheck, ruff, mypy, mdcheck, and a 2,000,000-iteration release fuzz.
 	- Decisions:
 		- me, 20261028: case `160` stays and now pins a kept `E007` line through an edit. Case `159` still pins a dropped line through one.
-		- me, 20261028: a kept item that a merge leaves at the root reloads as `E007` and stays as written there, since nothing binds it. Where a merge puts a layer's kept line is older, filed as 2026102821530643.
+		- me, 20261028: a kept item that a merge leaves at the root reloads as `E007` and stays as written there, since nothing binds it. Where a merge puts a layer's kept line is an older question, filed as 2026102821530643.
 	- Test case: corpus `dejpn` (`212-kept-homeless-items`) in all 4 runners, with `dbxjy` (`060`), `dc7fq` (`095`), `dc7gn` (`104`) and `dd47m` (`160`). Fuzz `dcavy` counts both codes as kept. cli-regress `dd6wm`, `ddp0q`, `ddp0s`.
 		- 20261028: fuzz `deav0`'s lost count went from 1 to 0, since its `E011` item is kept now. Its no-list and comment checks stay.
 		- 20261028: cli-regress `dd6wm` went from exit 7 and the file unchanged to exit 0 and `val: 9` / `\t- e` / `z: 2`. `ddp0q` went from exit 7 and no output to exit 0 and the same text. `ddp0s`'s output went from `val: 9` / `z: 2` to the same text, with no canonical-form note.
 		- 20261028: cli-regress `ddp0w` and `ddp0x` read the `%KL%` file, which still loses a line, where `%KE%` no longer does. The diag-exit `lost` fixture is a tab-only line now, and `de11m` and `de11n` remove `val.m`, which makes the save fall back, where `--set=val=9` now keeps every line.
-		- Swept: the item arm, `add_star_element` and the emitter's kept-line check in all 4 bindings and the 4 CLIs' explain text. The fuzz outcome table and `REFUSING` list. No other site filed an `E007` or `E011`.
+		- Swept: the item arm, `add_star_element` and the emitter's kept-line check in all 4 bindings, the 4 CLIs' explain text, the fuzz outcome table, and the `REFUSING` list. No other site filed an `E007` or `E011`.
 	- Acceptance signoff: Self-closed: its test passes.
 	- Closed: 20261028-234500
 	- Verified: 2026-10-28, r1028b's `--backlog-run-full` on a31c2774 (run dir shcl/20261028-223000_001) passed all 7 steps, the C leak and sanitizer checks, cppcheck and analyze-c included, and hosted ci.yml 40822191966 passed.
@@ -5338,20 +5338,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Parent ID: 2026102515494624
 	- Requirements:
 		- `--backlog-run-quick [<area>...]` in about 4 minutes, with its areas in `--help`, and `--backlog-run-full`.
-		- Neither dogfoods, publishes, commits, pushes, installs, syncs, rewrites a tracked file or prompts. So a round never dogfoods.
-		- `--backlog-run-quick` is partial, so it records no tree.
+		- Neither dogfoods, publishes, commits, pushes, installs, syncs, rewrites a tracked file, or prompts. So a round never dogfoods.
+		- `--backlog-run-quick` is partial, so it doesn't record a tree.
 		- The round settings' gate and full-run lines move to them.
 	- Decisions:
-		- me: `--backlog-run-quick` is `--gate` less what `--quick` leaves out: the format check, the debug build, lint and the tests less `QUICK_SKIP`, at the 20,000-input fuzz, and the cross checks. No leak checks, profiler calibration or release builds. It records no tree.
+		- me: `--backlog-run-quick` is `--gate` less what `--quick` leaves out: the format check, the debug build, lint and the tests less `QUICK_SKIP`, at the 20,000-input fuzz, and the cross checks. It leaves out the leak checks, profiler calibration, and release builds, and it doesn't record a tree.
 		- me: with no areas named it also leaves out config.bash's `BACKLOG_SKIP`, today check-push-gate, which took 4 minutes of a 10.5-minute run at a load of 10 to 13.
-		- me: areas narrow only the tests stage, as in the floss engine, since the format check and lint are quick. `QUICK_SKIP` still applies inside an area, and an area brings back its `BACKLOG_SKIP` steps. They are `rust`, `go`, `python`, `c`, `cli` and `cicd`, in config.bash's `BACKLOG_AREAS`, matched as text like `QUICK_SKIP`.
+		- me: areas narrow only the tests stage, as in the floss engine, since the format check and lint are quick. `QUICK_SKIP` still applies inside an area, and an area brings back its `BACKLOG_SKIP` steps. They're `rust`, `go`, `python`, `c`, `cli`, and `cicd`, in config.bash's `BACKLOG_AREAS`, matched as text like `QUICK_SKIP`.
 		- me: `--backlog-run-full` runs the merge gate's checks and records its tree, as `--merge-gate` does.
 		- me: one run mode per run. `--gate`, `--merge-gate` (`--ci`) and the 2 backlog runs refuse each other with exit 2, since nothing on the command line resolves last-wins. `--backlog-run-quick --long` is refused too. Before, `--gate --merge-gate` ran the merge gate.
 		- me: the help stays inside check-docs' 100-line header window, per 2026102108300000. `--gate`'s entry and 2 paragraphs got shorter.
 		- me: `--gate` keeps its meaning until 2026102813104371, since the hosted workflow runs it.
 	- Progress log:
-		- 20261028: done in cicd.bash and config.bash. Help, contributing.md and design.md say so.
-		- Verified: check-push-gate `dej6y` (the 2 runs, areas, `BACKLOG_SKIP`, no tree from the quick one, no dogfood or publish, the usage errors) and `dej6z` (every test step in an area, and the areas in `--help`) failed on the old engine and pass now. Also test-ids, shellcheck and markdownlint.
+		- 20261028: done in cicd.bash and config.bash. Help, contributing.md, and design.md say so.
+		- Verified: check-push-gate `dej6y` (the 2 runs, areas, `BACKLOG_SKIP`, no tree from the quick one, no dogfood or publish, the usage errors) and `dej6z` (every test step in an area, and the areas in `--help`) failed on the old engine and pass now. test-ids, shellcheck, and markdownlint pass too.
 		- Verified: the whole of check-push-gate, shell-regress and check-docs passed on this change before `BACKLOG_SKIP`. After it, this box's pwsh crashed on start with a `FileLoadException`, on any tree, so check-docs `dcv3m`, check-push-gate `dct5a` and shell-regress's install.ps1 rows failed with it. The rest of each passed.
 		- Verified: a real `cicd.bash --backlog-run-quick` in the main image, before `BACKLOG_SKIP`, passed its 5 steps in 10.5 minutes at a load of 10 to 13, recorded nothing and left no tracked file changed. Without check-push-gate that's about 6.5 minutes.
 		- Swept: every reader of the run mode (`mode_flag`, `gate_mode`, `merge_gate`, `quick`) in cicd.bash, the tests step's `TEST_CMD`-only guard, and check-push-gate's stub config.
@@ -5377,20 +5377,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- contributing.md's and install.md's `--gate` lines follow.
 	- Progress log:
 		- 20261028: split. The hosted workflow is done here. `--gate` as a backlog run, with the contributing.md and install.md lines, is child 2026102814013272, free to start now that the hosted run doesn't use `--gate`.
-		- 20261028: ci.yml's halves run `--merge-gate --no-tests --no-release --no-remote` and `--merge-gate --no-lint --no-cross --no-remote --skip=codeql-scan.bash`, and the tests half installs qemu, busybox and cpio for the CPU floor check. cicd.bash takes `--skip TEXT`, which leaves out each step whose command holds TEXT, and the run records nothing. A TEXT that matches no step is exit 2. check-pins' job check wants `--merge-gate`, allows `--no-release` and `--no-remote`, and holds `--skip` to a leak check whose tool ci.yml leaves out. Help, the ci.yml comments, contributing.md and design.md say so.
-		- Verified: check-push-gate `dej8h` (both `--skip` forms, no record, the off line, the usage errors) went red with the record rule taken out, and passes. shell-regress `dej8g` (`--gate` in a job, the release nowhere, CodeQL run, another step skipped) went red with each check taken out of check-pins, and passes. The whole of check-push-gate, shell-regress, check-pins, check-docs and test-ids, shellcheck and markdownlint passed.
+		- 20261028: ci.yml's halves run `--merge-gate --no-tests --no-release --no-remote` and `--merge-gate --no-lint --no-cross --no-remote --skip=codeql-scan.bash`, and the tests half installs qemu, busybox, and cpio for the CPU floor check. cicd.bash takes `--skip TEXT`, which leaves out each step whose command contains TEXT, and the run records nothing. A TEXT that doesn't match any step is exit 2. check-pins' job check wants `--merge-gate`, allows `--no-release` and `--no-remote`, and allows `--skip` only for a leak check whose tool ci.yml leaves out. Help, the ci.yml comments, contributing.md, and design.md say so.
+		- Verified: check-push-gate `dej8h` (both `--skip` forms, no record, the off line, the usage errors) went red with the record rule taken out, and passes. shell-regress `dej8g` (`--gate` in a job, the release nowhere, CodeQL run, another step skipped) went red with each check taken out of check-pins, and passes. The whole of check-push-gate, shell-regress, check-pins, check-docs, and test-ids passed, and so did shellcheck and markdownlint.
 		- Verified: `cicd.bash --backlog-run-quick cicd` in the main image passed its 5 steps in 6.5 minutes at a load of about 7, `dej8h`, `ddwkk` and `de5an` included.
-		- Swept: every reader of the hosted job args (check-pins' `ddwkk`, `de61r`, `de5an`, shell-regress `ddwkm`, `de61s`), every `--gate` line in ci.yml and the design.md and contributing.md lines about the hosted run and what records a tree. The other 3 bindings have no pipeline of their own, so no twin there.
+		- Swept: every reader of the hosted job args (check-pins' `ddwkk`, `de61r`, `de5an`, shell-regress `ddwkm`, `de61s`), every `--gate` line in ci.yml and the design.md and contributing.md lines about the hosted run and what records a tree. The other 3 bindings don't have a pipeline of their own, so there's no twin to check.
 	- Decisions:
 		- me: the halves keep their split, and the tests half takes the native release, its checks and packages, and the fast leak checks. It was about 36 minutes, and the lint half about 44 with cppcheck.
-		- me: the runner leaves out the test boxes, which are on the LAN, CodeQL, whose bundle is about 700 MB and its run about 10 minutes more than the tests half has, and the cross targets, which would need a third job with wine, QEMU and FreeBSD's 640 MB image. The macOS, Linux arm64 and Windows jobs already build on their own runners, and the style guide asks for a small hosted workflow.
-		- me: CodeQL goes by a new `--skip TEXT` rather than `--no-leakcheck`, which would drop the sanitizer runs hosted already had. It is general, matched as text like `QUICK_SKIP`, and the run says what it left out.
-		- me: makensis stays unpinned in ci.yml, since the hosted run builds no Windows release and so no setup.
+		- me: the runner leaves out the test boxes, CodeQL, and the cross targets. The test boxes are on the LAN. CodeQL's bundle is about 700 MB, and its run takes about 10 minutes more than the tests half has. The cross targets would need a third job with wine, QEMU, and FreeBSD's 640 MB image. The macOS, Linux arm64, and Windows jobs already build on their own runners, and the style guide asks for a small hosted workflow.
+		- me: CodeQL goes by a new `--skip TEXT` rather than `--no-leakcheck`, which would drop the sanitizer runs hosted already had. It's general, matched as text like `QUICK_SKIP`, and the run says what it left out.
+		- me: makensis stays unpinned in ci.yml, since the hosted run doesn't build a Windows release, so it doesn't build a setup either.
 	- Test case: check-push-gate `dej8h`, shell-regress `dej8g`, plus the changed rows of `ddwkm`.
 		- 20261028: `ddwkm`'s 5 rows edit the new args lines. Their patterns went from `args: --gate --no-tests$` and `args: --gate --no-lint --no-cross$` to `args: --merge-gate --no-tests --no-release --no-remote$` and `--no-cross --no-remote --skip`, and the added job runs `--merge-gate --no-remote --skip=codeql-scan.bash` in place of `--gate`. Each still has to fail check-pins.
 	- Acceptance signoff: Self-closed: its test passes.
 	- Closed: 20261028-162500
-	- Verified: 2026-10-28, hosted ci.yml run 40779407541 on r1028 passed after the runner's kernel was made readable (commit after 9d0943c1). Lint half 12 min, tests half 50 min. The tests half built the release, booted it on Penryn and Phenom (ddwpp to ddwpt), built packages and passed the leak checks. CodeQL and the test boxes were off.
+	- Verified: 2026-10-28, hosted ci.yml run 40779407541 on r1028 passed after the runner's kernel was made readable (commit after 9d0943c1). The lint half took 12 min and the tests half 50 min. The tests half built the release, booted it on Penryn and Phenom (ddwpp to ddwpt), built packages and passed the leak checks. CodeQL and the test boxes were off.
 
 - CICD reset: CPU and priority in containers
 	- ID: 2026102421025783
@@ -5403,13 +5403,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Prereq IDs: 2026102421025778
 	- Requirements:
 		- `--cpus <jobs>` and `--cpu-shares 256` on each `docker run`, the ones analyze-c, soak-c and codeql-scan start included.
-		- `nice` inside the image too, since `nice` on the docker client doesn't reach the container.
+		- `nice` inside the image too, since `nice` on the docker client doesn't apply inside the container.
 		- check-push-gate's fake docker learns the new options.
 	- Progress log:
 		- 20261024: every `docker run` cicd.bash and ctr-image.bash make passes `--cpus` and `--cpu-shares 256`: the stages' run at the run's count, `fCtrRunSelf` at its script's, and the passwd, group and Zig trim reads at 1. analyze-c, soak-c and codeql-scan start theirs through `fCtrRunSelf`.
 		- 20261024: `fCtrRunSelf` runs its script under `nice -n 19` in the image. The stages' run is cicd.bash, which renices itself (2026102421025778).
-	- Swept: the 5 `docker run` sites under `cicd/` and the hook: cicd.bash's passwd, group and stages runs, and ctr-image.bash's `fCtrRunSelf` and `fCtrZigTrim`. `docker build` and `volume create` start no container. ci.yml runs `--no-container`.
-	- Verified: check-push-gate `ded2j` passes, and went red with the Zig trim's limits taken out and with no `nice` in `fCtrRunSelf`. The whole of check-push-gate and shell-regress, shellcheck over `SHELLCHECK_TARGETS` and `test-ids.py check` passed. This box's docker took `--cpus 8 --cpu-shares 256` on a throwaway busybox container: `cpu.max` read `800000 100000` and `cpu.weight` 35.
+	- Swept: the 5 `docker run` sites under `cicd/` and the hook: cicd.bash's passwd, group and stages runs, and ctr-image.bash's `fCtrRunSelf` and `fCtrZigTrim`. `docker build` and `volume create` don't start a container. ci.yml runs `--no-container`.
+	- Verified: check-push-gate `ded2j` passes, and went red with the Zig trim's limits taken out and with no `nice` in `fCtrRunSelf`. The whole of check-push-gate and shell-regress, shellcheck over `SHELLCHECK_TARGETS` and `test-ids.py check` passed. This box's docker took `--cpus 8 --cpu-shares 256` on a throwaway busybox container, where `cpu.max` read `800000 100000` and `cpu.weight` read 35.
 	- Needs local test suite run?: No
 	- Branch: `r1024c`
 	- Test case: check-push-gate `ded2j`.
@@ -5431,11 +5431,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: line 4, as in the file. Blank lines stay where they were, as `migrate` keeps comments.
 	- Note: 2.x's `x: ~~~` comes out as `x:` with the fence on a line of its own, so lines after a raw block move by one too. shclwrap puts blank lines back itself (its 2026102618065634), but can't fix the raw block case (its 2026102620430717).
 	- Actual cause: `upgrade` wrote the migrated text the way `fmt` does. `fmt` drops blank lines before the first line, folds a run of them into one, and puts a raw block's fence on its own line.
-	- Actual fix: `upgrade` saves the migrated text the way `set` saves, keeping its lines, with the info block added at the end. Every line stays where it was, blank lines and `x: ~~~` included, so shclwrap's raw block case is fixed too. Where the lines can't be kept, or keeping them keeps an error the canonical form repairs, such as `   b` with no colon, it falls back to the `fmt` form as before. Same in Rust, Go, Python and C.
+	- Actual fix: `upgrade` saves the migrated text the way `set` saves, keeping its lines, with the info block added at the end. Every line stays where it was, blank lines and `x: ~~~` included, so shclwrap's raw block case is fixed too. Where the lines can't be kept, or keeping them keeps an error the canonical form repairs, such as `   b` with no colon, it falls back to the `fmt` form as before. It's the same in Rust, Go, Python, and C.
 	- Decisions:
-		- The whole layout is kept, not only blank lines, as `migrate` keeps it. The other way, a `fmt` that keeps blank-line runs, would still move every line after a raw block, and needs a new emitter mode in all 4 (me).
-		- The `fmt` fallback keeps upgrades that load clean only through `fmt`'s repair loading clean, as `debk5` shows. Without it that file would be refused with `--from-2x` (me).
-		- Departs from the item: it does more than keep blank lines. Indent, quoting and layout come through as `migrate` wrote them, where they used to come out in `fmt`'s form. spec.md, the man page, examples.md, the help text in the 4 CLIs and the doc comments say so.
+		- The whole layout is kept rather than only blank lines, as `migrate` keeps it. The other way, a `fmt` that keeps blank-line runs, would still move every line after a raw block, and needs a new emitter mode in all 4 (me).
+		- With the `fmt` fallback, an upgrade that loads clean only after `fmt`'s repair still loads clean, as `debk5` shows. Without it that file would be refused with `--from-2x` (me).
+		- This departs from the item, since it does more than keep blank lines. Indent, quoting and layout come through as `migrate` wrote them, where they used to come out in `fmt`'s form. spec.md, the man page, examples.md, the help text in the 4 CLIs and the doc comments say so.
 		- 20261030: JC left the Check to me (questions.md), so keeping the whole layout stands.
 	- Swept: `upgrade` in the 4 libraries, the one place the fresh text is made. `upgrade_file`, the CLIs and the C++ `upgrade` go through it. `migrate` already kept lines. The help text is the same in the 4 CLIs.
 	- Verified: the new tests fail on the old code in all 4 and pass on the fix. `debk5` failed with the lines always kept, which is why the fallback is there. `cargo test`, `go test`, the Python and C conformance suites, the Python soak, oom_hook, oom_recover, mem_bounds, veneer_smoke, check-veneer, cli-regress (629 rows, 4 bindings), crosscheck (22758 comparisons), check-migrate (647 documents), the 2,000,000 release fuzz (31 tests), check-docs, check-doc-examples, check-completions, test-ids check, markdownlint, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, and the C CLI under gcc 15 and clang pass.
@@ -5468,9 +5468,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261028: Verified: in the main image, bash's `printf '%(...)T'` gave UTC with no mount, and PDT with the host's zone file mounted at `/etc/localtime`. `Asia/Bangkok`'s file gave +07, and `-e TZ=EST5EDT,M3.2.0,M11.1.0` gave EDT.
 		- 20261028: Verified: check-push-gate `dej63` failed in all 4 cases on the old cicd.bash and ctr-image.bash, and passes now.
 	- Decisions:
-		- me: the zone file goes in as the image's `/etc/localtime`, not `-e TZ=<name>`, since the main image has no zone files to look a name up in. A `TZ` that names no file, such as a POSIX rule, goes in as `-e TZ`. Tests that need a zone pin `TZ` themselves, as they do on the host.
-	- Actual fix: `fCtrZoneArgs` in `ctr-image.bash`, used by cicd.bash's run in the image and by `fCtrRunSelf`, which the C analysis, CodeQL and the C soak run through.
-	- Swept: every `docker run` in `cicd/`. cicd.bash's passwd and group reads print no time. No other script starts a container. Not a binding change, so the four bindings don't apply.
+		- me: the zone file goes in as the image's `/etc/localtime` rather than `-e TZ=<name>`, since the main image has no zone files to look a name up in. A `TZ` that doesn't name a file, such as a POSIX rule, goes in as `-e TZ`. Tests that need a zone pin `TZ` themselves, as they do on the host.
+	- Actual fix: `fCtrZoneArgs` in `ctr-image.bash`, used by cicd.bash's run in the image and by `fCtrRunSelf`, which the C analysis, CodeQL, and the C soak run through.
+	- Swept: every `docker run` in `cicd/`. cicd.bash's passwd and group reads don't print a time. No other script starts a container. It isn't a binding change, so the 4 bindings don't apply.
 	- Test case: check-push-gate `dej63`: each run of cicd.bash or a gate in the image gets the zone file for `TZ` unset, a zone name and a `:`-led name, and `-e TZ` for a rule.
 	- Acceptance signoff: closed on JC's criteria. The next full run's step lines in the image show it end to end.
 	- Closed: 20261028-130250
@@ -5490,14 +5490,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261025, on that log in the frozen worktree.
 	- Possible cause: govulncheck now wraps "your code doesn't appear to call these" before "vulnerabilities.", so that word is a line of its own, and the filter only takes `these vulnerabilities.`. The hint is git's default branch notice from a `git init` in check-install-dev, and it says "warning".
 	- Estimated effort: Low
-	- Actual cause: as above. check-install-dev's `git init` named no branch, and git prints its hint where no default branch is set, as in the image.
+	- Actual cause: as above. check-install-dev's `git init` didn't name a branch, and git prints its hint where no default branch is set, as in the image.
 	- Actual effort: Low
 	- Progress log:
 		- 20261028: Verified: `run_20261025-174444.log` has rotated out, so on `run_20261027-114343.log`, which has the same 3 lines, the old lint-report says `NEW` with 3 and the new one `CLEAN`. shell-regress `dej69` failed on the old lint-report and passes now.
 	- Decisions:
 		- me: a bare `vulnerabilities.` line is dropped on its own, since a real govulncheck finding prints its own `Vulnerability #N` and `affected by N` lines, and those still count. A `hint:` line is git's advice, never a finding, so it's dropped as well as fixed at the source.
-	- Actual fix: lint-report drops a bare `vulnerabilities.` line and any `hint:` line. check-install-dev's `git init` names its branch, and so do the 5 in shell-regress that named none.
-	- Swept: every `git init` in `cicd/`. check-push-gate's 4 bare ones stay, since none printed a hint in its runs. Not a binding change, so the four bindings don't apply.
+	- Actual fix: lint-report drops a bare `vulnerabilities.` line and any `hint:` line. check-install-dev's `git init` names its branch, and so do the 5 in shell-regress that didn't name one.
+	- Swept: every `git init` in `cicd/`. check-push-gate's 4 bare ones stay, since none of them printed a hint in its runs. It isn't a binding change, so the 4 bindings don't apply.
 	- Test case: shell-regress `dej69`: the wrapped note and the hint read `CLEAN`, and a govulncheck finding and a git `warning:` line still flag.
 	- Acceptance signoff: closed on JC's criteria.
 	- Closed: 20261028-130250
@@ -5514,15 +5514,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- In Go, `Upgrade("row: idx=2, title=\"a, b\", description=\"say \\\"hi\\\"\"\n", true)`, then read `row` as strings. With `fromV2` false the file is taken as 2.x by its errors, and it's the same.
 	- Incorrect behavior: `row: [idx=2, 'title="a', 'b"', 'description="say "hi""']`, 4 elements where 1.2 and 2.0 read 3. `one: x="a, b"` comes back as 2 elements, where 2.0 read one string. Silent wrong answer.
 	- Expected behavior: `row: [idx=2, 'title="a, b"', 'description="say "hi""']`. 2.0 reads a quote inside an element as text that keeps a comma in it.
-	- Reproduced: 20261026, in Go. shclwrap's Rust, C and Python ports of the upgrade give the same.
+	- Reproduced: 20261026, in Go. shclwrap's Rust, C, and Python ports of the upgrade give the same.
 	- Note: shclwrap works around it by setting each value that reads otherwise than 2.0 back to 2.0's reading (its 2026102618065640). Found through gitniblet's seed rows.
 	- Actual cause: 1.2 and 2.0 let a quote anywhere in a piece shield a comma or a `#` until it closed. The migrate tokenizer copies the last dev build before the lexical cut, which shields only from a quote that opens a piece (`07c2becc`, 2026-09-05), so it cut `title="a, b"` at the comma. That build was never released.
-	- Actual fix: under the 2.x rules, a quote in the middle of a value piece that closes on the line takes everything up to its close into the piece, a comma or `#` included. One that never closes stays text. A bare piece holding a comma or a `#` is then always written another way, since it can only have come from such a quote. Same change in Rust, Go, Python and C.
+	- Actual fix: under the 2.x rules, a quote in the middle of a value piece that closes on the line takes everything up to its close into the piece, a comma or `#` included. One that never closes stays text. A bare piece that has a comma or a `#` is then always written another way, since it can only have come from such a quote. The same change is in Rust, Go, Python, and C.
 	- Decisions:
-		- A mid-piece quote that never closes, as in `don't, stop`, keeps the pinned build's reading, 2 elements, where 2.0 ran the quote to the end of the line and read one. That reading swallowed comments, it is the bug `07c2becc` fixed, and the apostrophe in a word is the common case (me).
-		- check-migrate still compares against the pinned build, and takes lines where it and 2.0 read a value apart out first, as it does for a fence label holding a `#` (me).
-	- Swept: `scan_piece` in all 4 bindings is the one place 2.x value pieces are cut, for a value, a `*` item and the array arm, so `migrate`, `upgrade` and their CLIs all get it. `value_edits`' early skip in all 4 learned that a bare piece can hold a comma or a `#`. Selector bodies and names are cut elsewhere, and 2.0 had no mid-piece quote rule there that differs. The repeated `row:` case from floss reads right too, since the fix is per line. spec.md and value-syntax.md's Migration table say so.
-	- Verified: corpus case `210-migrate-mid-quote-comma` fails on the old Python port and passes on the fix. The 4 conformance suites, `cargo test`, `go test`, cli-regress (629 rows), crosscheck (22758 comparisons), check-migrate (647 documents, its new `dej4h` included), the 2,000,000 release fuzz (31 tests), check-doc-examples, check-docs, check-abnf, shell-regress, test-ids check, lint-report, shellcheck, markdownlint, rustfmt, clippy, gofmt, go vet, staticcheck, ruff and mypy pass.
+		- A mid-piece quote that never closes, as in `don't, stop`, keeps the pinned build's reading, 2 elements, where 2.0 ran the quote to the end of the line and read one. That reading swallowed comments, which is the bug `07c2becc` fixed, and the apostrophe in a word is the common case (me).
+		- check-migrate still compares against the pinned build, and first takes out the lines where it and 2.0 read a value differently, as it does for a fence label that has a `#` (me).
+	- Swept: `scan_piece` in all 4 bindings is the one place 2.x value pieces are cut, for a value, a `*` item, and the array arm, so `migrate`, `upgrade`, and their CLIs all get it. `value_edits`' early skip in all 4 now allows for a bare piece that has a comma or a `#`. Selector bodies and names are cut elsewhere, and 2.0 had no mid-piece quote rule there that differs. The repeated `row:` case from floss reads right too, since the fix is per line. spec.md and value-syntax.md's Migration table say so.
+	- Verified: corpus case `210-migrate-mid-quote-comma` fails on the old Python port and passes on the fix. The 4 conformance suites, `cargo test`, `go test`, cli-regress (629 rows), crosscheck (22758 comparisons), check-migrate (647 documents, its new `dej4h` included), the 2,000,000 release fuzz (31 tests), check-doc-examples, check-docs, check-abnf, shell-regress, test-ids check, lint-report, shellcheck, markdownlint, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, and mypy pass.
 	- Branch: `r1028`
 	- Test case: corpus `dej4g` (`210-migrate-mid-quote-comma`) in all 4 runners, check-migrate `dej4h`.
 	- Acceptance signoff: Self-closed: the new case failed before and passes after, and every gate run is green.
@@ -5543,21 +5543,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A step that's turned off isn't counted in the total, and the first section lists those with the flag or reason for each.
 		- One blank line between sections, and one at the end.
 	- Progress log:
-		- 20261025: each stage is a step, and opens with `[ YYYYmmDD-HHMMSS.NN: Step N of M; Starting Name ]` under a 79-wide rule. It closes with `PASS`, or `FAIL` when the run stops inside it, right under the reason. Remote sync, Format, Build (debug), Lint, Tests, Profiler, Release builds, Test boxes, Dogfood, Demo gif and Backup + publish.
+		- 20261025: each stage is a step, and opens with `[ YYYYmmDD-HHMMSS.NN: Step N of M; Starting Name ]` under a 79-wide rule. It closes with `PASS`, or `FAIL` when the run stops inside it, right under the reason. The steps are Remote sync, Format, Build (debug), Lint, Tests, Profiler, Release builds, Test boxes, Dogfood, Demo gif, and Backup + publish.
 		- A step that's off isn't counted. The first section lists each with the flags that took it out, or `not configured`, and prints under `--quiet` too, with only the count and that list.
 		- The run in the image or the frozen copy numbers its steps from the outer run's list. With `--container=NAME`, the steps that image's own flags in config.bash take out come off the count too.
-		- The Container, Frozen copy and done sections keep their rule and header. The run inside no longer prints a done section of its own.
-		- Verified: check-push-gate `dee74` failed on the old engine in all 4 cases and passes now. Its alpine case also fails with the image's own flags left off the count. The rest of check-push-gate, shell-regress, check-docs, test-ids, shellcheck, markdownlint and `lint-report.bash --check --no-mark` pass.
+		- The Container, Frozen copy, and done sections keep their rule and header. The run inside no longer prints a done section of its own.
+		- Verified: check-push-gate `dee74` failed on the old engine in all 4 cases and passes now. Its alpine case also fails with the image's own flags left off the count. The rest of check-push-gate, shell-regress, check-docs, test-ids, shellcheck, markdownlint, and `lint-report.bash --check --no-mark` pass.
 		- 20261025, test batch: Verified: in the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`), each step from `Step 1 of 7` to `Step 7 of 7` opens and closes once. The runs in the image and the frozen copy go on with the same count, the first section lists the 4 steps that are off with their flags, and sections have one blank line between them and one at the end. check-push-gate `dee74` and `dee4w` passed in the run.
 		- 20261025: the steps run in the image stamp UTC, while the host's stamp local time, so Steps 6 and 7 read 7 hours apart. Filed as Bug 2026102520122877.
-		- Departs from the wording: the local timestamp holds only on the host until that bug is fixed.
+		- This departs from the wording, since the local timestamp is right only on the host until that bug is fixed.
 	- Decisions:
 		- me: closed here, with the image's UTC stamps left to Bug 2026102520122877, so the one defect left has one open item.
-		- 20261030: JC left the `--list` labels to me: they stay `N/9`. `--list` shows the stages a flag can turn on, while a run numbers only the steps left on, so the two counts mean different things.
-	- Swept: cicd.bash's other sections and `fDie`. No other cicd script prints a rule or a step header. shell-regress's lift of the sync stage and the check-boxes stand-in moved to the step helpers. `--list` still prints `N/9` labels (Check in questions). Not a binding change, so the four bindings don't apply.
+		- 20261030: JC left the `--list` labels to me, and they stay `N/9`. `--list` shows the stages a flag can turn on, while a run numbers only the steps left on, so the two counts mean different things.
+	- Swept: cicd.bash's other sections and `fDie`. No other cicd script prints a rule or a step header. shell-regress's lift of the sync stage and the check-boxes stand-in moved to the step helpers. `--list` still prints `N/9` labels (Check in questions). It isn't a binding change, so the 4 bindings don't apply.
 	- Test case: check-push-gate `dee74`: a default run, a failing cross check, `--gate` and an alpine image run.
 		- 20261025: `dee4w` reads the off list for Dogfood and Backup + publish, where it read `dogfood skipped` and `publish skipped`.
-	- Acceptance signoff: closed on JC's criteria: the full run's log covers each point but the image's time zone, which is Bug 2026102520122877.
+	- Acceptance signoff: closed on JC's criteria. The full run's log shows each point except the image's time zone, which is Bug 2026102520122877.
 	- Closed: 20261025-201300
 
 - CICD reset: merge gate
@@ -5571,21 +5571,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Prereq IDs: 2026102515494614
 	- Requirements:
 		- `--merge-gate` runs every check of the default run, from the pre-push hook on a push to main. `--ci` is another name for it, and says so in one line.
-		- It doesn't dogfood, publish, commit, push, install, sync, rewrite a tracked file or prompt.
-		- The hosted workflow runs it as far as the runner can. Moved to 2026102515494624, since the workflow's `--gate` changes meaning there.
+		- It doesn't dogfood, publish, commit, push, install, sync, rewrite a tracked file, or prompt.
+		- The hosted workflow runs it as far as the runner can. That part moved to 2026102515494624, since the workflow's `--gate` changes meaning there.
 	- Decisions:
-		- me: `--merge-gate` is `--gate` plus the release and cross builds, their checks, the packages, the test boxes and the default run's leak checks. The profiler runs only its calibration, as under `--gate`, since the graph is an artifact rather than a check.
+		- me: `--merge-gate` is `--gate` plus the release and cross builds, their checks, the packages, the test boxes, and the default run's leak checks. The profiler runs only its calibration, as under `--gate`, since the graph is an artifact rather than a check.
 		- me: the hook drops `--no-largedoc`, since the merge gate runs every check of the default run. An engine from before `--merge-gate` still gets `--gate --no-largedoc`, or `--ci --no-largedoc` before that.
 		- me: `--ci` prints `--ci is another name for --merge-gate` and passes `--merge-gate` to the run in the image, so the line shows once.
 	- Progress log:
-		- 20261025: done in cicd.bash and the pre-push hook. Help, the hook's header, contributing.md and design.md say so.
+		- 20261025: done in cicd.bash and the pre-push hook. Help, the hook's header, contributing.md, and design.md say so.
 		- 20261025: 2 check-push-gate asserts changed with the hook's gate. `dct5c`: the hook's call was `--gate --no-largedoc`, and is `--merge-gate`. `de4bf`: `--ci` exited 2 as an unknown option, and now exits 0 with its one line. `de4b9` takes both markers out of its stub engine, so it still checks an engine from before `--gate`.
-		- Verified: check-push-gate `dee4w` (release built, leak checks run, tree recorded, no dogfood or publish), `dct5c` and `de4bf` failed on the old engine and hook and pass now. `dee4v` covers the fallback to `--gate`. Also shell-regress, check-docs, check-pins, test-ids, shellcheck and markdownlint.
-		- Swept: every caller of the hook's gate flag (check-push-gate's hook stub) and every `--gate` and `--ci` under `cicd/`, `.github/`, the docs and install-dev.bash. ci.yml, install-dev.bash, install.md and contributing.md's other `--gate` lines stay, as `--gate` is unchanged until 2026102515494624.
-		- 20261025, test batch: no `cicd.bash --merge-gate` run was made. Verified: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) passed every stage the merge gate adds to `--gate`: the release and cross builds, their checks, the packages, the test boxes and the 4 default leak checks. check-push-gate `dee4w`, `dee4v`, `dct5c` and `de4bf` passed in the run.
-		- Departs from the Needs row: the flag itself first runs for real on the next push that moves main, through the hook (2026101920461174).
+		- Verified: check-push-gate `dee4w` (release built, leak checks run, tree recorded, no dogfood or publish), `dct5c` and `de4bf` failed on the old engine and hook and pass now. `dee4v` tests the fallback to `--gate`. shell-regress, check-docs, check-pins, test-ids, shellcheck, and markdownlint pass too.
+		- Swept: every caller of the hook's gate flag (check-push-gate's hook stub) and every `--gate` and `--ci` under `cicd/`, `.github/`, the docs and install-dev.bash. ci.yml, install-dev.bash, install.md, and contributing.md's other `--gate` lines stay, as `--gate` is unchanged until 2026102515494624.
+		- 20261025, test batch: no `cicd.bash --merge-gate` run was made. Verified: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) passed every stage the merge gate adds to `--gate`: the release and cross builds, their checks, the packages, the test boxes, and the 4 default leak checks. check-push-gate `dee4w`, `dee4v`, `dct5c` and `de4bf` passed in the run.
+		- This departs from the Needs row, since the flag itself first runs for real on the next push that moves main, through the hook (2026101920461174).
 	- Test case: check-push-gate `dee4w`, `dee4v`, `dct5c` and `de4bf`.
-	- Acceptance signoff: closed on JC's criteria: the full run and the merge gate's own tests cover each point. The call: what the merge gate runs, above.
+	- Acceptance signoff: closed on JC's criteria. The full run and the merge gate's own tests check each point. The call made here is what the merge gate runs, under Decisions.
 	- Closed: 20261025-201300
 
 - CICD reset: run lengths
@@ -5600,18 +5600,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The default run fits in about an hour, so `--miri-all` and anything else that takes hours moves to `--long`, with `--slow` as another name.
 		- `--quick` keeps the fast leak checks. `--leakcheck` adds every leak check, and `--no-leakcheck` takes every one out, fast ones included.
 	- Decisions:
-		- me: the leak checks split by how long they took in the 2026-10-25 full run. Fast, in `--quick` too: `analyze-c.bash --ctu` (17 s), `soak-c.bash` (100 s) and `sanitize-c.bash --glibcxx-debug`. Slow, in the default run: `codeql-scan.bash` (535 s). Long, only in `--long` and `--leakcheck`: `--miri-all`.
+		- me: the leak checks split by how long they took in the 2026-10-25 full run. Fast, in `--quick` too: `analyze-c.bash --ctu` (17 s), `soak-c.bash` (100 s), and `sanitize-c.bash --glibcxx-debug`. Slow, in the default run: `codeql-scan.bash` (535 s). Long, only in `--long` and `--leakcheck`: `--miri-all`.
 		- me: `--no-leakcheck` also drops the sanitizer runs in the tests, `sanitize-c.bash` and `sanitize-rust.bash`. `--quick` still leaves those out through `QUICK_SKIP`.
 		- me: `--quick --long` is a usage error, since nothing on the command line resolves last-wins.
-		- me: `--gate` still runs no leak checks. It moves to `--backlog-run-quick` in 2026102515494624, and `--merge-gate` (2026102515494619) takes the default run's.
+		- me: `--gate` still doesn't run any leak checks. It moves to `--backlog-run-quick` in 2026102515494624, and `--merge-gate` (2026102515494619) takes the default run's.
 	- Progress log:
-		- 20261025: done. config.bash lists the leak checks as `LEAKCHECK_FAST`, `LEAKCHECK_STEPS` and `LEAKCHECK_LONG`, plus `LEAKCHECK_TESTS` for the test steps. `--long` and `--slow` in cicd.bash, passed on to the run in the image and the frozen copy. Help, contributing.md, design.md and sanitize-rust.bash's help say so.
-		- No step takes hours but `--miri-all`, so no benchmark moved.
-		- Verified: check-push-gate `dee4t` failed on the old engine (an unknown `--long`, the fast ones left out of `--quick` and the default run) and passes on the new one, with `de582` and `de609` unchanged. Also shell-regress, check-docs, check-pins, test-ids, shellcheck and markdownlint.
-		- Swept: every reader of `LEAKCHECK_STEPS`: the engine, the alpine branch of config.bash, check-push-gate's stub, shell-regress `ded1v`'s text match, and check-pins' leak-only tool scan, which reads no leak list.
-		- 20261025, test batch: Verified: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) passed in 59 minutes, 17:44:44 to 18:43:38, at a load of about 18 to 30. It ran no `--miri-all`, and its 4 leak checks were `analyze-c.bash --ctu` (19 s), `soak-c.bash` (29 s), `sanitize-c.bash --glibcxx-debug` and `codeql-scan.bash` (558 s). check-push-gate `dee4t`, `de582` and `de609` passed in the run.
+		- 20261025: done. config.bash lists the leak checks as `LEAKCHECK_FAST`, `LEAKCHECK_STEPS` and `LEAKCHECK_LONG`, plus `LEAKCHECK_TESTS` for the test steps. cicd.bash takes `--long` and `--slow`, and passes them on to the run in the image and the frozen copy. Help, contributing.md, design.md, and sanitize-rust.bash's help say so.
+		- Only `--miri-all` takes hours, so no benchmark moved.
+		- Verified: check-push-gate `dee4t` failed on the old engine (an unknown `--long`, the fast ones left out of `--quick` and the default run) and passes on the new one, with `de582` and `de609` unchanged. shell-regress, check-docs, check-pins, test-ids, shellcheck, and markdownlint pass too.
+		- Swept: every reader of `LEAKCHECK_STEPS`: the engine, the alpine branch of config.bash, check-push-gate's stub, shell-regress `ded1v`'s text match, and check-pins' leak-only tool scan, which doesn't read a leak list.
+		- 20261025, test batch: Verified: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) passed in 59 minutes, 17:44:44 to 18:43:38, at a load of about 18 to 30. It didn't run `--miri-all`, and its 4 leak checks were `analyze-c.bash --ctu` (19 s), `soak-c.bash` (29 s), `sanitize-c.bash --glibcxx-debug` and `codeql-scan.bash` (558 s). check-push-gate `dee4t`, `de582` and `de609` passed in the run.
 	- Test case: check-push-gate `dee4t`.
-	- Acceptance signoff: closed on JC's criteria: the full run fit in about an hour. The call: which leak checks are fast, slow and long, above.
+	- Acceptance signoff: closed on JC's criteria, since the full run fit in about an hour. The call made here is which leak checks are fast, slow, and long, under Decisions.
 	- Closed: 20261025-201300
 
 - CICD reset: CPU and priority on this box
@@ -5625,28 +5625,28 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- The cap is worked out in one place: half the CPUs, or a quarter when the 1-minute load is over half the CPU count, never under 1.
 		- The busy check runs at the start and again before each step.
-		- The hard steps get a quarter, busy or not: leak checks, sanitizer builds, Miri, soak tests and the long fuzz.
+		- The hard steps get a quarter, busy or not: leak checks, sanitizer builds, Miri, soak tests, and the long fuzz.
 		- `nice -n 19`, plus `ionice -c 3` where it exists, over the whole run.
 	- Progress log:
-		- 20261024: `cicd/utility/include/cpu-cap.bash` has the rule. cicd.bash checks it at the start and before each step, and prints a `jobs:` line when the count changes. It exports the count as `CPU_CAP`, `CARGO_BUILD_JOBS`, `RUST_TEST_THREADS`, `GOMAXPROCS` and `RAYON_NUM_THREADS`, so config.bash's plain arrays no longer fix a `-j` count when they load.
-		- 20261024: config.bash's `HARD_STEPS` names the hard steps: both sanitizer scripts (Miri is in sanitize-rust), `go test -race`, the 2 soak runs, the large document and the 200,000 fuzz. Every leak check is hard without a row.
-		- 20261024: cicd.bash renices itself to 19 and sets `ionice -c 3` at the top, so every child, the run in the image included, takes both.
+		- 20261024: `cicd/utility/include/cpu-cap.bash` has the rule. cicd.bash checks it at the start and before each step, and prints a `jobs:` line when the count changes. It exports the count as `CPU_CAP`, `CARGO_BUILD_JOBS`, `RUST_TEST_THREADS`, `GOMAXPROCS`, and `RAYON_NUM_THREADS`, so config.bash's plain arrays no longer fix a `-j` count when they load.
+		- 20261024: config.bash's `HARD_STEPS` names the hard steps: both sanitizer scripts (Miri is in sanitize-rust), `go test -race`, the 2 soak runs, the large document, and the 200,000 fuzz. Every leak check counts as hard without a row of its own.
+		- 20261024: cicd.bash renices itself to 19 and sets `ionice -c 3` at the top, so every child, the run in the image included, inherits both.
 		- 20261024: the gate scripts run by hand get their count from the same include, at a quarter for sanitize-c, sanitize-rust, codeql-scan, largedoc and `analyze-c --ctu`.
-		- 20261024: the priority check in `ded1t` can't go red when shell-regress itself runs at nice 19, as it does inside a run. It was seen red run alone.
-		- 20261024, test batch: the full run on `d842ecf8` doesn't cover this, since its commits came after it. Left at Waiting on automated testing for the next full run, and hosted run 40163335236 on `r1024c`, still going, for the external part.
-		- 20261025, test batch: Verified: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) passed. Its first step opens with `jobs: 8 of 32 CPUs (busy, load 18.11)`. `(hard step)` shows on the 200,000 fuzz suite, `go test -race`, the Python soak, sanitize-c and the large document, and the leak checks run at 8 of 32. A `jobs:` line shows only when the count changes, so sanitize-rust and the leak checks, which follow a hard step, print none of their own. shell-regress `ded1s`, `ded1t`, `ded1v`, `dd2fp` and `debjb` passed in the run.
+		- 20261024: the priority check in `ded1t` can't go red when shell-regress itself runs at nice 19, as it does inside a run. It went red when run alone.
+		- 20261024, test batch: the full run on `d842ecf8` doesn't include this, since its commits came after it. It's left at Waiting on automated testing for the next full run, with hosted run 40163335236 on `r1024c`, still going, for the external part.
+		- 20261025, test batch: Verified: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) passed. Its first step opens with `jobs: 8 of 32 CPUs (busy, load 18.11)`. `(hard step)` shows on the 200,000 fuzz suite, `go test -race`, the Python soak, sanitize-c and the large document, and the leak checks run at 8 of 32. A `jobs:` line shows only when the count changes, so sanitize-rust and the leak checks, which follow a hard step, don't print one of their own. shell-regress `ded1s`, `ded1t`, `ded1v`, `dd2fp` and `debjb` passed in the run.
 		- 20261025: the busy reads came at loads of 17.9 to 29.7 on a box shared with other projects' runs, so the 1-minute load rule stays as it is.
 	- Decisions:
-		- A count the caller gives as `CPU_CAP` still holds for every step, with no busy check and no quarter. ci.yml's hosted jobs give `nproc` on runners with nothing else on them, and they're already at 46 of their 60 minutes. A run that cicd.bash starts, in the image or from the frozen copy, gets the caller's count through `SHCL_CPU_FIXED`, not the step's (me).
-		- The 1-minute load includes the run's own last step, so after a step at half the cores the next can read as busy. Left as the rule says, to be read from the full run's `jobs:` lines (me).
-	- Swept: every `nproc` cap under `cicd/` (check-c-compilers, sanitize-c, sanitize-rust, analyze-c, codeql-scan, crosscheck, largedoc, check-win-release), every `-j "${CPU_CAP}"` and `RUST_TEST_THREADS` in config.bash's plain arrays, and every step call in cicd.bash. soak-c, check-deps and check-pins default to 1, and check-freebsd's `xz` to 2, so they stay. The eval'd strings expand when they run, so they stay too. check-push-gate's and shell-regress's stub engines copy the new include. The other 3 bindings have no pipeline of their own, so no twin there.
+		- A count the caller gives as `CPU_CAP` still applies to every step, with no busy check and no quarter. ci.yml's hosted jobs give `nproc` on runners with nothing else on them, and they're already at 46 of their 60 minutes. A run that cicd.bash starts, in the image or from the frozen copy, gets the caller's count through `SHCL_CPU_FIXED` rather than the step's (me).
+		- The 1-minute load includes the run's own last step, so after a step at half the cores the next can read as busy. It's left as the rule says, to be read from the full run's `jobs:` lines (me).
+	- Swept: every `nproc` cap under `cicd/` (check-c-compilers, sanitize-c, sanitize-rust, analyze-c, codeql-scan, crosscheck, largedoc, check-win-release), every `-j "${CPU_CAP}"` and `RUST_TEST_THREADS` in config.bash's plain arrays, and every step call in cicd.bash. soak-c, check-deps and check-pins default to 1, and check-freebsd's `xz` to 2, so they stay. The eval'd strings expand when they run, so they stay too. check-push-gate's and shell-regress's stub engines copy the new include. The other 3 bindings don't have a pipeline of their own, so there's no twin to check.
 	- Verified: shell-regress `ded1s`, `ded1t` and `ded1v` pass. Each went red on its own fault: the old config.bash, `>=` for the busy compare, no floor of 1, no `CARGO_BUILD_JOBS`, the leak checks not hard, `HARD_STEPS` not read or missing a row or taking the py_compile build step, a `jobs:` line on every step, and no renice.
-	- Verified: the whole of shell-regress and check-push-gate, shellcheck over `SHELLCHECK_TARGETS`, check-docs, markdownlint and `test-ids.py check` passed. `cicd.bash --gate --no-fmt --no-lint --no-tests --no-cross --no-container --no-freeze` printed `jobs: 16 of 32 CPUs` once in the build stage and passed.
+	- Verified: the whole of shell-regress and check-push-gate, shellcheck over `SHELLCHECK_TARGETS`, check-docs, markdownlint, and `test-ids.py check` passed. `cicd.bash --gate --no-fmt --no-lint --no-tests --no-cross --no-container --no-freeze` printed `jobs: 16 of 32 CPUs` once in the build stage and passed.
 	- Needs external testing: N. Hosted run 40163335236 on `r1024c` passed every job, `ci (lint)` in 44 min and `ci (tests)` in 36, against 46 and 45 before.
 	- Branch: `r1024c`
 	- Test case: shell-regress `ded1s` (the rule), `ded1t` (each step, the leak checks, the image's count, the run's priority) and `ded1v` (no count fixed at load, and which steps are hard).
 		- 20261024: `dd2fp` finds the native release build by its line, which is now `fStep "${RELEASE_NATIVE_CMD[@]}"`. Its pattern went from `^[[:space:]]*"${RELEASE_NATIVE_CMD\[@\]}"$` to one that also takes a leading `fStep `. `debjb` reads the same line number.
-	- Acceptance signoff: closed on JC's criteria: the full run's `jobs:` lines and the hosted run cover each point.
+	- Acceptance signoff: closed on JC's criteria, since the full run's `jobs:` lines and the hosted run show each point.
 	- Closed: 20261025-201300
 
 - CICD reset: container cleanup
@@ -5668,29 +5668,29 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The cleanup line compares `docker system df` before and after.
 		- One pass by hand, by ID, over what the pipeline made before these labels.
 	- Progress log:
-		- 20261024: cicd.bash exports `SHCL_DEV_RUN`, the name of the run's temp folder. Every `docker run`, `build` and `volume create` in cicd.bash and ctr-image.bash carries `dev.project=shcl` and `dev.run`, and each container is named `shcl-<run folder>-<step>`: `fmt`, `build` or `stages`, their `-passwd` and `-group` reads, and `zig-trim`. A leak check run by hand through `fCtrRunSelf` is a run of its own, named by its scratch dir, and its container by the script.
+		- 20261024: cicd.bash exports `SHCL_DEV_RUN`, the name of the run's temp folder. Every `docker run`, `build`, and `volume create` in cicd.bash and ctr-image.bash has the `dev.project=shcl` and `dev.run` labels, and each container is named `shcl-<run folder>-<step>`: `fmt`, `build` or `stages`, their `-passwd` and `-group` reads, and `zig-trim`. A leak check run by hand through `fCtrRunSelf` is a run of its own, named by its scratch dir, and its container by the script.
 		- 20261024: on any exit the run stops and removes its containers by `dev.run` (`fCtrRunGone`), after the cidfile stop, and says how many. It waits out docker's removal of a `--rm` one, which shows as Dead for a moment after its stop.
-		- 20261024: `fCtrBuild` and `fCtrSweep` keep the newest other tag of each recipe's name as the one before it (`fCtrPrev`). A name with no recipe still keeps none. Stopped containers and dangling images are matched by `dev.project` now, not the old `shcl-cicd` label.
-		- 20261024: after the sweep and the Zig trim, a whole run in the image runs `docker builder prune -f --filter until=168h`, and the cleanup line ends with `; docker images A -> B, containers ..., volumes ..., build cache ...` from `docker system df`. contributing.md says so, since the prune reaches other projects' cache.
+		- 20261024: `fCtrBuild` and `fCtrSweep` keep the newest other tag of each recipe's name as the one before it (`fCtrPrev`). A name without a recipe still doesn't keep one. Stopped containers and dangling images are matched by `dev.project` now, rather than by the old `shcl-cicd` label.
+		- 20261024: after the sweep and the Zig trim, a whole run in the image runs `docker builder prune -f --filter until=168h`, and the cleanup line ends with `; docker images A -> B, containers ..., volumes ..., build cache ...` from `docker system df`. contributing.md says so, since the prune also clears other projects' cache.
 		- 20261024: cache volumes: `shcl-zig-cache` is the only volume a run makes, and it already follows the 2 GB rule (2026102416250020). The other caches are the bind-mounted `CTR_CACHE` dir.
-		- 20261024: the hand pass is left for the round, since the full run in flight holds the only candidate. By ID: image `61b558c4520c` (`shcl-cicd:7f80c73639ce`, 10.1 GB), run by container `2e54cc96effe`. No other image, dangling image, stopped container or volume of ours. Once the next run builds the new tag, that image stays as the one before it, so today the pass has nothing to remove.
-		- 20261024, test batch: the full run on `d842ecf8` doesn't cover this, since its commits came after it. Left at Waiting on automated testing for the next full run.
-		- 20261025, test batch: Verified: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) passed in the new image `shcl-cicd:1022f343df89`, which carries `dev.project=shcl` and `dev.run`. `shcl-cicd:7f80c73639ce` stays beside it as the tag before. The cleanup line ends with `docker images 147.8GB -> 147.8GB, containers 6.755GB -> 6.755GB, volumes 12.45GB -> 12.45GB, build cache 148.2GB -> 148.2GB`, and no container of ours was left after it. check-push-gate `ded0y`, `ded0z`, `de8j8`, `de635` and `de636` passed in the run.
+		- 20261024: the hand pass is left for the round, since the full run in flight is using the only candidate. By ID, it's image `61b558c4520c` (`shcl-cicd:7f80c73639ce`, 10.1 GB), run by container `2e54cc96effe`. There's no other image, dangling image, stopped container, or volume of ours. Once the next run builds the new tag, that image stays as the one before it, so today the pass has nothing to remove.
+		- 20261024, test batch: the full run on `d842ecf8` doesn't include this, since its commits came after it. It's left at Waiting on automated testing for the next full run.
+		- 20261025, test batch: Verified: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) passed in the new image `shcl-cicd:1022f343df89`, which has `dev.project=shcl` and `dev.run`. `shcl-cicd:7f80c73639ce` stays beside it as the tag before. The cleanup line ends with `docker images 147.8GB -> 147.8GB, containers 6.755GB -> 6.755GB, volumes 12.45GB -> 12.45GB, build cache 148.2GB -> 148.2GB`, and no container of ours was left after it. check-push-gate `ded0y`, `ded0z`, `de8j8`, `de635` and `de636` passed in the run.
 		- 20261025, test batch: Verified: a Format and Build run of `e9732a84` in the image, from a fresh clone, with `--keep-temp`, left `shcl-shcl-run.aKPgwp-fmt` and `shcl-shcl-run.aKPgwp-build`, both labeled `dev.run=shcl-run.aKPgwp`. Both were removed by ID after.
-		- 20261025, the hand pass: by ID, image `61b558c4520c` (`shcl-cicd:7f80c73639ce`) is the only thing of ours with the old label, and it stays as the tag before. No stopped container or other volume of ours, so the pass removed nothing.
+		- 20261025, the hand pass: by ID, image `61b558c4520c` (`shcl-cicd:7f80c73639ce`) is the only thing of ours with the old label, and it stays as the tag before. There's no stopped container or other volume of ours, so the pass didn't remove anything.
 	- Decisions:
 		- 20261024: the run folder is the run's own temp dir, `shcl-run.XXXXXX` today, so a container reads `shcl-shcl-run.XXXXXX-build`. It follows whatever 2026102416250090 makes the folder (me).
-		- 20261024: the old `shcl-cicd` label is dropped, not kept beside the new pair. Only the image above still carries it (me).
+		- 20261024: the old `shcl-cicd` label is dropped rather than kept beside the new pair. Only the image above still has it (me).
 		- 20261024: the one before is the newest other tag by docker's created time. When those times can't be matched to the tags, every tag stays (me).
-		- 20261024: analyze-c, soak-c and codeql-scan keep their cidfile stop when run by hand. Their containers are labeled and named, but they don't stop by label on their own exit (me).
-	- Swept: every `docker run`, `build` and `volume create` under `cicd/` and the hook: fRunContainer's 3 runs and the volume, and ctr-image.bash's fCtrRunSelf, fCtrBuild and fCtrZigTrim. ci.yml and `--no-container` runs start none. Every `label=shcl-cicd` filter, in ctr-image.bash and in check-push-gate's fake docker. shell-regress names no label.
+		- 20261024: analyze-c, soak-c, and codeql-scan keep their cidfile stop when run by hand. Their containers are labeled and named, but they don't stop by label on their own exit (me).
+	- Swept: every `docker run`, `build`, and `volume create` under `cicd/` and the hook: fRunContainer's 3 runs and the volume, and ctr-image.bash's fCtrRunSelf, fCtrBuild, and fCtrZigTrim. ci.yml and `--no-container` runs don't start any. Every `label=shcl-cicd` filter was swept too, in ctr-image.bash and in check-push-gate's fake docker. shell-regress doesn't name a label.
 	- Branch: `r1024c`
 	- Test case: check-push-gate `ded0y` (both labels with the run folder on every run, build and volume, and the 7 container names of a whole run) and `ded0z` (a failed run stops and removes its containers by `dev.run`), plus checks added to `de8j8` (a stopped run, the same), `de635` (the tag before stays, the build cache prune, docker's sizes on the line) and `de636` (a gate's build keeps the tag before).
 		- 20261024: `decz2`'s volume assert went from `--label shcl-cicd` to the `dev.project` and `dev.run` pair. `de635` and `de636` got a newer old tag per name, and `de635` expects the one more removal that gives, of `shcl-cicd-gone`, which has no recipe.
 	- Verified: check-push-gate passes. `de635` and `de636` went red with no tag kept before the current one, `ded0z` and `de8j8` with no stop by label, `ded0y` with no name on the Zig trim and with an empty `dev.run` (which turned `decz2` red too), and `de635` with no prune and with no sizes on the line. Each passed again once restored by copy.
-	- Verified: `fCtrBuild`, `fCtrPrev`, `fCtrRunGone` and `fCtrDf` against this box's docker, on throwaway images and containers under another project name: 3 builds left the last 2 tags, the image carries both labels, and a run's 2 containers went while another run's stayed until its own turn.
-	- Verified: shellcheck over every cicd script, shell-regress, check-pins, check-docs, markdownlint and `test-ids.py check`.
-	- Acceptance signoff: closed on JC's criteria: the full run, the kept run's containers and the hand pass cover each point.
+	- Verified: `fCtrBuild`, `fCtrPrev`, `fCtrRunGone`, and `fCtrDf` were run against this box's docker, on throwaway images and containers under another project name. After 3 builds the last 2 tags were left, the image has both labels, and a run's 2 containers went while another run's stayed until its own turn.
+	- Verified: shellcheck over every cicd script, shell-regress, check-pins, check-docs, markdownlint, and `test-ids.py check` pass.
+	- Acceptance signoff: closed on JC's criteria, since the full run, the kept run's containers, and the hand pass show each point.
 	- Closed: 20261025-201300
 
 - CICD reset: Zig cache
@@ -5708,23 +5708,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `~/.cache/zig` on the host is never emptied, since every project shares it.
 	- Progress log:
 		- 20261024: the main image sets `ZIG_GLOBAL_CACHE_DIR=/zig-cache`, and a run makes the `shcl-zig-cache` volume with our label and mounts it there. The image's `/zig-cache` is mode 1777, which a new volume takes, so the caller's uid can write it.
-		- 20261024: at the end of a whole run in the main image, `fCtrZigTrim` (ctr-image.bash) reads the volume's size, its `zig-version.stamp` and the image's `zig version`. Over `CTR_ZIG_CAP_KB` (2 GB), or a stamp naming another Zig, and the volume goes by `docker volume rm`, named on the cleanup line. A volume with no stamp yet gets one.
+		- 20261024: at the end of a whole run in the main image, `fCtrZigTrim` (ctr-image.bash) reads the volume's size, its `zig-version.stamp` and the image's `zig version`. When it's over `CTR_ZIG_CAP_KB` (2 GB), or the stamp names another Zig, the volume is removed by `docker volume rm` and named on the cleanup line. A volume with no stamp yet gets one.
 		- 20261024: the old cache, `~/.cache/shcl-cicd/main/home/.cache/zig` (119 MB), is left for one removal by hand once the next run is on the new image.
-		- 20261024, test batch: the full run on `d842ecf8` doesn't cover this, since its commits came after it. Left at Waiting on automated testing for the next full run.
-		- 20261025, test batch: Verified: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) passed in the new image `shcl-cicd:1022f343df89`, with its 4 zig cross builds. The `shcl-zig-cache` volume carries `dev.project=shcl` and `dev.run`, the pair that replaced the `shcl-cicd` label (2026102416250030). Its `zig-version.stamp` reads `0.16.0`, and it holds 130 MB. check-push-gate `decz2` and `de18w` passed in the run.
+		- 20261024, test batch: the full run on `d842ecf8` doesn't include this, since its commits came after it. It's left at Waiting on automated testing for the next full run.
+		- 20261025, test batch: Verified: the full run on frozen `e9732a84` (chain log `20261025-173800_001`, cicd log `run_20261025-174444`) passed in the new image `shcl-cicd:1022f343df89`, with its 4 zig cross builds. The `shcl-zig-cache` volume has `dev.project=shcl` and `dev.run`, the pair that replaced the `shcl-cicd` label (2026102416250030). Its `zig-version.stamp` reads `0.16.0`, and the volume uses 130 MB. check-push-gate `decz2` and `de18w` passed in the run.
 		- 20261025: the old cache under `~/.cache/shcl-cicd/main/home/.cache/zig` is already gone.
 	- Decisions:
-		- 20261024: the mount point is `/zig-cache`, not under `/cache`, since docker would make a mount point inside the box's cache dir as root (me).
+		- 20261024: the mount point is `/zig-cache` rather than under `/cache`, since docker would make a mount point inside the box's cache dir as root (me).
 		- 20261024: the volume is emptied by removing it, since docker refuses while another run's container has it. That run keeps its cache (me).
 		- 20261024: only the main image has zig, so the extra images don't get the volume (me).
 		- 20261024: this replaces, for Zig's cache only, 2026101303344553's call to keep caches in `~/.cache/shcl-cicd` rather than a docker volume.
-	- Swept: every `docker run` of the images. fRunContainer mounts it for main. fCtrRunSelf (analyze-c, soak-c, codeql-scan) runs no zig, and its HOME and TMPDIR are its scratch. The alpine and ubuntu recipes have no zig. ci.yml and `--no-container` runs use the box's `~/.cache/zig`, which nothing empties. No tracked `.zig-cache`. check-readme's `zig build-exe` keeps its local cache in its scratch dir.
+	- Swept: every `docker run` of the images. fRunContainer mounts it for main. fCtrRunSelf (analyze-c, soak-c, codeql-scan) doesn't run zig, and its HOME and TMPDIR are its scratch. The alpine and ubuntu recipes have no zig. ci.yml and `--no-container` runs use the box's `~/.cache/zig`, which nothing empties. There's no tracked `.zig-cache`. check-readme's `zig build-exe` keeps its local cache in its scratch dir.
 	- Branch: `r1024c`
 	- Test case: check-push-gate `decz2` (over the cap or another Zig: removed and named; at the cap, an unreadable answer or no volume: kept; made with our label and mounted at `/zig-cache` in the main image), plus a check in `de18w` that an extra image doesn't get it.
 	- Verified: check-push-gate passes. `decz2` went red with `>=` for the cap, no version compare, no label, no trim call and no mount, and `de18w` with the volume on the extra images. Each passed again once restored by copy.
-	- Verified: `fCtrZigTrim` against the real main image `shcl-cicd:7f80c73639ce` and a stand-in volume filled by a real `zig cc` build: a new volume stamped `0.16.0` and kept, a `0.15.2` stamp removed, a 1 KB cap removed, and a volume another container had kept.
-	- Verified: shellcheck, shell-regress, check-pins, check-docs and `test-ids.py check`.
-	- Acceptance signoff: closed on JC's criteria: the full run and the volume cover each point.
+	- Verified: `fCtrZigTrim` against the real main image `shcl-cicd:7f80c73639ce` and a stand-in volume filled by a real `zig cc` build. A new volume was stamped `0.16.0` and kept, a `0.15.2` stamp was removed, a 1 KB cap was removed, and a volume another container had was kept.
+	- Verified: shellcheck, shell-regress, check-pins, check-docs, and `test-ids.py check` pass.
+	- Acceptance signoff: closed on JC's criteria, since the full run and the volume show each point.
 	- Closed: 20261025-201300
 
 - CICD reset: docs-only pushes to main
@@ -5738,16 +5738,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Prereq IDs: 2026102515494619
 	- Requirements:
 		- No gate on a push to dev.
-		- A push to main that changes only docs, `project/` and art skips the gate, from one path list the hook reads.
+		- A push to main that changes only docs, `project/`, and art skips the gate, from one path list the hook reads.
 	- Decisions:
-		- me: the list is `cicd/docs-only-paths.txt`: every `*.md`, `project/` but its corpus and `grammar.abnf`, which tests and check-abnf read, and the art no build reads, `assets/demo.gif`, `icon.png` and `logo.png`. `shcl.ico` goes into the Windows build, so it's out. The installers stay gated, since the one-liners run them from main.
-		- me: the push is judged against what the remote's main holds. A new main, or one the clone hasn't fetched, runs the gate. The banner tag check still runs.
+		- me: the list is `cicd/docs-only-paths.txt`: every `*.md`, `project/` but its corpus and `grammar.abnf`, which tests and check-abnf read, and the art that no build reads, `assets/demo.gif`, `icon.png`, and `logo.png`. `shcl.ico` goes into the Windows build, so it's out. The installers stay gated, since the one-liners run them from main.
+		- me: the push is judged against the remote's main. A new main, or one the clone hasn't fetched, runs the gate. The banner tag check still runs.
 	- Progress log:
-		- 20261025: done in the pre-push hook. No gate on a push to dev was already so. The hook's header, contributing.md and design.md say so.
-		- Verified: check-push-gate `dee5j` failed on the old hook, which gated a docs-only push, and passes now. Its cases that must still gate pass: a script beside the docs, a corpus file, `grammar.abnf`, a new main and an unknown one. Also shell-regress, check-docs, test-ids, shellcheck and markdownlint.
-		- Departs from the wording: `project/` leaves out its corpus and the grammar, since a build or test reads both.
+		- 20261025: done in the pre-push hook. A push to dev already wasn't gated. The hook's header, contributing.md, and design.md say so.
+		- Verified: check-push-gate `dee5j` failed on the old hook, which gated a docs-only push, and passes now. Its cases that must still gate pass: a script beside the docs, a corpus file, `grammar.abnf`, a new main, and an unknown one. shell-regress, check-docs, test-ids, shellcheck, and markdownlint pass too.
+		- This departs from the wording, since `project/` leaves out its corpus and the grammar, which a build or test reads.
 	- Test case: check-push-gate `dee5j`.
-	- Acceptance signoff: closed on JC's criteria. The call: which paths count as docs, above.
+	- Acceptance signoff: closed on JC's criteria. The call made here is which paths count as docs, under Decisions.
 	- Closed: 20261025-162100
 
 - A release build's size in the run log reads 1.0K
@@ -5768,14 +5768,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: every `du` under `cicd/` and in the hook. package.bash's 2 already gave the size. The `du -sk` ones measure what a cleanup frees, where allocated blocks are right.
 	- Verified: a 1.3 MB file just written in `source/rust/target` read 1.0K with `du -h` and 1.3M with `--apparent-size`. shell-regress `dee4s` failed on the old cicd.bash and passes on the fix.
 	- Test case: shell-regress `dee4s`.
-	- Acceptance signoff: Self-closed: a mechanical fix, its test failed before and passes after.
+	- Acceptance signoff: Self-closed: it's a mechanical fix, and its test failed before and passes after.
 	- Closed: 20261025-160100
 
 - A merge can still build a list with a field under it, at 2M fuzz
 	- ID: 2026102322270349
 	- Type: Bug
 	- Status: Done
-		- Fixed in the load, not the merge.
+		- Fixed in the load rather than the merge.
 	- Needs local test suite run?: Y, done: the no-publish full run on `r1024c`'s frozen `d842ecf8`.
 	- Severity: High
 	- Opened: 20261023-222703
@@ -5787,27 +5787,27 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `SHCL_FUZZ_ITERS=2000000 cargo test --release --test fuzz_smoke merge_never_panics_and_stays_fixpoint`, on the corpus with 2026102307035781's changes to 187, 188, 193 and the new 209, which move the seeds.
 	- Incorrect behavior: `dab72` fails with "a merged list with a field under it at iteration 1139165". A is a mutation of the case on a list closing onto an earlier sibling's value, and B one of the selector case.
 	- Reproduced: 20261023, the same iteration and message on `e3418e0c`'s code with the new corpus, so the library change in 2026102307035781 plays no part. Neither document has an apostrophe outside a comment.
-	- Actual cause: the load, not the merge. B alone builds the list: `srv: [a]` then `srv(0).tls: on`. An index can select a list, and a dotted line through it put the field under the list. The same field on the line under `srv(0):` was already `E028`, or `E001` after `- ` items. The merge only carried B's list over.
+	- Actual cause: the load rather than the merge. B alone builds the list: `srv: [a]` then `srv(0).tls: on`. An index can select a list, and a dotted line through it put the field under the list. The same field on the line under `srv(0):` was already `E028`, or `E001` after `- ` items. The merge only copied B's list over.
 	- Estimated effort: Avg
 	- Progress log:
-		- 20261023: dev's code at `bc24aafa`, from before option A, fails the same way on the 2 documents: the merge builds a `srv` list with `tls` under it, and 2 lines lost. So the defect was there before the round, and it waits for a later one. There the shape was the known exception (2026100511210900), whose save refuses. r1024's merged output is no fixpoint either, while `bc24aafa`'s is. The property stops at the first assert, so the fuzz never showed that.
-		- 20261024, all 4 bindings: a dotted line whose index reaches stacked items before its last segment is `E001`, kept, as a field line there is. One whose index reaches an array line makes that line `E028`, and the field opens with no value. spec.md's `E001` and `E028` rows, design.md's retained-lines paragraph and the changelog say so.
-			- Departs from the wording: the fix is in the load. No merge builds the shape from 2 documents that don't hold it, since a merge matches by name and value.
-			- Verified: the issue's A and B now merge with no list with a field, and the output is a fixpoint. The 2,000,000 release fuzz passes all 31 properties. Also the 4 conformance suites, cli-regress (629 rows), crosscheck over the corpus (22719 comparisons), check-docs, check-migrate (642 documents), shell-regress, perf-gate, check-c-compilers, sanitize-c, test-ids, markdownlint, rustfmt, clippy, go vet, staticcheck, ruff and mypy. The new test fails on the old library in each runner.
-			- Swept: `attach_path`'s other selector arms, since a value selector never matches a list; `open_lazy`, whose held paths have no index; the setters, which refuse `srv(0).tls` on a list in all 4 CLIs; and the stacked-list and array-line checks at the level, in Rust, Go, Python and C.
-			- A kept dotted line after items is written as a comment, `# srv(0).tls: on`, since the emitter's model doesn't follow an index. That is the safe side, as with any kept line it reads as binding.
+		- 20261023: dev's code at `bc24aafa`, from before option A, fails the same way on the 2 documents: the merge builds a `srv` list with `tls` under it, and loses 2 lines. So the defect was there before the round, and it waits for a later one. There, a list with a field was the known exception (2026100511210900), whose save refuses. r1024's merged output isn't a fixpoint either, while `bc24aafa`'s is. The property stops at the first assert, so the fuzz never showed that.
+		- 20261024, all 4 bindings: a dotted line whose index selects stacked items before its last segment is `E001`, kept, as a field line there is. One whose index selects an array line makes that line `E028`, and the field opens with no value. spec.md's `E001` and `E028` rows, design.md's retained-lines paragraph, and the changelog say so.
+			- This departs from the wording, since the fix is in the load. A merge never builds a list with a field from 2 documents that don't have one, since it matches by name and value.
+			- Verified: the issue's A and B now merge without a list with a field, and the output is a fixpoint. The 2,000,000 release fuzz passes all 31 properties. The 4 conformance suites, cli-regress (629 rows), crosscheck over the corpus (22719 comparisons), check-docs, check-migrate (642 documents), shell-regress, perf-gate, check-c-compilers, sanitize-c, test-ids, markdownlint, rustfmt, clippy, go vet, staticcheck, ruff, and mypy pass too. The new test fails on the old library in each runner.
+			- Swept: `attach_path`'s other selector arms, since a value selector never matches a list; `open_lazy`, whose stored paths don't have an index; the setters, which refuse `srv(0).tls` on a list in all 4 CLIs; and the stacked-list and array-line checks at the level, in Rust, Go, Python and C.
+			- A kept dotted line after items is written as a comment, `# srv(0).tls: on`, since the emitter's model doesn't follow an index. That's the safe side, as with any kept line that reads as binding.
 		- 20261024 later: hosted run 40112190832 failed `ddrkh`. The 2 new spec.md rows quoted `srv(0).tls: on` and `srv: [a]` as whole lines, which check-doc-examples loads alone as examples of the row's code. Each needs the other line above it, so the rows now name the path, `srv(0).tls`, and the line before it in words. What they say is unchanged.
-			- Verified: check-doc-examples on the 4 CLIs (spec.md 34 rows, value-syntax.md 62, man page 7 blocks), check-docs, markdownlint. `check -` gives `E028` on line 1 for `srv: [a]` then `srv(0).tls: on`, and `E001` on line 3 after `srv:` with `- a`, in the C CLI.
+			- Verified: check-doc-examples on the 4 CLIs (spec.md 34 rows, value-syntax.md 62, man page 7 blocks), check-docs, and markdownlint pass. `check -` gives `E028` on line 1 for `srv: [a]` then `srv(0).tls: on`, and `E001` on line 3 after `srv:` with `- a`, in the C CLI.
 			- Swept: the same spans in design.md and the changelog are prose, which the gate doesn't read.
-		- 20261024, test batch, on `r1024b` at `d064d760`. Verified: hosted ci.yml run 40114707715, every job green. In the no-publish full run, `analyze-c` and `analyze-c --ctu`, sanitize-c, this item's tests in all 4, and `ddrkh`. Exhaustive cppcheck passed in the stopped run on `1dcc5b52`, whose C is the same. The run stopped in `--miri-all` on 2 slow fuzz tests that aren't this item's (2026102413172941), so stages 5-9 weren't reached.
+		- 20261024, test batch, on `r1024b` at `d064d760`. Verified: hosted ci.yml run 40114707715 had every job green. In the no-publish full run, `analyze-c` and `analyze-c --ctu`, sanitize-c, this item's tests in all 4, and `ddrkh` passed. Exhaustive cppcheck passed in the stopped run on `1dcc5b52`, whose C is the same. The run stopped in `--miri-all` on 2 slow fuzz tests that aren't this item's (2026102413172941), so stages 5-9 weren't reached.
 		- 20261024, test batch: Verified: the no-publish full run on `r1024c`'s frozen `d842ecf8` passed every stage, `--miri-all` (`de2pd`) and stages 5-6 included, with this item's tests in all 4 (`decb2`, `decb3`, `decb4`, `decb5`), `ddrkh`, and `dab72` at 200,000.
 	- Decisions:
-		- me, 20261024: option A stays, and this is worked first next round. Reverting brings back 3 load outcomes for 2 swapped lines and the 3 exceptions. The missing fixpoint is the same defect showing worse. The merge still builds a list with a field under it, which option A says can't exist, so the fix is in the merge and covers both.
-		- The fix includes a fixpoint check on this case that doesn't sit behind the first assert.
+		- me, 20261024: option A stays, and this is worked first next round. Reverting brings back 3 load outcomes for 2 swapped lines and the 3 exceptions. The missing fixpoint is the same defect showing worse. The merge still builds a list with a field under it, which option A says can't exist, so the fix is in the merge and fixes both.
+		- The fix includes a fixpoint check on this case that isn't hidden behind the first assert.
 	- Actual fix: `through_items` beside `under_items`, and an `E028` turn in the index arm of `attach_path`, in all 4.
 	- Branch: `r1024b`
 	- Test case: `an_index_onto_a_list_takes_no_field` (`decb2` Rust, `decb3` Go, `decb4` Python, `decb5` C). It checks each case's fixpoint and lost count apart from the list check, the merge case included. `dab72` at 2,000,000.
-	- Acceptance signoff: Self-closed on JC's criteria: the tests went red on the old library in each runner, the 2,000,000 fuzz and the full run passed. It departs from the wording: the fix is in the load, not the merge, as the progress log says.
+	- Acceptance signoff: Self-closed on JC's criteria. The tests went red on the old library in each runner, and the 2,000,000 fuzz and the full run passed. It departs from the wording, since the fix is in the load rather than the merge, as the progress log says.
 	- Closed: 20261024-215700
 
 - Two slow fuzz tests fail under Miri's `--miri-all`
@@ -5827,22 +5827,22 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `upgrade_leaves_its_own_output_alone` (`de116`) fails its guard "only 1 files naming this format were made over". At Miri's 100 iterations the guard needs `beta > iters / 100`, so 2. Natively with `SHCL_FUZZ_ITERS=100` it fails the same on `r1024b` and on `58f1b93f`.
 		- `merge_never_panics_and_stays_fixpoint` (`dab72`) ran past the 7200 s limit under Miri and was stopped, at host load about 42 beside another project's Miri run. Natively at 20,000 iterations it took 6.5-6.7 s on `r1024b` and 6.7-7.2 s on dev, so the round didn't slow it.
 	- Expected behavior: both pass under `--miri-all`, as on dev `8b81b8c3` on 2026-10-22.
-	- Reproduced: 20261024, the first natively at 100 iterations on both commits. The second only under Miri, on a loaded box.
-	- Possible cause: the corpus edits since 2026-10-22 moved the fuzz seeds, so the 100-iteration soup makes fewer format-3 files. Unconfirmed. The second may be load alone.
+	- Reproduced: 20261024, the first natively at 100 iterations on both commits. The second reproduced only under Miri, on a loaded box.
+	- Possible cause: the corpus edits since 2026-10-22 moved the fuzz seeds, so the 100-iteration soup makes fewer format-3 files. This is unconfirmed. The second may be load alone.
 	- Actual cause:
 		- Both come from the corpus edits since 2026-10-22, which moved the draws. Load isn't it.
-		- `de116`: about 4 in 100 runs make over a file naming this format, at every depth from 100 to 20,000. So at 100 the guard rode on luck. Today's code over `8b81b8c3`'s corpus gets 2 in the first 100, the least it passes on, and over today's corpus 1.
+		- `de116`: about 4 in 100 runs make over a file naming this format, at every depth from 100 to 20,000. So at 100 the guard passed on luck. Today's code over `8b81b8c3`'s corpus gets 2 in the first 100, the least it passes on, and over today's corpus it gets 1.
 		- `dab72`: round 72 now draws the depth cap case with one dot gone from its 513-segment line, so the line binds a 511-deep chain. Each path walk reads every path from the root, about 650 KB of paths, where a seed has 1 KB at most. At Miri's 100 rounds and opt-level 0, that round took 1.07 s of the test's 1.32 s natively, and the test went from 0.13 s on `8b81b8c3` to 1.34 s. No other fuzz test moved.
 	- Estimated effort: Low
 	- Actual effort: Low
 	- Progress log:
-		- 20261024: Verified: `de116` fails at `SHCL_FUZZ_ITERS=100` before the fix and passes after. Both tests pass natively at 100, the default 300 and 20,000, and so does all of fuzz_smoke at the default. Also rustfmt, clippy and test-ids. With the skip forced on natively, `dab72` at 100 rounds and opt-level 0 takes 0.24 s, which is today's cost without round 72.
+		- 20261024: Verified: `de116` fails at `SHCL_FUZZ_ITERS=100` before the fix and passes after. Both tests pass natively at 100, the default 300 and 20,000, and so does all of fuzz_smoke at the default. rustfmt, clippy, and test-ids pass too. With the skip forced on natively, `dab72` at 100 rounds and opt-level 0 takes 0.24 s, which is today's cost without round 72.
 		- 20261024: Verified: `de116` passes under Miri as `--miri-all` runs it, in 2006 s at load 2.4. `dab72` there was still going at 28 minutes when it was stopped at the time cap, so it's unverified.
-		- Swept: every share guard in fuzz_smoke at 100 rounds. Only 3 are thin, filed as 2026102418441478, and none of those draws from the corpus. Every fuzz test's time at 100 rounds, against `8b81b8c3`: only `dab72` moved. The fuzz is in Rust only, so Go, Python and C have no twin.
+		- Swept: every share guard in fuzz_smoke at 100 rounds. Only 3 are thin, filed as 2026102418441478, and none of those draws from the corpus. Every fuzz test was timed at 100 rounds against `8b81b8c3`, and only `dab72` moved. The fuzz is in Rust only, so Go, Python, and C don't have a twin.
 		- 20261024, test batch: Verified: the no-publish full run on `r1024c`'s frozen `d842ecf8` passed `--miri-all` (`de2pd`), `de116` and `dab72` included, and every other stage.
 	- Decisions:
 		- me, 20261024: `de116` takes a floor rather than a lower bar. A bar low enough for 100 rounds would barely check the arm at 20,000. The floor is the native default, 300, so only Miri's run gets longer, about 3 times its old length.
-		- me, 20261024: under Miri only, `dab72` passes over the rare round that deep, after the round's last draw. Natively it still runs. A floor or a raised time limit would leave Miri's time hanging on the draw.
+		- me, 20261024: under Miri only, `dab72` passes over the rare round that deep, after the round's last draw. Natively it still runs. A floor or a raised time limit would leave Miri's time depending on the draw.
 	- Actual fix: `de116` runs at least 300 rounds, so its guard needs 4 hits of about 11. Under Miri, `dab72` passes over a round whose paths come to more than 64 KB, and fails if that's over 1 round in 10.
 	- Branch: `r1024c`
 	- Commit: `c1ac7f51`
@@ -5867,12 +5867,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `--no-remote` leaves the step out.
 		- First box: vmFreeBSD runs the freebsd-x86_64 release over the CLI cases, against the Linux release.
 	- Progress log:
-		- 20261024: `cicd/utility/check-boxes.bash`, and config.bash's `REMOTE_BOXES`, one row per box. cicd.bash runs it as `6/9  Test boxes` after stages 1-6, on this box whichever way they ran, and lists its `SKIP` lines again at the end. `--no-remote` leaves it out. A run with no release builds, such as `--gate`, is a `SKIP` per box.
+		- 20261024: `cicd/utility/check-boxes.bash` is new, and so is config.bash's `REMOTE_BOXES`, with one row per box. cicd.bash runs it as `6/9  Test boxes` after stages 1-6, on this box whichever way they ran, and lists its `SKIP` lines again at the end. `--no-remote` leaves it out. A run without any release builds, such as `--gate`, is a `SKIP` per box.
 		- Each box goes through the VM state helper's `wrap BOX --wait 900`, and the lock is held only while the box works. The comparison runs after it's let go. The box half makes `${HOST_TEMP:-${TMPDIR:-/tmp}}/shcl/<stamp>_<NNN>`, runs the cases under `nice -n 19`, and removes the folder on exit.
-		- Verified, with a stand-in VM state helper and ssh that run the box half here: a matching build passes 4416 CLI runs; a box that doesn't answer, no build, no helper and a refused lock are each a `SKIP` at exit 0; one changed output fails naming the case; a down box beside a good one skips the first and passes the second. The box folder was gone after each run. shellcheck over `SHELLCHECK_TARGETS`, shell-regress and `test-ids.py check` passed.
+		- Verified, with a stand-in VM state helper and ssh that run the box half here: a matching build passes 4416 CLI runs; a box that doesn't answer, no build, no helper, and a refused lock are each a `SKIP` at exit 0; one changed output fails naming the case; a down box beside a good one skips the first and passes the second. The box folder was gone after each run. shellcheck over `SHELLCHECK_TARGETS`, shell-regress, and `test-ids.py check` passed.
 		- Verified: `cicd.bash --gate --no-fmt --no-lint --no-tests --no-cross --no-container --no-freeze` prints `SKIP vmFreeBSD: no release builds this run` in the step and again at the end, at exit 0, and with `--no-remote` the step says it was skipped. The step's block, run alone over stand-in boxes with release builds given, passed one, skipped the other 2, listed the 2 at the end, and stopped the run on a build with one changed output.
 		- Not run: the step inside a whole run with release builds, and any real box.
-		- Swept: `fDriver` is the same text as check-freebsd's. check-cpu-floor has its own. The other 3 bindings have no CLI release, so no twin there.
+		- Swept: `fDriver` is the same text as check-freebsd's. check-cpu-floor has its own. The other 3 bindings don't have a CLI release, so there's no twin to check.
 		- 20261024, test batch: Verified: the no-publish full run on `r1024c`'s frozen `d842ecf8` ran the step after stages 1-6: `PASS vmFreeBSD: 4416 CLI runs, same bytes and exit codes as the Linux build` and `decyk` ok. The VM was running when that run started.
 		- 20261024, test batch: Verified: from a paused vmFreeBSD, `check-boxes.bash` on the frozen tree's linux-x86_64 and freebsd-x86_64 release builds, through the real helper, passed the same 4416 runs at exit 0. The VM was paused again after, with no note left, and the box's work folder was gone. `bsdtest`'s login shell is bash. The VM was then put back to running, as found.
 	- Test case: check-boxes `decyk`.
@@ -5884,9 +5884,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Done
 		- The 2,000,000 fuzz passes after the planned fix and one more, and so does the full run.
-	- Question, answered: the emitter asked the reload only for lines kept with their own indent and for `E028`'s array line, not for every retained line, so the item's premise didn't hold.
+	- Question, answered: the emitter checked with a reload only for lines kept with their own indent and for `E028`'s array line, rather than for every retained line, so the item's premise didn't hold.
 		- JC, 20261023: option A, with the stop rule below.
-	- Recommendation (me, 20261023): option A. It's built in all 4 and short of one fuzz case, it covers the second child's codes with no more code, and it keeps one rule in the one emitter. B adds a pass per code in 4 bindings. C keeps the 3 exceptions and the line-order difference, and leaves the second child unsolved.
+	- Recommendation (me, 20261023): option A. It's built in all 4 and short of one fuzz case, it handles the second child's codes without more code, and it keeps one rule in the one emitter. B adds a pass per code in 4 bindings. C keeps the 3 exceptions and the line-order difference, and leaves the second child unsolved.
 		- Stop rule: if the 2,000,000 fuzz still fails after the planned fix and one more, drop the wip branch and leave dev as it is, rather than switch to B or C.
 		- me, 20261024: the stop rule wasn't hit, so option A stays on dev. It passed on its own seeds within the 2 fixes. The later fail came from seeds another item moved, and fails on `bc24aafa` too. See 2026102322270349.
 	- Priority: Avg
@@ -5902,28 +5902,28 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: High
 	- Progress log:
 		- 20261023, on `wip/r1023-2026102307143752`, all 4 bindings:
-			- A clean field line under stacked items is `E001`, kept as written, and an item after a field child is `E008`, kept. What is under either is `E018`. A field line that opens a raw block is `E001` and dropped with the block, since it can't be written as a comment once moved; that fits the parent's new test for dropping. A line refused for its content keeps its own code there and opens nothing.
+			- A clean field line under stacked items is `E001`, kept as written, and an item after a field child is `E008`, kept. What is under either is `E018`. A field line that opens a raw block is `E001` and dropped with the block, since it can't be written as a comment once moved; that fits the parent's new test for dropping. A line refused for its content keeps its own code there and doesn't open anything.
 			- The emitter's model now knows, per open binding line, whether an item or a field line was written under it. A clean kept `E001` or `E008` line that a reload would bind goes out as a comment, through the settle a misplaced line uses (option A in the question). Without it, `set a=[p, q]` and a remove of the fields each made a kept line bind at exit 0.
 			- The 3 exceptions are gone: `stacks()` no longer counts children, `bracket()` brackets every list, and `unloadable_items` is removed with its use in the lost count and the keep-lines save. `settle_arrays` leaves array lines among and after a stacked list's items alone.
 			- Docs: design.md's table rows and 2 paragraphs, spec.md's Arrays, code table, `E018` row and merge text, value-syntax.md's stacked-list case and item table, the conformance README, and check-migrate's clean-code list (2.x bound an `E001` field).
 			- Goldens: `010`, `095` (lost 5), `128` (comments too), `188` (the line under the `E019` among the items went, since it would now be lost), `201` (comments, merged text).
 			- Tests: the 6 conformance tests per runner that built the list (Rust `ddj1h`, `ddj2w`, `ddj9k`, `ddqs1`, `ddj9m`, `ddj53` and their Go, Python and C twins) are commented out with the reason. New `a_field_under_items_stays_kept` pins the load, the set-empty, merge, array setter and remove cases. The fuzz helper `list_after_empty` became `list_with_field`, and every property asserts it never holds. Fuzz `ddkd8` is commented out; `deav0` pins the same text now. The outcome-table property moves `E008` to retained and counts a raw-block `E001`. cli-regress `ddj1f` and `ddj1g` expect exit 0 and the commented line.
 			- Verified: the 4 conformance suites, cli-regress (622 rows), crosscheck over the corpus plus a 2000-iteration dump (53499 comparisons), check-docs with check-abnf, test-ids, shell-regress, markdownlint, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, and a 200,000-iteration release fuzz. Each new test failed on the old library (`deav2`, `deav0`, `deav8`, `deava`).
-			- Failed: the 2,000,000-iteration release fuzz, 4 properties (`d9tnp`, `dc26d`, `ddrnk`, `dd16k`), all one case. A kept line refused for its value, with a kept line under it, sits in an empty field that later takes items, so canonical output writes it after the items. The reload no longer holds its level open there, so the line under it is `E018` and lost. Repro, from `d9tnp`, not a fixpoint under `fmt`: `a:` / `\tb: C:\dir, a\tb, 'it\'s'` / `\t\t\tno colon here` / `a: 1, , 2` / `  - 0`.
+			- Failed: the 2,000,000-iteration release fuzz, 4 properties (`d9tnp`, `dc26d`, `ddrnk`, `dd16k`), all one case. A kept line refused for its value, with a kept line under it, is in an empty field that later takes items, so canonical output writes it after the items. The reload no longer holds its level open there, so the line under it is `E018` and lost. The repro, from `d9tnp`, isn't a fixpoint under `fmt`: `a:` / `\tb: C:\dir, a\tb, 'it\'s'` / `\t\t\tno colon here` / `a: 1, , 2` / `  - 0`.
 			- Next: hold that level open again under items, as before, and refuse instead the line that would bind through it and so put a field under the list (`E001`, kept), with the emitter's model told the same. Then the 2,000,000 fuzz again.
 		- 20261023 later, same branch, with r1024 merged in, all 4 bindings:
 			- The planned fix: a line refused for its value alone holds its level open under items again, so what is kept under it stays kept. A line that would bind through it is `E001`, kept for a field line or an item, and dropped with its block for a fence line. The emitter models that level as held open, and writes a clean kept line under it as written while the list's items are written, as a comment otherwise.
-			- The next 2,000,000 run failed `dd16k` once: a kept `E001` or `E008` line written as a comment went at its own depth, so once a merge bracketed its list it sat 2 levels past the comment before it, and a reload read it 1 shallower. The one more fix: it goes at most 1 level past, as every comment run does. The same run failed `dcavy` on a bare fence line's `E001`, which the outcome-table property now counts as dropped.
-			- Docs: spec.md's uniform-or-nothing bullet, value-syntax.md's stacked-list case, the conformance README's `188` note.
+			- The next 2,000,000 run failed `dd16k` once: a kept `E001` or `E008` line written as a comment was written at its own depth, so once a merge bracketed its list it ended up 2 levels past the comment before it, and a reload read it 1 shallower. The one more fix: it goes at most 1 level past, as every comment run does. The same run failed `dcavy` on a bare fence line's `E001`, which the outcome-table property now counts as dropped.
+			- Docs: spec.md's uniform-or-nothing bullet, value-syntax.md's stacked-list case, and the conformance README's `188` note.
 			- Tests: `a_field_under_items_stays_kept` in all 4 adds the fuzz repro, a field line and an item under such a line, and the merge that makes one a comment. Each failed in all 4 without its fix.
-			- Verified: the 2,000,000 release fuzz (31 properties), the 4 conformance suites, `cargo test`, cli-regress (625 rows), crosscheck over the corpus plus a 2000-iteration dump (53775 comparisons), check-abnf, test-ids, rustfmt, clippy, gofmt, go vet, staticcheck, ruff.
-			- Red, and red on r1024 before this branch's changes: mypy and check-docs `man-page-date-current`, both from `d6820c2e`. Filed as 2026102321462051.
-		- 20261024, test batch: the full run failed codeql-scan `de5aj` on 14 `py/commented-out-code` alerts in the Python conformance tests commented out above. Each now has a `codeql[...]` line with its reason. Verified: codeql-scan passes, all 5 languages.
+			- Verified: the 2,000,000 release fuzz (31 properties), the 4 conformance suites, `cargo test`, cli-regress (625 rows), crosscheck over the corpus plus a 2000-iteration dump (53775 comparisons), check-abnf, test-ids, rustfmt, clippy, gofmt, go vet, staticcheck, and ruff.
+			- mypy and check-docs `man-page-date-current` are red, and were red on r1024 before this branch's changes, both from `d6820c2e`. Filed as 2026102321462051.
+		- 20261024, test batch: the full run failed codeql-scan `de5aj` on 14 `py/commented-out-code` alerts in the Python conformance tests commented out above. Each now has a `codeql[...]` line with its reason. Verified: codeql-scan passes for all 5 languages.
 		- 20261024, test batch: the no-publish full run on `r1024b` at `d064d760`. Verified: check-migrate (642 documents), `analyze-c --ctu`, soak-c, `sanitize-c --glibcxx-debug`, codeql-scan, `sanitize-rust` Miri over every test but the slow ones (`de2pc`), and this item's tests in all 4. Exhaustive cppcheck passed in the stopped run on `1dcc5b52`, whose C is the same. `--miri-all` failed on 2 slow fuzz tests that aren't this item's (2026102413172941), so stages 5-9 weren't reached.
-		- 20261024, test batch: Verified: the no-publish full run on `r1024c`'s frozen `d842ecf8` passed every stage, `--miri-all`'s slow fuzz tests over the changed emitter and stages 5-6 included. Also this item's tests in all 4 (`deav2`, `deav8`, `deav9`, `deava`), fuzz `deav0`, corpus `010`, `095`, `128`, `188` and `201` in all 4 runners, and cli-regress `ddj1f` and `ddj1g`.
+		- 20261024, test batch: Verified: the no-publish full run on `r1024c`'s frozen `d842ecf8` passed every stage, `--miri-all`'s slow fuzz tests over the changed emitter and stages 5-6 included. This item's tests in all 4 (`deav2`, `deav8`, `deav9`, `deava`), fuzz `deav0`, corpus `010`, `095`, `128`, `188`, and `201` in all 4 runners, and cli-regress `ddj1f` and `ddj1g` passed too.
 	- Branch: `wip/r1023-2026102307143752`
 	- Test case: conformance `deav2` (Rust), `deav8` (Go), `deav9` (Python), `deava` (C), `a_field_under_items_stays_kept`; fuzz `deav0`; corpus `010`, `095`, `128`, `188`, `201`; cli-regress `ddj1f`, `ddj1g`.
-	- Swept: the 3 callers of `open_lazy` (fence, item and field arms), the emitter's held-open push and its kept-line comment path in all 4; the outcome-table predicate, which only the Rust fuzz has. Before that: E001 and E008 sites, `stacks`, `bracket`, `unloadable_items`, the keep-lines gate, `settle_arrays` and the emitter's kept-line branch in all 4; the `list_after_empty` fixture in the Rust fuzz and the Go, Python and C runners; the CLI `explain` tables (wording still holds); check-migrate.
+	- Swept: the 3 callers of `open_lazy` (fence, item, and field arms), the emitter's held-open push and its kept-line comment path in all 4; the outcome-table predicate, which only the Rust fuzz has. Before that: E001 and E008 sites, `stacks`, `bracket`, `unloadable_items`, the keep-lines gate, `settle_arrays`, and the emitter's kept-line branch in all 4; the `list_after_empty` fixture in the Rust fuzz and the Go, Python, and C runners; the CLI `explain` tables (the wording is still right); and check-migrate.
 	- Needs local test suite run?: done: the no-publish full run on `r1024c`'s frozen `d842ecf8`.
 	- Acceptance signoff: Self-closed: JC picked option A, each new test failed on the old library, and the 2,000,000 fuzz and the full run passed.
 	- Closed: 20261024-215700
@@ -5951,15 +5951,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261023: a `'` with a character other than whitespace on both sides is text in a bare value or `- ` item, in all 4 bindings (`in_word`, `inWord`, `_in_word`). Elements and selector bodies still refuse it. "Blank" is read as Unicode `White_Space`, the same set the rest of the bare rules use.
 		- 20261023: `migrate` follows by itself, since it re-spells only what `bare_trouble` refuses: a 2.x `O'Brien` stays bare, and `O' Brien` is still quoted.
-		- 20261023: `explain E025` in all 4 CLIs, spec.md, value-syntax.md, design.md's lexical edges table and example note, grammar.abnf (`bare-joint`), the man page, the v4 draft's example and the changelog say so.
-		- 20261023: corpus 088 and 193 regenerated, and 187 and 188 now use `O"Brien` so their lines stay refused for the value. New case 209.
+		- 20261023: `explain E025` in all 4 CLIs, spec.md, value-syntax.md, design.md's lexical edges table and example note, grammar.abnf (`bare-joint`), the man page, the v4 draft's example, and the changelog say so.
+		- 20261023: corpus 088 and 193 were regenerated, and 187 and 188 now use `O"Brien` so their lines stay refused for the value. New case 209.
 		- 20261023, asserts given new values for this change: `migrate_writes_star_items_as_dashes` and its 3 twins expect `- O'Brien` where they had `- "O'Brien"`. 193's `write-bad.ops` refuses `O' Brien` where it had `O'Brien`. check-abnf's `it's` samples now derive, with new negatives beside them.
-		- Swept: `bare_trouble` and its callers (`piece_fault`, `value_edits`) in Rust, Go, Python and C; `needs_quotes` and `emit_element`, which still quote any `'`; every `O'Brien`, `it's` and "a quote in a bare" in the docs, corpus, CLI help and cli-regress. The C++ veneer has no copy of the rule.
-		- Verified: cargo test, go test, the Python and C conformance runners, cli-regress (629 rows), crosscheck over the corpus (22719 comparisons), check-docs, check-doc-examples, check-abnf, test-ids, shell-regress, markdownlint, cargo fmt, go vet, staticcheck, ruff and mypy. On the old code, corpus 088, 193 and 209, `migrate_writes_star_items_as_dashes` and cli-regress `debp8`, `debp9` and `ddjys` fail. `debpa` and `debpb` pass on both, since they pin what stays `E025`. Also clippy, the C CLI under gcc 15 with `_FORTIFY_SOURCE=3`, and the C++ veneer smoke.
+		- Swept: `bare_trouble` and its callers (`piece_fault`, `value_edits`) in Rust, Go, Python, and C; `needs_quotes` and `emit_element`, which still quote any `'`; every `O'Brien`, `it's`, and "a quote in a bare" in the docs, corpus, CLI help and cli-regress. The C++ veneer has no copy of the rule.
+		- Verified: cargo test, go test, the Python and C conformance runners, cli-regress (629 rows), crosscheck over the corpus (22719 comparisons), check-docs, check-doc-examples, check-abnf, test-ids, shell-regress, markdownlint, cargo fmt, go vet, staticcheck, ruff, and mypy. On the old code, corpus 088, 193 and 209, `migrate_writes_star_items_as_dashes` and cli-regress `debp8`, `debp9` and `ddjys` fail. `debpa` and `debpb` pass on both, since they pin what stays `E025`. clippy, the C CLI under gcc 15 with `_FORTIFY_SOURCE=3`, and the C++ veneer smoke pass too.
 		- 20261023: the 2M release fuzz passes 30 of 31 properties. `dab72` fails at iteration 1139165 on the old code too (2026102322270349). check-migrate has 3 divergences over 642 documents, all from its error count (2026102322233656), and the old CLI does the same on them.
 		- 20261024: the full run stopped at codeql-scan on commented-out Python tests from 2026102307143752, fixed in `7e1be7d0`. Stages after it weren't reached, so the full run is still left.
 		- 20261024, test batch: the no-publish full run on `r1024b` at `d064d760` passed stages 1-3 and stage 4's tests. Verified: corpus `209` in all 4 runners, cli-regress `debp8`, `debp9`, `debpa`, `debpb` and `ddjys`, check-migrate (642 documents), and `dab72` at 200,000. It stopped in `--miri-all` on 2 slow fuzz tests that aren't this item's (2026102413172941), so stages 5-9 weren't reached.
-		- 20261024, test batch: Verified: the no-publish full run on `r1024c`'s frozen `d842ecf8` passed every stage, `--miri-all` and stages 5-6 included. Also corpus `088`, `193` and `209` in all 4 runners, and cli-regress `debp8`, `debp9`, `debpa`, `debpb` and `ddjys`.
+		- 20261024, test batch: Verified: the no-publish full run on `r1024c`'s frozen `d842ecf8` passed every stage, `--miri-all` and stages 5-6 included. Corpus `088`, `193`, and `209` in all 4 runners, and cli-regress `debp8`, `debp9`, `debpa`, `debpb`, and `ddjys` passed too.
 	- Decisions:
 		- Only the single quote, and only with no blank on either side. Opening up `"` and backticks gains nothing for the churn.
 	- Test case: corpus `209-apostrophe-in-word` (`debpc`, all 4 runners), cli-regress `debp8`, `debp9`, `debpa` and `debpb`, and the updated 088 and 193.
@@ -5979,9 +5979,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept so far: found while checking the guard that 2026102419595509 fixed. All 3 files exist today, so nothing is broken yet.
 	- Estimated effort: Low
 	- Actual fix: each of the 3 blocks has an else branch that fails naming the missing file.
-	- Swept: every file test that opens a block in shell-regress, check-docs, check-push-gate and check-install-dev. 2 more were silent the same way, and fail by name now too: shell-regress's check-completions row and check-docs' install.ps1 tar and parse rows. The demo gif and the other install.ps1 block already print a skip line, and the rest test state the run makes. Only bash gates are involved, so the bindings have no twin.
+	- Swept: every file test that opens a block in shell-regress, check-docs, check-push-gate, and check-install-dev. 2 more were silent the same way, and fail by name now too: shell-regress's check-completions row and check-docs' install.ps1 tar and parse rows. The demo gif and the other install.ps1 block already print a skip line, and the rest test state the run makes. Only bash gates are involved, so the bindings don't have a twin.
 	- Test case: shell-regress `dc0an`, `dc0bv`, `dc3zv` and `dc0b5`, and check-docs `dc0bw`, each failing by name when its file is gone.
-	- Verified: with the repo root pointed at an empty dir, the 5 blocks fail by name, and the old ones stay green. shell-regress, check-docs, shellcheck and `test-ids.py check` pass.
+	- Verified: with the repo root pointed at an empty dir, the 5 blocks fail by name, and the old ones stay green. shell-regress, check-docs, shellcheck, and `test-ids.py check` pass.
 	- Branch: `r1024c`
 	- Acceptance signoff: Self-closed: each block went red with its file gone where the old one stayed green, and the gates pass on the round branch.
 	- Closed: 20261024-203400
@@ -5994,14 +5994,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened: 20261024-195955
 	- Opened by: 2026102416250020
 	- Related IDs: 2026101514324713
-	- Incorrect behavior: the block that links `source/rust/target` to a stand-in `target-gate` runs only when there's no `source/rust/target` in the stub repository. By then there is one, an empty dir, so the block is skipped with no line saying so. Its 2 checks, the extra image's mounts in a gate worktree and the main image building into `target-gate`, assert nothing.
+	- Incorrect behavior: the block that links `source/rust/target` to a stand-in `target-gate` runs only when there's no `source/rust/target` in the stub repository. By then there is one, an empty dir, so the block is skipped with no line saying so. Its 2 checks, the extra image's mounts in a gate worktree and the main image building into `target-gate`, don't assert anything.
 	- Expected behavior: the block runs every time, or fails when it can't set up.
 	- Reproduced: 20261024, on `r1024c`. A probe echo in the block's else branch printed the empty dir, made earlier in the same run.
 	- Actual cause: every earlier stubbed run but `de18w`'s own is frozen, and the frozen copy makes the checkout's end of each `FROZEN_LINKS` entry with `mkdir -p` (`fFrozenLink`). So `source/rust/target` and `target-migrate` were empty dirs in the stub repository before the first layout too. Its "nothing built here" never had them missing, so the stand-ins for a missing dir weren't checked either.
 	- Actual fix: before the first layout, `de18w` removes the empty `CTR_PRIVATE` dirs left by the earlier runs, and fails if one is still there. The gate worktree layout then always runs, and fails by name when `source/rust/target` is in the way, rather than skipping.
-	- Swept: the other file tests in check-push-gate, shell-regress and check-install-dev that open a block. None guards on state an earlier run of the same script leaves. `fFrozenLink`'s other caller, the pre-push hook, links into the gate tree, which check-push-gate checks apart (`dd51f`). Only bash gates are involved, so the bindings have no twin.
+	- Swept: the other file tests in check-push-gate, shell-regress, and check-install-dev that open a block. None guards on state an earlier run of the same script leaves. `fFrozenLink`'s other caller, the pre-push hook, links into the gate tree, which check-push-gate checks separately (`dd51f`). Only bash gates are involved, so the bindings don't have a twin.
 	- Test case: check-push-gate `de18w`.
-	- Verified: check-push-gate passes. With an extra image mounting target-gate as well, the main image not mounting it, or no stand-in for a missing private dir, the new `de18w` goes red and the old one stays green. A non-empty `source/rust/target` planted before the layouts fails both by name. Also shellcheck, shell-regress and `test-ids.py check`.
+	- Verified: check-push-gate passes. With an extra image mounting target-gate as well, the main image not mounting it, or no stand-in for a missing private dir, the new `de18w` goes red and the old one stays green. A non-empty `source/rust/target` planted before the layouts fails both by name. shellcheck, shell-regress, and `test-ids.py check` pass too.
 	- Branch: `r1024c`
 	- Acceptance signoff: Self-closed: the test went red on 3 faults the old one passed, and passes on the round branch.
 	- Closed: 20261024-202500
@@ -6018,12 +6018,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `cicd/utility/check-migrate.bash` once the corpus inputs changed for 2026102307035781, which moved the fuzz seeds.
 	- Incorrect behavior: `ddmp7` fails on fuzz documents 00202 and 00332, mutated from corpus 175. Each names format 3 and a Schema file that isn't beside it. The harness expects them left alone, while `upgrade --write --from-2x` exits 7 on one and rewrites the other.
 	- Reproduced: Yes, 20261023, `check-migrate.bash` on r1024 at `b9ee7918`: 3 divergences over 642 documents, on `fuzz_00202` and `fuzz_00332`.
-	- Possible cause: `fErrors` counts `check`'s stdout. `check` on such a file exits 8 and prints no diagnostics, so the count is 0 though the load has errors (`E014`, and `E006` plus `E015`). The HEAD CLI does the same on both documents, so the library didn't change.
+	- Possible cause: `fErrors` counts `check`'s stdout. `check` on such a file exits 8 and doesn't print any diagnostics, so the count is 0 though the load has errors (`E014`, and `E006` plus `E015`). The HEAD CLI does the same on both documents, so the library didn't change.
 	- Estimated effort: Low
-	- Actual cause: as the possible cause says. `check` reads the file's Schema line, and one naming a missing file is a read error, exit 8, before any diagnostic prints. `upgrade` reads no schema. `fUnplaced` and the `E028` scan read `check`'s output the same way.
-	- Actual fix: one helper, `fCheckNew`, runs `check --schema=/dev/null`, so the file's Schema line is never read. `fErrors`, `fUnplaced` and the `E028` scan go through it. The empty schema adds only `V` codes, which none of the 3 count.
-	- Swept: every `check` call in `check-migrate.bash`. 2.x's `check` (`fCheck2x`) reads no Schema line, so it stays. The `check` calls in the other gates (check-readme, check-doc-examples, perf-gate, largedoc, sanitize-c, crosscheck, cli-regress) test `check` itself, by its exit or whole output, and none counts errors to judge another command. The 4 bindings are unchanged, since the fault was in the gate.
-	- Verified: check-migrate passes, 642 documents with 0 divergences. The new shell-regress row fails on the old script (0 errors counted, and no helper) and passes on the fix. shell-regress, shellcheck and `test-ids.py check` pass.
+	- Actual cause: as the possible cause says. `check` reads the file's Schema line, and one naming a missing file is a read error, exit 8, before any diagnostic prints. `upgrade` doesn't read a schema. `fUnplaced` and the `E028` scan read `check`'s output the same way.
+	- Actual fix: one helper, `fCheckNew`, runs `check --schema=/dev/null`, so the file's Schema line is never read. `fErrors`, `fUnplaced`, and the `E028` scan go through it. The empty schema adds only `V` codes, which none of the 3 count.
+	- Swept: every `check` call in `check-migrate.bash`. 2.x's `check` (`fCheck2x`) doesn't read a Schema line, so it stays. The `check` calls in the other gates (check-readme, check-doc-examples, perf-gate, largedoc, sanitize-c, crosscheck, cli-regress) test `check` itself, by its exit or whole output, and none counts errors to judge another command. The 4 bindings are unchanged, since the fault was in the gate.
+	- Verified: check-migrate passes, 642 documents with 0 divergences. The new shell-regress row fails on the old script (0 errors counted, and no helper) and passes on the fix. shell-regress, shellcheck, and `test-ids.py check` pass.
 	- Branch: `r1024`
 	- Commit: `489705be`
 	- Test case: shell-regress `debqj`: a file with an error and a Schema line naming a missing file counts 1 error, and its read from stdin shows the `E014`.
@@ -6046,7 +6046,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: Yes, 20261023, on r1024's tree as merged into `wip/r1023-2026102307143752`.
 	- Actual cause: the loop's `X if tr is not None else ()` gave mypy a union it couldn't type, and `d6820c2e` edited the man page without moving its date.
 	- Actual fix: the Python loop skips a node with no trivia before it runs, and the man page's `.TH` date is 2026-10-23.
-	- Swept: Python and `cicd/utility` for the same conditional loop shape, none left. Only Python has a type check, and the other 3 bindings' `swap_banner` were never red. The man page is the only page with a `.TH` date.
+	- Swept: Python and `cicd/utility` for the same conditional loop, and none are left. Only Python has a type check, and the other 3 bindings' `swap_banner` were never red. The man page is the only page with a `.TH` date.
 	- Verified: mypy failed on the old `shcl.py` with the same error and passes on the fix. check-docs passes, `dcv66` included. ruff and the Python conformance suite pass (208 cases, `debk7` included).
 	- Branch: `r1024`
 	- Commit: `f3359dd4`
@@ -6068,18 +6068,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: iteration 628247, `from_v2` true, fails "the fresh text names no current format". The input has `##    Format   3`, then a second info block with `##    Format   99999999999` and a line `   3` under it. The fresh text writes that line as `"3":` and indents the block's comments under it.
 	- Expected behavior: the fresh file names this format, or the upgrade refuses.
 	- Reproduced: on `c92e1c05`, before the `H008` change, with the 2 new cases copied in, at the same iteration.
-		- 20261023, again on `r1024` at `bc24aafa`. Cut down to `a: 1`, `##    Format   3`, `##`, `## This config file format is SHCL.`, `##    Format   4`, then `   b`. `banner on` does the same to that file with `   b: 2`, which loads clean: it names format 4 afterwards, with `H006`.
+		- 20261023, again on `r1024` at `bc24aafa`. The repro cuts down to `a: 1`, `##    Format   3`, `##`, `## This config file format is SHCL.`, `##    Format   4`, then `   b`. `banner on` does the same to that file with `   b: 2`, which loads clean: it names format 4 afterwards, with `H006`.
 	- Actual cause: a whole info block above the first field's first child stays, and the lone `Format 3` line above it comes off once the new block goes on. The kept block's Format line then comes first, and the first line naming this format or a newer one is the one read. `upgrade` and `set_banner` share that path.
-	- Actual fix: when the new block goes on, a Format line in a block kept at the top is set to this format, in `swap_banner`. All 4.
+	- Actual fix: when the new block goes on, a Format line in a block kept at the top is set to this format, in `swap_banner`. This is in all 4.
 	- Decisions:
 		- me, 20261023: set the kept line rather than refuse. The input named this format, the new block names it, and migrate already turns an older Format line into this one where it sits. A refusal would need a new reason on `Upgrade` in all 4, for a file made by hand.
 		- me, 20261023: the line-keeping save writes the changed line at its field's indent, as it does any line a write made.
-	- Swept: `swap_banner` in Rust, Go, Python and C, which `upgrade`, `upgrade_file`, `set_banner` and the `banner` op all reach; the C++ veneer only wraps them. The footer always loses its old block, so only the top nodes keep one. `migrate`'s stamp goes through `restamp`, which already checks that the line it writes is the one read. The `upgrade` and `set_banner` doc comments in all 4 and the veneer, spec.md (`UpgradeFile` and the info block), the man page and the changelog.
-	- Verified: the new test fails on the old code in all 4 and passes with the fix. The 2,000,000 release fuzz passes all 31 properties. Also the Rust, Go, Python and C suites, cli-regress (625 rows, 4 bindings), crosscheck over the corpus (22512 comparisons), check-migrate, check-docs, test-ids check, cargo fmt, clippy, gofmt, go vet, staticcheck, ruff and mypy.
+	- Swept: `swap_banner` in Rust, Go, Python, and C, which `upgrade`, `upgrade_file`, `set_banner`, and the `banner` op all call; the C++ veneer only wraps them. The footer always loses its old block, so only the top nodes keep one. `migrate`'s stamp goes through `restamp`, which already checks that the line it writes is the one read. The `upgrade` and `set_banner` doc comments in all 4 and the veneer, spec.md (`UpgradeFile` and the info block), the man page, and the changelog were updated too.
+	- Verified: the new test fails on the old code in all 4 and passes with the fix. The 2,000,000 release fuzz passes all 31 properties. The Rust, Go, Python, and C suites, cli-regress (625 rows, 4 bindings), crosscheck over the corpus (22512 comparisons), check-migrate, check-docs, test-ids check, cargo fmt, clippy, gofmt, go vet, staticcheck, ruff, and mypy pass too.
 	- Branch: `r1024`
 	- Commit: `d6820c2e`
-	- Test case: `a_block_kept_at_the_top_names_this_format_too` in Rust (`debk5`), Go (`debk6`), Python (`debk7`) and C (`debk8`), through `upgrade` and `set_banner`, and fuzz `de116`.
-	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new test failed before and passes after, and the fuzz that found it passes. Setting the line rather than refusing is my call, noted under Decisions.
+	- Test case: `a_block_kept_at_the_top_names_this_format_too` in Rust (`debk5`), Go (`debk6`), Python (`debk7`), and C (`debk8`), through `upgrade` and `set_banner`, and fuzz `de116`.
+	- Acceptance signoff: Self-closed on JC's criteria. It was reproduced, the new test failed before and passes after, and the fuzz that found it passes. Setting the line rather than refusing is my call, noted under Decisions.
 	- Closed: 20261023-205517
 
 - A dev build shows its date after the build number
@@ -6094,13 +6094,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Report the date as the local date of whoever views the version.
 	- Decisions:
 		- JC, 20261023: a stamped build whose version already has its `vX.Y.Z` tag is a dev build. A release is built from the bump commit, before the tag, so it has no date.
-		- me, 20261023: the CLI works the date out from the build number when it runs, so no second stamp is needed. Unstamped builds stay `shcl vX.Y.Z`, so the 4 CLIs still match in crosscheck. Only the Rust CLI is stamped, so the other 3 get no date code.
+		- me, 20261023: the CLI works the date out from the build number when it runs, so no second stamp is needed. Unstamped builds stay `shcl vX.Y.Z`, so the 4 CLIs still match in crosscheck. Only the Rust CLI is stamped, so the other 3 don't get any date code.
 	- Progress log:
 		- 20261023: cicd.bash sets `SHCL_BUILD_DATED` from the tag beside `SHCL_BUILD`. build.rs passes it on, and `--version` and `--about` add the date in the local zone, through `localtime_r` or `SystemTimeToTzSpecificLocalTime`.
-		- Verified: a stamped build gave `(2025-10-22)` under Los Angeles and `(2025-10-23)` under UTC and Tokyo for a midnight UTC commit, the windows build under wine the same, and no date without the flag. Plus clippy, cli-regress, check-docs, test-ids check and shell-regress.
+		- Verified: a stamped build gave `(2025-10-22)` under Los Angeles and `(2025-10-23)` under UTC and Tokyo for a midnight UTC commit. The windows build under wine gave the same, and there's no date without the flag. clippy, cli-regress, check-docs, test-ids check, and shell-regress pass too.
 	- Commit: `b01bad6c`
 	- Test case: Rust `debj8`, `debj9` and `debja` in main.rs, and shell-regress `debjb`, seen to fail with the tag test broken.
-	- Acceptance signoff: Self-closed on JC's criteria: each requirement is in and tested, and JC made the release call.
+	- Acceptance signoff: Self-closed on JC's criteria. Each requirement is in and tested, and JC made the release call.
 	- Closed: 20261023-201500
 
 - A `#` glued to text changes a value with no word
@@ -6122,23 +6122,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Nothing suppresses it. A value that wants a trailing comment with no space before it is rare enough to quote.
 		- All 4 bindings, spec.md's code table, the Load outcomes table, and a corpus case.
 	- Decisions:
-		- me, 20261023: "Right before it" taken so `color: #fff` hints too. A `#` that opens a comment hints when text sits right before it in a bare piece, or the piece is empty and a character other than a blank or `#` follows. `port: 80   # main`, `a: # note`, `a: ## two`, a whole-line comment, and a `#` after a closing quote or `]` get none. design.md's Lexical edges has the reason and the alternatives.
+		- me, 20261023: "Right before it" is read so that `color: #fff` hints too. A `#` that opens a comment hints when text is right before it in a bare piece, or the piece is empty and a character other than a blank or `#` follows. `port: 80   # main`, `a: # note`, `a: ## two`, a whole-line comment, and a `#` after a closing quote or `]` don't get one. design.md's Lexical edges has the reason and the alternatives.
 		- me, 20261023: a fence label follows the same rule, since the value scan finds its `#`: ```` ```c# ```` hints and ```` ``` # note ```` doesn't. A name is left out, as the item lists only the 4 places.
 		- me, 20261023: the hint also shows on a line with an error, ahead of it, since the scan finds it first (185's found-order rule). A `- ` item is tokenized before its position is judged, so a misplaced item hints as a misplaced field line does.
 	- Progress log:
-		- 20261023: `Tokens` gains `glued` in all 4, set where the scan already stops at a comment, from the characters on either side of the `#`. The parser emits `H008` right after it tokenizes a field line, an item or a child-indent fence line. No second scan.
+		- 20261023: `Tokens` gains `glued` in all 4, set where the scan already stops at a comment, from the characters on either side of the `#`. The parser emits `H008` right after it tokenizes a field line, an item or a child-indent fence line. There's no second scan.
 		- Corpus 056, 068 and 109 already had a `#` against text, so their expected-diags gain `H008` lines. Their reads and Strict rows don't change.
 		- check-abnf counted any hint as unclean, so 2 of its samples went red. It now counts errors only.
-		- spec.md (Comments, code table), design.md (Lexical edges, Load outcomes), value-syntax.md, the corpus README, the changelog and `explain H008` in all 4 CLIs. The fuzz grammar generator expects `glued`, and checks both shapes come up.
-		- Verified: the Rust, Go, Python and C suites, cli-regress (625 rows, 4 bindings), crosscheck over the corpus (22512 comparisons), check-docs, check-abnf, check-doc-examples, test-ids check, shell-regress, cargo fmt, clippy, gofmt, go vet, staticcheck, ruff and mypy. The release fuzz at 2,000,000 passed every property but `upgrade_leaves_its_own_output_alone`, which fails at iteration 628247 on the old code too once the 2 new cases are in the seed set (2026102309053667).
+		- spec.md (Comments, code table), design.md (Lexical edges, Load outcomes), value-syntax.md, the corpus README, the changelog, and `explain H008` in all 4 CLIs say so. The fuzz grammar generator expects `glued`, and checks that both forms come up.
+		- Verified: the Rust, Go, Python, and C suites, cli-regress (625 rows, 4 bindings), crosscheck over the corpus (22512 comparisons), check-docs, check-abnf, check-doc-examples, test-ids check, shell-regress, cargo fmt, clippy, gofmt, go vet, staticcheck, ruff, and mypy. The release fuzz at 2,000,000 passed every property but `upgrade_leaves_its_own_output_alone`, which fails at iteration 628247 on the old code too once the 2 new cases are in the seed set (2026102309053667).
 		- Seen to fail on the old code: the diags of 207, 208 and the 3 updated cases, and `explain H008`.
-		- 20261023, test batch: fuzz `dct3h` (`raw_bodies_stay_content`) failed at 100 iterations, as `--miri-all` runs it. It skipped the read-back for any opener with a diagnostic, so the `c#` openers it draws stopped counting once they hint. It now skips only an opener with an error, and the 2 line-to-code maps that find kept misplaced lines take errors only. A body line still may not draw any diagnostic. Verified: `dct3h` failed at 100 before and passes at 100 and the default, all of fuzz_smoke passes at both, plus clippy, the C mem, oom and veneer tests and the Python soak.
-		- 20261023, test batch: run 1 (`-y --no-sync --no-dogfood --no-gif --no-publish`) passed stages 1-3, exhaustive cppcheck included, and stage 4 through analyze-c, soak-c, sanitize-c and codeql-scan, then stopped at the `dct3h` failure above. After the fix, `dct3h` passed under Miri at 100 iterations, and run 2 (the same with `--no-leakcheck`) passed every stage, sanitize-rust ASan and Miri, check-migrate, the release builds and their cross checks included. The slow share of `--miri-all` (scale tests) wasn't rerun.
-		- Swept: every stop at a `#` in `scan_value`, `scan_array` (an element and the text after `]`) and the selector body in `tokenize`, plus the parser's tokenize calls in its line loop, in Rust lib.rs, Go shcl.go, Python shcl.py and C shcl.h. The explain tables in all 4 CLIs.
+		- 20261023, test batch: fuzz `dct3h` (`raw_bodies_stay_content`) failed at 100 iterations, as `--miri-all` runs it. It skipped the read-back for any opener with a diagnostic, so the `c#` openers it draws stopped counting once they hint. It now skips only an opener with an error, and the 2 line-to-code maps that find kept misplaced lines take errors only. A body line still may not draw any diagnostic. Verified: `dct3h` failed at 100 before and passes at 100 and the default, all of fuzz_smoke passes at both, and so do clippy, the C mem, oom, and veneer tests, and the Python soak.
+		- 20261023, test batch: run 1 (`-y --no-sync --no-dogfood --no-gif --no-publish`) passed stages 1-3, exhaustive cppcheck included, and stage 4 through analyze-c, soak-c, sanitize-c, and codeql-scan, then stopped at the `dct3h` failure above. After the fix, `dct3h` passed under Miri at 100 iterations, and run 2 (the same with `--no-leakcheck`) passed every stage, sanitize-rust ASan and Miri, check-migrate, the release builds and their cross checks included. The slow share of `--miri-all` (scale tests) wasn't rerun.
+		- Swept: every stop at a `#` in `scan_value`, `scan_array` (an element and the text after `]`) and the selector body in `tokenize`, plus the parser's tokenize calls in its line loop, in Rust lib.rs, Go shcl.go, Python shcl.py, and C shcl.h, and the explain tables in all 4 CLIs.
 	- Branch: `r1023`
 	- Commit: `c11e41cd`, `5e032fc2`
 	- Test case: corpus `207-hash-against-text-hint` and `208-hash-against-text-errors`, cli-regress `deawt`, `deaww` and `deawv`, and fuzz `dcb0c`.
-	- Acceptance signoff: Self-closed on JC's criteria: the hint changes no read or exit code, each case it names is pinned by a test seen to fail before, and the full run passed. The call on "right before it" is noted under Decisions.
+	- Acceptance signoff: Self-closed on JC's criteria. The hint doesn't change a read or an exit code, each case it names is pinned by a test seen to fail before, and the full run passed. The call on "right before it" is noted under Decisions.
 	- Closed: 20261023-183115
 
 - Doc fixes from the 2026-10-22 design review
@@ -6170,12 +6170,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- JC, 20261023: no v3 code change for the quadratic walk. The per-name index is v4's node handles.
 		- Left out on purpose: the "never made to satisfy the machine" goal stays as written (20261006, and the comma and colon decision), and "adn" and "wiht" are planted slips.
 	- Progress log:
-		- 20261023: spec.md, design.md, README.md and examples.md changed as listed. The crate README's Rust example leads with `get_int_or` too.
+		- 20261023: spec.md, design.md, README.md, and examples.md changed as listed. The crate README's Rust example leads with `get_int_or` too.
 		- 20261023: the `--no-banner` help already says "leave out the info block", beside the flag's own name, in all 4 CLIs, so it stays as it is.
 		- 20261023: `fmt` turns a bare `field: server(*).host` into the quoted form, and its output is a fixpoint. `kB` and `KB` read alike, and `--decimal` gives powers of 1000.
-		- Swept: plain `get_X` in Rust lib.rs, Go shcl.go, Python shcl.py and C shcl.h, `unwrap_or` and the changed claims across the .md files.
-	- Test case: check-docs and check-readme, which runs the README and examples.md blocks. Docs only, so no new test.
-	- Acceptance signoff: Self-closed on JC's criteria: each listed doc fix is in, and the help line already met its point.
+		- Swept: plain `get_X` in Rust lib.rs, Go shcl.go, Python shcl.py, and C shcl.h, and `unwrap_or` and the changed claims across the .md files.
+	- Test case: check-docs and check-readme, which runs the README and examples.md blocks. It's docs only, so there's no new test.
+	- Acceptance signoff: Self-closed on JC's criteria. Each listed doc fix is in, and the help line already met its point.
 	- Closed: 20261023-071039
 
 - CICD runs on GitHub's M4 macOS runners
@@ -6192,13 +6192,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Build, run the tests, and smoke-test the CLI on the built binary.
 	- Progress log:
 		- 20261022: ci.yml's `macos` job already builds, runs `cargo test`, and runs crosscheck and cli-regress on the macOS universal release. It runs on `macos-14`, which is M1.
-		- 20261022: hosted run 39824537161 on `r1022`: the `macos` job passed.
+		- 20261022: in hosted run 39824537161 on `r1022`, the `macos` job passed.
 	- Decisions:
 		- JC, 20261022: stay on the free M1 runner. GitHub has no M4 runner, only third-party services do. What runs on M1 runs on M4, though not always the other way.
 		- JC, 20261023: "GitHub's M4 macOS runners" means GitHub's free arm64 macOS runners, which aren't M4 now.
 		- The release isn't built for a newer CPU than M1, since nothing sets `target-cpu` and the Rust target's default is `apple-m1`.
 	- Test case: none by ID, since the hosted job is the test: ci.yml's `macos` job, which runs `cargo test`, then crosscheck over the corpus and cli-regress on the release.
-	- Acceptance signoff: Self-closed on JC's criteria: the job already does each requirement on M1, and JC chose M1.
+	- Acceptance signoff: Self-closed on JC's criteria. The job already does each requirement on M1, and JC chose M1.
 	- Closed: 20261022-173253
 
 - Implement leak and static checks of the C and C++ code run as part of CI/CD
@@ -6271,9 +6271,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Only vendored code that end users run (JC, 2026101920461160).
 	- Already in place:
 		- sanitize-c builds the C tests, the C++ veneer smoke, and the C CLI under ASan and UBSan, and runs them over the corpus. LeakSanitizer comes on with ASan on Linux, so leaks already fail there.
-		- sanitize-c builds the veneer smoke again under TSan, and check-veneer has its own small TSan check. That covers the "if the code starts threads" line.
+		- sanitize-c builds the veneer smoke again under TSan, and check-veneer has its own small TSan check. That meets the "if the code starts threads" line.
 		- cppcheck runs at the exhaustive level.
-		- `source/c` has no vendored code and links no third-party library, so nothing needs vendoring or suppressing yet.
+		- `source/c` has no vendored code and doesn't link any third-party library, so nothing needs vendoring or suppressing yet.
 			- Rechecked 20261019 for 2026101920461160: the header, the veneer and the C CLI use the system's C and C++ standard libraries only.
 	- To do:
 		- Sanitizers, every full run:
@@ -6282,7 +6282,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- C's bump arenas hide overruns inside a block from ASan. Add a switch for the sanitizer build that has `arena_alloc` malloc each request on its own and `arena_free` free them all.
 			- The veneer smoke's ASan build adds `-D_GLIBCXX_ASSERTIONS`.
 		- Static analysis, every full run:
-			- `gcc -fanalyzer -c -o /dev/null` over `main.c` and the test .c files. `shcl.h` is header-only, so each of those covers it.
+			- `gcc -fanalyzer -c -o /dev/null` over `main.c` and the test .c files. `shcl.h` is header-only, so each of those checks it too.
 			- The clang static analyzer over the same files, with `scan-build --status-bugs` or the `clang --analyze` equivalent.
 			- clang-tidy with at least `clang-analyzer-*` and `bugprone-*` over `veneer_smoke.cpp`, with `-header-filter` naming `shcl.hpp` and `shcl.h`, and `-warnings-as-errors='*'`.
 			- There's no build system, so a script writes `compile_commands.json` from the flags sanitize-c uses.
@@ -6296,75 +6296,75 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Every new tool goes in `TOOL_PINS`, the build images, and `ci.yml` in the same commit. Each new test gets an ID from `test-ids.py new`.
 	- Progress log:
 		- 20261017, `cleak`, the every-run half. Sanitizers: `cicd/utility/lsan.supp` is empty and loaded through `LSAN_OPTIONS`. A leak bait has to be reported with it loaded (`de2wy`). oom_hook runs with leak detection on, since it no longer leaks. `SHCL_ARENA_MALLOC` gives each arena request its own malloc in the sanitizer builds of the runner, the smoke and the CLI. mem_bounds and the 2 OOM tests keep the bump arena, since they count its blocks and allocations. The smoke's ASan build adds `-D_GLIBCXX_ASSERTIONS`. The flags and programs are in `include/c-flags.bash`, which `gen-compdb.bash` reads too.
-		- Static analysis: `analyze-c.bash`, in the lint stage, runs gcc 14's `-fanalyzer` and clang 19's analyzer over main.c and the 4 test .c files, and clang-tidy 19 over the veneer smoke from `gen-compdb.bash`'s database. Each tool first has to report a planted leak and null dereference (`de2wz`, `de2x0`, `de2x1`). The real runs are `de2x2`, `de2x3` and `de2x4`. A box without the pinned tools runs it in the build image. gcc-14, clang-19 and clang-tidy-19 are in TOOL_PINS, the main Dockerfile and ci.yml.
+		- Static analysis: `analyze-c.bash`, in the lint stage, runs gcc 14's `-fanalyzer` and clang 19's analyzer over main.c and the 4 test .c files, and clang-tidy 19 over the veneer smoke from `gen-compdb.bash`'s database. Each tool first has to report a planted leak and null dereference (`de2wz`, `de2x0`, `de2x1`). The real runs are `de2x2`, `de2x3`, and `de2x4`. A box without the pinned tools runs it in the build image. gcc-14, clang-19, and clang-tidy-19 are in TOOL_PINS, the main Dockerfile, and ci.yml.
 		- Fixed: `arena_panic` is marked noreturn, the `fread` loops stop at a short read, the CLI's `read_stream` takes `is_stdin`, the CLI's suggestion buffers get `= {0}`, an `assert` on the layer count, `kept_taken` checks for trivia first, explicit `strcmp` compares, 2 widened multiplications, `'\0'` in 2 ternaries, and a NULL check in mem_bounds.
-		- Suppressed at the line, each with its reason: 14 volatile recovery-point owners for gcc, which loses a pointer stored in a volatile local; 9 hash map hits and 5 conformance.c checks for clang; 11 clang-tidy sites. 3 bugprone checks were off in analyze-c.bash until 20261018, below.
+		- Suppressed at the line, each with its reason: 14 volatile recovery-point owners for gcc, which loses a pointer stored in a volatile local; 9 hash map hits and 5 conformance.c checks for clang; 11 clang-tidy sites. The 3 bugprone checks were off in analyze-c.bash until 20261018, below.
 		- Swept: all 14 volatile owners in shcl.h, all 5 `fread` loops, and both callers' hint buffers.
-		- gcc's analyzer reaches little of shcl.h. A leak and a null dereference planted in library calls, and both in main.c's own `is_command`, went unseen by gcc 14 and 15 at depths 2 and 3. clang's analyzer and clang-tidy saw them. At gcc's default depth main.c ran out of 14 GB and conformance.c passed 24 GB, so there's no slower gcc mode for `--leakcheck`. It runs at depth 2, 40 to 100 s and 3 to 8 GB a file, in 2 lanes.
+		- gcc's analyzer checks little of shcl.h. A leak and a null dereference planted in library calls, and both in main.c's own `is_command`, went unseen by gcc 14 and 15 at depths 2 and 3. clang's analyzer and clang-tidy saw them. At gcc's default depth main.c ran out of 14 GB and conformance.c passed 24 GB, so there's no slower gcc mode for `--leakcheck`. It runs at depth 2, 40 to 100 s and 3 to 8 GB a file, in 2 lanes.
 		- Question: keep gcc's `-fanalyzer` in the every-run gate, when the bait is the only thing it went red on?
 			- JC, 20261018: it stays in the every-run gate.
-		- Time added on this box, at load 11 to 46: analyze-c 150 to 182 s in the lint stage, and sanitize-c about 5 s (100 s to 105 s). In the ubuntu image with ci.yml's packages, analyze-c took 166 s at `CPU_CAP=4`. It went red there until g++-14 was installed, since clang found no C++ headers. A hosted run hasn't been tried.
-		- Verified: analyze-c green from the host through the image, and in the ubuntu image as ci.yml sets it up. Each plant was seen red, then restored by copy: a library leak (sanitize-c's runner, smoke, CLI and OOM tests, the clang analyzer, clang-tidy), a null dereference (the clang analyzer), a use after a vector grows in the smoke (ASan), a data race in the smoke (TSan), a use after move in shcl.hpp (clang-tidy, so the header filter reaches it), a one-byte arena overrun (red with `SHCL_ARENA_MALLOC`, green without it), a vector read inside its capacity (red with `_GLIBCXX_ASSERTIONS`, green with ASan alone), and `leak:main` in lsan.supp (`de2wy`). check-pins went red with each new pin dropped from ci.yml or changed in the Dockerfile.
-		- Verified: sanitize-c (6329 CLI runs), check-c-compilers (141 builds, 5 compilers), the C tests at `-O2` with the strict warnings, mingw and zig Windows compiles, check-veneer, cli-regress over Rust and C, shell-regress, check-push-gate, check-pins, check-docs, `test-ids.py check`, shellcheck.
+		- Time added on this box, at load 11 to 46: analyze-c 150 to 182 s in the lint stage, and sanitize-c about 5 s (100 s to 105 s). In the ubuntu image with ci.yml's packages, analyze-c took 166 s at `CPU_CAP=4`. It went red there until g++-14 was installed, since clang didn't find any C++ headers. A hosted run hasn't been tried.
+		- Verified: analyze-c is green from the host through the image, and in the ubuntu image as ci.yml sets it up. Each plant was seen red, then restored by copy: a library leak (sanitize-c's runner, smoke, CLI and OOM tests, the clang analyzer, clang-tidy), a null dereference (the clang analyzer), a use after a vector grows in the smoke (ASan), a data race in the smoke (TSan), a use after move in shcl.hpp (clang-tidy, so the header filter includes it), a one-byte arena overrun (red with `SHCL_ARENA_MALLOC`, green without it), a vector read inside its capacity (red with `_GLIBCXX_ASSERTIONS`, green with ASan alone), and `leak:main` in lsan.supp (`de2wy`). check-pins went red with each new pin dropped from ci.yml or changed in the Dockerfile.
+		- Verified: sanitize-c (6329 CLI runs), check-c-compilers (141 builds, 5 compilers), the C tests at `-O2` with the strict warnings, mingw and zig Windows compiles, check-veneer, cli-regress over Rust and C, shell-regress, check-push-gate, check-pins, check-docs, `test-ids.py check`, and shellcheck.
 		- Needs local test suite run?: exhaustive cppcheck over the C change, where `SHCL_ARENA_MALLOC` adds a configuration, and a full `--ci` with analyze-c in the lint stage.
 		- 20261018, `tidysup`: the 3 bugprone checks gate again. JC, 20261018: judge each site, file a real one as a bug, and suppress the rest at the line with a reason.
 			- easily-swappable-parameters, 71 sites on 67 lines, 1 of them in the veneer smoke. Every caller of each was read. All 67 lines are suppressed: mostly a length after its pointer, the Rust twin's order, or a result arena before scratch. `shcl_validate(d, schema)` swapped reports `V090` or `V001` on all 28 corpus schema cases, with the real input or an empty one, so a swap can't pass unseen.
 			- Filed: 2026101807501110. `shcl_write_backup`'s file and text are both strings, and swapped it writes a junk backup and returns OK. Its line is suppressed with the ID, and so is `s_write_file_atomic`'s.
-			- assignment-in-if-condition, 7 sites. Each assigns and then tests on purpose, and none is a mistaken `==`. All 7 suppressed.
-			- multi-level-implicit-pointer-conversion, 9 sites on 7 lines: a pointer array handed whole to `realloc`, `memset`, `free`, and `qsort`, and a string array kept as `void *` in `WDefault` and cast back. None is a `T**` where a `T*` was meant. All 7 lines suppressed.
+			- assignment-in-if-condition, 7 sites. Each assigns and then tests on purpose, and none is a mistaken `==`. All 7 are suppressed.
+			- multi-level-implicit-pointer-conversion, 9 sites on 7 lines: a pointer array handed whole to `realloc`, `memset`, `free`, and `qsort`, and a string array kept as `void *` in `WDefault` and cast back. None is a `T**` where a `T*` was meant. All 7 lines are suppressed.
 			- Verified: with one `NOLINT` of each check taken out, analyze-c's `de2x4` went red naming all 3, and passed again with the file restored. analyze-c, sanitize-c, check-c-compilers, check-veneer, the C conformance runner (206 cases), the veneer smoke, oom_hook, oom_recover, mem_bounds, the mingw compile, cli-regress over C (612 rows), `test-ids.py check`, check-docs, and shellcheck pass.
 			- Needs local test suite run: the exhaustive cppcheck over shcl.h, though the change is comments only.
-		- 20261019, branch `leakflag`, the `--leakcheck` half but CodeQL:
-			- `--leakcheck` in cicd.bash, shared with 2026101711273980. It runs config.bash's `LEAKCHECK_STEPS` at the end of the tests stage. A run with no flags runs them, `--gate` and `--quick` leave them out, `--leakcheck` adds them back, and `--no-tests` drops them. CodeQL joins that list. `de582` in check-push-gate checks all 6 cases on a stubbed engine.
+		- 20261019, branch `leakflag`, the `--leakcheck` half except CodeQL:
+			- `--leakcheck` is in cicd.bash, shared with 2026101711273980. It runs config.bash's `LEAKCHECK_STEPS` at the end of the tests stage. A run with no flags runs them, `--gate` and `--quick` leave them out, `--leakcheck` adds them back, and `--no-tests` drops them. CodeQL joins that list. `de582` in check-push-gate checks all 6 cases on a stubbed engine.
 			- `analyze-c.bash --ctu`: the clang analyzer in its cross-file mode. Each program is split in 2, its own code and the library compiled with what the program defines before the include, so its calls into the library cross a file. A leak and a null dereference the per-file pass misses have to be reported first (`de57y`). The real run is `de57z`, 17 s here.
-			- Only oom_hook.c, oom_recover.c and soak.c can be split. main.c, conformance.c, mem_bounds.c and the veneer smoke use the library's own types and static functions, so they're listed and left whole. That leaves no C++ for the cross-file pass.
-			- The cross-file pass found 2 real things in soak.c while it was new: a NULL handed to qsort for an empty corpus, and a leak on the early return. Both fixed. The per-file pass reports the same 2. With the whole library in each program's one file, the per-file pass already follows every call the cross-file one does.
+			- Only oom_hook.c, oom_recover.c, and soak.c can be split. main.c, conformance.c, mem_bounds.c, and the veneer smoke use the library's own types and static functions, so they're listed and left whole. That leaves the cross-file pass without any C++.
+			- The cross-file pass found 2 real things in soak.c while it was new: a NULL handed to qsort for an empty corpus, and a leak on the early return. Both are fixed. The per-file pass reports the same 2. With the whole library in each program's one file, the per-file pass already follows every call the cross-file one does.
 			- Question: keep `--ctu`, when the per-file pass already sees what it sees on this tree? It costs 17 s. It would matter once a program is split across files or the library stops being header-only.
 				- JC, 20261019: keep it.
-			- `soak-c.bash` with `source/c/tests/soak.c`: the C soak, a plain build under heaptrack. Each round is the Rust soak's: load, read, set, save, keep-lines save, merge, and validate over the 206 corpus cases. It judges glibc's bytes in use (`mallinfo2`) at round 3 against round 6, with a 4 KiB margin (`de57v`). The heap is flat from round 2 on, plain or under heaptrack. A bait build that grows one document every round has to fail (`de57w`). heaptrack's data and its printed report go in `cicd/artifacts/soak/` with the round table (`de57x`). An ASan build or another libc skips, since glibc's counts can't see the heap there. About 22 s in the build image.
+			- `soak-c.bash` with `source/c/tests/soak.c`: the C soak, a plain build under heaptrack. Each round is the Rust soak's: load, read, set, save, keep-lines save, merge, and validate over the 206 corpus cases. It judges glibc's bytes in use (`mallinfo2`) at round 3 against round 6, with a 4 KiB margin (`de57v`). The heap is flat from round 2 on, plain or under heaptrack. A bait build that grows one document every round has to fail (`de57w`). heaptrack's data and its printed report go in `cicd/artifacts/soak/` with the round table (`de57x`). An ASan build or another libc skips, since glibc's counts can't see the heap there. It takes about 22 s in the build image.
 			- soak.c is a test .c file, so analyze-c's every-run gcc and clang passes take it too. analyze-c took 197 s with it, at load 25 to 30, against 150 to 182 s before.
-			- `sanitize-c.bash --glibcxx-debug`: the veneer smoke with `-D_GLIBCXX_DEBUG` on top of ASan, UBSan, and `SHCL_ARENA_MALLOC`, in a build dir of its own (`de581`). A bait that steps an iterator past a vector's end has to be stopped (`de580`). That bait passes under ASan with `_GLIBCXX_ASSERTIONS`. 56 s.
+			- `sanitize-c.bash --glibcxx-debug`: the veneer smoke with `-D_GLIBCXX_DEBUG` on top of ASan, UBSan, and `SHCL_ARENA_MALLOC`, in a build dir of its own (`de581`). A bait that steps an iterator past a vector's end has to be stopped (`de580`). That bait passes under ASan with `_GLIBCXX_ASSERTIONS`. It takes 56 s.
 			- heaptrack 1.5.0, and clang-tools 19 for `clang-extdef-mapping`, are in TOOL_PINS, the main Dockerfile, and ci.yml. ci.yml installs heaptrack as `heaptrack=1.5.0*`, so check-pins takes apt's `=` as a joiner. Both scripts start the build image through `fCtrRunSelf` in `include/ctr-image.bash` now, moved out of analyze-c.
-			- Verified: `analyze-c.bash --ctu` green here with clang 19.1.7. analyze-c green through the rebuilt image with soak.c in it, and soak-c green through it. `sanitize-c.bash --glibcxx-debug` green. The first 3 `LEAKCHECK_STEPS` strings, run the way the engine runs them, passed in 97 s. check-push-gate, check-pins, shell-regress, shellcheck over all 46 files, `test-ids.py check`, and markdownlint-cli2 pass. check-docs passes but for its installer row, which fails on dev too until install-dev.bash goes to main.
+			- Verified: `analyze-c.bash --ctu` is green here with clang 19.1.7. analyze-c is green through the rebuilt image with soak.c in it, and so is soak-c. `sanitize-c.bash --glibcxx-debug` is green. The first 3 `LEAKCHECK_STEPS` strings, run the way the engine runs them, passed in 97 s. check-push-gate, check-pins, shell-regress, shellcheck over all 46 files, `test-ids.py check`, and markdownlint-cli2 pass. check-docs passes except for its installer row, which fails on dev too until install-dev.bash goes to main.
 			- check-docs reads 100 lines for the SPDX and copyright headers now, up from 80, since cicd.bash's help grew past 80. It went red at 80.
 			- Verified: each plant went red, then was restored by copy. The cross-file mode turned off failed `de57y` and `de57z`, with nothing loaded from the library's file. soak.c's 2 findings failed `de57z` before the fix. A static list in `shcl_parse` that grows by a block a call failed the soak, 9216 bytes over 3 rounds, while the corpus runner and every CLI run passed under LSan with it. The bait's growth turned off failed `de57w`. An iterator stepped past the end in the veneer smoke failed `de581` and passed under ASan with `_GLIBCXX_ASSERTIONS`. An engine that keeps the steps under `--gate` and `--quick`, one where `--leakcheck` does nothing, and one that never runs the list each failed `de582`. check-pins went red with heaptrack or clang-tools dropped from ci.yml, and with another heaptrack version in the Dockerfile.
 			- Needs local test suite run: a whole `--leakcheck` run, once CodeQL joins it, and a full run with no flags, which now takes hours (2026101711273980).
 		- 20261019, branch `codeql`, CodeQL over all 5 languages, shared with 2026101711273980:
-			- `cicd/utility/codeql-scan.bash`, in `LEAKCHECK_STEPS` before `--miri-all`. CodeQL 2.27.2 is in TOOL_PINS and the main image, as the bundle with its query packs, its sha256 in the Dockerfile. The image keeps only the 4 languages shcl has code in, which saves about 1 GB. It runs there with no network.
-			- C and C++ are one database, from a traced build of main.c and every test program. Go, Python and Rust get one each. Each runs its language's `security-and-quality` suite, and any finding fails.
-			- It scans a copy of `source/` with one planted finding per language, and each has to be reported (`de5a7`, `de5a8`, `de5a9`, `de5aa`, `de5ab`). Each database has to hold every source file of its languages, Go's tests included (`de5ac`, `de5ad`, `de5ae`, `de5af`). The findings are `de5ag`, `de5ah`, `de5aj` and `de5ak`.
-			- A suppression is a `codeql[QUERY-ID] reason` comment alone on the line above, or `/* */` above commented-out C, which a `//` line would join. It needs its reason and has to still cover a finding (`de5am`). There's no baseline file, and lgtm and noqa comments don't count.
+			- `cicd/utility/codeql-scan.bash` is in `LEAKCHECK_STEPS`, before `--miri-all`. CodeQL 2.27.2 is in TOOL_PINS and the main image, as the bundle with its query packs, with its sha256 in the Dockerfile. The image keeps only the 4 languages shcl has code in, which saves about 1 GB. It runs there without a network.
+			- C and C++ are one database, from a traced build of main.c and every test program. Go, Python, and Rust get one each. Each runs its language's `security-and-quality` suite, and any finding fails.
+			- It scans a copy of `source/` with one planted finding per language, and each has to be reported (`de5a7`, `de5a8`, `de5a9`, `de5aa`, `de5ab`). Each database has to contain every source file of its languages, Go's tests included (`de5ac`, `de5ad`, `de5ae`, `de5af`). The findings are `de5ag`, `de5ah`, `de5aj`, and `de5ak`.
+			- A suppression is a `codeql[QUERY-ID] reason` comment alone on the line above, or `/* */` above commented-out C, which a `//` line would join. It needs its reason and has to still match a finding (`de5am`). There's no baseline file, and lgtm and noqa comments don't count.
 			- The CLI's own suppression matching goes wrong after a literal U+2028 or U+2029, which shcl.py's whitespace table has. So the script matches the suppression query's output to the findings itself. A one-function file with such a string above it showed the same.
-			- 88 findings the first time: 54 in C and C++, 1 in Go, 33 in Python, none in Rust. Every site was read, and none is a real bug in our code, so nothing was filed.
-			- Fixed in C: shcl.h's include guard now covers the POSIX feature block above it too, and the corpus runner checks one parse for NULL.
+			- The first run had 88 findings: 54 in C and C++, 1 in Go, 33 in Python, none in Rust. Every site was read, and none is a real bug in our code, so nothing was filed.
+			- Fixed in C: shcl.h's include guard now wraps the POSIX feature block above it too, and the corpus runner checks one parse for NULL.
 			- Suppressed in C and C++, 52 sites: 16 test scratch files opened with `fopen`, 8 `snprintf` loops in tests whose buffer fits every line, 5 opens of the path the caller named, 5 recovery points disarmed before their frame returns, 5 tests commented out, 4 loop counters that skip ahead on purpose, 3 structs pushed by value, and one each of: the gap shcl.h documents for filesystems with no hard links, an exact float match, a lambda capture, an empty `if` that quiets `warn_unused_result`, the busy block in `w_overlay`, and `t < 9` in `big_mul_pow10`. With that bound gone, cppcheck reports an out-of-bounds read.
-			- Verified: codeql-scan green in the build image, 307 to 377 s at 8 threads, at load 15 to 24. Its scratch copy of `source/` and the crates it fetches stay outside the repo, beside the container caches.
+			- Verified: codeql-scan is green in the build image, in 307 to 377 s at 8 threads, at load 15 to 24. Its scratch copy of `source/` and the crates it fetches stay outside the repo, beside the container caches.
 			- Verified: each plant went red, then was restored by copy. A stack address kept in shcl.h and a `new` with `free` in shcl.hpp failed `de5ag`, a dead store failed `de5ah`, an unclosed file failed `de5aj`, and a null read in lib.rs failed `de5ak`. A stale suppression and one with no reason failed `de5am`. A Go bait that reports nothing failed `de5a9`. A `.c` file no program builds failed `de5ac`. A stable Rust toolchain failed `de5af` and `de5ab`. Before the build-tag rule, the 5 Go files for other platforms failed `de5ad`.
 			- The first C baits, a tainted path and a use after free, went unreported, so the C bait keeps a stack address past its frame instead.
 			- Verified: check-pins went red with CodeQL taken off the `--leakcheck`-only list (`dbz38`), with codeql-scan in `LINT_EXTRA` (`de5an`), and with another version in the Dockerfile (`ddx1t`).
-			- Verified: `LEAKCHECK_STEPS` but `--miri-all`, one after another: codeql-scan, `analyze-c.bash --ctu`, soak-c and `sanitize-c.bash --glibcxx-debug`. Also analyze-c, check-c-compilers (141 builds), sanitize-c, the C runner (206 cases), the veneer smoke, cppcheck at the normal level over main.c and conformance.c, check-pins, shell-regress, check-push-gate, `test-ids.py check`, markdownlint-cli2, and shellcheck over all 47 files. check-docs passes but for its installer row, as on dev.
+			- Verified: `LEAKCHECK_STEPS` except `--miri-all` pass one after another: codeql-scan, `analyze-c.bash --ctu`, soak-c, and `sanitize-c.bash --glibcxx-debug`. analyze-c, check-c-compilers (141 builds), sanitize-c, the C runner (206 cases), the veneer smoke, cppcheck at the normal level over main.c and conformance.c, check-pins, shell-regress, check-push-gate, `test-ids.py check`, markdownlint-cli2, and shellcheck over all 47 files pass too. check-docs passes except for its installer row, as on dev.
 	- Decisions:
 		- Vendored code is included in the analyses (JC, 2026-10-17). Only code end users run (JC, 2026101920461160).
 		- JC, 20261018: a run with no flags does everything, the `--leakcheck` steps included, and `--gate` and `--quick` leave them out.
 		- The leak checks run last in the tests stage, so every quicker check reports first (me).
 		- The C soak judges glibc's own count of the bytes in use, read by the program between rounds. heaptrack's report is for reading, since it has no per-round figure (me).
 		- `--ctu` splits only the programs that keep to the public calls, and lists the rest with the reason (me).
-		- CodeQL comes as the bundle, not the bare CLI, which has no query packs and would fetch them at run time (me).
+		- CodeQL comes as the bundle rather than the bare CLI, which has no query packs and would fetch them at run time (me).
 		- Hosted CI doesn't install CodeQL. Its bundle is about 700 MB, for a step the gate never runs. check-pins leaves a `--leakcheck`-only tool out of its ci.yml match, and fails if a gate step names one (`de5an`). heaptrack and clang-tools stay in ci.yml as before (me).
-		- Each language's standard `security-and-quality` suite, with nothing added or taken out (me).
-		- The scan covers `source/`: the 4 bindings, the CLIs, and their tests. The pipeline's own Python scripts stay out, as tooling (me).
+		- Each language gets its standard `security-and-quality` suite, with nothing added or taken out (me).
+		- The scan reads `source/`: the 4 bindings, the CLIs, and their tests. The pipeline's own Python scripts stay out, as tooling (me).
 		- Platform code is analyzed as the Linux build sees it. Go files behind other platforms' build tags are named and skipped, and the Windows branches in C and Rust aren't compiled. There's no Windows pass (me).
 			- JC, 20261019: add a windows pass for Go. It extracts with `GOOS=windows` and judges only the files the Linux pass leaves out (`de5pg`, `de5ph`, `de5pj`). C and Rust stay Linux only.
-	- 20261019, tests on dev at `aa2e3b33`: a full `--gate` passed, analyze-c and the exhaustive cppcheck included. `analyze-c --ctu`, `soak-c`, `sanitize-c --glibcxx-debug`, and `codeql-scan` passed one after another, the 4 `--leakcheck` steps before `--miri-all`. Hosted run 39307128325: both ubuntu jobs green. Its windows job failed the veneer smoke on 2026101807501110's new check, which isn't this item's.
+	- 20261019, tests on dev at `aa2e3b33`: a full `--gate` passed, analyze-c and the exhaustive cppcheck included. `analyze-c --ctu`, `soak-c`, `sanitize-c --glibcxx-debug`, and `codeql-scan` passed one after another, the 4 `--leakcheck` steps before `--miri-all`. In hosted run 39307128325, both ubuntu jobs were green. Its windows job failed the veneer smoke on 2026101807501110's new check, which isn't this item's.
 	- 20261021, tests on `r1021` at `fe2545f6`: the bare run in the main image (`-y --no-lint`, since lint is red for 2026102108300000) stopped at check-push-gate in stage 4, before the leak steps. So the full run is still left. Log `shcl/bare-r1021.log`.
-	- 20261022, JC's bare run on dev `8b81b8c3`, 08:54 to 10:37, log `run_20261022-085416` in `cicd/artifacts/lint/`: every stage passed, no `FAIL` line.
+	- 20261022, JC's bare run on dev `8b81b8c3`, 08:54 to 10:37, log `run_20261022-085416` in `cicd/artifacts/lint/`: every stage passed, with no `FAIL` line.
 		- Verified: analyze-c `de2wz` to `de2x4` in the lint stage. In the tests stage, sanitize-c `dbxj4`, `dbxj5`, `dc113`, `dc25h`, `dbz39`, `de1a6`, `de2wy` and `dbz3a` (6329 CLI runs), and check-push-gate `de582`.
 		- Verified, the leak steps: `analyze-c --ctu` `de57y` and `de57z`, soak-c `de57v`, `de57w` and `de57x`, `sanitize-c --glibcxx-debug` `de580` and `de581`, and codeql-scan's C and C++ rows `de5a7`, `de5a8`, `de5ac`, `de5ag` and `de5am`, all 5 languages clean in 308 s.
 	- Decided against: Coverity Scan and Infer. Coverity uploads the build to a third party (JC).
 	- Decided against: the GLib and GTK environment settings. shcl doesn't use GLib (me).
-	- Decided against: a pool switch for the C++ veneer. It has no allocator of its own, and the C arena switch covers what it calls (me).
+	- Decided against: a pool switch for the C++ veneer. It has no allocator of its own, and the C arena switch applies to what it calls (me).
 	- Test case: analyze-c `de2wz` to `de2x4`, `de57y` and `de57z`; sanitize-c `de2wy`, `de580` and `de581`; soak-c `de57v`, `de57w` and `de57x`; codeql-scan `de5a7`, `de5a8`, `de5ac`, `de5ag` and `de5am`; check-push-gate `de582`.
-	- Acceptance signoff: Self-closed on JC's criteria: every plant was seen red, and a full run with no flags passed each step and row above.
+	- Acceptance signoff: Self-closed on JC's criteria. Every plant was seen red, and a full run with no flags passed each step and row above.
 	- Closed: 20261022-112537
 
 - Implement leak and static checks of the Rust, Go, and Python code run as part of CI/CD
@@ -6413,75 +6413,75 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- Go: `go test` caches a pass, so always `-count=1`. `-race` needs `CGO_ENABLED=1`. It's 2 to 20 times slower, so size the timeout for it.
 			- Python: the first rounds fill caches, such as the regex cache and interned strings. That's why the test compares round N with 2N, never 0 with N.
 	- Already in place:
-		- `cargo-deny` and `govulncheck` run in the lint stage, pinned, which covers known advisories in third-party code.
+		- `cargo-deny` and `govulncheck` run in the lint stage, pinned, which checks known advisories in third-party code.
 		- `go vet` and `staticcheck` run on both Go modules. `go vet` includes `lostcancel` and `copylocks`.
 		- ruff selects `B` and `SIM`, so `B019`, `B006`, and `SIM115` already run.
 		- Go's `TestReadsFromSeveralGoroutines` runs under `-race`.
 		- No binding or CLI has a runtime dependency on any release target, and nothing is vendored. Rust's `pprof` is behind the `profiling` feature and `dhat` is a dev-dependency, so neither is in scope. So nothing needs vendoring for CodeQL yet. Rechecked 20261019 for 2026101920461160.
 	- Progress log:
 		- 20261017, Rust, branch `rsleak`:
-			- `cicd/utility/sanitize-rust.bash`, in TEST_EXTRA and skipped on alpine, runs the whole suite under ASan and LSan (`de2pb`), then under Miri (`de2pc`). It uses `nightly-2026-10-16`, pinned in a `[nightly]` table in rust-toolchain.toml. The images and ci.yml read it from there, as they do the stable channel, so it has no TOOL_PINS row. The main image also gets llvm-19, since Rust's ASan names no frame without its symbolizer.
+			- `cicd/utility/sanitize-rust.bash`, in TEST_EXTRA and skipped on alpine, runs the whole suite under ASan and LSan (`de2pb`), then under Miri (`de2pc`). It uses `nightly-2026-10-16`, pinned in a `[nightly]` table in rust-toolchain.toml. The images and ci.yml read it from there, as they do the stable channel, so it has no TOOL_PINS row. The main image also gets llvm-19, since Rust's ASan doesn't name any frame without its symbolizer.
 			- Miri skips 12 tests with `#[cfg_attr(miri, ignore = "...")]` and the reason: saves (Miri has no `fchown` or directory fsync), an O_NONBLOCK open, tzset, and the 2 that start a process. The script pins the test clock, which keeps setters off tzset. The soak test is skipped there too, since dhat records a backtrace per allocation.
-			- 47 more tests take minutes each under Miri: the corpus walkers, the slow fuzz tests and 3 in mem_caps. They're ignored there unless built with `--cfg shcl_miri_all`, which `sanitize-rust.bash --miri-all` sets (`de2pd`). That mode belongs under `--leakcheck`. Each test runs under Miri as a job of its own, so a leak or UB report names its test. Measured cold in the main image at 5 jobs: ASan 57 s, Miri without the slow tests 102 s. `--miri-all` was stopped after an hour with 72 of 155 tests done and nothing reported. 4 tests had run 40 to 60 minutes each by then, so the whole mode is likely several hours.
-			- Soak test `de2ns` in `tests/soak.rs`: dhat in testing mode, a dev-dependency. It loops load, read, set, save, merge, and validate over every corpus case, and fails when the heap at round 2N is more than 4 KiB past round N. The report, and the dhat profile on a failure, go to `cicd/artifacts/soak/`. About 5 s in the plain suite. The live heap is 288 bytes after every round today.
-			- clippy: `mem_forget` and `undocumented_unsafe_blocks` are in Cargo.toml's `[lints.clippy]`, so the windows target lint gets them too. Every unsafe block in lib.rs, main.rs and the tests has a `// SAFETY:` comment.
-			- No suppressions. Nothing reported on the current code, dhat's crates included.
+			- 47 more tests take minutes each under Miri: the corpus walkers, the slow fuzz tests, and 3 in mem_caps. They're ignored there unless built with `--cfg shcl_miri_all`, which `sanitize-rust.bash --miri-all` sets (`de2pd`). That mode belongs under `--leakcheck`. Each test runs under Miri as a job of its own, so a leak or UB report names its test. Measured cold in the main image at 5 jobs, ASan took 57 s and Miri without the slow tests 102 s. `--miri-all` was stopped after an hour with 72 of 155 tests done and nothing reported. By then, 4 tests had run 40 to 60 minutes each, so the whole mode is likely several hours.
+			- Soak test `de2ns` in `tests/soak.rs`: dhat in testing mode, a dev-dependency. It loops load, read, set, save, merge, and validate over every corpus case, and fails when the heap at round 2N is more than 4 KiB past round N. The report, and the dhat profile on a failure, go to `cicd/artifacts/soak/`. It takes about 5 s in the plain suite. The live heap is 288 bytes after every round today.
+			- clippy: `mem_forget` and `undocumented_unsafe_blocks` are in Cargo.toml's `[lints.clippy]`, so the windows target lint gets them too. Every unsafe block in lib.rs, main.rs, and the tests has a `// SAFETY:` comment.
+			- There are no suppressions. Nothing was reported on the current code, dhat's crates included.
 			- Verified: each plant went red, then was restored by copy and rebuilt clean. An Rc cycle in the soak loop failed `de2ns`. A `Box::leak` in an upgrade test failed LSan (exit 77) and Miri ("memory leaked"). An out-of-bounds read in an unsafe block in `Document::parse` failed ASan (heap-buffer-overflow, symbolized) and Miri (UB in 4 binaries). A dropped SAFETY comment and a `mem::forget` failed clippy.
-			- Verified: `sanitize-rust.bash` green in the main image with `SHCL_GATE_STRICT=1`. A missing nightly skips locally, fails strict, and installs nothing. cargo test, clippy for both targets, cargo fmt, cargo deny, check-pins, test-ids check, shellcheck, and shell-regress pass.
+			- Verified: `sanitize-rust.bash` is green in the main image with `SHCL_GATE_STRICT=1`. A missing nightly skips locally, fails strict, and installs nothing. cargo test, clippy for both targets, cargo fmt, cargo deny, check-pins, test-ids check, shellcheck, and shell-regress pass.
 			- Needs local test suite run: a full `--ci`, the ubuntu image, which has the nightly now and wasn't rebuilt, and the hosted nightly step in ci.yml.
 		- 20261017, Go and Python, branch `gopyleak`:
 			- Go: `TestMain` fails the run when goroutines are still running a second after the tests, and prints their stacks (`de2vz`). The CLI module has no tests, so it has no `TestMain`. The whole library suite runs under `-race` in place of the one test, with `-timeout 10m`. The 3 timed ratio tests and the soak skip under `-race`, since the detector's cost swamps what they time. Soak `de2w0` compares `HeapInuse` and the goroutine count at rounds 4 and 8 with a 128 KB margin, and writes `cicd/artifacts/soak/go-heap.pprof`.
 			- Python: the runner and the soak run with `-X dev -W error::ResourceWarning`. A ResourceWarning goes off in a destructor, where `-W error` only prints it, so an unraisable hook fails the test that was open. `de2w2` checks `gc.garbage` after a `gc.collect()` at the end of the run. Soak `de2w1` starts tracing before the import, compares rounds 6 and 12 with a 64 KB margin, and writes the top `compare_to()` lines to `cicd/artifacts/soak/python-tracemalloc.txt`. N is 6 because the interned-name table grows once, about 400 KB, near round 5.
-			- Since 3.4 Python collects a cycle even with `__del__`, so only an object with a C `tp_del` lands in `gc.garbage`. The soak collects with `gc.DEBUG_SAVEALL`, so any cycle the library makes fails it.
-			- Added time, measured here at 5 cores under load: the Go `-race` run about 20 s in place of about 8, the Go soak about 3 s, `-X dev` about 8 s on the Python runner's 43, the Python soak about 16 s. All of it stays on the full run. Nothing for `--leakcheck`.
+			- Since 3.4 Python collects a cycle even with `__del__`, so only an object with a C `tp_del` ends up in `gc.garbage`. The soak collects with `gc.DEBUG_SAVEALL`, so any cycle the library makes fails it.
+			- Added time, measured here at 5 cores under load: the Go `-race` run about 20 s in place of about 8, the Go soak about 3 s, `-X dev` about 8 s on the Python runner's 43, the Python soak about 16 s. All of it stays on the full run, and none of it goes to `--leakcheck`.
 			- Verified: each plant went red, and passed once restored. A goroutine blocked on a channel failed `de2vz`. Each document's path list kept in the soak loop failed `de2w0`, 350 KB over. A data race in `ReadString` failed the `-race` run and passed the plain one. A race in another test failed the whole-suite run and passed the old one-test line. An unclosed file in `load_file` failed the runner and the soak, and passed the old plain run. A module-global list in `paths()` failed `de2w1`, with the `shcl.py` lines on top of the artifact. A reference cycle in `merge` failed the soak. A `tp_del` cycle from `_testcapi` failed `de2w2`.
-			- Verified: the Go plain and `-race` suites, vet and staticcheck on the library for linux and windows, `TestReadsFromSeveralGoroutines` under `-race` in the alpine image, so musl has the race detector, the Python runner and soak, cli-regress over the Rust and Python CLIs, ruff, mypy, test-ids check, check-docs, shell-regress, shellcheck.
+			- Verified: the Go plain and `-race` suites, vet and staticcheck on the library for linux and windows, `TestReadsFromSeveralGoroutines` under `-race` in the alpine image, so musl has the race detector, the Python runner and soak, cli-regress over the Rust and Python CLIs, ruff, mypy, test-ids check, check-docs, shell-regress, and shellcheck.
 			- Needs local test suite run: a full run, with the new test lines in place. Needs external testing: the hosted windows job, for the Go soak and for the Python runner and soak in win-runners.
-			- Fixed: a failed try in Python's `write_file_atomic` and `_windows_publish_file` kept the caught `OSError`, whose traceback holds the frame, so the two were a cycle until the next collection. On windows, a save that waits out a brief hold could fail the soak's cycle check. Both keep the error without its traceback now, so that way no frame from `shcl.py` is left in a cycle after the runner.
-		- 20261019, branch `leakflag`, `--leakcheck` but CodeQL:
+			- Fixed: a failed try in Python's `write_file_atomic` and `_windows_publish_file` kept the caught `OSError`, whose traceback references the frame, so the 2 were a cycle until the next collection. On windows, a save that waits out a brief hold could fail the soak's cycle check. Both keep the error without its traceback now, so that way no frame from `shcl.py` is left in a cycle after the runner.
+		- 20261019, branch `leakflag`, `--leakcheck` except CodeQL:
 			- `--leakcheck` is in cicd.bash, shared with 2026101707582803, and runs config.bash's `LEAKCHECK_STEPS` at the end of the tests stage. `sanitize-rust.bash --miri-all` is the last of them. A run with no flags runs it, and `--gate` and `--quick` leave it out unless `--leakcheck` is given (JC, 20261018).
-			- It runs Miri again over the tests the plain Miri run in TEST_EXTRA already took, about 100 s more on hours. Not worth a second list to save.
+			- It runs Miri again over the tests the plain Miri run in TEST_EXTRA already took, about 100 s more on hours. It isn't worth a second list to save that.
 			- `--only=REGEX` runs Miri over just the tests whose names match, to rerun one or try the mode out.
 			- Question: a run with no flags now takes hours longer, since `--miri-all` alone was likely several hours when it was stopped at 72 of 155 tests. Keep it in the bare run, or move it behind `--leakcheck` alone?
 				- JC, 20261019: it stays in the bare run.
-			- Verified: `sanitize-rust.bash --miri-all --only='^a_plain_name_costs_the_scan_nothing$'` in the build image built the tests with `--cfg shcl_miri_all` and ran that one test, which plain Miri ignores, for 29 minutes. Stopped there, short of its result.
+			- Verified: `sanitize-rust.bash --miri-all --only='^a_plain_name_costs_the_scan_nothing$'` in the build image built the tests with `--cfg shcl_miri_all` and ran that one test, which plain Miri ignores, for 29 minutes. It was stopped there, short of its result.
 			- 20261021: a whole `--miri-all` on `bsquote` finished in 1h45m, after 2026102106592600. Its one failure, a test that saves to disk, now skips under Miri.
 			- Needs local test suite run: a full run with no flags.
-		- 20261019, branch `codeql`, CodeQL: `cicd/utility/codeql-scan.bash` covers all 5 languages. The step, its tests and the decisions are on 2026101707582803.
+		- 20261019, branch `codeql`, CodeQL: `cicd/utility/codeql-scan.bash` scans all 5 languages. The step, its tests, and the decisions are on 2026101707582803.
 			- Rust: the pinned CodeQL has no Rust suppression query, so `cicd/codeql/rust-suppression` is the same query the other languages have, over Rust's comments. Rust had no findings.
 			- Go: 1 finding, a dead store in `parseIntText`, fixed. The other 3 bindings' twins have none.
-			- Python: 33 findings. Fixed: `math.isnan` for `v != v`, as the C and Go twins test it, and a comment in each of 15 empty `except` blocks. 2 tests kept commented out got a note, which ended their findings. Suppressed, 15 sites: 6 tests commented out, 4 tagged tuples that stand for the Rust twin's enums or keys, 4 file modes (a new file's 0o666 less the umask, and 3 fixtures), and a descriptor a `with` closes.
-			- Verified: the Python runner and soak, ruff and mypy, the Go suite, `go vet` and staticcheck. A plant per language went red, as on 2026101707582803.
+			- Python: 33 findings. Fixed: `math.isnan` for `v != v`, as the C and Go twins test it, and a comment in each of 15 empty `except` blocks. A note went on the 2 tests kept commented out, which ended their findings. Suppressed, 15 sites: 6 tests commented out, 4 tagged tuples that stand for the Rust twin's enums or keys, 4 file modes (a new file's 0o666 less the umask, and 3 fixtures), and a descriptor a `with` closes.
+			- Verified: the Python runner and soak, ruff and mypy, the Go suite, `go vet`, and staticcheck pass. A plant per language went red, as on 2026101707582803.
 		- 20261019, branch `winfix`, the windows Python soak failure below:
 			- Cause: `shcl.py` set up its Windows API calls on every save. Each `WinDLL` makes a class, `_create_like` declared its `SecurityAttributes` Structure inside the call, and its DACL buffer was a ctypes array, whose type ctypes makes again once the last one is freed. A class is a reference cycle, and the soak's `DEBUG_SAVEALL` keeps every cycle it finds, so traced memory doubled.
-			- The `c_longdouble` class in the message is ctypes' own. On windows a `long double` is the size of a `double`, so ctypes swaps that class for `c_double` as it loads and leaves the first one in a cycle. Read in ctypes' source, not seen on windows.
+			- The `c_longdouble` class in the message is ctypes' own. On windows a `long double` is the size of a `double`, so ctypes swaps that class for `c_double` as it loads and leaves the first one in a cycle. That was read in ctypes' source rather than seen on windows.
 			- Fixed: `_win32()` builds both DLLs, their signatures and the Structure once, behind `functools.cache`, and the 3 windows calls share it. The DACL buffer is a bytearray, aligned by hand. The soak keeps cycles from round 2 on, since round 1 is where the library imports ctypes.
 			- Test case: `de60c` `windows_calls_build_their_ctypes_once` in the Python runner. It swaps in a fake `ctypes.WinDLL` and `msvcrt`, so it runs on Linux too. It runs the 3 windows calls once, then 3 more rounds under `DEBUG_SAVEALL`, and fails on a DLL loaded again or any cycle left.
 			- Verified: `de60c` failed on the old `shcl.py`, which loaded kernel32 3 times in one round. It failed with the Structure put back in the call (39 objects in cycles) and with the ctypes array put back (6), and passes with the fix. The Python runner, the soak, ruff, mypy, test-ids check, and check-docs pass. A list cycle planted per load still failed the soak.
 			- Swept: Go's DLLs and procs are package-level `NewLazyDLL` vars, and Rust and C declare their imports, so none of them builds anything per call. The Python CLI's console check loads kernel32 once a run. The runner's windows fixtures load it once per test, in test code.
 			- Commit: `2251a602`.
 			- Needs external testing: the hosted windows job, for `de2w1` and `de60c`.
-		- 20261020: hosted run 39537878800 on `bsquote`, which has `winfix`: the windows job passed `de2w1` and `de60c`. Left: a whole `--miri-all` and a full run with no flags. JC's bare run from 17:04 is in its `--miri-all`.
+		- 20261020: in hosted run 39537878800 on `bsquote`, which has `winfix`, the windows job passed `de2w1` and `de60c`. Left: a whole `--miri-all` and a full run with no flags. JC's bare run from 17:04 is in its `--miri-all`.
 		- 20261021, tests on `r1021` at `fe2545f6`:
 			- Verified: hosted run 39663476196's windows job passed `de2w1` (Python soak), `de60c`, the Go soak `de2w0` and every win-runners step, the Python runner included.
 			- The bare run in the main image (`-y --no-lint`, since lint is red for 2026102108300000) stopped at check-push-gate in stage 4, before the leak steps and `--miri-all`. Log `shcl/bare-r1021.log`.
 	- Decisions:
 		- JC, 20261018: a run with no flags does everything, `--miri-all` included, and `--gate` and `--quick` leave it out unless `--leakcheck` is given.
 		- The Rust extractor swaps a stable toolchain for 1.98.1 and would install it, so CodeQL runs on the dated nightly from rust-toolchain.toml, which it keeps. The crates Cargo.lock names are fetched before the image starts, since it has no network, into the cargo home `--container` runs use. Under the repo, the crates' own Cargo.toml and README files threw off check-docs' greps of the tree, and shell-regress's `ddzwm` went red on it (me).
-	- Decided against: `goleak`. The Go library starts no goroutines, and `goleak` would be the library module's first dependency. The `NumGoroutine` check in `TestMain` does the same job here (me).
+	- Decided against: `goleak`. The Go library doesn't start any goroutines, and `goleak` would be the library module's first dependency. The `NumGoroutine` check in `TestMain` does the same job here (me).
 	- Decided against: Go's `-asan` and `-msan`. They only check cgo code, and the Go binding has none (me).
-	- Decided against: Rust ThreadSanitizer. The library starts no threads. The only `thread::spawn` calls are in Windows tests, and safe Rust's `Send` and `Sync` rules cover sharing (me).
-	- Decided against: `pytest-memray`. The Python tests don't use pytest, and there's no C extension for its native tracking to find. `tracemalloc` covers pure Python (me).
+	- Decided against: Rust ThreadSanitizer. The library doesn't start any threads. The only `thread::spawn` calls are in Windows tests, and safe Rust's `Send` and `Sync` rules handle sharing (me).
+	- Decided against: `pytest-memray`. The Python tests don't use pytest, and there's no C extension for its native tracking to find. `tracemalloc` handles pure Python (me).
 	- Decided against: an ASan-built CPython. There's no C extension. The only native calls are Windows-only `ctypes` ones (me).
-	- Decided against: `pip-audit`. The Python binding has no third-party dependencies. Add it when one arrives (me).
+	- Decided against: `pip-audit`. The Python binding has no third-party dependencies. Add it once there is one (me).
 	- Decided against: heaptrack for the 3 bindings. The CLIs exit after one command, so the soak runs in-process with each language's own heap stats (me).
-	- 20261019, hosted run 39307128325 on dev at `59c6ecfb`: the windows job failed the Python soak `de2w1`. Traced memory grew from 28,929,219 bytes at round 6 to 55,877,467 at round 12, and 235,615 objects were in reference cycles, such as `ctypes.c_longdouble` and its bases. Linux is green. The cycles are ctypes classes, so the suspect is `shcl.py`'s windows-only ctypes code building types on each call. Not diagnosed yet. The Go soak passed there.
+	- 20261019, hosted run 39307128325 on dev at `59c6ecfb`: the windows job failed the Python soak `de2w1`. Traced memory grew from 28,929,219 bytes at round 6 to 55,877,467 at round 12, and 235,615 objects were in reference cycles, such as `ctypes.c_longdouble` and its bases. Linux is green. The cycles are ctypes classes, so the suspect is `shcl.py`'s windows-only ctypes code building types on each call. It isn't diagnosed yet. The Go soak passed there.
 	- Decided against: Coverity Scan and Infer, as in 2026101707582803 (JC).
 	- 20261022, JC's bare run on dev `8b81b8c3`, 08:54 to 10:37, log `run_20261022-085416` in `cicd/artifacts/lint/`: every stage passed, no `FAIL` line.
-		- Verified: sanitize-rust `de2pb` and `de2pc`, the soaks `de2ns` (Rust), `de2w0` (Go) and `de2w1` (Python), Go's `de2vz` in the plain and `-race` suites, Python's `de2w2` and `de60c`, and check-push-gate `de582`. `de2w0` skips under `-race`, as designed.
-		- Verified, the leak steps: codeql-scan's Go, windows Go, Python and Rust rows `de5a9`, `de5pg`, `de5aa`, `de5ab`, `de5ad`, `de5ph`, `de5ae`, `de5af`, `de5ah`, `de5pj`, `de5aj`, `de5ak` and `de5am`, then `sanitize-rust --miri-all` `de2pd`, nothing reported.
+		- Verified: sanitize-rust `de2pb` and `de2pc`, the soaks `de2ns` (Rust), `de2w0` (Go), and `de2w1` (Python), Go's `de2vz` in the plain and `-race` suites, Python's `de2w2` and `de60c`, and check-push-gate `de582`. `de2w0` skips under `-race`, as designed.
+		- Verified, the leak steps: codeql-scan's Go, windows Go, Python, and Rust rows `de5a9`, `de5pg`, `de5aa`, `de5ab`, `de5ad`, `de5ph`, `de5ae`, `de5af`, `de5ah`, `de5pj`, `de5aj`, `de5ak`, and `de5am`, then `sanitize-rust --miri-all` `de2pd`, with nothing reported.
 	- Test case: sanitize-rust `de2pb`, `de2pc` and `de2pd`; soaks `de2ns`, `de2w0` and `de2w1`; `de2vz`, `de2w2` and `de60c`; codeql-scan `de5a9`, `de5pg`, `de5aa`, `de5ab`, `de5ad`, `de5ph`, `de5ae`, `de5af`, `de5ah`, `de5pj`, `de5aj`, `de5ak` and `de5am`; check-push-gate `de582`.
-	- Acceptance signoff: Self-closed on JC's criteria: every plant was seen red, hosted run 39663476196's windows job passed the soaks and `de60c`, and a full run with no flags, `--miri-all` included, passed each row above.
+	- Acceptance signoff: Self-closed on JC's criteria. Every plant was seen red, hosted run 39663476196's windows job passed the soaks and `de60c`, and a full run with no flags, `--miri-all` included, passed each row above.
 	- Closed: 20261022-112537
 
 - Builds clean up stale artifacts and side-effects when they're done
@@ -6489,7 +6489,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Done
 	- Priority: Avg
-	- Needs local test suite run?: none left. 2 bare runs in the image passed on 20261022, the second stopped partway.
+	- Needs local test suite run?: none left, since 2 bare runs in the image passed on 20261022, the second stopped partway.
 	- Opened: 20261019-204611
 	- Opened by: JC
 	- Version and build: dev at `6f48dd7d`
@@ -6498,38 +6498,38 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Verify or ensure that builds clean up *stale* artifacts and side-effects after they're done: caches, container cruft, tmp files, etc.
 	- Progress log:
 		- 20261019, what a run leaves, measured:
-			- Docker: `shcl-cicd-alpine:c8cd323342bd` (3.2 GB) and `shcl-cicd-ubuntu:9aabbd056009` (5.2 GB) are superseded, since the recipes hash to other tags now. An old tag went only when cicd.bash rebuilt that same image, and a gate's own build of the image removed none. No dangling shcl image and no stopped container, since every run uses `--rm`.
-			- The build cache is 120 GB shared by every project on the box, none of it reclaimable, and no filter tells shcl's part apart.
+			- Docker: `shcl-cicd-alpine:c8cd323342bd` (3.2 GB) and `shcl-cicd-ubuntu:9aabbd056009` (5.2 GB) are superseded, since the recipes hash to other tags now. An old tag went only when cicd.bash rebuilt that same image, and a gate's own build of the image didn't remove any. There's no dangling shcl image and no stopped container, since every run uses `--rm`.
+			- The build cache is 120 GB shared by every project on the box, none of it is reclaimable, and no filter tells shcl's part apart.
 			- `~/.cache/shcl-cicd` is 1.35 GB of warm caches for the 3 images. Cargo ages out crates unused for 3 months on its own, and Go trims its build cache. Nothing in it is orphaned.
-			- `cicd/artifacts`: logs and flame graphs rotate already. A profiler sample file outlives its graph when the rotation prunes the graph. codeql (547 MB), release and crosscheck are replaced each run. 3 `run_ci_*.log` files (93 KB) and `source/python/dist` (130 KB) are from older layouts, and nothing makes them now.
-			- Target dirs: `target-gate` 1.3 GB, the main one 212 MB, `target-migrate` 58 MB. All reused by the next run.
+			- `cicd/artifacts`: logs and flame graphs rotate already. A profiler sample file outlives its graph when the rotation prunes the graph. codeql (547 MB), release, and crosscheck are replaced each run. The 3 `run_ci_*.log` files (93 KB) and `source/python/dist` (130 KB) are from older layouts, and nothing makes them now.
+			- Target dirs: `target-gate` 1.3 GB, the main one 212 MB, and `target-migrate` 58 MB. All are reused by the next run.
 			- `.git/shcl-green-trees` is capped at 200 lines, 1.8 KB now.
-			- Temp: the gates remove their scratch through an EXIT trap, which runs on Ctrl+C and kill too. check-docs' 2 scratch files and green-tree's scratch index had none, and a failing Rust or C test leaves its dir in TMPDIR. 3 of those are in the temp roots now, 56 KB. About 7.3 GB of `tmp.*` dirs from 10-13 sit there too, which no current script makes. Left alone.
+			- Temp: the gates remove their scratch through an EXIT trap, which runs on Ctrl+C and kill too. check-docs' 2 scratch files and green-tree's scratch index had none, and a failing Rust or C test leaves its dir in TMPDIR. There are 3 of those in the temp roots now, 56 KB. About 7.3 GB of `tmp.*` dirs from 10-13 are there too, which no current script makes. They're left alone.
 		- Fixed, on `tidyup`:
 			- Each run makes its own temp dir and points TMPDIR at it, so what a gate or test leaves goes at the end, a failed or stopped run's too. It's removed only while it's still the dir the run made, with the run's mark in it.
-			- A whole run then removes profiler sample files whose graph is gone. After a run in the image it also removes our image tags the recipes no longer hash to, every tag of a name with no recipe, and dangling images and stopped containers with our label. Runs and builds carry that label now. Names are matched whole, so other projects' images are never touched.
+			- A whole run then removes profiler sample files whose graph is gone. After a run in the image it also removes our image tags the recipes no longer hash to, every tag of a name with no recipe, and dangling images and stopped containers with our label. Runs and builds have that label now. Names are matched whole, so other projects' images are never touched.
 			- A gate's build of the image removes the old tags too.
 			- One line at the end says what went and about how much.
 		- 20261020: the `--gate` in `gatewt-r1020` ended with `cleanup: removed shcl-cicd-alpine:c8cd323342bd, shcl-cicd-ubuntu:9aabbd056009, this run's temp files, about 7.8 GB`. Left: 2 bare runs in the image, the second stopped partway.
 		- 20261021, tests on `r1021` at `fe2545f6`, failed: a run in the image stopped by a TERM to its PID in stage 6 printed `cleanup: removed this run's temp files, about 21 MB` and exited, but its `docker run` and container went on for about 2 minutes, on a copy and temp dir already gone, until the CPU floor check failed in them. A stop has to take the container down with the run. Log `shcl/stopped-r1021.log`.
-		- 20261021, fixed on `stopfix`: a run stops what it started before its EXIT trap removes anything. It sends a TERM to every process under it, waits up to 30 s, then KILLs the rest. A docker client passes the TERM to its container and waits for it. Each `docker run` writes a container ID file, so a container whose client had to be KILLed is killed by docker. The log tee is spared. analyze-c, soak-c and codeql-scan do the same, since they start the image themselves.
+		- 20261021, fixed on `stopfix`: a run stops what it started before its EXIT trap removes anything. It sends a TERM to every process under it, waits up to 30 s, then KILLs the rest. A docker client passes the TERM to its container and waits for it. Each `docker run` writes a container ID file, so a container whose client had to be KILLed is killed by docker. The log tee is spared. analyze-c, soak-c, and codeql-scan do the same, since they start the image themselves.
 			- The frozen copy's run had the same gap without docker: a TERM to the outer run left the inner one going.
-			- Verified: a `--gate` through the real main image, stopped by a TERM to its PID in the lint stage, ended 1 s later with the container, the frozen copy and the temp dirs gone. A busybox container that ignores the TERM was killed by its ID after the wait.
+			- Verified: a `--gate` through the real main image, stopped by a TERM to its PID in the lint stage, ended 1 s later with the container, the frozen copy, and the temp dirs gone. A busybox container that ignores the TERM was killed by its ID after the wait.
 			- Verified: the runs left nothing in `/tmp`, the ext4 temp root, `git worktree list`, `docker ps -a` or dangling images, and `~/.cache/shcl-cicd` gained nothing. The gate's image build removed `shcl-cicd:a2da96ec8e18`, so the passing run's line, `cleanup: removed this run's temp files, about 0 MB`, had no image to name. Logs `shcl/gate-r1021.log` and `shcl/bare2-r1021.log`; the passing run used `--no-lint --no-tests`, since both are red this round (2026102108300000).
-		- Swept: every `mktemp` under `cicd/` and in the pre-push hook. All but check-docs and green-tree had an EXIT trap already. config.bash's inline test builds remove their binary after, and now sit in the run's dir. Every docker run and build goes through cicd.bash or ctr-image.bash, and both add the label.
-		- Verified: each new check-push-gate row went red with its part taken out, then passed: no trap, no read-only fallback, no sample-file sweep, no image sweep, and the gate's build without the tag drop. check-push-gate, shell-regress, check-docs, shellcheck over every cicd script, `test-ids.py check` and markdownlint pass. A killed check-docs leaves none of its own scratch.
+		- Swept: every `mktemp` under `cicd/` and in the pre-push hook. All but check-docs and green-tree had an EXIT trap already. config.bash's inline test builds remove their binary after, and are now in the run's dir. Every docker run and build goes through cicd.bash or ctr-image.bash, and both add the label.
+		- Verified: each new check-push-gate row went red with its part taken out, then passed: no trap, no read-only fallback, no sample-file sweep, no image sweep, and the gate's build without the tag drop. check-push-gate, shell-regress, check-docs, shellcheck over every cicd script, `test-ids.py check`, and markdownlint pass. A killed check-docs doesn't leave any of its own scratch.
 		- 20261022, 2 bare runs in the main image on dev `8b81b8c3`:
-			- Verified: JC's run (log `run_20261022-085416` in `cicd/artifacts/lint/`) passed, check-push-gate's 6 rows above included, and ended with `cleanup: removed 1 profiler sample file(s) whose graph is gone, this run's temp files, about 0 MB`. The 2 superseded images were already gone, from the 10-20 `--gate`, so it had none to name. It left nothing in `/tmp` or the ext4 temp root, no worktree, no container with our label, and no dangling image of ours. Docker holds only `shcl-cicd:7f80c73639ce` of ours.
-			- Verified: the second run, `-y --no-sync --no-dogfood --no-gif --no-publish`, got a TERM to its `cicd.bash` PID in stage 4, during the Rust tests in the image. Within 5 s it printed `stopped 4 process(es)`, `stopped 1 process(es)` and `removed this run's temp files`, and its `docker run`, its container, the locked frozen worktree and its `shcl-run.*` and `shcl-tree.*` dirs were gone. The temp roots, `git worktree list`, `docker ps -a` and dangling images matched the baseline taken before it.
+			- Verified: JC's run (log `run_20261022-085416` in `cicd/artifacts/lint/`) passed, check-push-gate's 6 rows above included, and ended with `cleanup: removed 1 profiler sample file(s) whose graph is gone, this run's temp files, about 0 MB`. The 2 superseded images were already gone, from the 10-20 `--gate`, so it didn't have any to name. It left nothing in `/tmp` or the ext4 temp root, no worktree, no container with our label, and no dangling image of ours. Docker has only `shcl-cicd:7f80c73639ce` of ours.
+			- Verified: the second run, `-y --no-sync --no-dogfood --no-gif --no-publish`, got a TERM to its `cicd.bash` PID in stage 4, during the Rust tests in the image. Within 5 s it printed `stopped 4 process(es)`, `stopped 1 process(es)`, and `removed this run's temp files`, and its `docker run`, its container, the locked frozen worktree and its `shcl-run.*` and `shcl-tree.*` dirs were gone. The temp roots, `git worktree list`, `docker ps -a`, and dangling images matched the baseline taken before it.
 			- `~/.cache/shcl-cicd` grew 17 MB, all in the Go build and staticcheck caches, which are kept whole and which Go trims itself. A full run also leaves about 20 small `.d` stubs in the cache's `zig/tmp`, and zig trims those itself: 100 files went to 50 during the next run.
 	- Decisions:
 		- me: the build cache isn't pruned, since `docker builder prune` is box-wide.
 		- me: target dirs and the container caches stay whole. A toolchain change makes a target dir stale, but `target-gate` is shared with gate worktrees on other commits.
-		- me: a `--no-container` run makes no images, so it still asks docker nothing.
+		- me: a `--no-container` run doesn't make any images, so it still doesn't call docker.
 	- Branch: `tidyup`, then `stopfix`
 	- Commit: `a1ca716f`
 	- Test case: check-push-gate `de633`, `de634`, `de635`, `de636`, `de8j7` (a stopped run takes down the frozen copy's run and its children) and `de8j8` (a container whose client won't stop is killed by its ID).
-	- Acceptance signoff: Self-closed on JC's criteria: each check-push-gate row was seen red, a whole run and a stopped run in the real image left nothing behind, and the 10-20 `--gate` removed the superseded images.
+	- Acceptance signoff: Self-closed on JC's criteria. Each check-push-gate row was seen red, a whole run and a stopped run in the real image left nothing behind, and the 10-20 `--gate` removed the superseded images.
 	- Closed: 20261022-112537
 
 - A long run reads the live tree, so nothing can merge or check out there until it ends
@@ -6542,21 +6542,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Version and build: dev at `db311c7a`
 	- Problem description: a bare run took over 12 hours and read `repo/` the whole time, so `bsquote` sat unmerged. A bash script edited while it runs also resumes into the new text.
 	- Requirements:
-		- `cicd.bash` runs from a frozen copy of the tree at its start, such as a detached worktree or a ZFS clone, so merges, checkouts and edits in the live tree can't reach a running build.
+		- `cicd.bash` runs from a frozen copy of the tree at its start, such as a detached worktree or a ZFS clone, so merges, checkouts, and edits in the live tree can't affect a running build.
 		- Uncommitted work in the tree goes into the copy, and the run says what it copied.
 		- The copy shares the target dirs and caches, or the first run of each costs a cold build.
-		- The green-tree record still lands in the real repo.
-	- Workaround: `git worktree lock` on each long-lived worktree, so a prune from any tool skips it. `wt-bsq` is locked since 2026-10-21.
+		- The green-tree record is still written to the real repo.
+	- Workaround: `git worktree lock` on each long-lived worktree, so a prune from any tool skips it. `wt-bsq` has been locked since 2026-10-21.
 	- Decisions:
-		- me: the copy is a detached, locked worktree beside the run's temp dir, holding HEAD plus the tree `green-tree.bash tree` gives, so uncommitted and new unignored files go in and deleted ones stay out. A ZFS clone would tie the engine to ZFS.
-		- me: the copy is taken after the format stage, not at the very start. Sync, format, dogfood, gif and publish write the checkout and stay on it; build, lint, tests, profiler and release (stages 2-6) run in the copy, on this box or in the image. A local run with docker makes 2 image runs, format on the checkout and then 2-6 on the copy.
-		- me: `FROZEN_LINKS` in config.bash (`source/rust/target`, `target-migrate`, `cicd/artifacts`) link the copy to the checkout's own dirs, so cargo starts warm and release builds and artifacts land where dogfood, the gif and a cut look. The C and Go CLIs build in the copy. An extra image gets no links, since it builds into its own copies.
+		- me: the copy is a detached, locked worktree beside the run's temp dir, with HEAD plus the tree `green-tree.bash tree` gives, so uncommitted and new unignored files go in and deleted ones stay out. A ZFS clone would tie the engine to ZFS.
+		- me: the copy is taken after the format stage rather than at the very start. Sync, format, dogfood, gif and publish write the checkout and stay on it; build, lint, tests, profiler and release (stages 2-6) run in the copy, on this box or in the image. A local run with docker makes 2 image runs, format on the checkout and then 2-6 on the copy.
+		- me: `FROZEN_LINKS` in config.bash (`source/rust/target`, `target-migrate`, `cicd/artifacts`) link the copy to the checkout's own dirs, so cargo starts warm and release builds and artifacts end up where dogfood, the gif, and a cut look. The C and Go CLIs build in the copy. An extra image gets no links, since it builds into its own copies.
 		- me: the whole of cicd.bash is one brace group, so bash reads it all before it runs, and an edit to the checkout's cicd.bash mid-run changes nothing.
 		- me: publish still commits the checkout as it stands at the end, edits made during the run included. The record names only the tree that was tested, so a push of such a commit runs the pre-push gate.
-		- me: `--no-freeze` runs 2-6 in the checkout as before. The pre-push hook's worktree is already frozen, so it passes `SHCL_FROZEN=1` and the gate makes no copy of the copy.
+		- me: `--no-freeze` runs 2-6 in the checkout as before. The pre-push hook's worktree is already frozen, so it passes `SHCL_FROZEN=1` and the gate doesn't make a copy of the copy.
 		- me: the copy is unlocked and taken down with `worktree remove` on every exit path, never a prune. The hook and check-migrate use the same helper (`cicd/utility/include/frozen-tree.bash`), so their worktrees are locked too.
 	- Progress log:
-		- 20261021: done on `r1021`. The record is made by the run in the copy and goes to the main repo's common dir; it names the copied tree, so a run whose checkout holds extra edits records that tree, never HEAD's.
+		- 20261021: done on `r1021`. The record is made by the run in the copy and goes to the main repo's common dir; it names the copied tree, so a run whose checkout has extra edits records that tree, never HEAD's.
 		- 20261021: a `--gate --no-container --no-tests --no-lint --no-cross` run on this repo ran from the copy, listed 7 uncommitted files, rebuilt only the crate into the shared target in 3 s, and left no worktree behind.
 		- 20261021, tests on `r1021` at `fe2545f6`, failed:
 			- `--gate` in the main image failed check-docs `dcv6f`. The longer help moved cicd.bash's copyright and SPDX lines to 102 and 105, past the check's 100-line header window. Log `shcl/gate-r1021.log`.
@@ -6565,14 +6565,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- A run stopped by PID in stage 6 removed the copy and its temp dir at once, while its `docker run` and container kept going for about 2 minutes on the removed copy, until the CPU floor check failed. Log `shcl/stopped-r1021.log`.
 			- Verified: a `-y --no-lint --no-tests` run passed from the copy, with 2 image runs (format, then 2-6), "copied fe2545f648c7, with nothing uncommitted", and no worktree left. Log `shcl/bare2-r1021.log`.
 		- 20261021: the header failure is 2026102113494069.
-		- 20261022: back to Waiting on automated testing. The header fix (2026102113494069) and the stop of the image's container (2026101920461153, `stopfix`) are on dev, so only the tests are left. JC's bare run on dev `8b81b8c3` covers the bare run.
+		- 20261022: back to Waiting on automated testing. The header fix (2026102113494069) and the stop of the image's container (2026101920461153, `stopfix`) are on dev, so only the tests are left. JC's bare run on dev `8b81b8c3` counts as the bare run.
 		- 20261022, tests on dev `8b81b8c3` and `r1022` at `b1eabe99`:
-			- Verified: JC's bare run (log `run_20261022-085416` in `cicd/artifacts/lint/`) printed `copied 8b81b8c3cf3a, with nothing uncommitted`, made 2 image runs, format and then 2-6, passed `de89c` and recorded `tree c739cfb75920`.
+			- Verified: JC's bare run (log `run_20261022-085416` in `cicd/artifacts/lint/`) printed `copied 8b81b8c3cf3a, with nothing uncommitted`, made 2 image runs, format and then 2-6, passed `de89c`, and recorded `tree c739cfb75920`.
 			- Verified: `cicd.bash --gate` from the dev checkout started the image once, ran 2-6 from `copied 8b81b8c3cf3a`, passed every stage and recorded the same tree. The frozen worktree and its temp dir were gone after.
-			- Verified: hosted run 39824537161 on `r1022` passed all 10 jobs. `ci (lint)` and `ci (tests)` each printed `copied b1eabe99bb50` and passed `dcv6f`, `dct5a` and `de89c`, at 46 and 45 of 60 minutes.
+			- Verified: hosted run 39824537161 on `r1022` passed all 10 jobs. `ci (lint)` and `ci (tests)` each printed `copied b1eabe99bb50` and passed `dcv6f`, `dct5a`, and `de89c`, at 46 and 45 of 60 minutes.
 	- Swept: every `worktree add` and `worktree remove` under `cicd/` and the hook: pre-push and check-migrate now use the helper; check-push-gate and check-install-dev add worktrees only in their own scratch repos. The other users of the engine's stub repos (shell-regress `dcwg7`, check-push-gate's engine and hook stubs) copy the helper. check-push-gate's extra-image mount rows pass `--no-freeze`, since they check mounts on the checkout's own paths. The docker scan in shell-regress `de61t` matches `fRunContainer` called with arguments.
-	- Test case: shell-regress `de89c` drives the engine on a stub repo whose tests stage edits the checkout and rewrites cicd.bash in place mid-run. It checks the copy holds the format stage's output and the uncommitted, new and deleted files, the run lists them, the worktree is locked and gone after, a linked dir reaches the checkout, the copied tree is recorded and HEAD's isn't, and `--no-freeze` runs in place. It failed with the brace group taken out (syntax error after the edit) and with freezing off (5 checks).
-	- Acceptance signoff: Self-closed on JC's criteria: `de89c` was seen red, and a bare run, a `--gate` in the main image and a hosted run all ran from a copy and passed.
+	- Test case: shell-regress `de89c` drives the engine on a stub repo whose tests stage edits the checkout and rewrites cicd.bash in place mid-run. It checks that the copy has the format stage's output and the uncommitted, new, and deleted files, and that the run lists them. It also checks that the worktree is locked and gone after, a linked dir points into the checkout, the copied tree is recorded and HEAD's isn't, and `--no-freeze` runs in place. It failed with the brace group taken out (syntax error after the edit) and with freezing off (5 checks).
+	- Acceptance signoff: Self-closed on JC's criteria. `de89c` was seen red, and a bare run, a `--gate` in the main image, and a hosted run all ran from a copy and passed.
 	- Closed: 20261022-112537
 
 - check-freebsd fetches its image again on a bare run in the main image, though the cached copy is still there
@@ -6589,15 +6589,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: `shcl/bare2-r1021.log` line 338 prints "fetching ... about 640 MB", but the cached qcow2 and its `.sha256` keep their 12:33 ctime, so nothing in that cache was replaced. The download likely went to a path the run threw away.
 	- Expected behavior: the cached image passes its sum check and nothing is fetched.
 	- Reproduced: once, on the first frozen-copy run. The fetch went to a third copy, `~/.cache/shcl-cicd/main/home/.cache/shcl-cicd/freebsd`, made at 13:33 by that run.
-	- Actual cause: check-freebsd picked `/cache/freebsd` only when `SHCL_IN_CONTAINER` was set, but cicd.bash unsets that once it has read it, so no gate it runs sees it. In the image the check fell back to `$HOME/.cache`, and `HOME` there is `/cache/home`. That path is in the cache mount too, so later runs reuse it. Every run doesn't fetch, but the first one did, and 2.6 GB sat in a second copy.
+	- Actual cause: check-freebsd picked `/cache/freebsd` only when `SHCL_IN_CONTAINER` was set, but cicd.bash unsets that once it has read it, so no gate it runs sees it. In the image the check fell back to `$HOME/.cache`, and `HOME` there is `/cache/home`. That path is in the cache mount too, so later runs reuse it. Not every run fetches, but the first one did, and 2.6 GB ended up in a second copy.
 	- Decisions:
-		- me: the image sets `SHCL_FREEBSD_CACHE=/cache/freebsd` in its Dockerfile ENV, beside `CARGO_HOME` and the other cache paths, and check-freebsd drops its `SHCL_IN_CONTAINER` branch. Keeping `SHCL_IN_CONTAINER` for the gates was rejected: cicd.bash unsets it so a gate running a stub engine can't take itself for the run.
+		- me: the image sets `SHCL_FREEBSD_CACHE=/cache/freebsd` in its Dockerfile ENV, beside `CARGO_HOME` and the other cache paths, and check-freebsd drops its `SHCL_IN_CONTAINER` branch. Keeping `SHCL_IN_CONTAINER` for the gates was rejected, because cicd.bash unsets it so a gate running a stub engine can't take itself for the run.
 	- Actual fix: `SHCL_FREEBSD_CACHE` in the main image's ENV; check-freebsd reads only that or `$HOME/.cache`.
 	- Branch: `stopfix`
-	- Swept: cicd.bash unsets `SHCL_IN_CONTAINER`, `SHCL_CTR_IMAGE`, `SHCL_RUN_PART` and `SHCL_FROZEN`. check-freebsd was the only script under `cicd/` or `.github/` that read one after the unset. config.bash reads `SHCL_CTR_IMAGE`, but it's sourced before the unset.
+	- Swept: cicd.bash unsets `SHCL_IN_CONTAINER`, `SHCL_CTR_IMAGE`, `SHCL_RUN_PART`, and `SHCL_FROZEN`. check-freebsd was the only script under `cicd/` or `.github/` that read one after the unset. config.bash reads `SHCL_CTR_IMAGE`, but it's sourced before the unset.
 	- Test case: shell-regress `de8k2`, which fails any script but cicd.bash and config.bash that reads a setting cicd.bash unsets, and checks config.bash is sourced first.
 	- Verified: `de8k2` failed on the old check-freebsd and passes on the fix. shellcheck over `SHELLCHECK_TARGETS` and shell-regress passed. The rebuilt main image, `shcl-cicd:7f80c73639ce`, ran check-freebsd on this box's cache with no fetch line: 4347 CLI runs passed, the cached image's mtime didn't change, and nothing was written under the image's HOME. The stray copy went to the trash.
-	- Acceptance signoff: Self-closed on JC's criteria: a mechanical fix, red before and green after, checked in the real image.
+	- Acceptance signoff: Self-closed on JC's criteria. It's a mechanical fix, red before and green after, and checked in the real image.
 	- Closed: 20261021-174500
 
 - cicd.bash's longer help pushed its copyright and SPDX lines out of the header check's window
@@ -6613,18 +6613,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `cicd/utility/check-docs.bash` on `r1021` at `fe2545f6` or later.
 	- Incorrect behavior: check-docs `dcv6f` fails on cicd.bash, with no SPDX or copyright line in its header. check-push-gate `dct5a` runs check-docs on a clone of HEAD and fails with it. Hosted run 39663476196 failed `ci (lint)` and `ci (tests)` on them, and the local `--gate` failed lint.
 	- Expected behavior: both pass.
-	- Reproduced: yes, `dcv6f` red on this tree.
+	- Reproduced: yes, `dcv6f` is red on this tree.
 	- Actual cause: the frozen-copy paragraph and `--no-freeze` line added 10 lines to cicd.bash's help, which is its `##` header. The copyright and SPDX lines moved to 102 and 105, and the check reads the first 100 lines.
 	- Decisions:
-		- me: trim the new help paragraph to 3 lines, rather than move the copyright block or widen the window. Every other script under `cicd/` keeps it after the purpose text, none past line 67. The check covers every source file, so a wider window is weaker everywhere for one file. The detail the paragraph dropped is in `frozen-tree.bash`'s header, config.bash's `FROZEN_LINKS` comment and 2026102108300000.
-		- me: the copyright line now sits at 96 and SPDX at 99, so more help text there trips the check again. The help is the place to cut when it does.
-	- Actual fix: cicd.bash's frozen-copy help paragraph, 9 lines down to 3.
+		- me: trim the new help paragraph to 3 lines, rather than move the copyright block or widen the window. Every other script under `cicd/` keeps it after the purpose text, and none past line 67. The check reads every source file, so a wider window is weaker everywhere for one file. The detail the paragraph dropped is in `frozen-tree.bash`'s header, config.bash's `FROZEN_LINKS` comment, and 2026102108300000.
+		- me: the copyright line is now at 96 and SPDX at 99, so more help text there trips the check again. The help is the place to cut when it does.
+	- Actual fix: cicd.bash's frozen-copy help paragraph went from 9 lines down to 3.
 	- Branch: `r1021`
 	- Commit: `67cabba7`
 	- Swept: check-docs runs `dcv6f` over every tracked source file, and cicd.bash was the only one past the window. The next deepest under `cicd/` is check-migrate.bash, with SPDX at 67.
-	- Verified: `dcv6f` failed on the tree before the fix and passes after. check-docs, check-push-gate (`dct5a` included, red before on a clone of HEAD), shell-regress and shellcheck over `SHELLCHECK_TARGETS` passed.
+	- Verified: `dcv6f` failed on the tree before the fix and passes after. check-docs, check-push-gate (`dct5a` included, red before on a clone of HEAD), shell-regress, and shellcheck over `SHELLCHECK_TARGETS` passed.
 	- Test case: check-docs `dcv6f`.
-	- Acceptance signoff: Self-closed on JC's criteria: a mechanical fix whose test went red before and green after.
+	- Acceptance signoff: Self-closed on JC's criteria. It's a mechanical fix whose test went red before and green after.
 	- Closed: 20261021-141000
 
 - check-push-gate's stand-in docker misreads `--device`, so `de61p` fails on a box with KVM
@@ -6645,9 +6645,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: the stand-in skips `--device` and its value.
 	- Branch: `r1021`
 	- Swept: `--device` is the only `docker run` option cicd.bash adds that the stand-in didn't know. Its mount-recording branch steps over unknown options one word at a time, which is right for `--device`. No other script in `cicd/` stands in for `docker run`.
-	- Verified: `de61p` failed before and passes after. check-push-gate, shell-regress and shellcheck over `SHELLCHECK_TARGETS` passed.
+	- Verified: `de61p` failed before and passes after. check-push-gate, shell-regress, and shellcheck over `SHELLCHECK_TARGETS` passed.
 	- Test case: check-push-gate `de61p`.
-	- Acceptance signoff: Self-closed on JC's criteria: a test stand-in fix, red before and green after.
+	- Acceptance signoff: Self-closed on JC's criteria. It's a test stand-in fix, red before and green after.
 	- Closed: 20261021-141000
 
 - The freebsd-x86_64 release build never runs in a pipeline test
@@ -6664,18 +6664,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Pick a way: a third-party action such as `vmactions/freebsd-vm`, pinned by SHA, in the hosted run; or a pinned, hashed FreeBSD image booted under qemu in stage 6; or vmFreeBSD by hand under the host lock.
 		- No third-party action in ci.yml (JC, 2026-10-21). That leaves a FreeBSD image, pinned and hashed, booted under qemu by our own script, either in a hosted job or in stage 6.
 	- Decisions:
-		- Stage 6, not a hosted job (me). The image is a 640 MB download, 2.6 GB unpacked, which a hosted job would fetch every run, and hosted CI builds no release binaries. Stage 6 runs it on every bare run, before the artifacts are collected, like the CPU floor and wine checks. `--gate` builds no release, so it doesn't run there; `--quick` leaves it out.
-		- FreeBSD 15.1-RELEASE's BASIC-CLOUDINIT ufs qcow2, pinned by URL and sha256 in `check-freebsd.bash`. The guest has no network: nuageinit runs a script off a FAT disk QEMU makes from a folder, the build and corpus come in on a raw tar disk, and the outputs go out on another, compared here byte for byte with the Linux release.
-		- KVM when `/dev/kvm` is usable, TCG otherwise. The engine passes `/dev/kvm` into the image when the caller can use it.
+		- The check runs in stage 6 rather than a hosted job (me). The image is a 640 MB download, 2.6 GB unpacked, which a hosted job would fetch every run, and hosted CI doesn't build any release binaries. Stage 6 runs it on every bare run, before the artifacts are collected, like the CPU floor and wine checks. `--gate` doesn't build a release, so it doesn't run there; `--quick` leaves it out.
+		- The image is FreeBSD 15.1-RELEASE's BASIC-CLOUDINIT ufs qcow2, pinned by URL and sha256 in `check-freebsd.bash`. The guest has no network, so nuageinit runs a script off a FAT disk QEMU makes from a folder, the build and corpus come in on a raw tar disk, and the outputs go out on another, compared here byte for byte with the Linux release.
+		- It uses KVM when `/dev/kvm` is usable, and TCG otherwise. The engine passes `/dev/kvm` into the image when the caller can use it.
 	- Progress log:
-		- 20261021: `cicd/utility/check-freebsd.bash`, in `RELEASE_CHECKS`, `SHELLCHECK_TARGETS` and `QUICK_SKIP`. 4347 CLI runs, boot included: 17 s with KVM, 112 s with TCG. A first run adds about 50 s to fetch and 10 s to unpack.
+		- 20261021: `cicd/utility/check-freebsd.bash` is in `RELEASE_CHECKS`, `SHELLCHECK_TARGETS`, and `QUICK_SKIP`. Its 4347 CLI runs, boot included, take 17 s with KVM and 112 s with TCG. A first run adds about 50 s to fetch and 10 s to unpack.
 		- 20261021, tests on `r1021` at `fe2545f6`: a run in the main image with `-y --no-lint --no-tests`, since lint and tests are red this round for 2026102108300000, ran the check in stage 6 inside the image with `/dev/kvm` passed in. Log `shcl/bare2-r1021.log`.
-			- It printed `fetching ... about 640 MB`, though the cache held a matching image from 19:33Z, which it didn't replace. The cache check passes inside the image. Not explained.
-	- Swept: the other release checks. `check-cpu-floor.bash` already scans the FreeBSD build and boots only the Linux one; `check-win-release.bash` now finds its build through the same `fArtOf` helper. Of the cross targets, the arm ones run in hosted jobs (2026102019500000) and macOS in the hosted macOS job, so FreeBSD was the last one nothing ran. Only the Rust CLI is cross-built, so the other 3 bindings have no twin.
-	- Verified: `check-freebsd.bash` passed with KVM and with TCG here, and with KVM inside the main image from the release check's own line in config.bash, which fetched into an empty cache. It went red on one changed stdout and on one changed exit code, naming the case, on an image that didn't match its sha256, and on a failed fetch under `SHCL_GATE_STRICT`. shellcheck over `SHELLCHECK_TARGETS`, `test-ids.py check` and `shell-regress.bash` passed.
-	- Verified: in stage 6 of a run in the main image, `de8ae`, `de8ac` and `de8ad` passed: 4347 CLI runs under FreeBSD 15.1, same bytes and exit codes as the Linux build, with KVM, 18 s with the boot.
+			- It printed `fetching ... about 640 MB`, though the cache had a matching image from 19:33Z, which it didn't replace. The cache check passes inside the image. It isn't explained.
+	- Swept: the other release checks. `check-cpu-floor.bash` already scans the FreeBSD build and boots only the Linux one; `check-win-release.bash` now finds its build through the same `fArtOf` helper. Of the cross targets, the arm ones run in hosted jobs (2026102019500000) and macOS in the hosted macOS job, so FreeBSD was the last one nothing ran. Only the Rust CLI is cross-built, so the other 3 bindings don't have a twin.
+	- Verified: `check-freebsd.bash` passed with KVM and with TCG here, and with KVM inside the main image from the release check's own line in config.bash, which fetched into an empty cache. It went red on one changed stdout and on one changed exit code, naming the case, on an image that didn't match its sha256, and on a failed fetch under `SHCL_GATE_STRICT`. shellcheck over `SHELLCHECK_TARGETS`, `test-ids.py check`, and `shell-regress.bash` passed.
+	- Verified: in stage 6 of a run in the main image, `de8ae`, `de8ac`, and `de8ad` passed: 4347 CLI runs under FreeBSD 15.1, same bytes and exit codes as the Linux build, with KVM, 18 s with the boot.
 	- Test case: check-freebsd `de8ae` (image pinned and cached), `de8ac` (FreeBSD boots and runs the build), `de8ad` (same bytes and exit codes as the Linux build).
-	- Acceptance signoff: Self-closed on JC's criteria: stage 6 runs the check through the image with KVM, and its 3 rows pass.
+	- Acceptance signoff: Self-closed on JC's criteria. Stage 6 runs the check through the image with KVM, and its 3 rows pass.
 	- Closed: 20261021-134800
 
 - `sanitize-rust.bash --miri-all` never finishes, so a bare run never does either
@@ -6688,7 +6688,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Version and build: dev at `db311c7a`
 	- Problem description: 5 tests stay at full CPU under Miri and never return. The 10-19 run sat on them for 39 hours before it was stopped, and the 10-20 bare run has been on the same 5 for 12 hours.
 		- `index_rebuild_ignores_removed_nodes`, `merge_settles_only_what_it_touched`, `a_far_kept_line_costs_an_edit_nothing` and `generation_bounds_a_multiplying_schema` in conformance.rs, and `diagnostic_cap_bounds_the_parse` in mem_caps.rs.
-		- Each builds 2,000 to 200,000 lines or nodes. 4 of them time a ratio, which Miri can't judge anyway.
+		- Each builds 2,000 to 200,000 lines or nodes, and 4 of them time a ratio, which Miri can't judge anyway.
 	- Requirements:
 		- `--miri-all` finishes in hours. Scale tests skip under Miri, or run a small input there.
 		- A test that runs too long under Miri fails by name, rather than hold up the run.
@@ -6697,12 +6697,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- The 5 skip under Miri always, each with its reason. The timing ones measure nothing there, and the other 2 need their full size to reach the cap they test. The same paths run under Miri in smaller tests. No other Miri test times anything.
 			- sanitize-rust stops a Miri test after `SHCL_MIRI_TEST_SECS`, 2 hours by default, and fails it by name.
 		- Verified: the new shell-regress row went red against the old script and passes now. A real `--miri-all --only` of a slow test with a 60 s limit was stopped and named, with nothing left running.
-		- A whole `--miri-all` from `wt-bsq` finished in 1h45m at 6 jobs. Its one failure was `setters_write_only_what_reads_back`, which saves to disk and was never reached before: Miri has no directory fsync. It now skips under Miri like the other 9 tests that save, and passes there as skipped. The longest test took about 50 minutes.
+		- A whole `--miri-all` from `wt-bsq` finished in 1h45m at 6 jobs. Its one failure was `setters_write_only_what_reads_back`, which saves to disk and was never reached before. Miri has no directory fsync. It now skips under Miri like the other 9 tests that save, and passes there as skipped. The longest test took about 50 minutes.
 		- The 2 test files pass natively.
 	- Branch: `bsquote`
 	- Commit: `1e3c925b`
 	- Test case: shell-regress `de82q`.
-	- Acceptance signoff: Self-closed on JC's criteria: the whole mode finishes, and a stuck test fails by name.
+	- Acceptance signoff: Self-closed on JC's criteria. The whole mode finishes, and a stuck test fails by name.
 	- Closed: 20261021-102500
 
 - The linux-arm64, windows-arm64 and freebsd-x86_64 release builds never run in a pipeline test
@@ -6720,14 +6720,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- windows-arm64: run it on the hosted `windows-11-arm` runner, if a public repo gets one.
 		- freebsd-x86_64: boot it under qemu-system-x86_64 from a pinned, hashed FreeBSD image, if that costs a few minutes at most.
 	- Actual fix: GitHub's arm runners, free for a public repo, run the 2 arm builds on real hardware. That's simpler than an emulated boot, and nearer to what a user runs (me).
-		- linux-arm64: ci.yml's `linux-arm` job builds it with the stage 6 command, read out of config.bash as the macos job does, on `ubuntu-24.04-arm`. Then crosscheck over the corpus against a debug build, and cli-regress. It has no cache, since the key would match the x86_64 jobs' target dir.
+		- linux-arm64: ci.yml's `linux-arm` job builds it with the stage 6 command, read out of config.bash as the macos job does, on `ubuntu-24.04-arm`. Then it runs crosscheck over the corpus against a debug build, and cli-regress. It has no cache, since the key would match the x86_64 jobs' target dir.
 		- windows-arm64: `winarm-build` builds it on x86_64 with the stage 6 command, as it's released, and `winarm-test` runs cli-regress on it on `windows-11-arm`. Git-bash there is x64 under emulation; the arm64 exe runs natively.
 		- freebsd-x86_64 moved to 2026102022450000.
-	- Swept: the 3 jobs read the build command from CROSS_TARGETS, so a change there reaches them. Each fails when the target's line is missing or builds nothing. check-pins passes with the 2 new zig downloads hashed.
+	- Swept: the 3 jobs read the build command from CROSS_TARGETS, so they pick up a change there. Each fails when the target's line is missing or builds nothing. check-pins passes with the 2 new zig downloads hashed.
 	- Branch: `bsquote`
 	- Test case: none by ID, since the hosted jobs are the test: `linux-arm` (crosscheck and cli-regress) and `winarm-test` (cli-regress).
-	- Verified: hosted run 39543831612: `linux-arm` agreed on 7412 crosscheck comparisons and passed cli-regress. Run 39544603290: `winarm-test` passed 622 cli-regress rows, 871 checks, with 71 skipped out loud. The jobs weren't fault-injected; the gates they run are the ones every other job runs.
-	- Acceptance signoff: Self-closed on JC's criteria: the call is hosted arm runners over an emulated boot for the 2 arm builds, and both jobs pass.
+	- Verified: in hosted run 39543831612, `linux-arm` agreed on 7412 crosscheck comparisons and passed cli-regress. In run 39544603290, `winarm-test` passed 622 cli-regress rows, 871 checks, with 71 skipped out loud. The jobs weren't fault-injected; the gates they run are the ones every other job runs.
+	- Acceptance signoff: Self-closed on JC's criteria. The call is hosted arm runners over an emulated boot for the 2 arm builds, and both jobs pass.
 	- Closed: 20261020-224500
 
 - The windows setup is never run by a test, so NSIS's installer code goes untested
@@ -6742,14 +6742,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Problem description: the setup runs NSIS's own installer code and its `nsExec` plugin as administrator on the user's box. shell-regress compiles it, and winpath-regress runs its `shclpath.ps1` the way the setup does, but nothing runs the setup or its uninstaller. The last run was by hand on b29w, 2026-09-19.
 	- Requirements:
 		- A test installs with the built setup silently, runs `shcl --version` from the machine PATH, then removes it with `uninstall.exe /S _?=<dir>` and checks the PATH entry and the folder are gone.
-		- The hosted windows job if it can build or fetch the setup, or else a test box under the host lock.
+		- It runs on the hosted windows job if that can build or fetch the setup, or else on a test box under the host lock.
 	- 20261020, branch `bsquote`:
 		- ci.yml's `setup-build` job builds the released windows-x86_64 target and its setup with stage 6's own package.bash, on ubuntu, where nsis comes from apt. `setup-test` takes it to windows and runs `check-win-setup.bash`. Both run beside the long jobs, so the run takes no longer.
-		- `check-win-setup.bash` installs with `/S`, checks the folder is on the machine PATH and the uninstall key is there, runs `shcl --version` from the machine PATH in a new shell, then runs `uninstall.exe /S _?=<dir>` and checks the PATH entry, the files and the key are gone. With `_?=` the uninstaller runs in place and can't delete itself, so `uninstall.exe` is the one file allowed to stay, and the script removes it and the folder. It refuses to run over an existing install.
+		- `check-win-setup.bash` installs with `/S`, checks the folder is on the machine PATH and the uninstall key is there, runs `shcl --version` from the machine PATH in a new shell, then runs `uninstall.exe /S _?=<dir>` and checks the PATH entry, the files, and the key are gone. With `_?=` the uninstaller runs in place and can't delete itself, so `uninstall.exe` is the one file allowed to stay, and the script removes it and the folder. It refuses to run over an existing install.
 		- The setup's stub is 32-bit, so its uninstall key is in the 32-bit registry view. Apps and features reads both views, and so does the check.
 		- msys quotes an argument with a space, and NSIS reads `_?=` only unquoted and last. Quoted, the uninstaller copied itself to temp and returned 0 at once. The check starts it through `Start-Process -Wait`, which passes the arguments as they are.
 	- Swept: package.bash is the one place the setup is built, and stage 6 and `setup-build` both call it. shclpath.ps1's PATH edits already had winpath-regress.
-	- Test case: `de7c2`, `de7c3` and `de7c4` in `check-win-setup.bash`, run by ci.yml's `setup-test` job.
+	- Test case: `de7c2`, `de7c3`, and `de7c4` in `check-win-setup.bash`, run by ci.yml's `setup-test` job.
 	- Verified: hosted run 39542902000 passed all 3. Run 39537878800 failed all 3 on a setup path that didn't resolve, so nothing was installed. Run 39542221440 failed `de7c4` while the uninstaller returned before it ran, and `de7c2` on the 32-bit key.
 	- Acceptance signoff: Self-closed: each test was red on the hosted runner with nothing installed or nothing removed, and all 3 pass now.
 	- Closed: 20261020-215500
@@ -6766,7 +6766,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Related IDs: 2026101707582803
 	- Version and build: dev at `8c33a436`
 	- Steps to reproduce:
-		- `conf.shcl` holds `port: 80` and `host: x`, and `text` is that text.
+		- `conf.shcl` has `port: 80` and `host: x`, and `text` is that text.
 		- In C: `shcl_write_backup(text, "conf.shcl", strlen(text), 3, &name, &msg, &why)`.
 	- Incorrect behavior: it returns `SHCL_UPGRADE_OK` and writes a file in the working folder whose name is the config text plus `_backup_YYYYmmDD-HHMMSS_format-v3`. C also reads `len` bytes from the path string, past its end, which ASan reports. Rust, Go, and Python take the file and the text as 2 strings too. A caller that goes on to replace the file has no real backup of it.
 	- Expected behavior: a swapped call is refused and writes nothing.
@@ -6779,17 +6779,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `wbswap`, then `winfix`
 	- Commit: `e469f1aa`, then `2251a602`
 	- Test case: `write_backup_refuses_a_swapped_file_and_text`, Rust `de4ba`, Go `de4bb`, Python `de4bc`, and C `de4bd`, which sanitize-c `dbxj4` runs under ASan. In each, a swapped call in a scratch folder is refused, `NotFound` off windows, and the folder stays empty. A directory is refused as `IsDirectory`. The veneer smoke `d9v59` has the swapped call too.
-	- Swept: `write_file_atomic` stays as it is, since it creates files on purpose and a path naming nothing is its normal case. Every caller of `write_backup`: the 4 CLIs' `migrate --write`, which read the file and check it's unchanged first, `upgrade_file` in all 4, the veneer, and the 4 runners' write-status rows, whose backup into a shut folder still gives `PermissionDenied`. No CLI path reaches the refusal, since each reads the file first, so there is no cli-regress row, and crosscheck has no `write_backup` dimension. design.md and examples.md don't describe `write_backup`.
-	- Verified: each new test failed on the old code and passes now. On the old code Rust, Go, and Python wrote the junk backup and returned its name, C returned OK, and C built with ASan reported a heap-buffer-overflow reading the path. The veneer check failed too. With the fix: cargo test, go test -count=1 for the library, the Python runner, the C conformance runner, the veneer smoke, check-veneer, sanitize-c, analyze-c, cli-regress over all 4 CLIs, crosscheck, check-docs, test-ids check, cargo fmt, clippy for linux and the windows target, go vet, staticcheck, ruff, and mypy. The C runner and CLI built with mingw, and the runner passed under wine. The Rust upgrade tests and the Go library tests passed for windows under wine.
-	- Acceptance signoff: Self-closed: a review item reproduced in all 4, its tests failed before the fix and pass after, and its Sweep has its Swept answer. It follows the Possible fix row, and nothing the CLI writes changes.
+	- Swept: `write_file_atomic` stays as it is, since it creates files on purpose and a path naming nothing is its normal case. Every caller of `write_backup`: the 4 CLIs' `migrate --write`, which read the file and check it's unchanged first, `upgrade_file` in all 4, the veneer, and the 4 runners' write-status rows, whose backup into a shut folder still gives `PermissionDenied`. No CLI path triggers the refusal, since each reads the file first, so there's no cli-regress row, and crosscheck has no `write_backup` dimension. design.md and examples.md don't describe `write_backup`.
+	- Verified: each new test failed on the old code and passes now. On the old code Rust, Go, and Python wrote the junk backup and returned its name, C returned OK, and C built with ASan reported a heap-buffer-overflow reading the path. The veneer check failed too. With the fix, these pass: cargo test, go test -count=1 for the library, the Python runner, the C conformance runner, the veneer smoke, check-veneer, sanitize-c, analyze-c, cli-regress over all 4 CLIs, crosscheck, check-docs, test-ids check, cargo fmt, clippy for linux and the windows target, go vet, staticcheck, ruff, and mypy. The C runner and CLI built with mingw, and the runner passed under wine. The Rust upgrade tests and the Go library tests passed for windows under wine.
+	- Acceptance signoff: Self-closed: it's a review item reproduced in all 4, its tests failed before the fix and pass after, and its Sweep has its Swept answer. It follows the Possible fix row, and nothing the CLI writes changes.
 	- Closed: 20261018-170500
-	- 20261019, reopened: hosted run 39307128325 on dev at `59c6ecfb` failed the veneer smoke `d9v59` on windows, at `veneer_smoke.cpp:887`: `shcl::read_file(shcl::backup_file_name(swappedText, 3)).second` isn't `NotFound` there. The swapped text holds characters windows refuses in a file name, so the read likely fails with another status. Python's `de4bc` passed there.
+	- 20261019, reopened: hosted run 39307128325 on dev at `59c6ecfb` failed the veneer smoke `d9v59` on windows, at `veneer_smoke.cpp:887`: `shcl::read_file(shcl::backup_file_name(swappedText, 3)).second` isn't `NotFound` there. The swapped text has characters windows refuses in a file name, so the read likely fails with another status. Python's `de4bc` passed there.
 	- 20261019, branch `winfix`:
 		- Cause: the veneer smoke read the backup name made from the swapped text and wanted `NotFound`. That name has a newline and colons, which windows refuses in a name, so the read fails another way there. The swapped call was refused and wrote nothing.
-		- Fixed: the swapped call names a folder of its own, and the check is that the folder is still empty, so `rmdir` takes it. That means the same on every OS, and it also catches a colon turned into a stream on a file named `port`. The kind is still checked as `NotFound` off windows only.
+		- Fixed: the swapped call names a folder of its own, and the check is that the folder is still empty, so `rmdir` removes it. That means the same on every OS, and it also catches a colon turned into a stream on a file named `port`. The kind is still checked as `NotFound` off windows only.
 		- Swept: the Rust, Go, Python, and C twins already check that their scratch folder is empty, and none reads the backup name. All 4 passed on the hosted windows job at `59c6ecfb`.
 		- Verified: the old smoke built for windows failed at the same check under wine. The new one passes there and on Linux with the gate's warning flags. A file planted in the folder failed the new check. check-veneer passes.
-	- 20261020: hosted run 39537878800 on `bsquote`, which has `winfix`: the windows job passed `d9v59` and the 4 `write_backup_refuses_a_swapped_file_and_text` tests.
+	- 20261020: in hosted run 39537878800 on `bsquote`, which has `winfix`, the windows job passed `d9v59` and the 4 `write_backup_refuses_a_swapped_file_and_text` tests.
 	- Acceptance signoff: Self-closed: the reopening row passes on the hosted windows job, and its fix was seen red under wine first.
 	- Closed: 20261020-220500
 
@@ -6803,13 +6803,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Version and build: dev at `db311c7a`
 	- Steps to reproduce: keep a worktree beside `repo/`, then run `cicd.bash --gate` from another worktree, which runs its stages in the image.
 	- Incorrect behavior: the other worktree's entry under `.git/worktrees/` is gone once check-migrate has run. git in that folder then fails with `not a git repository`, and its index is lost. The files stay. `gatewt-r1019` lost its entry the same way, in an earlier run.
-	- Expected behavior: a run touches no worktree but its own.
+	- Expected behavior: a run doesn't touch any worktree but its own.
 	- Actual cause: check-migrate's cleanup ran `git worktree prune` on every exit. In the image only the running tree is mounted, so every other worktree's folder reads as missing and its entry goes. The pre-push hook had the same prune on the host, where it drops a worktree whose folder is on an unmounted disk.
 	- Actual fix: both prunes are gone. Each script removes the worktree it made with `worktree remove --force`, as before. An entry left by a failed remove is harmless, and git gc expires it.
-	- Swept: every script under `cicd/` and the hook, for `worktree prune`, `worktree remove` and `worktrees/`. check-push-gate removes worktrees only in its own scratch repos.
+	- Swept: every script under `cicd/` and the hook, for `worktree prune`, `worktree remove`, and `worktrees/`. check-push-gate removes worktrees only in its own scratch repos.
 	- Branch: `bsquote`
 	- Test case: shell-regress `de7cy` fails any `worktree prune` in a shell file under `cicd/` or the hook. It failed on both old scripts.
-	- Verified: check-migrate built its 2.x reference through its own worktree and removed it, and the 3 other worktrees stayed listed. shell-regress, check-push-gate and shellcheck pass.
+	- Verified: check-migrate built its 2.x reference through its own worktree and removed it, and the 3 other worktrees stayed listed. shell-regress, check-push-gate, and shellcheck pass.
 	- Acceptance signoff: Self-closed: the test failed on the old scripts and passes now, and the live run kept the other worktrees.
 	- Closed: 20261020-213500
 
@@ -6822,18 +6822,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened by: 2026101920461160
 	- Related IDs: 2026100413052100
 	- Version and build: dev at `baca8c01`
-	- Problem description: stage 6 boots the linux-x86_64 release under qemu, and the hosted macos job runs the macOS arm64 half. Nothing runs the windows-x86_64, windows-arm64, linux-arm64 or freebsd-x86_64 builds. The windows ones link toolchain code no tested build has: mingw-w64's runtime, and zig's mingw and compiler-rt. The hosted windows job builds the msvc target, which isn't the one released.
+	- Problem description: stage 6 boots the linux-x86_64 release under qemu, and the hosted macos job runs the macOS arm64 half. Nothing runs the windows-x86_64, windows-arm64, linux-arm64, or freebsd-x86_64 builds. The windows ones link toolchain code no tested build has: mingw-w64's runtime, and zig's mingw and compiler-rt. The hosted windows job builds the msvc target, which isn't the one released.
 	- Verified: 20261019, the windows-x86_64 release build under wine gave the same `fmt` output and exit code as the linux release on all 206 corpus cases, in about 30 s.
 	- Requirements:
 		- Stage 6 runs the windows-x86_64 release over the corpus under wine, beside the linux boot. The corpus pass is enough, as for the canceled cli-regress run under Wine.
 		- For the arm64 and freebsd builds, find what here could run them in a stage, or note that nothing can.
-	- Actual fix: stage 6's release checks run `check-win-release.bash` over the windows-x86_64 build. Under wine it runs the same 4347 CLI cases the CPU floor boot does, 8 at a time under one wineserver, and compares stdout, stderr and exit code with the native release. The case list moved into `include/corpus-cases.bash`, which both scripts source. The OS words its own errors, such as "File not found." on windows, so stderr is compared up to the code in `(os error N)`. The main image has wine and wine64 now. It takes about 35 s in the image and 2.5 minutes on this host, so `--quick` keeps it.
+	- Actual fix: stage 6's release checks run `check-win-release.bash` over the windows-x86_64 build. Under wine it runs the same 4347 CLI cases the CPU floor boot does, 8 at a time under one wineserver, and compares stdout, stderr, and exit code with the native release. The case list moved into `include/corpus-cases.bash`, which both scripts source. The OS words its own errors, such as "File not found." on windows, so stderr is compared up to the code in `(os error N)`. The main image has wine and wine64 now. It takes about 35 s in the image and 2.5 minutes on this host, so `--quick` keeps it.
 	- Found: the image has no `/run/user/UID`, so wine 10 falls back to a server dir under TMPDIR, and aborts with `free(): invalid pointer` when TMPDIR is set. The script unsets TMPDIR once its work dir is made.
-	- Found, for the other builds: nothing here runs them in a stage today. linux-arm64 links glibc, so qemu-system-aarch64, which this host has, could boot it the floor check's way, given an arm64 kernel and libc in the image. freebsd-x86_64 needs FreeBSD's own loader and libc, so a pinned FreeBSD boot image. Wine here can't run windows-arm64; the hosted `windows-11-arm` runner could. Filed as 2026102019500000.
-	- Swept: the floor check's case list is the one copy now. RELEASE_CHECKS, the lint list and the image recipe have the new script. Hosted CI never reaches stage 6, so ci.yml needs no wine.
+	- Found, for the other builds: nothing here runs them in a stage today. linux-arm64 links glibc, so qemu-system-aarch64, which this host has, could boot it the floor check's way, given an arm64 kernel and libc in the image. freebsd-x86_64 needs FreeBSD's own loader and libc, so it needs a pinned FreeBSD boot image. Wine here can't run windows-arm64; the hosted `windows-11-arm` runner could. Filed as 2026102019500000.
+	- Swept: the floor check's case list is the one copy now. RELEASE_CHECKS, the lint list, and the image recipe have the new script. Hosted CI never gets to stage 6, so ci.yml doesn't need wine.
 	- Branch: `bsquote`
 	- Test case: check-win-release `de7an` (wine starts the build and gives the native `--version`) and `de7ap` (the cases match). A copy of the exe with one byte of `explain` changed failed `de7ap` on the `explain` case, and the windows-arm64 exe failed `de7an`. With wine off PATH both skip, and under `SHCL_GATE_STRICT` the skip fails.
-	- Verified: passes on this host and in the current image with wine added, on the 2026-10-16 release builds. The RELEASE_CHECKS entry passes through `eval` with and without a windows build. shellcheck, test-ids check, shell-regress, check-pins, check-push-gate and check-docs pass.
+	- Verified: it passes on this host and in the current image with wine added, on the 2026-10-16 release builds. The RELEASE_CHECKS entry passes through `eval` with and without a windows build. shellcheck, test-ids check, shell-regress, check-pins, check-push-gate, and check-docs pass.
 	- Acceptance signoff: Self-closed: each new test was seen red with a fault and green after, and the second requirement is answered with a follow-up item. The first full run with the new image is the end-to-end check.
 	- Closed: 20261020-195000
 
@@ -6849,7 +6849,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: a running log reads INCOMPLETE, and a passing one CLEAN.
 	- Actual cause: both scans read the pipeline's own `extra: CMD` lines, and `error::` matches the error pattern.
 	- Actual fix: both scans drop the `extra: ` lines. Tool output never starts that way.
-	- Swept: the other echoes in the log, `veneer:`, `largedoc:`, `conformance:` and `crosscheck:`, are tool status lines and stay scanned. The `-D warnings` and `--enable=warning` filters stay for the `Lint ....:` echoes.
+	- Swept: the other echoes in the log, `veneer:`, `largedoc:`, `conformance:`, and `crosscheck:`, are tool status lines and stay scanned. The `-D warnings` and `--enable=warning` filters stay for the `Lint ....:` echoes.
 	- Branch: `bsquote`
 	- Test case: shell-regress `de7a1`. The `extra:` lines read CLEAN, and a real ResourceWarning and C error beside them still count. It failed on the old script.
 	- Acceptance signoff: Self-closed: the test failed before the fix and passes after, and the running log reads INCOMPLETE now.
@@ -6867,12 +6867,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Check it against value-syntax.md, and in Go and Python too.
 		- If the writer should avoid that ending, change it in all 4 and add a corpus case. If not, close it with the reason.
-	- Actual cause: works as designed. value-syntax.md says a backslash is never special, and that it plays no part in the writer's quote choice. So `\"` at the end is a backslash and then the closing quote, and all 4 read it back as written.
+	- Actual cause: it works as designed. value-syntax.md says a backslash is never special, and that it plays no part in the writer's quote choice. So `\"` at the end is a backslash and then the closing quote, and all 4 read it back as written.
 	- Decided against: writing that ending some other way. It would make the backslash count again in 4 writers, which the 3.0 rules dropped to end the churn backslash escapes caused. A plain 3.0 `fmt` of `a: "C:\temp\"` gives the same text, so it isn't a migrate case either (me).
 	- Swept: `migrate --from-2x` gives the same line in Rust, Go, Python, and C, and `get` reads `x<TAB>y\z\q\` back in Rust, Go, and Python. `fmt` and `get` of a 3.0 value ending in a backslash agree in all 4 CLIs.
 	- Branch: `bsquote`
-	- Test case: cli-regress `de79q` (the report's line through `migrate --from-2x`), `de79r` (`get` of `"C:\temp\"`) and `de79s` (`fmt` keeps it), over all 4 CLIs.
-	- Acceptance signoff: Self-closed on JC's criteria: the call is that the text stays as written, per value-syntax.md, and the 3 rows pin it in all 4.
+	- Test case: cli-regress `de79q` (the report's line through `migrate --from-2x`), `de79r` (`get` of `"C:\temp\"`), and `de79s` (`fmt` keeps it), over all 4 CLIs.
+	- Acceptance signoff: Self-closed on JC's criteria. The call is that the text stays as written, per value-syntax.md, and the 3 rows pin it in all 4.
 	- Closed: 20261020-190900
 
 - Nothing fails when a runtime dependency or vendored code arrives, so the third-party scope of the leak checks can go stale unseen
@@ -6884,24 +6884,24 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened by: 2026101920461160
 	- Related IDs: 2026101707582803, 2026101711273980
 	- Version and build: dev at `baca8c01`
-	- Problem description: the leak and static checks cover third-party code only where end users run it, and today none of it does. Nothing checks that. A new crate, Go module, Python import or vendored C file would reach users with no check judging it. CodeQL reports only on `source/`, so a crate's findings would go unseen.
+	- Problem description: the leak and static checks include third-party code only where end users run it, and today none of it does. Nothing checks that. A new crate, Go module, Python import, or vendored C file would go out to users without any check judging it. CodeQL reports only on `source/`, so a crate's findings would go unseen.
 	- Requirements:
 		- A lint-stage check fails when code end users run picks up anything third-party: a normal or build dependency for any Rust release target, a module past the standard library in either Go module, an import past the standard library in `shcl.py` or the Python CLI, or a header or library past the system's in the C header, the veneer or the C CLI.
 		- Its message says what has to follow the new code: the leak and static checks over it, CodeQL reporting on it, and the 2 related items' Already-in-place rows.
-		- Watched to fail with a planted dependency in each language.
-	- Actual fix: `check-deps.bash` in the lint stage. Offline, about 1 s. It fails on:
+		- It's watched to fail with a planted dependency in each language.
+	- Actual fix: `check-deps.bash` is in the lint stage. It runs offline in about 1 s, and fails on:
 		- A normal or build crate for any target, optional ones included when a default feature or a release command's `--features` turns them on.
-		- A module past our 2 in either Go module's build list, or a package past the standard library, or cgo, on linux, windows, darwin and freebsd.
+		- A module past our 2 in either Go module's build list, or a package past the standard library, or cgo, on linux, windows, darwin, and freebsd.
 		- An import past the standard library in `shcl.py` or the Python CLI, function-level ones included, or an import by name at run time.
-		- A C or C++ include that isn't a C, C++, POSIX or Windows header, or a quoted one that isn't ours.
-		- A library named in code that doesn't come with the OS: Rust link attributes, Go and Python DLL loads, C pragmas and `dlopen`, and link flags in the cargo config. The built CLIs' ELF `NEEDED` lists too.
+		- A C or C++ include that isn't a C, C++, POSIX, or Windows header, or a quoted one that isn't ours.
+		- A library named in code that doesn't come with the OS: Rust link attributes, Go and Python DLL loads, C pragmas and `dlopen`, and link flags in the cargo config. It also checks the built CLIs' ELF `NEEDED` lists.
 		- A vendor-like path or a submodule anywhere in the tree, or a cargo config that swaps the crate source.
-		- A shipped code file without our MIT header and copyright.
-		- Its message names the leak and static checks, CodeQL and the 2 related items' Already-in-place rows. Each language's allowed list is in the script, empty past our own code.
+		- A released code file without our MIT header and copyright.
+		- Its message names the leak and static checks, CodeQL, and the 2 related items' Already-in-place rows. Each language's allowed list is in the script, empty past our own code.
 	- Decisions:
-		- Test code, dev-dependencies, the `profiling` feature and build tools stay allowed, per JC's rule on 2026101920461160 (me).
-		- `cargo metadata --no-deps` over `cargo tree`, since `cargo tree --offline` needs the crate index and fails on a fresh box. Our own direct dependencies are what matter, and with none there's no tree (me).
-	- Verified: 25 planted faults, each restored by copy, each failed its own test and printed the footer: Rust normal, build, `cfg(windows)`, default-feature and release `--features` crates; a Go `require`, a Go import, cgo; Python top-level, function-level and `import_module` imports; C `<zlib.h>`, `"miniz.h"`, `#pragma comment(lib, "zlib")`, `dlopen("libz.so.1")`; Rust `#[link(name = "ssl")]`, Go `NewLazyDLL("sqlite3.dll")`, Python `WinDLL(name)` and `CDLL("libyaml.so")`; `-lz` and `[source.crates-io]` in the cargo config; `source/rust/src/vendor/`, `third_party/` at the root; a foreign C header and Go file. The C CLI built with `-lz` failed the `NEEDED` test. Clean tree green. shellcheck over SHELLCHECK_TARGETS, shell-regress, check-docs, check-pins, `test-ids.py check` and markdownlint-cli2 green.
+		- Test code, dev-dependencies, the `profiling` feature, and build tools stay allowed, per JC's rule on 2026101920461160 (me).
+		- `cargo metadata --no-deps` is used over `cargo tree`, since `cargo tree --offline` needs the crate index and fails on a fresh box. Our own direct dependencies are what matter, and with none there's no tree (me).
+	- Verified: each of 25 planted faults failed its own test and printed the footer, and each was restored by copy: Rust normal, build, `cfg(windows)`, default-feature and release `--features` crates; a Go `require`, a Go import, cgo; Python top-level, function-level and `import_module` imports; C `<zlib.h>`, `"miniz.h"`, `#pragma comment(lib, "zlib")`, `dlopen("libz.so.1")`; Rust `#[link(name = "ssl")]`, Go `NewLazyDLL("sqlite3.dll")`, Python `WinDLL(name)` and `CDLL("libyaml.so")`; `-lz` and `[source.crates-io]` in the cargo config; `source/rust/src/vendor/`, `third_party/` at the root; a foreign C header and Go file. The C CLI built with `-lz` failed the `NEEDED` test. The clean tree is green. shellcheck over SHELLCHECK_TARGETS, shell-regress, check-docs, check-pins, `test-ids.py check`, and markdownlint-cli2 are green.
 	- Branch: `depguard`
 	- Commit: `5981735e`
 	- Test case: check-deps de629 (crates), de62a (Go), de62b (Python), de62c (C includes), de62d (libraries in code), de62e (built CLIs), de62f (vendored trees), de62g (shipped files are ours).
@@ -6926,47 +6926,47 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			~~~
 
 	- Incorrect behavior: The result says `Current` false, `Lost` 0, and `Ambiguous` 0. Its text keeps `p: "C:\\new"` and has `t: "C:\temp"`. 3.0 reads `p` as `C:\\new` and `t` as `C:\temp` with a backslash and a t. shcl 2.0 read the same file as `C:\new` and `C:` then a tab then `emp`.
-	- Expected behavior: The upgraded file reads what 2.x read, or the call says which lines it can't carry, through `Lost`, `Ambiguous`, or an error. 3.0 can write both values, as `"C:\new"` and `"C:◉TAB◉emp"`.
+	- Expected behavior: The upgraded file reads what 2.x read, or the call says which lines it can't bring over, through `Lost`, `Ambiguous`, or an error. 3.0 can write both values, as `"C:\new"` and `"C:◉TAB◉emp"`.
 	- Note: A silent wrong answer. The call succeeds and every count says the file came through. spec.md says it on purpose ("One change is quiet"), and the migration gate allows it, but a program calling `Upgrade` can't see it. 1.2 read value escapes the same way as 2.0. It read names as typed, where 2.0 resolved them, so a name like `"C:\\x"` reads two ways across 2.x.
 	- Note: shclwrap now sets each such value again after `Upgrade`, and refuses a name 2.0 resolved, in Go, Rust, and C (shclwrap 2026101910455900).
 	- Question: the quiet change is JC's 2026-10-05 answer, in value-syntax.md ("A 2.x backslash is left as written, and reads literally") and spec.md ("One change is quiet"). Which way? (a) Keep it, and say in the `Upgrade` doc comments that the counts don't cover it. (b) Keep the text as written, and report each such line, such as a hint on the CLI and a count or list on the result in all 4 bindings. (c) Write the value 2.x read in the current syntax, such as `"C:\new"` and `"C:◉TAB◉emp"`, which reverses the 2026-10-05 answer and fits "never damage a correct file at exit 0" (JC, 2026-10-15).
 		- JC, 20261019: whichever fits the Objectives best, in order.
 	- Progress log:
-		- 20261019: Rust, check-migrate, the docs and the tests are done on `bslash`. The Go, Python and C ports are next, on the same branch, and their runners fail the shared tests until then.
-		- Verified on the Rust side: `cargo test` with the fuzz at 20,000, cli-regress on the Rust CLI, check-migrate (630 compared, no divergence), check-readme, check-docs, shell-regress, test-ids check. With the old lib.rs, the 3 new Rust tests, the 5 corpus goldens, ddmhc, the new and revived cli-regress rows, and check-migrate (48 divergences over 630 documents) were each seen red.
+		- 20261019: Rust, check-migrate, the docs, and the tests are done on `bslash`. The Go, Python, and C ports are next, on the same branch, and their runners fail the shared tests until then.
+		- Verified on the Rust side: `cargo test` with the fuzz at 20,000, cli-regress on the Rust CLI, check-migrate (630 compared, no divergence), check-readme, check-docs, shell-regress, and test-ids check. With the old lib.rs, the 3 new Rust tests, the 5 corpus goldens, ddmhc, the new and revived cli-regress rows, and check-migrate (48 divergences over 630 documents) were each seen red.
 		- For the ports, mirror lib.rs:
-			- New `v2_text(raw)`: resolves `\t`, `\n`, `\\`, `\"` and `\'`, and leaves any other backslash, a trailing one included. It's 2.x's `apply_escapes`.
+			- New `v2_text(raw)`: resolves `\t`, `\n`, `\\`, `\"`, and `\'`, and leaves any other backslash, a trailing one included. It's 2.x's `apply_escapes`.
 			- `value_edits` and `v2_element_text` test and write `v2_text(raw)` where they used `raw`.
 			- `migrate_line`, quoted name: when `v2_text(name) != name`, add 1 to `lost`, make no edit, and go on with the line. No early return, or a same-line fence after it is missed.
 			- `migrate_line`, selector: `logical = v2_text(body)`, used by the sugar arm's spelling and `reads_same`, and by both `selector_reads_back` calls and the spelling in the paren arm.
 			- The CLI's lost message names "a quoted name with a backslash escape" (main.rs). The words up to the colon stay, since cli-regress and check-migrate match them.
 			- Doc comments: `migrate`, `Migration.ambiguous` and `.lost`, `migrate_spelling`, `value_edits`.
-		- Tests the ports have to pass: corpus migrate goldens 118, 119, 122, 124 and 170; cli-regress de60n to de60t, plus the revived dcq6h, dcq6j, dcq6k, ddcef, dct38, dcqad and dcqae; crosscheck; and each runner's twin of Rust's 3 new tests (de60f, de60g, de60h), with fresh IDs. The upgrade test's `name: 'say \"hi\"'` becomes `name: 'say "hi"'` in Go `upgrade_test.go`, Python `conformance.py` and C `conformance.c`, as in Rust's ddmhc.
-		- Traps: `"C:\work"` with one backslash is no pair, so ddheq stays. check-migrate's `fOneLine2x` now writes a 2.x element holding a line break through the Rust CLI's `--set`, since only the current writer gives the `◉NEWLINE◉` form.
-		- 20261019: the Go, Python and C ports are done on `bslash`, mirroring lib.rs: `v2Text`/`_v2_text`/`v2_text`, the same 4 call sites, the quoted-name branch counting lost with no early return, the doc comments, and the CLI's lost message. `shcl.hpp` needed only its `Migration` comment, since `migrate` and `upgrade` already wrap the C calls and the struct has no new field.
-		- Waits on signoff since it reverses the 2026-10-05 answer in value-syntax.md and changes what `migrate --write` and `upgrade --write` write.
+		- Tests the ports have to pass: corpus migrate goldens 118, 119, 122, 124, and 170; cli-regress de60n to de60t, plus the revived dcq6h, dcq6j, dcq6k, ddcef, dct38, dcqad and dcqae; crosscheck; and each runner's twin of Rust's 3 new tests (de60f, de60g, de60h), with fresh IDs. The upgrade test's `name: 'say \"hi\"'` becomes `name: 'say "hi"'` in Go `upgrade_test.go`, Python `conformance.py`, and C `conformance.c`, as in Rust's ddmhc.
+		- Traps: `"C:\work"` with one backslash isn't a pair, so ddheq stays. check-migrate's `fOneLine2x` now writes a 2.x element that has a line break through the Rust CLI's `--set`, since only the current writer gives the `◉NEWLINE◉` form.
+		- 20261019: the Go, Python, and C ports are done on `bslash`, mirroring lib.rs: `v2Text`/`_v2_text`/`v2_text`, the same 4 call sites, the quoted-name branch counting lost with no early return, the doc comments, and the CLI's lost message. `shcl.hpp` needed only its `Migration` comment, since `migrate` and `upgrade` already wrap the C calls and the struct has no new field.
+		- It waits on signoff since it reverses the 2026-10-05 answer in value-syntax.md and changes what `migrate --write` and `upgrade --write` write.
 	- Decisions:
 		- (c). `upgrade` and `migrate` write the value 2.x read, in the current syntax. So `"C:\\new"` becomes `"C:\new"` and `t: C:\temp` becomes `t: "C:◉TAB◉emp"` (me, on JC's criteria).
 			- An upgrade that keeps what a file means is what a user expects, and it's what other format migrators do.
 			- The 2026-10-05 answer came before JC's 2026-10-15 rule. With it, a program calling `Upgrade` sees a clean result while values changed, and has no way to catch it.
-			- The code decodes the 2.x escapes in a piece and hands the text to the one emitter. No new machinery.
+			- The code decodes the 2.x escapes in a piece and hands the text to the one emitter. There's no new machinery.
 			- `check-migrate.bash` drops its allowance for a backslash pair, so the gate compares reads exactly.
 		- A file with no Format line, and no `--from-2x`, could be 3.0, where the backslash is text. Such a piece is kept and counted `Ambiguous`, like `a,b` already is (me).
 		- A quoted name with a backslash pair read as typed under 1.2 and resolved under 2.0, so the file can't say which. It's kept as written and counted `Lost`, so the call exits 7 unless `--lossy`, even with `--from-2x` (me).
 		- A selector body gets whatever 2.x did with a backslash there, checked against the pinned 2.x build `7be348d`: converted like a value if 2.x resolved it, left alone if not (me).
-		- Rejected: (a), which keeps a silent wrong answer. (b), which leaves every caller to fix each line by hand, and adds a count to all 4 bindings.
+		- Rejected: (a), which keeps a silent wrong answer, and (b), which leaves every caller to fix each line by hand and adds a count to all 4 bindings.
 	- To do:
-		- All 4 bindings. In Rust it's `value_edits`, `v2_element_text` and the quoted-name branch of `migrate_line` in lib.rs, then the 3 ports.
+		- All 4 bindings. In Rust it's `value_edits`, `v2_element_text`, and the quoted-name branch of `migrate_line` in lib.rs, then the 3 ports.
 		- `check-migrate.bash`: drop the backslash allowance, and see it go red on the old code.
 		- Docs: value-syntax.md's migrate table and the bullet under it, and spec.md's "One change is quiet" paragraph and the "but for a backslash pair" line in its migrate section.
 		- Tests: corpus or cli-regress rows for both lines in the report, an unstamped file counted `Ambiguous`, and a quoted name counted `Lost`.
 	- Actual fix: in all 4 bindings, migrate reads each piece and selector body as the text 2.x read, and counts a quoted name with a backslash pair lost.
 	- Branch: `bslash`
 	- Commit: `ddc4f8e4` (Rust half), `ccde6330` (Go, Python, C)
-	- Test case: Rust de60f, de60g, de60h, ddmhc; their twins Go de61a, de61b, de61c, Python de61d, de61e, de61f, and C de61g, de61h, de61j; the upgrade test's `say "hi"` in Go ddmk9, Python ddmks and C ddmmj; corpus 118, 119, 122, 124, 170; cli-regress de60n to de60t and the revived rows above; check-migrate dcqf3 with no backslash allowance.
-	- Swept: every `migrate_line` arm that writes a piece (value, `*` item, comma list, lone element, sugar, paren selector, quoted name); docs that said a 2.x backslash stays: value-syntax.md, spec.md, design.md, examples.md (and its check-readme test), changelog.md, the man page and the conformance README. In the ports: the same arms in `shcl.go`, `shcl.py` and `shcl.h`, each with 5 `v2_text` uses as in lib.rs and one new lost count; the doc comments on `Migration`, `migrate`, `migrate_spelling`, `value_edits` and `v2_element_text`; the 3 CLIs' lost message; `shcl.hpp`'s `Migration` comment. No other doc in the tree still says a 2.x backslash stays.
-	- Verified: with the old `shcl.go`, `shcl.py` and `shcl.h`, each port failed the 5 corpus goldens, its 3 new tests, and its `say "hi"` upgrade test. With the fix: `go test -count=1` for both Go modules, `-race`, the Python runner and soak, the C runner with the strict warnings, `cargo test`, cli-regress over all 4 CLIs (619 rows), crosscheck over the corpus (22236 comparisons), check-migrate (630 documents), check-veneer, sanitize-c, `test-ids.py check`, go vet, staticcheck, gofmt, ruff, and mypy. A quoted name with a backslash pair before a same-line fence, and a trailing backslash, a backslash before a multibyte character, and a `\'` in single quotes, migrate the same in all 4.
-	- Acceptance signoff: Closed on JC's criteria. JC, 20261019, left the call to the Objectives, and (c) was offered as the reversal of the 2026-10-05 answer, so it moves no decision JC kept. Each new test failed on the old code in all 4 bindings, and the gates above passed.
+	- Test case: Rust de60f, de60g, de60h, ddmhc; their twins Go de61a, de61b, de61c, Python de61d, de61e, de61f, and C de61g, de61h, de61j; the upgrade test's `say "hi"` in Go ddmk9, Python ddmks, and C ddmmj; corpus 118, 119, 122, 124, and 170; cli-regress de60n to de60t and the revived rows above; check-migrate dcqf3 with no backslash allowance.
+	- Swept: every `migrate_line` arm that writes a piece (value, `*` item, comma list, lone element, sugar, paren selector, quoted name); docs that said a 2.x backslash stays: value-syntax.md, spec.md, design.md, examples.md (and its check-readme test), changelog.md, the man page, and the conformance README. In the ports: the same arms in `shcl.go`, `shcl.py`, and `shcl.h`, each with 5 `v2_text` uses as in lib.rs and one new lost count; the doc comments on `Migration`, `migrate`, `migrate_spelling`, `value_edits`, and `v2_element_text`; the 3 CLIs' lost message; `shcl.hpp`'s `Migration` comment. No other doc in the tree still says a 2.x backslash stays.
+	- Verified: with the old `shcl.go`, `shcl.py`, and `shcl.h`, each port failed the 5 corpus goldens, its 3 new tests, and its `say "hi"` upgrade test. With the fix, these pass: `go test -count=1` for both Go modules, `-race`, the Python runner and soak, the C runner with the strict warnings, `cargo test`, cli-regress over all 4 CLIs (619 rows), crosscheck over the corpus (22236 comparisons), check-migrate (630 documents), check-veneer, sanitize-c, `test-ids.py check`, go vet, staticcheck, gofmt, ruff, and mypy. A quoted name with a backslash pair before a same-line fence, and a trailing backslash, a backslash before a multibyte character, and a `\'` in single quotes, migrate the same in all 4.
+	- Acceptance signoff: Closed on JC's criteria. JC, 20261019, left the call to the Objectives, and (c) was offered as the reversal of the 2026-10-05 answer, so it doesn't move any decision JC kept. Each new test failed on the old code in all 4 bindings, and the gates above passed.
 	- Closed: 20261019-214731
 
 - CICD leak tests, and all tests, include third-party and vendored code
@@ -6984,22 +6984,22 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Anything wrong goes on the backlog for a fix.
 		- This may only affect what's already written in the backlog.
 	- Progress log:
-		- 20261019, branch `thirdp`, what reaches end users:
+		- 20261019, branch `thirdp`, what end users run:
 			- Rust: the library and CLI have no dependency on any release target. `pprof` is behind the `profiling` feature and `dhat` is a dev-dependency, so both are out. The release step already fails on any trace of the profiler in what it publishes.
-			- Go: both modules use the standard library only, for linux, windows, darwin and freebsd.
+			- Go: both modules use the standard library only, for linux, windows, darwin, and freebsd.
 			- Python: the library and CLI import the standard library only. setuptools only builds the wheel.
 			- C and C++: the system's C and C++ standard libraries only.
 			- Nothing is vendored. Every source file in the repo is ours, under MIT.
 			- Third-party code users do run: the toolchain code linked into the release binaries, such as Rust's std on every target and mingw-w64's runtime in the windows-x86_64 build, and NSIS's installer code in the windows setup.
-		- What covers it:
+		- What checks it:
 			- Rust's std is in the ASan build and under Miri, on linux. CodeQL's Rust database has std and every locked crate in it, but reports only on `source/`. Go's has no standard library.
-			- Nothing runs the windows, linux-arm64 or freebsd release builds, so the toolchain code only they link is untested (2026101921290754). The setup is compiled but never run (2026101921290791).
-			- Nothing fails when a dependency or vendored file arrives, so this scope can go stale unseen (2026101921290717).
+			- Nothing runs the windows, linux-arm64, or freebsd release builds, so the toolchain code only they link is untested (2026101921290754). The setup is compiled but never run (2026101921290791).
+			- Nothing fails when a dependency or vendored file is added, so this scope can go stale unseen (2026101921290717).
 		- The 2 related items' requirements and Already-in-place rows now say the narrower rule.
 		- Verified: `cargo tree -e normal,build` for every release target, `go list -deps` and `go list -m all` for both modules on 4 OSes, the import list of both Python files, `ldd` on the C and Rust CLIs, and the import table of the windows release build. The windows-x86_64 release build under wine gave the same `fmt` output and exit code as the linux one on all 206 corpus cases.
 	- Branch: `thirdp`
-	- Test case: None, an audit. The check it needs is filed as 2026101921290717.
-	- Acceptance signoff: Self-closed: an audit whose gaps are filed, and the 2 related items' wording follows JC's rule.
+	- Test case: None, since it's an audit. The check it needs is filed as 2026101921290717.
+	- Acceptance signoff: Self-closed: it's an audit whose gaps are filed, and the 2 related items' wording follows JC's rule.
 	- Closed: 20261019-213000
 
 - CICD has both `--leakcheck` and `--no-leakcheck`
@@ -7020,10 +7020,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261019, branch `cileak`:
 			- `--no-leakcheck` in cicd.bash drops config.bash's `LEAKCHECK_STEPS` from any run, and goes on to a `--container` run like `--leakcheck` does. `--gate` and `--quick` still leave them out, and `--leakcheck` still adds them back.
-			- `--leakcheck --no-leakcheck`, in either order, is a usage error before anything runs: exit 2, as for an unknown option (me). The help text, contributing.md and the history lines say so.
+			- `--leakcheck --no-leakcheck`, in either order, is a usage error before anything runs: exit 2, as for an unknown option (me). The help text, contributing.md, and the history lines say so.
 			- Note: an unknown option still exits 2.
 			- Verified: check-push-gate passes. `de582` went red with an engine that ignores `--no-leakcheck`, and `de609` with one that takes the pair with the last one winning. Both passed once restored by copy.
-			- Verified: shell-regress, shellcheck over the 47 lint targets, check-docs, and `test-ids.py check`.
+			- Verified: shell-regress, shellcheck over the 47 lint targets, check-docs, and `test-ids.py check` pass.
 	- Decisions:
 		- JC, 20261019: `--gate` keeps leaving them out, since the pre-push gate can't take hours. The item's "at minimum" allows it.
 		- JC, 20261019: the pair is refused as a usage error, exit 1, per design.md's "Nothing on the command line resolves last-wins".
