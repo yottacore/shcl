@@ -96,7 +96,7 @@ SHCL makes a contract:
 
 - If a person can tell what a line means, the parser can too.
 
-When you do want zero-tolerance rigor: schema validation, plus a strict mode that fails loudly.
+When you do want zero-tolerance rigor, there's schema validation, plus a strict mode that fails loudly.
 
 ## What a .shcl file looks like
 
@@ -171,7 +171,7 @@ Beyond the list at the top:
 
 - Each binding is a drop-in source file. C++ adds `shcl.hpp` beside `shcl.h`, and Go has an optional Windows file. The CLI is a single binary, and shell scripts call it directly.
 
-- Binaries are prebuilt for Linux and Windows on x86_64 and ARM64, for macOS as one universal binary, and for FreeBSD on x86_64. macOS and FreeBSD start with 3.0.0-beta1. Everything else builds from source with `cargo install shcl`.
+- Binaries are prebuilt for Linux and Windows on x86_64 and ARM64, for macOS as one universal binary, and for FreeBSD on x86_64. The macOS and FreeBSD binaries are new in 3.0.0-beta1. Everything else builds from source with `cargo install shcl`.
 
 - Releases are signed, and the binaries are reproducible from the tag.
 
@@ -181,15 +181,15 @@ Beyond the list at the top:
 
 - Reads come as int, float, bool, datetime, duration, size, string, or raw block. Int, float, bool, datetime, and string reads have array forms too.
 
-- Repeated fields are queryable as a set. Count them, list them, or fan one read across all of them with `site(*).root` and get a status per slot.
+- Repeated fields are queryable as a set. You can count them, list them, or run one read over all of them with `site(*).root`, which gives a status per slot.
 
 - Raw fenced blocks work as in Markdown, and embed anything verbatim, such as SQL, code, or templates.
 
-- Three strictness levels, from most forgiving to fail-on-anything. At Loose, `"$1,200"` reads as 1200 and `15%` as 0.15. Standard and Strict refuse both.
+- There are 3 strictness levels, from most forgiving to failing on anything. At Loose, `"$1,200"` reads as 1200 and `15%` as 0.15. Standard and Strict refuse both.
 
 - Every diagnostic has a stable code (`E014`, `V001`), so tooling can match on the code while the prose stays free to improve.
 
-- Schema validation, layered loading (defaults, site, user), and commented starter-config generation, all as library features.
+- The library has schema validation and layered loading from defaults, site, and user files, and it can generate a commented starter config.
 
 - SHCL is safe on untrusted input. A parse can take caps on nodes, array size, and diagnostics, so a hostile file can't run a program out of memory. Nesting is capped at 512 levels for every parse.
 
@@ -300,7 +300,7 @@ Windows PowerShell:
 
 ## Set up a development environment
 
-`install-dev.bash` clones the repo and installs the toolchains and linters the pipeline gates on. The one-liner and the gate to run are in [Installation](project/install.md#set-up-a-development-environment), and [`contributing.md`](contributing.md) has the full list.
+`install-dev.bash` clones the repo and installs the toolchains and linters that the pipeline needs. The one-line command and the check to run after it are in [Installation](project/install.md#set-up-a-development-environment), and [`contributing.md`](contributing.md) has the full list.
 
 ## Docs
 
@@ -310,7 +310,7 @@ Windows PowerShell:
 
 - [`project/comparison.md`](project/comparison.md): size and speed against JSON, YAML, TOML, and XML, and how SHCL differs from Pkl, CUE, and Dhall.
 
-- [`project/spec.md`](project/spec.md): the full language spec. Terminology, types, coercion, the read API, raw blocks, strictness levels.
+- [`project/spec.md`](project/spec.md): the full language spec, with terminology, types, coercion, the read API, raw blocks, and strictness levels.
 
 - [`project/grammar.abnf`](project/grammar.abnf): the formal grammar.
 
@@ -320,7 +320,7 @@ Windows PowerShell:
 
 - [`contributing.md`](contributing.md): how to help.
 
-- [`project/style-guide_code.md`](project/style-guide_code.md): coding and prose style. The bindings deliberately mirror the reference's structure over per-language idiom, so they stay byte-for-byte in sync.
+- [`project/style-guide_code.md`](project/style-guide_code.md): coding and prose style. The bindings mirror the reference's structure rather than each language's idiom, so they stay byte-for-byte in sync.
 
 - [`project/style-guide_ui-ux.md`](project/style-guide_ui-ux.md): how the command line behaves, including option spelling, the help layout, what goes to stdout and what to stderr, and the exit codes.
 

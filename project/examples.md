@@ -104,7 +104,7 @@ line 3: Error: E014 malformed line skipped: unexpected character after the path,
 warn
 ~~~
 
-Every subcommand that loads the file prints what the load dropped to stderr, once, since a read that came back fine is still from a file with a line missing. Both streams include the code, but only stdout is the contract. The stdout line is `line N: Severity: CODE` and nothing else, so a script can match on `E014` without parsing English. The stderr line adds a message for a person to read. `check` exits 6 when it finds errors, so a build can gate on it.
+Every subcommand that loads the file prints what the load dropped to stderr, once. A read that came back fine still came from a file with a line missing. Both streams include the code, but only stdout is the contract. The stdout line is `line N: Severity: CODE` and nothing else, so a script can match on `E014` without parsing English. The stderr line adds a message for a person to read. `check` exits 6 when it finds errors, so a build can gate on it.
 
 Hand it a schema and it validates against that too. A schema is an ordinary `.shcl` file with one `field:` instance per path, and the constraints are written as its children. [The spec](spec.md#schema-validation) has the full vocabulary.
 
@@ -124,7 +124,7 @@ field: log-level
 	default: warn
 ~~~
 
-That catches wrong types, out-of-range numbers, and unknown fields. For an unknown field it names the one you probably meant:
+A schema catches wrong types, out-of-range numbers, and unknown fields. For an unknown field it names the one you probably meant:
 
 ~~~console
 $ shcl check --schema=app-schema.shcl app.shcl
@@ -175,13 +175,17 @@ shcl fmt --write server.shcl
 shcl set --write server.shcl --set 'workers=8'
 ~~~
 
-An in-place write goes through the library's own save, and it refuses the same way when the rewrite would delete lines or values from the file, at its own exit code of 7. See [What saving does](#what-saving-does). Pass `--lossy` to say you meant it. Without `--write`, `set` refuses the same way and prints nothing, so `shcl set f ... > f.new && mv f.new f` stops at the same refusal that `--write` does.
+An in-place write goes through the library's own save. It refuses when the rewrite would delete lines or values from the file, and exits 7. See [What saving does](#what-saving-does). Pass `--lossy` to say you meant it. Without `--write`, `set` refuses the same way and prints nothing, so `shcl set f ... > f.new && mv f.new f` stops at the same refusal that `--write` does.
 
-The CLI has a few more verbs. `migrate` rewrites a file written for shcl 2.x under the 3.0 rules. It changes only the things the 2 versions read differently, and leaves comments, blank lines, and layout as they were. Those things are a comma list, a `*` item, a selector in brackets, a quote that never closed, and the old `name:[disc]` syntax. `--write` saves the result through the same gate and keeps the original beside it, as `config_backup_20261007-091500_format-v2.shcl` for `config.shcl`. `--check` names the lines it would change and doesn't touch anything. `upgrade` does the same rewrite for a file that no longer loads clean. It writes the file out fresh, with each line where it was plus the info block that `init` writes, and makes the same kind of backup. A file that loads clean is left alone, and so is one whose Format line names this format, so a program can run `upgrade` or the library's `upgrade_file` on every start. `--from-2x` says the file was written for 2.x. With it, a clean file is rewritten when it reads differently now, and a file that names this format but loads with an error is taken as 2.x. So give it only for a file you know is old. On a file that wasn't written for 2.x it can change good lines, though the backup keeps the original. `tokens` prints each line span by span as the parser reads it, for when a line is refused and the reason isn't obvious. Each line is read on its own, so a raw body line comes out as if it were a field line.
+The CLI has a few more verbs. `migrate` rewrites a file written for shcl 2.x under the 3.0 rules. It changes only the things the 2 versions read differently, and leaves comments, blank lines, and layout as they were. Those things are a comma list, a `*` item, a selector in brackets, a quote that never closed, and the old `name:[disc]` syntax. `--write` saves the result through the same gate and keeps the original beside it, as `config_backup_20261007-091500_format-v2.shcl` for `config.shcl`. `--check` names the lines it would change and doesn't touch anything.
+
+`upgrade` does the same rewrite for a file that no longer loads clean. It writes the file out fresh, with each line where it was plus the info block that `init` writes, and makes the same kind of backup. A file that loads clean is left alone, and so is one whose Format line names this format, so a program can run `upgrade` or the library's `upgrade_file` on every start. `--from-2x` says the file was written for 2.x. With it, a clean file is rewritten when it reads differently now, and a file that names this format but loads with an error is taken as 2.x. So give it only for a file you know is old. On a file that wasn't written for 2.x it can change good lines, though the backup keeps the original.
+
+`tokens` prints each line span by span as the parser reads it, for when a line is refused and the reason isn't obvious. Each line is read on its own, so a raw body line comes out as if it were a field line.
 
 If you have files written for 2.x, run `migrate --from-2x` over them once and read what comes back. The flag is there because a comma list such as `p: a,b` is written the same way under both rule sets but means 2 different things. It was an array then, and it's one string now. So when `migrate` isn't told which rules wrote the file, it leaves those values alone and exits 7 rather than guessing and damaging a file that was already correct. It stamps what it rewrites, so running it twice is safe. Most of what changed at 3.0 is loud, and it shows up as a diagnostic the first time such a file loads. Backslashes are one quiet exception, because a backslash pair was an escape in 2.x and is text now. `migrate --from-2x` writes what 2.x read, so `path: "C:\temp\new"` becomes `path: "C:◉TAB◉emp◉NEWLINE◉ew"`, and without the flag that value is left alone at exit 7 too. A raw block's label is another. In 2.x a label with a `#` in it ran to the end of the line, but now it ends at the `#`. `migrate` can't rewrite that, since a label has no quoting.
 
-`shcl help` covers the rest, and `man shcl` says the same at more length. `shcl help get` narrows it to one subcommand. `shcl explain E019` gives the rule behind a diagnostic code, and `shcl explain` alone lists every code. When a command or an option has a typo, shcl says what was probably meant. `shcl --about` prints the version, license, and project home, and `shcl --donate` points at the sponsors page. Tab completion for bash and zsh is included. For calling it from a script, see [Bash](#bash) and [PowerShell](#powershell).
+`shcl help` lists the rest, and `man shcl` says the same at more length. `shcl help get` narrows it to one subcommand. `shcl explain E019` gives the rule behind a diagnostic code, and `shcl explain` alone lists every code. When a command or an option has a typo, shcl says what was probably meant. `shcl --about` prints the version, license, and project home, and `shcl --donate` points at the sponsors page. Tab completion for bash and zsh is included. For calling it from a script, see [Bash](#bash) and [PowerShell](#powershell).
 
 ## Example use-cases in your code
 
@@ -250,7 +254,7 @@ doc.save_file("server.shcl")?;
 
 - Dependency line: `require github.com/yottacore/shcl/source/go/v3 v3.0.0-beta1`
 
-- Notes: this repo keeps the Go module in a subdirectory, so the import path ends in `/source/go` and the module's own tags have a matching `source/go/` prefix. Since 2.0 the major version goes in the path too, because Go requires it. So the import ends `/source/go/v3`, and `go get -u` tracks `3.x` and never crosses to a 4.x. A 2.x consumer keeps working on the old path until it edits the import.
+- Notes: the Go module is in a subdirectory of this repo, so the import path ends in `/source/go` and the module's own tags have a matching `source/go/` prefix. Since 2.0 the major version goes in the path too, because Go requires it. So the import ends `/source/go/v3`, and `go get -u` tracks `3.x` and never crosses to a 4.x. A 2.x consumer keeps working on the old path until it edits the import.
 
 ~~~go
 import shcl "github.com/yottacore/shcl/source/go/v3"
@@ -435,7 +439,7 @@ else if (saved == SHCL_SAVE_FAILED)
 shcl_free(doc);   // frees the document and everything handed out from it
 ~~~
 
-The C binding uses `round()`, so link the math library, as in `cc -std=c11 -O2 ex.c -o ex -lm`. There aren't any per-object frees. Reads return pointers into the document's arena, and the single `shcl_free` releases all of it, so anything you need afterwards has to be copied out first. A long-running process has 2 optional calls for a document it keeps open. `shcl_reads_release` frees what the reads have handed out, and `shcl_compact` frees what repeated writes left behind. The `_to` read forms, such as `shcl_read_string_array_to`, copy into a buffer you pass and don't leave anything behind. The file calls are optional. `-DSHCL_NO_FILE_IO` compiles them out for an embedded target, and then `shcl_parse` and `shcl_to_canonical` work on text you already have.
+The C binding uses `round()`, so link the math library, as in `cc -std=c11 -O2 ex.c -o ex -lm`. There aren't any per-object frees. Reads return pointers into the document's arena, and the single `shcl_free` releases all of it, so anything you need afterward has to be copied out first. A long-running process has 2 optional calls for a document it keeps open. `shcl_reads_release` frees what the reads have handed out, and `shcl_compact` frees what repeated writes left behind. The `_to` read forms, such as `shcl_read_string_array_to`, copy into a buffer you pass and don't leave anything behind. The file calls are optional. `-DSHCL_NO_FILE_IO` compiles them out for an embedded target, and then `shcl_parse` and `shcl_to_canonical` work on text you already have.
 
 C++ adds `shcl.hpp` beside `shcl.h`. It has the same calls as the other bindings with std types, and the C core runs inside it without being exposed. The implementation goes in its own file with nothing else in it:
 
@@ -445,7 +449,7 @@ C++ adds `shcl.hpp` beside `shcl.h`. It has the same calls as the other bindings
 #include "shcl.hpp"
 ~~~
 
-Everywhere else, include `shcl.hpp` wherever you like:
+Every other file includes `shcl.hpp` as usual:
 
 ~~~cpp
 #include "shcl.hpp"
@@ -612,7 +616,7 @@ The save also refuses to write over another program's edit. A document from `loa
 
 The same options can make a save that only creates. With `create` set, a save refuses when anything is already at the path, doesn't write anything, and returns `SaveError::Exists` in Rust, `*SaveExists` in Go, `SaveExists` in Python, or `SHCL_SAVE_EXISTS` in C. When 2 programs save the same new file at once, they get one file and one refusal, and neither one overwrites the other. `mode` sets the exact permission bits on a file that the save creates, so a file with tokens in it can start out at `0600` whatever the umask is. A file that's already there keeps its own mode either way.
 
-A file written for a newer format than this shcl reads loads with an `H006` hint, and reads and edits work as usual. A save won't write it, though, since that would write each line by these rules. `newer_format()` returns true for it, and every save refuses without writing anything, wherever it goes. The refusal is `SaveError::TooNew` in Rust, `*SaveTooNew` in Go, `SaveTooNew` in Python, and `SHCL_SAVE_TOO_NEW` in C. It can't be overridden by any option. `shcl fmt --write` and `shcl set` refuse it at exit 7.
+When a file was written for a newer format than this version of shcl reads, it loads with an `H006` hint, and reads and edits work as usual. A save won't write it, though, since that would write each line by this version's rules. `newer_format()` returns true for it, and every save refuses without writing anything, wherever it goes. The refusal is `SaveError::TooNew` in Rust, `*SaveTooNew` in Go, `SaveTooNew` in Python, and `SHCL_SAVE_TOO_NEW` in C. It can't be overridden by any option. `shcl fmt --write` and `shcl set` refuse it at exit 7.
 
 A save that fails returns why as a value, along with its message. The values include `NotFound` when the folder isn't there, `PermissionDenied`, `DiskFull`, `ReadOnly`, `IsDirectory`, and a couple more, so a program can tell them apart without reading the text. `write_file_atomic` and `upgrade_file` do the same. In C the value comes back through the last argument, which may be NULL.
 
