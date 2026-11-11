@@ -25,29 +25,29 @@
 ##	- Syntax:
 ##	  cicd/cicd.bash [options]
 ##	  Options:
-##	   With no options a run does every stage and check but the ones taking hours.
-##	   --merge-gate, --ci  every check of a run with no flags, strict and hands-off,
-##	                       with no format rewrite, sync, dogfood, gif or publish.
-##	                       The pre-push hook runs it on a push to main
+##	   With no options a run does every stage and check but those that take hours.
+##	   --merge-gate, --ci  run every check a plain run does, strict and hands-off,
+##	                       without the format rewrite, sync, dogfood, gif, or
+##	                       publish. The pre-push hook runs it on a push to main
 ##	   --backlog-run-full  the same, for the end of a backlog round
 ##	   --backlog-run-quick, --gate [AREA...]  AREAs: rust go python c cli cicd
-##	                       format check, build, lint, tests and cross checks,
-##	                       strict, less --quick's cuts, in about 4 minutes,
-##	                       recording nothing. AREAs keep only their tests
-##	   --quick             the fast loop: leaves out the slow and online steps
-##	                       config.bash lists in QUICK_SKIP, the test boxes and
-##	                       the GitHub job, plus the large-document gate, the
-##	                       slow leak checks, packages, profiler and demo gif.
+##	                       run the format check, build, lint, tests, and cross
+##	                       checks, strict, minus --quick's cuts, in about 4 minutes,
+##	                       and record nothing. With AREAs, only their tests run
+##	   --quick             run the fast loop, which leaves out the slow and online
+##	                       steps config.bash lists in QUICK_SKIP, the test boxes,
+##	                       and the GitHub job, plus the large-document gate, the
+##	                       slow leak checks, packages, profiler, and demo gif.
 ##	                       Tests run at the shorter fuzz depth when the config
 ##	                       has TEST_QUICK_CMD
-##	   --long, --slow      also the leak checks that take hours, and the suites a
-##	                       REMOTE_BOXES row names with suites-long. Not with
+##	   --long, --slow      also run the leak checks that take hours, and the suites
+##	                       that a REMOTE_BOXES row names with suites-long. Not with
 ##	                       --quick
-##	   --leakcheck         every leak check config.bash lists, at the end of the
-##	                       tests stage, the ones that take hours included
-##	   --no-leakcheck      no leak check or sanitizer run. Not with --leakcheck
-##	   -q, --quiet         unattended and quiet: no preflight block, and cargo,
-##	                       ruff and the gif renderer get their quiet flags
+##	   --leakcheck         run every leak check config.bash lists, at the end of
+##	                       the tests stage, including the ones that take hours
+##	   --no-leakcheck      skip all leak checks and sanitizers. Not with --leakcheck
+##	   -q, --quiet         run unattended and quiet, without the preflight block,
+##	                       and cargo, ruff, and the gif renderer get quiet flags
 ##	   -y, --yes           unattended (no prompt) but not quiet
 ##	   -m, --message MSG   publish hands-off with this commit message (no editor)
 ##	   --no-sync           skip the remote sync stage
@@ -55,7 +55,7 @@
 ##	   --no-lint           skip the lint stage
 ##	   --no-tests          skip the tests stage (crosscheck and large document
 ##	                       included) and the gates' profiler calibration
-##	   --no-cross          skip the cross targets and checks; native release builds
+##	   --no-cross          skip the cross targets and checks, and build native only
 ##	   --no-package        skip building installer packages (.deb/.rpm/.pkg/NSIS setup)
 ##	   --no-largedoc       skip the large-document gate in the tests stage
 ##	   --no-profile        skip the profiler stage
@@ -66,38 +66,38 @@
 ##	   --no-publish        skip the git backup + publish stage
 ##	   --no-remote         skip the test boxes config.bash lists in REMOTE_BOXES,
 ##	                       and the GitHub job HOSTED_JOB
-##	   --skip TEXT         leave out each step whose command holds TEXT; record nothing
+##	   --skip TEXT         skip any step with TEXT in its command, and record nothing
 ##	   --keep-temp         keep the run's temp folder and containers, and say where
 ##	   --container[=NAME]  run stages 1-6 in the pinned image from cicd/container/,
 ##	                       or NAME.Dockerfile there for an extra one, and fail
 ##	                       when docker can't. See below
-##	   --no-container      run stages 1-6 on this box even when docker answers.
+##	   --no-container      run stages 1-6 on this box even when docker works.
 ##	                       Not with --container
-##	   --no-freeze         run stages 2-6 in the checkout, not in a copy. See below
-##	   --list              print the steps and test IDs the flags pick; run nothing
+##	   --no-freeze         run stages 2-6 in the checkout itself. See below
+##	   --list              print the steps and test IDs the flags pick, then stop
 ##	   -h, --help          show this help
 ##	- If neither -q/-y nor -m is given, the run prompts once for a commit message
 ##	  (blank = git editor; Ctrl+C aborts the whole run), then finishes unattended.
 ##	- A run that passes the tests and the cross checks records the tree it
-##	  tested (utility/green-tree.bash), which the pre-push hook then lets through
-##	  without the gate. --quick, --no-fmt, --no-lint, --no-tests, --no-cross and
-##	  a skipped tool keep a run from recording.
-##	- --long starts the GitHub job config.bash names in HOSTED_JOB first, for
-##	  this branch as pushed, and waits for it last. The macos job takes about 3
-##	  minutes. It runs the commit, not uncommitted edits, and it's a SKIP, with
-##	  the reason, when the remote's branch isn't at HEAD or there's no gh. A run
-##	  without --long, --no-remote and a run that doesn't build HOSTED_TARGET
-##	  leave it out. SHCL_GH names a gh to call in place of gitsby's.
-##	- Each run works in a temp dir of its own, removed at the end even when it
-##	  fails or is stopped. A whole run also sweeps the pipeline's stale leftovers.
-##	- When docker (or SHCL_DOCKER) answers on x86_64, stages 1-6 run in the main
-##	  image as if --container were given, the pre-push hook's gate included.
-##	  Otherwise, or when the image won't build, they run here, with a note
-##	  saying why. Sync, dogfood, gif and publish stay on this box. An extra
-##	  image runs what CTR_ARGS_NAME in config.bash picks, and nothing runs here
-##	  after it. The repo is mounted at its own path, so its tree is recorded.
-##	- Stages 2-6 run from a copy of the tree taken after formatting, uncommitted
-##	  work included, so a merge, checkout or edit during a run can't reach them.
+##	  tested with utility/green-tree.bash, and the pre-push hook then lets that
+##	  tree through without the gate. --quick, --no-fmt, --no-lint, --no-tests,
+##	  --no-cross, and a skipped tool keep a run from recording.
+##	- --long starts the GitHub job that config.bash names in HOSTED_JOB first,
+##	  for this branch as pushed, and waits for it last. The macos job takes about
+##	  3 minutes. It runs the pushed commit without uncommitted edits, and it's a
+##	  SKIP, with the reason, when the remote's branch isn't at HEAD or there's no
+##	  gh. A run without --long or with --no-remote, and a run that doesn't build
+##	  HOSTED_TARGET, leave it out. SHCL_GH names a gh to call in place of gitsby's.
+##	- Each run works in its own temp dir, and removes it at the end even when it
+##	  fails or is stopped. A whole run also removes the pipeline's stale leftovers.
+##	- When docker, or SHCL_DOCKER, works on x86_64, stages 1-6 run in the main
+##	  image as if --container were given, including the pre-push hook's gate.
+##	  Otherwise, or when the image won't build, they run here, with a note that
+##	  says why. Sync, dogfood, gif, and publish stay on this box. An extra image
+##	  runs what CTR_ARGS_NAME in config.bash picks, and nothing runs here after
+##	  it. The repo is mounted at its own path, so its tree is recorded.
+##	- Stages 2-6 run from a copy that's made after formatting and includes
+##	  uncommitted work, so a merge, checkout, or edit during a run can't change it.
 ##	  FROZEN_LINKS in config.bash share build dirs. --no-freeze runs in place.
 ##	- Reuse: copy the cicd/ directory into another project and edit config.bash.
 
@@ -118,7 +118,7 @@ set -Eeuo pipefail
 
 ## GIT_DIR and friends, from a hook run in a linked worktree or from the caller,
 ## would point every gate's scratch repo at this one. The pre-push hook clears
-## them too; this covers a direct run.
+## them too, and this loop clears them for a direct run.
 for gitVar in $(git rev-parse --local-env-vars 2>/dev/null || true); do unset "${gitVar}"; done
 
 ## Find the repo root and load project config.
@@ -129,25 +129,27 @@ root="$(cd "${here}/.." && pwd)"   ## the git repo root (cicd/..)
 ## rust-toolchain.toml is meaningless and target/ fills with mixed artifacts.
 export PATH="${HOME}/.cargo/bin:${PATH}"
 
-## A memory cap with no swap, CICD_MEM_CAP or a third of the RAM from 4g to
-## 32g, checked before anything starts (include/mem-cap.bash). The whole run
-## goes again under a user scope at the cap, once, and first in line for the
-## OOM killer; each container gets the same cap of its own. A step killed at
-## the cap exits 137. The run in the image has no scope to take.
+## The run gets a memory cap without swap, which is CICD_MEM_CAP or a third of
+## the RAM from 4g to 32g, and include/mem-cap.bash checks it before anything
+## starts. The whole run starts again once under a user scope at the cap, first
+## in line for the OOM killer, and each container gets the same cap of its own.
+## A step killed at the cap exits 137. The run in the image doesn't have a
+## scope to take.
 source "${here}/utility/include/mem-cap.bash"
 fMemCap || exit 2
 if [[ -z "${SHCL_IN_CONTAINER:-}" ]]; then fMemScope "${BASH_SOURCE[0]}" "$@"; fi
 
-## Low priority for the whole run, since the box is usually running something
-## else. Set on this shell, so every child takes it, inside the image too.
+## The whole run gets low priority, since the box is usually running something
+## else. It's set on this shell, so every child takes it, inside the image too.
 renice -n 19 -p $$ > /dev/null 2>&1 || true
 if command -v ionice > /dev/null 2>&1; then ionice -c 3 -p $$ > /dev/null 2>&1 || true; fi
 
-## Half the cores, or a quarter when the box is busy or the step is hard, checked
-## here and before each step (fCpuStep). A runner that runs only this sets
-## CPU_CAP itself, which then holds for every step; anything but a plain count is
-## ignored, since the value goes into arithmetic. A run this one starts gets the
-## caller's count, or none, through SHCL_CPU_FIXED, not the CPU_CAP of the step.
+## The cap is half the cores, or a quarter when the box is busy or the step is
+## hard, and fCpuStep checks it here and before each step. A runner that runs
+## only this sets CPU_CAP itself, which then applies to every step. Anything but
+## a plain count is ignored, since the value goes into arithmetic. A run this
+## one starts gets the caller's count, or none, through SHCL_CPU_FIXED, rather
+## than the CPU_CAP of the step.
 source "${here}/utility/include/cpu-cap.bash"
 if [[ ! -v SHCL_CPU_FIXED ]]; then SHCL_CPU_FIXED="${CPU_CAP:-}"; fi
 if [[ ! "${SHCL_CPU_FIXED}" =~ ^[1-9][0-9]*$ ]]; then SHCL_CPU_FIXED=""; fi
@@ -342,10 +344,10 @@ if [[ -n "${ctr_image}" ]] && ((no_container)); then echo "--container and --no-
 ## has every check of a run with no flags: the release and cross builds, their
 ## checks, the packages, the test boxes and the leak checks.
 if ((gate_mode)); then
-	## A gate that quietly skips what it cannot run is a gate that stops
-	## checking when a runner loses a tool. The gates read this and fail on a
-	## skip instead; locally a missing tool is still a skip, since a working
-	## copy is not required to have every one.
+	## A gate that quietly skips what it can't run stops checking when a runner
+	## loses a tool. The gates read this and fail on a skip instead. Locally a
+	## missing tool is still a skip, since a working copy isn't required to
+	## have every one.
 	export SHCL_GATE_STRICT=1
 	sync_enable=0       ## the runner already checked out the exact commit under test
 	for s in sync profile dogfood gif publish; do fOff "${s}" "${mode_flag}"; done
@@ -466,7 +468,7 @@ else
 	LEAKCHECK_STEPS=("${LEAKCHECK_FAST[@]}" "${LEAKCHECK_STEPS[@]}")
 fi
 
-## --skip TEXT: each step that holds TEXT goes, matched like QUICK_SKIP. The
+## --skip TEXT: each step that contains TEXT is left out, matched like QUICK_SKIP. The
 ## hosted run leaves out a leak check whose tool it can't install that way. A
 ## TEXT that matches no step is a typo, or a step another flag took out.
 skip_partial=0
@@ -636,7 +638,7 @@ if ((list_only)); then
 	lsText="$(fListSteps)"
 	if ! python3 "${here}/utility/test-ids.py" list <<< "${lsText}" 2>/dev/null; then
 		printf '%s\n' "${lsText}" | sed $'s/\x1f.*//'
-		echo "(test IDs not listed: utility/test-ids.py could not read them)"
+		echo "(test IDs not listed: utility/test-ids.py couldn't read them)"
 	fi
 	exit 0
 fi
@@ -662,7 +664,7 @@ for ((runSeq = 1; runSeq < 1000; runSeq++)); do
 	if mkdir -- "${run_tmp}" 2>/dev/null; then break; fi
 	run_tmp=""
 done
-[[ -n "${run_tmp}" ]] || { echo "could not make a run folder under ${run_tmp_root}" >&2; exit 2; }
+[[ -n "${run_tmp}" ]] || { echo "couldn't make a run folder under ${run_tmp_root}" >&2; exit 2; }
 echo "$$" > "${run_tmp}/run.pid"
 export TMPDIR="${run_tmp}" TEMP="${run_tmp}" TMP="${run_tmp}"
 ## What docker makes for this run carries the folder's name, as dev.run.
@@ -768,7 +770,7 @@ fRmRunTmp(){
 	## over links, as rm -rf does.
 	if ! fSafeRm "${d}" 2>/dev/null; then
 		chmod -R u+rwX -- "${d}" 2>/dev/null || true
-		fSafeRm "${d}" || echo "cleanup: could not remove all of ${d}" >&2
+		fSafeRm "${d}" || echo "cleanup: couldn't remove all of ${d}" >&2
 	fi
 }
 ## KB to a size a person reads.
@@ -781,9 +783,9 @@ fFrozenGone(){
 	frozen_root=""
 	[[ -n "${d}" ]] || return 0
 	fFrozenRemove "${root}" "${d}" && return 0
-	echo "cleanup: git could not remove the frozen copy at ${d}" >&2
+	echo "cleanup: git couldn't remove the frozen copy at ${d}" >&2
 	[[ "${d}" == "${run_tmp_root}/"*/tree && -d "${d}" && ! -L "${d}" && -O "${d}" ]] || return 0
-	fSafeRm "${d}" || echo "cleanup: could not remove all of ${d}" >&2
+	fSafeRm "${d}" || echo "cleanup: couldn't remove all of ${d}" >&2
 }
 ## At the end of a run in the image, whole or not: our stale images and
 ## containers, Zig's volume past its rule, and the builder older runs made.
@@ -1032,11 +1034,11 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 			dest="$(readlink -f -- "${tree}/${link%/}")" || fDie "can't resolve ${link} for the ${ctr_image} image's own copy"
 			if [[ "${link}" == */ ]]; then
 				mkdir -p "${priv}" || fDie "could not make ${priv}"
-				if [[ ! -e "${dest}" ]]; then mkdir -p "${dest}" || fDie "could not make ${dest}"; standIns+=("${dest}"); fi
+				if [[ ! -e "${dest}" ]]; then mkdir -p "${dest}" || fDie "couldn't make ${dest}"; standIns+=("${dest}"); fi
 			else
 				## Executable, since go build -o into a file that's there keeps its mode.
-				if ! { mkdir -p "${priv%/*}" && { [[ -e "${priv}" ]] || : > "${priv}"; } && chmod +x "${priv}"; }; then fDie "could not make ${priv}"; fi
-				if [[ ! -e "${dest}" ]]; then : > "${dest}" || fDie "could not make ${dest}"; standIns+=("${dest}"); fi
+				if ! { mkdir -p "${priv%/*}" && { [[ -e "${priv}" ]] || : > "${priv}"; } && chmod +x "${priv}"; }; then fDie "couldn't make ${priv}"; fi
+				if [[ ! -e "${dest}" ]]; then : > "${dest}" || fDie "couldn't make ${dest}"; standIns+=("${dest}"); fi
 			fi
 			mounts+=(-v "${priv}:${dest}")
 		done
@@ -1055,8 +1057,8 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 	## need the second group a runner's user has. So the image's passwd and
 	## group files plus the caller's entries, and the caller's groups.
 	local etc gid gname; etc="$(mktemp -d)"
-	"${engine}" run --rm "${labels[@]}" --name "$(fCtrName "${step}-passwd")" --cpus 1 --cpu-shares 256 "${mem[@]}" "${tag}" cat /etc/passwd > "${etc}/passwd" || fDie "could not read the image's /etc/passwd"
-	"${engine}" run --rm "${labels[@]}" --name "$(fCtrName "${step}-group")" --cpus 1 --cpu-shares 256 "${mem[@]}" "${tag}" cat /etc/group > "${etc}/group" || fDie "could not read the image's /etc/group"
+	"${engine}" run --rm "${labels[@]}" --name "$(fCtrName "${step}-passwd")" --cpus 1 --cpu-shares 256 "${mem[@]}" "${tag}" cat /etc/passwd > "${etc}/passwd" || fDie "couldn't read the image's /etc/passwd"
+	"${engine}" run --rm "${labels[@]}" --name "$(fCtrName "${step}-group")" --cpus 1 --cpu-shares 256 "${mem[@]}" "${tag}" cat /etc/group > "${etc}/group" || fDie "couldn't read the image's /etc/group"
 	printf '%s:x:%s:%s::/cache/home:/bin/bash\n' "${USER:-builder}" "$(id -u)" "$(id -g)" >> "${etc}/passwd"
 	for gid in $(id -G); do
 		if grep -q "^[^:]*:[^:]*:${gid}:" "${etc}/group"; then continue; fi
@@ -1092,7 +1094,7 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 	env+=(-e "SHCL_STEP_PLAN=${step_ids[*]}")
 	inner=("$( ((quiet)) && echo -q || echo -y )" --no-sync --no-dogfood --no-gif --no-publish "${ctr_pass[@]}")
 	if [[ "${ctr_image}" != main ]]; then
-		declare -p "CTR_ARGS_${ctr_image}" &>/dev/null || fDie "config.bash has no CTR_ARGS_${ctr_image}, the stages that image runs"
+		declare -p "CTR_ARGS_${ctr_image}" &>/dev/null || fDie "config.bash doesn't have CTR_ARGS_${ctr_image}, which lists the stages that image runs"
 		local -n ctrArgs_k3v="CTR_ARGS_${ctr_image}"
 		inner+=("${ctrArgs_k3v[@]}")
 	fi
@@ -1303,7 +1305,7 @@ if fStepOn sync; then
 	if [[ -z "$branch" ]]; then
 		fEcho "WARNING: detached HEAD; nothing to sync"
 	elif [[ -z "$upstream" ]]; then
-		fEcho "WARNING: ${branch} tracks no upstream; nothing to sync"
+		fEcho "WARNING: ${branch} doesn't track an upstream; nothing to sync"
 	elif ! git -C "${root}" fetch --quiet 2>/dev/null; then
 		fEcho "WARNING: fetch failed (offline?); continuing against the local tree"
 	else
@@ -1379,7 +1381,7 @@ if fStepOn hosted; then
 	else
 		fEcho_Clean "started: the ${HOSTED_JOB} job of ${HOSTED_WORKFLOW}, on ${h_remote}/${h_branch} at ${hosted_sha:0:12}"
 		if [[ -n "$(git -C "${root}" status --porcelain --untracked-files=no || true)" ]]; then
-			fEcho_Clean "note: it runs that commit, not the uncommitted edits here"
+			fEcho_Clean "note: it runs that commit without the uncommitted edits here"
 		fi
 	fi
 	fStepEnd
@@ -1417,11 +1419,11 @@ fFreeze(){
 		return 0
 	fi
 	frozen_root="${run_tmp}/tree"
-	mkdir -- "${frozen_root}" || { frozen_root=""; fDie "could not make a dir for the frozen copy in ${run_tmp}"; }
+	mkdir -- "${frozen_root}" || { frozen_root=""; fDie "couldn't make a dir for the frozen copy in ${run_tmp}"; }
 	if ! fFrozenAdd "${root}" "${frozen_root}" "${head}" "${tree}"; then
 		rmdir -- "${frozen_root}" 2>/dev/null || true
 		frozen_root=""
-		fEcho "WARNING: could not make a frozen copy; stages 2-6 run in the checkout"
+		fEcho "WARNING: couldn't make a frozen copy; stages 2-6 run in the checkout"
 		return 0
 	fi
 	## An extra image builds into its own copies, and keeps nothing.
@@ -1504,7 +1506,7 @@ export SHCL_BUILD_DATED
 ## builds for dogfood and the gif. With a frozen copy, stage 1 runs on the
 ## checkout first, and 2-6 in the copy, here or in the container.
 if [[ -n "${ctr_image}" ]] && ! fCtrImage; then
-	fEcho_Clean "note: stages 1-6 run on this box, since the ${ctr_image} image could not be built"
+	fEcho_Clean "note: stages 1-6 run on this box, since the ${ctr_image} image couldn't be built"
 	ctr_image=""
 	fToolPins
 fi
@@ -1598,7 +1600,7 @@ else
 		xcheck_extra=()
 		if ((${#BINDING_CLIS[@]} >= 2)) && [[ -n "${XCHECK_GEN:-}" ]]; then
 			export XCHECK_DUMP_DIR="${root}/cicd/artifacts/crosscheck"
-			if [[ -e "${XCHECK_DUMP_DIR}" || -L "${XCHECK_DUMP_DIR}" ]]; then fSafeRmUnder "${root}/cicd/artifacts" "${XCHECK_DUMP_DIR}" || fDie "could not clear ${XCHECK_DUMP_DIR}"; fi
+			if [[ -e "${XCHECK_DUMP_DIR}" || -L "${XCHECK_DUMP_DIR}" ]]; then fSafeRmUnder "${root}/cicd/artifacts" "${XCHECK_DUMP_DIR}" || fDie "couldn't clear ${XCHECK_DUMP_DIR}"; fi
 			mkdir -p "${XCHECK_DUMP_DIR}"
 			fCpuStep "${XCHECK_GEN}"; eval "${XCHECK_GEN}"
 			xcheck_extra=(--extra "${XCHECK_DUMP_DIR}")
@@ -1681,7 +1683,7 @@ else
 				( PROFILE_BIN="${PROFILE_CHECK_BIN}"; eval "${PROFILE_CHECK}" ) \
 					|| fDie "profiler attribution check failed; its graph would name the wrong code"
 			else
-				fEcho_Clean "profiler attribution check skipped: the sampler's crates are not in the local cache"
+				fEcho_Clean "profiler attribution check skipped: the sampler's crates aren't in the local cache"
 				echo profiler-check >> "${SHCL_GATE_SKIPS}"
 			fi
 		fi
@@ -1739,7 +1741,7 @@ else
 			ver="$(fVersion)"
 			[[ -n "$ver" ]] || fDie "no version found in ${VERSION_MANIFEST}"
 			art_dir="${root}/${RELEASE_ARTIFACT_DIR}"
-			if [[ -e "${art_dir}" || -L "${art_dir}" ]]; then fSafeRmUnder "${root}/cicd/artifacts" "${art_dir}" || fDie "could not clear ${art_dir}"; fi
+			if [[ -e "${art_dir}" || -L "${art_dir}" ]]; then fSafeRmUnder "${root}/cicd/artifacts" "${art_dir}" || fDie "couldn't clear ${art_dir}"; fi
 			mkdir -p "${art_dir}"
 			sums="${EXE_NAME}-${ver}-sha256sums.txt"
 			for pair in "${built_arts[@]}"; do

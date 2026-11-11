@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 
 ##	Purpose:
-##		Lets 'dogfood_shcl' be typed at a shell without anyone having to know it
-##		is a pwsh script. dogfood_shcl.ps1 takes in a new build, rotates the pool
-##		and prints which one to run, and this runs it in its own place, with
-##		every argument but --no-update as typed. So shcl's exit code comes back,
-##		after a Ctrl+C too. The same file goes in the linux/bash and macos/bash
-##		util dirs; the .ps1 works out the per-platform paths itself.
+##		Lets 'dogfood_shcl' be typed at a shell without anyone having to know it's
+##		a pwsh script. dogfood_shcl.ps1 takes in a new build, rotates the pool,
+##		and prints which build to run. This script then runs that build in place
+##		of itself, with every argument but --no-update as typed, so shcl's exit
+##		code comes back, even after a Ctrl+C. The same file goes in both the
+##		linux/bash and macos/bash util dirs, and the .ps1 works out the
+##		per-platform paths itself.
 ##	History: At bottom of script.
 
 ##	Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
@@ -26,9 +27,9 @@ while [[ -L "${self}" ]]; do
 done
 selfDir="$(cd -P "$(dirname "${self}")" && pwd)"
 
-## Two levels under the util dir, beside which 0_crossplatform sits. The repo
-## keeps all three files side by side, and the home-relative spelling is for a
-## copy dropped somewhere else.
+## This file is 2 levels under the util dir that 0_crossplatform is in. In the
+## repo all 3 files are side by side, and the home-relative path is for a copy
+## dropped somewhere else.
 ps1=""
 for candidate in \
 	"${selfDir}/../../0_crossplatform/dogfood_shcl.ps1" \
@@ -46,9 +47,10 @@ if ! command -v pwsh >/dev/null 2>&1; then
 	exit 1
 fi
 
-## Not through pwsh, which expands wildcards and ~ in a native call's
-## arguments, and exits 0 when a Ctrl+C stops it. The odd expansions are for
-## an empty array under set -u in bash 3.2, as macOS has.
+## The build runs from here rather than through pwsh, because pwsh expands
+## wildcards and ~ in a native call's arguments, and exits 0 when a Ctrl+C
+## stops it. The odd expansions handle an empty array under set -u in bash
+## 3.2, which macOS has.
 noUpdate=()
 passArgs=()
 for arg in "$@"; do
@@ -56,7 +58,7 @@ for arg in "$@"; do
 done
 target="$(pwsh -NoProfile -File "${ps1}" --print-path ${noUpdate[@]+"${noUpdate[@]}"} </dev/null)" || exit
 if [[ "${target}" != /* || ! -x "${target}" ]]; then
-	echo "dogfood_shcl: ${ps1} gave no build to run: ${target}" >&2
+	echo "dogfood_shcl: ${ps1} didn't give a build to run: ${target}" >&2
 	exit 1
 fi
 exec "${target}" ${passArgs[@]+"${passArgs[@]}"}

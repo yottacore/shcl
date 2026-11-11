@@ -1,43 +1,43 @@
 #==============================================================================
 ## dogfood_shcl.ps1
 ##
-##	Runs the newest dogfood build of shcl. The same script on Linux, Windows
-##	and macOS, under PowerShell 7, and under Windows PowerShell 5.1.
+##	Runs the newest dogfood build of shcl. It's the same script on Linux,
+##	Windows, and macOS, under PowerShell 7 and under Windows PowerShell 5.1.
 ##
 ##	The pipeline drops each release build into the synced dogfood dir. This
-##	copies it into a local pool of dated versions, points a fixed name at the
-##	newest, and runs that with every argument passed through. A copy that is
-##	running is never overwritten or deleted, so a long run keeps going while a
-##	newer build arrives.
+##	script copies it into a local pool of dated versions, points a fixed name
+##	at the newest, and runs that with every argument passed through. A copy
+##	that's running is never overwritten or deleted, so a long run keeps going
+##	when a newer build comes in.
 ##
 ##	Usage:
 ##		dogfood_shcl get --int app.shcl server.port
-##		dogfood_shcl --no-update --version   ## run what is held, copy nothing
+##		dogfood_shcl --no-update --version   ## run what's in the pool, copy nothing
 ##		dogfood_shcl.ps1 --print-path        ## print what would run, run nothing
 ##
-##	On Linux and macOS the bash launcher takes --print-path's answer and runs
-##	it itself, so the arguments as typed and a Ctrl+C's exit code reach shcl
-##	without going through pwsh.
+##	On Linux and macOS the bash launcher takes the path that --print-path
+##	prints and runs it itself, so shcl gets the arguments as typed and a
+##	Ctrl+C's exit code without going through pwsh.
 ##
 ##	Where things go:
 ##		Linux, macOS  ~/.local/bin/shcl_versions/, fixed name ~/.local/bin/shcl
 ##		Windows       %LOCALAPPDATA%\Programs\shcl_versions\, fixed name
 ##		              %LOCALAPPDATA%\Programs\Shcl\shcl.exe
-##	The fixed name is where a user install puts shcl too, and this takes it
-##	over; on Windows that folder is the one install.ps1 puts on PATH. A
+##	A user install puts shcl at the fixed name too, and this script takes it
+##	over. On Windows that folder is the one install.ps1 puts on PATH. A
 ##	regular file there on Linux or macOS is left alone.
 ##
 ##	The pool keeps at most 10 versions and at least 5, and between those only
-##	as many as fit in 1 GB. Which ones stay is a GFS rotation: the oldest, the
-##	newest, the last of each recent hour, day, week, month and year, and the
-##	few most recent. Each file is named shcl_<yyyyMMdd-HHmmss>_<role>, from
-##	the build's write time in local time and the invariant culture, so the
-##	names read the same in any culture. A DST change or a new time zone can
-##	put one out of order once.
+##	as many as fit in 1 GB. A GFS rotation picks which ones stay. It keeps the
+##	oldest, the newest, the last of each recent hour, day, week, month, and
+##	year, and the few most recent. Each file is named
+##	shcl_<yyyyMMdd-HHmmss>_<role>, from the build's write time in local time
+##	and the invariant culture, so the names read the same in any culture. A
+##	DST change or a new time zone can put one out of order once.
 ##
-##	Output: shcl's own stdout and stderr, and its exit code. What this script
-##	has to say goes to stderr, and only on a run that took a new build or
-##	changed something, so a pipe sees what shcl printed and nothing else.
+##	Output is shcl's own stdout and stderr, and its exit code. This script's
+##	own notes go to stderr, and only on a run that took a new build or changed
+##	something, so a pipe sees what shcl printed and nothing else.
 ##
 ##	Windows runs it unelevated, in the same window, where shcl's output can be
 ##	read. The fixed name is a symlink where the account may make one, and a
@@ -55,7 +55,7 @@
 .SYNOPSIS
 Runs the newest dogfood build of shcl, taking a new one from the synced dogfood dir first.
 .DESCRIPTION
-Every argument but --no-update and --print-path goes to shcl as it came, and shcl's exit code comes back. --no-update runs the newest build already held and copies nothing. --print-path prints the path that would run instead of running it, and takes no other argument but --no-update. For shcl's own help, run it with --help.
+Every argument but --no-update and --print-path goes to shcl as it came, and shcl's exit code comes back. --no-update runs the newest build already in the pool and copies nothing. --print-path prints the path that would run instead of running it, and doesn't take any other argument but --no-update. For shcl's own help, run it with --help.
 .EXAMPLE
 dogfood_shcl get --int app.shcl server.port
 .EXAMPLE
@@ -66,9 +66,9 @@ dogfood_shcl --no-update --version
 # Configuration
 #==============================================================================
 
-## Windows PowerShell 5.1 has no $IsWindows and runs only on Windows, and
-## strict mode refuses a name that was never set, so the platform is asked once
-## here.
+## Windows PowerShell 5.1 doesn't have $IsWindows and runs only on Windows, and
+## strict mode refuses a name that was never set, so the platform is checked
+## once here.
 $OnWindows = ($PSVersionTable.PSEdition -eq 'Desktop') -or $IsWindows
 $OnMac = (-not $OnWindows) -and $IsMacOS
 
@@ -77,9 +77,10 @@ $LauncherName = "dogfood_$ProgramName"
 $ExeExt = if ($OnWindows) { '.exe' } else { '' }
 $ExeName = "$ProgramName$ExeExt"
 
-## Where the pipeline's dogfood stage puts a build. The first that holds one
-## wins. On Windows the real Dropbox path comes first: Windows 11 can refuse
-## the 'synced' junction into it as an untrusted mount point.
+## These are where the pipeline's dogfood stage puts a build, and the first one
+## with a build in it wins. On Windows the real Dropbox path comes first,
+## because Windows 11 can refuse the 'synced' junction into it as an untrusted
+## mount point.
 $SourceDirs = if ($OnWindows) {
 	@(
 		(Join-Path -Path $HOME -ChildPath 'Dropbox\0-0\common\exec\util\mswin\cli\by-self\win64')
@@ -97,12 +98,12 @@ $SourceDirs = if ($OnWindows) {
 	)
 }
 
-## Local on purpose. Versions churn with every build and have no business in
-## the sync tree.
+## The pool is local on purpose. Versions change with every build and don't
+## belong in the sync tree.
 $InstallDir = if ($OnWindows) { Join-Path -Path $env:LOCALAPPDATA -ChildPath 'Programs' } else { Join-Path -Path $HOME -ChildPath '.local/bin' }
 $PoolDir = Join-Path -Path $InstallDir -ChildPath "${ProgramName}_versions"
-## Where a user install puts shcl: install.ps1's folder on Windows, which it
-## adds to PATH (20260924d item 5).
+## This is where a user install puts shcl. On Windows it's install.ps1's
+## folder, which install.ps1 adds to PATH (20260924d item 5).
 $LinkDir = if ($OnWindows) { Join-Path -Path $InstallDir -ChildPath 'Shcl' } else { $InstallDir }
 $LinkPath = Join-Path -Path $LinkDir -ChildPath $ExeName
 
@@ -110,8 +111,8 @@ $MaxVersions = 10
 $MinVersions = 5
 $MaxPoolBytes = 1GB
 
-## GFS roles, before the budget above trims them. A period role goes to the
-## last version of a period that has ended.
+## These are the GFS roles, before the budget above trims them. A period role
+## goes to the last version of a period that has ended.
 $KeepFrequent = 5
 $KeepHourly = 3
 $KeepDaily = 3
@@ -121,8 +122,9 @@ $KeepYearly = 1
 
 $StampFormat = 'yyyyMMdd-HHmmss'
 ## Stamps are local time, written and read in one culture. A current culture
-## with another calendar wrote a year the invariant read took as a different
-## one. A DST change or a new time zone can put a stamp out of order once.
+## with another calendar wrote a year that the invariant read took as a
+## different one. A DST change or a new time zone can put a stamp out of order
+## once.
 $Invariant = [Globalization.CultureInfo]::InvariantCulture
 $RetiredNames = @()
 
@@ -143,8 +145,8 @@ function Exit-Launcher {
 	exit 1
 }
 
-## The stamp as a date, or nothing when it names no real one, such as a 13th
-## month. A name like that is not one this script wrote.
+## Returns the stamp as a date, or nothing when it doesn't name a real one,
+## such as a 13th month. This script didn't write a name like that.
 function ConvertFrom-Stamp {
 	[CmdletBinding()]
 	param([string]$Stamp)
@@ -153,7 +155,7 @@ function ConvertFrom-Stamp {
 	return $null
 }
 
-## The newest build in the first source dir that has one, or nothing.
+## Returns the newest build in the first source dir that has one, or nothing.
 function Get-SourceBuild {
 	[CmdletBinding()]
 	param()
@@ -164,9 +166,10 @@ function Get-SourceBuild {
 	return $null
 }
 
-## Every version in the pool, as { File, Name, Stamp }, oldest first. Only an
-## exact name with a real date counts, so anything else put in the directory
-## is left alone. A version copied in this run has no role yet.
+## Returns every version in the pool as { File, Name, Stamp }, oldest first.
+## Only an exact name with a real date counts, so anything else put in the
+## directory is left alone. A version copied in this run doesn't have a role
+## yet.
 function Get-HeldVersion {
 	[CmdletBinding()]
 	param()
@@ -180,8 +183,9 @@ function Get-HeldVersion {
 	return , @($found | Sort-Object -Property Stamp, Name)
 }
 
-## A held version with the same bytes as the source build, or nothing. The sync
-## layer restamps what it has, so a build already held can look new.
+## Returns a pool version with the same bytes as the source build, or nothing.
+## The sync layer restamps what it has, so a build that's already in the pool
+## can look new.
 function Find-HeldTwin {
 	[CmdletBinding()]
 	param($Source)
@@ -195,10 +199,11 @@ function Find-HeldTwin {
 	return $null
 }
 
-## Copy the source build in when nothing held matches it. Written to a temp
-## name of this process's own and renamed, so a copy that dies partway never
-## passes for a version, and two runs as a build arrives can't cut one file
-## under each other's rename. True when it took one.
+## Copy the source build in when nothing in the pool matches it. It's written
+## to a temp name that belongs to this process and then renamed, so a copy
+## that dies partway never passes for a version, and 2 runs started as a build
+## comes in can't cut one file under each other's rename. It returns true when
+## it took a build.
 function Copy-NewBuild {
 	[CmdletBinding()]
 	param()
@@ -221,16 +226,17 @@ function Copy-NewBuild {
 		Write-Note "new build $stamp from $($src.DirectoryName)"
 		return $true
 	} catch {
-		Write-Note "could not copy the new build: $($_.Exception.Message)"
+		Write-Note "couldn't copy the new build: $($_.Exception.Message)"
 		return $false
 	} finally {
 		Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue
 	}
 }
 
-## A run killed partway leaves its temp file behind: a copy in the pool, or a
-## new fixed name beside the old one. One whose process is gone, or that is a
-## day old, is nobody's. A name without a process ID is from before they had one.
+## A run killed partway leaves its temp file behind, which is either a copy in
+## the pool or a new fixed name beside the old one. A temp file whose process
+## is gone, or that's a day old, doesn't belong to any run. A name without a
+## process ID is from before the names had one.
 function Remove-StaleTemp {
 	[CmdletBinding()]
 	[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
@@ -253,8 +259,9 @@ function Remove-StaleTemp {
 	}
 }
 
-## Rename From over To, replacing it in one step where .NET can. Windows
-## PowerShell 5.1's has no replacing rename, so there To goes first.
+## Rename From over To, replacing it in one step where .NET can. The .NET under
+## Windows PowerShell 5.1 doesn't have a replacing rename, so there To goes
+## first.
 function Move-Over {
 	[CmdletBinding()]
 	[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
@@ -279,8 +286,8 @@ function Get-PeriodKey {
 	}
 }
 
-## The ISO week, as yyyyww: the Thursday of a week decides its year. By hand,
-## since .NET Framework under 5.1 has no ISOWeek.
+## Returns the ISO week as yyyyww, where the Thursday of a week decides its
+## year. It's done by hand, since .NET Framework under 5.1 doesn't have ISOWeek.
 function Get-IsoWeek {
 	[CmdletBinding()]
 	param([datetime]$When)
@@ -290,8 +297,9 @@ function Get-IsoWeek {
 	return '{0:D4}{1:D2}' -f $thursday.Year, [int]([Math]::Floor(($thursday.DayOfYear - 1) / 7) + 1)
 }
 
-## Each version's role, by name. A version with none is one nothing keeps. The
-## coarser role wins where two apply; oldest and newest win over all of them.
+## Returns each version's role, by name. A version without a role isn't kept.
+## The coarser role wins where 2 apply, and oldest and newest win over all of
+## them.
 function Get-GfsRole {
 	[CmdletBinding()]
 	param([object[]]$Versions)
@@ -322,9 +330,9 @@ function Get-GfsRole {
 	return $roles
 }
 
-## The names that fit the budget. The newest goes in first whatever it weighs,
-## since the fixed name points at it, then the oldest, then the rest newest
-## first until the count or the bytes run out.
+## Returns the names that fit the budget. The newest goes in first whatever its
+## size, since the fixed name points at it, then the oldest, then the rest
+## newest first until the count or the bytes run out.
 function Select-Budget {
 	[CmdletBinding()]
 	param([object[]]$Versions, [hashtable]$Roles)
@@ -344,15 +352,16 @@ function Select-Budget {
 	return , $keep
 }
 
-## The image paths of what is running now. A process that cannot be read is
-## not protected by this, but a running image refuses the delete on Windows.
+## Returns the image paths of what's running now. This doesn't protect a
+## process that can't be read, but a running image refuses the delete on
+## Windows.
 function Get-RunningPath {
 	[CmdletBinding()]
 	param()
 	return @(Get-Process -ErrorAction SilentlyContinue | ForEach-Object { try { $_.Path } catch { $null } } | Where-Object { $_ })
 }
 
-## Prune what the budget leaves out, unless it is running, then give each kept
+## Prune what the budget leaves out, unless it's running, then give each kept
 ## version its role in its name.
 function Invoke-Rotation {
 	[CmdletBinding()]
@@ -368,7 +377,7 @@ function Invoke-Rotation {
 		try {
 			Remove-Item -LiteralPath $v.File.FullName -Force -ErrorAction Stop
 		} catch {
-			Write-Note "could not remove $($v.Name): $($_.Exception.Message)"
+			Write-Note "couldn't remove $($v.Name): $($_.Exception.Message)"
 		}
 	}
 	foreach ($v in $versions) {
@@ -377,11 +386,11 @@ function Invoke-Rotation {
 		if ($v.Name -eq $want) { continue }
 		$wantPath = Join-Path -Path $PoolDir -ChildPath $want
 		if (Test-Path -LiteralPath $wantPath) { continue }
-		## A rename of the version the fixed name points at, from this run or
-		## another, would leave shcl on PATH dangling until the link moves. So the
-		## new name comes as a second link, and the old one goes once nothing
-		## points at it. Not on Windows, where a running image keeps its old
-		## name, and the twin would hold a place in the pool.
+		## Renaming the version that the fixed name points at, from this run or
+		## another, would leave shcl on PATH dangling until the link moves. So
+		## the new name is made as a second link, and the old one goes once
+		## nothing points at it. That's skipped on Windows, where a running image
+		## keeps its old name, and the twin would take up a place in the pool.
 		if (-not $OnWindows) {
 			try {
 				$null = New-Item -ItemType HardLink -Path $wantPath -Target $v.File.FullName -ErrorAction Stop
@@ -394,7 +403,8 @@ function Invoke-Rotation {
 	}
 }
 
-## The old names rotation left behind, once the fixed name points elsewhere.
+## Remove the old names that rotation left behind, once the fixed name points
+## elsewhere.
 function Remove-RetiredName {
 	[CmdletBinding()]
 	[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
@@ -406,8 +416,9 @@ function Remove-RetiredName {
 	}
 }
 
-## Point the fixed name at the newest version. A reason it cannot is said
-## only on a run that took a new build, since it holds until someone acts.
+## Point the fixed name at the newest version. When it can't, the reason is
+## only printed on a run that took a new build, since the reason stays true
+## until someone acts on it.
 function Update-FixedName {
 	[CmdletBinding()]
 	[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
@@ -418,16 +429,17 @@ function Update-FixedName {
 	$cur = Get-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue
 	if ($cur -and $cur.LinkType -eq 'SymbolicLink' -and $cur.Target -eq $target) { return }
 	if ($cur -and -not $cur.LinkType -and -not $OnWindows) {
-		if ($Fresh) { Write-Note "$LinkPath is a regular file, so it was left alone, and a bare shcl there is not this build" }
+		if ($Fresh) { Write-Note "$LinkPath is a regular file, so it was left alone, and a bare shcl there isn't this build" }
 		return
 	}
-	## On Windows a hard link or a plain file here is this script's own fallback,
-	## and the same bytes as the newest need no rewrite.
+	## On Windows a hard link or a plain file here is this script's own
+	## fallback, and it doesn't need a rewrite when it has the same bytes as the
+	## newest.
 	if ($cur -and $OnWindows -and $cur.LinkType -ne 'SymbolicLink' -and $cur.Length -eq $versions[-1].File.Length) {
 		if ((Get-FileHash -LiteralPath $LinkPath).Hash -eq (Get-FileHash -LiteralPath $target).Hash) { return }
 	}
-	## Made beside the fixed name and renamed over it, so shcl on PATH is never
-	## missing for a moment.
+	## The new link is made beside the fixed name and renamed over it, so shcl
+	## on PATH is never missing, even for a moment.
 	$null = New-Item -ItemType Directory -Force -Path $LinkDir
 	$next = "$LinkPath.$PID.new"
 	$made = $false
@@ -443,7 +455,7 @@ function Update-FixedName {
 			Copy-Item -LiteralPath $target -Destination $next -Force -ErrorAction Stop
 		} catch {
 			Remove-Item -LiteralPath $next -Force -ErrorAction SilentlyContinue
-			Write-Note "could not update ${LinkPath}: $($_.Exception.Message)"
+			Write-Note "couldn't update ${LinkPath}: $($_.Exception.Message)"
 			return
 		}
 	}
@@ -457,9 +469,10 @@ function Update-FixedName {
 	Write-Note "$LinkPath -> $($versions[-1].Name)"
 }
 
-## What to run: the newest pool version itself, never the fixed name. A run
-## that repoints the name while this one starts can't swap the build, and the
-## process shows which version it is. The fixed name is there for PATH.
+## Returns what to run, which is the newest pool version itself and never the
+## fixed name. A run that repoints the name while this one starts can't swap
+## the build, and the process shows which version it is. The fixed name is
+## there for PATH.
 function Get-RunTarget {
 	[CmdletBinding()]
 	param()
@@ -468,12 +481,13 @@ function Get-RunTarget {
 	return $versions[-1].File.FullName
 }
 
-## Started by -File, PowerShell has parsed the arguments as its own before the
-## script sees them. A `-`-led one with a colon became a name and a value, so
-## `--set=url=http://x` reached shcl as `--set=url=http` and `//x`. The
-## process's own argument list still has them as typed, after this script's
-## path. Nothing when no argument there names this script. Taken from the
-## retired shcl.ps1, now in project/legacy/.
+## When the script is started by -File, PowerShell has parsed the arguments as
+## its own before the script sees them. An argument that starts with `-` and
+## has a colon became a name and a value, so `--set=url=http://x` got to shcl
+## as `--set=url=http` and `//x`. The process's own argument list still has
+## them as typed, after this script's path. It returns nothing when no
+## argument there names this script. It was taken from the retired shcl.ps1,
+## which is now in project/legacy/.
 function Get-FileArgument {
 	[CmdletBinding()]
 	[OutputType([string[]])]
@@ -486,12 +500,12 @@ function Get-FileArgument {
 	return $null
 }
 
-## Called from a session, an unquoted `-x:y` reaches the script as a marked
-## `-x:` and a `y`, and splatted on to shcl the `-x:` is dropped. The calling
-## line tells it apart from `-x: y`, which a direct call passes as two
-## arguments. With no command there whose colon parameters match, the pair is
-## joined. Plain strings come back. Taken from _shcl_colon_args in the
-## retired shcl.ps1.
+## When the script is called from a session, an unquoted `-x:y` gets to the
+## script as a marked `-x:` and a `y`, and when they're splatted on to shcl the
+## `-x:` is dropped. The calling line tells `-x:y` apart from `-x: y`, which a
+## direct call passes as 2 arguments. When no command on that line has
+## matching colon parameters, the pair is joined. It returns plain strings. It
+## was taken from _shcl_colon_args in the retired shcl.ps1.
 function Join-ColonArgument {
 	[CmdletBinding()]
 	param([object[]]$Argument)
@@ -522,11 +536,11 @@ function Join-ColonArgument {
 	}
 }
 
-## Windows PowerShell 5.1, 7 before 7.3, and 7.3 and later set to Legacy, hand
-## a native command one command line built the old way, where an embedded
+## Windows PowerShell 5.1, 7 before 7.3, and 7.3 and later set to Legacy all
+## pass a native command one command line built the old way, where an embedded
 ## quote goes through bare and an empty argument is left out. So each argument
-## with a blank or a quote is quoted the way shcl's parser reads it back.
-## Taken from _shcl_native_args in the retired shcl.ps1.
+## with a blank or a quote is quoted the way shcl's parser reads it back. It
+## was taken from _shcl_native_args in the retired shcl.ps1.
 function ConvertTo-NativeArgument {
 	[CmdletBinding()]
 	param([object[]]$Argument)
@@ -563,15 +577,16 @@ function Invoke-NativeLiteral {
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-## Its own flags are taken out; everything else goes to shcl as it came, `-v`
-## and `-h` included, which is why there is no param() block to bind them.
+## This script's own flags are taken out, and everything else goes to shcl as
+## it came, `-v` and `-h` included. That's why there isn't a param() block to
+## bind them.
 $given = @(Join-ColonArgument -Argument $args)
 if (-not $MyInvocation.Line) {
 	$fromFile = Get-FileArgument -Self $PSCommandPath
 	if ($null -ne $fromFile) { $given = $fromFile }
 }
 ## The flag goes on the left. A `$true` from `-k:$true` on the left equals any
-## word, so that run copied nothing and then found no build.
+## word, so that run copied nothing and then didn't find a build.
 $noUpdate = $false
 $printPath = $false
 $passArgs = @()
@@ -580,7 +595,7 @@ foreach ($arg in $given) {
 	elseif ('--print-path' -ceq $arg) { $printPath = $true }
 	else { $passArgs += $arg }
 }
-if ($printPath -and $passArgs.Count -gt 0) { Exit-Launcher "--print-path runs nothing, so it takes no argument for $ProgramName, such as '$($passArgs[0])'" }
+if ($printPath -and $passArgs.Count -gt 0) { Exit-Launcher "--print-path doesn't run anything, so it doesn't take an argument for $ProgramName, such as '$($passArgs[0])'" }
 
 if (-not $noUpdate) {
 	Remove-StaleTemp
@@ -591,7 +606,7 @@ if (-not $noUpdate) {
 }
 
 $exe = Get-RunTarget
-if (-not $exe) { Exit-Launcher "no $ProgramName build held, and none in $($SourceDirs -join ' or ')" }
+if (-not $exe) { Exit-Launcher "no $ProgramName build in the pool, and none in $($SourceDirs -join ' or ')" }
 if ($printPath) {
 	Write-Output -InputObject $exe
 	exit 0

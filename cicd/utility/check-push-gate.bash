@@ -1275,7 +1275,7 @@ fTest dewda an image that fails to build sends a run here, but stops a --contain
 fCtr STUB_DOCKER_NOIMAGE=1 STUB_DOCKER_BUILDFAIL=1 -- --merge-gate
 ## The tree with de61p's recipes in it.
 engRecorded=0; if "${eng}/cicd/utility/green-tree.bash" passed "${eng}" "${ctrTree}"; then engRecorded=1; fi
-if ((engRc != 0 || ran != 1 || noted != 1 || engRecorded != 1)) || [[ " ${docker} " == *" run "* ]] || ! grep -qxF "note: stages 1-6 run on this box, since the main image could not be built" "${work}/eng.log"; then
+if ((engRc != 0 || ran != 1 || noted != 1 || engRecorded != 1)) || [[ " ${docker} " == *" run "* ]] || ! grep -qxF "note: stages 1-6 run on this box, since the main image couldn't be built" "${work}/eng.log"; then
 	fail "a run whose image didn't build: exit ${engRc}, ran ${ran}, ${noted} note(s), recorded ${engRecorded}, docker calls '${docker}': $(tail -3 "${work}/eng.log")"
 fi
 fCtr STUB_DOCKER_NOIMAGE=1 STUB_DOCKER_BUILDFAIL=1 -- -y --no-sync --container
