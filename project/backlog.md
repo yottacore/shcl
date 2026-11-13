@@ -35,6 +35,42 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Rust's file calls can't save to a path that isn't UTF-8
+	- ID: 2026111217560157
+	- Type: Enhancement
+	- Status: Queued
+	- Opened: 20261112-175601
+	- Opened by: shcl feedback (tukzmon round, 20261112)
+	- Problem description: Rust's file calls take `&str`, so `write_file_atomic` and `upgrade_file` can't save to a file name that isn't UTF-8, which Linux allows.
+	- Requirements: take `impl AsRef<Path>`, so `&str` callers still compile. Or design.md says file paths are text in every binding.
+	- Estimated effort: Low
+	- Priority: Low
+
+- `Document::merge` drops the base file's comments on every leaf the upper layer names
+	- ID: 2026111217560140
+	- Type: Enhancement
+	- Status: Queued
+	- Opened: 20261112-175601
+	- Opened by: shcl feedback (tukzmon round, 20261112)
+	- Related IDs: 2026110712372281
+	- Problem description: the base's comments go on every leaf the upper layer names, even when the value didn't change. So a program saving over a hand-edited file can't use the merge. tukzmon keeps the comments with about 45 lines of setters and a reparse check.
+	- Requirements: a merge option that keeps the base's comments.
+	- Estimated effort: Avg
+	- Priority: Avg
+
+- H001 on a case-only repeat gives the same hint as a real repeat
+	- ID: 2026111217560122
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261112-175601
+	- Opened by: shcl feedback (tukzmon round, 20261112)
+	- Related IDs: 2026111016205711
+	- Steps to reproduce: `Order: a`, then `order: b`.
+	- Incorrect behavior: H001 says "did you mean 'order: [a, b]'?", the same hint as for a real repeat, and nothing says names ignore case.
+	- Expected behavior: the hint names both spellings and says they're one name.
+	- Estimated effort: Low
+
 - Removes, folds, merges, and the banner toggle hand lines on through `adopt`
 	- ID: 2026110712372281
 	- Type: Enhancement
