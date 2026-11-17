@@ -5,7 +5,7 @@ key: 1
 ##
 ## This config file format is SHCL.
 ## "Simple Hierarchical Config Language"
-##    Format   3
+##    Format   3.0
 ##    Owner    ops team, call x1234 before changing
 ##    Home     https://github.com/yottacore/shcl
 ##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md

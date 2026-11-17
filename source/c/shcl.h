@@ -483,7 +483,7 @@ shcl_str shcl_generate(shcl_doc *schema, int no_banner, int *ok);
 	"##\n" \
 	"## This config file format is SHCL.\n" \
 	"## \"Simple Hierarchical Config Language\"\n" \
-	"##    Format   3\n" \
+	"##    Format   3.0\n" \
 	"##    Home     https://github.com/yottacore/shcl\n" \
 	"##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n" \
 	"##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n" \
@@ -789,7 +789,7 @@ size_t shcl_tokens_element_count(const shcl_tokens *t);
 // link names the tag that opened this major, and moves with it.
 #define SHCL_FORMAT_MAJOR 3
 #define SHCL_FORMAT_LINE_HEAD "##    Format   "
-#define SHCL_FORMAT_LINE "##    Format   3"
+#define SHCL_FORMAT_LINE "##    Format   3.0"
 // The format minor. A minor adds syntax, and a file of an older minor of the
 // same major reads the same under it.
 #define SHCL_FORMAT_MINOR 0
@@ -1022,7 +1022,7 @@ shcl_read_usize shcl_try_clear_comments(shcl_doc *d, const char *path, size_t pl
 // file format is SHCL." line, never by its links or Legal line, which a later
 // release may word differently. It runs from the lone "##" above that line to
 // the next one, so a "##" comment of the file's own stays, even written right
-// against it. A version line shcl_migrate stamped comes off too, with the note
+// against it. A version line shcl_migrate stamped, or a stamp outside a block, comes off too, with the note
 // under it. Both are looked for in the footer and above every field but the
 // first one and its first child down, since a field added below one by hand
 // takes it as its comment. A line in an old block that the block does not
@@ -1031,8 +1031,8 @@ shcl_read_usize shcl_try_clear_comments(shcl_doc *d, const char *path, size_t pl
 // as it is, the author's lines in it too. A block at the top of the file is
 // left alone. A dotted first line hangs it on its last name, which a saved
 // file writes as the first field's first child, so a block there is left alone
-// too, however it got there. A lone Format line there comes off with on, since
-// the new block names the format. A kept block's Format line is set to this format too, since it
+// too, however it got there. A lone Format line or stamp there comes off with on, since
+// the new block names the format. A kept block's Format line or stamp is set to this format too, since it
 // reads first. The library save never adds the block by itself; this is for a
 // program that wants it in a file it writes. Returns how many old blocks came
 // off.
@@ -9185,14 +9185,14 @@ static int banner_in_run(const ShclLead *l, const char *mark) { return s_starts(
 static const char *const banner_fields[] = { "Format", "Home", "Syntax", "Legal" };
 
 /* Whether t is a line the info block writes, in mark comments: a lone mark,
-   the block's two text lines, one of its named lines, or the note
-   shcl_migrate writes under the Format line. Any other line in a block is the
+   the block's two text lines, one of its named lines, the note shcl_migrate
+   writes under the Format line, or a stamp. Any other line in a block is the
    author's. */
 static int banner_own(ShclStr t, const char *mark) {
 	size_t mn = strlen(mark);
 	if (!s_starts(t, mark)) return 0;
 	ShclStr r = { t.p + mn, t.n - mn };
-	if (!r.n || s_eq(r, s_lit(banner_title + 2)) || s_eq(r, s_lit(banner_name + 2)) || s_eq(t, s_lit(SHCL_MIGRATED_LINE))) return 1;
+	if (!r.n || s_eq(r, s_lit(banner_title + 2)) || s_eq(r, s_lit(banner_name + 2)) || s_eq(t, s_lit(SHCL_MIGRATED_LINE)) || s_starts(t, SHCL_STAMP_HEAD)) return 1;
 	if (!s_starts(r, "    ")) return 0;
 	r.p += 4;
 	r.n -= 4;
@@ -9226,12 +9226,12 @@ static size_t current_footer(const ShclVecLead *v) {
 
 /* Where the info block is in v, from the lone "##" above its "This config
    file format is SHCL." line to the next lone "##", and each version line
-   shcl_migrate stamped, with the note under it, as start and end pairs in
+   shcl_migrate stamped or stamp outside one, with the note under it, as start and end pairs in
    one list, in a. A block with no closing "##" ends after its last line
    written the block's way. A "##" comment around one stays out of it, even
    written right against it. A mark of "#" finds 2.x's block instead, which
    had no version line. With blocks 0 a block is left whole, and only a
-   Format line outside one counts. */
+   Format line or stamp outside one counts. */
 static ShclVecSize banner_spans(ShclArena *a, const ShclVecLead *v, const char *mark, int blocks) {
 	char title[64], name[64], field[16];
 	snprintf(title, sizeof title, "%s%s", mark, banner_title + 2);
@@ -9257,7 +9257,7 @@ static ShclVecSize banner_spans(ShclArena *a, const ShclVecLead *v, const char *
 				continue;
 			}
 			if (prev_kept && !v->data[i].blank_before && s_eq(v->data[i - 1].text, s_lit(mark))) start = i - 1;
-		} else if (v3 && s_starts(v->data[i].text, SHCL_FORMAT_LINE_HEAD)) {
+		} else if (v3 && (s_starts(v->data[i].text, SHCL_FORMAT_LINE_HEAD) || s_starts(v->data[i].text, SHCL_STAMP_HEAD))) {
 			if (end < v->len && banner_in_run(&v->data[end], mark) && s_eq(v->data[end].text, s_lit(SHCL_MIGRATED_LINE))) end++;
 		} else {
 			prev_kept = 1;
@@ -9355,7 +9355,8 @@ static size_t swap_banner(shcl_doc *d, int on, int v2) { // NOLINT(bugprone-easi
 			ShclVecLead *list = !tr ? NULL : top.data[i] == ROOT ? &tr->head : &tr->leading;
 			for (size_t k = 0; list && k < list->len; k++) {
 				ShclLead *l = &list->data[k];
-				if (s_starts(l->text, SHCL_FORMAT_LINE_HEAD) && !s_eq(l->text, s_lit(SHCL_FORMAT_LINE))) { l->text = s_lit(SHCL_FORMAT_LINE); l->line = 0; }
+				const char *line = s_starts(l->text, SHCL_FORMAT_LINE_HEAD) ? SHCL_FORMAT_LINE : s_starts(l->text, SHCL_STAMP_HEAD) ? SHCL_STAMP_LINE : NULL;
+				if (line && !s_eq(l->text, s_lit(line))) { l->text = s_lit(line); l->line = 0; }
 			}
 		}
 	}

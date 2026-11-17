@@ -740,7 +740,7 @@ int main() {
 		CHECK(built != *shcl::parse_datetime("2026-01-02T03:04Z"));
 	}
 	// The format constants are the C macros, so there is one copy of each.
-	CHECK(shcl::MAX_DEPTH == 512 && shcl::FORMAT_MAJOR == 3 && shcl::FORMAT_LINE == "##    Format   3");
+	CHECK(shcl::MAX_DEPTH == 512 && shcl::FORMAT_MAJOR == 3 && shcl::FORMAT_LINE == "##    Format   3.0");
 	CHECK(shcl::FORMAT_LINE.substr(0, shcl::FORMAT_LINE_HEAD.size()) == shcl::FORMAT_LINE_HEAD);
 	CHECK(shcl::GEN_BANNER.find(shcl::FORMAT_LINE) != std::string_view::npos && shcl::MIGRATED_LINE == "##    Migrated from SHCL 2.x.");
 	CHECK(!shcl::parse_datetime("notadate") && !shcl::parse_datetime(""));
@@ -855,7 +855,7 @@ int main() {
 	// Told the file is 2.x, the list is rewritten and the result is stamped
 	// with the format line, which is what makes a second run a no-op.
 	auto mig = shcl::migrate("base:[Boston]\n\tlat: 42\nnote: a,b\n", true);
-	CHECK(mig.text == "base: Boston\n\tlat: 42\nnote: [a, b]\n##    Format   3\n##    Migrated from SHCL 2.x.\n");
+	CHECK(mig.text == "base: Boston\n\tlat: 42\nnote: [a, b]\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n");
 	CHECK(!mig.current && mig.ambiguous == 0 && mig.lost == 0);
 	CHECK(shcl::migrate(mig.text, true).current);
 	// Not told, and the file does not say: `a,b` reads as an array under 2.x

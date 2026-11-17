@@ -194,24 +194,24 @@ fn an_older_format_line_becomes_this_one_in_place() {
 	let old = "port: 80\n##    Format   2\n";
 	let up = upgrade(old, true);
 	assert!(!up.current && up.format == 2 && up.lost == 0);
-	assert_eq!(up.text, "port: 80\n##    Format   3\n");
+	assert_eq!(up.text, "port: 80\n##    Format   3.0\n");
 	assert!(up.diagnostics.iter().any(|d| d.code == "H007"));
 	assert!(upgrade(&up.text, true).current);
 	let up = upgrade(old, false);
 	assert!(up.current && up.text == old);
 	// Indent, trailing blanks, line end and BOM stay as they were.
 	let up = upgrade("\u{feff}p: 1\r\n\t##    Format   1  \r\nq: 2", true);
-	assert_eq!(up.text, "\u{feff}p: 1\r\n\t##    Format   3  \r\nq: 2");
+	assert_eq!(up.text, "\u{feff}p: 1\r\n\t##    Format   3.0  \r\nq: 2");
 	// migrate writes its stamp there too, and adds one only to a file with
 	// none (2026100916475300).
-	assert_eq!(migrate(old, false).text, "port: 80\n##    Format   3\n");
+	assert_eq!(migrate(old, false).text, "port: 80\n##    Format   3.0\n");
 	assert_eq!(
 		migrate("x: a,b\n##    Format   2\ny: 1\n", false).text,
-		"x: [a, b]\n##    Format   3\ny: 1\n##    Migrated from SHCL 2.x.\n"
+		"x: [a, b]\n##    Format   3.0\ny: 1\n##    Migrated from SHCL 2.x.\n"
 	);
 	assert_eq!(
 		migrate("port: 80\n", false).text,
-		"port: 80\n##    Format   3\n"
+		"port: 80\n##    Format   3.0\n"
 	);
 }
 
@@ -233,6 +233,45 @@ fn a_format_line_at_the_top_goes_when_the_block_goes_on() {
 	let mut doc = Document::parse(&top);
 	assert_eq!(doc.set_banner(true), 0);
 	assert_eq!(doc.to_canonical(), format!("{}\n{}", top, GEN_BANNER));
+}
+
+#[test]
+fn a_stamp_goes_where_a_format_line_goes() {
+	let _id = test_id("dfe3m");
+	// The banner calls take a stamp as they take a Format line, and a kept
+	// block's stamp names this format too.
+	let kept = "##\n## This config file format is SHCL.\n";
+	let cases = [
+		(
+			"## SHCL format 2.0\nname: x\n",
+			true,
+			1,
+			format!("name: x\n\n{GEN_BANNER}"),
+		),
+		(
+			"name: x\n## SHCL format 3.0\n",
+			true,
+			1,
+			format!("name: x\n\n{GEN_BANNER}"),
+		),
+		(
+			"name: x\n## SHCL format 3.0\n",
+			false,
+			1,
+			"name: x\n".to_string(),
+		),
+		(
+			&format!("{kept}## SHCL format 2.0\n##\nname: x\n"),
+			true,
+			0,
+			format!("{kept}## SHCL format 3.0\n##\nname: x\n\n{GEN_BANNER}"),
+		),
+	];
+	for (text, on, gone, want) in cases {
+		let mut doc = Document::parse(text);
+		assert_eq!(doc.set_banner(on), gone, "{text:?}");
+		assert_eq!(doc.to_canonical(), want, "{text:?}");
+	}
 }
 
 #[test]

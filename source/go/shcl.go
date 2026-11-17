@@ -3197,7 +3197,7 @@ const FormatLineHead = "##    Format   "
 // appends this line on its own to a file it rewrote, since that file has no
 // block to add it to and inventing one would write bytes the document does
 // not hold.
-const FormatLine = "##    Format   3"
+const FormatLine = "##    Format   3.0"
 
 // SchemaLineHead is the start of a line naming the file's schema, written
 // like the Format line, for check and for editors:
@@ -9191,12 +9191,12 @@ func keepLinesAs(src string, doc *Document, dropBare bool, bare *bool) (string, 
 
 // bannerSpans says where the info block is in leads, from the lone "##"
 // above its "This config file format is SHCL." line to the next lone "##",
-// and each version line Migrate stamped, with the note under it, as start
+// and each version line Migrate stamped or stamp outside one, with the note under it, as start
 // and end pairs. A block with no closing "##" ends after its last line
 // written the block's way. A "##" comment around one stays out of it, even
 // written right against it. A mark of "#" finds 2.x's block instead, which
 // had no version line. With blocks false a block is left whole, and only a
-// Format line outside one counts.
+// Format line or stamp outside one counts.
 func bannerSpans(ls []lead, mark string, blocks bool) [][2]int {
 	inRun := func(l lead) bool { return strings.HasPrefix(l.text, mark) && !l.blankBefore }
 	title := mark + bannerTitle[2:]
@@ -9227,7 +9227,7 @@ func bannerSpans(ls []lead, mark string, blocks bool) [][2]int {
 			if prevKept && !ls[i].blankBefore && ls[i-1].text == mark {
 				start = i - 1
 			}
-		case mark == "##" && strings.HasPrefix(ls[i].text, FormatLineHead):
+		case mark == "##" && (strings.HasPrefix(ls[i].text, FormatLineHead) || strings.HasPrefix(ls[i].text, StampHead)):
 			if end < len(ls) && inRun(ls[end]) && ls[end].text == MigratedLine {
 				end++
 			}
@@ -9244,15 +9244,15 @@ func bannerSpans(ls []lead, mark string, blocks bool) [][2]int {
 }
 
 // bannerOwn says whether t is a line the info block writes, in mark comments:
-// a lone mark, the block's two text lines, one of its named lines, or the note
-// Migrate writes under the Format line. Any other line in a block is the
-// author's.
+// a lone mark, the block's two text lines, one of its named lines, the note
+// Migrate writes under the Format line, or a stamp. Any other line in a block
+// is the author's.
 func bannerOwn(t, mark string) bool {
 	r, ok := strings.CutPrefix(t, mark)
 	if !ok {
 		return false
 	}
-	if r == "" || r == bannerTitle[2:] || r == bannerName[2:] || t == MigratedLine {
+	if r == "" || r == bannerTitle[2:] || r == bannerName[2:] || t == MigratedLine || strings.HasPrefix(t, StampHead) {
 		return true
 	}
 	if r, ok = strings.CutPrefix(r, "    "); !ok {
@@ -13318,7 +13318,7 @@ func (d *Document) TryClearComments(path string) Read[int] {
 // "This config file format is SHCL." line, never by its links or Legal line,
 // which a later release may word differently. It runs from the lone "##"
 // above that line to the next one, so a "##" comment of the file's own stays,
-// even written right against it. A version line Migrate stamped comes off
+// even written right against it. A version line Migrate stamped, or a stamp outside a block, comes off
 // too, with the note under it. Both are looked for in the footer and above
 // every field but the first one and its first child down, since a field added
 // below one by hand takes it as its comment. A line in an old block that the
@@ -13327,8 +13327,8 @@ func (d *Document) TryClearComments(path string) Read[int] {
 // writes it stays as it is, the author's lines in it too. A block at the top
 // of the file is left alone. A dotted first line hangs it on its last name,
 // which a saved file writes as the first field's first child, so a block there
-// is left alone too, however it got there. A lone Format line there comes off
-// with on, since the new block names the format. A kept block's Format line is set to this format
+// is left alone too, however it got there. A lone Format line or stamp there comes off
+// with on, since the new block names the format. A kept block's Format line or stamp is set to this format
 // too, since it reads first. The library save never adds the block by itself;
 // this is for a program that wants it in a file it writes. Returns how many old
 // blocks came off.
@@ -13407,8 +13407,16 @@ func (d *Document) swapBanner(on, v2 bool) int {
 					list = tr.head
 				}
 				for k := range list {
-					if l := &list[k]; strings.HasPrefix(l.text, FormatLineHead) && l.text != FormatLine {
-						l.text, l.line = FormatLine, 0
+					l := &list[k]
+					line := ""
+					switch {
+					case strings.HasPrefix(l.text, FormatLineHead):
+						line = FormatLine
+					case strings.HasPrefix(l.text, StampHead):
+						line = StampLine
+					}
+					if line != "" && l.text != line {
+						l.text, l.line = line, 0
 					}
 				}
 			}
@@ -16970,7 +16978,7 @@ const genMaxFields = 10000
 const GenBanner = "##\n" +
 	"## This config file format is SHCL.\n" +
 	"## \"Simple Hierarchical Config Language\"\n" +
-	"##    Format   3\n" +
+	"##    Format   3.0\n" +
 	"##    Home     https://github.com/yottacore/shcl\n" +
 	"##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n" +
 	"##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n" +

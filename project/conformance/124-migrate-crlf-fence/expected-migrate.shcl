@@ -4,5 +4,5 @@ script: ```sh
 city: Boston
 path: "C:\temp"
 last: 1
-##    Format   3
+##    Format   3.0
 ##    Migrated from SHCL 2.x.

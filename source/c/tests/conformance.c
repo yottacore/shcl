@@ -6368,7 +6368,7 @@ int main(int argc, char **argv) {
 		   (2026100717500017). */
 		const char *old = "port: 80\n##    Format   2\n";
 		shcl_upgraded up = shcl_upgrade(old, strlen(old), 1);
-		if (up.current || up.format != 2 || up.lost != 0 || !up_is(&up, "port: 80\n##    Format   3\n")) fail("upgrade_restamp", up.text);
+		if (up.current || up.format != 2 || up.lost != 0 || !up_is(&up, "port: 80\n##    Format   3.0\n")) fail("upgrade_restamp", up.text);
 		int h007 = 0;
 		for (size_t i = 0; up.diagnostics && i < shcl_diag_count(up.diagnostics); i++) h007 |= !strcmp(shcl_diag_code(up.diagnostics, i), "H007");
 		if (!h007) fail("upgrade_restamp", "no H007");
@@ -6382,14 +6382,14 @@ int main(int argc, char **argv) {
 		/* Indent, trailing blanks, line end and BOM stay as they were. */
 		const char *laid = "\xEF\xBB\xBFp: 1\r\n\t##    Format   1  \r\nq: 2";
 		up = shcl_upgrade(laid, strlen(laid), 1);
-		if (!up_is(&up, "\xEF\xBB\xBFp: 1\r\n\t##    Format   3  \r\nq: 2")) fail("upgrade_restamp", up.text);
+		if (!up_is(&up, "\xEF\xBB\xBFp: 1\r\n\t##    Format   3.0  \r\nq: 2")) fail("upgrade_restamp", up.text);
 		shcl_upgraded_free(&up);
 		/* migrate writes its stamp there too, and adds one only to a file with
 		   none (2026100916475300). */
 		const char *mig[][2] = {
-			{"port: 80\n##    Format   2\n", "port: 80\n##    Format   3\n"},
-			{"x: a,b\n##    Format   2\ny: 1\n", "x: [a, b]\n##    Format   3\ny: 1\n##    Migrated from SHCL 2.x.\n"},
-			{"port: 80\n", "port: 80\n##    Format   3\n"},
+			{"port: 80\n##    Format   2\n", "port: 80\n##    Format   3.0\n"},
+			{"x: a,b\n##    Format   2\ny: 1\n", "x: [a, b]\n##    Format   3.0\ny: 1\n##    Migrated from SHCL 2.x.\n"},
+			{"port: 80\n", "port: 80\n##    Format   3.0\n"},
 		};
 		for (size_t i = 0; i < sizeof mig / sizeof mig[0]; i++) {
 			shcl_migration m = shcl_migrate(mig[i][0], strlen(mig[i][0]), 0);
@@ -6416,6 +6416,26 @@ int main(int argc, char **argv) {
 			size_t gone = shcl_set_banner(d, bc[i].on);
 			shcl_str c = shcl_to_canonical(d);
 			if (gone != bc[i].gone || c.n != strlen(bc[i].want) || memcmp(c.p, bc[i].want, c.n) != 0) fail("top_format_line", bc[i].in);
+			shcl_free(d);
+		}
+	}
+	test_id("dfe3q", "a_stamp_goes_where_a_format_line_goes");
+	{
+		/* The banner calls take a stamp as they take a Format line, and a
+		   kept block's stamp names this format too. */
+#define KEPT "##\n## This config file format is SHCL.\n"
+		static const struct { const char *in; int on; size_t gone; const char *want; } bc[] = {
+			{"## SHCL format 2.0\nname: x\n", 1, 1, "name: x\n\n" SHCL_GEN_BANNER},
+			{"name: x\n## SHCL format 3.0\n", 1, 1, "name: x\n\n" SHCL_GEN_BANNER},
+			{"name: x\n## SHCL format 3.0\n", 0, 1, "name: x\n"},
+			{KEPT "## SHCL format 2.0\n##\nname: x\n", 1, 0, KEPT "## SHCL format 3.0\n##\nname: x\n\n" SHCL_GEN_BANNER},
+		};
+#undef KEPT
+		for (size_t i = 0; i < sizeof bc / sizeof bc[0]; i++) {
+			shcl_doc *d = shcl_parse(bc[i].in, strlen(bc[i].in));
+			size_t gone = shcl_set_banner(d, bc[i].on);
+			shcl_str c = shcl_to_canonical(d);
+			if (gone != bc[i].gone || c.n != strlen(bc[i].want) || memcmp(c.p, bc[i].want, c.n) != 0) fail("stamp_banner", bc[i].in);
 			shcl_free(d);
 		}
 	}

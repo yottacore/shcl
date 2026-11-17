@@ -303,7 +303,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: every save and every text call that saves writes `## SHCL format 3.0`, or rewrites the stamp there, in all 4 and the C++ interface. The info block's row becomes `##    Format   3.0`. A stamp naming a newer minor of this major is refused for saves, as `TooNew` is.
 	- Estimated effort: Avg
 	- Note: `set_banner` and its `banner_spans` find a Format line by `FORMAT_LINE_HEAD` only, so they don't yet see a `## SHCL format` stamp. The Format read gives the major only, so a newer minor needs the minor from it too.
-	- Note: split for its time cap. The newer-minor refusal is child 2026111708125354, which is done. The info block's `3.0` row and the banner calls seeing the stamp are child 2026111708125373, and the stamp on every save is child 2026111708130702, both Queued.
+	- Note: split for its time cap. The newer-minor refusal is child 2026111708125354, which is done. The info block's `3.0` row and the banner calls seeing the stamp are child 2026111708125373, waiting on the release fuzz. The stamp on every save is child 2026111708130702, Queued.
 
 - Format versions: refuse a save of a file whose stamp names a newer minor
 	- ID: 2026111708125354
@@ -333,7 +333,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: write `##    Format   3.0` in the info block, and let the banner calls see a `## SHCL format` stamp
 	- ID: 2026111708125373
 	- Type: Feature
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, since corpus `217-banner-author-line`'s input changed. It already fails on dev at dd16k (2026111623445822) and dc26d (2026111703284678), so only a new failure counts.
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261117-081253
@@ -341,7 +342,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Parent ID: 2026111702033137
 	- Requirements: the info block's row is `##    Format   3.0` wherever the block is written, in all 4 and the C++ interface. `set_banner`, `banner_spans` and `swap_banner` find a `## SHCL format` stamp as they find a Format line.
 	- Estimated effort: Avg
+	- Actual effort: Avg
 	- Note: `FORMAT_LINE` changes every banner and every `migrate` stamp, so corpus outputs and cli-regress rows change with it. A changed corpus input shifts the fuzz seeds, so a 2M release fuzz and check-migrate go on the same commit.
+	- Decisions:
+		- me, 20261117: a stamp counts as one of the block's own lines in `banner_own`, as the `migrate` note does, since only shcl writes one. `take_banners` keeps every line that isn't the block's own, so a lone stamp would have stayed otherwise. So a stamp inside a block goes with it, and a stamp in a block at the end makes that block not current, so `banner on` replaces it. Where 2026111708130702 puts the stamp beside a block has to fit that.
+		- me, 20261117: a block kept at the top gets its stamp set to `## SHCL format 3.0`, as its Format line is set to `FORMAT_LINE`.
+		- me, 20261117: corpus `217-banner-author-line` tests a block that reads as the current one, so its input and `expected.shcl` name `3.0` now. With beta1's `3`, `banner on` would replace the block and the case would test something else.
+		- 20261117: asserts updated for the new `FORMAT_LINE`: `an_older_format_line_becomes_this_one_in_place` (`ddqrp`, `ddqrq`, `ddqrs` and Python's `upgrade_restamp`) and veneer_smoke's `FORMAT_LINE` and migrate checks went from `##    Format   3` to `##    Format   3.0`. So did the migrate, init and banner outputs in 35 corpus `expected-*` files and 29 cli-regress rows, plus the `infoBlock` that `ddf5t`, `ddf5v` and `dez6e` compare against. Nothing else they check changed.
+	- Actual fix: `FORMAT_LINE` and the `GEN_BANNER` row are `##    Format   3.0` in all 4. The C++ interface reads the C macros. `banner_spans` takes a lone stamp as it takes a lone Format line, `banner_own` counts a stamp as the block's, and `swap_banner` sets a kept top block's stamp to this format, in all 4. spec.md, design.md, examples.md, the format-versions doc and the changelog say so.
+	- Swept: `banner_spans`, `banner_own` and the kept-top rewrite in `swap_banner` in Rust, Go (`bannerSpans`, `bannerOwn`, `swapBanner`), Python and C. `current_footer` reads through `banner_own` and `GEN_BANNER`. `restamp` and `migrate_text` write `FORMAT_LINE`, so they follow it. No CLI writes the line itself. A grep of `source/`, spec.md and examples.md for `##    Format   3` finds only inputs and reads of beta1's line.
+	- Verified: the new test fails in all 4 with the stamp checks taken out and passes with them. `--backlog-run-quick rust python` and `--backlog-run-quick go c cli` passed, as did cli-regress (675 rows), the crosscheck over the corpus (23862 comparisons), check-migrate, check-docs, check-doc-examples, check-veneer, veneer_smoke, `test-ids.py check` and `lint-report.bash --check --no-mark`.
+	- Test case: `a_stamp_goes_where_a_format_line_goes` (Rust `dfe3m`, Go `dfe3n`, Python `dfe3p`, C `dfe3q`), and the corpus `expected-*` files and cli-regress rows above.
+	- Branch: `nov17b-2026111708125373`
 
 - Format versions: write the stamp on every save and every text call that saves
 	- ID: 2026111708130702

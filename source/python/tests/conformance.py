@@ -5521,7 +5521,7 @@ def main():
 	# (2026100717500017).
 	up_old = "port: 80\n##    Format   2\n"
 	up = shcl.upgrade(up_old, True)
-	if up.current or up.format != 2 or up.lost != 0 or up.text != "port: 80\n##    Format   3\n":
+	if up.current or up.format != 2 or up.lost != 0 or up.text != "port: 80\n##    Format   3.0\n":
 		raise SystemExit(f"restamp: {up.current} {up.format} {up.lost} {up.text!r}")
 	if not any(d.code == "H007" for d in up.diagnostics):
 		raise SystemExit(f"no H007 in {up.diagnostics}")
@@ -5532,14 +5532,14 @@ def main():
 		raise SystemExit(f"without from_v2: {up.current} {up.text!r}")
 	# Indent, trailing blanks, line end and BOM stay as they were.
 	up = shcl.upgrade("\ufeffp: 1\r\n\t##    Format   1  \r\nq: 2", True)
-	if up.text != "\ufeffp: 1\r\n\t##    Format   3  \r\nq: 2":
+	if up.text != "\ufeffp: 1\r\n\t##    Format   3.0  \r\nq: 2":
 		raise SystemExit(f"layout: {up.text!r}")
 	# migrate writes its stamp there too, and adds one only to a file with
 	# none (2026100916475300).
 	for up_in, up_want in (
-		(up_old, "port: 80\n##    Format   3\n"),
-		("x: a,b\n##    Format   2\ny: 1\n", "x: [a, b]\n##    Format   3\ny: 1\n##    Migrated from SHCL 2.x.\n"),
-		("port: 80\n", "port: 80\n##    Format   3\n"),
+		(up_old, "port: 80\n##    Format   3.0\n"),
+		("x: a,b\n##    Format   2\ny: 1\n", "x: [a, b]\n##    Format   3.0\ny: 1\n##    Migrated from SHCL 2.x.\n"),
+		("port: 80\n", "port: 80\n##    Format   3.0\n"),
 	):
 		if shcl.migrate(up_in, False).text != up_want:
 			raise SystemExit(f"migrate {up_in!r}: {shcl.migrate(up_in, False).text!r}")
@@ -5564,6 +5564,21 @@ def main():
 	top_n = top_doc.set_banner(True)
 	if top_n != 0 or top_doc.to_canonical() != f"{top_text}\n{shcl.GEN_BANNER}":
 		raise SystemExit(f"top block: {top_n} {top_doc.to_canonical()!r}")
+
+	test_id("dfe3p", "a_stamp_goes_where_a_format_line_goes")
+	# The banner calls take a stamp as they take a Format line, and a kept
+	# block's stamp names this format too.
+	stamp_kept = "##\n## This config file format is SHCL.\n"
+	for stamp_in, stamp_on, stamp_gone, stamp_want in (
+		("## SHCL format 2.0\nname: x\n", True, 1, f"name: x\n\n{shcl.GEN_BANNER}"),
+		("name: x\n## SHCL format 3.0\n", True, 1, f"name: x\n\n{shcl.GEN_BANNER}"),
+		("name: x\n## SHCL format 3.0\n", False, 1, "name: x\n"),
+		(f"{stamp_kept}## SHCL format 2.0\n##\nname: x\n", True, 0, f"{stamp_kept}## SHCL format 3.0\n##\nname: x\n\n{shcl.GEN_BANNER}"),
+	):
+		stamp_doc = shcl.Document.parse(stamp_in)
+		stamp_n = stamp_doc.set_banner(stamp_on)
+		if stamp_n != stamp_gone or stamp_doc.to_canonical() != stamp_want:
+			raise SystemExit(f"stamp {stamp_in!r}: {stamp_n} {stamp_doc.to_canonical()!r}")
 
 	test_id("ddmks", "upgrade_writes_a_fresh_file_with_the_info_block")
 	up = shcl.upgrade(up_v2, False)

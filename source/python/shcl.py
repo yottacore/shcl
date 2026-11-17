@@ -6747,13 +6747,13 @@ def _keep_lines_as(src, doc, drop_bare, bare):
 
 def _banner_own(t, mark):
 	"""Whether `t` is a line the info block writes, in `mark` comments: a
-	lone mark, the block's two text lines, one of its named lines, or the note
-	migrate writes under the Format line. Any other line in a block is the
-	author's."""
+	lone mark, the block's two text lines, one of its named lines, the note
+	migrate writes under the Format line, or a stamp. Any other line in a
+	block is the author's."""
 	if not t.startswith(mark):
 		return False
 	r = t[len(mark):]
-	if r in ("", _BANNER_TITLE[2:], _BANNER_NAME[2:]) or t == MIGRATED_LINE:
+	if r in ("", _BANNER_TITLE[2:], _BANNER_NAME[2:]) or t == MIGRATED_LINE or t.startswith(STAMP_HEAD):
 		return True
 	if not r.startswith("    "):
 		return False
@@ -6776,12 +6776,12 @@ def _current_footer(leads):
 def _banner_spans(leads, mark, blocks):
 	"""Where the info block is in `leads`, from the lone "##" above its "This
 	config file format is SHCL." line to the next lone "##", and each version
-	line migrate stamped, with the note under it, as (start, end) pairs. A
+	line migrate stamped or stamp outside one, with the note under it, as (start, end) pairs. A
 	block with no closing "##" ends after its last line written the block's
 	way. A "##" comment around one stays out of it, even written right
 	against it. A `mark` of "#" finds 2.x's block instead, which had no
 	version line. With `blocks` false a block is left whole, and only a
-	Format line outside one counts."""
+	Format line or stamp outside one counts."""
 	def in_run(c):
 		return c.text.startswith(mark) and not c.blank_before
 
@@ -6812,7 +6812,7 @@ def _banner_spans(leads, mark, blocks):
 				continue
 			if prev_kept and not leads[i].blank_before and leads[i - 1].text == mark:
 				start = i - 1
-		elif mark == "##" and leads[i].text.startswith(FORMAT_LINE_HEAD):
+		elif mark == "##" and leads[i].text.startswith((FORMAT_LINE_HEAD, STAMP_HEAD)):
 			if end < len(leads) and in_run(leads[end]) and leads[end].text == MIGRATED_LINE:
 				end += 1
 		else:
@@ -9034,7 +9034,7 @@ class Document:
 		line, which a later release may word differently. It runs from the
 		lone "##" above that line to the next one, so a "##" comment of the
 		file's own stays, even written right against it. A version line
-		migrate stamped comes off too, with the note under it. Both are looked
+		migrate stamped, or a stamp outside a block, comes off too, with the note under it. Both are looked
 		for in the footer and above every field but the first one and its
 		first child down, since a field added below one by hand takes it as
 		its comment. A line in an old block that the block does not write is
@@ -9043,8 +9043,8 @@ class Document:
 		stays as it is, the author's lines in it too. A block at the top of
 		the file is left alone. A dotted first line hangs it on its last name,
 		which a saved file writes as the first field's first child, so a block
-		there is left alone too, however it got there. A lone Format line there
-		comes off with on, since the new block names the format. A kept block's Format line is set to
+		there is left alone too, however it got there. A lone Format line or stamp there
+		comes off with on, since the new block names the format. A kept block's Format line or stamp is set to
 		this format too, since it reads first. The library save never adds the
 		block by itself; this is for a program that wants it in a file it
 		writes. Returns how many old blocks came off."""
@@ -9102,8 +9102,14 @@ class Document:
 				if tr is None:
 					continue
 				for c in tr.head if n == _ROOT else tr.leading:
-					if c.text.startswith(FORMAT_LINE_HEAD) and c.text != FORMAT_LINE:
-						c.text, c.line = FORMAT_LINE, 0
+					if c.text.startswith(FORMAT_LINE_HEAD):
+						line = FORMAT_LINE
+					elif c.text.startswith(STAMP_HEAD):
+						line = STAMP_LINE
+					else:
+						continue
+					if c.text != line:
+						c.text, c.line = line, 0
 		if on and current < 0:
 			open_ = bool(self.orphans) or bool(self.arena[_ROOT].children)
 			for n, line in enumerate(GEN_BANNER.rstrip("\n").split("\n")):
@@ -13371,7 +13377,7 @@ GEN_BANNER = (
 	"##\n"
 	'## This config file format is SHCL.\n'
 	'## "Simple Hierarchical Config Language"\n'
-	"##    Format   3\n"
+	"##    Format   3.0\n"
 	"##    Home     https://github.com/yottacore/shcl\n"
 	"##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n"
 	"##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n"
@@ -13433,7 +13439,7 @@ FORMAT_LINE_HEAD = "##    Format   "
 # its own emits GEN_BANNER, which includes this; migrate appends this line on
 # its own to a file it rewrote, since that file has no block to add it to and
 # inventing one would write bytes the document does not hold.
-FORMAT_LINE = "##    Format   3"
+FORMAT_LINE = "##    Format   3.0"
 
 # The start of a line naming the file's schema, written like the Format line,
 # for check and for editors: `##    Schema   ./app.schema.shcl`.

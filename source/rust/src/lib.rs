@@ -9334,11 +9334,11 @@ fn keep_lines_as(src: &str, doc: &Document, drop_bare: bool, bare: &mut bool) ->
 
 /// Where the info block is in `leads`, from the lone `##` above its
 /// `This config file format is SHCL.` line to the next lone `##`, and each
-/// version line `migrate` stamped, with the note under it. A block with no
+/// version line `migrate` stamped or stamp outside one, with the note under it. A block with no
 /// closing `##` ends after its last line written the block's way. A `##`
 /// comment around one stays out of it, even written right against it. A
 /// `mark` of `#` finds 2.x's block instead, which had no version line. With
-/// `blocks` false a block is left whole, and only a Format line outside one
+/// `blocks` false a block is left whole, and only a Format line or stamp outside one
 /// counts.
 fn banner_spans(leads: &[Lead], mark: &str, blocks: bool) -> Vec<(usize, usize)> {
 	let in_run = |l: &Lead| l.text.starts_with(mark) && !l.blank_before;
@@ -9374,7 +9374,10 @@ fn banner_spans(leads: &[Lead], mark: &str, blocks: bool) -> Vec<(usize, usize)>
 			if prev_kept && !leads[i].blank_before && leads[i - 1].text == mark {
 				start = i - 1;
 			}
-		} else if mark == "##" && leads[i].text.starts_with(FORMAT_LINE_HEAD) {
+		} else if mark == "##"
+			&& (leads[i].text.starts_with(FORMAT_LINE_HEAD)
+				|| leads[i].text.starts_with(STAMP_HEAD))
+		{
 			if end < leads.len() && in_run(&leads[end]) && leads[end].text == MIGRATED_LINE {
 				end += 1;
 			}
@@ -9391,9 +9394,9 @@ fn banner_spans(leads: &[Lead], mark: &str, blocks: bool) -> Vec<(usize, usize)>
 }
 
 /// Whether `t` is a line the info block writes, in `mark` comments: a lone
-/// mark, the block's two text lines, one of its named lines, or the note
-/// `migrate` writes under the Format line. Any other line in a block is the
-/// author's.
+/// mark, the block's two text lines, one of its named lines, the note
+/// `migrate` writes under the Format line, or a stamp. Any other line in a
+/// block is the author's.
 fn banner_own(t: &str, mark: &str) -> bool {
 	let Some(r) = t.strip_prefix(mark) else {
 		return false;
@@ -9402,6 +9405,7 @@ fn banner_own(t: &str, mark: &str) -> bool {
 		|| r == &BANNER_TITLE[2..]
 		|| r == &BANNER_NAME[2..]
 		|| t == MIGRATED_LINE
+		|| t.starts_with(STAMP_HEAD)
 		|| r.strip_prefix("    ").is_some_and(|r| {
 			BANNER_FIELDS.iter().any(|f| {
 				r.strip_prefix(f)
@@ -13418,7 +13422,7 @@ impl Document {
 	/// line, which a later release may word differently. It runs from the
 	/// lone `##` above that line to the next one, so a `##` comment of the
 	/// file's own stays, even written right against it. A version line
-	/// `migrate` stamped comes off too, with the note under it. Both are
+	/// `migrate` stamped, or a stamp outside a block, comes off too, with the note under it. Both are
 	/// looked for in the footer and above every field but the first one and
 	/// its first child down, since a field added below one by hand takes it
 	/// as its comment. A line in an old block that the block does not write is
@@ -13428,8 +13432,8 @@ impl Document {
 	/// the file is left alone.
 	/// A dotted first line hangs it on its last name, which a saved file
 	/// writes as the first field's first child, so a block there is left
-	/// alone too, however it got there. A lone Format line there comes off with
-	/// `on`, since the new block names the format. A kept block's Format line
+	/// alone too, however it got there. A lone Format line or stamp there comes off with
+	/// `on`, since the new block names the format. A kept block's Format line or stamp
 	/// is set to this format too, since it reads first. The library save never
 	/// adds the block by itself; this is for a program that wants it in a file
 	/// it writes. Returns how many old blocks came off.
@@ -13501,8 +13505,15 @@ impl Document {
 						&mut tr.leading
 					};
 					for l in list {
-						if l.text.starts_with(FORMAT_LINE_HEAD) && l.text != FORMAT_LINE {
-							l.text = FORMAT_LINE.to_string();
+						let line = if l.text.starts_with(FORMAT_LINE_HEAD) {
+							FORMAT_LINE
+						} else if l.text.starts_with(STAMP_HEAD) {
+							STAMP_LINE
+						} else {
+							continue;
+						};
+						if l.text != line {
+							l.text = line.to_string();
 							l.line = 0;
 						}
 					}
@@ -16849,7 +16860,7 @@ pub const GEN_BANNER: &str = "\
 ##
 ## This config file format is SHCL.
 ## \"Simple Hierarchical Config Language\"
-##    Format   3
+##    Format   3.0
 ##    Home     https://github.com/yottacore/shcl
 ##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md
 ##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.
@@ -16920,7 +16931,7 @@ pub const FORMAT_LINE_HEAD: &str = "##    Format   ";
 /// of its own emits `GEN_BANNER`, which includes this; `migrate` appends this
 /// line on its own to a file it rewrote, since that file has no block to add
 /// it to and inventing one would write bytes the document does not hold.
-pub const FORMAT_LINE: &str = "##    Format   3";
+pub const FORMAT_LINE: &str = "##    Format   3.0";
 
 /// The start of a line naming the file's schema, written like the Format line,
 /// for `check` and for editors: `##    Schema   ./app.schema.shcl`.

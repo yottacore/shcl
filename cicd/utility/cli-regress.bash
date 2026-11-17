@@ -512,7 +512,7 @@ rows=(
 	## 2026100307163904: banner took the file's own comments written against
 	## the block with it, at exit 0.
 	'ddf5r|banner-off-keeps-own-comments|set %BN%|banner\toff\n|0|port: 1\n\n## Ops team: do not edit by hand.\n## Pager: 555-0100\n|-'
-	'ddf5s|banner-on-keeps-own-comments|set %BN%|banner\ton\n|0|port: 1\n\n## Ops team: do not edit by hand.\n## Pager: 555-0100\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright \xc2\xa9 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n|-'
+	'ddf5s|banner-on-keeps-own-comments|set %BN%|banner\ton\n|0|port: 1\n\n## Ops team: do not edit by hand.\n## Pager: 555-0100\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3.0\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright \xc2\xa9 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n|-'
 	'dd3r3|clear-comments-extra-field|set %F%|clear-comments\ta\tx\n|1|-|clear-comments takes 2 tab-separated field'
 	## 20260830 item 18: C answered a directory with a bare "read error". Exit 8
 	## since 20260830b item 22 split I/O out of the usage code. The wording is
@@ -833,10 +833,10 @@ rows=(
 	'debpb|e025-apostrophe-element-check|check -|a: [O\x27Brien]\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a quote in a bare array element; quote it$'
 	'ddjyn|array-tight-comma-splits|set --set-literal=t=[a,b] -|t: 1\n|0|t: [a, b]\n|-'
 	'ddjyp|set-literal-comma-text|set --set-literal=o=rw,noatime --set=e=a, -|o: 1\n|0|o: "rw,noatime"\n\ne: "a,"\n|-'
-	'ddjyq|migrate-comma-list|migrate --from-2x -|x: a,b\ny: a, b\n|0|x: [a, b]\ny: [a, b]\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'ddjyq|migrate-comma-list|migrate --from-2x -|x: a,b\ny: a, b\n|0|x: [a, b]\ny: [a, b]\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
 	'ddjyr|migrate-comma-ambiguous|migrate -|y: a,b\n|7|y: a,b\n|read one way under 2.x and another'
 	## 2.x read `k: s,` as `k: s`, one field with the line after it.
-	'ddrgk|migrate-lone-element|migrate --from-2x -|k: s,\nk: s\n|0|k: s\nk: s\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'ddrgk|migrate-lone-element|migrate --from-2x -|k: s,\nk: s\n|0|k: s\nk: s\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
 	## A comment on a stacked item stays on it, and one among the items stays
 	## among them.
 	'ddhx2|list-item-comment-fmt|fmt -|l:\n\t# first\n\t- a  # one\n\t- b\n|0|l:\n\t# first\n\t- a  # one\n\t- b\n|-'
@@ -912,7 +912,7 @@ rows=(
 	## (2026100115403386).
 	'ddgj0|set-new-block-majority-step|set --set=shell.list.bash.command=bash -|window:\n\t\topacity: 1.0\nwindow:\n\tcolumns: 80\n|0|window:\n\t\topacity: 1.0\nwindow:\n\tcolumns: 80\n\nshell:\n\tlist:\n\t\tbash:\n\t\t\tcommand: bash\n|-'
 	'ddgj1|set-new-block-space-step|set --set=d.e.f=1 -|a:\n  x: 1\nb:\n    y: 1\nc:\n    z: 1\n|0|a:\n  x: 1\nb:\n    y: 1\nc:\n    z: 1\n\nd:\n    e:\n        f: 1\n|-'
-	'dcb0g|sugar-migrate|migrate %W%|-|0|base: Boston\n\tlat: 42\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'dcb0g|sugar-migrate|migrate %W%|-|0|base: Boston\n\tlat: 42\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
 	'dcb0h|sugar-migrate-write|migrate --write %W%|-|0||-'
 	## An unknown escape in double quotes was refused and kept as written, not
 	## read with the pair kept after its `\n` already turned into a newline. A
@@ -944,7 +944,7 @@ rows=(
 	'ddheh|escape-mark-code-read|get - a|a: "caf\xe2\x97\x89U+00E9\xe2\x97\x89 \xe2\x97\x89u+1f600\xe2\x97\x89"\n|0|caf\xc3\xa9 \xf0\x9f\x98\x80\n|-'
 	'ddhej|escape-mark-surrogate|check -|a: "\xe2\x97\x89U+D800\xe2\x97\x89"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 escape .* names no Unicode character'
 	'ddhek|escape-mark-code-name|paths -|"a\xe2\x97\x89U+202E\xe2\x97\x89b": 1\n|0|"a\xe2\x97\x89U+202E\xe2\x97\x89b"\n|-'
-	'ddhem|backslash-u-migrate|migrate -|q: "\\u0041"\n|0|q: "\\u0041"\n##    Format   3\n|-'
+	'ddhem|backslash-u-migrate|migrate -|q: "\\u0041"\n|0|q: "\\u0041"\n##    Format   3.0\n|-'
 	## Every default-ignorable character is escaped, by its code point with at
 	## least four digits. A variation selector after a visible character
 	## stays, and so do a subdivision flag's tags.
@@ -978,13 +978,13 @@ rows=(
 	## read the file's escape names now, and a backslash is text.
 	#'ddhev|path-tab-set|set -|string\ta\tC:\\temp\n|0|a: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n|-'
 	'ddhep|path-text-literal|set -|literal\tx\t"C:\\temp"\n|0|x: "C:\\temp"\n|-'
-	'ddheq|backslash-migrate-same|migrate -|q: "C:\\work"\n|0|q: "C:\\work"\n##    Format   3\n|-'
+	'ddheq|backslash-migrate-same|migrate -|q: "C:\\work"\n|0|q: "C:\\work"\n##    Format   3.0\n|-'
 	## 2026101911300000: a backslash pair 2.x resolved, in a file that doesn't
 	## say it is 2.x, is left and asked about.
 	'de60r|backslash-migrate-ambiguous|migrate -|q: "C:\\\\work"\n|7|q: "C:\\\\work"\n|doesn.t say which it was written for'
 	## 2026102016593100: a value ending in a backslash is written as \" before
 	## the closing quote. The backslash is text, so it reads back as written.
-	'de79q|backslash-before-quote-migrate|migrate --from-2x -|a: x\\ty\\\\z\\q\\\n|0|a: "x\xe2\x97\x89TAB\xe2\x97\x89y\\z\\q\\"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'de79q|backslash-before-quote-migrate|migrate --from-2x -|a: x\\ty\\\\z\\q\\\n|0|a: "x\xe2\x97\x89TAB\xe2\x97\x89y\\z\\q\\"\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
 	'de79r|backslash-before-quote-read|get - a|a: "C:\\temp\\"\n|0|C:\\temp\\\n|-'
 	'de79s|backslash-before-quote-fmt|fmt -|a: "C:\\temp\\"\n|0|a: "C:\\temp\\"\n|-'
 	## 2026100717500002: an op value reads the file's escape names, a tab or a
@@ -1050,10 +1050,10 @@ rows=(
 	## 2026100717500017: with --from-2x, a file whose only change is its stamp
 	## gets this format on that line, so H007's advice does something. Without
 	## it nothing changes. 2026100916475300: migrate writes its stamp there too.
-	'ddqrv|upgrade-restamp|upgrade --from-2x -|p: 1\n##    Format   2\n|0|p: 1\n##    Format   3\n|!nothing to upgrade'
+	'ddqrv|upgrade-restamp|upgrade --from-2x -|p: 1\n##    Format   2\n|0|p: 1\n##    Format   3.0\n|!nothing to upgrade'
 	'ddqrw|upgrade-restamp-unsaid|upgrade -|p: 1\n##    Format   2\n|0|p: 1\n##    Format   2\n|nothing to upgrade'
-	'ddqrt|migrate-restamp|migrate -|port: 80\n##    Format   2\n|0|port: 80\n##    Format   3\n|-'
-	'ddqrz|migrate-restamp-changed|migrate -|x: a,b\n##    Format   2\ny: 1\n|0|x: [a, b]\n##    Format   3\ny: 1\n##    Migrated from SHCL 2.x.\n|-'
+	'ddqrt|migrate-restamp|migrate -|port: 80\n##    Format   2\n|0|port: 80\n##    Format   3.0\n|-'
+	'ddqrz|migrate-restamp-changed|migrate -|x: a,b\n##    Format   2\ny: 1\n|0|x: [a, b]\n##    Format   3.0\ny: 1\n##    Migrated from SHCL 2.x.\n|-'
 	## 2026101407100010: a file naming this format is taken as 2.x only by an
 	## upgrade told --from-2x, and only when it loads with an error. migrate
 	## leaves it, since its text can keep such a line and a second run would
@@ -1161,21 +1161,21 @@ rows=(
 	#'ddj1m|migrate-backslash-as-text|migrate %BS%|-|0|p: \x27C:\\temp\x27\n##    Format   3\n|!.'
 	#'ddj1n|migrate-backslash-write|migrate --write %BS%|-|0|-|migrated, 0 line\(s\) rewritten'
 	#'ddj1p|migrate-backslash-pairs|migrate -|a: "C:\\\\work"\nb: "say \\"hi\\""\nc: C:\\new\n|0|a: "C:\\\\work"\nb: \x27say \\"hi\\"\x27\nc: C:\\new\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
-	'de60q|migrate-backslash-pairs-2x|migrate --from-2x -|a: "C:\\\\work"\nb: "say \\"hi\\""\nc: C:\\new\n|0|a: "C:\\work"\nb: \x27say "hi"\x27\nc: "C:\xe2\x97\x89NEWLINE\xe2\x97\x89ew"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'de60q|migrate-backslash-pairs-2x|migrate --from-2x -|a: "C:\\\\work"\nb: "say \\"hi\\""\nc: C:\\new\n|0|a: "C:\\work"\nb: \x27say "hi"\x27\nc: "C:\xe2\x97\x89NEWLINE\xe2\x97\x89ew"\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
 	## 2026101911300000: the two lines of the report, as 2.x read them, and the
 	## same file refused without --from-2x, since it could be a 3.0 one.
-	'de60n|migrate-2x-read|migrate --from-2x -|p: "C:\\\\new"\nt: C:\\temp\nq: a, b\n|0|p: "C:\\new"\nt: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\nq: [a, b]\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'de60n|migrate-2x-read|migrate --from-2x -|p: "C:\\\\new"\nt: C:\\temp\nq: a, b\n|0|p: "C:\\new"\nt: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\nq: [a, b]\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
 	'de60p|upgrade-2x-read-ambiguous|upgrade -|p: "C:\\\\new"\nt: C:\\temp\nq: a, b\n|7||2 value\(s\) read one way under 2\.x'
 	## A quoted name with a backslash pair read as typed under 1.2 and resolved
 	## under 2.0, so it is kept and counted lost, and the rest still converts.
-	'de60s|migrate-lost-quoted-name|migrate --from-2x -|"n\\ty": 1\nt: C:\\temp\n|7|"n\\ty": 1\nt: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|1 line\(s\) bound a value under 2\.x.*quoted name'
-	'de60t|migrate-lost-quoted-name-lossy|migrate --from-2x --lossy -|"n\\ty": 1\n|0|"n\\ty": 1\n##    Format   3\n|bound a value under 2\.x'
+	'de60s|migrate-lost-quoted-name|migrate --from-2x -|"n\\ty": 1\nt: C:\\temp\n|7|"n\\ty": 1\nt: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|1 line\(s\) bound a value under 2\.x.*quoted name'
+	'de60t|migrate-lost-quoted-name-lossy|migrate --from-2x --lossy -|"n\\ty": 1\n|0|"n\\ty": 1\n##    Format   3.0\n|bound a value under 2\.x'
 	## The 2.x tab went in as it was, since "C:\temp" was E024 (2026100115323227).
 	## It is the TAB escape since 2026100207032800.
 	#'dcq6r|migrate-from-2x|migrate --from-2x %BS%|-|0|p: "C:\\temp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	## 2026-10-05: the backslash stays, and reads as text.
 	## Back since 2026101911300000: the tab 2.x read is written.
-	'ddcef|migrate-from-2x-tab|migrate --from-2x %BS%|-|0|p: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'ddcef|migrate-from-2x-tab|migrate --from-2x %BS%|-|0|p: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
 	## Wrong since 2026101911300000. Don't uncomment.
 	#'ddj1q|migrate-from-2x-backslash|migrate --from-2x %BS%|-|0|p: \x27C:\\temp\x27\n##    Format   3\n|-'
 	## A file that names its format has nothing to migrate, which is what stops
@@ -1218,7 +1218,7 @@ rows=(
 	'ddk53|migrate-lost-list-over-lines|migrate --from-2x -|a: 1, 2\n\tb: 1\n|7|-|: 1 line\(s\) bound a value under 2\.x'
 	## 2026100610073400: a selector goes in parens. One in brackets is E029, so
 	## the line is rewritten without --from-2x too.
-	'ddkep|migrate-selector-parens|migrate -|a[x].k: 1\nb[New York].k: 2\n|0|a(x).k: 1\nb("New York").k: 2\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'ddkep|migrate-selector-parens|migrate -|a[x].k: 1\nb[New York].k: 2\n|0|a(x).k: 1\nb("New York").k: 2\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
 	## 20260909 item 41: telling a file that needs migrating from one that does
 	## not took a diff of the output, and --write said nothing either way.
 	'dcqaa|migrate-check-names|migrate --check %W%|-|6||w\.shcl:1: migrate would rewrite this line'
@@ -1242,7 +1242,7 @@ rows=(
 	## 2026100717500003: printed, the same file exited 0. The text still
 	## prints, since it keeps every line; the exit is what --write gives.
 	## --lossy works without --write on migrate and set now, not on fmt.
-	'ddp0y|migrate-print-refused-lost|migrate %ML%|-|7|list: ["a\\,b", c]\nwin:\n\t\tm: 4\n\tstray: 1\n##    Format   3\n##    Migrated from SHCL 2.x.\n|migrate --write would refuse: the migrated text drops 1 line'
+	'ddp0y|migrate-print-refused-lost|migrate %ML%|-|7|list: ["a\\,b", c]\nwin:\n\t\tm: 4\n\tstray: 1\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|migrate --write would refuse: the migrated text drops 1 line'
 	'ddp0z|migrate-print-lossy|migrate --lossy %ML%|-|0|-|!would refuse'
 	'ddp10|migrate-check-lossy|migrate --check --lossy %ML%|-|6||mlost\.shcl:1: migrate would rewrite this line'
 	'ddp11|fmt-lossy-without-write|fmt --lossy %F%|-|1||only meaningful with --write'
@@ -1262,14 +1262,14 @@ rows=(
 	'dcqaf|migrate-check-write|migrate --check --write %W%|-|1|-|--check cannot be combined with --write'
 	'dcqag|migrate-write-says|migrate --write %W%|-|0||migrated, 1 line\(s\) rewritten'
 	## The Format and Migrated lines end the way most of the file's lines do.
-	'ddc5s|migrate-write-eol-crlf|migrate --write %MC%|-|0||-|base: Boston\r\n\tlat: 42\r\n##    Format   3\r\n##    Migrated from SHCL 2.x.\r\n'
-	'ddc5t|migrate-eol-tie-lf|migrate %MT%|-|0|base: Boston\r\n\tlat: 42\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'ddc5s|migrate-write-eol-crlf|migrate --write %MC%|-|0||-|base: Boston\r\n\tlat: 42\r\n##    Format   3.0\r\n##    Migrated from SHCL 2.x.\r\n'
+	'ddc5t|migrate-eol-tie-lf|migrate %MT%|-|0|base: Boston\r\n\tlat: 42\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
 	## 20261003 item 6: an unterminated last line compared unequal to itself
 	## once the stamp ended it, so --check said 6 and --write kept a copy.
 	'ddg89|migrate-check-no-final-crlf|migrate --check %MN%|-|0||!.'
-	'ddg8a|migrate-write-no-final-crlf|migrate --write %MNW%|-|0||migrated, 0 line\(s\) rewritten$|a: 1\r\nb: 2\r\nc: 3\r\n##    Format   3\r\n'
+	'ddg8a|migrate-write-no-final-crlf|migrate --write %MNW%|-|0||migrated, 0 line\(s\) rewritten$|a: 1\r\nb: 2\r\nc: 3\r\n##    Format   3.0\r\n'
 	'ddg8b|migrate-check-lone-cr-lf|migrate --check %MX%|-|0||!.'
-	'ddg8c|migrate-write-lone-cr-lf|migrate --write %MXW%|-|0||migrated, 0 line\(s\) rewritten$|a: 1\nb: 2\r\n##    Format   3\n'
+	'ddg8c|migrate-write-lone-cr-lf|migrate --write %MXW%|-|0||migrated, 0 line\(s\) rewritten$|a: 1\nb: 2\r\n##    Format   3.0\n'
 	'ddg8d|migrate-check-lone-cr-crlf|migrate --check %MY%|-|0||!.'
 	## 2026100316275800: a raw block that never closes left the file
 	## unstamped at exit 0, so the next run could not tell it was migrated.
@@ -1281,8 +1281,8 @@ rows=(
 	## 2026100313461649: upgrade makes over a file that does not load clean,
 	## keeps the original under the timestamped name, and leaves a clean one
 	## alone. Text that reads two ways is refused at 7 with nothing written.
-	'ddmhh|upgrade-print|upgrade %U2%|-|0|tags: [a, b]\nport: 80\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n|E026'
-	'ddmhj|upgrade-write|upgrade --write %U2W%|-|0|-|upgraded; the original is .*created_backup_20261004-001500_format-v2\.shcl$|tags: [a, b]\nport: 80\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n'
+	'ddmhh|upgrade-print|upgrade %U2%|-|0|tags: [a, b]\nport: 80\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3.0\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n|E026'
+	'ddmhj|upgrade-write|upgrade --write %U2W%|-|0|-|upgraded; the original is .*created_backup_20261004-001500_format-v2\.shcl$|tags: [a, b]\nport: 80\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3.0\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n'
 	'ddmhk|upgrade-write-ambiguous|upgrade --write %UAW%|-|7|-|read one way under 2\.x and another.*--from-2x|a: x,y\nb: "q\n'
 	'ddmhm|upgrade-clean|upgrade --write %NC%|-|0|-|nothing to upgrade'
 	'ddmhn|upgrade-usage-line|upgrade|-|1||^usage: shcl upgrade \[options\] FILE \(see --help\)$'
@@ -1290,7 +1290,7 @@ rows=(
 	'ddmhq|upgrade-check-refused|upgrade --check %UA%|-|1||--check'
 	## With --from-2x a clean file that reads differently once migrated is
 	## made over too; without it, it is left alone.
-	'ddmjg|upgrade-from-2x-clean|upgrade --from-2x %UC%|-|0|p: [a, b]\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n|!.'
+	'ddmjg|upgrade-from-2x-clean|upgrade --from-2x %UC%|-|0|p: [a, b]\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3.0\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n|!.'
 	'ddmjh|upgrade-clean-unsaid|upgrade %UC%|-|0|p: a,b\n|nothing to upgrade'
 	## 20260918 item 18: the usage line said [--write|-w] where the help line
 	## says [options].
@@ -1636,7 +1636,7 @@ rows=(
 	## edits above it, and --no-banner leaves it out. A file that is already
 	## there is never given one. 20260909 item 56: the blank line above the
 	## block, which init's output has and this one used to be missing.
-	'dcc9t|create-info-block|set --write %C% --set=srv.port=8080|-|0|-|-|srv:\n\tport: 8080\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright \xc2\xa9 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n'
+	'dcc9t|create-info-block|set --write %C% --set=srv.port=8080|-|0|-|-|srv:\n\tport: 8080\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3.0\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright \xc2\xa9 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n'
 	'dcc9v|create-no-banner|set --write --no-banner %C% --set=srv.port=8080|-|0|-|-|srv:\n\tport: 8080\n'
 	## 20260909 item 35: set without --write took --no-banner and did nothing with
 	## it, where --lossy in the same spot was refused.
@@ -2779,17 +2779,17 @@ saveCases=(
 	## and puts the new line under the first (2026100307163907).
 	'ddgq5|kept-create|set --write --set a=5 f.shcl|0|cmp -s f.shcl <(printf "x: 1\n# a: [1  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing \x27]\x27 on the line\na: 5\ny: 3\n# a: [2  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing \x27]\x27 on the line\n")'
 	## upgrade --write backs up and writes the same way (2026100313461649).
-	'ddmhr|upgrade|upgrade --write f.shcl|0|grep -qx "base: Boston" f.shcl && grep -qx "##    Format   3" f.shcl && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "base:[Boston]\n\tlat: 42\n") && [[ "$(fStat a f_backup_20261004-001500_format-v2.shcl)" == 640 && "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
+	'ddmhr|upgrade|upgrade --write f.shcl|0|grep -qx "base: Boston" f.shcl && grep -qx "##    Format   3.0" f.shcl && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "base:[Boston]\n\tlat: 42\n") && [[ "$(fStat a f_backup_20261004-001500_format-v2.shcl)" == 640 && "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	'ddmhs|upgrade-taken|upgrade --write f.shcl|8|grep -qx "base:\[Boston\]" f.shcl && [[ "$(cat f_backup_20261004-001500_format-v2.shcl)" == x && "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	'ddmht|upgrade-link|upgrade --write f.shcl|0|[[ -L f.shcl && -f f_backup_20261004-001500_format-v2.shcl && ! -L f_backup_20261004-001500_format-v2.shcl && ! -e real/c_backup_20261004-001500_format-v2.shcl ]] && grep -qx "base: Boston" real/c.shcl && grep -qx "base:\[Boston\]" f_backup_20261004-001500_format-v2.shcl'
 	'ddmhv|fifo-upgrade|upgrade --write f.shcl|8|[[ -p f.shcl ]]'
 	'ddmhw|upgrade-rodir|upgrade --write ro/g.shcl|8|grep -qx "base:\[Boston\]" ro/g.shcl && grep -qiE "^ro/g_backup_20261004-001500_format-v2\.shcl: permission denied" "${tmpDir}/err"'
 	## An older Format line becomes this one, backed up like any upgrade
 	## (2026100717500017) and any migrate that rewrites a line (2026100916475300).
-	'ddqrx|upgrade-restamp|upgrade --write --from-2x f.shcl|0|cmp -s f.shcl <(printf "p: 1\n##    Format   3\n") && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "p: 1\n##    Format   2\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
+	'ddqrx|upgrade-restamp|upgrade --write --from-2x f.shcl|0|cmp -s f.shcl <(printf "p: 1\n##    Format   3.0\n") && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "p: 1\n##    Format   2\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	## The fresh file names one format, and the old line goes even from the top
 	## of the file (2026101407100001).
-	'ddy7x|upgrade-top-format|upgrade --write --from-2x f.shcl|0|[[ "$(grep -c "^##    Format" f.shcl)" == 1 ]] && grep -qx "##    Format   3" f.shcl && grep -qx "q: \[a, b\]" f.shcl && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "##    Format   2\nname: x\nq: a,b\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
+	'ddy7x|upgrade-top-format|upgrade --write --from-2x f.shcl|0|[[ "$(grep -c "^##    Format" f.shcl)" == 1 ]] && grep -qx "##    Format   3.0" f.shcl && grep -qx "q: \[a, b\]" f.shcl && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "##    Format   2\nname: x\nq: a,b\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	## A file naming this format that loads with an error is taken as 2.x when
 	## the caller says so, backed up under the format it names, and a second
 	## run leaves the fresh file alone (2026101407100010).
@@ -2809,7 +2809,7 @@ saveCases=(
 	## found, so upgrade leaves the file alone rather than back it up again on
 	## every run (2026101514324701).
 	'de02s|upgrade-odd-name|upgrade --write f.shcl|0|cmp -s f.shcl <(printf "~x: \x60\x60\x60\n\tbody\n\t\x60\x60\x60\n##    Format   3\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 1 ]] && "${cli}" upgrade --write f.shcl 2>/dev/null && [[ "$(ls -A | wc -l | tr -d " ")" == 1 ]]'
-	'ddqry|migrate-restamp|migrate --write f.shcl|0|cmp -s f.shcl <(printf "port: 80\n##    Format   3\n") && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "port: 80\n##    Format   2\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
+	'ddqry|migrate-restamp|migrate --write f.shcl|0|cmp -s f.shcl <(printf "port: 80\n##    Format   3.0\n") && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "port: 80\n##    Format   2\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	'dd84j|migrate-rodir|migrate --write ro/g.shcl|8|grep -qx "base:\[Boston\]" ro/g.shcl && grep -qiE "^ro/g_backup_20261004-001500_format-v2\.shcl: permission denied" "${tmpDir}/err" && ! grep -q "open " "${tmpDir}/err"'
 )
 if [[ "${onWindows}" == 1 ]]; then
@@ -2931,7 +2931,7 @@ done
 ## later banner on took the comment with the stamp. Run as a user would, one
 ## command after the other on the file, once with the migrated note and once
 ## without it.
-infoBlock="$(printf '%b' '##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright \xc2\xa9 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n')"
+infoBlock="$(printf '%b' '##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3.0\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright \xc2\xa9 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n')"
 banDir="${tmpDir}/banner"
 for bc in 'ddf5t|stamp|p: 1\n## Owner: ops team\n' 'ddf5v|stamp-note|base:[Boston]\n## Owner: ops team\n'; do
 	IFS='|' read -r tid id text <<<"${bc}"

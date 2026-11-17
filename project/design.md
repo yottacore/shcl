@@ -382,6 +382,7 @@ Both points that were left open are settled:
 
 - `set_banner` keeps the line when it's inside the info block, since the author wrote it there and the block is rewritten whole.
 	- The same goes for any line in the block that the block doesn't write, such as an `Owner` line (2026110613470302). The block's own lines are its 2 text lines, the lone `##` lines, and the lines named Format, Home, Syntax, and Legal. A block at the end that already reads as the current one stays as it is, so `banner on` on a current file doesn't change anything, and the line stays in the block.
+	- A `## SHCL format` stamp counts as the block's own, as the note `migrate` writes under the Format line does, since only shcl writes one (2026111708125373). So it comes off with a block, and on its own wherever a lone Format line does. A stamp in a block at the end makes that block read as other than the current one, so `banner on` replaces it.
 
 **Durations and sizes are read-time types, like dates** (2026-09-26). `timeout: 30s` and `cache: 512MB` read as whole milliseconds and whole bytes, so a program never parses a unit itself.
 
