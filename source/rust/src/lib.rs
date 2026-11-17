@@ -2986,6 +2986,32 @@ pub fn read_format_version(text: &str) -> Read<u32> {
 /// is only this names no number.
 const FORMAT_WORD: &str = "##    Format";
 
+/// The stamp's head without the blank before the format, as `FORMAT_WORD` is.
+const STAMP_WORD: &str = "## SHCL format";
+
+/// The major a stamp's format names: `3` as beta1 wrote it, `3.0`, or a pin
+/// such as `3.0-a37`. None when it is none of those. A major too big for 32
+/// bits reads as the largest that fits, a format newer than this one.
+fn stamp_major(n: &str) -> Option<u32> {
+	let (major, rest) = n.split_at(n.find(|c: char| !c.is_ascii_digit()).unwrap_or(n.len()));
+	if major.is_empty() {
+		return None;
+	}
+	if !rest.is_empty() {
+		let minor = rest.strip_prefix('.')?;
+		let (digits, pin) = minor.split_at(minor.find('-').unwrap_or(minor.len()));
+		let pin_ok = pin.is_empty()
+			|| (pin.len() > 1
+				&& pin[1..]
+					.bytes()
+					.all(|c| c.is_ascii_digit() || c.is_ascii_lowercase()));
+		if digits.is_empty() || !digits.bytes().all(|c| c.is_ascii_digit()) || !pin_ok {
+			return None;
+		}
+	}
+	Some(major.parse().unwrap_or(u32::MAX))
+}
+
 /// read_format_version() on text with the BOM already off. Digits that do
 /// not fit 32 bits read as the largest number that does: a format newer than
 /// this one, so the file is left alone like any other newer one.
@@ -3002,7 +3028,7 @@ const FORMAT_WORD: &str = "##    Format";
 /// set reads it outside a block, and only when no line names one.
 fn format_line_read(text: &str) -> Read<u32> {
 	// Most documents have no Format line, and every load asks.
-	if !text.contains(FORMAT_WORD) {
+	if !text.contains(FORMAT_WORD) && !text.contains(STAMP_WORD) {
 		return Read::new(0, Status::NotFound, None);
 	}
 	let mut now = RawLines::new(Rules::Current);
@@ -3016,12 +3042,15 @@ fn format_line_read(text: &str) -> Read<u32> {
 		let Some(rest) = current.or(old) else {
 			continue;
 		};
-		let n = match rest.strip_prefix(FORMAT_LINE_HEAD) {
+		let n = match rest
+			.strip_prefix(FORMAT_LINE_HEAD)
+			.or_else(|| rest.strip_prefix(STAMP_HEAD))
+		{
 			Some(n) => n,
-			None if rest == FORMAT_WORD => "",
+			None if rest == FORMAT_WORD || rest == STAMP_WORD => "",
 			None => continue,
 		};
-		if n.is_empty() || !n.bytes().all(|c| c.is_ascii_digit()) {
+		let Some(v) = stamp_major(n) else {
 			if unread.is_none() {
 				let st = if n.is_empty() {
 					Status::Empty
@@ -3031,10 +3060,7 @@ fn format_line_read(text: &str) -> Read<u32> {
 				unread = Some((st, i + 1, n));
 			}
 			continue;
-		}
-		// Read as this major, a number that doesn't fit would make a file
-		// `upgrade --from-2x` takes for a beta one.
-		let v = n.parse().unwrap_or(u32::MAX);
+		};
 		if v >= FORMAT_MAJOR {
 			if current.is_some() && newest.is_none_or(|(f, _, _)| v > f) {
 				newest = Some((v, i + 1, n));
@@ -16813,6 +16839,46 @@ const BANNER_FIELDS: [&str; 4] = ["Format", "Home", "Syntax", "Legal"];
 /// The banner's Syntax link names the tag that opened this major, and moves
 /// with it.
 pub const FORMAT_MAJOR: u32 = 3;
+
+/// The format minor. A minor adds syntax, and a file of an older minor of
+/// the same major reads the same under it.
+pub const FORMAT_MINOR: u32 = 0;
+
+/// Every format shcl knows, oldest first, as (name, format) rows. A format's
+/// own row comes first, and the rows after it name the other spellings it
+/// goes by: each dev snapshot a consumer pinned, by its commit's first 3
+/// characters, reads as the pin format it falls in. The order is the order
+/// the formats were published in. A release before 3.0 is named for the
+/// earliest version that read it, and pre-releases fold into their release.
+pub const FORMAT_NAMES: [(&str, &str); 19] = [
+	("1.0", "1.0"),
+	("1.1", "1.1"),
+	("2.0", "2.0"),
+	("3.0-1f8", "3.0-1f8"),
+	("3.0-871", "3.0-1f8"),
+	("3.0-30d", "3.0-30d"),
+	("3.0-0c9", "3.0-30d"),
+	("3.0-00f", "3.0-30d"),
+	("3.0-f2a", "3.0-30d"),
+	("3.0-b10", "3.0-b10"),
+	("3.0-f8e", "3.0-f8e"),
+	("3.0-a37", "3.0-a37"),
+	("3.0-231", "3.0-a37"),
+	("3.0-9ef", "3.0-9ef"),
+	("3.0-ea0", "3.0-9ef"),
+	("3.0-a65", "3.0-a65"),
+	("3.0-217", "3.0-a65"),
+	("3.0-a01", "3.0-a65"),
+	("3.0", "3.0"),
+];
+
+/// The start of the stamp a save writes, up to the format's name. Its read
+/// takes `3` as beta1's row wrote it, `3.0`, and a pin such as `3.0-a37`, as
+/// it does after `FORMAT_LINE_HEAD`.
+pub const STAMP_HEAD: &str = "## SHCL format ";
+
+/// The whole stamp for this format.
+pub const STAMP_LINE: &str = "## SHCL format 3.0";
 
 /// The start of the block's version line, up to the number. `migrate` matches
 /// on this and reads the digits after it, so a later major can still tell an

@@ -9,10 +9,10 @@ mod common;
 
 use common::test_id;
 use shcl::{
-	Document, DurationUnit, FORMAT_LINE, FORMAT_LINE_HEAD, FORMAT_MAJOR, Field, MIGRATED_LINE,
-	Rules, SizeUnit, Status, Strictness, Tokens, format_version, generate, migrate,
-	migrate_unstamped, parse_datetime, quote_segment, read_format_version, read_schema_ref,
-	schema_ref, tokenize,
+	Document, DurationUnit, FORMAT_LINE, FORMAT_LINE_HEAD, FORMAT_MAJOR, FORMAT_MINOR,
+	FORMAT_NAMES, Field, MIGRATED_LINE, Rules, STAMP_HEAD, STAMP_LINE, SizeUnit, Status,
+	Strictness, Tokens, format_version, generate, migrate, migrate_unstamped, parse_datetime,
+	quote_segment, read_format_version, read_schema_ref, schema_ref, tokenize,
 };
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -4610,6 +4610,43 @@ fn format_version_caps_at_32_bits() {
 	);
 }
 
+/// The format constants agree with each other, and every name in the format
+/// table reads as its major after either stamp head (2026111702033119).
+#[test]
+fn format_names_read() {
+	let _id = test_id("dfdqv");
+	let current = format!("{}.{}", FORMAT_MAJOR, FORMAT_MINOR);
+	assert_eq!(STAMP_LINE, format!("{}{}", STAMP_HEAD, current));
+	assert_eq!(
+		FORMAT_NAMES[FORMAT_NAMES.len() - 1],
+		(current.as_str(), current.as_str())
+	);
+	let mut seen: Vec<&str> = Vec::new();
+	for (name, format) in FORMAT_NAMES {
+		assert!(!seen.contains(&name), "{} twice", name);
+		assert!(
+			name == format || seen.contains(&format),
+			"{} names {} before its row",
+			name,
+			format
+		);
+		assert_eq!(name.split('-').next(), format.split('-').next(), "{}", name);
+		seen.push(name);
+		let major: u32 = name.split('.').next().unwrap().parse().unwrap();
+		for head in [STAMP_HEAD, FORMAT_LINE_HEAD] {
+			let text = format!("a: 1\n{}{}\n", head, name);
+			let r = read_format_version(&text);
+			assert_eq!(
+				(r.value, r.status, r.line),
+				(major, shcl::Status::Good, 2),
+				"{:?}",
+				text
+			);
+			assert_eq!(r.raw.as_deref(), Some(name), "{:?}", text);
+		}
+	}
+}
+
 /// The Format and Schema lines read with a status, so an unstamped file and a
 /// damaged stamp read apart, and the load's H006 and H007 hints say the same
 /// as the Format read on every row (2026100912352401, 2026100717500017). The
@@ -4663,6 +4700,23 @@ fn stamp_reads_say_why() {
 			2,
 			"H006",
 		),
+		// The format's MAJOR.MINOR form, the stamp a save writes, and a pin's
+		// name read as their major (2026111702033119).
+		("a: 1\n##    Format   3.0\n", 3, Good, 2, ""),
+		("a: 1\n## SHCL format 3.0\n", 3, Good, 2, ""),
+		("## SHCL format 3.0-a37\na: 1\n", 3, Good, 1, ""),
+		("## SHCL format 4.2\n", 4, Good, 1, "H006"),
+		("a:\n\t## SHCL format 2.0\n\tb: 1\n", 2, Good, 2, "H007"),
+		("## SHCL format 1.1\n## SHCL format 3.0\n", 3, Good, 2, ""),
+		("## SHCL format 4294967296.0\n", u32::MAX, Good, 1, "H006"),
+		("a: 1\n## SHCL format\n", 0, Empty, 2, ""),
+		("a: 1\n## SHCL format 3.\n", 0, BadType, 2, ""),
+		("a: 1\n##    Format   3.0-\n", 0, BadType, 2, ""),
+		("a: 1\n## SHCL format 3.0-A37\n", 0, BadType, 2, ""),
+		("a: 1\n## SHCL format .0\n", 0, BadType, 2, ""),
+		("a: 1\n## SHCL format 3-a37\n", 0, BadType, 2, ""),
+		("note: ~~~\n## SHCL format 4.0\n~~~\n", 0, NotFound, 0, ""),
+		("a: 1\n## SHCL Format 3.0\n", 0, NotFound, 0, ""),
 	];
 	for (text, value, status, line, hint) in formats {
 		let r = read_format_version(text);

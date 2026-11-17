@@ -340,6 +340,45 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Every save and every text call that saves writes the stamp, or rewrites the one there.
 		- beta1's `##    Format   3` and the new forms all read.
 	- Estimated effort: Avg
+	- Note: split for its time cap. The constants, name table and reading are child 2026111702033119, which is done. The stamp on every save is child 2026111702033137, Queued.
+
+- Format versions: add the format constants and name table, and read every stamp form
+	- ID: 2026111702033119
+	- Type: Feature
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-020331
+	- Opened by: me
+	- Parent ID: 2026111018212702
+	- Requirements: add a format minor, the stamp's head and line, and the format name table beside `FORMAT_MAJOR`, in all 4 and the C++ interface. beta1's `##    Format   3`, `##    Format   3.0` and `## SHCL format 3.0` all read, as do the format and pin names.
+	- Estimated effort: Avg
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261117: the name table is (name, format) rows, a format's own row first and its pins' names after it, so all 4 bindings and C share one plain shape.
+		- me, 20261117: the read takes any `MAJOR`, `MAJOR.MINOR` or `MAJOR.MINOR-pin`, with the pin in lowercase letters and digits, not only the table's names, so a newer file's minor or pin still reads as its major. The read gives the major only. Refusing a newer minor's save is in 2026111702033137.
+		- me, 20261117: `## SHCL format` naming an older major counts as an older Format line does, for `migrate` and `H007`, until 2026111018212703 adds the steps.
+	- Actual fix: `FORMAT_MINOR`, `FORMAT_NAMES`, `STAMP_HEAD` and `STAMP_LINE` in all 4 and the C++ interface, in each binding's spelling. The Format read takes the stamp's head and the new forms after either head. spec.md and the design doc say so.
+	- Swept: `format_line_read` in Rust and C, `formatLineRead` in Go, `_format_line_read` in Python. The H006 and H007 hints, `restamp` and `upgrade_file` all read through it. `set_banner` and `drop_banners` match `FORMAT_LINE_HEAD` only, which is for 2026111702033137.
+	- Verified: `format_names_read` and the new `stamp_reads_say_why` rows fail in Rust and Python with the minor's dot refused, and pass with the fix. `--backlog-run-quick rust python` and `--backlog-run-quick go c cli` passed, plus check-veneer, the veneer smoke test, cli-regress, the crosscheck over the corpus, `lint-report.bash --check --no-mark` and `test-ids.py check`.
+	- Test case: `format_names_read` (Rust `dfdqv`, Go `dfdqw`, Python `dfdqx`, C `dfdqy`), and the new rows of `stamp_reads_say_why` (`ddqh8`, `ddqh9`, `ddqha`, `ddqhb`).
+	- Acceptance signoff: Self-closed: each form reads in all 4, by test, and nothing that saves changed.
+	- Branch: `nov17-2026111018212702`
+	- Closed: 20261117-022040
+
+- Format versions: write the stamp on every save
+	- ID: 2026111702033137
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-020331
+	- Opened by: me
+	- Parent ID: 2026111018212702
+	- Prereq IDs: 2026111702033119
+	- Requirements: every save and every text call that saves writes `## SHCL format 3.0`, or rewrites the stamp there, in all 4 and the C++ interface. The info block's row becomes `##    Format   3.0`. A stamp naming a newer minor of this major is refused for saves, as `TooNew` is.
+	- Estimated effort: Avg
+	- Note: `set_banner` and its `drop_banners` find a Format line by `FORMAT_LINE_HEAD` only, so they don't yet see a `## SHCL format` stamp. The Format read gives the major only, so a newer minor needs the minor from it too.
 
 - Format versions: find an unstamped file's format, and convert any older one
 	- ID: 2026111018212703

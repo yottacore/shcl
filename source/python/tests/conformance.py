@@ -4252,6 +4252,31 @@ def main():
 	if shcl.format_version("##    Format   4294967296\na: 1\n") != 0xFFFFFFFF:
 		raise SystemExit("format_version: 4294967296 did not read as the 32-bit cap")
 
+	test_id("dfdqx", "format_names_read")
+	# The format constants agree with each other, and every name in the format
+	# table reads as its major after either stamp head. Rust's
+	# format_names_read checks the same.
+	fcurrent = f"{shcl.FORMAT_MAJOR}.{shcl.FORMAT_MINOR}"
+	if shcl.STAMP_HEAD + fcurrent != shcl.STAMP_LINE:
+		raise SystemExit(f"STAMP_LINE {shcl.STAMP_LINE!r}")
+	if shcl.FORMAT_NAMES[-1] != (fcurrent, fcurrent):
+		raise SystemExit(f"last format row {shcl.FORMAT_NAMES[-1]}")
+	fseen: set[str] = set()
+	for fname, fformat in shcl.FORMAT_NAMES:
+		if fname in fseen:
+			raise SystemExit(f"format name {fname} twice")
+		if fname != fformat and fformat not in fseen:
+			raise SystemExit(f"format name {fname} names {fformat} before its row")
+		if fname.split("-")[0] != fformat.split("-")[0]:
+			raise SystemExit(f"format name {fname}: {fformat} is another number")
+		fseen.add(fname)
+		fmajor = int(fname.split(".")[0])
+		for fhead in (shcl.STAMP_HEAD, shcl.FORMAT_LINE_HEAD):
+			fnt = f"a: 1\n{fhead}{fname}\n"
+			fnr = shcl.read_format_version(fnt)
+			if (fnr.value, fnr.status, fnr.line, fnr.raw) != (fmajor, shcl.Status.Good, 2, fname):
+				raise SystemExit(f"read_format_version {fnt!r}: {fnr}")
+
 	test_id("ddqha", "stamp_reads_say_why")
 	# The Format and Schema lines read with a status, so an unstamped file and
 	# a damaged stamp read apart, and the load's H006 and H007 hints say the
@@ -4282,6 +4307,23 @@ def main():
 		("##    Format   3\np: x\n##    Format   4\n", 4, G, 3, "H006"),
 		("##    Format   5\n##    Format   4\n", 5, G, 1, "H006"),
 		("##    Format   2\n##    Format   4\n##    Format   3\n", 4, G, 2, "H006"),
+		# The format's MAJOR.MINOR form, the stamp a save writes, and a pin's
+		# name read as their major (2026111702033119).
+		("a: 1\n##    Format   3.0\n", 3, G, 2, ""),
+		("a: 1\n## SHCL format 3.0\n", 3, G, 2, ""),
+		("## SHCL format 3.0-a37\na: 1\n", 3, G, 1, ""),
+		("## SHCL format 4.2\n", 4, G, 1, "H006"),
+		("a:\n\t## SHCL format 2.0\n\tb: 1\n", 2, G, 2, "H007"),
+		("## SHCL format 1.1\n## SHCL format 3.0\n", 3, G, 2, ""),
+		("## SHCL format 4294967296.0\n", 0xFFFFFFFF, G, 1, "H006"),
+		("a: 1\n## SHCL format\n", 0, E, 2, ""),
+		("a: 1\n## SHCL format 3.\n", 0, BT, 2, ""),
+		("a: 1\n##    Format   3.0-\n", 0, BT, 2, ""),
+		("a: 1\n## SHCL format 3.0-A37\n", 0, BT, 2, ""),
+		("a: 1\n## SHCL format .0\n", 0, BT, 2, ""),
+		("a: 1\n## SHCL format 3-a37\n", 0, BT, 2, ""),
+		("note: ~~~\n## SHCL format 4.0\n~~~\n", 0, NF, 0, ""),
+		("a: 1\n## SHCL Format 3.0\n", 0, NF, 0, ""),
 	):
 		stamp = shcl.read_format_version(ftext)
 		if (stamp.value, stamp.status, stamp.line) != (fvalue, fstatus, fline):

@@ -53,6 +53,8 @@ __all__ = [
 	"DurationUnit",
 	"FORMAT_LINE_HEAD",
 	"FORMAT_MAJOR",
+	"FORMAT_MINOR",
+	"FORMAT_NAMES",
 	"FileStatus",
 	"GEN_BANNER",
 	"LoadError",
@@ -65,6 +67,8 @@ __all__ = [
 	"Read",
 	"Rules",
 	"SCHEMA_LINE_HEAD",
+	"STAMP_HEAD",
+	"STAMP_LINE",
 	"SaveChanged",
 	"SaveExists",
 	"SaveError",
@@ -2758,6 +2762,35 @@ def read_format_version(text: str) -> Read[int]:
 # only this names no number.
 _FORMAT_WORD = "##    Format"
 
+# The stamp's head without the blank before the format, as _FORMAT_WORD is.
+_STAMP_WORD = "## SHCL format"
+
+
+def _stamp_major(n: str) -> int | None:
+	"""The major a stamp's format names: `3` as beta1 wrote it, `3.0`, or a pin
+	such as `3.0-a37`. None when it is none of those. A major too big for 32
+	bits reads as the largest that fits, a format newer than this one."""
+	k = 0
+	while k < len(n) and "0" <= n[k] <= "9":
+		k += 1
+	if k == 0:
+		return None
+	rest = n[k:]
+	if rest:
+		if rest[0] != ".":
+			return None
+		digits, has_pin, pin = rest[1:].partition("-")
+		if not digits or not all("0" <= c <= "9" for c in digits):
+			return None
+		if has_pin and (not pin or not all("0" <= c <= "9" or "a" <= c <= "z" for c in pin)):
+			return None
+	# A number too long for int() - CPython refuses past 4300 digits - is one
+	# no format will ever have (20260918b item 30). Read as this major, a
+	# number that doesn't fit would make a file `upgrade --from-2x` takes for
+	# a beta one.
+	major = n[:k].lstrip("0") or "0"
+	return 0xFFFFFFFF if len(major) > 10 or int(major) > 0xFFFFFFFF else int(major)
+
 
 def _format_line_read(text: str) -> Read[int]:
 	"""read_format_version() on text with the BOM already off. Digits that do
@@ -2775,7 +2808,7 @@ def _format_line_read(text: str) -> Read[int]:
 	has to see it. A line that names no number counts where either rule set
 	reads it outside a block, and only when no line names one."""
 	# Most documents have no Format line, and every load asks.
-	if _FORMAT_WORD not in text:
+	if _FORMAT_WORD not in text and _STAMP_WORD not in text:
 		return Read(0, Status.NotFound, None)
 	now = _RawLines(Rules.Current)
 	then = _RawLines(Rules.V2)
@@ -2790,20 +2823,17 @@ def _format_line_read(text: str) -> Read[int]:
 			continue
 		if rest.startswith(FORMAT_LINE_HEAD):
 			n = rest[len(FORMAT_LINE_HEAD):]
-		elif rest == _FORMAT_WORD:
+		elif rest.startswith(STAMP_HEAD):
+			n = rest[len(STAMP_HEAD):]
+		elif rest in (_FORMAT_WORD, _STAMP_WORD):
 			n = ""
 		else:
 			continue
-		if not n or not all("0" <= c <= "9" for c in n):
+		v = _stamp_major(n)
+		if v is None:
 			if unread is None:
 				unread = Read(0, Status.BadType if n else Status.Empty, n)._at(i + 1, None)
 			continue
-		# A number too long for int() - CPython refuses past 4300 digits - is
-		# one no format will ever have (20260918b item 30). Read as this
-		# major, a number that doesn't fit would make a file
-		# `upgrade --from-2x` takes for a beta one.
-		digits = n.lstrip("0") or "0"
-		v = 0xFFFFFFFF if len(digits) > 10 or int(digits) > 0xFFFFFFFF else int(digits)
 		if v >= FORMAT_MAJOR:
 			if current is not None and (newest is None or v > newest.value):
 				newest = Read(v, Status.Good, n)._at(i + 1, None)
@@ -13316,6 +13346,46 @@ GEN_BANNER = (
 # The banner's Syntax link names the tag that opened this major, and moves with
 # it.
 FORMAT_MAJOR = 3
+
+# The format minor. A minor adds syntax, and a file of an older minor of the
+# same major reads the same under it.
+FORMAT_MINOR = 0
+
+# Every format shcl knows, oldest first, as (name, format) rows. A format's own
+# row comes first, and the rows after it name the other spellings it goes by:
+# each dev snapshot a consumer pinned, by its commit's first 3 characters,
+# reads as the pin format it falls in. The order is the order the formats were
+# published in. A release before 3.0 is named for the earliest version that
+# read it, and pre-releases fold into their release.
+FORMAT_NAMES: tuple[tuple[str, str], ...] = (
+	("1.0", "1.0"),
+	("1.1", "1.1"),
+	("2.0", "2.0"),
+	("3.0-1f8", "3.0-1f8"),
+	("3.0-871", "3.0-1f8"),
+	("3.0-30d", "3.0-30d"),
+	("3.0-0c9", "3.0-30d"),
+	("3.0-00f", "3.0-30d"),
+	("3.0-f2a", "3.0-30d"),
+	("3.0-b10", "3.0-b10"),
+	("3.0-f8e", "3.0-f8e"),
+	("3.0-a37", "3.0-a37"),
+	("3.0-231", "3.0-a37"),
+	("3.0-9ef", "3.0-9ef"),
+	("3.0-ea0", "3.0-9ef"),
+	("3.0-a65", "3.0-a65"),
+	("3.0-217", "3.0-a65"),
+	("3.0-a01", "3.0-a65"),
+	("3.0", "3.0"),
+)
+
+# The start of the stamp a save writes, up to the format's name. Its read takes
+# `3` as beta1's row wrote it, `3.0`, and a pin such as `3.0-a37`, as it does
+# after FORMAT_LINE_HEAD.
+STAMP_HEAD = "## SHCL format "
+
+# The whole stamp for this format.
+STAMP_LINE = "## SHCL format 3.0"
 
 # The start of the block's version line, up to the number. migrate matches on
 # this and reads the digits after it, so a later major can still tell an older

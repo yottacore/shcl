@@ -790,6 +790,22 @@ size_t shcl_tokens_element_count(const shcl_tokens *t);
 #define SHCL_FORMAT_MAJOR 3
 #define SHCL_FORMAT_LINE_HEAD "##    Format   "
 #define SHCL_FORMAT_LINE "##    Format   3"
+// The format minor. A minor adds syntax, and a file of an older minor of the
+// same major reads the same under it.
+#define SHCL_FORMAT_MINOR 0
+// The start of the stamp a save writes, up to the format's name, and the
+// whole stamp for this format. Its read takes `3` as beta1's row wrote it,
+// `3.0`, and a pin such as `3.0-a37`, as it does after SHCL_FORMAT_LINE_HEAD.
+#define SHCL_STAMP_HEAD "## SHCL format "
+#define SHCL_STAMP_LINE "## SHCL format 3.0"
+// Every format shcl knows, oldest first, as {name, format} rows. A format's
+// own row comes first, and the rows after it name the other spellings it goes
+// by: each dev snapshot a consumer pinned, by its commit's first 3
+// characters, reads as the pin format it falls in. The order is the order the
+// formats were published in. A release before 3.0 is named for the earliest
+// version that read it, and pre-releases fold into their release.
+#define SHCL_FORMAT_NAME_COUNT 19
+extern const char *const shcl_format_names[SHCL_FORMAT_NAME_COUNT][2];
 #define SHCL_MIGRATED_LINE "##    Migrated from SHCL 2.x."
 // The start of a line naming the file's schema, written like the Format line,
 // for check and for editors: `##    Schema   ./app.schema.shcl`.
@@ -3769,6 +3785,58 @@ typedef struct { int64_t value; shcl_status status; size_t line; ShclStr digits;
    only this names no number. */
 #define SHCL_FORMAT_WORD "##    Format"
 
+const char *const shcl_format_names[SHCL_FORMAT_NAME_COUNT][2] = {
+	{"1.0", "1.0"},
+	{"1.1", "1.1"},
+	{"2.0", "2.0"},
+	{"3.0-1f8", "3.0-1f8"},
+	{"3.0-871", "3.0-1f8"},
+	{"3.0-30d", "3.0-30d"},
+	{"3.0-0c9", "3.0-30d"},
+	{"3.0-00f", "3.0-30d"},
+	{"3.0-f2a", "3.0-30d"},
+	{"3.0-b10", "3.0-b10"},
+	{"3.0-f8e", "3.0-f8e"},
+	{"3.0-a37", "3.0-a37"},
+	{"3.0-231", "3.0-a37"},
+	{"3.0-9ef", "3.0-9ef"},
+	{"3.0-ea0", "3.0-9ef"},
+	{"3.0-a65", "3.0-a65"},
+	{"3.0-217", "3.0-a65"},
+	{"3.0-a01", "3.0-a65"},
+	{"3.0", "3.0"},
+};
+
+/* The stamp's head without the blank before the format, as SHCL_FORMAT_WORD
+   is. */
+#define SHCL_STAMP_WORD "## SHCL format"
+
+/* The major a stamp's format names: `3` as beta1 wrote it, `3.0`, or a pin
+   such as `3.0-a37`, or -1 when it is none of those. A major too big for 32
+   bits reads as the largest that fits, a format newer than this one. */
+static int64_t stamp_major(ShclStr n) {
+	uint64_t u = 0; int big = 0;
+	size_t k = 0;
+	for (; k < n.n && is_adigit((unsigned char)n.p[k]); k++) {
+		if (!big) { u = u * 10 + (uint64_t)(n.p[k] - '0'); if (u > UINT32_MAX) big = 1; }
+	}
+	if (k == 0) return -1;
+	if (k < n.n) {
+		if (n.p[k] != '.') return -1;
+		size_t d = ++k;
+		while (k < n.n && is_adigit((unsigned char)n.p[k])) k++;
+		if (k == d) return -1;
+		if (k < n.n) {
+			if (n.p[k] != '-' || k + 1 == n.n) return -1;
+			for (k++; k < n.n; k++) {
+				unsigned char c = (unsigned char)n.p[k];
+				if (!is_adigit(c) && (c < 'a' || c > 'z')) return -1;
+			}
+		}
+	}
+	return big ? (int64_t)UINT32_MAX : (int64_t)u;
+}
+
 /* Whether text holds needle anywhere. */
 static int s_has(ShclStr text, ShclStr needle) {
 	if (needle.n == 0) return 1;
@@ -3796,10 +3864,10 @@ static int s_has(ShclStr text, ShclStr needle) {
    A line that names no number counts where either rule set reads it outside a
    block, and only when no line names one. */
 static ShclStamp format_line_read(ShclArena *ta, ShclArena *sc, ShclStr text) {
-	size_t headn = sizeof(SHCL_FORMAT_LINE_HEAD) - 1, start = 0;
+	size_t headn = sizeof(SHCL_FORMAT_LINE_HEAD) - 1, stampn = sizeof(SHCL_STAMP_HEAD) - 1, start = 0;
 	ShclStamp none; none.value = 0; none.status = SHCL_NOT_FOUND; none.line = 0; none.digits = s_empty();
 	/* Most documents have no Format line, and every load asks. */
-	if (!s_has(text, s_lit(SHCL_FORMAT_WORD))) return none;
+	if (!s_has(text, s_lit(SHCL_FORMAT_WORD)) && !s_has(text, s_lit(SHCL_STAMP_WORD))) return none;
 	ShclStamp found = none, newest = none, unread = none;
 	ShclRawLines now, then;
 	raw_lines_init(&now, SHCL_RULES_CURRENT);
@@ -3817,20 +3885,14 @@ static ShclStamp format_line_read(ShclArena *ta, ShclArena *sc, ShclStr text) {
 		if (!(in_now || in_then)) continue;
 		ShclStr n;
 		if (line.n >= headn && memcmp(line.p, SHCL_FORMAT_LINE_HEAD, headn) == 0) n = s_slice(line, headn, line.n);
-		else if (s_eq(line, s_lit(SHCL_FORMAT_WORD))) n = s_empty();
+		else if (line.n >= stampn && memcmp(line.p, SHCL_STAMP_HEAD, stampn) == 0) n = s_slice(line, stampn, line.n);
+		else if (s_eq(line, s_lit(SHCL_FORMAT_WORD)) || s_eq(line, s_lit(SHCL_STAMP_WORD))) n = s_empty();
 		else continue;
-		uint64_t u = 0; int ok = n.n > 0, big = 0;
-		for (size_t k = 0; k < n.n; k++) {
-			if (!is_adigit((unsigned char)n.p[k])) { ok = 0; break; }
-			if (!big) { u = u * 10 + (uint64_t)(n.p[k] - '0'); if (u > UINT32_MAX) big = 1; }
-		}
-		if (!ok) {
+		int64_t v = stamp_major(n);
+		if (v < 0) {
 			if (!unread.line) { unread.status = n.n ? SHCL_BAD_TYPE : SHCL_EMPTY; unread.line = lineno; }
 			continue;
 		}
-		/* Read as this major, a number that doesn't fit would make a file
-		   `upgrade --from-2x` takes for a beta one. */
-		int64_t v = big ? (int64_t)UINT32_MAX : (int64_t)u;
 		if (v >= SHCL_FORMAT_MAJOR) {
 			if (in_now && (!newest.line || v > newest.value)) {
 				newest.value = v; newest.status = SHCL_GOOD; newest.line = lineno; newest.digits = n;

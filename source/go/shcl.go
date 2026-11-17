@@ -3126,6 +3126,46 @@ type openFence struct {
 // this major, and moves with it.
 const FormatMajor = 3
 
+// FormatMinor is the format minor. A minor adds syntax, and a file of an
+// older minor of the same major reads the same under it.
+const FormatMinor = 0
+
+// FormatNames is every format shcl knows, oldest first, as {name, format}
+// rows. A format's own row comes first, and the rows after it name the other
+// spellings it goes by: each dev snapshot a consumer pinned, by its commit's
+// first 3 characters, reads as the pin format it falls in. The order is the
+// order the formats were published in. A release before 3.0 is named for the
+// earliest version that read it, and pre-releases fold into their release.
+var FormatNames = [19][2]string{
+	{"1.0", "1.0"},
+	{"1.1", "1.1"},
+	{"2.0", "2.0"},
+	{"3.0-1f8", "3.0-1f8"},
+	{"3.0-871", "3.0-1f8"},
+	{"3.0-30d", "3.0-30d"},
+	{"3.0-0c9", "3.0-30d"},
+	{"3.0-00f", "3.0-30d"},
+	{"3.0-f2a", "3.0-30d"},
+	{"3.0-b10", "3.0-b10"},
+	{"3.0-f8e", "3.0-f8e"},
+	{"3.0-a37", "3.0-a37"},
+	{"3.0-231", "3.0-a37"},
+	{"3.0-9ef", "3.0-9ef"},
+	{"3.0-ea0", "3.0-9ef"},
+	{"3.0-a65", "3.0-a65"},
+	{"3.0-217", "3.0-a65"},
+	{"3.0-a01", "3.0-a65"},
+	{"3.0", "3.0"},
+}
+
+// StampHead is the start of the stamp a save writes, up to the format's
+// name. Its read takes `3` as beta1's row wrote it, `3.0`, and a pin such as
+// `3.0-a37`, as it does after FormatLineHead.
+const StampHead = "## SHCL format "
+
+// StampLine is the whole stamp for this format.
+const StampLine = "## SHCL format 3.0"
+
 // FormatLineHead is the start of the block's version line, up to the number.
 // Migrate matches on this and reads the digits after it, so a later major can
 // still tell an older file from one of its own.
@@ -3215,6 +3255,49 @@ func ReadFormatVersion(text string) Read[int] {
 // formatWord is the Format line's head without the blanks before the number.
 // A line that is only this names no number.
 const formatWord = "##    Format"
+
+// stampWord is the stamp's head without the blank before the format, as
+// formatWord is.
+const stampWord = "## SHCL format"
+
+// stampMajor is the major a stamp's format names: `3` as beta1 wrote it,
+// `3.0`, or a pin such as `3.0-a37`. ok is false when it is none of those. A
+// major too big for 32 bits reads as the largest that fits, a format newer
+// than this one.
+func stampMajor(n string) (int, bool) {
+	k := 0
+	for k < len(n) && n[k] >= '0' && n[k] <= '9' {
+		k++
+	}
+	if k == 0 {
+		return 0, false
+	}
+	if rest := n[k:]; rest != "" {
+		minor, ok := strings.CutPrefix(rest, ".")
+		if !ok {
+			return 0, false
+		}
+		digits, pin, hasPin := strings.Cut(minor, "-")
+		if digits == "" || (hasPin && pin == "") {
+			return 0, false
+		}
+		for j := 0; j < len(digits); j++ {
+			if digits[j] < '0' || digits[j] > '9' {
+				return 0, false
+			}
+		}
+		for j := 0; j < len(pin); j++ {
+			if (pin[j] < '0' || pin[j] > '9') && (pin[j] < 'a' || pin[j] > 'z') {
+				return 0, false
+			}
+		}
+	}
+	v, err := strconv.Atoi(n[:k])
+	if err != nil || v > math.MaxUint32 {
+		v = math.MaxUint32
+	}
+	return v, true
+}
 
 // SchemaRef is the schema a document's `##    Schema   REF` line names: a
 // path, or a URL for an editor to fetch. ok is false when no line names one,
@@ -3341,7 +3424,7 @@ func opensRaw(rest string, tok *Tokens) openFence {
 // block, and only when no line names one.
 func formatLineRead(text string) Read[int] {
 	// Most documents have no Format line, and every load asks.
-	if !strings.Contains(text, formatWord) {
+	if !strings.Contains(text, formatWord) && !strings.Contains(text, stampWord) {
 		return Read[int]{Status: NotFound}
 	}
 	now := newRawLines(RulesCurrent)
@@ -3359,19 +3442,16 @@ func formatLineRead(text string) Read[int] {
 		}
 		n, ok := strings.CutPrefix(rest, FormatLineHead)
 		if !ok {
-			if rest != formatWord {
+			n, ok = strings.CutPrefix(rest, StampHead)
+		}
+		if !ok {
+			if rest != formatWord && rest != stampWord {
 				continue
 			}
 			n = ""
 		}
-		digits := n != ""
-		for k := 0; k < len(n); k++ {
-			if n[k] < '0' || n[k] > '9' {
-				digits = false
-				break
-			}
-		}
-		if !digits {
+		v, ok := stampMajor(n)
+		if !ok {
 			if unread.Line == 0 {
 				unread = Read[int]{Status: BadType, Raw: &n, Line: i + 1}
 				if n == "" {
@@ -3379,12 +3459,6 @@ func formatLineRead(text string) Read[int] {
 				}
 			}
 			continue
-		}
-		// Read as this major, a number that doesn't fit would make a file
-		// `upgrade --from-2x` takes for a beta one.
-		v, err := strconv.Atoi(n)
-		if err != nil || v > math.MaxUint32 {
-			v = math.MaxUint32
 		}
 		if v >= FormatMajor {
 			if inNow && (newest.Line == 0 || v > newest.Value) {

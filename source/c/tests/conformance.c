@@ -4948,6 +4948,35 @@ int main(int argc, char **argv) {
 		if (shcl_format_version(b, strlen(b)) != SHCL_FORMAT_MAJOR) fail("format_version_caps_at_32_bits", "4294967296 did not read as the current major"); */
 		if (shcl_format_version(b, strlen(b)) != (int64_t)UINT32_MAX) fail("format_version_caps_at_32_bits", "4294967296 did not read as the 32-bit cap");
 	}
+	test_id("dfdqy", "format_names_read");
+	/* The format constants agree with each other, and every name in the
+	   format table reads as its major after either stamp head. Rust's
+	   format_names_read checks the same. */
+	{
+		char cur[32], buf[96];
+		snprintf(cur, sizeof cur, "%d.%d", SHCL_FORMAT_MAJOR, SHCL_FORMAT_MINOR);
+		snprintf(buf, sizeof buf, "%s%s", SHCL_STAMP_HEAD, cur);
+		if (strcmp(buf, SHCL_STAMP_LINE)) fail("format_names_read", SHCL_STAMP_LINE);
+		const char *const *last = shcl_format_names[SHCL_FORMAT_NAME_COUNT - 1];
+		if (strcmp(last[0], cur) || strcmp(last[1], cur)) fail("format_names_read", "the last row is not this format");
+		for (size_t k = 0; k < SHCL_FORMAT_NAME_COUNT; k++) {
+			const char *name = shcl_format_names[k][0], *format = shcl_format_names[k][1];
+			int before = !strcmp(name, format);
+			for (size_t j = 0; j < k; j++) {
+				if (!strcmp(shcl_format_names[j][0], name)) fail("format_names_read", name);
+				if (!strcmp(shcl_format_names[j][0], format)) before = 1;
+			}
+			if (!before) fail("format_names_read", name);
+			if (strcspn(name, "-") != strcspn(format, "-") || strncmp(name, format, strcspn(name, "-"))) fail("format_names_read", name);
+			int64_t major = strtol(name, NULL, 10);
+			const char *heads[2] = {SHCL_STAMP_HEAD, SHCL_FORMAT_LINE_HEAD};
+			for (size_t h = 0; h < 2; h++) {
+				int n = snprintf(buf, sizeof buf, "a: 1\n%s%s\n", heads[h], name);
+				shcl_read_i64 r = shcl_read_format_version(buf, (size_t)n);
+				if (r.value != major || r.status != SHCL_GOOD) fail("format_names_read", buf);
+			}
+		}
+	}
 	test_id("ddqhb", "stamp_reads_say_why");
 	/* The Format and Schema lines read with a status, so an unstamped file and
 	   a damaged stamp read apart, and the load's H006 and H007 hints say the
@@ -4978,6 +5007,23 @@ int main(int argc, char **argv) {
 			{"##    Format   3\np: x\n##    Format   4\n", 4, SHCL_GOOD, 3, "H006"},
 			{"##    Format   5\n##    Format   4\n", 5, SHCL_GOOD, 1, "H006"},
 			{"##    Format   2\n##    Format   4\n##    Format   3\n", 4, SHCL_GOOD, 2, "H006"},
+			/* The format's MAJOR.MINOR form, the stamp a save writes, and a
+			   pin's name read as their major (2026111702033119). */
+			{"a: 1\n##    Format   3.0\n", 3, SHCL_GOOD, 2, ""},
+			{"a: 1\n## SHCL format 3.0\n", 3, SHCL_GOOD, 2, ""},
+			{"## SHCL format 3.0-a37\na: 1\n", 3, SHCL_GOOD, 1, ""},
+			{"## SHCL format 4.2\n", 4, SHCL_GOOD, 1, "H006"},
+			{"a:\n\t## SHCL format 2.0\n\tb: 1\n", 2, SHCL_GOOD, 2, "H007"},
+			{"## SHCL format 1.1\n## SHCL format 3.0\n", 3, SHCL_GOOD, 2, ""},
+			{"## SHCL format 4294967296.0\n", (int64_t)UINT32_MAX, SHCL_GOOD, 1, "H006"},
+			{"a: 1\n## SHCL format\n", 0, SHCL_EMPTY, 2, ""},
+			{"a: 1\n## SHCL format 3.\n", 0, SHCL_BAD_TYPE, 2, ""},
+			{"a: 1\n##    Format   3.0-\n", 0, SHCL_BAD_TYPE, 2, ""},
+			{"a: 1\n## SHCL format 3.0-A37\n", 0, SHCL_BAD_TYPE, 2, ""},
+			{"a: 1\n## SHCL format .0\n", 0, SHCL_BAD_TYPE, 2, ""},
+			{"a: 1\n## SHCL format 3-a37\n", 0, SHCL_BAD_TYPE, 2, ""},
+			{"note: ~~~\n## SHCL format 4.0\n~~~\n", 0, SHCL_NOT_FOUND, 0, ""},
+			{"a: 1\n## SHCL Format 3.0\n", 0, SHCL_NOT_FOUND, 0, ""},
 		};
 		for (size_t k = 0; k < sizeof ft / sizeof ft[0]; k++) {
 			size_t n = strlen(ft[k].text);

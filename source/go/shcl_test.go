@@ -4461,6 +4461,42 @@ func TestFormatVersionCapsAt32Bits(t *testing.T) {
 	}
 }
 
+// TestFormatNamesRead: the format constants agree with each other, and every
+// name in the format table reads as its major after either stamp head. Rust's
+// format_names_read checks the same.
+func TestFormatNamesRead(t *testing.T) {
+	defer testID(t, "dfdqw")
+	current := fmt.Sprintf("%d.%d", FormatMajor, FormatMinor)
+	if StampLine != StampHead+current {
+		t.Errorf("StampLine %q", StampLine)
+	}
+	if last := FormatNames[len(FormatNames)-1]; last != [2]string{current, current} {
+		t.Errorf("last row %v", last)
+	}
+	seen := map[string]bool{}
+	for _, row := range FormatNames {
+		name, format := row[0], row[1]
+		if seen[name] {
+			t.Errorf("%s twice", name)
+		}
+		if name != format && !seen[format] {
+			t.Errorf("%s names %s before its row", name, format)
+		}
+		if strings.Split(name, "-")[0] != strings.Split(format, "-")[0] {
+			t.Errorf("%s: %s is another number", name, format)
+		}
+		seen[name] = true
+		major, _ := strconv.Atoi(strings.Split(name, ".")[0])
+		for _, head := range []string{StampHead, FormatLineHead} {
+			text := "a: 1\n" + head + name + "\n"
+			r := ReadFormatVersion(text)
+			if r.Value != major || r.Status != Good || r.Line != 2 || r.Raw == nil || *r.Raw != name {
+				t.Errorf("%q: read %d %v line %d", text, r.Value, r.Status, r.Line)
+			}
+		}
+	}
+}
+
 // TestStampReadsSayWhy: the Format and Schema lines read with a status, so an
 // unstamped file and a damaged stamp read apart, and the load's H006 and H007
 // hints say the same as the Format read on every row. Rust's
@@ -4497,6 +4533,23 @@ func TestStampReadsSayWhy(t *testing.T) {
 		{"##    Format   3\np: x\n##    Format   4\n", 4, Good, 3, "H006"},
 		{"##    Format   5\n##    Format   4\n", 5, Good, 1, "H006"},
 		{"##    Format   2\n##    Format   4\n##    Format   3\n", 4, Good, 2, "H006"},
+		// The format's MAJOR.MINOR form, the stamp a save writes, and a pin's
+		// name read as their major (2026111702033119).
+		{"a: 1\n##    Format   3.0\n", 3, Good, 2, ""},
+		{"a: 1\n## SHCL format 3.0\n", 3, Good, 2, ""},
+		{"## SHCL format 3.0-a37\na: 1\n", 3, Good, 1, ""},
+		{"## SHCL format 4.2\n", 4, Good, 1, "H006"},
+		{"a:\n\t## SHCL format 2.0\n\tb: 1\n", 2, Good, 2, "H007"},
+		{"## SHCL format 1.1\n## SHCL format 3.0\n", 3, Good, 2, ""},
+		{"## SHCL format 4294967296.0\n", math.MaxUint32, Good, 1, "H006"},
+		{"a: 1\n## SHCL format\n", 0, Empty, 2, ""},
+		{"a: 1\n## SHCL format 3.\n", 0, BadType, 2, ""},
+		{"a: 1\n##    Format   3.0-\n", 0, BadType, 2, ""},
+		{"a: 1\n## SHCL format 3.0-A37\n", 0, BadType, 2, ""},
+		{"a: 1\n## SHCL format .0\n", 0, BadType, 2, ""},
+		{"a: 1\n## SHCL format 3-a37\n", 0, BadType, 2, ""},
+		{"note: ~~~\n## SHCL format 4.0\n~~~\n", 0, NotFound, 0, ""},
+		{"a: 1\n## SHCL Format 3.0\n", 0, NotFound, 0, ""},
 	}
 	for _, c := range formats {
 		r := ReadFormatVersion(c.text)
