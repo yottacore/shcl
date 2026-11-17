@@ -4,3 +4,4 @@ root:
 	list: [a, b]
 
 other: 1  # last
+## SHCL format 3.0

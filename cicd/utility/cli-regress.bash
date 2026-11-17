@@ -482,22 +482,22 @@ rows=(
 	'dbzbc|dup-stdin-schema|check --schema=- -|a: 1\n|1||named only once'
 	'dbzbd|dup-stdin-layer|get --layer=- - a|a: 1\n|1||named only once'
 	## 20260830 item 10: the reference kept a trailing CR on an ops line, the ports stripped it.
-	'dbzbe|ops-line-cr|set %F%|int\tx\t1\r|0|a: 1\n\nx: 1\n|-'
-	'dbzbf|ops-lone-cr|set %F%|int\tx\t1\n\r|0|a: 1\n\nx: 1\n|-'
+	'dbzbe|ops-line-cr|set %F%|int\tx\t1\r|0|a: 1\n\nx: 1\n## SHCL format 3.0\n|-'
+	'dbzbf|ops-lone-cr|set %F%|int\tx\t1\n\r|0|a: 1\n\nx: 1\n## SHCL format 3.0\n|-'
 	## 20260908: one CR comes off an ops line, not two - the second is the value's.
-	'dcb82|ops-double-cr|set %F%|string\tx\tv\r\r\n|0|a: 1\n\nx: "v\xe2\x97\x89CR\xe2\x97\x89"\n|-'
+	'dcb82|ops-double-cr|set %F%|string\tx\tv\r\r\n|0|a: 1\n\nx: "v\xe2\x97\x89CR\xe2\x97\x89"\n## SHCL format 3.0\n|-'
 	## 20260924 item 7: Windows PowerShell 5.1 puts a BOM, or more than one, in
 	## front of text it pipes to a program, and the first op read as unknown.
-	'dd6zf|ops-leading-bom|set %F%|\xef\xbb\xbf\xef\xbb\xbfint\tx\t1\n|0|a: 1\n\nx: 1\n|-'
+	'dd6zf|ops-leading-bom|set %F%|\xef\xbb\xbf\xef\xbb\xbfint\tx\t1\n|0|a: 1\n\nx: 1\n## SHCL format 3.0\n|-'
 	## 20260830 item 14: Python raised a traceback, C exited nonzero. POSIX-only:
 	## the row closes fd 0, and windows has no equivalent a shell can set up.
-	'dbzbg|closed-stdin|fmt -|@closedin|0||^$'
+	'dbzbg|closed-stdin|fmt -|@closedin|0|## SHCL format 3.0\n|^$'
 	'dbzbh|closed-stdout|fmt %F%|@closedout|0|-|^$'
 	## 2026101514324710: an ops script on a stdin that isn't attached is empty,
 	## as a document there is. Go and Python exited 8 on a write-only one, and
 	## Python named it stdout.
-	'de132|ops-closed-stdin|set %F%|@closedin|0|a: 1\n|='
-	'de133|ops-write-only-stdin|set %F%|@wronlyin|0|a: 1\n|='
+	'de132|ops-closed-stdin|set %F%|@closedin|0|a: 1\n## SHCL format 3.0\n|='
+	'de133|ops-write-only-stdin|set %F%|@wronlyin|0|a: 1\n## SHCL format 3.0\n|='
 	## 2026101514324710: bad UTF-8 on stdin is the same message in all 4. Go and
 	## Python said `invalid UTF-8` for an ops script and named a document `-`.
 	'de134|ops-stdin-not-utf8|set %F%|int\tx\t\xff\n|8||=stdin: stream did not contain valid UTF-8\n'
@@ -507,11 +507,11 @@ rows=(
 	## 20260830 item 16: C dropped the line number and the offending op.
 	'dbzbj|bad-op-unknown|set %F%|bogus\ta\t1\n|1|-|op line 1: unknown op: bogus'
 	## 20260925: the banner op takes on or off where other ops take a path.
-	'dd3r1|banner-on-off|set %F%|banner\ton\nbanner\toff\n|0|a: 1\n|-'
+	'dd3r1|banner-on-off|set %F%|banner\ton\nbanner\toff\n|0|a: 1\n## SHCL format 3.0\n|-'
 	'dd3r2|banner-bad-value|set %F%|banner\tmaybe\n|1|-|op line 1: bad banner: maybe \(on or off\) \(see --help\)$'
 	## 2026100307163904: banner took the file's own comments written against
 	## the block with it, at exit 0.
-	'ddf5r|banner-off-keeps-own-comments|set %BN%|banner\toff\n|0|port: 1\n\n## Ops team: do not edit by hand.\n## Pager: 555-0100\n|-'
+	'ddf5r|banner-off-keeps-own-comments|set %BN%|banner\toff\n|0|port: 1\n\n## Ops team: do not edit by hand.\n## Pager: 555-0100\n## SHCL format 3.0\n|-'
 	'ddf5s|banner-on-keeps-own-comments|set %BN%|banner\ton\n|0|port: 1\n\n## Ops team: do not edit by hand.\n## Pager: 555-0100\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3.0\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright \xc2\xa9 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n|-'
 	'dd3r3|clear-comments-extra-field|set %F%|clear-comments\ta\tx\n|1|-|clear-comments takes 2 tab-separated field'
 	## 20260830 item 18: C answered a directory with a bare "read error". Exit 8
@@ -636,10 +636,10 @@ rows=(
 	'dbzrg|set-diags-without-write|set --set=a=2 %B%|-|0|-|E015 missing colon'
 	## 20260804: given a --set, set takes its edits from the options and leaves
 	## stdin alone, or a set run from a terminal would sit waiting on it.
-	'dd5gy|set-option-skips-stdin|set --set=a=2 %F%|int\tx\t7\n|0|a: 2\n|-'
+	'dd5gy|set-option-skips-stdin|set --set=a=2 %F%|int\tx\t7\n|0|a: 2\n## SHCL format 3.0\n|-'
 	## 20260829 item 6: --set split PATH from VALUE at the first '=' anywhere, so
 	## a selector holding one could not be addressed at all.
-	'dbzrh|set-eq-in-selector|set --set=x(a=b).c=1 %X%|-|0|x(a=b):\n\tc: 1\n|-'
+	'dbzrh|set-eq-in-selector|set --set=x(a=b).c=1 %X%|-|0|x(a=b):\n\tc: 1\n## SHCL format 3.0\n|-'
 	## 20260905 item 3: a quote anywhere in the path was read as opening a quoted
 	## piece, so an apostrophe in a bare selector left every later '=' looking
 	## quoted and the option was refused while get on the same path worked.
@@ -647,64 +647,64 @@ rows=(
 	## two are refused; the quoted rows below take their place.
 	#"dc81c|set-quote-in-selector|set --set=srv[O'Brien].port=9 %Q%|-|0|srv[\"O'Brien\"]:\n\tport: 9\n|-"
 	#"dc81d|set-default-quote-in-selector|set --set-default=srv[O'Brien].port=9 %Q%|-|0|srv[\"O'Brien\"]:\n\tport: 0\n|-"
-	"ddhwp|set-quoted-quote-in-selector|set --set=srv(\"O'Brien\").port=9 %Q%|-|0|srv(\"O'Brien\"):\n\tport: 9\n|-"
-	"ddhwq|set-default-quoted-quote-in-selector|set --set-default=srv(\"O'Brien\").port=9 %Q%|-|0|srv(\"O'Brien\"):\n\tport: 0\n|-"
+	"ddhwp|set-quoted-quote-in-selector|set --set=srv(\"O'Brien\").port=9 %Q%|-|0|srv(\"O'Brien\"):\n\tport: 9\n## SHCL format 3.0\n|-"
+	"ddhwq|set-default-quoted-quote-in-selector|set --set-default=srv(\"O'Brien\").port=9 %Q%|-|0|srv(\"O'Brien\"):\n\tport: 0\n## SHCL format 3.0\n|-"
 	"ddhwr|set-bare-quote-in-selector-refused|set --set=srv(O'Brien).port=9 %Q%|-|1||not a usable path"
-	"dc81a|set-quoted-selector-eq|set --set=x(\"k)=v\").d=2 %X%|-|0|x(a=b):\n\tc: 0\n\nx: \"k)=v\"\n\td: 2\n|-"
+	"dc81a|set-quoted-selector-eq|set --set=x(\"k)=v\").d=2 %X%|-|0|x(a=b):\n\tc: 0\n\nx: \"k)=v\"\n\td: 2\n## SHCL format 3.0\n|-"
 	## set writes back the lines its edits leave alone, printing or in place,
 	## where fmt writes the canonical form.
-	'dd3ta|set-keeps-lines|set %K% --set=block.a=2|-|0|# note\nName:   "x"   # c\nblock:\n    a: 2\n|-'
-	'dd3tb|set-write-keeps-lines|set --write %K% --set=block.b=3|-|0|-|-|# note\nName:   "x"   # c\nblock:\n    a: 1\n    b: 3\n'
-	'dd3tc|fmt-write-rewrites-all|fmt --write %K%|-|0|-|-|# note\nname: "x"  # c\nblock:\n\ta: 1\n'
+	'dd3ta|set-keeps-lines|set %K% --set=block.a=2|-|0|# note\nName:   "x"   # c\nblock:\n    a: 2\n## SHCL format 3.0\n|-'
+	'dd3tb|set-write-keeps-lines|set --write %K% --set=block.b=3|-|0|-|-|# note\nName:   "x"   # c\nblock:\n    a: 1\n    b: 3\n## SHCL format 3.0\n'
+	'dd3tc|fmt-write-rewrites-all|fmt --write %K%|-|0|-|-|# note\nname: "x"  # c\nblock:\n\ta: 1\n## SHCL format 3.0\n'
 	## A new line ends the way most of the file's lines do, not its first.
-	'ddb4v|set-write-eol-mostly-crlf|set --write %KM% --set=d=4|-|0|-|-|a: 1\nb: 2\r\nc: 3\r\n\r\nd: 4\r\n'
-	'ddb4w|set-write-eol-mostly-lf|set --write %KN% --set=d=4|-|0|-|-|a: 1\r\nb: 2\nc: 3\n\nd: 4\n'
+	'ddb4v|set-write-eol-mostly-crlf|set --write %KM% --set=d=4|-|0|-|-|a: 1\nb: 2\r\nc: 3\r\n\r\nd: 4\r\n## SHCL format 3.0\r\n'
+	'ddb4w|set-write-eol-mostly-lf|set --write %KN% --set=d=4|-|0|-|-|a: 1\r\nb: 2\nc: 3\n\nd: 4\n## SHCL format 3.0\n'
 	## A changed line keeps its own, a raw block turned scalar too.
-	'ddc5p|set-write-eol-raw-to-scalar|set --write %KR% --set=r=9|-|0|-|-|x: 1\ny: 2\nr: 9\r\nz: 3\n'
+	'ddc5p|set-write-eol-raw-to-scalar|set --write %KR% --set=r=9|-|0|-|-|x: 1\ny: 2\nr: 9\r\nz: 3\n## SHCL format 3.0\n'
 	## No final newline stays none, whichever way the new last line ended.
-	'ddc5q|set-write-eol-no-final-crlf|set --write %KT% --remove=z|-|0|-|-|a: 1\r\nb: 2\nc: 3\nx: 0'
-	'ddc5r|set-write-eol-no-final-lf|set --write %KU% --remove=z|-|0|-|-|a: 1\r\nb: 2\r\nc: 3\r\nx: 0'
+	'ddc5q|set-write-eol-no-final-crlf|set --write %KT% --remove=z|-|0|-|-|a: 1\r\nb: 2\nc: 3\nx: 0\n## SHCL format 3.0\n'
+	'ddc5r|set-write-eol-no-final-lf|set --write %KU% --remove=z|-|0|-|-|a: 1\r\nb: 2\r\nc: 3\r\nx: 0\r\n## SHCL format 3.0\r\n'
 	## A dropped line refuses the write only when the save falls back to
 	## canonical. Removing margin would put stray under window, so that one does.
-	'dd4xj|set-write-keeps-dropped|set --write %KL% --set=font.size=13|-|0|-|E012|font:\n\tsize: 13\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n'
+	'dd4xj|set-write-keeps-dropped|set --write %KL% --set=font.size=13|-|0|-|E012|font:\n\tsize: 13\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n## SHCL format 3.0\n'
 	'dd4xk|set-write-fallback-refused|set --write %KL% --remove=window.margin|-|7|-|would delete 1 line|font:\n\tsize: 12\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n'
 	## 20260926 item 1: a rewritten line took a dropped line with it at exit
 	## 0, an element under a field with a value or an E018 line between two
 	## lines of one block. The element is kept now (E011, 2026102821334870),
 	## so the rewrite keeps it too.
-	'dd6wm|set-write-keeps-dropped-element|set --write %KE% --set=val=9|-|0|-|!would delete|val: 9\n\t- e\nz: 2\n'
+	'dd6wm|set-write-keeps-dropped-element|set --write %KE% --set=val=9|-|0|-|!would delete|val: 9\n\t- e\nz: 2\n## SHCL format 3.0\n'
 	## 2026102820592074: an E011 item after a kept line under an E028 array line
 	## moved that line to the root, above the array line.
-	'dektp|fmt-keeps-line-under-array-line|fmt -|srv.srv: 2\nsrv: [v1]\n\t* 7\n\t- 0\n\tc: 1\n|0|srv: [v1]\n\tsrv: 2\n\t* 7\n\t- 0\n\tc: 1\n|E028'
+	'dektp|fmt-keeps-line-under-array-line|fmt -|srv.srv: 2\nsrv: [v1]\n\t* 7\n\t- 0\n\tc: 1\n|0|srv: [v1]\n\tsrv: 2\n\t* 7\n\t- 0\n\tc: 1\n## SHCL format 3.0\n|E028'
 	## 2026102821334970: an index that selects no instance is kept (E003), so a
 	## save loses nothing. A dotted line onto items through an index stays as
 	## written, where it used to go out as a comment.
-	'deky3|fmt-keeps-index-no-instance|fmt -|a: 1\na(5).b: 2\nz: 1\n|0|a: 1\na(5).b: 2\nz: 1\n|E003'
-	'deky4|fmt-check-keeps-index-no-instance|fmt --check -|a: 1\na(5).b: 2\nz: 1\n|0||!would refuse'
-	'deky5|fmt-keeps-dotted-line-onto-items|fmt -|srv:\n\t- a\nsrv(0).tls: on\n|0|srv:\n\t- a\nsrv(0).tls: on\n|E001'
+	'deky3|fmt-keeps-index-no-instance|fmt -|a: 1\na(5).b: 2\nz: 1\n|0|a: 1\na(5).b: 2\nz: 1\n## SHCL format 3.0\n|E003'
+	'deky4|fmt-check-keeps-index-no-instance|fmt --check -|a: 1\na(5).b: 2\nz: 1\n## SHCL format 3.0\n|0||!would refuse'
+	'deky5|fmt-keeps-dotted-line-onto-items|fmt -|srv:\n\t- a\nsrv(0).tls: on\n|0|srv:\n\t- a\nsrv(0).tls: on\n## SHCL format 3.0\n|E001'
 	## 20260926 idea 2: a save meant to keep the lines that rewrote the whole
 	## file said nothing.
-	'dd71c|set-write-says-canonical|set --write %KF% --set=b=3|-|0|-|rewritten in the canonical form|a:\n\tx: 1\n\ty: 1\nb: 3\n'
+	'dd71c|set-write-says-canonical|set --write %KF% --set=b=3|-|0|-|rewritten in the canonical form|a:\n\tx: 1\n\ty: 1\nb: 3\n## SHCL format 3.0\n'
 	## The kept line before a dotted line now sits level with its first name
 	## (2026100213205957), so this save keeps its lines, the dropped one too.
 	#'dd6wn|set-write-keeps-dropped-between|set --write %KG% --set=x=v|-|7|-|would delete 1 line|x[*]: [1, 2\n x:\nx.a: 2\n'
-	'dddqs|set-write-keeps-dropped-gap|set --write %KG% --set=x=v|-|0|-|-|x(*): [1, 2\n x:\nx: v\n a: 2\n'
+	'dddqs|set-write-keeps-dropped-gap|set --write %KG% --set=x=v|-|0|-|-|x(*): [1, 2\n x:\nx: v\n a: 2\n## SHCL format 3.0\n'
 	'dddqt|set-write-gap-fallback-refused|set --write %KG% --set=x.b=1|-|7|-|would delete 1 line|x(*): [1, 2\n x:\nx.a: 2\n'
 	## 2026100717500003: without --write, set printed the canonical text with
 	## the dropped line gone, at exit 0, where --write refused. The print now
 	## answers as --write does, so `set f ... > f.new && mv f.new f` is safe.
-	'ddp0q|set-print-refused-element|set %KE% --set=val=9|-|0|val: 9\n\t- e\nz: 2\n|!refusing|val: 1\n\t- e\nz: 2\n'
+	'ddp0q|set-print-refused-element|set %KE% --set=val=9|-|0|val: 9\n\t- e\nz: 2\n## SHCL format 3.0\n|!refusing## SHCL format 3.0\n|val: 1\n\t- e\nz: 2\n'
 	'ddp0r|set-print-fallback-refused|set %KL% --remove=window.margin|-|7||refusing to print: this result would delete 1 line|font:\n\tsize: 12\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n'
-	'ddp0s|set-print-lossy|set --lossy %KE% --set=val=9|-|0|val: 9\n\t- e\nz: 2\n|!canonical form|val: 1\n\t- e\nz: 2\n'
-	'ddp0t|set-print-keeps-dropped|set %KL% --set=font.size=13|-|0|font:\n\tsize: 13\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n|!canonical|-'
-	'ddp0v|set-print-says-canonical|set %KF% --set=b=3|-|0|a:\n\tx: 1\n\ty: 1\nb: 3\n|printed in the canonical form|-'
+	'ddp0s|set-print-lossy|set --lossy %KE% --set=val=9|-|0|val: 9\n\t- e\nz: 2\n## SHCL format 3.0\n|!canonical form## SHCL format 3.0\n|val: 1\n\t- e\nz: 2\n'
+	'ddp0t|set-print-keeps-dropped|set %KL% --set=font.size=13|-|0|font:\n\tsize: 13\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n## SHCL format 3.0\n|!canonical## SHCL format 3.0\n|-'
+	'ddp0v|set-print-says-canonical|set %KF% --set=b=3|-|0|a:\n\tx: 1\n\ty: 1\nb: 3\n## SHCL format 3.0\n|printed in the canonical form|-'
 	## A layer under FILE is a merge, which keeps no lines, so a lost line
 	## anywhere refuses, and --lossy prints with no word about keeping them.
 	'ddp0w|set-print-layer-refused|set --set=q=1 --layer=%F% %KL%|-|7||refusing to print|-'
 	'ddp0x|set-print-layer-lossy|set --lossy --set=q=1 --layer=%F% %KL%|-|0|-|!canonical form|-'
 	## 2026102821530643: the layer's kept item stays in the block it sat in,
 	## where it went to the root, above the field.
-	'dekz5|set-layer-keeps-kept-line-in-block|set --set=q=1 --layer=%KE% %KE%|-|0|val: 1\n\t- e\n\t- e\nz: 2\n\nq: 1\n|-'
+	'dekz5|set-layer-keeps-kept-line-in-block|set --set=q=1 --layer=%KE% %KE%|-|0|val: 1\n\t- e\n\t- e\nz: 2\n\nq: 1\n## SHCL format 3.0\n|-'
 	"dc81b|set-open-quote-refused|set --set=a(\"open=1 %X%|-|1|-|bad --set value"
 	## 20260909 item 13: a value built by a setter or a selector read as
 	## unquoted, so quoted thousands were BadType until a save and reload.
@@ -725,16 +725,16 @@ rows=(
 	'ddx02|loose-bare-thousands-text|get --int --strictness=loose - p|p: 1,200\n|4|0\n|not a valid int'
 	'ddx03|strict-quoted-thousands-text|get --int --strictness=strict - p|p: "1,200"\n|4|0\n|not a valid int'
 	## A bare one stays bare through fmt and a setter, so it reads as text after a save too.
-	"ddx04|fmt-keeps-bare-thousands|fmt -|p: 80,443\nq: \$1,200.50\n|0|p: 80,443\nq: \$1,200.50\n|-"
-	'ddx05|set-keeps-bare-thousands|set --set=p=1,200 -|a: 1\n|0|a: 1\n\np: 1,200\n|-'
+	"ddx04|fmt-keeps-bare-thousands|fmt -|p: 80,443\nq: \$1,200.50\n|0|p: 80,443\nq: \$1,200.50\n## SHCL format 3.0\n|-"
+	'ddx05|set-keeps-bare-thousands|set --set=p=1,200 -|a: 1\n|0|a: 1\n\np: 1,200\n## SHCL format 3.0\n|-'
 	'ddx07|loose-set-thousands-text|get --int --strictness=loose --set=a=1,000 %F% a|-|4|0\n|not a valid int'
 	## 2026101514324702: over a quoted value too, whatever its quote kind.
-	"de033|set-thousands-over-quoted|set --set=p=1,200 --set=q=\$1,200 -|p: \"x\"\nq: \`x\`\n|0|p: 1,200\nq: \$1,200\n|-"
+	"de033|set-thousands-over-quoted|set --set=p=1,200 --set=q=\$1,200 -|p: \"x\"\nq: \`x\`\n|0|p: 1,200\nq: \$1,200\n## SHCL format 3.0\n|-"
 	'de034|loose-set-thousands-over-quoted|get --int --strictness=loose --set=p=1,200 - p|p: "x"\n|4|0\n|not a valid int'
 	## 2026101318521195: a trailing `.` is fine on one, a leading one is not.
 	'ddxep|loose-quoted-thousands-dot-int|get --int --strictness=loose - p|p: "1,200."\n|0|1200\n|-'
 	"ddxeq|loose-quoted-money-dot-pct|get --float --strictness=loose - p|p: \"\$1,200.%\"\n|0|12\n|-"
-	'ddxer|fmt-keeps-bare-thousands-dot|fmt -|p: 1,200.\n|0|p: 1,200.\n|-'
+	'ddxer|fmt-keeps-bare-thousands-dot|fmt -|p: 1,200.\n|0|p: 1,200.\n## SHCL format 3.0\n|-'
 	'ddxes|standard-quoted-thousands-dot|get --float - p|p: "1,200."\n|4|0\n|not a valid float'
 	'ddxet|loose-leading-dot-thousands-text|get --float --strictness=loose - p|p: ".1,200"\n|4|0\n|not a valid float'
 	## 3.0: bracket text after the colon is one outcome, kept verbatim. The
@@ -760,7 +760,7 @@ rows=(
 	'dct45|schema-text-v093|check --schema=%SM% %DL%|-|6|-|V093 bad schema path: d\."x◉NEWLINE◉y"\.$'
 	## A bracket array is the array spelling now, not E019 (2026100207032800).
 	'dc81j|bracket-array-check|check %BA%|-|0|ok (0 diagnostic(s))\n|-'
-	'dcb0f|bracket-array-write-kept|fmt --write %BA%|-|0||-'
+	'dcb0f|bracket-array-write-kept|fmt --write %BW%|-|0||-'
 	## The line under bracket text loads now (2026100115403384), so these two
 	## no longer hold: no E018, nothing lost, and the write goes through.
 	#'dc81m|sugar-check|check %W%|-|6|line 1: Error: E019\nline 2: Error: E018\nfailed: 2 diagnostic(s), 2 error(s)\n|-'
@@ -771,23 +771,23 @@ rows=(
 	'ddceb|sugar-check-block|check %W%|-|6|line 1: Error: E028\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E028 an array on a field with lines under it; the field takes one plain value or none$'
 	'ddcec|sugar-block-read|get %W% base.lat|-|0|42\n|-'
 	'ddced|sugar-write-kept|fmt --write %W%|-|0||-'
-	'dddqq|kept-under-kept-fmt|fmt -|a: [1\n\tb: [2\n|0|a: [1\n\tb: [2\n|-'
-	'dddqr|kept-before-dotted-fmt|fmt -|k: [3\nm.n: 2\n|0|k: [3\nm:\n\tn: 2\n|-'
+	'dddqq|kept-under-kept-fmt|fmt -|a: [1\n\tb: [2\n|0|a: [1\n\tb: [2\n## SHCL format 3.0\n|-'
+	'dddqr|kept-before-dotted-fmt|fmt -|k: [3\nm.n: 2\n|0|k: [3\nm:\n\tn: 2\n## SHCL format 3.0\n|-'
 	## A comment between nested kept lines nests with them (2026100218185700).
-	'ddgj2|comment-under-kept-fmt|fmt -|a: [1\n\t# note\n\tb: [2\n|0|a: [1\n\t# note\n\tb: [2\n|-'
-	'ddgj3|comment-under-kept-in-block-fmt|fmt -|x:\n  a: [1\n    # note\n    b: [2\n  c: 1\n|0|x:\n\ta: [1\n\t\t# note\n\t\tb: [2\n\tc: 1\n|-'
+	'ddgj2|comment-under-kept-fmt|fmt -|a: [1\n\t# note\n\tb: [2\n|0|a: [1\n\t# note\n\tb: [2\n## SHCL format 3.0\n|-'
+	'ddgj3|comment-under-kept-in-block-fmt|fmt -|x:\n  a: [1\n    # note\n    b: [2\n  c: 1\n|0|x:\n\ta: [1\n\t\t# note\n\t\tb: [2\n\tc: 1\n## SHCL format 3.0\n|-'
 	## A new field at the end of a block goes after the kept lines that end it,
 	## not above them (2026100117214802).
-	'ddghw|set-new-key-after-kept-end|set --set=b=1 -|x: 1\na:   [1\n# end\n|0|x: 1\na:   [1\n\nb: 1\n# end\n|-'
-	'ddghx|set-new-key-after-kept-in-block|set --set=s.b=1 -|s:\n    a:   [1\n    # c\n|0|s:\n    a:   [1\n    b: 1\n    # c\n|-'
+	'ddghw|set-new-key-after-kept-end|set --set=b=1 -|x: 1\na:   [1\n# end\n|0|x: 1\na:   [1\n\nb: 1\n# end\n## SHCL format 3.0\n|-'
+	'ddghx|set-new-key-after-kept-in-block|set --set=s.b=1 -|s:\n    a:   [1\n    # c\n|0|s:\n    a:   [1\n    b: 1\n    # c\n## SHCL format 3.0\n|-'
 	## A set whose new instance folds into an old one leaves the kept lines
 	## where they were, and a kept line of a stacked list's name among its
 	## items is commented out on the first set (2026110312163204, 05).
-	'detsf|set-fold-keeps-kept-lines|set --set=a.b(z)=y -|a:\n\tb: y\n\tc: 1\n\t- 1\n|0|a:\n\tb: y\n\tc: 1\n\t- 1\n|-'
-	'detsg|set-stacked-kept-name-once|set --set=a=1 -|a:\n\t- 1\n\ta: [1, 2\n\t- 2\n|0|# a: [1, 2  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing \x27]\x27 on the line\na: 1\n|-'
+	'detsf|set-fold-keeps-kept-lines|set --set=a.b(z)=y -|a:\n\tb: y\n\tc: 1\n\t- 1\n|0|a:\n\tb: y\n\tc: 1\n\t- 1\n## SHCL format 3.0\n|-'
+	'detsg|set-stacked-kept-name-once|set --set=a=1 -|a:\n\t- 1\n\ta: [1, 2\n\t- 2\n|0|# a: [1, 2  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing \x27]\x27 on the line\na: 1\n## SHCL format 3.0\n|-'
 	## A load that folds 2 instances of one name and value leaves the kept
 	## lines read beside the later one where they were (2026110315051536).
-	'devrb|fmt-fold-keeps-kept-lines|fmt -|a:\n\tb: y\n\tc: 1\n\t- 1\n\tb: y\n\td: 2\nb: y\nc: 1\nq: [1\nb: y\n|0|a:\n\tb: y\n\tc: 1\n\t- 1\n\td: 2\nb: y\nc: 1\nq: [1\n|-'
+	'devrb|fmt-fold-keeps-kept-lines|fmt -|a:\n\tb: y\n\tc: 1\n\t- 1\n\tb: y\n\td: 2\nb: y\nc: 1\nq: [1\nb: y\n|0|a:\n\tb: y\n\tc: 1\n\t- 1\n\td: 2\nb: y\nc: 1\nq: [1\n## SHCL format 3.0\n|-'
 	## Arrays are written in brackets, and a list item is `- ` then one value
 	## (2026100207032800). Each error names what is wrong.
 	'ddhny|array-e019-text-after|check -|log: [INFO] started\n|6|line 1: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E019 malformed array, text after .\].; quote the value if it is text$'
@@ -799,7 +799,7 @@ rows=(
 	'ddhp4|list-e027-name|check -|a:\n\t- name:\n|6|line 2: Error: E027\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E027 a list item with a colon then a space or the end; write a list of objects as instances, or quote the item if it is text$'
 	'ddhp5|list-e019-nested|check -|a:\n\t- [x]\n|6|line 2: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E019 a list item is one value, and arrays don.t nest; quote the item if it is text$'
 	'ddhp9|h001-suggests-brackets|check -|x: a\nx: b\n|0|line 2: Hint: H001\nok (1 diagnostic(s))\n|did you mean .x: \[a, b\].\?$'
-	'ddhpa|fmt-keeps-stacked|fmt -|a:\n  - x\n  - "y z"\nb: [1,2]\n|0|a:\n\t- x\n\t- "y z"\nb: [1, 2]\n|-'
+	'ddhpa|fmt-keeps-stacked|fmt -|a:\n  - x\n  - "y z"\nb: [1,2]\n|0|a:\n\t- x\n\t- "y z"\nb: [1, 2]\n## SHCL format 3.0\n|-'
 	## An array on a field with fields under it is E028: the line is kept and
 	## written in place of the field's, and the fields under it load under the
 	## field with no value. One that joined an earlier binding of its value
@@ -807,19 +807,19 @@ rows=(
 	'ddhwv|array-e028-check|check -|route: [GET, POST]\n\tpath: /x\n|6|line 1: Error: E028\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E028 an array on a field with lines under it; the field takes one plain value or none$'
 	'ddhww|array-e028-read-under|get - route.path|route: [GET, POST]\n\tpath: /x\n|0|/x\n|-'
 	'ddhwx|array-e028-read-field|get - route|route: [GET, POST]\n\tpath: /x\n|2|\n|-'
-	'ddhwy|array-e028-fmt-kept|fmt -|route:   [GET, POST]\n  path: /x\n|0|route:   [GET, POST]\n\tpath: /x\n|-'
-	'ddhwz|array-e028-joined-binding|fmt -|c: [v2]\nc:[v2]\n\tq: 1\n|0|c: [v2]\nc:[v2]\n\tq: 1\n|^line 2: Error: E028'
+	'ddhwy|array-e028-fmt-kept|fmt -|route:   [GET, POST]\n  path: /x\n|0|route:   [GET, POST]\n\tpath: /x\n## SHCL format 3.0\n|-'
+	'ddhwz|array-e028-joined-binding|fmt -|c: [v2]\nc:[v2]\n\tq: 1\n|0|c: [v2]\nc:[v2]\n\tq: 1\n## SHCL format 3.0\n|^line 2: Error: E028'
 	## A list item with a bare comma is E026, kept among the items (it was
 	## E010 and dropped).
 	'ddhx0|list-e026-item-check|check -|a:\n\t- x, y\n\t- z\n|6|line 2: Error: E026\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E026 a comma then a space or the end in a list item; an item is one value, so quote the text$'
-	'ddhx1|list-e026-item-kept|fmt -|a:\n\t- x, y\n\t- z\n|0|a:\n\t- x, y\n\t- z\n|-'
+	'ddhx1|list-e026-item-kept|fmt -|a:\n\t- x, y\n\t- z\n|0|a:\n\t- x, y\n\t- z\n## SHCL format 3.0\n|-'
 	## A bare value or list item may hold spaces, and a colon or comma with
 	## text right after it is text. One with a blank or the end after it is an
 	## error that says what to do (2026100207032800, 20261006).
 	'ddjyc|bare-spaces-read|get - t|t: My  App  # c\n|0|My  App\n|-'
-	'ddjyd|bare-spaces-fmt|fmt -|t: My  App\nl:\n\t- New York\n|0|t: "My  App"\nl:\n\t- "New York"\n|-'
+	'ddjyd|bare-spaces-fmt|fmt -|t: My  App\nl:\n\t- New York\n|0|t: "My  App"\nl:\n\t- "New York"\n## SHCL format 3.0\n|-'
 	'ddjye|bare-comma-text-read|get - o|o: rw,noatime\n|0|rw,noatime\n|-'
-	'ddjyf|bare-colon-text-fmt|fmt -|d: :0\nu: http://h:80/p\n|0|d: ":0"\nu: "http://h:80/p"\n|-'
+	'ddjyf|bare-colon-text-fmt|fmt -|d: :0\nu: http://h:80/p\n|0|d: ":0"\nu: "http://h:80/p"\n## SHCL format 3.0\n|-'
 	'ddjyg|e025-loose-colon-check|check -|host: a.com port: 80\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a colon then a space in a bare value; put each field on its own line, or quote the value$'
 	'ddjyh|e025-tab-check|check -|t: a\tb\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a tab in a bare value; quote it$'
 	'ddjyj|e026-trailing-comma-check|check -|x: a,\n|6|line 1: Error: E026\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E026 a comma then a space or the end in a bare value'
@@ -828,23 +828,23 @@ rows=(
 	## An apostrophe with text on both sides is text in a bare value or item,
 	## and still E025 next to a blank or in an element (2026102307035781).
 	'debp8|apostrophe-in-word-read|get - n|n: O\x27Brien\n|0|O\x27Brien\n|-'
-	'debp9|apostrophe-in-word-fmt|fmt -|t: Jim\x27s Server\nl:\n\t- rock\x27n\x27roll\n|0|t: "Jim\x27s Server"\nl:\n\t- "rock\x27n\x27roll"\n|-'
+	'debp9|apostrophe-in-word-fmt|fmt -|t: Jim\x27s Server\nl:\n\t- rock\x27n\x27roll\n|0|t: "Jim\x27s Server"\nl:\n\t- "rock\x27n\x27roll"\n## SHCL format 3.0\n|-'
 	'debpa|e025-apostrophe-blank-check|check -|n: O\x27 Brien\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a quote in a bare value; quote it$'
 	'debpb|e025-apostrophe-element-check|check -|a: [O\x27Brien]\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a quote in a bare array element; quote it$'
-	'ddjyn|array-tight-comma-splits|set --set-literal=t=[a,b] -|t: 1\n|0|t: [a, b]\n|-'
-	'ddjyp|set-literal-comma-text|set --set-literal=o=rw,noatime --set=e=a, -|o: 1\n|0|o: "rw,noatime"\n\ne: "a,"\n|-'
+	'ddjyn|array-tight-comma-splits|set --set-literal=t=[a,b] -|t: 1\n|0|t: [a, b]\n## SHCL format 3.0\n|-'
+	'ddjyp|set-literal-comma-text|set --set-literal=o=rw,noatime --set=e=a, -|o: 1\n|0|o: "rw,noatime"\n\ne: "a,"\n## SHCL format 3.0\n|-'
 	'ddjyq|migrate-comma-list|migrate --from-2x -|x: a,b\ny: a, b\n|0|x: [a, b]\ny: [a, b]\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
 	'ddjyr|migrate-comma-ambiguous|migrate -|y: a,b\n|7|y: a,b\n|read one way under 2.x and another'
 	## 2.x read `k: s,` as `k: s`, one field with the line after it.
 	'ddrgk|migrate-lone-element|migrate --from-2x -|k: s,\nk: s\n|0|k: s\nk: s\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
 	## A comment on a stacked item stays on it, and one among the items stays
 	## among them.
-	'ddhx2|list-item-comment-fmt|fmt -|l:\n\t# first\n\t- a  # one\n\t- b\n|0|l:\n\t# first\n\t- a  # one\n\t- b\n|-'
+	'ddhx2|list-item-comment-fmt|fmt -|l:\n\t# first\n\t- a  # one\n\t- b\n|0|l:\n\t# first\n\t- a  # one\n\t- b\n## SHCL format 3.0\n|-'
 	## An array setter keeps a stacked list stacked, as an overwrite keeps
 	## quotes, and a backtick value goes in through --set-literal.
-	'ddhx3|set-stacked-stays-stacked|set --set-literal=l=[1,2] -|l:\n\t- a\n|0|l:\n\t- 1\n\t- 2\n|-'
-	"ddhx4|set-literal-backtick|set --set-literal=c=\`#FF8800\` -|c: 1\n|0|c: \`#FF8800\`\n|-"
-	"ddhx5|set-keeps-backtick-kind|set --set=c=y -|c: \`x\`\n|0|c: \`y\`\n|-"
+	'ddhx3|set-stacked-stays-stacked|set --set-literal=l=[1,2] -|l:\n\t- a\n|0|l:\n\t- 1\n\t- 2\n## SHCL format 3.0\n|-'
+	"ddhx4|set-literal-backtick|set --set-literal=c=\`#FF8800\` -|c: 1\n|0|c: \`#FF8800\`\n## SHCL format 3.0\n|-"
+	"ddhx5|set-keeps-backtick-kind|set --set=c=y -|c: \`x\`\n|0|c: \`y\`\n## SHCL format 3.0\n|-"
 	## A setter that would put a field under an array, or an array over
 	## fields, is refused (E028 on a reload).
 	'ddhx6|set-field-under-array-refused|set --set=l.c=1 -|l: [a]\n|1||^--set: cannot write l.c: an array takes no lines under it \(see --help\)$'
@@ -860,7 +860,7 @@ rows=(
 	## E029, kept as written, and a path in brackets is refused with a reason.
 	'ddkcr|e029-check|check -|a[x].b: 1\n|6|line 1: Error: E029\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E029 selector in brackets; write it in parens as name\(value\), since brackets are only for arrays, at column 2$'
 	'ddkcs|e029-lines-under-load|get - srv(web).host|srv: web\n\tport: 80\nsrv[web]:\n\thost: h\n|0|h\n|E029'
-	'ddkct|e029-fmt-keeps-line|fmt -|srv: web\n\tport: 80\nsrv[web]:\n\thost: h\n|0|srv[web]:\nsrv: web\n\tport: 80\n\thost: h\n|E029'
+	'ddkct|e029-fmt-keeps-line|fmt -|srv: web\n\tport: 80\nsrv[web]:\n\thost: h\n|0|srv[web]:\nsrv: web\n\tport: 80\n\thost: h\n## SHCL format 3.0\n|E029'
 	## Exit 1 since 2026100717500001, with the same reason; ddnzc below.
 	#'ddkd6|get-bracket-path-named|get %F% a[0]|-|3|\n|a selector is written in parens now, name\(value\)'
 	'ddkcv|set-bracket-path-named|set --set=a[0].b=1 %F%|-|1||^--set: cannot write a\[0\]\.b: a selector is written in parens now, name\(value\) \(see --help\)$'
@@ -871,7 +871,7 @@ rows=(
 	## file line, so the path is refused. Cut at the '#', --remove used to take
 	## out the whole section above at exit 0.
 	'dez5f|remove-hash-path-refused|set --remove=colors#primary -|colors:\n\tprimary: red\n\tsecondary: blue\n"colors#primary": x\n|1||^bad --remove value \(not a usable path\): colors#primary \(see --help\)$'
-	'dez5g|remove-quoted-hash-path|set --remove="colors#primary" -|colors:\n\tprimary: red\n\tsecondary: blue\n"colors#primary": x\n|0|colors:\n\tprimary: red\n\tsecondary: blue\n|-'
+	'dez5g|remove-quoted-hash-path|set --remove="colors#primary" -|colors:\n\tprimary: red\n\tsecondary: blue\n"colors#primary": x\n|0|colors:\n\tprimary: red\n\tsecondary: blue\n## SHCL format 3.0\n|-'
 	'dez5h|ops-set-hash-path-refused|set %F2%|string\tcolors#primary\tz\n|1||^op line 1: cannot write colors#primary: not a usable path \(see --help\)$'
 	## 2026110613470313: E003 names the index as written, not the u64 cap.
 	'dez5j|e003-index-as-written|check -|c: x\nc(99999999999999999999999).d: 2\n|6|line 2: Error: E003\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E003 no instance 99999999999999999999999 of .c.$'
@@ -906,12 +906,12 @@ rows=(
 	## A repeat header the load folded away goes with the last line under it,
 	## blank line and all, and stays with its blank line while anything under
 	## it does (2026100115323232).
-	'ddghy|remove-emptied-repeat-header|set --remove=account(0).name -|account: w\n\temail: a@x\n\naccount: w\n\tname: W\n\nz: 1\n|0|account: w\n\temail: a@x\n\nz: 1\n|-'
-	'ddghz|set-keeps-blank-above-repeat|set --set=s.a=5 -|s:\n\ta: 1\n\ns:\n\tb: 2\n|0|s:\n\ta: 5\n\ns:\n\tb: 2\n|-'
+	'ddghy|remove-emptied-repeat-header|set --remove=account(0).name -|account: w\n\temail: a@x\n\naccount: w\n\tname: W\n\nz: 1\n|0|account: w\n\temail: a@x\n\nz: 1\n## SHCL format 3.0\n|-'
+	'ddghz|set-keeps-blank-above-repeat|set --set=s.a=5 -|s:\n\ta: 1\n\ns:\n\tb: 2\n|0|s:\n\ta: 5\n\ns:\n\tb: 2\n## SHCL format 3.0\n|-'
 	## New lines take the indent step most blocks use, not the first block's
 	## (2026100115403386).
-	'ddgj0|set-new-block-majority-step|set --set=shell.list.bash.command=bash -|window:\n\t\topacity: 1.0\nwindow:\n\tcolumns: 80\n|0|window:\n\t\topacity: 1.0\nwindow:\n\tcolumns: 80\n\nshell:\n\tlist:\n\t\tbash:\n\t\t\tcommand: bash\n|-'
-	'ddgj1|set-new-block-space-step|set --set=d.e.f=1 -|a:\n  x: 1\nb:\n    y: 1\nc:\n    z: 1\n|0|a:\n  x: 1\nb:\n    y: 1\nc:\n    z: 1\n\nd:\n    e:\n        f: 1\n|-'
+	'ddgj0|set-new-block-majority-step|set --set=shell.list.bash.command=bash -|window:\n\t\topacity: 1.0\nwindow:\n\tcolumns: 80\n|0|window:\n\t\topacity: 1.0\nwindow:\n\tcolumns: 80\n\nshell:\n\tlist:\n\t\tbash:\n\t\t\tcommand: bash\n## SHCL format 3.0\n|-'
+	'ddgj1|set-new-block-space-step|set --set=d.e.f=1 -|a:\n  x: 1\nb:\n    y: 1\nc:\n    z: 1\n|0|a:\n  x: 1\nb:\n    y: 1\nc:\n    z: 1\n\nd:\n    e:\n        f: 1\n## SHCL format 3.0\n|-'
 	'dcb0g|sugar-migrate|migrate %W%|-|0|base: Boston\n\tlat: 42\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
 	'dcb0h|sugar-migrate-write|migrate --write %W%|-|0||-'
 	## An unknown escape in double quotes was refused and kept as written, not
@@ -937,7 +937,7 @@ rows=(
 	## as written under the windows runner's locale.
 	#'dd5qd|escape-unicode-read|get - a|a: "caf\\u00E9 \\U0001F600"\n|0|caf\xc3\xa9 \xf0\x9f\x98\x80\n|-'
 	#'dd5qe|escape-unicode-bad|check -|a: "\\uD800"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 bad escape .\\u. in double quotes'
-	'dd5qc|escape-unicode-fmt|fmt -|a: x\xe2\x80\x8by\n|0|a: "x\xe2\x97\x89U+200B\xe2\x97\x89y"\n|-'
+	'dd5qc|escape-unicode-fmt|fmt -|a: x\xe2\x80\x8by\n|0|a: "x\xe2\x97\x89U+200B\xe2\x97\x89y"\n## SHCL format 3.0\n|-'
 	#'dd5qf|escape-unicode-name|paths -|"a\\u202Eb": 1\n|0|"a\\u202Eb"\n|-'
 	#'dd5qg|escape-unicode-migrate-refused|migrate -|q: "\\u0041"\n|7|q: "\\u0041"\n|doesn.t say which it was written for'
 	#'dd5qh|escape-unicode-migrate-2x|migrate --from-2x -|q: "\\u0041"\n|0|q: "\\\\u0041"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
@@ -948,12 +948,12 @@ rows=(
 	## Every default-ignorable character is escaped, by its code point with at
 	## least four digits. A variation selector after a visible character
 	## stays, and so do a subdivision flag's tags.
-	'dd8ek|escape-ignorable-fmt|fmt -|a: soft\xc2\xadhyphen\n|0|a: "soft\xe2\x97\x89U+00AD\xe2\x97\x89hyphen"\n|-'
-	'dd8em|escape-tags-fmt|fmt -|a: ok\xf3\xa0\x81\xa8\xf3\xa0\x81\xa9\n|0|a: "ok\xe2\x97\x89U+E0068\xe2\x97\x89\xe2\x97\x89U+E0069\xe2\x97\x89"\n|-'
-	'dd8en|escape-tags-set|set -|string\ta\tok\xf3\xa0\x81\xa8\xf3\xa0\x81\xa9\n|0|a: "ok\xe2\x97\x89U+E0068\xe2\x97\x89\xe2\x97\x89U+E0069\xe2\x97\x89"\n|-'
-	'dd8ep|escape-flag-kept|fmt -|a: \xf0\x9f\x8f\xb4\xf3\xa0\x81\xa7\xf3\xa0\x81\xa2\xf3\xa0\x81\xa5\xf3\xa0\x81\xae\xf3\xa0\x81\xa7\xf3\xa0\x81\xbf\n|0|a: \xf0\x9f\x8f\xb4\xf3\xa0\x81\xa7\xf3\xa0\x81\xa2\xf3\xa0\x81\xa5\xf3\xa0\x81\xae\xf3\xa0\x81\xa7\xf3\xa0\x81\xbf\n|-'
-	'dd8eq|escape-selector-kept|fmt -|a: \xe2\x9d\xa4\xef\xb8\x8f\n|0|a: \xe2\x9d\xa4\xef\xb8\x8f\n|-'
-	'dd8er|escape-selector-run|fmt -|a: x\xef\xb8\x8f\xef\xb8\x8f\n|0|a: "x\xef\xb8\x8f\xe2\x97\x89U+FE0F\xe2\x97\x89"\n|-'
+	'dd8ek|escape-ignorable-fmt|fmt -|a: soft\xc2\xadhyphen\n|0|a: "soft\xe2\x97\x89U+00AD\xe2\x97\x89hyphen"\n## SHCL format 3.0\n|-'
+	'dd8em|escape-tags-fmt|fmt -|a: ok\xf3\xa0\x81\xa8\xf3\xa0\x81\xa9\n|0|a: "ok\xe2\x97\x89U+E0068\xe2\x97\x89\xe2\x97\x89U+E0069\xe2\x97\x89"\n## SHCL format 3.0\n|-'
+	'dd8en|escape-tags-set|set -|string\ta\tok\xf3\xa0\x81\xa8\xf3\xa0\x81\xa9\n|0|a: "ok\xe2\x97\x89U+E0068\xe2\x97\x89\xe2\x97\x89U+E0069\xe2\x97\x89"\n## SHCL format 3.0\n|-'
+	'dd8ep|escape-flag-kept|fmt -|a: \xf0\x9f\x8f\xb4\xf3\xa0\x81\xa7\xf3\xa0\x81\xa2\xf3\xa0\x81\xa5\xf3\xa0\x81\xae\xf3\xa0\x81\xa7\xf3\xa0\x81\xbf\n|0|a: \xf0\x9f\x8f\xb4\xf3\xa0\x81\xa7\xf3\xa0\x81\xa2\xf3\xa0\x81\xa5\xf3\xa0\x81\xae\xf3\xa0\x81\xa7\xf3\xa0\x81\xbf\n## SHCL format 3.0\n|-'
+	'dd8eq|escape-selector-kept|fmt -|a: \xe2\x9d\xa4\xef\xb8\x8f\n|0|a: \xe2\x9d\xa4\xef\xb8\x8f\n## SHCL format 3.0\n|-'
+	'dd8er|escape-selector-run|fmt -|a: x\xef\xb8\x8f\xef\xb8\x8f\n|0|a: "x\xef\xb8\x8f\xe2\x97\x89U+FE0F\xe2\x97\x89"\n## SHCL format 3.0\n|-'
 	## A path in double quotes with a \t or \n escape was a hint, H004, and
 	## reads, loads strict and saves as written. It is E024 now
 	## (2026100115323227), so these three no longer hold.
@@ -977,7 +977,7 @@ rows=(
 	## 2026100717500002, so a Windows path lost its \t there alone. Op values
 	## read the file's escape names now, and a backslash is text.
 	#'ddhev|path-tab-set|set -|string\ta\tC:\\temp\n|0|a: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n|-'
-	'ddhep|path-text-literal|set -|literal\tx\t"C:\\temp"\n|0|x: "C:\\temp"\n|-'
+	'ddhep|path-text-literal|set -|literal\tx\t"C:\\temp"\n|0|x: "C:\\temp"\n## SHCL format 3.0\n|-'
 	'ddheq|backslash-migrate-same|migrate -|q: "C:\\work"\n|0|q: "C:\\work"\n##    Format   3.0\n|-'
 	## 2026101911300000: a backslash pair 2.x resolved, in a file that doesn't
 	## say it is 2.x, is left and asked about.
@@ -986,17 +986,17 @@ rows=(
 	## the closing quote. The backslash is text, so it reads back as written.
 	'de79q|backslash-before-quote-migrate|migrate --from-2x -|a: x\\ty\\\\z\\q\\\n|0|a: "x\xe2\x97\x89TAB\xe2\x97\x89y\\z\\q\\"\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
 	'de79r|backslash-before-quote-read|get - a|a: "C:\\temp\\"\n|0|C:\\temp\\\n|-'
-	'de79s|backslash-before-quote-fmt|fmt -|a: "C:\\temp\\"\n|0|a: "C:\\temp\\"\n|-'
+	'de79s|backslash-before-quote-fmt|fmt -|a: "C:\\temp\\"\n|0|a: "C:\\temp\\"\n## SHCL format 3.0\n|-'
 	## 2026100717500002: an op value reads the file's escape names, a tab or a
 	## line break included, and a backslash pair is text, the same as in --set.
-	'ddp12|ops-backslash-text|set -|string\ta\tC:\\temp\\new\n|0|a: "C:\\temp\\new"\n|-'
-	'ddp13|ops-escape-names|set -|string\ta\tx\xe2\x97\x89TAB\xe2\x97\x89y\xe2\x97\x89NEWLINE\xe2\x97\x89z\n|0|a: "x\xe2\x97\x89TAB\xe2\x97\x89y\xe2\x97\x89NEWLINE\xe2\x97\x89z"\n|-'
-	'ddp14|ops-raw-line-break|set -|raw\tr\tsh\techo hi\xe2\x97\x89NEWLINE\xe2\x97\x89echo bye\n|0|r:\n\t\x60\x60\x60sh\n\techo hi\n\techo bye\n\t\x60\x60\x60\n|-'
-	'ddp15|ops-array-escapes|set -|string-array\ta\tC:\\new\tx\xe2\x97\x89TAB\xe2\x97\x89y\n|0|a: ["C:\\new", "x\xe2\x97\x89TAB\xe2\x97\x89y"]\n|-'
-	'ddp16|ops-comment-escape|set -|comment\ta\tC:\\new \xe2\x97\x89ESCAPE_CHAR\xe2\x97\x89\nstring\ta\tv\n|0|# C:\\new \xe2\x97\x89\na: v\n|-'
-	'ddp1a|ops-default-escape|set -|string-default\ta\tx\xe2\x97\x89TAB\xe2\x97\x89\n|0|a: "x\xe2\x97\x89TAB\xe2\x97\x89"\n|-'
+	'ddp12|ops-backslash-text|set -|string\ta\tC:\\temp\\new\n|0|a: "C:\\temp\\new"\n## SHCL format 3.0\n|-'
+	'ddp13|ops-escape-names|set -|string\ta\tx\xe2\x97\x89TAB\xe2\x97\x89y\xe2\x97\x89NEWLINE\xe2\x97\x89z\n|0|a: "x\xe2\x97\x89TAB\xe2\x97\x89y\xe2\x97\x89NEWLINE\xe2\x97\x89z"\n## SHCL format 3.0\n|-'
+	'ddp14|ops-raw-line-break|set -|raw\tr\tsh\techo hi\xe2\x97\x89NEWLINE\xe2\x97\x89echo bye\n|0|r:\n\t\x60\x60\x60sh\n\techo hi\n\techo bye\n\t\x60\x60\x60\n## SHCL format 3.0\n|-'
+	'ddp15|ops-array-escapes|set -|string-array\ta\tC:\\new\tx\xe2\x97\x89TAB\xe2\x97\x89y\n|0|a: ["C:\\new", "x\xe2\x97\x89TAB\xe2\x97\x89y"]\n## SHCL format 3.0\n|-'
+	'ddp16|ops-comment-escape|set -|comment\ta\tC:\\new \xe2\x97\x89ESCAPE_CHAR\xe2\x97\x89\nstring\ta\tv\n|0|# C:\\new \xe2\x97\x89\na: v\n## SHCL format 3.0\n|-'
+	'ddp1a|ops-default-escape|set -|string-default\ta\tx\xe2\x97\x89TAB\xe2\x97\x89\n|0|a: "x\xe2\x97\x89TAB\xe2\x97\x89"\n## SHCL format 3.0\n|-'
 	## The value is read in quotes, so a quote in it stays text whichever kind.
-	'ddp19|ops-escape-quotes|set -|string\ta\tsay "hi" it\x27s\xe2\x97\x89TAB\xe2\x97\x89ok\nstring\tb\tsay "hi"\xe2\x97\x89TAB\xe2\x97\x89\n|0|a: "say \xe2\x97\x89DOUBLE_QUOTE\xe2\x97\x89hi\xe2\x97\x89DOUBLE_QUOTE\xe2\x97\x89 it\x27s\xe2\x97\x89TAB\xe2\x97\x89ok"\n\nb: \x27say "hi"\xe2\x97\x89TAB\xe2\x97\x89\x27\n|-'
+	'ddp19|ops-escape-quotes|set -|string\ta\tsay "hi" it\x27s\xe2\x97\x89TAB\xe2\x97\x89ok\nstring\tb\tsay "hi"\xe2\x97\x89TAB\xe2\x97\x89\n|0|a: "say \xe2\x97\x89DOUBLE_QUOTE\xe2\x97\x89hi\xe2\x97\x89DOUBLE_QUOTE\xe2\x97\x89 it\x27s\xe2\x97\x89TAB\xe2\x97\x89ok"\n\nb: \x27say "hi"\xe2\x97\x89TAB\xe2\x97\x89\x27\n## SHCL format 3.0\n|-'
 	'ddp17|ops-escape-unknown|set -|string\ta\tx\xe2\x97\x89NOPE\xe2\x97\x89\n|1||^op line 1: cannot write a: .*NOPE'
 	## 2026100307163914: a field line kept for its value alone reads NotFound with
 	## nothing under it and Empty once a line under it loads, and explain says so.
@@ -1224,7 +1224,7 @@ rows=(
 	'dcqaa|migrate-check-names|migrate --check %W%|-|6||w\.shcl:1: migrate would rewrite this line'
 	## 20260918b item 54: fmt --check, migrate --check's sibling.
 	'dcvgm|fmt-check-noncanonical|fmt --check %NC%|-|6||noncanon\.shcl: not canonical; fmt --write would rewrite it'
-	'dcvgn|fmt-check-canonical|fmt --check %F%|-|0||!.'
+	'dcvgn|fmt-check-canonical|fmt --check -|a: 1\n## SHCL format 3.0\n|0||!.'
 	'dcvgp|fmt-check-write|fmt --check --write %NC%|-|1|-|--check cannot be combined with --write'
 	## 2026101407100002: with a layer or an edit, fmt --check said "would
 	## rewrite" every time, since the merge is never FILE. A usage error now.
@@ -1247,7 +1247,7 @@ rows=(
 	'ddp10|migrate-check-lossy|migrate --check --lossy %ML%|-|6||mlost\.shcl:1: migrate would rewrite this line'
 	'ddp11|fmt-lossy-without-write|fmt --lossy %F%|-|1||only meaningful with --write'
 	## 20260918b item 55: a created file says so, since nothing else does.
-	'dcvgq|create-says|set --write --no-banner %C% --set=a=1|-|0|-|created\.shcl: created|a: 1\n'
+	'dcvgq|create-says|set --write --no-banner %C% --set=a=1|-|0|-|created\.shcl: created|a: 1\n## SHCL format 3.0\n'
 	## The sugar file's write goes through now (2026100115403384).
 	#'dcvgw|write-existing-quiet|fmt --write %W%|-|7|-|!created'
 	'ddceh|write-existing-quiet-kept|fmt --write %W%|-|0|-|!created'
@@ -1394,11 +1394,11 @@ rows=(
 	## 20260830b item 21: removal and the set-if-absent family had no option
 	## form, so a one-key edit meant a printf with a literal tab piped into set.
 	## The five spellings share one ordered list, so the last one on a path wins.
-	'dc0a4|remove-option|set --remove=b %F2%|-|0|a: 1\n|-'
-	'dc0a5|set-default-absent|set --set-default=c=3 %F2%|-|0|a: 1\nb: 2\n\nc: 3\n|-'
-	'dc0a6|set-default-present|set --set-default=a=9 %F2%|-|0|a: 1\nb: 2\n|-'
-	'dc0a7|set-literal-default|set --set-literal-default=p=[1,2] %F2%|-|0|a: 1\nb: 2\n\np: [1, 2]\n|-'
-	'dc0a8|set-family-order|set --set=a=5 --remove=a %F2%|-|0|b: 2\n|-'
+	'dc0a4|remove-option|set --remove=b %F2%|-|0|a: 1\n## SHCL format 3.0\n|-'
+	'dc0a5|set-default-absent|set --set-default=c=3 %F2%|-|0|a: 1\nb: 2\n\nc: 3\n## SHCL format 3.0\n|-'
+	'dc0a6|set-default-present|set --set-default=a=9 %F2%|-|0|a: 1\nb: 2\n## SHCL format 3.0\n|-'
+	'dc0a7|set-literal-default|set --set-literal-default=p=[1,2] %F2%|-|0|a: 1\nb: 2\n\np: [1, 2]\n## SHCL format 3.0\n|-'
+	'dc0a8|set-family-order|set --set=a=5 --remove=a %F2%|-|0|b: 2\n## SHCL format 3.0\n|-'
 	'dc0a9|remove-ephemeral|get --remove=a %F2% a|-|3|-|-'
 	'dc0aa|remove-write-refused|fmt --write --remove=a %F2%|-|1|-|cannot be combined with --remove'
 	'dc0ab|remove-empty-path|set --remove= %F2%|-|1|-|bad --remove value'
@@ -1409,8 +1409,8 @@ rows=(
 	'dd3zd|remove-bad-path|set --remove=b( %F2%|-|1||^bad --remove value \(not a usable path\): b\( \(see --help\)$'
 	'dd3ze|remove-value-in-path|set --remove=a:1 %F2%|-|1||^bad --remove value \(not a usable path\): a:1 \(see --help\)$'
 	'dd3zf|remove-bad-path-on-get|get --remove=a..b %F2% a|-|1||^bad --remove value \(not a usable path\)'
-	'dd3zg|remove-missing-ok|set --remove=nope %F2%|-|0|a: 1\nb: 2\n|-'
-	'dd3zh|remove-wildcard-ok|set --remove=a.* %F2%|-|0|a: 1\nb: 2\n|-'
+	'dd3zg|remove-missing-ok|set --remove=nope %F2%|-|0|a: 1\nb: 2\n## SHCL format 3.0\n|-'
+	'dd3zh|remove-wildcard-ok|set --remove=a.* %F2%|-|0|a: 1\nb: 2\n## SHCL format 3.0\n|-'
 	'dd3zj|ops-remove-bad-path|set %F2%|remove\tb(|1||^op line 1: cannot remove b\(: not a usable path \(see --help\)$'
 	'dd3zk|ops-clear-comments-bad-path|set %F2%|clear-comments\ta..b|1||^op line 1: cannot clear-comments a\.\.b: not a usable path \(see --help\)$'
 	## 2026100717500010: a setter on a path that matches more than one field
@@ -1422,11 +1422,11 @@ rows=(
 	'ddp8p|get-set-repeated-path|get --set=p=9 %FD% p(0)|-|1||^--set: cannot write p: the path matches multiple instances'
 	'ddp8q|set-default-repeated-path|set --set-literal-default=p=9 %FD%|-|1||^--set-literal-default: cannot write p: the path matches multiple instances'
 	'ddp8r|ops-set-repeated-path|set %FD%|int\tp\t9\n|1||^op line 1: cannot write p: the path matches multiple instances; name\(0\) picks one \(see --help\)$'
-	'ddp8s|set-index-picks-one|set --set=p(1)=9 --set=s(b).r=z %FD%|-|0|p: 1\np: 9\ns: a\n\tr: x\ns: b\n\tr: z\n|-'
-	'ddp8t|remove-repeated-takes-all|set --remove=p %FD%|-|0|s: a\n\tr: x\ns: b\n\tr: y\n|-'
+	'ddp8s|set-index-picks-one|set --set=p(1)=9 --set=s(b).r=z %FD%|-|0|p: 1\np: 9\ns: a\n\tr: x\ns: b\n\tr: z\n## SHCL format 3.0\n|-'
+	'ddp8t|remove-repeated-takes-all|set --remove=p %FD%|-|0|s: a\n\tr: x\ns: b\n\tr: y\n## SHCL format 3.0\n|-'
 	## 2026101407100006: and so does a wildcard, as the help says now.
-	'ddyd9|remove-wildcard-takes-all|set --remove=s(*).r %FD%|-|0|p: 1\np: 2\ns: a\ns: b\n|-'
-	'ddyda|ops-remove-wildcard-takes-all|set %FD%|remove\ts(*)\n|0|p: 1\np: 2\n|-'
+	'ddyd9|remove-wildcard-takes-all|set --remove=s(*).r %FD%|-|0|p: 1\np: 2\ns: a\ns: b\n## SHCL format 3.0\n|-'
+	'ddyda|ops-remove-wildcard-takes-all|set %FD%|remove\ts(*)\n|0|p: 1\np: 2\n## SHCL format 3.0\n|-'
 	## 2026100907362300: a setter says why it wrote nothing, and the CLI
 	## prints the reason from that. Same text in all four.
 	'ddq67|set-no-such-index|set --set=a(5).b=1 %F%|-|1||^--set: cannot write a\(5\)\.b: no instance at that index \(see --help\)$'
@@ -1438,7 +1438,7 @@ rows=(
 	'ddq6d|ops-raw-bad-info-whole|set %F%|raw\tk\tc#x\tbody\n|1||^op line 1: cannot write k: the info string has no spelling that reads back: a .#. in it opens a comment, and a line break has no inline spelling \(see --help\)$'
 	## 2026101407100006: the content reads escapes and the info is taken as
 	## written, since a fence label has none.
-	'ddydb|ops-raw-info-as-written|set %F%|raw\tn\tmd\xe2\x97\x89NEWLINE\xe2\x97\x89x\tl1\xe2\x97\x89NEWLINE\xe2\x97\x89l2\n|0|a: 1\n\nn:\n\t\x60\x60\x60md\xe2\x97\x89NEWLINE\xe2\x97\x89x\n\tl1\n\tl2\n\t\x60\x60\x60\n|-'
+	'ddydb|ops-raw-info-as-written|set %F%|raw\tn\tmd\xe2\x97\x89NEWLINE\xe2\x97\x89x\tl1\xe2\x97\x89NEWLINE\xe2\x97\x89l2\n|0|a: 1\n\nn:\n\t\x60\x60\x60md\xe2\x97\x89NEWLINE\xe2\x97\x89x\n\tl1\n\tl2\n\t\x60\x60\x60\n## SHCL format 3.0\n|-'
 	## Flag mode, the default, prints the type's zero where there is no value.
 	'ddydc|flag-zero-missing-int|get --int %F% nope|-|3|0\n|no value at that path'
 	'ddydd|flag-zero-missing-bool|get --bool %F% nope|-|3|false\n|no value at that path'
@@ -1470,8 +1470,8 @@ rows=(
 	## 2026102307143752 the field under the items is kept, binds nothing
 	## (E001), and goes out as a comment once the list is in brackets, so the
 	## save writes and nothing is lost.
-	'ddj1f|list-after-empty-refused|set --write %LEW%|empty\tx(v)\n|0|-|E001|x:\n\tf: 1\nx: [a, b]\n\t# g: 2\n'
-	'ddj1g|list-after-empty-lossy|set --write --lossy %LEW%|empty\tx(v)\n|0|-|E001|x:\n\tf: 1\nx: [a, b]\n\t# g: 2\n'
+	'ddj1f|list-after-empty-refused|set --write %LEW%|empty\tx(v)\n|0|-|E001|x:\n\tf: 1\nx: [a, b]\n\t# g: 2\n## SHCL format 3.0\n'
+	'ddj1g|list-after-empty-lossy|set --write --lossy %LEW%|empty\tx(v)\n|0|-|E001|x:\n\tf: 1\nx: [a, b]\n\t# g: 2\n## SHCL format 3.0\n'
 	'dc44a|single-file-diags-unnamed|fmt %B%|-|0|-|^line 3: Error: E014'
 	## 2026-10-05: a line with no colon that is one name is E015 whatever its
 	## name, and binds the name it reads as. With a colon, the name rule still
@@ -1481,7 +1481,7 @@ rows=(
 	#'ddj1j|no-colon-bad-name-e015|check -|404\n-x\nuser name\n|6|line 1: Error: E015\nline 2: Error: E015\nline 3: Error: E015\nfailed: 3 diagnostic(s), 3 error(s)\n|-'
 	#'ddj1k|no-colon-bad-name-repaired|fmt -|404\n-x\nuser name\n|0|"404":\n"-x":\n"user name":\n|-'
 	'ddj7p|no-colon-bad-name-narrow|check -|404\n-x\nuser name\nsquare-miles 300\n|6|line 1: Error: E015\nline 2: Error: E015\nline 3: Error: E014\nline 4: Error: E014\nfailed: 4 diagnostic(s), 4 error(s)\n|-'
-	'ddj7q|no-colon-bad-name-narrow-fmt|fmt -|404\n-x\nuser name\nsquare-miles 300\n|0|"404":\n"-x":\nuser name\nsquare-miles 300\n|-'
+	'ddj7q|no-colon-bad-name-narrow-fmt|fmt -|404\n-x\nuser name\nsquare-miles 300\n|0|"404":\n"-x":\nuser name\nsquare-miles 300\n## SHCL format 3.0\n|-'
 	'ddj1e|colon-bad-name-e014|check -|404: x\n|6|line 1: Error: E014\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
 	## 20260909 item 34: E014 says where on the line the path went wrong, as
 	## a byte column, which the tokenizer computed and the message dropped.
@@ -1518,10 +1518,10 @@ rows=(
 	#'dcrth|ops-raw-bad-body|set %F%|raw\tk\tc\tbody\r\\nmore\n|1|-|the block body has no spelling that reads back'
 	'ddp18|ops-raw-bad-body-mark|set %F%|raw\tk\tc\tbody\r\xe2\x97\x89NEWLINE\xe2\x97\x89more\n|1|-|the block body has no spelling that reads back'
 	'dc433|ops-extra-fields-int|set %F%|int\tk\t1\textra\n|1|-|int takes 3 tab-separated'
-	'dc434|ops-array-takes-any|set %F%|int-array\tk\t1\t2\t3\n|0|a: 1\n\nk: [1, 2, 3]\n|-'
+	'dc434|ops-array-takes-any|set %F%|int-array\tk\t1\t2\t3\n|0|a: 1\n\nk: [1, 2, 3]\n## SHCL format 3.0\n|-'
 	## An array setter writes brackets whatever the length (2026100207032800).
-	'ddhpc|ops-array-one-keeps-brackets|set %F%|int-array\tk\t80\n|0|a: 1\n\nk: [80]\n|-'
-	'ddhpd|ops-array-none-is-empty-brackets|set %F%|int-array\tk\n|0|a: 1\n\nk: []\n|-'
+	'ddhpc|ops-array-one-keeps-brackets|set %F%|int-array\tk\t80\n|0|a: 1\n\nk: [80]\n## SHCL format 3.0\n|-'
+	'ddhpd|ops-array-none-is-empty-brackets|set %F%|int-array\tk\n|0|a: 1\n\nk: []\n## SHCL format 3.0\n|-'
 	## 2026101407100003: too few fields read as empty, so a raw op with no
 	## content wrote an empty block at exit 0. Refused like too many, per shape.
 	'ddy7d|ops-too-few-scalar|set %F%|string\tk\n|1||=op line 1: string takes 3 tab-separated field(s), got 2 (see --help)\n'
@@ -1535,12 +1535,12 @@ rows=(
 	'ddy7n|ops-too-few-array|set %F%|int-array\n|1||=op line 1: int-array takes at least 2 tab-separated field(s), got 1 (see --help)\n'
 	'ddy7p|ops-too-few-later-line|set %F%|int\tx\t1\ncomment\tx\n|1||=op line 2: comment takes 3 tab-separated field(s), got 2 (see --help)\n'
 	## 2026101407100005: a line of blanks was an op with no name.
-	'ddy7q|ops-tab-only-line|set %F%|\t\nint\tx\t1\n|0|a: 1\n\nx: 1\n|='
-	'ddy7r|ops-blanks-only-line|set %F%|int\tx\t1\n  \t \r\r\n \n|0|a: 1\n\nx: 1\n|='
+	'ddy7q|ops-tab-only-line|set %F%|\t\nint\tx\t1\n|0|a: 1\n\nx: 1\n## SHCL format 3.0\n|='
+	'ddy7r|ops-blanks-only-line|set %F%|int\tx\t1\n  \t \r\r\n \n|0|a: 1\n\nx: 1\n## SHCL format 3.0\n|='
 	## 2026101419280004: blanks before a `#` still make a comment. An indented op
 	## is still unknown.
-	'ddzwa|ops-indented-comment|set %F%|  # set x\nint\tx\t1\n|0|a: 1\n\nx: 1\n|='
-	'ddzwb|ops-tab-indented-comment|set %F%|\t# set x\nint\tx\t1\n\t \t# again\n|0|a: 1\n\nx: 1\n|='
+	'ddzwa|ops-indented-comment|set %F%|  # set x\nint\tx\t1\n|0|a: 1\n\nx: 1\n## SHCL format 3.0\n|='
+	'ddzwb|ops-tab-indented-comment|set %F%|\t# set x\nint\tx\t1\n\t \t# again\n|0|a: 1\n\nx: 1\n## SHCL format 3.0\n|='
 	'ddzwc|ops-indented-op-unknown|set %F%|  int\tx\t1\n|1||=op line 1: unknown op:   int (see --help)\n'
 	## 2026101514324709: indented with a tab, the op before it is empty, and the
 	## message named nothing.
@@ -1607,7 +1607,7 @@ rows=(
 	'ddqgf|msg-long-hint|check %LR%|-|0|-|H001 .b. repeats as a bare leaf - did you mean .b: \[1, x{100}\.\.\.x{100} \(300 chars\)\].\?$'
 	## A setter's note named a path with a line break as \n. A path with a real
 	## line break in a quoted name now shows it by its escape name.
-	'ddqgg|msg-note-path-line-break|set - %NLSET%|"x◉NEWLINE◉y": "◉NOPE◉"\n|0|# "x◉NEWLINE◉y": "◉NOPE◉"  ## commented out by shcl when setting "x◉NEWLINE◉y", 2026-10-04 00:15:00 PDT: E023 unknown escape \x27◉NOPE◉\x27\n"x◉NEWLINE◉y": 5\n|-'
+	'ddqgg|msg-note-path-line-break|set - %NLSET%|"x◉NEWLINE◉y": "◉NOPE◉"\n|0|# "x◉NEWLINE◉y": "◉NOPE◉"  ## commented out by shcl when setting "x◉NEWLINE◉y", 2026-10-04 00:15:00 PDT: E023 unknown escape \x27◉NOPE◉\x27\n"x◉NEWLINE◉y": 5\n## SHCL format 3.0\n|-'
 	'dcwz1|default-clash|get --int --default=7 --default=8 %F% nope|-|1|-|^--default=7 cannot be combined with --default=8 \(see --help\)$'
 	'dcwz2|default-repeat-ok|get --int --default=7 --default=7 %F% nope|-|0|7\n|-'
 	'dcwz3|schema-clash|check --schema=%S% --schema=%S2% %F%|-|1|-|^--schema=.* cannot be combined with --schema=.* \(see --help\)$'
@@ -1626,7 +1626,7 @@ rows=(
 	'dc3s6|full-stdout-check|check %F%|@fullout|8|-|-'
 	'dc3s7|full-stdout-get|get %F% a|@fullout|8|-|-'
 	'dc3s8|full-stdout-set|set --set=a=2 %F%|@fullout|8|-|-'
-	'dc3s9|full-stderr-keeps-stdout|fmt %B%|@fullerr|0|a: 1\n\tbad:\nb 2\n|-'
+	'dc3s9|full-stderr-keeps-stdout|fmt %B%|@fullerr|0|a: 1\n\tbad:\nb 2\n## SHCL format 3.0\n|-'
 	## Found working 20260830b item 18: a merge does not keep diagnostics, so
 	## reading them off the merged doc reported the lowest layer and stayed
 	## silent about FILE - the one file the caller actually named.
@@ -1637,7 +1637,7 @@ rows=(
 	## there is never given one. 20260909 item 56: the blank line above the
 	## block, which init's output has and this one used to be missing.
 	'dcc9t|create-info-block|set --write %C% --set=srv.port=8080|-|0|-|-|srv:\n\tport: 8080\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3.0\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright \xc2\xa9 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n'
-	'dcc9v|create-no-banner|set --write --no-banner %C% --set=srv.port=8080|-|0|-|-|srv:\n\tport: 8080\n'
+	'dcc9v|create-no-banner|set --write --no-banner %C% --set=srv.port=8080|-|0|-|-|srv:\n\tport: 8080\n## SHCL format 3.0\n'
 	## 20260909 item 35: set without --write took --no-banner and did nothing with
 	## it, where --lossy in the same spot was refused.
 	'dcqgq|no-banner-without-write|set --no-banner --set=a=2 %F%|-|1|-|only meaningful with --write'
@@ -1657,7 +1657,7 @@ rows=(
 	## refuse it.
 	## 2026110914412379: a file removed during the wait is written back as a
 	## new one, as the library's save writes it. It was refused as changed.
-	'df5rw|write-gone-during-wait|set --write %C%|@gone|0|-|created\.shcl: created$|a: 1\n\nk: 1\n'
+	'df5rw|write-gone-during-wait|set --write %C%|@gone|0|-|created\.shcl: created$|a: 1\n\nk: 1\n## SHCL format 3.0\n'
 	'devy8|write-fifo-during-wait|set --write %C%|@fifo|8|-|created\.shcl: not a regular file$|-'
 	## 2026110613470308: a folder swapped in during the wait got the FIFO's
 	## words, where a folder there from the start is a directory. And a path
@@ -1758,19 +1758,19 @@ rows=(
 	## 20260830 item 12: Python wrote stdout in the locale's encoding, which
 	## raised on a non-ASCII value wherever that was not UTF-8.
 	'dd514|ascii-locale-get|get %NA% n|@asciilocale|0|caf\xc3\xa9 \xe2\x82\xac\n|^$'
-	'dd515|ascii-locale-fmt|fmt %NA%|@asciilocale|0|n: "caf\xc3\xa9 \xe2\x82\xac"\n|^$'
+	'dd515|ascii-locale-fmt|fmt %NA%|@asciilocale|0|n: "caf\xc3\xa9 \xe2\x82\xac"\n## SHCL format 3.0\n|^$'
 	## 2026100717500020: a default op replaces a value that does not read as
 	## its type and keeps the old line as a comment, refuses over a raw block,
 	## and the data options fill only a missing or empty field.
-	'ddrnm|default-op-replaces|set -|string\tport\tabc\nint-default\tport\t9\n|0|# port: abc  ## replaced by shcl when setting a default for port, 2026-10-04 00:15:00 PDT: not an int\nport: 9\n|-'
+	'ddrnm|default-op-replaces|set -|string\tport\tabc\nint-default\tport\t9\n|0|# port: abc  ## replaced by shcl when setting a default for port, 2026-10-04 00:15:00 PDT: not an int\nport: 9\n## SHCL format 3.0\n|-'
 	'ddrnn|default-op-raw-block|set -|raw\tscript\tsh\techo hi\nint-default\tscript\t1\n|1||^op line 2: cannot write script: a raw block is there, and a default of another type would lose its body \(see --help\)$'
-	'ddrnp|set-default-fills-empty|set --set-default=e=3 -|e:\n|0|e: 3\n|-'
-	'ddrnq|set-default-keeps-any-value|set --set-default=p=9 -|p: abc\n|0|p: abc\n|-'
-	'ddwpa|set-literal-default-keeps-any-value|set --set-literal-default=p=9 -|p: abc\n|0|p: abc\n|-'
+	'ddrnp|set-default-fills-empty|set --set-default=e=3 -|e:\n|0|e: 3\n## SHCL format 3.0\n|-'
+	'ddrnq|set-default-keeps-any-value|set --set-default=p=9 -|p: abc\n|0|p: abc\n## SHCL format 3.0\n|-'
+	'ddwpa|set-literal-default-keeps-any-value|set --set-literal-default=p=9 -|p: abc\n|0|p: abc\n## SHCL format 3.0\n|-'
 	## 2026101514324721: a default equal to another instance folds the two,
 	## and the note goes on whichever one stays, earlier or later.
-	'de18x|default-op-folds-into-earlier|set -|int\tsite("9").host\t1\nint\tsite("abc").port\t2\nint-default\tsite("abc")\t9\n|0|# site: abc  ## replaced by shcl when setting a default for site("abc"), 2026-10-04 00:15:00 PDT: not an int\nsite: 9\n\thost: 1\n\tport: 2\n|-'
-	'de18y|default-op-folds-later-in|set -|int\tsite("abc").port\t2\nint\tsite("9").host\t1\nint-default\tsite("abc")\t9\n|0|# site: abc  ## replaced by shcl when setting a default for site("abc"), 2026-10-04 00:15:00 PDT: not an int\nsite: 9\n\tport: 2\n\thost: 1\n|-'
+	'de18x|default-op-folds-into-earlier|set -|int\tsite("9").host\t1\nint\tsite("abc").port\t2\nint-default\tsite("abc")\t9\n|0|# site: abc  ## replaced by shcl when setting a default for site("abc"), 2026-10-04 00:15:00 PDT: not an int\nsite: 9\n\thost: 1\n\tport: 2\n## SHCL format 3.0\n|-'
+	'de18y|default-op-folds-later-in|set -|int\tsite("abc").port\t2\nint\tsite("9").host\t1\nint-default\tsite("abc")\t9\n|0|# site: abc  ## replaced by shcl when setting a default for site("abc"), 2026-10-04 00:15:00 PDT: not an int\nsite: 9\n\tport: 2\n\thost: 1\n## SHCL format 3.0\n|-'
 )
 
 declare -i nRun=0 nBad=0 n2x=0 nUsage=0
@@ -2676,7 +2676,7 @@ altGroup="$(id -Gn | tr ' ' '\n' | grep -vx "$(id -gn)" | head -1 || true)"
 fSaveSetup() {
 	case "$1" in
 		regular)  printf 'a: 1\n' > f.shcl ;;
-		same)     printf 'a: 1\n' > f.shcl; fStat i f.shcl > ino ;;
+		same)     printf 'a: 1\n## SHCL format 3.0\n' > f.shcl; fStat i f.shcl > ino ;;
 		differs)  printf 'a:   1\n' > f.shcl; fStat i f.shcl > ino ;;
 		group)    printf 'a:   1\n' > f.shcl; chgrp "${altGroup}" f.shcl; chmod 0640 f.shcl ;;
 		nothing|missdir) : ;;
@@ -2768,16 +2768,16 @@ saveCases=(
 	'dd84h|migrate-setid|migrate --write f.shcl|0|[[ "$(fStat a f_backup_20261004-001500_format-v2.shcl)" == 6755 ]]'
 	## A remove leaves the kept line beside its target (2026100307163901). Until
 	## that fix the save gate refused this at 7 and left the file alone.
-	'ddesk|kept-remove|set --write --remove y f.shcl|0|cmp -s f.shcl <(printf "x: 1\nr: [1, 2\n") && ! grep -q "refusing" "${tmpDir}/err"'
+	'ddesk|kept-remove|set --write --remove y f.shcl|0|cmp -s f.shcl <(printf "x: 1\nr: [1, 2\n## SHCL format 3.0\n") && ! grep -q "refusing" "${tmpDir}/err"'
 	## A field opened only by the line under it goes with that line, and its own
 	## kept line stays, with no bare `a:` left behind (2026100307163907).
-	'ddf8j|kept-lazy|set --write --remove a.b f.shcl|0|cmp -s f.shcl <(printf "a: [1\ny: 3\n")'
+	'ddf8j|kept-lazy|set --write --remove a.b f.shcl|0|cmp -s f.shcl <(printf "a: [1\ny: 3\n## SHCL format 3.0\n")'
 	## A setter on that field writes its kept line as a comment with a note, so
 	## the file has one `a` (2026100307163907).
-	'ddgge|kept-set|set --write --set a=5 f.shcl|0|cmp -s f.shcl <(printf "# a: [1  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing \x27]\x27 on the line\na: 5\n\tb: 2\ny: 3\n")'
+	'ddgge|kept-set|set --write --set a=5 f.shcl|0|cmp -s f.shcl <(printf "# a: [1  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing \x27]\x27 on the line\na: 5\n\tb: 2\ny: 3\n## SHCL format 3.0\n")'
 	## A setter making `a` writes every kept `a` in the block as that comment
 	## and puts the new line under the first (2026100307163907).
-	'ddgq5|kept-create|set --write --set a=5 f.shcl|0|cmp -s f.shcl <(printf "x: 1\n# a: [1  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing \x27]\x27 on the line\na: 5\ny: 3\n# a: [2  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing \x27]\x27 on the line\n")'
+	'ddgq5|kept-create|set --write --set a=5 f.shcl|0|cmp -s f.shcl <(printf "x: 1\n# a: [1  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing \x27]\x27 on the line\na: 5\ny: 3\n# a: [2  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing \x27]\x27 on the line\n## SHCL format 3.0\n")'
 	## upgrade --write backs up and writes the same way (2026100313461649).
 	'ddmhr|upgrade|upgrade --write f.shcl|0|grep -qx "base: Boston" f.shcl && grep -qx "##    Format   3.0" f.shcl && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "base:[Boston]\n\tlat: 42\n") && [[ "$(fStat a f_backup_20261004-001500_format-v2.shcl)" == 640 && "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	'ddmhs|upgrade-taken|upgrade --write f.shcl|8|grep -qx "base:\[Boston\]" f.shcl && [[ "$(cat f_backup_20261004-001500_format-v2.shcl)" == x && "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
@@ -2985,7 +2985,7 @@ for b in "${bindings[@]}"; do
 	nRun+=1
 	if ((rc != 0)); then
 		echo "cli-regress: remove-dotted-pair-write [${name}]: exit ${rc}: $(head -c 200 "${tmpDir}/err")" >&2; nBad+=1
-	elif [[ "$(cat "${banDir}/f.shcl"; echo .)" != $'x: 0\na.c: 2\nsrv.web.host: h\n.' ]]; then
+	elif [[ "$(cat "${banDir}/f.shcl"; echo .)" != $'x: 0\na.c: 2\nsrv.web.host: h\n## SHCL format 3.0\n.' ]]; then
 		echo "cli-regress: remove-dotted-pair-write [${name}]: the file afterwards: $(head -c 300 "${banDir}/f.shcl")" >&2; nBad+=1
 	fi
 done

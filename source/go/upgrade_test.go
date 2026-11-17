@@ -265,7 +265,7 @@ func TestAFormatLineAtTheTopGoesWhenTheBlockGoesOn(t *testing.T) {
 	// Taking the block off leaves the top alone, as does putting one on over
 	// a whole block there.
 	doc = Parse("##    Format   2\nname: x\n")
-	if n := doc.SetBanner(false); n != 0 || doc.ToCanonical() != "##    Format   2\nname: x\n" {
+	if n := doc.SetBanner(false); n != 0 || doc.ToCanonical() != "##    Format   3.0\nname: x\n" {
 		t.Fatalf("off: %d %q", n, doc.ToCanonical())
 	}
 	top := GenBanner + "name: x\n"
@@ -288,7 +288,7 @@ func TestAStampGoesWhereAFormatLineGoes(t *testing.T) {
 	}{
 		{"## SHCL format 2.0\nname: x\n", true, 1, "name: x\n\n" + GenBanner},
 		{"name: x\n## SHCL format 3.0\n", true, 1, "name: x\n\n" + GenBanner},
-		{"name: x\n## SHCL format 3.0\n", false, 1, "name: x\n"},
+		{"name: x\n## SHCL format 3.0\n", false, 1, "name: x\n## SHCL format 3.0\n"},
 		{kept + "## SHCL format 2.0\n##\nname: x\n", true, 0, kept + "## SHCL format 3.0\n##\nname: x\n\n" + GenBanner},
 	} {
 		doc := Parse(c.text)

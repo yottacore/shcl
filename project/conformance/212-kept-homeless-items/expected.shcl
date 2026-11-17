@@ -8,3 +8,4 @@ host: x
 	- y
 list:
 	- a
+## SHCL format 3.0

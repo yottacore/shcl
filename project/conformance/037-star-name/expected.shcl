@@ -5,3 +5,4 @@ server: web2
 	port: 9090
 plain: x
 "*": lit
+## SHCL format 3.0

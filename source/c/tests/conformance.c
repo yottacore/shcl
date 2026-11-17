@@ -153,7 +153,7 @@ static void fv_check(const char *in, size_t inn) {
 		free(v); shcl_free(d); return;
 	}
 	shcl_str c = shcl_to_canonical(d);
-	SHCL_ANALYZER_SKIP if (c.n != n + 4 || memcmp(c.p, "k: ", 3) || memcmp(c.p + 3, v, n) || c.p[n + 3] != '\n' || v[n] || strlen(v) != n) // c.n is how long c.p is
+	SHCL_ANALYZER_SKIP if (c.n != n + 4 + sizeof SHCL_STAMP_LINE || memcmp(c.p, "k: ", 3) || memcmp(c.p + 3, v, n) || c.p[n + 3] != '\n' || memcmp(c.p + n + 4, SHCL_STAMP_LINE "\n", sizeof SHCL_STAMP_LINE) || v[n] || strlen(v) != n) // c.n is how long c.p is
 		fv_fail("not the canonical text", in, inn);
 	char line[SOUP_BUF];
 	if (n + 4 > sizeof line) { fv_fail("text longer than the fixture buffer", in, inn); free(v); shcl_free(d); return; }
@@ -170,7 +170,7 @@ static void fv_typed(shcl_doc *d, const char *text, const char *what) {
 	size_t n = 0;
 	char *v = shcl_format_value(text, strlen(text), &n);
 	shcl_str c = shcl_to_canonical(d);
-	SHCL_ANALYZER_SKIP if (!v || c.n != n + 4 || memcmp(c.p, "k: ", 3) || memcmp(c.p + 3, v, n) || c.p[n + 3] != '\n') fail("format_value", what); // c.n is how long c.p is
+	SHCL_ANALYZER_SKIP if (!v || c.n != n + 4 + sizeof SHCL_STAMP_LINE || memcmp(c.p, "k: ", 3) || memcmp(c.p + 3, v, n) || c.p[n + 3] != '\n' || memcmp(c.p + n + 4, SHCL_STAMP_LINE "\n", sizeof SHCL_STAMP_LINE)) fail("format_value", what); // c.n is how long c.p is
 	free(v); shcl_free(d);
 }
 /* One array of the format_array fixture: shcl_format_array against what
@@ -189,7 +189,7 @@ static void fa_check(const char *const *av, const size_t *al, size_t an) {
 		free(v); shcl_free(d); return;
 	}
 	shcl_str c = shcl_to_canonical(d);
-	SHCL_ANALYZER_SKIP if (c.n != n + 4 || memcmp(c.p, "k: ", 3) || memcmp(c.p + 3, v, n) || c.p[n + 3] != '\n' || v[n] || strlen(v) != n) // c.n is how long c.p is
+	SHCL_ANALYZER_SKIP if (c.n != n + 4 + sizeof SHCL_STAMP_LINE || memcmp(c.p, "k: ", 3) || memcmp(c.p + 3, v, n) || c.p[n + 3] != '\n' || memcmp(c.p + n + 4, SHCL_STAMP_LINE "\n", sizeof SHCL_STAMP_LINE) || v[n] || strlen(v) != n) // c.n is how long c.p is
 		fa_fail("not the canonical text", last, lastn);
 	char *line = (char *)malloc(n + 4);
 	if (!line) { fail("format_array", "out of memory"); free(v); shcl_free(d); return; }
@@ -208,7 +208,7 @@ static void fa_typed(shcl_doc *d, const char *const *texts, size_t n, const char
 	for (size_t i = 0; i < n; i++) lens[i] = strlen(texts[i]);
 	char *v = shcl_format_array(texts, lens, n, &vn);
 	shcl_str c = shcl_to_canonical(d);
-	SHCL_ANALYZER_SKIP if (!v || c.n != vn + 4 || memcmp(c.p, "k: ", 3) || memcmp(c.p + 3, v, vn) || c.p[vn + 3] != '\n') fail("format_array", what); // c.n is how long c.p is
+	SHCL_ANALYZER_SKIP if (!v || c.n != vn + 4 + sizeof SHCL_STAMP_LINE || memcmp(c.p, "k: ", 3) || memcmp(c.p + 3, v, vn) || c.p[vn + 3] != '\n' || memcmp(c.p + vn + 4, SHCL_STAMP_LINE "\n", sizeof SHCL_STAMP_LINE)) fail("format_array", what); // c.n is how long c.p is
 	free(v); shcl_free(d);
 }
 /* A capped parse's diagnostics as "LINE:CODE" words, its lost count and its
@@ -668,6 +668,10 @@ static char *placement_text(char **lines, size_t from, size_t to, size_t *len) {
 
 static int placement_marker(const char *line) { return strncmp(line, ":: ", 3) == 0; }
 
+static int stamped_is(shcl_str s, const char *w);
+static int only_the_stamp_differs(const char *text, size_t tn, shcl_str saved);
+static int tidy_stamp_is(shcl_str got, shcl_str want);
+
 static int same_text(shcl_str got, const char *want, size_t wlen) {
 	return got.n == wlen && (wlen == 0 || memcmp(got.p, want, wlen) == 0);
 }
@@ -877,7 +881,7 @@ static int deep_round_trip(int op) {
 	if (ok && op == DEEP_GENERATE) ok = deep_generate();
 	if (ok) {
 		shcl_str out = shcl_to_canonical(d);
-		ok = out.n == n && memcmp(out.p, t, n) == 0;
+		ok = out.n == n + sizeof SHCL_STAMP_LINE && memcmp(out.p, t, n) == 0 && memcmp(out.p + n, SHCL_STAMP_LINE "\n", sizeof SHCL_STAMP_LINE) == 0;
 	}
 	shcl_free(d);
 	free(t);
@@ -1415,7 +1419,7 @@ static void edits_and_merges_match_a_reload(void) {
 			if (kept) {
 				shcl_doc *kd = shcl_parse(kt.p, kt.n);
 				shcl_str kc = shcl_to_canonical(kd);
-				if (!bad && (kc.n != a.n || memcmp(kc.p, a.p, a.n) != 0)) {
+				if (!bad && !tidy_stamp_is(kc, (shcl_str){a.p, a.n})) {
 					fprintf(stderr, "FAIL edits_and_merges: kept lines reload as another document at iteration %d:\n%s--- wrote\n%.*s", i, log.p, (int)kt.n, kt.p);
 					nfail++; bad = 1;
 				}
@@ -1445,6 +1449,64 @@ static void edits_and_merges_match_a_reload(void) {
 
 /* The bytes of s are exactly w. */
 static int str_is(shcl_str s, const char *w) { return s.n == strlen(w) && memcmp(s.p, w, s.n) == 0; }
+
+/* s is w with the stamp a save writes after it, as for a text that names no
+   format. */
+static int stamped_is(shcl_str s, const char *w) {
+	size_t n = strlen(w), sn = sizeof SHCL_STAMP_LINE;
+	return s.n == n + sn && memcmp(s.p, w, n) == 0 && memcmp(s.p + n, SHCL_STAMP_LINE "\n", sn) == 0;
+}
+
+/* saved is text with the stamp a save writes: the same text, when it names
+   this format, a newer one, or ends in a raw block left open, or one stamp
+   line rewritten in place, or SHCL_STAMP_LINE added as the last line. */
+static int only_the_stamp_differs(const char *text, size_t tn, shcl_str saved) {
+	if (saved.n == tn && (tn == 0 || memcmp(saved.p, text, tn) == 0)) return 1;
+	const char *eol = "\n";
+	for (size_t i = 0; i + 1 < tn; i++) if (text[i] == '\r' && text[i + 1] == '\n') { eol = "\r\n"; break; }
+	size_t en = strlen(eol), sn = sizeof SHCL_STAMP_LINE - 1;
+	if (saved.n > tn && (tn == 0 || memcmp(saved.p, text, tn) == 0)) {
+		const char *tail = saved.p + tn;
+		size_t rest = saved.n - tn;
+		if (tn && text[tn - 1] != '\n') {
+			if (rest < en || memcmp(tail, eol, en) != 0) return 0;
+			tail += en; rest -= en;
+		}
+		return rest == sn + en && memcmp(tail, SHCL_STAMP_LINE, sn) == 0 && memcmp(tail + sn, eol, en) == 0;
+	}
+	/* One line differs, a Format or stamp line that now names this format. */
+	size_t a = 0, b = 0, diffs = 0;
+	int ok = 1;
+	while (a <= tn && b <= saved.n) {
+		size_t ae = a, be = b;
+		while (ae < tn && text[ae] != '\n') ae++;
+		while (be < saved.n && saved.p[be] != '\n') be++;
+		if (ae - a != be - b || memcmp(text + a, saved.p + b, ae - a) != 0) {
+			diffs++;
+			size_t ai = a, bi = b;
+			while (ai < ae && (text[ai] == ' ' || text[ai] == '\t')) ai++;
+			while (bi < be && (saved.p[bi] == ' ' || saved.p[bi] == '\t')) bi++;
+			int was = (ae - ai >= sizeof SHCL_FORMAT_LINE_HEAD - 1 && memcmp(text + ai, SHCL_FORMAT_LINE_HEAD, sizeof SHCL_FORMAT_LINE_HEAD - 1) == 0)
+				|| (ae - ai >= sizeof SHCL_STAMP_HEAD - 1 && memcmp(text + ai, SHCL_STAMP_HEAD, sizeof SHCL_STAMP_HEAD - 1) == 0);
+			int now = (be - bi >= sizeof SHCL_FORMAT_LINE - 1 && memcmp(saved.p + bi, SHCL_FORMAT_LINE, sizeof SHCL_FORMAT_LINE - 1) == 0)
+				|| (be - bi >= sizeof SHCL_STAMP_LINE - 1 && memcmp(saved.p + bi, SHCL_STAMP_LINE, sizeof SHCL_STAMP_LINE - 1) == 0);
+			ok = ok && was && now;
+		}
+		if (ae == tn || be == saved.n) { if (ae != tn || be != saved.n) ok = 0; break; }
+		a = ae + 1; b = be + 1;
+	}
+	return ok && diffs == 1;
+}
+
+/* A blank line a save that keeps lines kept above an added stamp is one the
+   canonical form drops, so a canonical text with one before its stamp line
+   equals want without it. */
+static int tidy_stamp_is(shcl_str got, shcl_str want) {
+	static const char blank[] = "\n\n" SHCL_STAMP_LINE "\n";
+	size_t bn = sizeof blank - 1;
+	if (got.n == want.n && memcmp(got.p, want.p, got.n) == 0) return 1;
+	return got.n == want.n + 1 && got.n >= bn && memcmp(got.p + got.n - bn, blank, bn) == 0 && memcmp(got.p, want.p, got.n - bn + 1) == 0;
+}
 
 /* Both documents list the same paths in the same order. */
 /* A setter's status agrees with shcl_check_set_path over generated
@@ -1886,7 +1948,7 @@ int main(int argc, char **argv) {
 			shcl_doc *kd = shcl_parse_keep_lines(input, ilen, SHCL_STANDARD);
 			int kept = 0;
 			shcl_str kt = shcl_to_text_keep_lines(kd, &kept);
-			if (!kept || kt.n != ilen || (ilen && memcmp(kt.p, input, ilen) != 0)) fail(names[ci], "an unedited save changed the text");
+			if (!kept || !only_the_stamp_differs(input, ilen, kt)) fail(names[ci], "an unedited save changed more than the stamp");
 			shcl_free(kd);
 		}
 
@@ -2467,7 +2529,7 @@ int main(int argc, char **argv) {
 			// Canonical output folds the case, as it always has, and escapes the tab.
 			const char *ec = "\"ab◉TAB◉cd\": 2\n";
 			shcl_str ecn = shcl_to_canonical(ed);
-			if (ecn.n != strlen(ec) || memcmp(ecn.p, ec, ecn.n) != 0) fail("authored_name", "canonical name spelling moved");
+			if (!stamped_is(ecn, ec)) fail("authored_name", "canonical name spelling moved");
 		}
 		shcl_free(ed);
 	}
@@ -2790,7 +2852,7 @@ int main(int argc, char **argv) {
 		// A stacked item past the cap is dropped whatever it holds; within the
 		// cap a broken one is kept and the list loads around it.
 		cap_codes("x:\n\t- a\n\t- b\n\t- \"open\n\t- c d\nz: 1\n", 2, got, sizeof got, &lost, out, sizeof out);
-		if (strcmp(got, "4:E021 5:E021") != 0 || lost != 2 || strcmp(out, "x:\n\t- a\n\t- b\nz: 1\n") != 0) fail("cap_wins", "items past the cap");
+		if (strcmp(got, "4:E021 5:E021") != 0 || lost != 2 || strcmp(out, "x:\n\t- a\n\t- b\nz: 1\n## SHCL format 3.0\n") != 0) fail("cap_wins", "items past the cap");
 		cap_codes("x:\n\t- a\n\t- \"open\n\t- b\n", 2, got, sizeof got, &lost, out, sizeof out);
 		if (strcmp(got, "3:E017") != 0 || lost != 0 || !strstr(out, "- \"open")) fail("cap_wins", "a broken item within the cap");
 		// An element under a field with a value is E011, cap or not.
@@ -2820,7 +2882,7 @@ int main(int argc, char **argv) {
 			shcl_str out = shcl_to_canonical(nd);
 			if (shcl_diag_count(nd) != 1 || strcmp(shcl_diag_code(nd, 0), "E014") != 0) fail("no_colon", nc[i].line);
 			if (shcl_lost_count(nd) != 0) fail("no_colon", nc[i].line);
-			if (out.n != strlen(text) || memcmp(out.p, text, out.n) != 0) fail("no_colon", nc[i].line);
+			if (!stamped_is(out, text)) fail("no_colon", nc[i].line);
 			if (shcl_exists(nd, nc[i].quoted, strlen(nc[i].quoted))) fail("no_colon", nc[i].quoted);
 			shcl_free(nd);
 		}
@@ -2840,7 +2902,7 @@ int main(int argc, char **argv) {
 			shcl_doc *rd = shcl_parse(text, strlen(text));
 			shcl_str out = shcl_to_canonical(rd);
 			if (shcl_diag_count(rd) != 1 || strcmp(shcl_diag_code(rd, 0), "E015") != 0) fail("no_colon", rc[i].line);
-			if (out.n != strlen(want) || memcmp(out.p, want, out.n) != 0) fail("no_colon", rc[i].line);
+			if (!stamped_is(out, want)) fail("no_colon", rc[i].line);
 			shcl_free(rd);
 		}
 	}
@@ -2873,7 +2935,7 @@ int main(int argc, char **argv) {
 			if (!bf || fputs("a: 1\nb: \xff\xfe bad\n", bf) == EOF || fclose(bf) != 0) fail("file_tier", "seed write failed");
 			fd = shcl_load_file(tfile, &fst);
 			if (fst != SHCL_FILE_UNREADABLE) fail("file_tier", "bad encoding status");
-			if (shcl_to_canonical(fd).n != 0) fail("file_tier", "bad encoding document");
+			if (!stamped_is(shcl_to_canonical(fd), "")) fail("file_tier", "bad encoding document");
 			shcl_free(fd);
 		}
 		// codeql[cpp/world-writable-file-creation] a test's scratch file, made the way fopen makes any file
@@ -2934,7 +2996,7 @@ int main(int argc, char **argv) {
 				if (shcl_save_file(nd, fresh, NULL) != SHCL_SAVE_OK) fail("file_tier", pass ? "overwrite save failed" : "new file save failed");
 				shcl_doc *nb = shcl_load_file(fresh, &fst);
 				shcl_str nc = shcl_to_canonical(nb);
-				if (fst != SHCL_FILE_CLEAN || nc.n != 5 || memcmp(nc.p, "a: 1\n", 5) != 0) fail("file_tier", pass ? "overwritten file round-trip" : "new file round-trip");
+				if (fst != SHCL_FILE_CLEAN || !stamped_is(nc, "a: 1\n")) fail("file_tier", pass ? "overwritten file round-trip" : "new file round-trip");
 				shcl_free(nb);
 			}
 			// A new file ends up where an ordinary create puts one - 0666 narrowed
@@ -3044,7 +3106,7 @@ int main(int argc, char **argv) {
 		shcl_doc *spd = shcl_parse(sp, strlen(sp));
 		if (shcl_lost_count(spd) != 0) fail("lost", "spaced lost_count not 0");
 		shcl_str spc = shcl_to_canonical(spd);
-		if (spc.n != strlen(sp) || memcmp(spc.p, sp, spc.n) != 0) fail("lost", "spaced line not kept as written");
+		if (!stamped_is(spc, sp)) fail("lost", "spaced line not kept as written");
 		shcl_free(spd);
 		const char *lt2 = "a:\n\t\tb: 1\n\tc: 2\n";
 		shcl_doc *lo = shcl_parse(lt2, strlen(lt2));
@@ -3077,7 +3139,7 @@ int main(int argc, char **argv) {
 		if (shcl_save_file_keep_lines(kl, tfile, &klk, NULL) != SHCL_SAVE_OK || !klk) fail("lost", "keep save did not keep a dropped line");
 		size_t kll = 0; shcl_file_status kls;
 		char *klt = shcl_read_file(tfile, 0, &kll, &kls);
-		const char *klw = "a:\n\t\tb: 5\n\tc: 2\n";
+		const char *klw = "a:\n\t\tb: 5\n\tc: 2\n## SHCL format 3.0\n";
 		if (!klt || kll != strlen(klw) || memcmp(klt, klw, kll) != 0) fail("lost", "keep save text mismatch");
 		free(klt);
 		if (shcl_remove(kl, "a.b", 3) != 1) fail("lost", "keep remove failed");
@@ -3145,7 +3207,7 @@ int main(int argc, char **argv) {
 		if (shcl_remove(hd, "a", 1) != 1) fail("kept_gate", "remove a failed");
 		if (shcl_lost_count(hd) != 0) fail("kept_gate", "removing a field opened from a kept line counted it lost");
 		shcl_str hc = shcl_to_canonical(hd);
-		if (hc.n != 5 || memcmp(hc.p, "y: 3\n", 5) != 0) fail("kept_gate", "removing a field opened from a kept line left more than y");
+		if (!stamped_is(hc, "y: 3\n")) fail("kept_gate", "removing a field opened from a kept line left more than y");
 		shcl_free(hd);
 	}
 	{
@@ -3171,7 +3233,7 @@ int main(int argc, char **argv) {
 			shcl_doc *rd = shcl_parse(rc[i].text, strlen(rc[i].text));
 			size_t n = shcl_remove(rd, rc[i].path, strlen(rc[i].path));
 			shcl_str out = shcl_to_canonical(rd);
-			if (n != 1 || shcl_lost_count(rd) != 0 || out.n != strlen(rc[i].want) || memcmp(out.p, rc[i].want, out.n) != 0) {
+			if (n != 1 || shcl_lost_count(rd) != 0 || !stamped_is(out, rc[i].want)) {
 				fail("kept_gate", rc[i].text);
 			} else {
 				shcl_doc *back = shcl_parse(out.p, out.n);
@@ -3202,7 +3264,7 @@ int main(int argc, char **argv) {
 			shcl_doc *sd = shcl_parse_keep_lines(sc[i].text, strlen(sc[i].text), SHCL_STANDARD);
 			int took = shcl_set_int(sd, sc[i].path, strlen(sc[i].path), 5) == SHCL_SET_OK;
 			shcl_str out = shcl_to_canonical(sd);
-			if (!took || shcl_lost_count(sd) != 0 || out.n != strlen(sc[i].want) || memcmp(out.p, sc[i].want, out.n) != 0) {
+			if (!took || shcl_lost_count(sd) != 0 || !stamped_is(out, sc[i].want)) {
 				fail("kept_gate", sc[i].text);
 			} else {
 				shcl_doc *back = shcl_parse(out.p, out.n);
@@ -3226,7 +3288,7 @@ int main(int argc, char **argv) {
 			shcl_doc *bd = shcl_parse("a: [1\n\tb: 2\n", 12);
 			int took = shcl_set_int(bd, bc[i].path, strlen(bc[i].path), 5) == SHCL_SET_OK;
 			shcl_str out = shcl_to_canonical(bd);
-			if (!took || out.n != strlen(bc[i].want) || memcmp(out.p, bc[i].want, out.n) != 0) fail("kept_gate", bc[i].path);
+			if (!took || !stamped_is(out, bc[i].want)) fail("kept_gate", bc[i].path);
 			shcl_free(bd);
 		}
 	}
@@ -3262,7 +3324,7 @@ int main(int argc, char **argv) {
 			shcl_doc *ed = shcl_parse_keep_lines(ec[i].text, strlen(ec[i].text), SHCL_STANDARD);
 			int took = shcl_set_int(ed, ec[i].path, strlen(ec[i].path), 5) == SHCL_SET_OK;
 			shcl_str out = shcl_to_canonical(ed);
-			if (!took || shcl_lost_count(ed) != 0 || out.n != strlen(ec[i].want) || memcmp(out.p, ec[i].want, out.n) != 0) {
+			if (!took || shcl_lost_count(ed) != 0 || !stamped_is(out, ec[i].want)) {
 				fail("kept_gate", ec[i].text);
 			} else {
 				shcl_doc *back = shcl_parse(out.p, out.n);
@@ -3283,7 +3345,7 @@ int main(int argc, char **argv) {
 			int tkept = 0;
 			int ttook = shcl_set_int(td, "a", 1, 5) == SHCL_SET_OK;
 			shcl_str tk = shcl_to_text_keep_lines(td, &tkept);
-			if (ttook || !tkept || tk.n != strlen(tv) || memcmp(tk.p, tv, tk.n) != 0) fail("kept_gate", "two valid lines");
+			if (ttook || !tkept || !stamped_is(tk, tv)) fail("kept_gate", "two valid lines");
 			shcl_free(td);
 		}
 		// shcl_set_comment makes the field without touching the line.
@@ -3291,7 +3353,7 @@ int main(int argc, char **argv) {
 		int took = shcl_set_comment(cd, "a", 1, "n", 1) == SHCL_SET_OK;
 		shcl_str out = shcl_to_canonical(cd);
 		static const char cwant[] = "a: [1\ny: 3\n\n# n\na:\n";
-		if (!took || out.n != strlen(cwant) || memcmp(out.p, cwant, out.n) != 0) fail("kept_gate", "set_comment beside a kept line");
+		if (!took || !stamped_is(out, cwant)) fail("kept_gate", "set_comment beside a kept line");
 		shcl_free(cd);
 	}
 	test_id("ddggd", "a_note_names_the_zone_or_its_offset");
@@ -3346,12 +3408,12 @@ int main(int argc, char **argv) {
 		if (shcl_remove(rd, "x.c", 3) != 1) fail("kept_gate", "remove x.c failed");
 		shcl_str rc = shcl_to_canonical(rd);
 		const char *rw = "x: 0\n# a: 5\nb: 1\n";
-		if (rc.n != strlen(rw) || memcmp(rc.p, rw, rc.n) != 0) fail("kept_gate", "the replaced-leaf fixture did not settle its kept line");
+		if (!stamped_is(rc, rw)) fail("kept_gate", "the replaced-leaf fixture did not settle its kept line");
 		shcl_doc *rl = shcl_parse("b: 9\n", 5);
 		shcl_merge(rd, rl);
 		rc = shcl_to_canonical(rd);
 		rw = "x: 0\nb: 9\n";
-		if (rc.n != strlen(rw) || memcmp(rc.p, rw, rc.n) != 0) fail("kept_gate", "the replaced leaf kept its settled line");
+		if (!stamped_is(rc, rw)) fail("kept_gate", "the replaced leaf kept its settled line");
 		if (shcl_lost_count(rd) != 0) fail("kept_gate", "a replaced leaf's settled line counted as lost");
 		shcl_free(rl); shcl_free(rd);
 	}
@@ -3364,7 +3426,7 @@ int main(int argc, char **argv) {
 		shcl_doc *fl = shcl_parse(ft, strlen(ft));
 		shcl_merge(fd, fl);
 		shcl_str fc = shcl_to_canonical(fd);
-		if (fc.n != strlen(ft) || memcmp(fc.p, ft, fc.n) != 0) fail("kept_gate", "the footer dedup wrote the line twice");
+		if (!stamped_is(fc, ft)) fail("kept_gate", "the footer dedup wrote the line twice");
 		if (shcl_lost_count(fd) != 0) fail("kept_gate", "a deduped footer line counted as lost");
 		shcl_free(fl); shcl_free(fd);
 	}
@@ -3377,12 +3439,12 @@ int main(int argc, char **argv) {
 		shcl_doc *bd = shcl_parse(bt, strlen(bt));
 		shcl_str bc = shcl_to_canonical(bd);
 		const char *bw = "srv: a\n# srv(x): [3\nb(x): [4\n# mine\nq: c\n";
-		if (bc.n != strlen(bw) || memcmp(bc.p, bw, bc.n) != 0) fail("kept_gate", "the beside fixture did not settle its kept line");
+		if (!stamped_is(bc, bw)) fail("kept_gate", "the beside fixture did not settle its kept line");
 		shcl_doc *bl = shcl_parse("q: 9\n", 5);
 		shcl_merge(bd, bl);
 		bc = shcl_to_canonical(bd);
 		bw = "srv: a\n# srv(x): [3\nb(x): [4\nq: 9\n";
-		if (bc.n != strlen(bw) || memcmp(bc.p, bw, bc.n) != 0) fail("kept_gate", "a replaced leaf took the lines beside it");
+		if (!stamped_is(bc, bw)) fail("kept_gate", "a replaced leaf took the lines beside it");
 		if (shcl_lost_count(bd) != 0) fail("kept_gate", "a replaced leaf's neighbors counted as lost");
 		shcl_free(bl); shcl_free(bd);
 		const char *pt = "p:\n\tq: c\n\t# mine\n\tb(x): [4\n\t# n\n";
@@ -3392,7 +3454,7 @@ int main(int argc, char **argv) {
 		shcl_merge(pd, pld);
 		bc = shcl_to_canonical(pd);
 		bw = "p:\n\tb(x): [4\n\t# n\n\tq: 9\n";
-		if (bc.n != strlen(bw) || memcmp(bc.p, bw, bc.n) != 0) fail("kept_gate", "a replaced leaf took the lines below it");
+		if (!stamped_is(bc, bw)) fail("kept_gate", "a replaced leaf took the lines below it");
 		if (shcl_lost_count(pd) != 0) fail("kept_gate", "a replaced leaf's lines below counted as lost");
 		shcl_free(pld); shcl_free(pd);
 	}
@@ -3464,7 +3526,7 @@ int main(int argc, char **argv) {
 		struct stat ls;
 		if (lstat(dlink, &ls) != 0 || !S_ISLNK(ls.st_mode)) fail("dangling", "the link is no longer a link");
 		size_t tn; char *tt = read_file(dtarget, &tn);
-		if (!tt || tn != 5 || memcmp(tt, "a: 1\n", 5) != 0) fail("dangling", "file not created behind the link");
+		if (!tt || tn != 5 + sizeof SHCL_STAMP_LINE || memcmp(tt, "a: 1\n" SHCL_STAMP_LINE "\n", tn) != 0) fail("dangling", "file not created behind the link");
 		free(tt); shcl_free(dd);
 		remove(dlink); remove(dtarget); rmdir(dreal); rmdir(ddir);
 	}
@@ -3519,7 +3581,7 @@ int main(int argc, char **argv) {
 		if (shcl_save_file(td, tr, NULL) != SHCL_SAVE_OK) fail("targets", "save through lnk/.. failed");
 		snprintf(tr, sizeof tr, "%s/real/x.shcl", tdir);
 		size_t xn; char *xt = read_file(tr, &xn);
-		if (!xt || xn != 5 || memcmp(xt, "a: 1\n", 5) != 0) fail("targets", "file not created behind lnk/..");
+		if (!xt || xn != 5 + sizeof SHCL_STAMP_LINE || memcmp(xt, "a: 1\n" SHCL_STAMP_LINE "\n", xn) != 0) fail("targets", "file not created behind lnk/..");
 		free(xt);
 		remove(tr); remove(tq); remove(tp);
 		snprintf(tp, sizeof tp, "%s/top", tdir); rmdir(tp);
@@ -4310,7 +4372,7 @@ int main(int argc, char **argv) {
 		if (rd.status != SHCL_GOOD || okn != rdn || memcmp(okb, rdb, okn) != 0) fail("setters_refuse", "the datetime read back differently");
 		shcl_str canon = shcl_to_canonical(sd);
 		const char *want = "z: 0\n\nf: 2.5\n\nd: \"2026-01-02T03:04:05.60-01:30\"\n";
-		if (canon.n != strlen(want) || memcmp(canon.p, want, canon.n) != 0) fail("setters_refuse", "document after the refusals differs");
+		if (!stamped_is(canon, want)) fail("setters_refuse", "document after the refusals differs");
 		shcl_free(sd);
 	}
 	test_id("ddkpb", "a_backtick_value_reads_raw_with_its_flag");
@@ -4512,7 +4574,7 @@ int main(int argc, char **argv) {
 		if (shcl_set_raw_default(zd, "r2", 2, NULL, 0, NULL, 0) != SHCL_SET_OK) fail("null_span", "set_raw_default refused (NULL, 0)");
 		shcl_str zc = shcl_to_canonical(zd);
 		const char *zwant = "l:\n\nr:\n\t```\n\t```\n\nl2:\n\nr2:\n\t```\n\t```\n";
-		if (zc.n != strlen(zwant) || memcmp(zc.p, zwant, zc.n) != 0) fail("null_span", "document differs from empty literal and raw values");
+		if (!stamped_is(zc, zwant)) fail("null_span", "document differs from empty literal and raw values");
 		shcl_free(zd);
 	}
 	// Every arena a validate arms has to be disarmed before the call returns,
@@ -5228,7 +5290,7 @@ int main(int argc, char **argv) {
 		shcl_free(qd);
 		shcl_doc *td = shcl_parse("n: \"1,000\"\n", 11);
 		shcl_str tc = shcl_to_canonical(td);
-		if (tc.n != 11 || memcmp(tc.p, "n: \"1,000\"\n", 11) != 0) fail("writer_comma", "a quoted thousands comma lost its quotes");
+		if (!stamped_is(tc, "n: \"1,000\"\n")) fail("writer_comma", "a quoted thousands comma lost its quotes");
 		/* 2026101010054746: a quoted thousands number is text, like a bare one.
 		if (shcl_get_int_or(td, "n", 1, 0) != 1000) fail("writer_comma", "n"); */
 		if (shcl_read_int(td, "n", 1).status != SHCL_BAD_TYPE) fail("writer_comma", "n");
@@ -5237,7 +5299,7 @@ int main(int argc, char **argv) {
 		const char *vout = "ver: \"8\"\nok: 'true'\nat: \"2:30PM\"\nhost: \"localhost:8080\"\n";
 		shcl_doc *vd = shcl_parse(vin, strlen(vin));
 		shcl_str vc = shcl_to_canonical(vd);
-		if (vc.n != strlen(vout) || memcmp(vc.p, vout, vc.n) != 0) fail("writer_comma", "a quoted number lost its quotes, or a colon went bare");
+		if (!stamped_is(vc, vout)) fail("writer_comma", "a quoted number lost its quotes, or a colon went bare");
 		if (shcl_get_int_or(vd, "ver", 3, 0) != 8) fail("writer_comma", "ver");
 		if (shcl_set_int(vd, "ver", 3, 9) != SHCL_SET_OK) fail("writer_comma", "set ver");
 		vc = shcl_to_canonical(vd);
@@ -5344,7 +5406,7 @@ int main(int argc, char **argv) {
 		}
 		shcl_str oout = shcl_to_canonical(lo);
 		const char *owant = "a: 1,200\nb: $1,200\nc: 1,200.50\n";
-		if (oout.n != strlen(owant) || memcmp(oout.p, owant, oout.n) != 0) fail("loose_thousands", "the overwritten text");
+		if (!stamped_is(oout, owant)) fail("loose_thousands", "the overwritten text");
 		/* A merge puts a stacked list in brackets, which quote its items. */
 		const char *msrc = "l:\n\t- 1,200\n";
 		shcl_doc *lm = shcl_parse_with(msrc, strlen(msrc), SHCL_LOOSE);
@@ -5692,7 +5754,7 @@ int main(int argc, char **argv) {
 			if (fc[k].step == 5) ok = ok && shcl_remove(cd, "a.c", 3) == 1;
 			if (!ok) fail("field_under_items", "an edit refused");
 			shcl_str ct = shcl_to_canonical(cd);
-			if (!str_is(ct, fc[k].want)) { fail("field_under_items", fc[k].want); fprintf(stderr, "  got %.*s\n", (int)ct.n, ct.p); }
+			if (!stamped_is(ct, fc[k].want)) { fail("field_under_items", fc[k].want); fprintf(stderr, "  got %.*s\n", (int)ct.n, ct.p); }
 			shcl_doc *cb = shcl_parse(ct.p, ct.n);
 			shcl_str cbt = shcl_to_canonical(cb);
 			if (cbt.n != ct.n || memcmp(cbt.p, ct.p, ct.n) != 0 || !same_paths(cd, cb)) fail("field_under_items", "reload differs");
@@ -5755,7 +5817,7 @@ int main(int argc, char **argv) {
 				cd = shcl_parse(ic[k].src, strlen(ic[k].src));
 			}
 			shcl_str ct = shcl_to_canonical(cd);
-			if (!str_is(ct, ic[k].want)) { fail("index_onto_list", ic[k].want); fprintf(stderr, "  got %.*s\n", (int)ct.n, ct.p); }
+			if (!stamped_is(ct, ic[k].want)) { fail("index_onto_list", ic[k].want); fprintf(stderr, "  got %.*s\n", (int)ct.n, ct.p); }
 			shcl_doc *cb = shcl_parse(ct.p, ct.n);
 			shcl_str cbt = shcl_to_canonical(cb);
 			if (cbt.n != ct.n || memcmp(cbt.p, ct.p, ct.n) != 0 || !same_paths(cd, cb)) fail("index_onto_list", "reload differs");
@@ -5806,7 +5868,7 @@ int main(int argc, char **argv) {
 			if (nc[k].sets > 0 && shcl_set_string(cd, "p.x", 3, "foo", 3) != SHCL_SET_OK) fail("index_no_instance", "set");
 			if (nc[k].sets > 1 && shcl_set_string(cd, "p.x", 3, "bar", 3) != SHCL_SET_OK) fail("index_no_instance", "set back");
 			shcl_str ct = shcl_to_canonical(cd);
-			if (!str_is(ct, nc[k].want)) { fail("index_no_instance", nc[k].want); fprintf(stderr, "  got %.*s\n", (int)ct.n, ct.p); }
+			if (!stamped_is(ct, nc[k].want)) { fail("index_no_instance", nc[k].want); fprintf(stderr, "  got %.*s\n", (int)ct.n, ct.p); }
 			shcl_doc *cb = shcl_parse(ct.p, ct.n);
 			shcl_str cbt = shcl_to_canonical(cb);
 			if (cbt.n != ct.n || memcmp(cbt.p, ct.p, ct.n) != 0 || !same_paths(cd, cb)) fail("index_no_instance", "reload differs");
@@ -5847,7 +5909,7 @@ int main(int argc, char **argv) {
 			shcl_doc *cd = shcl_parse(fc[k].src, strlen(fc[k].src));
 			if (shcl_set_literal(cd, fc[k].path, strlen(fc[k].path), text, 1) != SHCL_SET_OK) fail("set_folds", fc[k].src);
 			shcl_str ct = shcl_to_canonical(cd);
-			if (!str_is(ct, want)) { fail("set_folds", want); fprintf(stderr, "  got %.*s\n", (int)ct.n, ct.p); }
+			if (!stamped_is(ct, want)) { fail("set_folds", want); fprintf(stderr, "  got %.*s\n", (int)ct.n, ct.p); }
 			shcl_doc *cb = shcl_parse(ct.p, ct.n);
 			shcl_str cbt = shcl_to_canonical(cb);
 			if (cbt.n != ct.n || memcmp(cbt.p, ct.p, ct.n) != 0 || !same_paths(cd, cb)) fail("set_folds", "reload differs");
@@ -5871,7 +5933,7 @@ int main(int argc, char **argv) {
 			shcl_merge(cd, lo);
 			shcl_free(lo);
 			shcl_str ct = shcl_to_canonical(cd);
-			if (!str_is(ct, rc[k].want)) { fail("replaced_leaf", rc[k].want); fprintf(stderr, "  got %.*s\n", (int)ct.n, ct.p); }
+			if (!stamped_is(ct, rc[k].want)) { fail("replaced_leaf", rc[k].want); fprintf(stderr, "  got %.*s\n", (int)ct.n, ct.p); }
 			shcl_doc *cb = shcl_parse(ct.p, ct.n);
 			shcl_str cbt = shcl_to_canonical(cb);
 			if (cbt.n != ct.n || memcmp(cbt.p, ct.p, ct.n) != 0 || shcl_lost_count(cb) != 0) fail("replaced_leaf", "reload differs or loses");
@@ -5890,7 +5952,7 @@ int main(int argc, char **argv) {
 		if (shcl_set_int(ad, "l.c", 3, 1) == SHCL_SET_OK) fail("setter_apart", "a field under an array");
 		const char *one[1] = {"1"}; size_t onel[1] = {1};
 		if (shcl_set_literal(ad, "c", 1, "[1, 2]", 6) == SHCL_SET_OK || shcl_set_string_array(ad, "c", 1, one, onel, 1) == SHCL_SET_OK) fail("setter_apart", "an array over fields");
-		if (!str_is(shcl_to_canonical(ad), asrc)) fail("setter_apart", "changed");
+		if (!stamped_is(shcl_to_canonical(ad), asrc)) fail("setter_apart", "changed");
 		shcl_free(ad);
 		/* An array with nothing under it takes a new one, and a stacked list
 		   written with '- ' stays stacked. */
@@ -5899,7 +5961,7 @@ int main(int argc, char **argv) {
 		const char *bc[2] = {"b", "c"}; size_t bcl[2] = {1, 1};
 		const char *x1[1] = {"x"}; size_t x1l[1] = {1};
 		if (shcl_set_string_array(ad, "l", 1, bc, bcl, 2) != SHCL_SET_OK || shcl_set_string_array(ad, "z", 1, x1, x1l, 1) != SHCL_SET_OK) fail("setter_apart", "an array setter refused");
-		if (!str_is(shcl_to_canonical(ad), "l: [b, c]\nz:\n\t- x\n")) fail("setter_apart", "stacked");
+		if (!stamped_is(shcl_to_canonical(ad), "l: [b, c]\nz:\n\t- x\n")) fail("setter_apart", "stacked");
 		shcl_free(ad);
 	}
 	test_id("dc474", "edits_and_merges_match_a_reload");
@@ -5945,7 +6007,7 @@ int main(int argc, char **argv) {
 		if (shcl_remove(md, "window", 6) != 1 || shcl_set_int(md, "font.face.family.kid2", 21, 3) != SHCL_SET_OK) fail("misplaced_move", "remove window or set kid2");
 		int mk = 0;
 		shcl_str mt = shcl_to_text_keep_lines(md, &mk);
-		if (!mk || !str_is(mt, mwant)) { fail("misplaced_move", mwant); fprintf(stderr, "  got %.*s\n", (int)mt.n, mt.p); }
+		if (!mk || !stamped_is(mt, mwant)) { fail("misplaced_move", mwant); fprintf(stderr, "  got %.*s\n", (int)mt.n, mt.p); }
 		shcl_doc *mr = shcl_parse(mt.p, mt.n);
 		shcl_doc *mo = shcl_parse(mb, strlen(mb));
 		mx = shcl_to_canonical(mr);
@@ -6408,7 +6470,7 @@ int main(int argc, char **argv) {
 			{"##    Format   2\nname: x\n", 1, 1, "name: x\n\n" SHCL_GEN_BANNER},
 			/* Taking the block off leaves the top alone, as does putting one
 			   on over a whole block there. */
-			{"##    Format   2\nname: x\n", 0, 0, "##    Format   2\nname: x\n"},
+			{"##    Format   2\nname: x\n", 0, 0, "##    Format   3.0\nname: x\n"},
 			{SHCL_GEN_BANNER "name: x\n", 1, 0, SHCL_GEN_BANNER "name: x\n\n" SHCL_GEN_BANNER},
 		};
 		for (size_t i = 0; i < sizeof bc / sizeof bc[0]; i++) {
@@ -6427,7 +6489,7 @@ int main(int argc, char **argv) {
 		static const struct { const char *in; int on; size_t gone; const char *want; } bc[] = {
 			{"## SHCL format 2.0\nname: x\n", 1, 1, "name: x\n\n" SHCL_GEN_BANNER},
 			{"name: x\n## SHCL format 3.0\n", 1, 1, "name: x\n\n" SHCL_GEN_BANNER},
-			{"name: x\n## SHCL format 3.0\n", 0, 1, "name: x\n"},
+			{"name: x\n## SHCL format 3.0\n", 0, 1, "name: x\n## SHCL format 3.0\n"},
 			{KEPT "## SHCL format 2.0\n##\nname: x\n", 1, 0, KEPT "## SHCL format 3.0\n##\nname: x\n\n" SHCL_GEN_BANNER},
 		};
 #undef KEPT
@@ -6829,7 +6891,7 @@ int main(int argc, char **argv) {
 			char gone[320];
 			snprintf(gone, sizeof gone, "%s/gone.shcl", sdir);
 			size_t rn; char *rt = read_file(gone, &rn);
-			if (!rt || rn != 5 || memcmp(rt, "a: 1\n", 5) != 0) fail("windsave", "file not created behind the link");
+			if (!rt || rn != 5 + sizeof SHCL_STAMP_LINE || memcmp(rt, "a: 1\n" SHCL_STAMP_LINE "\n", rn) != 0) fail("windsave", "file not created behind the link");
 			free(rt);
 			remove(gone);
 			remove(link);
@@ -6917,7 +6979,7 @@ int main(int argc, char **argv) {
 	{
 		static const char rtext[] = "srv:\n    Port:   abc     # keep\n    other: 1\nlist:\n  - 80\n  - x  # ex\nn: 5\n";
 		static const char *const rops[] = {"int-default\tsrv.port\t9", "int-array-default\tlist\t1\t2", "int-default\tn\t7"};
-		static const char rwant[] = "srv:\n    # port: abc  ## replaced by shcl when setting a default for srv.port, 2026-10-04 00:15:00 PDT: not an int\n    Port:   9     # keep\n    other: 1\n# ex\n# list: [80, x]  ## replaced by shcl when setting a default for list, 2026-10-04 00:15:00 PDT: not an int array\nlist:\n    - 1\n    - 2\nn: 5\n";
+		static const char rwant[] = "srv:\n    # port: abc  ## replaced by shcl when setting a default for srv.port, 2026-10-04 00:15:00 PDT: not an int\n    Port:   9     # keep\n    other: 1\n# ex\n# list: [80, x]  ## replaced by shcl when setting a default for list, 2026-10-04 00:15:00 PDT: not an int array\nlist:\n    - 1\n    - 2\nn: 5\n## SHCL format 3.0\n";
 		char line[128];
 		shcl_doc *rd = shcl_parse_keep_lines(rtext, sizeof rtext - 1, SHCL_STANDARD);
 		for (size_t i = 0; i < 3; i++) { snprintf(line, sizeof line, "%s", rops[i]); apply_op_c(rd, line); }
@@ -7409,13 +7471,13 @@ int main(int argc, char **argv) {
 		if (!file_is(f, "a: 9\n")) fail(at, "a refused save wrote");
 		int k = 1;
 		if (shcl_save_file_with(doc, f, force, &k, NULL) != SHCL_SAVE_OK || k) fail(at, "forced save");
-		if (!file_is(f, "a: 2\n")) fail(at, "forced save text");
+		if (!file_is(f, "a: 2\n" SHCL_STAMP_LINE "\n")) fail(at, "forced save text");
 		/* The next save is checked against what that one wrote. */
 		(void)shcl_set_int(doc, "a", 1, 3);
 		if (shcl_save_file(doc, f, NULL) != SHCL_SAVE_OK) fail(at, "save after own save");
-		if (!file_is(f, "a: 3\n")) fail(at, "save after own save text");
+		if (!file_is(f, "a: 3\n" SHCL_STAMP_LINE "\n")) fail(at, "save after own save text");
 		/* The same bytes written again are no change. */
-		put_file(f, "a: 3\n");
+		put_file(f, "a: 3\n" SHCL_STAMP_LINE "\n");
 		if (shcl_save_file(doc, f, NULL) != SHCL_SAVE_OK) fail(at, "save over the same bytes");
 		shcl_free(doc);
 
@@ -7434,7 +7496,7 @@ int main(int argc, char **argv) {
 		if (!file_is(f, "a: 9 # nine\n")) fail(at, "a refused keep save wrote");
 		k = 0;
 		if (shcl_save_file_with(kept, f, keep_force, &k, NULL) != SHCL_SAVE_OK || !k) fail(at, "forced keep save");
-		if (!file_is(f, "a: 2 # one\n")) fail(at, "forced keep save text");
+		if (!file_is(f, "a: 2 # one\n" SHCL_STAMP_LINE "\n")) fail(at, "forced keep save text");
 		shcl_free(kept);
 
 		/* Nothing at the path is no bytes to lose, so a file gone since the load
@@ -7445,9 +7507,9 @@ int main(int argc, char **argv) {
 		(void)shcl_set_int(gone, "a", 1, 4);
 		remove(f);
 		if (shcl_save_file(gone, f, NULL) != SHCL_SAVE_OK) fail(at, "save over a removed file");
-		if (!file_is(f, "a: 4  # one\n")) fail(at, "save over a removed file text");
+		if (!file_is(f, "a: 4  # one\n" SHCL_STAMP_LINE "\n")) fail(at, "save over a removed file text");
 		if (shcl_save_file(gone, renamed, NULL) != SHCL_SAVE_OK) fail(at, "save to a new name");
-		if (!file_is(renamed, "a: 4  # one\n")) fail(at, "save to a new name text");
+		if (!file_is(renamed, "a: 4  # one\n" SHCL_STAMP_LINE "\n")) fail(at, "save to a new name text");
 		shcl_file_status st = SHCL_FILE_CLEAN;
 		shcl_doc *fresh = shcl_load_file(n, &st);
 		if (st != SHCL_FILE_NOT_FOUND) fail(at, "status, want NotFound");
@@ -7457,7 +7519,7 @@ int main(int argc, char **argv) {
 		if (!file_is(n, "b: 2\n")) fail(at, "a refused save over a file made since wrote");
 		remove(n);
 		if (shcl_save_file(fresh, n, NULL) != SHCL_SAVE_OK) fail(at, "save where nothing is again");
-		if (!file_is(n, "a: 1\n")) fail(at, "save where nothing is again text");
+		if (!file_is(n, "a: 1\n" SHCL_STAMP_LINE "\n")) fail(at, "save where nothing is again text");
 		shcl_free(fresh);
 #ifdef _WIN32
 		/* A file that is there resolves to its long name, and one that is not
@@ -7477,7 +7539,7 @@ int main(int argc, char **argv) {
 				shcl_doc *sg = shcl_load_file(sf, NULL);
 				remove(sf);
 				if (shcl_save_file(sg, sf, NULL) != SHCL_SAVE_OK) fail(at, "save over a removed file, short name");
-				if (!file_is(sf, "a: 1\n")) fail(at, "save over a removed file text, short name");
+				if (!file_is(sf, "a: 1\n" SHCL_STAMP_LINE "\n")) fail(at, "save over a removed file text, short name");
 				shcl_free(sg);
 				remove(sf);
 				shcl_doc *snew = shcl_load_file(sn2, NULL);
@@ -7540,11 +7602,11 @@ int main(int argc, char **argv) {
 		shcl_doc *parsed = shcl_parse("a: 5\n", 5);
 		if (shcl_save_file(parsed, other, NULL) != SHCL_SAVE_CHANGED) fail(at, "save of a parse");
 		if (shcl_save_file_with(parsed, other, force, NULL, NULL) != SHCL_SAVE_OK) fail(at, "forced save of a parse");
-		if (!file_is(other, "a: 5\n")) fail(at, "save of a parse text");
+		if (!file_is(other, "a: 5\n" SHCL_STAMP_LINE "\n")) fail(at, "save of a parse text");
 		remove(f);
 		if (shcl_save_file(parsed, f, NULL) != SHCL_SAVE_OK) fail(at, "save of a parse where nothing is");
 		if (shcl_save_file(parsed, f, NULL) != SHCL_SAVE_OK) fail(at, "save of a parse over what it wrote");
-		if (!file_is(f, "a: 5\n")) fail(at, "save of a parse where nothing is text");
+		if (!file_is(f, "a: 5\n" SHCL_STAMP_LINE "\n")) fail(at, "save of a parse where nothing is text");
 		shcl_free(parsed);
 		dir_clear(cdir);
 	}
@@ -7581,7 +7643,7 @@ int main(int argc, char **argv) {
 		shcl_doc *gone = shcl_load_file("i.shcl", NULL);
 		remove("i.shcl");
 		if (shcl_save_file(gone, "./i.shcl", NULL) != SHCL_SAVE_OK) fail(at, "bare, gone");
-		if (!file_is("i.shcl", "a: 1\n")) fail(at, "bare, gone: text");
+		if (!file_is("i.shcl", "a: 1\n" SHCL_STAMP_LINE "\n")) fail(at, "bare, gone: text");
 		shcl_free(gone);
 		/* A bare name made where the load found nothing, by any spelling. */
 		shcl_doc *fresh = shcl_load_file("h.shcl", &st);
@@ -7727,13 +7789,13 @@ int main(int argc, char **argv) {
 		shcl_doc *doc = shcl_parse("a: 1\n", 5);
 		int k = 1;
 		if (shcl_save_file_with(doc, f, create, &k, NULL) != SHCL_SAVE_OK || k) fail(at, "create");
-		if (!file_is(f, "a: 1\n")) fail(at, "create text");
+		if (!file_is(f, "a: 1\n" SHCL_STAMP_LINE "\n")) fail(at, "create text");
 		(void)shcl_set_int(doc, "a", 1, 2);
 		shcl_write_status why = SHCL_WRITE_OTHER;
 		if (shcl_save_file_with(doc, f, create, NULL, &why) != SHCL_SAVE_EXISTS || why != SHCL_WRITE_OK) fail(at, "create over a file");
 		/* force is the changed check's override, not this one's. */
 		if (shcl_save_file_with(doc, f, forced, NULL, NULL) != SHCL_SAVE_EXISTS) fail(at, "forced create");
-		if (!file_is(f, "a: 1\n")) fail(at, "a refused create wrote");
+		if (!file_is(f, "a: 1\n" SHCL_STAMP_LINE "\n")) fail(at, "a refused create wrote");
 
 		/* A load that found nothing, and another program made the file since. */
 		shcl_doc *fresh = shcl_load_file(n, NULL);
@@ -7925,13 +7987,13 @@ int main(int argc, char **argv) {
 		if (st != SHCL_FILE_CLEAN) fail(at, "status");
 		int k = 0;
 		shcl_str kt = shcl_to_text_keep_lines(doc, &k);
-		if (!k || kt.n != mig.len || memcmp(kt.p, mig.text, mig.len) != 0) fail(at, "kept text");
+		if (!k || kt.n != mig.len + sizeof SHCL_STAMP_LINE || memcmp(kt.p, mig.text, mig.len) != 0 || memcmp(kt.p + mig.len, SHCL_STAMP_LINE "\n", sizeof SHCL_STAMP_LINE) != 0) fail(at, "kept text");
 		if (!file_is(f, old)) fail(at, "the load wrote the file");
 		/* A save over the file it read is no change, and keeps its lines. */
 		if (shcl_set_int(doc, "q", 1, 2) != SHCL_SET_OK) fail(at, "set");
 		k = 0;
 		if (shcl_save_file_keep_lines(doc, f, &k, NULL) != SHCL_SAVE_OK || !k) fail(at, "save");
-		if (!file_is(f, "p: [a, b]\n# kept\nq: 2\n")) fail(at, "saved text");
+		if (!file_is(f, "p: [a, b]\n# kept\nq: 2\n" SHCL_STAMP_LINE "\n")) fail(at, "saved text");
 		shcl_free(doc);
 		free(mig.text);
 		/* Another program's edit since the load is refused. */
@@ -7976,6 +8038,55 @@ int main(int argc, char **argv) {
 		if (st != SHCL_FILE_NOT_FOUND) fail(at, "missing");
 		shcl_free(doc);
 		dir_clear(mdir);
+	}
+	/* Every text a save writes names this format: a stamp is rewritten where
+	   it is, with its own head, and a text with none gets one as its last
+	   line. A newer format's stamp stays, and so does a kept text that ends
+	   in a raw block left open, which has nowhere to put one. A merge leaves
+	   a layer's stamp out and keeps the base's last. Same fixture in every
+	   runner. */
+	test_id("dfe65", "a_save_names_this_format");
+	{
+		static const struct { const char *text, *canonical, *kept; } sc[] = {
+			{"", "" SHCL_STAMP_LINE "\n", "" SHCL_STAMP_LINE "\n"},
+			{"a: 1\n", "a: 1\n" SHCL_STAMP_LINE "\n", "a: 1\n" SHCL_STAMP_LINE "\n"},
+			{"a:  1", "a: 1\n" SHCL_STAMP_LINE "\n", "a:  1\n" SHCL_STAMP_LINE "\n"},
+			{"a: 1\r\nb: 2\r\n", "a: 1\nb: 2\n" SHCL_STAMP_LINE "\n", "a: 1\r\nb: 2\r\n" SHCL_STAMP_LINE "\r\n"},
+			{"a: 1\n\n", "a: 1\n" SHCL_STAMP_LINE "\n", "a: 1\n\n" SHCL_STAMP_LINE "\n"},
+			{"##    Format   3\na: 1\n", "" SHCL_FORMAT_LINE "\na: 1\n", "" SHCL_FORMAT_LINE "\na: 1\n"},
+			{"a: 1\n\t## SHCL format 2.0\n", "a: 1\n\t" SHCL_STAMP_LINE "\n", "a: 1\n\t" SHCL_STAMP_LINE "\n"},
+			{"## SHCL format 3.0-a37\na: 1\n", "" SHCL_STAMP_LINE "\na: 1\n", "" SHCL_STAMP_LINE "\na: 1\n"},
+			{"a: 1\n" SHCL_STAMP_LINE "\n", "a: 1\n" SHCL_STAMP_LINE "\n", "a: 1\n" SHCL_STAMP_LINE "\n"},
+			{"a: 1\n## SHCL format 3.1\n", "a: 1\n## SHCL format 3.1\n", "a: 1\n## SHCL format 3.1\n"},
+			{"a: 1\n##    Format   4\n", "a: 1\n##    Format   4\n", "a: 1\n##    Format   4\n"},
+			{"a: ~~~\n\tx\n", "a:\n\t~~~\n\t\tx\n\t~~~\n" SHCL_STAMP_LINE "\n", "a: ~~~\n\tx\n"},
+			{"a: ~~~\n\t##    Format   3\n\t~~~\n", "a:\n\t~~~\n\t##    Format   3\n\t~~~\n" SHCL_STAMP_LINE "\n", "a: ~~~\n\t##    Format   3\n\t~~~\n" SHCL_STAMP_LINE "\n"},
+		};
+		for (size_t i = 0; i < sizeof sc / sizeof sc[0]; i++) {
+			shcl_doc *sd = shcl_parse_keep_lines(sc[i].text, strlen(sc[i].text), SHCL_STANDARD);
+			int k = 0;
+			if (!str_is(shcl_to_canonical(sd), sc[i].canonical)) fail("save_stamp canonical", sc[i].text);
+			if (!str_is(shcl_to_text_keep_lines(sd, &k), sc[i].kept) || !k) fail("save_stamp kept", sc[i].text);
+			shcl_free(sd);
+			/* Saved again, nothing changes. */
+			sd = shcl_parse_keep_lines(sc[i].kept, strlen(sc[i].kept), SHCL_STANDARD);
+			if (!str_is(shcl_to_text_keep_lines(sd, &k), sc[i].kept)) fail("save_stamp again", sc[i].text);
+			shcl_free(sd);
+			sd = shcl_parse(sc[i].canonical, strlen(sc[i].canonical));
+			if (!str_is(shcl_to_canonical(sd), sc[i].canonical)) fail("save_stamp again", sc[i].text);
+			shcl_free(sd);
+		}
+		/* A layer's stamp stays out of the merge, and the base's stays last. */
+		static const char *const mb[] = { "a: 1\n" SHCL_STAMP_LINE "\n", "a: 1\n##    Format   2\n" };
+		static const char *const ml[] = { "b: 2\n# end\n" SHCL_STAMP_LINE "\n", "b: 2\n" SHCL_STAMP_LINE "\n" };
+		static const char *const mw[] = { "a: 1\nb: 2\n# end\n" SHCL_STAMP_LINE "\n", "a: 1\nb: 2\n" SHCL_FORMAT_LINE "\n" };
+		for (size_t i = 0; i < 2; i++) {
+			shcl_doc *b = shcl_parse(mb[i], strlen(mb[i])), *l = shcl_parse(ml[i], strlen(ml[i]));
+			shcl_merge(b, l);
+			if (!str_is(shcl_to_canonical(b), mw[i])) fail("save_stamp merge", mb[i]);
+			shcl_free(l);
+			shcl_free(b);
+		}
 	}
 	test_id_end();
 	if (nfail) { fprintf(stderr, "conformance: %d failure(s)\n", nfail); return 1; }

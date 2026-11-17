@@ -544,7 +544,8 @@ def fTie(cli: Path, work: Path, rule: str, text: str) -> bool:
 		## goes in as data and the emitter picks the spelling.
 		fWrite(work, "k: placeholder\n")
 		rc, out = fRun(cli, ["set", f"--set=k={text}", "s.shcl"], work)
-		return rc == 0 and out == [f"k: {text}"]
+		## The print names this format on its last line, as a save does.
+		return rc == 0 and out == [f"k: {text}", "## SHCL format 3.0"]
 	fWrite(work, fLineProbe(cli, work, text))
 	if not fClean(cli, work):
 		return False

@@ -10,3 +10,4 @@ server: web3
 	region: [us, mars]
 retries: 2.5
 workers: 0
+## SHCL format 3.0

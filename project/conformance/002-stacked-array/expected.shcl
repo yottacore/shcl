@@ -8,3 +8,4 @@ stacked:
 # Repeated leaf lines are INSTANCES, not an array - kept separate.
 pet: cat
 pet: dog
+## SHCL format 3.0

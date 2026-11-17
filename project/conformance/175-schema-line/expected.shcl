@@ -8,6 +8,6 @@ port: 8080
 
 ##
 ## This config file format is SHCL.
-##    Format   3
+##    Format   3.0
 ##    Schema   other.shcl
 ##

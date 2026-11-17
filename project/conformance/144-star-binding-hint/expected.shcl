@@ -5,3 +5,4 @@ servers:
 	- "http://example.com"
 	- note to self: x
 	- flag:
+## SHCL format 3.0

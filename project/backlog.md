@@ -35,6 +35,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- shell-regress funnel-scan fails: load_file_opts adds to the lost count outside the funnel in all 4
+	- ID: 2026111710564830
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-105648
+	- Opened by: 2026111709431277
+	- Related IDs: 2026111708542849
+	- Incorrect behavior: shell-regress dcavz names one lost-count write outside the funnel in each binding, all from a7b1ca7e (load opts): Rust lib.rs `doc.lost += m...`, Go `doc.lost += lost`, Python `doc._lost += lost`, C `d->lost += m.lost`.
+	- Expected behavior: the write goes through the funnel, or the scan lists it with a reason.
+
 - codeql-scan fails de5aj on an empty except in the Python CLI's gone_since_read
 	- ID: 2026111709183317
 	- Type: Bug
@@ -372,7 +384,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: write the stamp on every save and every text call that saves
 	- ID: 2026111708130702
 	- Type: Feature
-	- Status: Started
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz, as child 2026111709431277 says.
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261117-081307
@@ -394,13 +407,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261117: split for its time cap. The Rust step, the stamped corpus (`expected.shcl`, `-write`, `-keep`, `-merged`) and placement table, Rust's asserts and the new test are on `wip/nov17b-2026111708130702`. They can't merge alone, since the other 3 runners read the same corpus. Go, Python, C, the C++ interface, the cli-regress rows and the docs are child 2026111709431277.
 		- 20261117: on the wip branch, `cargo test`, clippy with `-D warnings` and rustfmt pass. Not run there: the other bindings, cli-regress, crosscheck, check-migrate and the 2M release fuzz.
+		- 20261117: child 2026111709431277 brought the Rust half onto `nov17b-2026111709431277` with the other bindings, cli-regress and the docs. It waits on the release fuzz, and so does this one. The demo gif rerender is child 2026111710564808, Stalled for the gif stage.
 	- Test case: `a_save_names_this_format` (Rust `dfe62`; Go `dfe63`, Python `dfe64`, C `dfe65` and veneer `dfe66` with the child), plus the corpus files and the fuzz's no-edit save property in `keeping_lines_reloads_as_the_document`.
-	- Branch: `wip/nov17b-2026111708130702`
+	- Branch: `nov17b-2026111709431277` (the Rust half was `wip/nov17b-2026111708130702`)
 
 - Format versions: write the stamp on every save in Go, Python, C and the C++ interface
 	- ID: 2026111709431277
 	- Type: Feature
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, since the no-edit save property in `keeping_lines_reloads_as_the_document` changed. It already fails on dev at dd16k (2026111623445822) and dc26d (2026111703284678), so only a new failure counts. Also the cppcheck line from `LINT_EXTRA` and analyze-c.bash for the `shcl.h` change, and codeql-scan.bash for the C and Python test code.
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261117-094312
@@ -409,6 +424,32 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: the parent's stamp step, as Rust has it on `wip/nov17b-2026111708130702`, in Go, Python, C and the C++ interface, with their tests, the cli-regress rows, and spec.md, design.md, the format-versions doc and the changelog. Then the parent's work merges as one, since the corpus is shared.
 	- Estimated effort: High
 	- Note: start from `wip/nov17b-2026111708130702`. It has the Rust step (`stamped`, `canonical_text`, `keep_lines_text`, and the merge's stamp lines), the stamped corpus and placement table, Rust's updated asserts, and the new test `a_save_names_this_format` (`dfe62`). The fixture's other runners take `dfe63` (Go), `dfe64` (Python), `dfe65` (C) and `dfe66` (veneer smoke). `private/claude_simple/tools/stamp-expected.py` stamps saved-text fixtures by the same rule.
+	- Actual effort: High
+	- Decisions:
+		- me, 20261117: C adds the stamp in the emitter's own buffer when the canonical text has no Format or stamp line, without the read-back the other 3 do there, since `mem_bounds` holds a released `to_canonical` loop to no allocation, and the canonical form closes every raw block. A text with such a line goes through the whole step.
+		- me, 20261117: cli-regress `dcb0f` writes a fresh copy (`%BW%`) rather than the shared `%BA%`, since the stamp makes its `fmt --write` write the file, which left `dcq6n` nothing to migrate. `dcvgn`, `deky4` and `dcvgr` take an input that has the stamp, so they still test a canonical file.
+		- 20261117: asserts updated for the stamp in Go, Python, C, the C++ interface, cli-regress, crosscheck and check-abnf: every one that compares a saved or canonical text gained `## SHCL format 3.0` at the end, or a `withStamp`, `with_stamp` or `stamped_is` wrap. The no-edit save checks (`dd3w7` and its twins) allow only the stamp to differ. The kept-reload check in `edits_and_merges_match_a_reload` (`dd16m`, `dd16n`, `dc474`) drops a blank line kept above an added stamp, as Rust's fuzz does. `a_format_line_at_the_top_goes_when_the_block_goes_on` expects `##    Format   3.0` after banner off, and `a_stamp_goes_where_a_format_line_goes` expects the stamp back after banner off. 124 cli-regress rows, 3 crosscheck save-gate answers and the check-abnf bareword probe gained the stamp line. Nothing else they check changed.
+	- Actual fix: the stamp step (`stamped`, `names_this` and `restamp_as`, each binding's spelling) in Go, Python and C. `to_canonical` and `to_text_keep_lines` stamp, and the internal callers (`keep_source`, `keep_lines_as`, `upgrade_text`) use the unstamped `canonical_text` and `keep_lines_text`. A merge skips a layer's stamp and keeps the base's end stamp last. C saves through `canonical_stamped` and `keep_text_stamped`. The C++ interface wraps the C calls, so it follows. spec.md, design.md, the format-versions doc and the changelog say so.
+	- Swept: every internal caller of the canonical and line-keeping text calls and the save in Go, Python and C (`upgradeText`, `keepSource`, `keepLinesAs`, `SaveFileWith` and their twins; C's `upgrade_text`, `keep_source_in`, `keep_lines`, `keep_text`, `shcl_save_file_with`), and each merge's footer and top paths. Test programs: the Go module tests, Python's runner, soak and fs_property, C's runner, `mem_bounds`, `oom_hook`, `oom_recover`, `soak`, `fs_property` and the veneer smoke, plus cli-regress, crosscheck, check-doc-examples and check-abnf.
+	- Verified: the 4 conformance suites, the veneer smoke, `mem_bounds`, `oom_hook`, `oom_recover`, C's `soak` and `fs_property`, Python's soak and fs_property, cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), perf-gate, check-doc-examples, check-docs, check-abnf, check-veneer, `test-ids.py check`, `lint-report.bash --check --no-mark`, gofmt, go vet, staticcheck, ruff and mypy. The new test fails in Go and C with the stamp step taken out, and passes with it. Python's wasn't run that way.
+	- Note: shell-regress's crosscheck rows (`dd51b`, `de114` and the rest) pass, after the stub's save-gate answers and `de114`'s byte count gained the stamp line. `dcvej` (the demo gif) waits on child 2026111710564808. `de1a8`, `dc0b5` and `dcavz` fail for causes older than this item, and `dcavz` is 2026111710564830.
+	- Test case: `a_save_names_this_format` (Go `dfe63`, Python `dfe64`, C `dfe65`, veneer `dfe66`), plus the corpus files the 4 runners read and the cli-regress rows above.
+	- Branch: `nov17b-2026111709431277`
+	- Commit: `2109dde5` (the Rust half, picked from `ccbbe057`), `a495d6df`, `db105dcb`, `a3885051`, `10a1729a`
+
+- Format versions: the demo gif and its golden text show fmt output without the stamp
+	- ID: 2026111710564808
+	- Type: Feature
+	- Status: Stalled
+		- Held for: the gif stage, which only a full run or a release cut runs.
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-105648
+	- Opened by: 2026111709431277
+	- Parent ID: 2026111708130702
+	- Requirements: rerender assets/demo.gif and refresh cicd/demo/expected.txt (the gif stage, or gen-demo-gif.py), so shell-regress dcvej matches the CLI again. Only a tool run.
+	- Estimated effort: Low
+	- Note: until then shell-regress dcvej fails, since every fmt now ends with the stamp.
 
 - Format versions: find an unstamped file's format, and convert any older one
 	- ID: 2026111018212703

@@ -9,3 +9,4 @@ bare: red, green
 tight: [red, green]
 # Quote an element to keep it deliberately empty.
 emptyish: [red, "", blue]
+## SHCL format 3.0

@@ -2908,18 +2908,57 @@ def _restamp(text: str, line: int) -> str | None:
 	naming this format instead, indent and line end kept. None when the new
 	line would not read as the file's stamp, as when a rewrite left it in a
 	raw body, so a caller adds the line rather than lose it."""
+	return _restamp_as(text, line, FORMAT_LINE)
+
+
+def _restamp_as(text: str, line: int, stamp: str) -> str | None:
+	"""_restamp() writing `stamp` on the line."""
 	bom = "\ufeff" if text.startswith("\ufeff") else ""
 	lines = text[len(bom):].split("\n")
 	if 0 < line <= len(lines):
 		was = lines[line - 1]
 		indent = _leading_ws(was)
 		rest = _trim_wsp_end(was[len(indent):].rstrip("\r"))
-		lines[line - 1] = indent + FORMAT_LINE + was[len(indent) + len(rest):]
+		lines[line - 1] = indent + stamp + was[len(indent) + len(rest):]
 	body = "\n".join(lines)
 	now = _format_line_read(body)
 	if now.status is not Status.Good or now.value != FORMAT_MAJOR or now.line != line:
 		return None
 	return bom + body
+
+
+def _names_this(stamp: Read[int]) -> bool:
+	"""The stamp read names this format whole, as `3.0`, rather than beta1's
+	major alone or a pin."""
+	return stamp.status is Status.Good and stamp.raw == f"{FORMAT_MAJOR}.{FORMAT_MINOR}"
+
+
+def _stamped(text: str, eol: str | None = None) -> str | None:
+	"""The text a save writes: its stamp names this format. The line
+	read_format_version() finds is rewritten where it is, with its own head,
+	and a text with none gets STAMP_LINE at the end, ending with `eol`, or by
+	the text's majority. A text naming a newer format keeps its line, so the
+	next load still sees it. None when the added line would not read as the
+	stamp, as after a raw block left open."""
+	if eol is None:
+		eol = _majority_eol(text)
+	body = text[1:] if text.startswith("\ufeff") else text
+	found = _format_line_read(body)
+	if _names_newer(found) or _names_this(found):
+		return text
+	if found.status is Status.Good:
+		lines = body.split("\n")
+		head = lines[found.line - 1] if found.line - 1 < len(lines) else ""
+		line = STAMP_LINE if head.lstrip(" \t").startswith(_STAMP_WORD) else FORMAT_LINE
+		t = _restamp_as(text, found.line, line)
+		if t is not None:
+			return t
+	out = text
+	if body and not body.endswith("\n"):
+		out += eol
+	out += STAMP_LINE + eol
+	now = _format_line_read(out[1:] if out.startswith("\ufeff") else out)
+	return out if _names_this(now) else None
 
 
 def _stamp_hint(stamp: Read[int]) -> Diagnostic | None:
@@ -3283,8 +3322,8 @@ def _upgrade_text(fresh: Document) -> str:
 	Where the lines can't be kept, or keeping them keeps an error the
 	canonical form repairs, such as a missing colon, it is the canonical
 	form."""
-	canonical = fresh.to_canonical()
-	kept, ok = fresh.to_text_keep_lines()
+	canonical = fresh._canonical_text()
+	kept, ok = fresh._keep_lines_text()
 	if ok and Document.parse(kept).error_count() <= Document.parse(canonical).error_count():
 		return kept
 	return canonical
@@ -6435,7 +6474,7 @@ def _keep_lines_as(src, doc, drop_bare, bare):
 	no = -1
 	# A text that was canonical keeps its lines as the canonical form.
 	if not src:
-		return doc.to_canonical()
+		return doc._canonical_text()
 	now = doc._emit_marked()
 	p = _Parser()
 	p.track_dropped = True
@@ -6760,7 +6799,7 @@ def _keep_lines_as(src, doc, drop_bare, bare):
 	# again: one that now binds, even to the same document, reads differently
 	# from how the file had it.
 	back = _Parser().parse(text, doc._strictness)
-	if back._lost == loaded_doc._lost and back.to_canonical() == now.text and _errors_within(back, loaded_doc):
+	if back._lost == loaded_doc._lost and back._canonical_text() == now.text and _errors_within(back, loaded_doc):
 		return text
 	return None
 
@@ -7221,7 +7260,17 @@ class Document:
 	def to_canonical(self) -> str:
 		"""Canonical form: block layout, tabs, insertion order, minimal quoting,
 		redundancy collapsed, comments re-emitted as attached trivia. Scalar
-		text is never rewritten."""
+		text is never rewritten.
+
+		The text names this format: its stamp is rewritten to say so, or
+		STAMP_LINE is added at the end, as every save does. A document naming
+		a newer format keeps its stamp."""
+		text = self._canonical_text()
+		t = _stamped(text)
+		return text if t is None else t
+
+	def _canonical_text(self) -> str:
+		"""to_canonical() as the document has it, with no stamp step."""
 		e = _Emit(False)
 		self._emit_all(e)
 		return "".join(e.out)
@@ -7240,7 +7289,7 @@ class Document:
 		return Document._load_file_gated(path, strictness, True)
 
 	def _keep_source(self, text):
-		self._source = "" if self.to_canonical() == text else text
+		self._source = "" if self._canonical_text() == text else text
 
 	def to_text_keep_lines(self) -> tuple[str, bool]:
 		"""The text a save that keeps lines writes, and whether it kept them.
@@ -7250,14 +7299,27 @@ class Document:
 		as this document. When it does not, or the document was not loaded
 		with parse_keep_lines or load_file_keep_lines, or it took a merge, or
 		an edit took a kept line it should not have, this is to_canonical()
-		and False."""
+		and False. Its stamp names this format, as to_canonical()'s does, so
+		a kept file without one gets STAMP_LINE as a new last line. A kept
+		text that ends in a raw block left open has nowhere to put one, as in
+		`migrate`, so it goes without. The line ends the way new lines do."""
+		t, ok = self._keep_lines_text()
+		if not ok:
+			return self.to_canonical(), False
+		eol = _majority_eol(self._source or t)
+		s = _stamped(t, eol)
+		return (t if s is None else s), True
+
+	def _keep_lines_text(self) -> tuple[str, bool]:
+		"""to_text_keep_lines() with no stamp step, the canonical side
+		included."""
 		# The reparse check cannot see a kept line gone from both the tree and
 		# the text, so falling back leaves it to the lost-count gate.
 		if self._source is not None and self._kept_shortfall() == 0:
 			t = _keep_lines(self._source, self)
 			if t is not None:
 				return t, True
-		return self.to_canonical(), False
+		return self._canonical_text(), False
 
 	def save_file_keep_lines(self, path: str | os.PathLike[str]) -> bool:
 		"""save_file with to_text_keep_lines(): True when it kept the lines,
@@ -9439,6 +9501,11 @@ class Document:
 			for n in moved:
 				self._refile(n)
 			self._bracketed = True
+		# A stamp at the end stays the last line, so a merge over the saved
+		# text gives what one over the document does.
+		stamp = []
+		if self.orphans and self.orphans[-1].depth == 0 and self.orphans[-1].text.startswith(STAMP_HEAD):
+			stamp.append(self.orphans.pop())
 		touched = self._overlay(_ROOT, over, _ROOT)
 		self._merge_top(over)
 		for n in touched:
@@ -9459,6 +9526,10 @@ class Document:
 			if over.orphans[b].depth > 0:
 				whole[a] = whole[b] = True
 		for i, o in enumerate(over.orphans):
+			# A layer's stamp names the layer's file, and the merged text gets
+			# its own when it is written.
+			if o.text.startswith(STAMP_HEAD):
+				continue
 			if whole[i] or not any(e.text == o.text and e.depth == o.depth for e in self.orphans[:had]):
 				depth = o.depth
 				if o.text.startswith("#"):
@@ -9470,6 +9541,7 @@ class Document:
 			elif o.is_kept_line():
 				# The table lets the dedup skip a footer line the base has.
 				self._kept_owed = max(self._kept_owed - 1, 0)
+		self.orphans.extend(stamp)
 		_settle_first_blank(self.arena, self.orphans)
 		if fresh:
 			self._settle_kept()
@@ -9487,6 +9559,8 @@ class Document:
 		had = len(self.arena[_ROOT].head())
 		added = False
 		for o in over.arena[_ROOT].head():
+			if o.text.startswith(STAMP_HEAD):
+				continue
 			t = self.arena[_ROOT]._triv()
 			if any(e.text == o.text and e.depth == o.depth for e in t.head[:had]):
 				continue

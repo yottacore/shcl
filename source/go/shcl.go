@@ -3527,6 +3527,11 @@ func formatLineRead(text string) Read[int] {
 // line would not read as the file's stamp, as when a rewrite left it in a
 // raw body, so a caller adds the line rather than lose it.
 func restamp(text string, line int) (string, bool) {
+	return restampAs(text, line, FormatLine)
+}
+
+// restampAs is restamp writing stamp on the line.
+func restampAs(text string, line int, stamp string) (string, bool) {
 	bom := ""
 	if strings.HasPrefix(text, "\ufeff") {
 		bom = "\ufeff"
@@ -3545,12 +3550,62 @@ func restamp(text string, line int) (string, bool) {
 		indent := leadingWS(l)
 		rest := trimEndWS(strings.TrimRight(l[len(indent):], "\r"))
 		out.WriteString(indent)
-		out.WriteString(FormatLine)
+		out.WriteString(stamp)
 		out.WriteString(l[len(indent)+len(rest):])
 	}
 	s := out.String()
 	now := formatLineRead(s[len(bom):])
 	if now.Status != Good || now.Value != FormatMajor || now.Line != line {
+		return "", false
+	}
+	return s, true
+}
+
+// namesThis says the stamp read names this format whole, as `3.0`, rather
+// than beta1's major alone or a pin.
+func namesThis(stamp Read[int]) bool {
+	return stamp.Status == Good && stamp.Raw != nil && *stamp.Raw == fmt.Sprintf("%d.%d", FormatMajor, FormatMinor)
+}
+
+// stamped is the text a save writes: its stamp names this format. The line
+// ReadFormatVersion finds is rewritten where it is, with its own head, and a
+// text with none gets StampLine at the end. A text naming a newer format
+// keeps its line, so the next load still sees it. False when the added line
+// would not read as the stamp, as after a raw block left open.
+func stamped(text string) (string, bool) {
+	return stampedEol(text, majorityEol(text))
+}
+
+// stampedEol is stamped ending an added line with eol.
+func stampedEol(text, eol string) (string, bool) {
+	body := strings.TrimPrefix(text, "\ufeff")
+	found := formatLineRead(body)
+	if namesNewer(found) || namesThis(found) {
+		return text, true
+	}
+	if found.Status == Good {
+		head := ""
+		if ls := strings.SplitN(body, "\n", found.Line+1); found.Line-1 < len(ls) {
+			head = ls[found.Line-1]
+		}
+		line := FormatLine
+		if strings.HasPrefix(strings.TrimLeft(head, " \t"), stampWord) {
+			line = StampLine
+		}
+		if t, ok := restampAs(text, found.Line, line); ok {
+			return t, true
+		}
+	}
+	var out strings.Builder
+	out.Grow(len(text) + len(StampLine) + 2)
+	out.WriteString(text)
+	if body != "" && !strings.HasSuffix(body, "\n") {
+		out.WriteString(eol)
+	}
+	out.WriteString(StampLine)
+	out.WriteString(eol)
+	s := out.String()
+	if !namesThis(formatLineRead(strings.TrimPrefix(s, "\ufeff"))) {
 		return "", false
 	}
 	return s, true
@@ -3881,8 +3936,8 @@ func Upgrade(text string, fromV2 bool) Upgraded {
 // error the canonical form repairs, such as a missing colon, it is the
 // canonical form.
 func upgradeText(fresh *Document) string {
-	canonical := fresh.ToCanonical()
-	if kept, ok := fresh.ToTextKeepLines(); ok && Parse(kept).ErrorCount() <= Parse(canonical).ErrorCount() {
+	canonical := fresh.canonicalText()
+	if kept, ok := fresh.keepLinesText(); ok && Parse(kept).ErrorCount() <= Parse(canonical).ErrorCount() {
 		return kept
 	}
 	return canonical
@@ -7364,8 +7419,21 @@ func writeTabs(out *strings.Builder, n int) {
 // ToCanonical emits the canonical form: block layout, tabs, insertion order,
 // minimal quoting, redundancy collapsed, comments re-emitted as attached
 // trivia. Scalar text is never rewritten.
+//
+// The text names this format: its stamp is rewritten to say so, or StampLine
+// is added at the end, as every save does. A document naming a newer format
+// keeps its stamp.
 func (d *Document) ToCanonical() string {
 	d.ready()
+	text := d.canonicalText()
+	if t, ok := stamped(text); ok {
+		return t
+	}
+	return text
+}
+
+// canonicalText is ToCanonical() as the document has it, with no stamp step.
+func (d *Document) canonicalText() string {
 	e := newEmit(len(d.arena)*24, false)
 	d.emitAll(e)
 	return e.out.String()
@@ -7380,7 +7448,7 @@ func ParseKeepLines(text string, strictness Strictness) (*Document, error) {
 }
 
 func (d *Document) keepSource(text string) {
-	if d.ToCanonical() == text {
+	if d.canonicalText() == text {
 		text = ""
 	}
 	d.source = &text
@@ -7397,9 +7465,33 @@ func LoadFileKeepLines(path string, level Strictness) (*Document, FileStatus, er
 // indented the way the lines around them are. The result has to reload as this
 // document. When it does not, or the document was not loaded with
 // ParseKeepLines or LoadFileKeepLines, or it took a merge, or an edit took a
-// kept line it should not have, this is ToCanonical() and false.
+// kept line it should not have, this is ToCanonical() and false. Its stamp
+// names this format, as ToCanonical()'s does, so a kept file without one gets
+// StampLine as a new last line. A kept text that ends in a raw block left
+// open has nowhere to put one, as in `migrate`, so it goes without. The line
+// ends the way new lines do.
 func (d *Document) ToTextKeepLines() (string, bool) {
 	d.ready()
+	t, ok := d.keepLinesText()
+	if !ok {
+		return d.ToCanonical(), false
+	}
+	src := ""
+	if d.source != nil {
+		src = *d.source
+	}
+	if src == "" {
+		src = t
+	}
+	if s, ok := stampedEol(t, majorityEol(src)); ok {
+		return s, true
+	}
+	return t, true
+}
+
+// keepLinesText is ToTextKeepLines() with no stamp step, the canonical side
+// included.
+func (d *Document) keepLinesText() (string, bool) {
 	// The reparse check cannot see a kept line gone from both the tree and
 	// the text, so falling back leaves it to the lost-count gate.
 	if d.source != nil && d.keptShortfall() == 0 {
@@ -7407,7 +7499,7 @@ func (d *Document) ToTextKeepLines() (string, bool) {
 			return t, true
 		}
 	}
-	return d.ToCanonical(), false
+	return d.canonicalText(), false
 }
 
 // SaveFileKeepLines is SaveFile with ToTextKeepLines(): true when it kept the
@@ -8702,7 +8794,7 @@ func keepLinesAs(src string, doc *Document, dropBare bool, bare *bool) (string, 
 	const none = -1
 	// A text that was canonical keeps its lines as the canonical form.
 	if src == "" {
-		return doc.ToCanonical(), true
+		return doc.canonicalText(), true
 	}
 	now := doc.emitMarked()
 	nowText := now.out.String()
@@ -9183,7 +9275,7 @@ func keepLinesAs(src string, doc *Document, dropBare bool, bare *bool) (string, 
 	// again: one that now binds, even to the same document, reads differently
 	// from how the file had it.
 	back := newParser().parse(text, doc.strictness)
-	if back.lost == loadedDoc.lost && back.ToCanonical() == nowText && errorsWithin(back, loadedDoc) {
+	if back.lost == loadedDoc.lost && back.canonicalText() == nowText && errorsWithin(back, loadedDoc) {
 		return text, true
 	}
 	return "", false
@@ -13848,6 +13940,13 @@ func (d *Document) Merge(over *Document) {
 		}
 		d.bracketed = true
 	}
+	// A stamp at the end stays the last line, so a merge over the saved text
+	// gives what one over the document does.
+	var stamp []lead
+	if k := len(d.orphans) - 1; k >= 0 && d.orphans[k].depth == 0 && strings.HasPrefix(d.orphans[k].text, StampHead) {
+		stamp = append(stamp, d.orphans[k])
+		d.orphans = d.orphans[:k]
+	}
 	var touched []int
 	d.overlay(root, over, root, &touched)
 	d.mergeTop(over)
@@ -13883,6 +13982,11 @@ func (d *Document) Merge(over *Document) {
 		prev = i
 	}
 	for i, o := range over.orphans {
+		// A layer's stamp names the layer's file, and the merged text gets
+		// its own when it is written.
+		if strings.HasPrefix(o.text, StampHead) {
+			continue
+		}
 		seen := false
 		for _, e := range d.orphans[:had] {
 			if !whole[i] && e.text == o.text && e.depth == o.depth {
@@ -13907,6 +14011,7 @@ func (d *Document) Merge(over *Document) {
 			}
 		}
 	}
+	d.orphans = append(d.orphans, stamp...)
 	settleFirstBlank(d.arena, &d.orphans)
 	if fresh {
 		d.settleKept()
@@ -13955,6 +14060,9 @@ func (d *Document) mergeTop(over *Document) {
 	had := len(d.arena[root].head())
 	added := false
 	for _, o := range over.arena[root].head() {
+		if strings.HasPrefix(o.text, StampHead) {
+			continue
+		}
 		t := d.arena[root].trivMut()
 		dup := false
 		for _, e := range t.head[:had] {

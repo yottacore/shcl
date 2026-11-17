@@ -18,3 +18,4 @@ section:
 timeout: 30
 
 windows: [2026-01-01, 2026-06-30]
+## SHCL format 3.0

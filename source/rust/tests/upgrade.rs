@@ -228,7 +228,7 @@ fn a_format_line_at_the_top_goes_when_the_block_goes_on() {
 	// a whole block there.
 	let mut doc = Document::parse("##    Format   2\nname: x\n");
 	assert_eq!(doc.set_banner(false), 0);
-	assert_eq!(doc.to_canonical(), "##    Format   2\nname: x\n");
+	assert_eq!(doc.to_canonical(), "##    Format   3.0\nname: x\n");
 	let top = format!("{}name: x\n", GEN_BANNER);
 	let mut doc = Document::parse(&top);
 	assert_eq!(doc.set_banner(true), 0);
@@ -258,7 +258,7 @@ fn a_stamp_goes_where_a_format_line_goes() {
 			"name: x\n## SHCL format 3.0\n",
 			false,
 			1,
-			"name: x\n".to_string(),
+			"name: x\n## SHCL format 3.0\n".to_string(),
 		),
 		(
 			&format!("{kept}## SHCL format 2.0\n##\nname: x\n"),

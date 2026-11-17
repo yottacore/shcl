@@ -26,6 +26,7 @@ items:
 	- two
 
 z: 1
+## SHCL format 3.0
 :: keep
 server:
 	port: 8080
@@ -37,6 +38,7 @@ items:
 	- two
 
 z: 1
+## SHCL format 3.0
 
 :: row 20260904-18 a comment added to a node with one keeps the blank above both
 :: before
@@ -52,12 +54,14 @@ a: 1
 # note
 # new
 b: 2
+## SHCL format 3.0
 :: keep
 a: 1
 
 # note
 # new
 b: 2
+## SHCL format 3.0
 
 :: row 20260830-19 a new node's comment sits right above it
 :: before
@@ -70,11 +74,13 @@ a: 1
 
 # note
 x: 5
+## SHCL format 3.0
 :: keep
 a: 1
 
 # note
 x: 5
+## SHCL format 3.0
 
 :: row 20260925b-2 a comment above a dotted line stays on an edit elsewhere
 :: before
@@ -88,10 +94,12 @@ db:
 	# db settings
 	host: localhost
 port: 2
+## SHCL format 3.0
 :: keep
 # db settings
 db.host: localhost
 port: 2
+## SHCL format 3.0
 
 :: row 20260802-8 a merged section keeps the comments of both layers
 :: before
@@ -107,6 +115,7 @@ db:
 # primary db
 db:
 	host: b
+## SHCL format 3.0
 
 :: row 20260802-20 a footer every layer has is written once
 :: before
@@ -121,6 +130,7 @@ a: 3
 :: expected
 a: 3
 # end
+## SHCL format 3.0
 
 :: row 20260901b-7 a layer's own repeated footer stays repeated
 :: before
@@ -132,6 +142,7 @@ a: 1
 a: 1
 # more
 # more
+## SHCL format 3.0
 
 :: row 20260923-3 a comment a merge left after a child stays there through the next merge
 :: before
@@ -163,6 +174,7 @@ b:
 b: ```sh
 	echo
 	```
+## SHCL format 3.0
 
 :: row 20260923-3b the same merge from the saved text of the first 2 layers
 :: before
@@ -192,6 +204,7 @@ b:
 b: ```sh
 	echo
 	```
+## SHCL format 3.0
 
 :: row 20260802-silkterm-1 the blank between 2 comment runs stays
 :: before
@@ -208,6 +221,7 @@ a: 1
 a: 1
 
 # end
+## SHCL format 3.0
 :: keep
 # one
 
@@ -215,6 +229,7 @@ a: 1
 a: 1
 
 # end
+## SHCL format 3.0
 
 :: row 20260802-silkterm-2 a run after a block's last child stays in the block
 :: before
@@ -229,11 +244,13 @@ a:
 	b: 1
 	# about b
 c: 2
+## SHCL format 3.0
 :: keep
 a:
 	b: 1
 	# about b
 c: 2
+## SHCL format 3.0
 
 :: row 2026100307163904 comments written against the info block stay
 :: before
@@ -252,11 +269,13 @@ port: 1
 
 ## Ops team: do not edit by hand.
 ## Pager: 555-0100
+## SHCL format 3.0
 :: keep
 port: 1
 
 ## Ops team: do not edit by hand.
 ## Pager: 555-0100
+## SHCL format 3.0
 
 :: row 2026110613470302 an author's line in the info block stays where it was
 :: before
@@ -273,10 +292,12 @@ banner	off
 a: 1
 ##    Pager    555-0100
 b: 2
+## SHCL format 3.0
 :: keep
 a: 1
 ##    Pager    555-0100
 b: 2
+## SHCL format 3.0
 
 :: row 2026100218185700 a comment between nested kept lines nests
 :: before
@@ -291,12 +312,14 @@ a: [1]
 	b: [2]
 
 c: 3
+## SHCL format 3.0
 :: keep
 a: [1]
 	# note
 	b: [2]
 
 c: 3
+## SHCL format 3.0
 
 :: row 2026092718195400 a replaced leaf's comments go with it
 :: before
@@ -308,6 +331,7 @@ e: 5
 :: expected
 e: 5
 f: 1
+## SHCL format 3.0
 
 :: row 2026110712372276-1 a remove leaves the comments a blank sets off from its line
 :: before
@@ -318,8 +342,10 @@ b: 2
 remove	b
 :: expected
 # c
+## SHCL format 3.0
 :: keep
 # c
+## SHCL format 3.0
 
 :: row 2026110712372276-2 a run a blank sets off from the line below is the line above's
 :: before
@@ -332,9 +358,11 @@ remove	b
 :: expected
 a: 1
 # c
+## SHCL format 3.0
 :: keep
 a: 1
 # c
+## SHCL format 3.0
 
 :: row 2026110712372276-3 a comment added under a run a blank sets off goes right above its node
 :: before
@@ -350,12 +378,14 @@ a: 1
 
 # new
 b: 2
+## SHCL format 3.0
 :: keep
 a: 1
 # c
 
 # new
 b: 2
+## SHCL format 3.0
 
 :: row 2026110712372276-4 clearing a node's comments leaves a run a blank sets off from it
 :: before
@@ -370,11 +400,13 @@ a: 1
 # c
 
 b: 2
+## SHCL format 3.0
 :: keep
 a: 1
 # c
 
 b: 2
+## SHCL format 3.0
 
 :: row 2026110712372276-5 a run stays the line above's through a set, a reload and a remove
 :: before
@@ -388,9 +420,11 @@ remove	b
 :: expected
 a: 1
 # c
+## SHCL format 3.0
 :: keep
 a: 1
 # c
+## SHCL format 3.0
 
 :: row 2026110712372276-6 the info block set off from the first field stays when the field goes
 :: before
@@ -407,14 +441,14 @@ remove	port
 :: expected
 ##
 ## This config file format is SHCL.
-##    Format   3
+##    Format   3.0
 ##
 
 q: 1
 :: keep
 ##
 ## This config file format is SHCL.
-##    Format   3
+##    Format   3.0
 ##
 
 q: 1
@@ -432,10 +466,12 @@ remove	p.a
 p:
 	# c
 q: 1
+## SHCL format 3.0
 :: keep
 p:
 	# c
 q: 1
+## SHCL format 3.0
 
 :: row 2026110712372276-8 a run between 2 blanks is the line above's
 :: before
@@ -450,10 +486,12 @@ remove	b
 a: 1
 
 # section
+## SHCL format 3.0
 :: keep
 a: 1
 
 # section
+## SHCL format 3.0
 
 :: row 2026111623191917-1 a remove hands its blank line to the next line
 :: before
@@ -467,10 +505,12 @@ remove	y
 x: 1
 
 z: 3
+## SHCL format 3.0
 :: keep
 x: 1
 
 z: 3
+## SHCL format 3.0
 
 :: row 2026111623191917-2 a remove takes its comments and hands its blank to the next line's
 :: before
@@ -487,11 +527,13 @@ x: 1
 
 # about z
 z: 3
+## SHCL format 3.0
 :: keep
 x: 1
 
 # about z
 z: 3
+## SHCL format 3.0
 
 :: row 2026111623191917-3 a dotted pair keeps the blank above it when one of its fields goes
 :: before
@@ -506,10 +548,12 @@ q: 0
 a:
 
 	c: 2
+## SHCL format 3.0
 :: keep
 q: 0
 
 a.c: 2
+## SHCL format 3.0
 
 :: row 2026111623191935-1 a setter's fold hands the blank above the instance that folds to the next line
 :: before
@@ -537,6 +581,7 @@ b: x
 c: 1
 
 d: 2
+## SHCL format 3.0
 :: keep
 q: 0
 
@@ -548,6 +593,7 @@ b: x
 c: 1
 
 d: 2
+## SHCL format 3.0
 
 :: row 2026111623191935-2 a fold of the fields under 2 instances hands the blank on too
 :: before
@@ -572,6 +618,7 @@ b: x
 	d: 2
 
 	e: 3
+## SHCL format 3.0
 :: keep
 b: x
 	k: 1
@@ -581,6 +628,7 @@ b: x
 	d: 2
 
 	e: 3
+## SHCL format 3.0
 
 :: row 2026111700365065-1 a load's fold hands the blank above the instance that folds to the next line
 :: before
@@ -607,6 +655,7 @@ b: x
 c: 1
 
 d: 2
+## SHCL format 3.0
 
 :: row 2026111700365065-2 a re-mention of a field under a block opened again hands its blank on too
 :: before
@@ -630,6 +679,7 @@ b: x
 	d: 2
 
 	e: 3
+## SHCL format 3.0
 
 :: row 2026111700365065-3 the blank of a later instance of the first field goes on rather than off the top
 :: before
@@ -646,6 +696,7 @@ a: 1
 x: 2
 
 z: 1
+## SHCL format 3.0
 
 :: row 2026111700365065-4 a list that folds once it closes hands its blank on
 :: before
@@ -664,6 +715,7 @@ l: [1, 2]
 q: 1
 
 z: 1
+## SHCL format 3.0
 
 :: row 2026111700365065-5 a kept line a fold hands to the end of the file stays after the comments read before it
 :: before
@@ -680,6 +732,7 @@ b: 2
 # t
 
 k: [1
+## SHCL format 3.0
 
 :: row 2026111111560900-1 a comment a blank sets off above a top-level kept line loads at column 0
 :: before
@@ -693,6 +746,7 @@ k: [1
 
 # note 2
 b: [3
+## SHCL format 3.0
 
 :: row 2026111111560900-2 and stays there after an edit
 :: before
@@ -709,6 +763,7 @@ int	z0	7
 b: [3
 
 z0: 7
+## SHCL format 3.0
 :: keep
 # note 0
 
@@ -716,6 +771,7 @@ z0: 7
         b: [3
 
 z0: 7
+## SHCL format 3.0
 
 :: row 2026111111560900-3 only the last blank before the kept line starts a run
 :: before
@@ -735,3 +791,4 @@ x: 1
 
 # c
 k: [1
+## SHCL format 3.0

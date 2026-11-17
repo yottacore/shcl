@@ -18,6 +18,41 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+/// What a save writes for `s`, which names no format.
+fn with_stamp(s: &str) -> String {
+	format!("{s}{STAMP_LINE}\n")
+}
+
+/// `saved` is `text` with the stamp a save writes: the same text, when it
+/// names this format, a newer one, or ends in a raw block left open, or one
+/// stamp line rewritten in place, or `STAMP_LINE` added as the last line.
+fn only_the_stamp_differs(text: &str, saved: &str) -> bool {
+	if saved == text {
+		return true;
+	}
+	let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
+	if let Some(tail) = saved.strip_prefix(text) {
+		let tail = if text.is_empty() || text.ends_with('\n') {
+			tail
+		} else {
+			tail.strip_prefix(eol).unwrap_or("")
+		};
+		return tail == format!("{STAMP_LINE}{eol}");
+	}
+	let (a, b): (Vec<&str>, Vec<&str>) = (text.split('\n').collect(), saved.split('\n').collect());
+	let diff: Vec<usize> = (0..a.len().min(b.len()))
+		.filter(|&i| a[i] != b[i])
+		.collect();
+	a.len() == b.len()
+		&& diff.len() == 1
+		&& [FORMAT_LINE_HEAD, STAMP_HEAD]
+			.iter()
+			.any(|h| a[diff[0]].trim_start().starts_with(h))
+		&& [FORMAT_LINE, STAMP_LINE]
+			.iter()
+			.any(|h| b[diff[0]].trim_start().starts_with(h))
+}
+
 fn corpus_dir() -> PathBuf {
 	Path::new(env!("CARGO_MANIFEST_DIR")).join("../../project/conformance")
 }
@@ -994,10 +1029,12 @@ fn keeping_lines_without_edits_writes_the_input() {
 	each_case(|case| {
 		let doc = Document::parse_keep_lines(&case.input, Strictness::Standard)
 			.unwrap_or_else(|e| e.document);
+		let (kept, all) = doc.to_text_keep_lines();
 		assert!(
-			doc.to_text_keep_lines() == (case.input.clone(), true),
-			"{}: an unedited save changed the text",
-			case.name
+			all && only_the_stamp_differs(&case.input, &kept),
+			"{}: an unedited save changed more than the stamp: {:?}",
+			case.name,
+			kept
 		);
 	});
 }
@@ -1324,7 +1361,7 @@ fn depth_cap_boundary_and_writer() {
 	let doc2 = Document::parse(&over);
 	assert_eq!(doc2.diagnostics().len(), 1);
 	assert_eq!(doc2.diagnostics()[0].code, "E016");
-	assert_eq!(doc2.to_canonical(), "");
+	assert_eq!(doc2.to_canonical(), "## SHCL format 3.0\n");
 	// The Writer refuses to create past the cap and stays a no-op.
 	let mut w = Document::new();
 	let deep_path = format!("a.{}", segs.join("."));
@@ -1623,7 +1660,7 @@ fn a_cap_wins_over_a_broken_value() {
 	let (c, lost, out) = codes("x:\n\t- a\n\t- b\n\t- \"open\n\t- c d\nz: 1\n", 2);
 	assert_eq!(c, vec![(4, "E021"), (5, "E021")]);
 	assert_eq!(lost, 2);
-	assert_eq!(out, "x:\n\t- a\n\t- b\nz: 1\n");
+	assert_eq!(out, "x:\n\t- a\n\t- b\nz: 1\n## SHCL format 3.0\n");
 	let (c, lost, out) = codes("x:\n\t- a\n\t- \"open\n\t- b\n", 2);
 	assert_eq!(c, vec![(3, "E017")]);
 	assert_eq!(lost, 0);
@@ -1653,7 +1690,7 @@ fn no_colon_repair_stays_narrow() {
 		assert_eq!(doc.lost_count(), 0, "{line:?}");
 		assert_eq!(
 			doc.to_canonical(),
-			format!("k: 1\n{line}\nz: 2\n"),
+			with_stamp(&format!("k: 1\n{line}\nz: 2\n")),
 			"{line:?}"
 		);
 		assert!(!doc.exists(quoted), "{line:?}");
@@ -1672,7 +1709,11 @@ fn no_colon_repair_stays_narrow() {
 		let doc = Document::parse(&format!("{line}\n"));
 		let codes: Vec<&str> = doc.diagnostics().iter().map(|d| d.code).collect();
 		assert_eq!(codes, ["E015"], "{line:?}");
-		assert_eq!(doc.to_canonical(), format!("{out}\n"), "{line:?}");
+		assert_eq!(
+			doc.to_canonical(),
+			with_stamp(&format!("{out}\n")),
+			"{line:?}"
+		);
 	}
 }
 
@@ -2443,7 +2484,7 @@ fn setters_refuse_a_value_the_reader_refuses() {
 	assert_eq!(doc.get_datetime("d"), Ok(ok));
 	assert_eq!(
 		doc.to_canonical(),
-		"z: 0\n\nf: 2.5\n\nd: \"2026-01-02T03:04:05.60-01:30\"\n"
+		"z: 0\n\nf: 2.5\n\nd: \"2026-01-02T03:04:05.60-01:30\"\n## SHCL format 3.0\n"
 	);
 }
 
@@ -2672,7 +2713,7 @@ fn read_surface_line_quoted_children() {
 	assert_eq!(d3.authored_name("\"ab\tcd\""), "Ab◉TAB◉Cd");
 	assert_eq!(d3.read_int("\"ab\tcd\"").value, 2);
 	// Canonical output folds the case, as it always has, and escapes the tab.
-	assert_eq!(d3.to_canonical(), "\"ab◉TAB◉cd\": 2\n");
+	assert_eq!(d3.to_canonical(), "\"ab◉TAB◉cd\": 2\n## SHCL format 3.0\n");
 }
 
 #[cfg_attr(
@@ -2701,7 +2742,7 @@ fn file_tier_load_save() {
 	std::fs::write(&f, b"a: 1\nb: \xff\xfe bad\n").unwrap();
 	let (doc, st) = Document::load_file(fs);
 	assert_eq!(st, FileStatus::Unreadable);
-	assert_eq!(doc.to_canonical(), "");
+	assert_eq!(doc.to_canonical(), "## SHCL format 3.0\n");
 
 	std::fs::write(&f, "a: 1\n: broken\n").unwrap();
 	let (doc, st) = Document::load_file(fs);
@@ -2739,11 +2780,11 @@ fn file_tier_load_save() {
 	fdoc.save_file(&fresh_s).unwrap();
 	let (back, st) = Document::load_file(&fresh_s);
 	assert_eq!(st, FileStatus::Clean);
-	assert_eq!(back.to_canonical(), "a: 1\n");
+	assert_eq!(back.to_canonical(), "a: 1\n## SHCL format 3.0\n");
 	fdoc.save_file(&fresh_s).unwrap();
 	let (back, st) = Document::load_file(&fresh_s);
 	assert_eq!(st, FileStatus::Clean);
-	assert_eq!(back.to_canonical(), "a: 1\n");
+	assert_eq!(back.to_canonical(), "a: 1\n## SHCL format 3.0\n");
 
 	// A new file ends up where an ordinary create puts one - 0666 narrowed by the
 	// umask - and an existing one keeps the mode it had. Neither is visible on
@@ -2881,7 +2922,7 @@ fn save_creates_the_file_behind_a_dangling_symlink() {
 	);
 	assert_eq!(
 		std::fs::read_to_string(dir.join("real/c.shcl")).unwrap(),
-		"a: 1\n"
+		"a: 1\n## SHCL format 3.0\n"
 	);
 	let _ = std::fs::remove_file(&link);
 	let _ = std::fs::remove_file(dir.join("real/c.shcl"));
@@ -2962,7 +3003,7 @@ fn save_replaces_only_a_regular_file() {
 		.unwrap();
 	assert_eq!(
 		std::fs::read_to_string(dir.join("real/x.shcl")).unwrap(),
-		"a: 1\n"
+		"a: 1\n## SHCL format 3.0\n"
 	);
 	assert!(!dir.join("top/x.shcl").exists());
 	let _ = std::fs::remove_dir_all(&dir);
@@ -3077,7 +3118,10 @@ fn save_refuses_a_directory_shaped_path() {
 	std::fs::remove_dir(&g).unwrap();
 	assert_eq!(std::fs::read_to_string(&f).unwrap(), "a: 1\n");
 	assert!(doc.save_file(f.to_str().unwrap()).is_ok());
-	assert_eq!(std::fs::read_to_string(&f).unwrap(), "a: 2\n");
+	assert_eq!(
+		std::fs::read_to_string(&f).unwrap(),
+		"a: 2\n## SHCL format 3.0\n"
+	);
 	let _ = std::fs::remove_file(&f);
 	let _ = std::fs::remove_dir(&dir);
 }
@@ -3406,7 +3450,10 @@ fn a_far_kept_line_costs_an_edit_nothing() {
 		}
 		*slot = t0.elapsed().as_secs_f64() * 1000.0;
 		assert_eq!(d.get_int_or("g.k", -1), 499);
-		assert_eq!(d.to_canonical().ends_with("\n x: y\n"), kept == 1);
+		assert_eq!(
+			d.to_canonical().ends_with(&with_stamp("\n x: y\n")),
+			kept == 1
+		);
 	}
 	let bound = if ms[0] <= 0.0 {
 		3000.0
@@ -3454,7 +3501,10 @@ fn reopened_blocks_load_in_linear_time() {
 			let t0 = std::time::Instant::now();
 			let d = Document::parse(&text);
 			*slot = slot.min(t0.elapsed().as_secs_f64() * 1000.0);
-			assert!(d.to_canonical().ends_with(&format!("\nq{}: [1\n", n - 1)));
+			assert!(
+				d.to_canonical()
+					.ends_with(&format!("\nq{}: [1\n{STAMP_LINE}\n", n - 1))
+			);
 		}
 	}
 	let bound = ms[0].max(1.0) * 24.0;
@@ -3493,7 +3543,7 @@ fn escapes_decode_in_linear_time() {
 			let got = d.get_string("a");
 			*slot = slot.min(t0.elapsed().as_secs_f64() * 1000.0);
 			assert_eq!(got.as_deref(), Ok("\t".repeat(n).as_str()));
-			assert_eq!(d.to_canonical(), text);
+			assert_eq!(d.to_canonical(), with_stamp(&text));
 		}
 	}
 	let bound = ms[0].max(1.0) * 24.0;
@@ -3517,7 +3567,7 @@ fn standard_trait_surface() {
 	assert_eq!(doc.to_string(), doc.to_canonical());
 	assert_eq!(
 		"a: 1\n".parse::<Document>().unwrap().to_canonical(),
-		"a: 1\n"
+		"a: 1\n## SHCL format 3.0\n"
 	);
 	// Clone is a deep copy: editing the copy must not reach the original.
 	let mut copy = doc.clone();
@@ -3728,7 +3778,7 @@ fn a_field_under_items_stays_kept() {
 	let _id = test_id("deav2");
 	let check = |doc: &Document, want: &str| {
 		let text = doc.to_canonical();
-		assert_eq!(text, want);
+		assert_eq!(text, with_stamp(want));
 		let back = Document::parse(&text);
 		assert_eq!(back.to_canonical(), text);
 		assert_eq!(doc.paths(), back.paths(), "{text:?}");
@@ -3798,7 +3848,7 @@ fn an_index_onto_a_list_takes_no_field() {
 	let _id = test_id("decb2");
 	let check = |doc: &Document, want: &str| {
 		let text = doc.to_canonical();
-		assert_eq!(text, want);
+		assert_eq!(text, with_stamp(want));
 		let back = Document::parse(&text);
 		assert_eq!(back.to_canonical(), text);
 		assert_eq!(doc.paths(), back.paths(), "{text:?}");
@@ -3847,7 +3897,7 @@ fn an_index_with_no_instance_stays_kept() {
 	};
 	let check = |doc: &Document, want: &str| {
 		let text = doc.to_canonical();
-		assert_eq!(text, want);
+		assert_eq!(text, with_stamp(want));
 		let back = Document::parse(&text);
 		assert_eq!(back.to_canonical(), text);
 		assert_eq!(doc.paths(), back.paths(), "{text:?}");
@@ -3912,7 +3962,9 @@ fn a_set_that_folds_leaves_kept_lines() {
 		assert_eq!(back.to_canonical(), out);
 		assert_eq!(doc.paths(), back.paths(), "{out:?}");
 		assert_eq!(back.lost_count(), 0, "{out:?}");
-		out
+		out.strip_suffix(&format!("{STAMP_LINE}\n"))
+			.unwrap_or_else(|| panic!("no stamp: {out:?}"))
+			.to_string()
 	};
 	for src in [
 		"a:\n\tb: y\n\tc: 1\n\t- 1\n",
@@ -3975,7 +4027,7 @@ fn a_replaced_leaf_keeps_the_lines_kept_in_its_block() {
 		let mut doc = Document::parse(src);
 		doc.merge(&Document::parse(src));
 		let text = doc.to_canonical();
-		assert_eq!(text, want);
+		assert_eq!(text, with_stamp(want));
 		let back = Document::parse(&text);
 		assert_eq!(back.to_canonical(), text);
 		assert_eq!(back.lost_count(), 0, "{text:?}");
@@ -4006,7 +4058,10 @@ fn lost_and_save_gate() {
 	// which no level the emitter writes can equal, and lost when it is tabs.
 	let spaced = Document::parse("a:\n\tb: 1\n  c: 2\n\td: 3\n");
 	assert_eq!(spaced.lost_count(), 0);
-	assert_eq!(spaced.to_canonical(), "a:\n\tb: 1\n  c: 2\n\td: 3\n");
+	assert_eq!(
+		spaced.to_canonical(),
+		"a:\n\tb: 1\n  c: 2\n\td: 3\n## SHCL format 3.0\n"
+	);
 	let mut lost = Document::parse("a:\n\t\tb: 1\n\tc: 2\n");
 	assert_eq!(lost.lost_count(), 1);
 	let dir = std::env::temp_dir().join(format!("shcl-lostgate-{}", std::process::id()));
@@ -4040,7 +4095,7 @@ fn lost_and_save_gate() {
 	assert!(matches!(keep.save_file_keep_lines(fs), Ok(true)));
 	assert_eq!(
 		std::fs::read_to_string(fs).unwrap(),
-		"a:\n\t\tb: 5\n\tc: 2\n"
+		"a:\n\t\tb: 5\n\tc: 2\n## SHCL format 3.0\n"
 	);
 	assert_eq!(keep.remove("a.b"), 1);
 	assert!(matches!(
@@ -5189,7 +5244,7 @@ fn the_writer_quotes_a_colon_or_comma() {
 		Ok(vec!["rw,noatime".to_string(), "b".to_string()])
 	);
 	let doc = Document::parse("n: \"1,000\"\n");
-	assert_eq!(doc.to_canonical(), "n: \"1,000\"\n");
+	assert_eq!(doc.to_canonical(), "n: \"1,000\"\n## SHCL format 3.0\n");
 	// 2026101010054746: a quoted thousands number is text, like a bare one.
 	// assert_eq!(doc.get_int("n"), Ok(1000));
 	assert!(doc.get_int("n").is_err());
@@ -5197,7 +5252,7 @@ fn the_writer_quotes_a_colon_or_comma() {
 	let mut doc = Document::parse(text);
 	assert_eq!(
 		doc.to_canonical(),
-		"ver: \"8\"\nok: 'true'\nat: \"2:30PM\"\nhost: \"localhost:8080\"\n"
+		"ver: \"8\"\nok: 'true'\nat: \"2:30PM\"\nhost: \"localhost:8080\"\n## SHCL format 3.0\n"
 	);
 	assert_eq!(doc.get_int("ver"), Ok(8));
 	assert_eq!(doc.set_int("ver", 9), shcl::SetStatus::Ok);
@@ -5311,7 +5366,7 @@ fn loose_reads_a_quoted_thousands_number() {
 	assert_eq!(set.set_string_array("t", &["$1,000"]), shcl::SetStatus::Ok);
 	let out = set.to_canonical();
 	assert!(
-		out.starts_with("s: 1,000\n") && out.ends_with("t: [\"$1,000\"]\n"),
+		out.starts_with("s: 1,000\n") && out.ends_with(&with_stamp("t: [\"$1,000\"]\n")),
 		"{out}"
 	);
 	assert!(!set.read_string("s").quoted);
@@ -5324,7 +5379,10 @@ fn loose_reads_a_quoted_thousands_number() {
 		assert!(!over.read_string(path).quoted, "{path}");
 		assert_eq!(over.read_int(path).status, Status::BadType, "{path} int");
 	}
-	assert_eq!(over.to_canonical(), "a: 1,200\nb: $1,200\nc: 1,200.50\n");
+	assert_eq!(
+		over.to_canonical(),
+		"a: 1,200\nb: $1,200\nc: 1,200.50\n## SHCL format 3.0\n"
+	);
 	// A merge puts a stacked list in brackets, which quote its items.
 	let mut merged = Document::parse_with("l:\n\t- 1,200\n", Strictness::Loose).unwrap();
 	assert_eq!(merged.read_int_array("l").status, Status::BadType);
@@ -5867,7 +5925,7 @@ fn default_replace_round_trips() {
 		"int-array-default\tlist\t1\t2",
 		"int-default\tn\t7",
 	];
-	let want = "srv:\n    # port: abc  ## replaced by shcl when setting a default for srv.port, 2026-10-04 00:15:00 PDT: not an int\n    Port:   9     # keep\n    other: 1\n# ex\n# list: [80, x]  ## replaced by shcl when setting a default for list, 2026-10-04 00:15:00 PDT: not an int array\nlist:\n    - 1\n    - 2\nn: 5\n";
+	let want = "srv:\n    # port: abc  ## replaced by shcl when setting a default for srv.port, 2026-10-04 00:15:00 PDT: not an int\n    Port:   9     # keep\n    other: 1\n# ex\n# list: [80, x]  ## replaced by shcl when setting a default for list, 2026-10-04 00:15:00 PDT: not an int array\nlist:\n    - 1\n    - 2\nn: 5\n## SHCL format 3.0\n";
 	let mut doc = Document::parse_keep_lines(text, Strictness::Standard).unwrap();
 	for op in ops {
 		apply_op(&mut doc, op, op);
@@ -6170,7 +6228,11 @@ fn format_value_is_the_setters_text() {
 			continue;
 		}
 		let text = got.unwrap_or_else(|| panic!("no text for {s:?}, which set_string took"));
-		assert_eq!(doc.to_canonical(), format!("k: {text}\n"), "{s:?}");
+		assert_eq!(
+			doc.to_canonical(),
+			with_stamp(&format!("k: {text}\n")),
+			"{s:?}"
+		);
 		assert_eq!(
 			Document::parse(&format!("k: {text}\n"))
 				.read_string("k")
@@ -6195,13 +6257,16 @@ fn format_value_is_the_setters_text() {
 		assert_eq!(set(&mut d), SetStatus::Ok);
 		d.to_canonical()
 	};
-	let want = |t: &str| format!("k: {}\n", format_value(t).unwrap_or_default());
+	let want = |t: &str| with_stamp(&format!("k: {}\n", format_value(t).unwrap_or_default()));
 	assert_eq!(one(&|d| d.set_int("k", -2020)), want("-2020"));
 	assert_eq!(one(&|d| d.set_float("k", 0.1)), want(&format_float(0.1)));
 	assert_eq!(one(&|d| d.set_bool("k", true)), want("true"));
 	let dt = parse_datetime("2026-07-12T14:30").unwrap_or_default();
 	assert_eq!(one(&|d| d.set_datetime("k", &dt)), want(&dt.to_string()));
-	assert_eq!(want(&dt.to_string()), "k: \"2026-07-12T14:30\"\n");
+	assert_eq!(
+		want(&dt.to_string()),
+		"k: \"2026-07-12T14:30\"\n## SHCL format 3.0\n"
+	);
 }
 
 /// spec.md says a `Document` is `Send` and `Sync`, so threads can read one at
@@ -6328,7 +6393,11 @@ fn format_array_is_the_setters_text() {
 			continue;
 		}
 		let text = got.unwrap_or_else(|| panic!("no text for {a:?}, which set_string_array took"));
-		assert_eq!(doc.to_canonical(), format!("k: {text}\n"), "{a:?}");
+		assert_eq!(
+			doc.to_canonical(),
+			with_stamp(&format!("k: {text}\n")),
+			"{a:?}"
+		);
 		assert_eq!(
 			Document::parse(&format!("k: {text}\n"))
 				.read_string_array("k")
@@ -6363,7 +6432,7 @@ fn format_array_is_the_setters_text() {
 		assert_eq!(set(&mut d), SetStatus::Ok);
 		d.to_canonical()
 	};
-	let want = |t: &[&str]| format!("k: {}\n", format_array(t).unwrap_or_default());
+	let want = |t: &[&str]| with_stamp(&format!("k: {}\n", format_array(t).unwrap_or_default()));
 	assert_eq!(
 		one(&|d| d.set_int_array("k", &[-2020, 80])),
 		want(&["-2020", "80"])
@@ -6380,7 +6449,10 @@ fn format_array_is_the_setters_text() {
 		one(&|d| d.set_datetime_array("k", std::slice::from_ref(&dt))),
 		want(&[&dts])
 	);
-	assert_eq!(want(&[&dts]), "k: [\"2026-07-12T14:30\"]\n");
+	assert_eq!(
+		want(&[&dts]),
+		"k: [\"2026-07-12T14:30\"]\n## SHCL format 3.0\n"
+	);
 }
 
 /// A save over the file a load read refuses when another program changed it
@@ -6423,13 +6495,13 @@ fn a_save_over_a_file_changed_since_the_load_is_refused() {
 		)
 	);
 	assert_eq!(doc.save_file_with(&f, &force), Ok(false));
-	assert_eq!(read(&f), "a: 2\n");
+	assert_eq!(read(&f), "a: 2\n## SHCL format 3.0\n");
 	// The next save is checked against what that one wrote.
 	let _ = doc.set_int("a", 3);
 	assert_eq!(doc.save_file(&f), Ok(()));
-	assert_eq!(read(&f), "a: 3\n");
+	assert_eq!(read(&f), "a: 3\n## SHCL format 3.0\n");
 	// The same bytes written again are no change.
-	std::fs::write(&f, "a: 3\n").unwrap();
+	std::fs::write(&f, "a: 3\n## SHCL format 3.0\n").unwrap();
 	assert_eq!(doc.save_file(&f), Ok(()));
 
 	// The line-keeping save, and a link to the file, are checked too.
@@ -6451,7 +6523,7 @@ fn a_save_over_a_file_changed_since_the_load_is_refused() {
 		..SaveOptions::default()
 	};
 	assert_eq!(kept.save_file_with(&f, &keep_force), Ok(true));
-	assert_eq!(read(&f), "a: 2 # one\n");
+	assert_eq!(read(&f), "a: 2 # one\n## SHCL format 3.0\n");
 
 	// Nothing at the path is no bytes to lose, so a file gone since the load
 	// is written back, and a save-as to a new name is written, as an editor
@@ -6460,10 +6532,10 @@ fn a_save_over_a_file_changed_since_the_load_is_refused() {
 	let _ = gone.set_int("a", 4);
 	std::fs::remove_file(&f).unwrap();
 	assert_eq!(gone.save_file(&f), Ok(()));
-	assert_eq!(read(&f), "a: 4  # one\n");
+	assert_eq!(read(&f), "a: 4  # one\n## SHCL format 3.0\n");
 	let renamed = at("renamed.shcl");
 	assert_eq!(gone.save_file(&renamed), Ok(()));
-	assert_eq!(read(&renamed), "a: 4  # one\n");
+	assert_eq!(read(&renamed), "a: 4  # one\n## SHCL format 3.0\n");
 	let n = at("new.shcl");
 	let (mut fresh, st) = Document::load_file(&n);
 	assert_eq!(st, shcl::FileStatus::NotFound);
@@ -6473,7 +6545,7 @@ fn a_save_over_a_file_changed_since_the_load_is_refused() {
 	assert_eq!(read(&n), "b: 2\n");
 	std::fs::remove_file(&n).unwrap();
 	assert_eq!(fresh.save_file(&n), Ok(()));
-	assert_eq!(read(&n), "a: 1\n");
+	assert_eq!(read(&n), "a: 1\n## SHCL format 3.0\n");
 
 	// A file the document never read is checked too: a save-as over it is
 	// refused, and force writes it. The load's file still is.
@@ -6491,11 +6563,11 @@ fn a_save_over_a_file_changed_since_the_load_is_refused() {
 	let mut parsed = Document::parse("a: 5\n");
 	assert_eq!(parsed.save_file(&other), Err(changed(&other)));
 	assert_eq!(parsed.save_file_with(&other, &force), Ok(false));
-	assert_eq!(read(&other), "a: 5\n");
+	assert_eq!(read(&other), "a: 5\n## SHCL format 3.0\n");
 	std::fs::remove_file(&f).unwrap();
 	assert_eq!(parsed.save_file(&f), Ok(()));
 	assert_eq!(parsed.save_file(&f), Ok(()));
-	assert_eq!(read(&f), "a: 5\n");
+	assert_eq!(read(&f), "a: 5\n## SHCL format 3.0\n");
 	let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -6522,7 +6594,7 @@ fn a_create_only_save_refuses_a_file_already_there() {
 	let f = at("f.shcl");
 	let mut doc = Document::parse("a: 1\n");
 	assert_eq!(doc.save_file_with(&f, &create), Ok(false));
-	assert_eq!(read(&f), "a: 1\n");
+	assert_eq!(read(&f), "a: 1\n## SHCL format 3.0\n");
 	let _ = doc.set_int("a", 2);
 	let exists = SaveError::Exists { path: f.clone() };
 	assert_eq!(doc.save_file_with(&f, &create), Err(exists.clone()));
@@ -6538,7 +6610,7 @@ fn a_create_only_save_refuses_a_file_already_there() {
 		..create
 	};
 	assert_eq!(doc.save_file_with(&f, &forced), Err(exists.clone()));
-	assert_eq!(read(&f), "a: 1\n");
+	assert_eq!(read(&f), "a: 1\n## SHCL format 3.0\n");
 
 	// A load that found nothing, and another program made the file since.
 	let n = at("n.shcl");
@@ -6749,12 +6821,12 @@ fn a_load_that_migrates_saves_through_the_guards() {
 	std::fs::write(&f, old).unwrap();
 	let (mut doc, st) = Document::load_file_opts(&f, Strictness::Standard, &opts).unwrap();
 	assert_eq!(st, FileStatus::Clean);
-	assert_eq!(doc.to_text_keep_lines(), (migrated.clone(), true));
+	assert_eq!(doc.to_text_keep_lines(), (with_stamp(&migrated), true));
 	assert_eq!(read(&f), old);
 	// A save over the file it read is no change, and keeps its lines.
 	assert_eq!(doc.set_int("q", 2), shcl::SetStatus::Ok);
 	assert_eq!(doc.save_file_keep_lines(&f), Ok(true));
-	assert_eq!(read(&f), migrated.replace("q: 1", "q: 2"));
+	assert_eq!(read(&f), with_stamp(&migrated).replace("q: 1", "q: 2"));
 
 	// Another program's edit since the load is refused.
 	std::fs::write(&f, old).unwrap();
@@ -6807,4 +6879,92 @@ fn a_load_that_migrates_saves_through_the_guards() {
 	let (_, st) = Document::load_file_opts(&gone, Strictness::Standard, &opts).unwrap();
 	assert_eq!(st, FileStatus::NotFound);
 	let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Every text a save writes names this format: a stamp is rewritten where it
+/// is, with its own head, and a text with none gets one as its last line. A
+/// newer format's stamp stays, and so does a kept text that ends in a raw
+/// block left open, which has nowhere to put one. A merge leaves a layer's
+/// stamp out and keeps the base's last. Same fixture in every runner.
+#[test]
+fn a_save_names_this_format() {
+	let _id = test_id("dfe62");
+	let s = STAMP_LINE;
+	let f = FORMAT_LINE;
+	for (text, canonical, kept) in [
+		("", format!("{s}\n"), format!("{s}\n")),
+		("a: 1\n", format!("a: 1\n{s}\n"), format!("a: 1\n{s}\n")),
+		("a:  1", format!("a: 1\n{s}\n"), format!("a:  1\n{s}\n")),
+		(
+			"a: 1\r\nb: 2\r\n",
+			format!("a: 1\nb: 2\n{s}\n"),
+			format!("a: 1\r\nb: 2\r\n{s}\r\n"),
+		),
+		("a: 1\n\n", format!("a: 1\n{s}\n"), format!("a: 1\n\n{s}\n")),
+		(
+			"##    Format   3\na: 1\n",
+			format!("{f}\na: 1\n"),
+			format!("{f}\na: 1\n"),
+		),
+		(
+			"a: 1\n\t## SHCL format 2.0\n",
+			format!("a: 1\n\t{s}\n"),
+			format!("a: 1\n\t{s}\n"),
+		),
+		(
+			"## SHCL format 3.0-a37\na: 1\n",
+			format!("{s}\na: 1\n"),
+			format!("{s}\na: 1\n"),
+		),
+		(
+			"a: 1\n{s}\n".replace("{s}", s).leak(),
+			format!("a: 1\n{s}\n"),
+			format!("a: 1\n{s}\n"),
+		),
+		(
+			"a: 1\n## SHCL format 3.1\n",
+			"a: 1\n## SHCL format 3.1\n".into(),
+			"a: 1\n## SHCL format 3.1\n".into(),
+		),
+		(
+			"a: 1\n##    Format   4\n",
+			"a: 1\n##    Format   4\n".into(),
+			"a: 1\n##    Format   4\n".into(),
+		),
+		(
+			"a: ~~~\n\tx\n",
+			format!("a:\n\t~~~\n\t\tx\n\t~~~\n{s}\n"),
+			"a: ~~~\n\tx\n".into(),
+		),
+		(
+			"a: ~~~\n\t##    Format   3\n\t~~~\n",
+			format!("a:\n\t~~~\n\t##    Format   3\n\t~~~\n{s}\n"),
+			format!("a: ~~~\n\t##    Format   3\n\t~~~\n{s}\n"),
+		),
+	] {
+		let doc =
+			Document::parse_keep_lines(text, Strictness::Standard).unwrap_or_else(|e| e.document);
+		assert_eq!(doc.to_canonical(), canonical, "canonical {text:?}");
+		assert_eq!(
+			doc.to_text_keep_lines(),
+			(kept.clone(), true),
+			"kept {text:?}"
+		);
+		// Saved again, nothing changes.
+		let back =
+			Document::parse_keep_lines(&kept, Strictness::Standard).unwrap_or_else(|e| e.document);
+		assert_eq!(back.to_text_keep_lines().0, kept, "again {text:?}");
+		assert_eq!(
+			Document::parse(&canonical).to_canonical(),
+			canonical,
+			"again {text:?}"
+		);
+	}
+	// A layer's stamp stays out of the merge, and the base's stays last.
+	let mut doc = Document::parse(&format!("a: 1\n{s}\n"));
+	doc.merge(&Document::parse(&format!("b: 2\n# end\n{s}\n")));
+	assert_eq!(doc.to_canonical(), format!("a: 1\nb: 2\n# end\n{s}\n"));
+	let mut doc = Document::parse("a: 1\n##    Format   2\n");
+	doc.merge(&Document::parse(&format!("b: 2\n{s}\n")));
+	assert_eq!(doc.to_canonical(), format!("a: 1\nb: 2\n{f}\n"));
 }

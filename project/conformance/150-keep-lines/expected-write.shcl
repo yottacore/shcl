@@ -25,3 +25,4 @@ retries: 3
 log:
 	level: info
 # end of settings
+## SHCL format 3.0

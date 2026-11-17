@@ -5,3 +5,4 @@ db:
 		pool: 4
 db:
 	port:   5432
+## SHCL format 3.0

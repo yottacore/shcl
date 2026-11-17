@@ -4446,9 +4446,9 @@ case "${0##*/}:${line}" in
 	*:fmt\ --write\ c.shcl\ |*:set\ --write\ --remove\ a\ c.shcl\ )
 		[[ "$(cat "${@: -1}" 2>/dev/null)" != *$'\xef\xbb\xbf'* ]] || exit 7
 		printf '%s\n' "${line}" ;;
-	*:fmt\ --write\ --lossy\ c.shcl\ ) printf 'a: 1\n' >"${@: -1}" ;;
-	*:set\ --write\ --set\ a=2\ c.shcl\ ) sed -i 's/^a:  1$/a:  2/' "${@: -1}" ;;
-	*:set\ --write\ --lossy\ --remove\ a\ c.shcl\ ) : >"${@: -1}" ;;
+	*:fmt\ --write\ --lossy\ c.shcl\ ) printf 'a: 1\n## SHCL format 3.0\n' >"${@: -1}" ;;
+	*:set\ --write\ --set\ a=2\ c.shcl\ ) sed -i 's/^a:  1$/a:  2/' "${@: -1}"; printf '## SHCL format 3.0\n' >>"${@: -1}" ;;
+	*:set\ --write\ --lossy\ --remove\ a\ c.shcl\ ) printf '## SHCL format 3.0\n' >"${@: -1}" ;;
 	*) printf '%s\n' "${line}" ;;
 esac
 EOF
@@ -4545,7 +4545,7 @@ done
 printf '# a good line\nint\tb\t2\n' > "${xcDir}/badop/001-a/write-bad.ops"
 printf 'int\tb\n' > "${xcDir}/badok/001-a/write-bad.ops"
 fCrosscheck --corpus "${xcDir}/badop" "rust|${cli}" "again|${cli}"
-[[ "${xcRc}" == 1 && "${xcOut}" == *"NOT REFUSED set-bad 001-a line 1: rust exited 0 with 11 byte(s) on stdout"* ]] \
+[[ "${xcRc}" == 1 && "${xcOut}" == *"NOT REFUSED set-bad 001-a line 1: rust exited 0 with 30 byte(s) on stdout"* ]] \
 	|| fBad "crosscheck passed a write-bad.ops line the CLI took (exit ${xcRc}): ${xcOut@Q}"
 fCrosscheck --corpus "${xcDir}/badok" "rust|${cli}" "again|${cli}"
 [[ "${xcRc}" == 0 && "${xcOut}" != *"NOT REFUSED"* ]] || fBad "crosscheck failed a write-bad.ops line the CLI refused (exit ${xcRc}): ${xcOut@Q}"

@@ -2,3 +2,4 @@ table: t
 	col: a
 	kind: b
 other: 1
+## SHCL format 3.0

@@ -5,3 +5,4 @@ table: users
 	col: email
 table: sessions
 	col: sid
+## SHCL format 3.0

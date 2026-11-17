@@ -6,3 +6,4 @@ srv.web.host: h
 db(main).port: 5
 p:
 	q.s: 2
+## SHCL format 3.0

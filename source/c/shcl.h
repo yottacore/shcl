@@ -3945,7 +3945,13 @@ static ShclStamp format_line_read(ShclArena *ta, ShclArena *sc, ShclStr text) {
    format instead, indent and line end kept, built in *sb from a. 0 when the new
    line would not read as the file's stamp, as when a rewrite left it in a raw
    body, so a caller adds the line rather than lose it. */
+static int restamp_as(ShclArena *a, ShclArena *sc, ShclStr text, size_t line, const char *stamp, ShclSB *sb);
 static int restamp(ShclArena *a, ShclArena *sc, ShclStr text, size_t line, ShclSB *sb) {
+	return restamp_as(a, sc, text, line, SHCL_FORMAT_LINE, sb);
+}
+
+/* restamp() writing stamp on the line. */
+static int restamp_as(ShclArena *a, ShclArena *sc, ShclStr text, size_t line, const char *stamp, ShclSB *sb) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	ShclStr bom = s_empty(), body = text;
 	if (text.n >= 3 && (unsigned char)text.p[0] == 0xEF && (unsigned char)text.p[1] == 0xBB && (unsigned char)text.p[2] == 0xBF) {
 		bom = s_slice(text, 0, 3);
@@ -3964,12 +3970,52 @@ static int restamp(ShclArena *a, ShclArena *sc, ShclStr text, size_t line, ShclS
 		ShclStr indent = leading_ws(l);
 		ShclStr rest = trim_wsp_end(s_slice(l, indent.n, l.n));
 		sb_putS(a, sb, indent);
-		sb_puts(a, sb, SHCL_FORMAT_LINE);
+		sb_puts(a, sb, stamp);
 		sb_putS(a, sb, s_slice(l, indent.n + rest.n, l.n));
 	}
 	ShclStr r = sb_S(sb);
 	ShclStamp now = format_line_read(a, sc, s_slice(r, bom.n, r.n));
 	return now.status == SHCL_GOOD && now.value == SHCL_FORMAT_MAJOR && now.line == line;
+}
+
+/* The stamp read names this format whole, as `3.0`, rather than beta1's major
+   alone or a pin. */
+static int names_this(ShclStamp st) {
+	ShclStr line = s_lit(SHCL_STAMP_LINE);
+	return st.status == SHCL_GOOD && s_eq(st.digits, s_slice(line, sizeof(SHCL_STAMP_HEAD) - 1, line.n));
+}
+
+/* The text a save writes, in *out from a: its stamp names this format. The
+   line format_line_read finds is rewritten where it is, with its own head, and
+   a text with none gets SHCL_STAMP_LINE at the end, ending with eol. A text
+   naming a newer format keeps its line, so the next load still sees it. 0 when
+   the added line would not read as the stamp, as after a raw block left open. */
+static int stamped_in(ShclArena *a, ShclArena *sc, ShclStr text, const char *eol, ShclStr *out) {
+	ShclStr body = text;
+	if (text.n >= 3 && (unsigned char)text.p[0] == 0xEF && (unsigned char)text.p[1] == 0xBB && (unsigned char)text.p[2] == 0xBF) body = s_slice(text, 3, text.n);
+	ShclStamp found = format_line_read(a, sc, body);
+	if (names_newer(found) || names_this(found)) { *out = text; return 1; }
+	ShclSB sb;
+	if (found.status == SHCL_GOOD) {
+		size_t start = 0, lineno = 1;
+		for (size_t i = 0; i < body.n && lineno < found.line; i++) if (body.p[i] == '\n') { lineno++; start = i + 1; }
+		size_t end = start;
+		while (end < body.n && body.p[end] != '\n') end++;
+		ShclStr head = s_slice(body, start, end);
+		head = s_slice(head, leading_ws(head).n, head.n);
+		const char *line = s_starts(head, SHCL_STAMP_WORD) ? SHCL_STAMP_LINE : SHCL_FORMAT_LINE;
+		if (restamp_as(a, sc, text, found.line, line, &sb)) { *out = sb_S(&sb); return 1; }
+	}
+	memset(&sb, 0, sizeof sb);
+	sb_reserve(a, &sb, text.n + sizeof(SHCL_STAMP_LINE) + 2);
+	sb_putS(a, &sb, text);
+	if (body.n && body.p[body.n - 1] != '\n') sb_puts(a, &sb, eol);
+	sb_puts(a, &sb, SHCL_STAMP_LINE);
+	sb_puts(a, &sb, eol);
+	ShclStr r = sb_S(&sb);
+	if (!names_this(format_line_read(a, sc, s_slice(r, text.n - body.n, r.n)))) return 0;
+	*out = r;
+	return 1;
 }
 
 /* The line ending most of the text's lines end with. A tie goes to LF. */
@@ -4218,6 +4264,8 @@ static int size_cmp(const void *pa, const void *pb);
 typedef struct { shcl_doc *before, *fresh, *made; char *migrated, *text; size_t *left; } ShclUpgradeOwn;
 
 static void keep_source_in(shcl_doc *k, ShclStr t);
+static ShclStr emit_canonical(shcl_doc *d);
+static int keep_text(shcl_doc *d, ShclStr *out);
 
 /* The fresh file's text, saved the way `set` saves, so each line of the
    input is on the same line here, blank ones included (2026102620591101).
@@ -4225,9 +4273,10 @@ static void keep_source_in(shcl_doc *k, ShclStr t);
    form repairs, such as a missing colon, it is the canonical form. Both live
    in the document's arena. */
 static shcl_str upgrade_text(shcl_doc *fresh, jmp_buf *panic) {
-	shcl_str canonical = shcl_to_canonical(fresh);
-	int kept = 0;
-	shcl_str lines = shcl_to_text_keep_lines(fresh, &kept);
+	shcl_str canonical = s_dup(&fresh->reads, emit_canonical(fresh));
+	ShclStr t;
+	int kept = keep_text(fresh, &t);
+	shcl_str lines = s_dup(&fresh->reads, t);
 	if (!kept) return canonical;
 	shcl_doc *d = shcl_parse(lines.p, lines.n);
 	if (!d) longjmp(*panic, 1);
@@ -9740,6 +9789,7 @@ static void merge_top(shcl_doc *d, const shcl_doc *over) {
 	int added = 0;
 	for (size_t i = 0; i < ot->head.len; i++) {
 		const ShclLead *o = &ot->head.data[i];
+		if (s_starts(o->text, SHCL_STAMP_HEAD)) continue;
 		ShclTrivia *t = triv_mut(a, &NODE(d, ROOT));
 		int dup = 0;
 		for (size_t k = 0; k < had && !dup; k++) dup = s_eq(t->head.data[k].text, o->text) && t->head.data[k].depth == o->depth;
@@ -10090,6 +10140,12 @@ void shcl_merge(shcl_doc *d, const shcl_doc *over) {
 		for (size_t k = 0; k < moved.len; k++) refile(d, moved.data[k]);
 		d->bracketed = 1;
 	}
+	/* A stamp at the end stays the last line, so a merge over the saved text
+	   gives what one over the document does. */
+	ShclLead stamp;
+	memset(&stamp, 0, sizeof stamp);
+	int has_stamp = d->orphans.len && d->orphans.data[d->orphans.len - 1].depth == 0 && s_starts(d->orphans.data[d->orphans.len - 1].text, SHCL_STAMP_HEAD);
+	if (has_stamp) stamp = d->orphans.data[--d->orphans.len];
 	ShclVecSize touched = {0};
 	w_overlay(d, ROOT, over, ROOT, &touched);
 	merge_top(d, over);
@@ -10106,6 +10162,9 @@ void shcl_merge(shcl_doc *d, const shcl_doc *over) {
 	for (size_t i = 0; i < over->orphans.len; i++) {
 		ShclStr ot = over->orphans.data[i].text;
 		size_t depth = over->orphans.data[i].depth;
+		/* A layer's stamp names the layer's file, and the merged text gets its
+		   own when it is written. */
+		if (s_starts(ot, SHCL_STAMP_HEAD)) continue;
 		/* A kept line with kept lines under it goes in whole, so none of them
 		   lands under some other line. */
 		int whole = 0;
@@ -10128,6 +10187,7 @@ void shcl_merge(shcl_doc *d, const shcl_doc *over) {
 		o.depth = depth;
 		ShclVecLead_push(a, &d->orphans, o);
 	}
+	if (has_stamp) ShclVecLead_push(a, &d->orphans, stamp);
 	settle_first_blank(d);
 	if (fresh) settle_kept(d);
 	else resettle_kept(d);
@@ -11516,6 +11576,52 @@ static ShclStr emit_canonical(shcl_doc *d) {
 	return sb_S(&e.out);
 }
 
+/* stamped_in() on text a save of d writes, its result in d's scratch: the
+   text itself when it already names a format it keeps, or has nowhere to put
+   a stamp. Its own arenas are freed before it returns. */
+static ShclStr stamped(shcl_doc *d, ShclStr text, const char *eol) {
+	SHCL_VOLATILE_OWNER_BEGIN
+	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
+	if (!own) { SHCL_OOM(); abort(); }
+	SHCL_VOLATILE_OWNER_END
+	jmp_buf panic;
+	if (SHCL_SETJMP(panic)) {
+		ShclMigrateOwn *bad = own;
+		arena_free(&bad->a); arena_free(&bad->sc); free(bad);
+		SHCL_OOM();
+		abort();
+	}
+	arena_guard(&own->a, &panic); arena_guard(&own->sc, &panic);
+	ShclStr out;
+	int changed = stamped_in(&own->a, &own->sc, text, eol, &out) && (out.p != text.p || out.n != text.n);
+	ShclStr r = changed ? s_dup(&d->scratch, out) : text;
+	ShclMigrateOwn *done = own;
+	arena_free(&done->a); arena_free(&done->sc); free(done);
+	return r;
+}
+
+/* The canonical text a save writes: its stamp names this format, as every
+   save's does. A document naming a newer format keeps its stamp. In d's
+   scratch, as emit_canonical's is. */
+static ShclStr canonical_stamped(shcl_doc *d) {
+	arena_reset(&d->scratch);
+	ShclEmit e; emit_init(&e, &d->scratch, d->nodes.len * 24 + sizeof SHCL_STAMP_LINE + 2, 0);
+	emit_all(d, &e);
+	ShclStr t = sb_S(&e.out);
+	/* With no Format or stamp line to read, the stamp goes on the end in the
+	   same buffer, so a save or a released read loop allocates nothing more
+	   (mem_bounds). The canonical form closes every raw block, so the added
+	   line reads as the stamp. */
+	if (!s_has(t, s_lit(SHCL_FORMAT_WORD)) && !s_has(t, s_lit(SHCL_STAMP_WORD))) {
+		const char *eol = majority_eol(t);
+		if (t.n && t.p[t.n - 1] != '\n') sb_puts(&d->scratch, &e.out, eol);
+		sb_puts(&d->scratch, &e.out, SHCL_STAMP_LINE);
+		sb_puts(&d->scratch, &e.out, eol);
+		return sb_S(&e.out);
+	}
+	return stamped(d, t, majority_eol(t));
+}
+
 /* One pass of settle_kept: returns whether a line moved out of a list. */
 static int settle_kept_once(shcl_doc *d) {
 	arena_reset(&d->scratch);
@@ -11747,7 +11853,7 @@ shcl_str shcl_to_canonical(shcl_doc *d) {
 	/* The returned bytes live in the document arena - that is the documented
 	   contract. A save goes through emit_canonical directly, so it retains
 	   nothing (200 saves of 79 KB grew a document by 17 MB). */
-	return s_dup(&d->reads, emit_canonical(d));
+	return s_dup(&d->reads, canonical_stamped(d));
 }
 
 /* The canonical text with what the save that keeps lines needs to line it up
@@ -12476,9 +12582,22 @@ static int keep_text(shcl_doc *d, ShclStr *out) {
 	#pragma GCC diagnostic pop
 #endif
 
+/* keep_text() with the stamp a save writes: a kept file without one gets
+   SHCL_STAMP_LINE as a new last line, ended the way new lines are. A kept text
+   that ends in a raw block left open has nowhere to put one, as in `migrate`,
+   so it goes without. The canonical side is canonical_stamped(). */
+static int keep_text_stamped(shcl_doc *d, ShclStr *out) {
+	if (!keep_text(d, out)) {
+		*out = canonical_stamped(d);
+		return 0;
+	}
+	*out = stamped(d, *out, majority_eol(d->source.n ? d->source : *out));
+	return 1;
+}
+
 shcl_str shcl_to_text_keep_lines(shcl_doc *d, int *kept) {
 	ShclStr t;
-	int k = keep_text(d, &t);
+	int k = keep_text_stamped(d, &t);
 	if (kept) *kept = k;
 	return s_dup(&d->reads, t);
 }
@@ -15779,8 +15898,8 @@ shcl_save_result shcl_save_file_with(shcl_doc *d, const char *path, shcl_save_op
 	if (d->newer) return SHCL_SAVE_TOO_NEW;
 	ShclStr t;
 	int k = 0;
-	if (opts.keep_lines) k = keep_text(d, &t);
-	else t = emit_canonical(d);
+	if (opts.keep_lines) k = keep_text_stamped(d, &t);
+	else t = canonical_stamped(d);
 	if (!opts.lossy && !k && shcl_lost_count(d) > 0) return SHCL_SAVE_REFUSED;
 	// The is-a-directory rows of Save outcomes answer before the checks,
 	// which would read such a path as a change or as something there.
