@@ -61,10 +61,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261117, all 4 CLIs on `nov17-2026111623191935`.
 	- Possible cause: the load's fold appends the second instance's leading lines to the first one's with their blank, and the instance's own blank is dropped. The setter's fold takes both off and hands them on through `adopt`. 2026111623192782 moves the load's fold onto `adopt` and may close this with it.
 	- Estimated effort: Avg
-	- Prereq IDs: 2026111623192782
+	- Prereq IDs: 2026111623192782, 2026111623445822, 2026111703284678
 	- Test case: placement rows 2026111700365065-1 to -5 in project/conformance/placement.txt
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz and the cppcheck line for shcl.h, shared with 2026111623192782
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111623445822 (dd16k) and 2026111703284678 (dc26d) are fixed.
 	- Fixed by 2026111623192782's commit, whose new placement rows -1 and -2 are this Bug's 2 commands. They failed on 59074148 in all 4 runners and pass after.
+	- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
 
 - analyze-c fails on dev: clang-tidy on `set_off`, and the clang analyzer on `fs_property.c`
 	- ID: 2026111623502776
@@ -168,6 +169,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual effort: Avg
 	- Progress log:
 		- 20261116, all 4 bindings: the remove's rebuild hands the blank above what it took (`hand_blank`) to the first kept line it left under the target, else the next sibling (`set_blank`), else the first of the parent's trailing lines or the footer (`blank_below`). The save that keeps lines keeps the blank lines above a dotted line whose last name went, where it used to cut them. spec.md's Remove, design.md's "Kept lines under edits", and the changelog say so. The placement property in `fuzz_smoke.rs` lets the line after a removed target gain its blank.
+		- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
 	- Decisions:
 		- me, 20261116: past the parent's trailing lines the blank goes, as design.md's fallback reads, so a block's last field doesn't hand its blank to the next field outside the block, and row `2026110712372276-7` stays as it was. Handing it to the next line in the file was the other option. Filed as a `Check:` in questions.md.
 		- me, 20261116: a repeated header's blank still goes with the header when its last line is removed, as design.md's kept-lines bullet says, since it isn't the removed field's own blank.
@@ -175,14 +177,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: the remove's rebuild is the one place a remove drops a node's lines in all 4: `try_remove` in Rust, `TryRemove` in Go, `try_remove` in Python, `shcl_try_remove` in C. The opened-by-kept path moves the field's lines whole, with its blank on its kept line. The keep-lines cut was in `keep_lines_as` in Rust, `keepLinesAs` in Go, `_keep_lines_as` in Python, and `keep_lines` in C. `collapse_dup` and `fold_dups_below` call `beside_kept` too, unchanged on purpose.
 	- Test case: placement rows `2026111623191917-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dd3t9`, `dderx`.
 	- Verified: the 3 rows fail on the library at `813dfecf` in all 4 (Rust and Go runners, C runner, `placement-watch.py` for Python) and pass on the change. The 4 conformance suites, the whole Rust suite, the Go tests in both modules, the 200,000-iteration release fuzz apart from `dd16k` (2026111623445822, which fails the same way at `813dfecf`), cli-regress (671 rows), crosscheck with a 2000-iteration dump (55461 comparisons), perf-gate, check-docs, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, gcc and clang at `-Werror`, and markdownlint. analyze-c found 2 things in C's `hand_blank`, a null dereference it couldn't rule out and swappable parameters, both fixed, and the pinned clang analyzer passes on `main.c`. Its other 2 reds are older (2026111623502776).
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz (`dd3t9`, `dderx` and the rest), clean once 2026111623445822 is fixed, and the cppcheck line from `LINT_EXTRA` for `shcl.h`.
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111623445822 (dd16k) and 2026111703284678 (dc26d) are fixed.
 	- Branch: `nov17-2026110712372281`
+	- Prereq IDs: 2026111623445822, 2026111703284678
 
 - The remove and the setter folds hand their lines on through `adopt`
 	- ID: 2026111623191935
 	- Type: Enhancement
 	- Status: Waiting on automated testing
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz (`dd3t9`, `dderx` and the rest), where `dd16k` fails until 2026111623445822 is fixed, and the cppcheck line from `LINT_EXTRA` for `shcl.h`.
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111623445822 (dd16k) and 2026111703284678 (dc26d) are fixed.
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261116-231919
@@ -195,6 +198,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual effort: Avg
 	- Progress log:
 		- 20261117, all 4 bindings: `adopt` takes who gets the lines, as what takes the node's place, the next sibling, or the parent, and the blank owed, and does the placement each old helper did. The remove's rebuild and its opened-by-kept path, `collapse_dup`, `fold_dups_below`, and `refile_folded`'s 2 placement calls go through it. A setter's fold now hands the blank above the instance that folds to the next line, as a remove does. design.md's fold bullet and "Where the code still differs", spec.md's fold sentence, and the changelog say so.
+		- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
 	- Decisions:
 		- me, 20261117: the 3 kinds of heir are an enum in Rust (`Heir`), a struct with a kind in Go (`heir`), a tuple in Python, and `ShclHeir` in C. A list's settle runs outside a document, so the heir branch is `adopt_heir`, which `unstack` calls and `adopt` calls for that kind.
 		- me, 20261117: `hand_blank` joined `beside_kept`, since the blank a node owes comes off it with the lines it leaves. `set_blank`, `blank_below`, `leave_above`, `leave_last`, `leave_below`, and C's `leave_orphans` became `adopt`'s branches. `refile_folded` calls `adopt` too, so none of those names is left, and 2026111623192782 still has `refile_folded`, `folded_kept`, and `settle_first_blank`.
@@ -203,18 +207,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: placement rows `2026111623191935-1` and `-2` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dd3t9`, `dderx`, `dd16k`.
 	- Verified: the 2 rows fail on the library at `87683db6` in Python and C, and row 1 through the Rust CLI, and pass on the change in all 4. The 4 conformance suites, the whole Rust suite, the Go tests in both modules, `--backlog-run-quick rust go python c`, cli-regress (671 rows), crosscheck with a 2000-iteration dump (55461 comparisons), the 200,000-iteration release fuzz apart from `dd16k` (2026111623445822, at the same iteration as before), rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, gcc, gcc 15 and clang at `-Werror`, lint-report, and markdownlint. analyze-c found swappable parameters on the new `heir_at` in C, now marked as the Rust twin's order. Its other reds are older: `set_off` from `1bbee68b`, and `fs_property.c` (2026111623502776).
 	- Branch: `nov17-2026111623191935`
+	- Prereq IDs: 2026111623445822, 2026111703284678
 
 - The load's fold hands its lines on through `adopt`
 	- ID: 2026111623192782
 	- Type: Enhancement
 	- Status: Waiting on automated testing
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz (`dd3t9`, `dderx` and the rest), where `dd16k` fails until 2026111623445822 is fixed, and the cppcheck line from `LINT_EXTRA` for `shcl.h`.
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111623445822 (dd16k) and 2026111703284678 (dc26d) are fixed.
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261116-231927
 	- Opened by: split from 2026110712372281
 	- Parent ID: 2026110712372281
-	- Prereq IDs: 2026111623191935
+	- Prereq IDs: 2026111623191935, 2026111623445822, 2026111703284678
 	- Problem description: a fold at load moves the kept lines of the later instance with `refile_folded` and `folded_kept`, and fixes the first blank with `settle_first_blank`, rather than `adopt`.
 	- Requirements: the fold goes through `adopt` in all 4, with the same file-order placement `refile_folded` gives now. The old helpers go in the same commit, once the placement table and fuzz property pass with both in place. `settle_first_blank` also clears the blank at the top of the output for every edit, which moves no line, so this item decides whether that part stays under its own name.
 	- Estimated effort: High
@@ -225,6 +230,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261117, all 4 bindings: the load notes each fold and re-mention with its line and the blank above it, and `adopt_folded` hands on what the later line leaves through `adopt`. That's its lines up to the last kept line among them, the blank above it, and the blank above the comments written against it, which stay with the first instance. Placement is `place_folded`'s file order, as before. A re-mention no longer puts its blank on the first instance. `refile_folded`, `folded_kept` and `folded_span` are gone. design.md, spec.md's blank-line bullet, and the changelog say so.
 		- Golden changed: corpus `001-messy-cities` (`d9s1g`) and `013-comments` (`da4hk`), `expected.shcl`. Each loses the blank between the first instance's comments and the second's. In 001 no line comes after the second Chicago block, so the blank goes. In 013 it goes to `items:`, which has one. The conformance README's notes for both say so.
 		- This fixes Bug 2026111700365065: placement rows `2026111700365065-1` and `-2` are its 2 commands.
+		- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
 	- Decisions:
 		- me, 20261117: `settle_first_blank` stays under its own name. It files the lines at the ends as a reload does and clears the blank where output starts, and it moves no line off a node that goes, so it isn't `adopt`'s work. The load runs it once, after the fold rather than before. The fold can hand a blank to the first field, and a kept line it hands to the end of the file has to go after the footer lines read before it.
 		- me, 20261117: the lines that move are the old span, from a node's first later line to the last kept line among them, so placement is as before. The blank of each fold goes to the heir of its own line.
@@ -238,19 +244,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026111623192800
 	- Type: Enhancement
 	- Status: Waiting on automated testing
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz (`dd3t9`, `dderx`, `de116` and the rest), where `dd16k` fails until 2026111623445822 is fixed, and the cppcheck line from `LINT_EXTRA` for `shcl.h`.
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111623445822 (dd16k) and 2026111703284678 (dc26d) are fixed.
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261116-231928
 	- Opened by: split from 2026110712372281
 	- Parent ID: 2026110712372281
-	- Prereq IDs: 2026111623191935, 2026111623192782
+	- Prereq IDs: 2026111623191935, 2026111623192782, 2026111623445822, 2026111703284678
 	- Problem description: `drop_banners` moves the lines around the info block it takes off in its own code.
 	- Requirements: the lines it leaves go through `adopt` in all 4, with the author's lines kept where the block was (2026110613470302). Then a check-docs row greps the 4 bindings for the retired helper names, and design.md's "Where the code still differs" bullet loses its second half.
 	- Estimated effort: Avg
 	- Actual effort: Avg
 	- Progress log:
 		- 20261117, all 4 bindings: `banner_spans` finds the blocks in a lead list and moves nothing. `take_banners` takes each one out, from the end, and hands the author's lines and the blank to `adopt` with a new heir kind, `At`, for something that sat in a lead list. It puts them back where the block was, with the blank on the first of them, else on the line after, else on the node the list is above, as before. `drop_banners` is gone. check-docs `dfdpp` greps the 4 bindings for every retired mover. design.md's banner sub-bullet says so, and "Where the code still differs" is gone, since nothing differs now. No output changed, so no changelog entry.
+		- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
 	- Decisions:
 		- me, 20261117: the info block isn't a node, so none of the 3 heir kinds puts its lines where the block was. `adopt` takes a fourth, the place in a lead list, named by a `Spot` (leading, trailing, opening lines, or the footer) and an index. It's `Heir::At` in Rust, `heirAt` with `spot` and `at` fields in Go, `(_HEIR_AT, node, spot, at)` in Python, and `HEIR_AT` with `spot` and `at` fields in C. Go's and C's other heir literals name their fields now.
 		- me, 20261117: the list is stepped (`restep`) once after all its blocks are off, not in each `adopt` call. A step with an earlier block still in the list could lower a line further than the old single pass did.
@@ -446,7 +453,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026111111560900
 	- Type: Bug
 	- Status: Waiting on automated testing
-	- Needs local test suite run?: all of `fuzz_smoke` at `SHCL_FUZZ_ITERS=2000000` in release. At 200,000 only `dd16k` fails, at 124446 (2026111623445822). `ddrnk`, `dd3t9` and `dderx` passed 1,000,000.
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111623445822 (dd16k) and 2026111703284678 (dc26d) are fixed.
 	- Severity: Avg
 	- Target version: v3.0.0
 	- Opened: 20261111-115609
@@ -471,6 +478,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: placement rows `2026111111560900-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `df50j`, `dd3t9`, `dderx`.
 	- Verified: the 3 placement rows fail on the C library at `f0584691` (canonical text for -1 and -3, kept text for -2) and pass in all 4 now. `df50j`, all of `fuzz_smoke` and the conformance suites in debug, the C and Python conformance runners, Go `go test -count=1`, cli-regress (671 rows) and crosscheck over the corpus (23862 comparisons), `dd3t9` and `dderx` at 1,000,000 in release, `--backlog-run-quick rust go python c`, and lint-report.
 		- After the send-back fix: all of `fuzz_smoke` at 200,000 in release fails only `dd16k` at 124446, as on `f0584691`. `ddrnk`, `dd3t9` and `dderx` pass 1,000,000 in release. The 4 conformance suites, Go's cmd module, cli-regress (671 rows), crosscheck over the corpus and a 2000-iteration dump (55461 comparisons, `ddesf` included), `--backlog-run-quick rust go python c`, and lint-report.
+	- Prereq IDs: 2026111623445822, 2026111703284678
+	- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
 
 - A deeper comment a blank sets off above a kept line that ends a block is written one level in by `fmt` and at the block's level after an edit
 	- ID: 2026111702420992
