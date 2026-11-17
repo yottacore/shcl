@@ -53,6 +53,8 @@ __all__ = [
 	"DurationUnit",
 	"FORMAT_LINE_HEAD",
 	"FORMAT_MAJOR",
+	"FORMAT_MINOR",
+	"FORMAT_NAMES",
 	"FileStatus",
 	"GEN_BANNER",
 	"LoadError",
@@ -65,6 +67,8 @@ __all__ = [
 	"Read",
 	"Rules",
 	"SCHEMA_LINE_HEAD",
+	"STAMP_HEAD",
+	"STAMP_LINE",
 	"SaveChanged",
 	"SaveExists",
 	"SaveError",
@@ -1299,19 +1303,32 @@ def _unstack(nd):
 		orphans.append(_Lead(text, False))
 	t.among = []
 	t.notes = []
-	_adopt(nd, orphans)
+	_adopt_heir(nd, orphans)
 	return bool(orphans)
 
 
-def _adopt(heir, lines):
-	"""Lines an edit took off a node or a list item it took away go to heir:
-	right above its line, after its own comments, with its blank above them
-	(design.md, Lines an edit takes from their node)."""
+# Who gets the lines of something an edit took away, with a node, for
+# _adopt() (design.md, Lines an edit takes from their node): what takes its
+# place, such as a list for its items; else the next sibling; else the
+# parent's trailing lines, or the footer at the top, with the parent. For
+# something that sat in a lead list, such as the info block, the lines stay
+# where it was: _HEIR_AT, with the node, the list's spot and the index.
+_HEIR_TAKES, _HEIR_NEXT, _HEIR_LAST, _HEIR_AT = 0, 1, 2, 3
+
+# The lead lists something can be taken out of. The footer's node is the
+# root.
+_SPOT_LEADING, _SPOT_AFTER, _SPOT_HEAD, _SPOT_FOOTER = 0, 1, 2, 3
+
+
+def _adopt_heir(nd, lines):
+	"""_adopt() for what takes the place of what went, which a list's settle
+	needs outside a document: right above its line, after its own comments,
+	with its blank above them."""
 	if not lines:
 		return
-	lines[0].blank_before = heir.blank_before
-	heir.blank_before = False
-	heir._triv().leading.extend(lines)
+	lines[0].blank_before = nd.blank_before
+	nd.blank_before = False
+	nd._triv().leading.extend(lines)
 
 
 def _bracket(nd):
@@ -1327,6 +1344,23 @@ def _trailing_to_leading(nd):
 	t.leading.append(_Lead(t.trailing, nd.blank_before))
 	t.trailing = ""
 	nd.blank_before = False
+
+
+def _restep_set_off(leads):
+	"""A field written after the footer's last kept line takes the lines up to
+	it, and the run a blank sets off from it starts again at that field's
+	level, as _refile_pair files it. A reload of the footer files it so too
+	(2026111111560900)."""
+	k = len(leads) - 1
+	while k >= 0 and leads[k].text.startswith("#"):
+		k -= 1
+	if k < 0:
+		return
+	cut = _set_off(k + 1, False, lambda i: (leads[i].text.startswith("#"), leads[i].blank_before))
+	if cut > 0:
+		tail = leads[cut:]
+		_restep(tail)
+		leads[cut:] = tail
 
 
 def _settle_first_blank(arena, orphans):
@@ -1349,6 +1383,7 @@ def _settle_first_blank(arena, orphans):
 		if at < len(lst):
 			orphans[:0] = lst[at:]
 			del lst[at:]
+	_restep_set_off(orphans)
 	rt = arena[_ROOT].trivia
 	if rt is not None and rt.head:
 		rt.head[0].blank_before = False
@@ -2745,6 +2780,35 @@ def read_format_version(text: str) -> Read[int]:
 # only this names no number.
 _FORMAT_WORD = "##    Format"
 
+# The stamp's head without the blank before the format, as _FORMAT_WORD is.
+_STAMP_WORD = "## SHCL format"
+
+
+def _stamp_major(n: str) -> int | None:
+	"""The major a stamp's format names: `3` as beta1 wrote it, `3.0`, or a pin
+	such as `3.0-a37`. None when it is none of those. A major too big for 32
+	bits reads as the largest that fits, a format newer than this one."""
+	k = 0
+	while k < len(n) and "0" <= n[k] <= "9":
+		k += 1
+	if k == 0:
+		return None
+	rest = n[k:]
+	if rest:
+		if rest[0] != ".":
+			return None
+		digits, has_pin, pin = rest[1:].partition("-")
+		if not digits or not all("0" <= c <= "9" for c in digits):
+			return None
+		if has_pin and (not pin or not all("0" <= c <= "9" or "a" <= c <= "z" for c in pin)):
+			return None
+	# A number too long for int() - CPython refuses past 4300 digits - is one
+	# no format will ever have (20260918b item 30). Read as this major, a
+	# number that doesn't fit would make a file `upgrade --from-2x` takes for
+	# a beta one.
+	major = n[:k].lstrip("0") or "0"
+	return 0xFFFFFFFF if len(major) > 10 or int(major) > 0xFFFFFFFF else int(major)
+
 
 def _format_line_read(text: str) -> Read[int]:
 	"""read_format_version() on text with the BOM already off. Digits that do
@@ -2762,7 +2826,7 @@ def _format_line_read(text: str) -> Read[int]:
 	has to see it. A line that names no number counts where either rule set
 	reads it outside a block, and only when no line names one."""
 	# Most documents have no Format line, and every load asks.
-	if _FORMAT_WORD not in text:
+	if _FORMAT_WORD not in text and _STAMP_WORD not in text:
 		return Read(0, Status.NotFound, None)
 	now = _RawLines(Rules.Current)
 	then = _RawLines(Rules.V2)
@@ -2777,20 +2841,17 @@ def _format_line_read(text: str) -> Read[int]:
 			continue
 		if rest.startswith(FORMAT_LINE_HEAD):
 			n = rest[len(FORMAT_LINE_HEAD):]
-		elif rest == _FORMAT_WORD:
+		elif rest.startswith(STAMP_HEAD):
+			n = rest[len(STAMP_HEAD):]
+		elif rest in (_FORMAT_WORD, _STAMP_WORD):
 			n = ""
 		else:
 			continue
-		if not n or not all("0" <= c <= "9" for c in n):
+		v = _stamp_major(n)
+		if v is None:
 			if unread is None:
 				unread = Read(0, Status.BadType if n else Status.Empty, n)._at(i + 1, None)
 			continue
-		# A number too long for int() - CPython refuses past 4300 digits - is
-		# one no format will ever have (20260918b item 30). Read as this
-		# major, a number that doesn't fit would make a file
-		# `upgrade --from-2x` takes for a beta one.
-		digits = n.lstrip("0") or "0"
-		v = 0xFFFFFFFF if len(digits) > 10 or int(digits) > 0xFFFFFFFF else int(digits)
 		if v >= FORMAT_MAJOR:
 			if current is not None and (newest is None or v > newest.value):
 				newest = Read(v, Status.Good, n)._at(i + 1, None)
@@ -4092,9 +4153,9 @@ class _Parser:
 		# Parents where a remap ended up on a key a sibling already held: the only
 		# places a duplicate can survive the keyed lookup, so the fold starts here.
 		self.late_dups = []
-		# Nodes a fold or a re-mention gave a later line's leading lines to,
-		# for _refile_folded().
-		self.folded: list[int] = []
+		# Each fold or re-mention, for _adopt_folded(): the node a later line
+		# joined, that line, and the blank above it.
+		self.folded: list[list] = []
 		# Node -> line of the re-open that H002-hinted it. A merge under a hinted
 		# container combines the same two textual regions, so it hints too even
 		# when it ends up on the newest child at its own scope - that is how every
@@ -4181,8 +4242,11 @@ class _Parser:
 			name, name_src, up = nd.name, nd.name_src, nd.parent
 			# The lines this one brought to the binding it joined go with it,
 			# and so do its blank and its comment, which its kept text has.
-			blank_before = nd.blank_before and not blank
-			nd.blank_before = blank
+			blank_before = blank
+			for f in reversed(self.folded):
+				if f[0] == node and f[1] == mark[0]:
+					f[2] = False
+					break
 			t = nd._triv()
 			at = min(leads, len(t.leading))
 			moved = t.leading[at:]
@@ -4310,8 +4374,8 @@ class _Parser:
 					# Apart when a sibling kept since stands between them, as a
 					# merge at parse time asks of the newest child.
 					self._hint_fold(parent, keep[i], c, i + 1 != len(keep))
+					self.folded.append([keep[i], self.arena[c].line, self.arena[c].blank_before])
 					_fold_node_into(self.arena, keep[i], c)
-					self.folded.append(keep[i])
 					grew[i] = True
 				else:
 					first[key] = len(keep)
@@ -5386,8 +5450,13 @@ class _Parser:
 						self.arena[node].src = src_text
 				# What the node had before this line, for an array line that
 				# turns out to have a field under it.
-				mark = (lineno, len(self.arena[node].leading()), self.arena[node].trailing() != "", self.arena[node].blank_before)
-				if had_blank:
+				# Its blank is the blank above the line, which a re-mention owes
+				# the line after it.
+				mark = (lineno, len(self.arena[node].leading()), self.arena[node].trailing() != "", had_blank)
+				# A re-mention's blank goes on with what it leaves, in
+				# _adopt_folded().
+				again = self.arena[node].line != lineno
+				if had_blank and not again:
 					self.arena[node].blank_before = True
 				if nxt > i + 1:
 					self.ends.append((lineno, nxt))
@@ -5398,8 +5467,8 @@ class _Parser:
 					k = next((j for j in range(len(self.pending) - 1, -1, -1) if _is_field(self.pending[j].text)), None)
 					if k is not None:
 						self._give_pending(self._head_of(node, nsegs), indent, k + 1, "leading")
-				if self.arena[node].line != lineno:
-					self.folded.append(node)
+				if again:
+					self.folded.append([node, lineno, had_blank])
 				self._attach_trivia(node, indent, comment)
 				self.stack.append((indent, node))
 				if tok.array is not None:
@@ -5422,7 +5491,6 @@ class _Parser:
 		held: list[tuple[str, int]] = []
 		orphans = [_Lead(p.text, p.blank_before, _comment_depth(chain, held, "", p.text, p.indent), p.line) for p in self.pending]
 		self.pending = []
-		_settle_first_blank(self.arena, orphans)
 		# The one entry past the cap: what was not listed, and whether any of
 		# it was an error, so a consumer scanning the list for errors still
 		# finds one and a Strict load still fails.
@@ -5440,7 +5508,10 @@ class _Parser:
 		doc._arrays = self.kept_arrays
 		doc._kept_owed = self.kept_owed
 		doc._newer = newer
-		doc._refile_folded(self.folded)
+		doc._adopt_folded(self.folded)
+		# After the fold, which can give the first node a blank from a later
+		# line and the footer lines read before the ones there.
+		_settle_first_blank(doc.arena, doc.orphans)
 		doc._settle_kept()
 		return doc
 
@@ -5617,24 +5688,10 @@ def _restep(leads):
 			room = c.depth + 1
 
 
-def _folded_kept(nd):
-	"""The kept lines a load's fold gave this node from a later instance of
-	it, with the comments before them: what _beside_kept() takes, from the
-	first line read after the node's own. Only a fold puts those there."""
-	span = _folded_span(nd)
-	if span is None:
-		return []
-	start, end = span
-	lead = nd.trivia.leading
-	left = lead[start:end]
-	del lead[start:end]
-	_restep(lead)
-	return left
-
-
-def _folded_span(nd):
-	"""Where _folded_kept() would take its lines from in the node's leading
-	list, or None when it would take nothing."""
+def _folded_from(nd):
+	"""The range of lines a load's fold or re-mention gave this node from a
+	later line: its leading lines from the first read after its own line, but
+	the kept line written in place of its line. None with none there."""
 	t = nd.trivia
 	if t is None:
 		return None
@@ -5642,15 +5699,14 @@ def _folded_span(nd):
 	start = next((k for k, c in enumerate(lead) if c.line > nd.line), None)
 	if start is None:
 		return None
-	last = len(lead) - 1 if _heads_block(nd) else len(lead)
-	end = next((k + 1 for k in range(last - 1, -1, -1) if lead[k].is_kept_line()), 0)
+	end = len(lead) - 1 if _heads_block(nd) else len(lead)
 	return (start, end) if end > start else None
 
 
 def _place_folded(arena, moves):
-	"""For each move of _refile_folded(), [parent, first child, line, the
-	line], the child the line goes above: the first at or past that one read
-	after the line, or past the last. One sweep per parent from its end,
+	"""For each move of _adopt_folded(), [parent, first child, line, ...],
+	the child the lines go above: the first at or past that one read after
+	the line, or past the last. One sweep per parent from its end,
 	keeping only the children no earlier one hides, so a fold far from its
 	later instance doesn't walk every sibling between them."""
 	order = sorted(range(len(moves)), key=lambda m: (moves[m][0], -moves[m][1]))
@@ -5680,27 +5736,39 @@ def _place_folded(arena, moves):
 			k += 1
 
 
-def _beside_kept(nd):
+def _beside_kept(nd, owed):
 	"""What a remove of this node leaves of its lines, by design.md's
 	kept-lines table: the kept lines beside it, with the comments that sit
 	with them, and the comments a blank sets off from it below. Above it that
 	is everything up to its last kept line, below it everything from its first
 	kept line or blank, so a comment written against the node goes with it.
 	The kept line written in place of its `name:` line goes too. What goes
-	stays on the node, where a fold of two instances still wants it."""
+	stays on the node, where a fold of two instances still wants it.
+	The blank above the node goes on the first line left under it, else it is
+	still owed, and the bool says so. owed is a blank from a node just above
+	that went too."""
 	heads = _heads_block(nd)
+	blank = owed or nd.blank_before
+	nd.blank_before = False
 	t = nd.trivia
 	if t is None:
-		return []
+		return [], blank
 	left = t.leading
 	last = len(left) - 1 if heads else len(left)
 	end = next((k + 1 for k in range(last - 1, -1, -1) if left[k].is_kept_line()), 0)
 	t.leading = left[end:]
+	if t.leading and t.leading[0].blank_before:
+		blank = True
+		t.leading[0].blank_before = False
 	del left[end:]
 	start = next((k for k, c in enumerate(t.after) if c.is_kept_line() or c.blank_before), len(t.after))
+	under = len(left)
 	left.extend(t.after[start:])
 	del t.after[start:]
-	return left
+	if under < len(left):
+		left[under].blank_before = left[under].blank_before or blank
+		blank = False
+	return left, blank
 
 
 def _heads_block(node):
@@ -6541,14 +6609,12 @@ def _keep_lines_as(src, doc, drop_bare, bare):
 				lead = i + 1
 			continue
 		# The next group stands where the names' line was. The blank lines
-		# above that line go with it, as above any line a remove takes.
+		# above that line stay, since the remove handed its blank to the
+		# next line.
 		at_k = took or k
-		cut = took
-		while cut > 1 and blank(cut - 1):
-			cut -= 1
 
-		def skip(g, took=took, cut=cut):
-			return took != 0 and cut <= g <= end[took]
+		def skip(g, took=took):
+			return took != 0 and took <= g <= end[took]
 
 		spliced = _splice_group(lines, loaded, was_runs, w, now, is_runs, u) if w is not None and not same else None
 		kept = same or spliced is not None
@@ -6688,25 +6754,23 @@ def _current_footer(leads):
 	return t - 1 if own == GEN_BANNER.rstrip("\n").split("\n") else -1
 
 
-def _drop_banners(leads, mark, blocks):
-	"""Take the info block out of `leads`, from the lone "##" above its "This
+def _banner_spans(leads, mark, blocks):
+	"""Where the info block is in `leads`, from the lone "##" above its "This
 	config file format is SHCL." line to the next lone "##", and each version
-	line migrate stamped, with the note under it. A block with no closing "##"
-	ends after its last line written the block's way. A line in a block that
-	the block does not write stays, as a Schema line or an author's own
-	"##    Owner" line does, and so does any other comment around one, even
-	written right against it. Returns how many came off, whether the last one had a blank above it
-	with no line after it to take that blank, and the lines left. A `mark` of
-	"#" takes 2.x's block instead, which had no version line. With `blocks`
-	false a block stays whole, and only a Format line outside one comes off."""
+	line migrate stamped, with the note under it, as (start, end) pairs. A
+	block with no closing "##" ends after its last line written the block's
+	way. A "##" comment around one stays out of it, even written right
+	against it. A `mark` of "#" finds 2.x's block instead, which had no
+	version line. With `blocks` false a block is left whole, and only a
+	Format line outside one counts."""
 	def in_run(c):
 		return c.text.startswith(mark) and not c.blank_before
 
 	title = mark + _BANNER_TITLE[2:]
 	name = mark + _BANNER_NAME[2:]
 	field = mark + "    "
-	keep: list[_Lead] = []
-	removed, owed, prev_kept = 0, False, False
+	spans: list[tuple[int, int]] = []
+	prev_kept = False
 	i = 0
 	while i < len(leads):
 		start, end = i, i + 1
@@ -6724,40 +6788,22 @@ def _drop_banners(leads, mark, blocks):
 				):
 					end += 1
 			if not blocks:
-				keep.extend(leads[i:end])
 				prev_kept = True
 				i = end
 				continue
 			if prev_kept and not leads[i].blank_before and leads[i - 1].text == mark:
-				keep.pop()
 				start = i - 1
 		elif mark == "##" and leads[i].text.startswith(FORMAT_LINE_HEAD):
 			if end < len(leads) and in_run(leads[end]) and leads[end].text == MIGRATED_LINE:
 				end += 1
 		else:
-			keep.append(leads[i])
 			prev_kept = True
 			i += 1
 			continue
-		# The blank that set the block off moves to whatever followed it, so
-		# the lines around it stay apart. The author's lines in the block,
-		# such as a Schema line, stay, with the blank.
-		blank = leads[start].blank_before
-		at = len(keep)
-		keep.extend(c for c in leads[start:end] if not _banner_own(c.text, mark))
-		if at < len(keep):
-			keep[at].blank_before = blank
-		elif end < len(leads):
-			leads[end].blank_before = leads[end].blank_before or blank
-		else:
-			owed = blank
-		removed += 1
+		spans.append((start, end))
 		prev_kept = False
 		i = end
-	if removed:
-		# What followed a block steps up to fit the run.
-		_restep(keep)
-	return removed, owed, (keep if removed else leads)
+	return spans
 
 
 def _errors_within(d, of):
@@ -7429,7 +7475,7 @@ class Document:
 			moved = []
 			# Right above the line, with its blank above them, as a reload
 			# files them.
-			_adopt(self.arena[node], lines)
+			self._adopt((_HEIR_TAKES, node), lines, False)
 			self._refile(node)
 		# A line moved above the first list in the file is now the first
 		# thing written, so its blank goes the way the load's did.
@@ -8400,16 +8446,12 @@ class Document:
 		# The data does not change, so the kept lines beside the loser stay
 		# where they were, as a remove leaves them. Only the comments written
 		# against it go with it.
-		left = _beside_kept(self.arena[loser])
+		left, blank = _beside_kept(self.arena[loser], False)
 		moved = list(self.arena[loser].children)
 		_fold_node_into(self.arena, survivor, loser)
 		keep = [c for c in self.arena[parent].children if c != loser]
 		self.arena[parent].children = keep
-		if left:
-			if at < len(keep):
-				self._leave_above(keep[at], left)
-			else:
-				self._leave_last(parent, left)
+		self._adopt(self._heir_at(parent, at), left, blank)
 		self._settle(parent, 1)
 		ix = self._index
 		if ix is not None:
@@ -8459,7 +8501,7 @@ class Document:
 		while stack:
 			parent = stack.pop()
 			kids = self.arena[parent].children
-			# Off the parent while it is rebuilt, as in Rust, so _leave_above
+			# Off the parent while it is rebuilt, as in Rust, so _adopt()
 			# finds no place to file at; the settle below files the whole list.
 			self.arena[parent].children = []
 			first: dict = {}
@@ -8467,11 +8509,13 @@ class Document:
 			# What a folded node leaves, as in _collapse_dup(), for the next
 			# node that stays.
 			left: list[_Lead] = []
+			blank = False
 			for c in kids:
 				key = _merge_key(self.arena[c].name, self.arena[c].value)
 				survivor = first.get(key)
 				if survivor is not None:
-					left.extend(_beside_kept(self.arena[c]))
+					mine, blank = _beside_kept(self.arena[c], blank)
+					left.extend(mine)
 					moved = list(self.arena[c].children)
 					_fold_node_into(self.arena, survivor, c)
 					ix = self._index
@@ -8484,13 +8528,11 @@ class Document:
 					stack.append(survivor)
 				else:
 					first[key] = c
-					if left:
-						self._leave_above(c, left)
-						left = []
+					self._adopt((_HEIR_NEXT, c), left, blank)
+					left, blank = [], False
 					keep.append(c)
 			self.arena[parent].children = keep
-			if left:
-				self._leave_last(parent, left)
+			self._adopt((_HEIR_LAST, parent), left, blank)
 			self._settle(parent, 1)
 
 	def _targets_at(self, path):
@@ -8581,25 +8623,26 @@ class Document:
 			stacked = _stacks(self.arena[p])
 			keep: list[int] = []
 			left: list[_Lead] = []
-			# Off the parent while it is rebuilt, as in Rust, so _leave_above
+			# Off the parent while it is rebuilt, as in Rust, so _adopt()
 			# finds no place to file at; the settle below files the whole list.
 			old = self.arena[p].children
 			self.arena[p].children = []
+			# The blank above what went, for the next line left in its place.
+			blank = False
 			for c in old:
 				if self.arena[c].parent == _DEAD:
 					self.arena[c].parent = p
-					left.extend(_beside_kept(self.arena[c]))
+					mine, blank = _beside_kept(self.arena[c], blank)
+					left.extend(mine)
 				else:
-					if left:
-						self._leave_above(c, left)
-						left = []
+					self._adopt((_HEIR_NEXT, c), left, blank)
+					left, blank = [], False
 					keep.append(c)
 			self.arena[p].children = keep
 			self.arena[p].star_list = self.arena[p].star_list or stacked
 			# The next merge has a stacked list to put in brackets.
 			self._bracketed = self._bracketed and not stacked
-			if left:
-				self._leave_last(p, left)
+			self._adopt((_HEIR_LAST, p), left, blank)
 			# The lines around what went are filed as a reload files them.
 			_settle_pairs(self.arena, p, 0)
 			_settle_head(self.arena, p)
@@ -8628,10 +8671,7 @@ class Document:
 			del kids[at]
 			self.arena[pp].star_list = self.arena[pp].star_list or stacked
 			self._bracketed = self._bracketed and not stacked
-			if at < len(kids):
-				self._leave_above(kids[at], left)
-			else:
-				self._leave_last(pp, left)
+			self._adopt(self._heir_at(pp, at), left, False)
 			open_.append(pp)
 			emptied.append(pp)
 		# An empty binding that lost its last field takes a stacked list of its
@@ -8645,58 +8685,205 @@ class Document:
 		self._resettle_kept()
 		return Read(len(targets), status, None)._at(line, None)
 
-	def _refile_folded(self, folded: list[int]) -> None:
-		"""A load that folds 2 instances leaves the kept lines read beside
-		the later one where they were, as a setter's fold does: above the
-		next sibling read after them, or at the end of the block. `folded`
-		holds the nodes a fold or a re-mention gave lines to."""
-		# Every line that binds to a node already there is in `folded`, so a
-		# file that re-opens many blocks has many with nothing to move, and
-		# those may cost no more than this test.
-		folded = [c for c in sorted(set(folded)) if _folded_span(self.arena[c]) is not None]
-		if not folded:
-			return
+	def _adopt_folded(self, folded: list[list]) -> None:
+		"""A load's fold hands on what the later instance leaves, as a
+		setter's fold does (_collapse_dup()): the kept lines read beside it,
+		with the comments before them, and the blank above it go to the next
+		sibling read after them, or the end of the block, through _adopt().
+		The comments written against it stay with the node it joined.
+		`folded` holds the node each fold or re-mention joined, its line, and
+		its blank."""
+		folded.sort(key=lambda f: (f[0], f[1]))
 		# Each node's place among its siblings, for the parents of these.
 		at_of: dict[int, int] = {}
 		indexed: set[int] = set()
 		# Parent, the child they go above (past the last, the block's end),
-		# line, the line. All first, since 2 folds can fill one place.
+		# line, the lines, the blank. All first, since 2 folds can fill one
+		# place.
 		moves: list[list] = []
-		for c in folded:
+		for c, run in itertools.groupby(folded, key=lambda f: f[0]):
+			each = list(run)
+			# Every line that binds to a node already there is here, so a
+			# file that re-opens many blocks has many with nothing to hand
+			# on, and those may cost no more than this test.
+			span = _folded_from(self.arena[c])
+			lines = self.arena[c].trivia.leading[span[0]:span[1]] if span else []
+			if not any(f[2] for f in each) and not any(x.is_kept_line() or x.blank_before for x in lines):
+				continue
 			p = self.arena[c].parent
 			if p not in indexed:
 				indexed.add(p)
 				at_of.update((kid, k) for k, kid in enumerate(self.arena[p].children))
 			if c not in at_of:
 				continue
-			line = 0
-			for x in _folded_kept(self.arena[c]):
-				line = max(line, x.line)
-				moves.append([p, at_of[c] + 1, line, x])
+			# What the later lines leave, as _beside_kept() splits a node's
+			# lines: up to the last kept line among them. The rest are the
+			# comments written against a later line, which stay, but for the
+			# blank above them.
+			if span:
+				a, b = span
+				lead = self.arena[c].trivia.leading
+				end = next((k + 1 for k in range(b - 1, a - 1, -1) if lead[k].is_kept_line()), a)
+				line = 0
+				for x in lead[a:end]:
+					line = max(line, x.line)
+					moves.append([p, at_of[c] + 1, line, [x], False])
+				del lead[a:end]
+				# The first comment each later line left owes its blank.
+				r, first = 0, -1
+				for x in lead[a:b - (end - a)]:
+					while r < len(each) and each[r][1] < x.line:
+						r += 1
+					if x.line == 0 or r == first:
+						continue
+					first = r
+					if x.blank_before:
+						x.blank_before = False
+						moves.append([p, at_of[c] + 1, x.line, [], True])
+				_restep(lead)
+			for _, line, blank in each:
+				if blank:
+					moves.append([p, at_of[c] + 1, line, [], True])
 		if not moves:
 			return
 		_place_folded(self.arena, moves)
 		# Stable, so the lines of one fold keep their order.
 		moves.sort(key=lambda m: m[:3])
 		for (p, j), run in itertools.groupby(moves, key=lambda m: m[:2]):
-			group = [m[3] for m in run]
-			kids = self.arena[p].children
-			if j < len(kids):
-				self._leave_above(kids[j], group)
-			else:
-				self._leave_last(p, group)
+			group: list[_Lead] = []
+			blank = False
+			for m in run:
+				group.extend(m[3])
+				blank = blank or m[4]
+			self._adopt(self._heir_at(p, j), group, blank)
 		for p in sorted({m[0] for m in moves}):
 			_settle_block(self.arena, p, 1)
-		# The first node can have lost the lines above it, and with them the
-		# room for a blank a re-mention left it.
-		_settle_first_blank(self.arena, self.orphans)
 
-	def _leave_above(self, node: int, left: list[_Lead]) -> None:
-		"""Lines a remove left, put above the sibling that followed them."""
+	def _adopt(self, to: tuple[int, ...], lines: list[_Lead], blank: bool) -> None:
+		"""Lines an edit took off a node that went, and the blank above it
+		when blank is set, go to `to` (design.md, Lines an edit takes from
+		their node). What takes its place keeps its comments against its
+		line, and the lines go after them. A next sibling gets them above its
+		comments, since a kept line beside what went stays above them. Past
+		the last child they go after it, or inside the block, or to the footer
+		at the top, and the blank goes to the first of the parent's trailing
+		lines. With none of those it goes, since nothing under it is left to
+		set off. A misplaced line has no level at the end of a block, so it
+		goes to the next binding line, as a reload files it, with the
+		comments after it."""
+		kind, node = to[0], to[1]
+		if blank and kind in (_HEIR_TAKES, _HEIR_NEXT):
+			# Above the node's comments, else above its line.
+			nd = self.arena[node]
+			if nd.trivia is not None and nd.trivia.leading:
+				nd.trivia.leading[0].blank_before = True
+			else:
+				nd.blank_before = True
+		if kind == _HEIR_TAKES:
+			_adopt_heir(self.arena[node], lines)
+			return
+		if kind == _HEIR_AT:
+			# The blank goes on the first line left, else on the line that
+			# followed, else on the line the list is above.
+			spot, at = to[2], to[3]
+			ls = self._spot_list(node, spot)
+			if lines:
+				lines[0].blank_before = blank
+			elif at < len(ls):
+				ls[at].blank_before = ls[at].blank_before or blank
+			elif spot == _SPOT_LEADING:
+				self.arena[node].blank_before = self.arena[node].blank_before or blank
+			ls[at:at] = lines
+			return
+		if kind == _HEIR_NEXT:
+			if not lines:
+				return
+			t = self.arena[node]._triv()
+			t.leading = lines + t.leading
+			_restep(t.leading)
+			self._refile(node)
+			return
+		if node == _ROOT:
+			if blank and self.orphans:
+				self.orphans[0].blank_before = True
+			if not lines:
+				return
+			self.orphans[:0] = lines
+			_restep(self.orphans)
+			return
+		nd = self.arena[node]
+		if blank and nd.trivia is not None and nd.trivia.after:
+			nd.trivia.after[0].blank_before = True
+		below: list[_Lead] = []
+		at = next((k for k, c in enumerate(lines) if c.text.startswith((" ", "\t"))), None)
+		if at is not None:
+			rest = lines[at:]
+			lines = lines[:at] + [c for c in rest if _is_field(c.text)]
+			below = [c for c in rest if not _is_field(c.text)]
+		if lines:
+			# Stacked with no kept line among the elements is gone on a reload,
+			# so it may not decide how these lines are written.
+			nd.star_list = _stacks(nd)
+			if nd.children:
+				t = self.arena[nd.children[-1]]._triv()
+				t.after.extend(lines)
+				_restep(t.after)
+			else:
+				t = nd._triv()
+				t.inside.extend(lines)
+				_restep(t.inside)
+		if not below:
+			return
+		# Right after the block: the next binding line, or the footer.
+		at = node
+		while at != _ROOT:
+			up = self.arena[at].parent
+			kids = self.arena[up].children
+			k = kids.index(at)
+			if k + 1 < len(kids):
+				self._adopt((_HEIR_NEXT, kids[k + 1]), below, False)
+				return
+			at = up
+		self._adopt((_HEIR_LAST, _ROOT), below, False)
+
+	def _spot_list(self, node: int, spot: int) -> list[_Lead]:
+		"""The lead list `spot` names on `node`."""
+		if spot == _SPOT_FOOTER:
+			return self.orphans
 		t = self.arena[node]._triv()
-		t.leading = left + t.leading
-		_restep(t.leading)
-		self._refile(node)
+		if spot == _SPOT_AFTER:
+			return t.after
+		if spot == _SPOT_HEAD:
+			return t.head
+		return t.leading
+
+	def _take_banners(self, node: int, spot: int, mark: str, blocks: bool) -> int:
+		"""Take the info block out of the lead list `spot` names on `node`,
+		where _banner_spans() finds it. A line in a block that the block does
+		not write is the author's, as a Schema line or an "##    Owner" line
+		is, and stays where the block was, through _adopt(), with the blank
+		that set the block off. Returns how many came off."""
+		spans = _banner_spans(self._spot_list(node, spot), mark, blocks)
+		# From the end, so each start still holds.
+		for start, end in reversed(spans):
+			ls = self._spot_list(node, spot)
+			blank = ls[start].blank_before
+			left = [c for c in ls[start:end] if not _banner_own(c.text, mark)]
+			del ls[start:end]
+			self._adopt((_HEIR_AT, node, spot, start), left, blank)
+		if spans:
+			# What followed a block steps up to fit the run, once the run is
+			# whole again.
+			_restep(self._spot_list(node, spot))
+		return len(spans)
+
+	def _heir_at(self, parent: int, at: int) -> tuple[int, int]:
+		"""The heir of what left slot at in parent's list: the sibling now
+		there, else the parent."""
+		kids = self.arena[parent].children
+		if at < len(kids):
+			return (_HEIR_NEXT, kids[at])
+		return (_HEIR_LAST, parent)
 
 	def _refile(self, node: int) -> None:
 		"""The lines above a node filed as a reload files them: a run a blank
@@ -8710,53 +8897,6 @@ class Document:
 			if c == node:
 				_refile_pair(self.arena, p, i)
 				return
-
-	def _leave_last(self, parent: int, left: list[_Lead]) -> None:
-		"""Lines a remove left after the last of `parent`'s children: the
-		document's footer at the top, else after the last child left, else
-		inside the block. A misplaced line has no level there, so a reload
-		files it with the next binding line, and the comments after it go
-		along; kept field lines still go to the block."""
-		if parent == _ROOT:
-			self.orphans[:0] = left
-			_restep(self.orphans)
-			return
-		below: list[_Lead] = []
-		at = next((k for k, c in enumerate(left) if c.text.startswith((" ", "\t"))), None)
-		if at is not None:
-			rest = left[at:]
-			left = left[:at] + [c for c in rest if _is_field(c.text)]
-			below = [c for c in rest if not _is_field(c.text)]
-		if left:
-			# Stacked with no kept line among the elements is gone on a reload,
-			# so it may not decide how these lines are written.
-			nd = self.arena[parent]
-			nd.star_list = _stacks(nd)
-			if nd.children:
-				t = self.arena[nd.children[-1]]._triv()
-				t.after.extend(left)
-				_restep(t.after)
-			else:
-				t = nd._triv()
-				t.inside.extend(left)
-				_restep(t.inside)
-		if below:
-			self._leave_below(parent, below)
-
-	def _leave_below(self, node: int, left: list[_Lead]) -> None:
-		"""Lines a remove left right after `node`'s block: above the next
-		binding line, or the footer when there is none."""
-		at = node
-		while at != _ROOT:
-			up = self.arena[at].parent
-			kids = self.arena[up].children
-			k = kids.index(at)
-			if k + 1 < len(kids):
-				self._leave_above(kids[k + 1], left)
-				return
-			at = up
-		self.orphans[:0] = left
-		_restep(self.orphans)
 
 	def _live(self, node: int) -> bool:
 		"""Still in the tree: each node up to _ROOT is in its parent's list. A
@@ -8917,22 +9057,15 @@ class Document:
 				# A block set off from the lines around it is filed as the
 				# trailing lines of the field above, or as the lines that open a
 				# block. A blank it leaves is the next line's, which has one.
-				gone, _, nd.trivia.after = _drop_banners(nd.trivia.after, mark, True)
-				removed += gone
-				gone, _, nd.trivia.head = _drop_banners(nd.trivia.head, mark, True)
-				removed += gone
+				removed += self._take_banners(n, _SPOT_AFTER, mark, True)
+				removed += self._take_banners(n, _SPOT_HEAD, mark, True)
 				if at_top and not on:
 					continue
-				gone, blank, nd.trivia.leading = _drop_banners(nd.trivia.leading, mark, not at_top)
-				if gone:
-					removed += gone
-					nd.blank_before = nd.blank_before or blank
+				removed += self._take_banners(n, _SPOT_LEADING, mark, not at_top)
 		# The top of the file set off from the first field is the root's.
-		rt = self.arena[_ROOT].trivia
-		if on and rt is not None:
+		if on and self.arena[_ROOT].trivia is not None:
 			for mark in marks:
-				gone, _, rt.head = _drop_banners(rt.head, mark, False)
-				removed += gone
+				removed += self._take_banners(_ROOT, _SPOT_HEAD, mark, False)
 		# A block that already ends the file as this release writes it stays
 		# as it is, and so do the author's lines in it.
 		current = _current_footer(self.orphans) if on else -1
@@ -8940,8 +9073,7 @@ class Document:
 		if current >= 0:
 			self.orphans = self.orphans[:current]
 		for mark in marks:
-			gone, _, self.orphans = _drop_banners(self.orphans, mark, True)
-			removed += gone
+			removed += self._take_banners(_ROOT, _SPOT_FOOTER, mark, True)
 		self.orphans = self.orphans + block
 		if on:
 			# A block kept at the top reads before the new one, so it names this
@@ -13232,6 +13364,46 @@ GEN_BANNER = (
 # The banner's Syntax link names the tag that opened this major, and moves with
 # it.
 FORMAT_MAJOR = 3
+
+# The format minor. A minor adds syntax, and a file of an older minor of the
+# same major reads the same under it.
+FORMAT_MINOR = 0
+
+# Every format shcl knows, oldest first, as (name, format) rows. A format's own
+# row comes first, and the rows after it name the other spellings it goes by:
+# each dev snapshot a consumer pinned, by its commit's first 3 characters,
+# reads as the pin format it falls in. The order is the order the formats were
+# published in. A release before 3.0 is named for the earliest version that
+# read it, and pre-releases fold into their release.
+FORMAT_NAMES: tuple[tuple[str, str], ...] = (
+	("1.0", "1.0"),
+	("1.1", "1.1"),
+	("2.0", "2.0"),
+	("3.0-1f8", "3.0-1f8"),
+	("3.0-871", "3.0-1f8"),
+	("3.0-30d", "3.0-30d"),
+	("3.0-0c9", "3.0-30d"),
+	("3.0-00f", "3.0-30d"),
+	("3.0-f2a", "3.0-30d"),
+	("3.0-b10", "3.0-b10"),
+	("3.0-f8e", "3.0-f8e"),
+	("3.0-a37", "3.0-a37"),
+	("3.0-231", "3.0-a37"),
+	("3.0-9ef", "3.0-9ef"),
+	("3.0-ea0", "3.0-9ef"),
+	("3.0-a65", "3.0-a65"),
+	("3.0-217", "3.0-a65"),
+	("3.0-a01", "3.0-a65"),
+	("3.0", "3.0"),
+)
+
+# The start of the stamp a save writes, up to the format's name. Its read takes
+# `3` as beta1's row wrote it, `3.0`, and a pin such as `3.0-a37`, as it does
+# after FORMAT_LINE_HEAD.
+STAMP_HEAD = "## SHCL format "
+
+# The whole stamp for this format.
+STAMP_LINE = "## SHCL format 3.0"
 
 # The start of the block's version line, up to the number. migrate matches on
 # this and reads the digits after it, so a later major can still tell an older

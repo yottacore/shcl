@@ -1,6 +1,5 @@
 # App config
 # (hand-authored)
-
 # a merged duplicate line, both commented
 # again
 app: demo  # name

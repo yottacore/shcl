@@ -876,6 +876,10 @@ int main() {
 	CHECK(shcl::read_format_version("##    Format\n").status == shcl::Status::Empty);
 	fv = shcl::read_format_version(mig.text);
 	CHECK(fv.status == shcl::Status::Good && fv.value == 3u);
+	// The stamp a save writes and the format names read as their major.
+	CHECK(shcl::STAMP_LINE == "## SHCL format 3.0" && shcl::FORMAT_MINOR == 0u);
+	CHECK(shcl::FORMAT_NAMES.back()[0] == "3.0" && shcl::FORMAT_NAMES[4][0] == "3.0-871" && shcl::FORMAT_NAMES[4][1] == "3.0-1f8");
+	CHECK(shcl::format_version(std::string(shcl::STAMP_LINE) + "\n") == 3u && shcl::format_version("## SHCL format 3.0-a37\n") == 3u);
 	auto older = shcl::Document::parse("a: 1\n##    Format   2\n");
 	CHECK(older.diagnostics().size() == 1 && older.diagnostics()[0].code == "H007" && older.diagnostics()[0].line == 2);
 	auto sr = shcl::read_schema_ref("##    Schema   ./s.shcl\n");

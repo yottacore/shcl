@@ -16,9 +16,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A comment run that a blank line sets off from the field below it belongs to the line above it, or to the file at the top, in every binding. So a remove, `clear_comments`, or `comments` on that field leaves it alone, where before they took it as the field's own comment, and a remove of the first field no longer takes the file's header comment or its info block. A comment added to the field goes right above it, under the blank. A remove still takes the comments right above the field and right under it, up to a blank line.
 
+- A remove keeps the blank line above the field it takes, above the next field, so a gap between 2 groups stays as it does when the line is cut in an editor. Removing one field of a dotted pair keeps the blank line above the pair the same way. It used to take the blank line with the field.
+
+- A set that folds 2 instances of one name and value, such as `--set=b(y)=x` with a `b: x` above, keeps the blank line above the instance that folds above the next line, as a remove does. It used to drop it, or leave it between the 2 instances' comments.
+
+- A load that folds 2 instances of one name and value, such as `b: x` written twice, keeps the blank line above the second one above the next line, as a set that folds them does. It used to stay with the first instance, between the 2 instances' comments, or above the first instance's line, and the next line lost its blank. A kept line the fold hands to the end of the file stays after the comments read before it.
+
 - `instances`, `get --array`, and `get --slots` print a value quoted when it has any line break that Python's `splitlines()` splits at. Besides LF and CR, those are VT, FF, U+001C to U+001E, U+0085, U+2028, and U+2029. Those used to print bare, so a consumer splitting the output counted more values than there were.
 
 ### Fixed
+
+- `fmt` wrote a comment one level in when a blank line set it off from the comments above and the line under it was a top-level line kept for an error. Any edit put it back at column 0, so the file had 2 forms. It's written at column 0 now, and the save that keeps lines leaves it as written after an edit.
 
 - `set_literal`, `set_literal_default`, `--set-literal`, and the `literal` op refuse text with a `#` outside quotes as not one value, in every binding. They stored only the text before it and reported success, so `x#y` became `x` and `https://a.b/c#frag` lost its fragment. Quote the text, or use `set_string`, to keep a `#` in a value.
 

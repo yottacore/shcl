@@ -454,3 +454,284 @@ a: 1
 a: 1
 
 # section
+
+:: row 2026111623191917-1 a remove hands its blank line to the next line
+:: before
+x: 1
+
+y: 2
+z: 3
+:: ops
+remove	y
+:: expected
+x: 1
+
+z: 3
+:: keep
+x: 1
+
+z: 3
+
+:: row 2026111623191917-2 a remove takes its comments and hands its blank to the next line's
+:: before
+x: 1
+
+# about y
+y: 2
+# about z
+z: 3
+:: ops
+remove	y
+:: expected
+x: 1
+
+# about z
+z: 3
+:: keep
+x: 1
+
+# about z
+z: 3
+
+:: row 2026111623191917-3 a dotted pair keeps the blank above it when one of its fields goes
+:: before
+q: 0
+
+a.b: 1
+a.c: 2
+:: ops
+remove	a.b
+:: expected
+q: 0
+a:
+
+	c: 2
+:: keep
+q: 0
+
+a.c: 2
+
+:: row 2026111623191935-1 a setter's fold hands the blank above the instance that folds to the next line
+:: before
+q: 0
+
+# about x
+b: x
+	p: 1
+c: 1
+
+# about y
+b: y
+	q: 2
+d: 2
+:: ops
+string	b(y)	x
+:: expected
+q: 0
+
+# about x
+# about y
+b: x
+	p: 1
+	q: 2
+c: 1
+
+d: 2
+:: keep
+q: 0
+
+# about x
+# about y
+b: x
+	p: 1
+	q: 2
+c: 1
+
+d: 2
+
+:: row 2026111623191935-2 a fold of the fields under 2 instances hands the blank on too
+:: before
+b: x
+	k: 1
+		m: 1
+	c: 1
+b: y
+	d: 2
+
+	k: 1
+		n: 2
+	e: 3
+:: ops
+string	b(y)	x
+:: expected
+b: x
+	k: 1
+		m: 1
+		n: 2
+	c: 1
+	d: 2
+
+	e: 3
+:: keep
+b: x
+	k: 1
+		m: 1
+		n: 2
+	c: 1
+	d: 2
+
+	e: 3
+
+:: row 2026111700365065-1 a load's fold hands the blank above the instance that folds to the next line
+:: before
+q: 0
+
+# about x
+b: x
+	p: 1
+c: 1
+
+# about y
+b: x
+	q: 2
+d: 2
+:: ops
+:: expected
+q: 0
+
+# about x
+# about y
+b: x
+	p: 1
+	q: 2
+c: 1
+
+d: 2
+
+:: row 2026111700365065-2 a re-mention of a field under a block opened again hands its blank on too
+:: before
+b: x
+	k: 1
+		m: 1
+	c: 1
+b: x
+	d: 2
+
+	k: 1
+		n: 2
+	e: 3
+:: ops
+:: expected
+b: x
+	k: 1
+		m: 1
+		n: 2
+	c: 1
+	d: 2
+
+	e: 3
+
+:: row 2026111700365065-3 the blank of a later instance of the first field goes on rather than off the top
+:: before
+a: 1
+x: 2
+
+# c
+a: 1
+z: 1
+:: ops
+:: expected
+# c
+a: 1
+x: 2
+
+z: 1
+
+:: row 2026111700365065-4 a list that folds once it closes hands its blank on
+:: before
+l: [1, 2]
+q: 1
+
+# c
+l:
+	- 1
+	- 2
+z: 1
+:: ops
+:: expected
+# c
+l: [1, 2]
+q: 1
+
+z: 1
+
+:: row 2026111700365065-5 a kept line a fold hands to the end of the file stays after the comments read before it
+:: before
+a: 1
+b: 2
+# t
+
+k: [1
+a: 1
+:: ops
+:: expected
+a: 1
+b: 2
+# t
+
+k: [1
+
+:: row 2026111111560900-1 a comment a blank sets off above a top-level kept line loads at column 0
+:: before
+# note 0
+
+    # note 2
+        b: [3
+:: ops
+:: expected
+# note 0
+
+# note 2
+b: [3
+
+:: row 2026111111560900-2 and stays there after an edit
+:: before
+# note 0
+
+    # note 2
+        b: [3
+:: ops
+int	z0	7
+:: expected
+# note 0
+
+# note 2
+b: [3
+
+z0: 7
+:: keep
+# note 0
+
+    # note 2
+        b: [3
+
+z0: 7
+
+:: row 2026111111560900-3 only the last blank before the kept line starts a run
+:: before
+x: 1
+# a
+
+	# b
+
+		# c
+k: [1
+:: ops
+:: expected
+x: 1
+# a
+
+	# b
+
+# c
+k: [1

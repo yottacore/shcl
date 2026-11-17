@@ -22,6 +22,7 @@
 #include "shcl.h"
 #endif
 
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -66,6 +67,17 @@ enum class SizeUnit { Bytes, Kilo, Mega, Giga, Tera, Kibi, Mebi, Gibi, Tebi };
 inline constexpr std::size_t MAX_DEPTH = 512;
 // The format major the info block names. It moves with the format.
 inline constexpr std::uint32_t FORMAT_MAJOR = 3;
+// The format minor. A minor adds syntax, and a file of an older minor of the
+// same major reads the same under it.
+inline constexpr std::uint32_t FORMAT_MINOR = 0;
+// Every format shcl knows, oldest first, as {name, format} rows: a format's
+// own row, then the commit names of the dev snapshots consumers pinned that
+// read as it.
+extern const std::array<std::array<std::string_view, 2>, 19> FORMAT_NAMES;
+// The start of the stamp a save writes, up to the format's name, and the
+// whole stamp for this format.
+extern const std::string_view STAMP_HEAD;
+extern const std::string_view STAMP_LINE;
 // The info block generate() writes at the bottom unless no_banner, for a
 // program that writes its own config file.
 extern const std::string_view GEN_BANNER;
@@ -827,6 +839,7 @@ static_assert(static_cast<int>(UpgradeErrorKind::NotFound) + 1 == SHCL_UPGRADE_N
 	&& static_cast<int>(UpgradeErrorKind::ErrorsLeft) + 1 == SHCL_UPGRADE_ERRORS_LEFT, "UpgradeErrorKind drifted from shcl_upgrade_error");
 #endif
 static_assert(MAX_DEPTH == SHCL_MAX_DEPTH && FORMAT_MAJOR == SHCL_FORMAT_MAJOR, "a constant drifted from shcl.h");
+static_assert(FORMAT_MINOR == SHCL_FORMAT_MINOR && std::tuple_size<decltype(FORMAT_NAMES)>::value == SHCL_FORMAT_NAME_COUNT, "a constant drifted from shcl.h");
 
 // The strings are the C macros themselves, so there is one copy of each.
 const std::string_view GEN_BANNER = SHCL_GEN_BANNER;
@@ -834,6 +847,13 @@ const std::string_view FORMAT_LINE_HEAD = SHCL_FORMAT_LINE_HEAD;
 const std::string_view FORMAT_LINE = SHCL_FORMAT_LINE;
 const std::string_view MIGRATED_LINE = SHCL_MIGRATED_LINE;
 const std::string_view SCHEMA_LINE_HEAD = SHCL_SCHEMA_LINE_HEAD;
+const std::string_view STAMP_HEAD = SHCL_STAMP_HEAD;
+const std::string_view STAMP_LINE = SHCL_STAMP_LINE;
+const std::array<std::array<std::string_view, 2>, 19> FORMAT_NAMES = [] {
+	std::array<std::array<std::string_view, 2>, 19> rows{};
+	for (std::size_t i = 0; i < rows.size(); i++) rows[i] = {shcl_format_names[i][0], shcl_format_names[i][1]};
+	return rows;
+}();
 
 namespace detail {
 
