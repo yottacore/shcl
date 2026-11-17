@@ -2927,6 +2927,14 @@ def _restamp_as(text: str, line: int, stamp: str) -> str | None:
 	return bom + body
 
 
+def _repeat_line(here: str, line: str) -> bool:
+	"""A merge's line `line` repeats `here`: the same text, or a Format line or
+	stamp with the same head, whatever format each names. A save rewrites the
+	line it reads to name this format, so a layer saved since and a base that
+	wasn't would otherwise write the line twice."""
+	return here == line or any(here.startswith(h) and line.startswith(h) for h in (FORMAT_LINE_HEAD, STAMP_HEAD))
+
+
 def _names_this(stamp: Read[int]) -> bool:
 	"""The stamp read names this format whole, as `3.0`, rather than beta1's
 	major alone or a pin."""
@@ -9533,7 +9541,7 @@ class Document:
 			# its own when it is written.
 			if o.text.startswith(STAMP_HEAD):
 				continue
-			if whole[i] or not any(e.text == o.text and e.depth == o.depth for e in self.orphans[:had]):
+			if whole[i] or not any(_repeat_line(e.text, o.text) and e.depth == o.depth for e in self.orphans[:had]):
 				depth = o.depth
 				if o.text.startswith("#"):
 					depth = min(depth, room)
@@ -9565,7 +9573,7 @@ class Document:
 			if o.text.startswith(STAMP_HEAD):
 				continue
 			t = self.arena[_ROOT]._triv()
-			if any(e.text == o.text and e.depth == o.depth for e in t.head[:had]):
+			if any(_repeat_line(e.text, o.text) and e.depth == o.depth for e in t.head[:had]):
 				continue
 			c = _Lead(o.text, o.blank_before, o.depth, o.line, o.kept)
 			if not added:

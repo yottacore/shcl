@@ -8424,3 +8424,25 @@ func TestASaveNamesThisFormat(t *testing.T) {
 		t.Errorf("merge over a Format line: %q, want %q", got, want)
 	}
 }
+
+// A layer's Format line repeats the base's whatever format each names, so a
+// layer saved since and a base that wasn't merge to one line, at the top and
+// in the footer. Same fixture in every runner.
+func TestAMergeKeepsOneFormatLine(t *testing.T) {
+	defer testID(t, "dfe97")
+	f := FormatLine
+	block := func(n string) string {
+		return "\n##\n## This config file format is SHCL.\n##    Format   " + n + "\n##\n"
+	}
+	for _, c := range []struct{ base, layer, want string }{
+		{"a: 1\n" + block("3"), "b: 2\n" + block("3.0"), "a: 1\nb: 2\n" + block("3.0")},
+		{"a: 1\n" + block("3.0"), "b: 2\n" + block("3"), "a: 1\nb: 2\n" + block("3.0")},
+		{"##    Format   3\n\na: 1\n", f + "\n\nb: 2\n", f + "\n\na: 1\n\nb: 2\n"},
+	} {
+		doc := Parse(c.base)
+		doc.Merge(Parse(c.layer))
+		if got := doc.ToCanonical(); got != c.want {
+			t.Errorf("%q under %q: %q, want %q", c.base, c.layer, got, c.want)
+		}
+	}
+}

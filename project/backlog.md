@@ -38,7 +38,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The stamp on save turns the quick run red: check-readme dcbc6 and Rust fuzz dderx and dab72
 	- ID: 2026111711103371
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261117-111033
@@ -47,6 +47,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Version and build: nov17b at ff279feb (stamp on save)
 	- Incorrect behavior: on nov17b, check-readme dcbc6 fails because the C example's saved file now ends with the Format stamp, which the README's 'What saving does' block doesn't show. Rust fuzz_smoke kept_lines_survive_edits (dderx) fails when a remove leaves only the stamp, and merge_never_panics_and_stays_fixpoint (dab72) finds a layer whose merge differs from its canonical form's. Both fuzz tests fail at 20,000 iterations on ff279feb with no other change.
 	- Expected behavior: the README block, check-readme and both fuzz properties agree with the stamp, so the quick run passes.
+	- Origin: ff279feb (stamp on save). Confirmed: all 3 fail on nov17b at 5549931a.
+	- Actual cause: 3 causes. dcbc6: the 'What saving does' block in examples.md had no stamp line. dderx: a stale check. A remove can take the Format line the save read, and the save then adds the stamp, which the "a remove only takes lines away" check read as a new line. dab72: a real merge defect, plus a check the stamp can't meet. A merge skips a footer or top line the base has only when the text is the same, so a layer's `##    Format   3.0` over a base's `##    Format   3` was written twice, as `shcl fmt base --layer=layer` shows. The second find: a layer's older Format line reads by the older rules' raw blocks and its canonical form's `3.0` by the current ones, so after a base with a raw block left open one reads and the other doesn't, and the save adds a stamp to only one of them.
+	- Actual fix: examples.md's block ends with `## SHCL format 3.0`, and a sentence under it says what the line is. In all 4 bindings the merge's footer and top dedups count a layer's Format line or stamp as a repeat of a base line with the same head, whatever format each names (`repeat_line`, Go `repeatLine`, Python `_repeat_line`). The C++ interface wraps C's merge. In `fuzz_smoke.rs`, the remove check compares lines with their format numbers taken out and allows the added stamp, and the merge fixpoint check also ignores a stamp added at the end. spec.md, design.md and the changelog say so.
+	- Decisions:
+		- me, 20261117: a Format line repeats the base's whatever format either names, a newer one included, since a merge already drops every layer stamp and keeps the newer flag. Leaving a newer layer's Format line in would give the merged footer 2 Format lines.
+		- me, 20261117: the second dab72 find is fixed in the test, not the step. Each text's read follows the read rules, and the layer's canonical form changes which rules read its line. Making the merge drop every layer Format line would also take the line out of a layer's info block when the base has none.
+	- Swept: the merge's 2 dedups (footer and top) in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. The bracketing pass and `adopt_trivia` don't dedup. Other `text == o.text` compares in the merges: none left.
+	- Verified: check-readme passes (dcbc6 failed before). dderx and dab72 pass at 20,000 in debug and at 200,000 in release. `a_merge_keeps_one_format_line` fails before the fix in all 4 (all 3 rows in Go, Python and C, each site in Rust) and passes after. `--backlog-run-quick rust python` and `--backlog-run-quick go c` passed. cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), check-docs, `test-ids.py check`, `lint-report.bash --check --no-mark`, clippy, rustfmt, gofmt, go vet, ruff and markdownlint-cli2. `edits_and_merges_match_a_reload` (dd16k) at 200,000 in release fails at iteration 124450 with or without this change, which is 2026111623445822.
+	- Note: the 2M release fuzz, cppcheck, analyze-c and codeql for the `shcl.h` and test changes are in 2026111709431277's Needs row, which covers this commit too.
+	- Test case: check-readme `dcbc6`, fuzz `dderx` and `dab72`, and `a_merge_keeps_one_format_line` (Rust `dfe96`, Go `dfe97`, Python `dfe98`, C `dfe99`).
+	- Acceptance signoff: Self-closed: each failed before and passes now.
+	- Branch: `nov17b-2026111709431277-fix`
+	- Commit: `d720082e`
+	- Closed: 20261117-113900
 
 - shell-regress funnel-scan fails: load_file_opts adds to the lost count outside the funnel in all 4
 	- ID: 2026111710564830

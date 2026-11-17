@@ -3159,6 +3159,17 @@ fn restamp_as(text: &str, line: usize, stamp: &str) -> Option<String> {
 	(now.status == Status::Good && now.value == FORMAT_MAJOR && now.line == line).then_some(out)
 }
 
+/// A merge's line `line` repeats `here`: the same text, or a Format line or
+/// stamp with the same head, whatever format each names. A save rewrites the
+/// line it reads to name this format, so a layer saved since and a base that
+/// wasn't would otherwise write the line twice.
+fn repeat_line(here: &str, line: &str) -> bool {
+	here == line
+		|| [FORMAT_LINE_HEAD, STAMP_HEAD]
+			.iter()
+			.any(|h| here.starts_with(h) && line.starts_with(h))
+}
+
 /// True when the stamp read names this format whole, as `3.0`, rather than
 /// beta1's major alone or a pin.
 fn names_this(stamp: &Read<u32>) -> bool {
@@ -14083,7 +14094,7 @@ impl Document {
 			if whole[i]
 				|| !self.orphans[..had]
 					.iter()
-					.any(|e| e.text == o.text && e.depth == o.depth)
+					.any(|e| repeat_line(&e.text, &o.text) && e.depth == o.depth)
 			{
 				let mut o = o.clone();
 				if o.text.starts_with('#') {
@@ -14120,7 +14131,7 @@ impl Document {
 			let t = self.arena[ROOT].triv_mut();
 			if t.head[..had]
 				.iter()
-				.any(|e| e.text == o.text && e.depth == o.depth)
+				.any(|e| repeat_line(&e.text, &o.text) && e.depth == o.depth)
 			{
 				continue;
 			}

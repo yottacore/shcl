@@ -6772,6 +6772,26 @@ def main():
 	if fails:
 		raise SystemExit("\n".join(f"FAIL {f}" for f in fails))
 
+	## A layer's Format line repeats the base's whatever format each names, so
+	## a layer saved since and a base that wasn't merge to one line, at the top
+	## and in the footer. Same fixture in every runner.
+	test_id("dfe98", "a_merge_keeps_one_format_line")
+
+	def nblock(n):
+		return f"\n##\n## This config file format is SHCL.\n##    Format   {n}\n##\n"
+
+	for nbase, nlayer, nwant in (
+		(f"a: 1\n{nblock('3')}", f"b: 2\n{nblock('3.0')}", f"a: 1\nb: 2\n{nblock('3.0')}"),
+		(f"a: 1\n{nblock('3.0')}", f"b: 2\n{nblock('3')}", f"a: 1\nb: 2\n{nblock('3.0')}"),
+		("##    Format   3\n\na: 1\n", f"{nf}\n\nb: 2\n", f"{nf}\n\na: 1\n\nb: 2\n"),
+	):
+		ndoc = shcl.Document.parse(nbase)
+		ndoc.merge(shcl.Document.parse(nlayer))
+		if ndoc.to_canonical() != nwant:
+			fails.append(f"merge: {nbase!r} under {nlayer!r} wrote {ndoc.to_canonical()!r}")
+	if fails:
+		raise SystemExit("\n".join(f"FAIL {f}" for f in fails))
+
 	test_id("de60c", "windows_calls_build_their_ctypes_once")
 	windows_calls_build_their_ctypes_once()
 

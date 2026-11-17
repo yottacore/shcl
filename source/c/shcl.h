@@ -3978,6 +3978,15 @@ static int restamp_as(ShclArena *a, ShclArena *sc, ShclStr text, size_t line, co
 	return now.status == SHCL_GOOD && now.value == SHCL_FORMAT_MAJOR && now.line == line;
 }
 
+/* A merge's line `line` repeats `here`: the same text, or a Format line or
+   stamp with the same head, whatever format each names. A save rewrites the
+   line it reads to name this format, so a layer saved since and a base that
+   wasn't would otherwise write the line twice. */
+static int repeat_line(ShclStr here, ShclStr line) {
+	if (s_eq(here, line)) return 1;
+	return (s_starts(here, SHCL_FORMAT_LINE_HEAD) && s_starts(line, SHCL_FORMAT_LINE_HEAD)) || (s_starts(here, SHCL_STAMP_HEAD) && s_starts(line, SHCL_STAMP_HEAD));
+}
+
 /* The stamp read names this format whole, as `3.0`, rather than beta1's major
    alone or a pin. */
 static int names_this(ShclStamp st) {
@@ -9792,7 +9801,7 @@ static void merge_top(shcl_doc *d, const shcl_doc *over) {
 		if (s_starts(o->text, SHCL_STAMP_HEAD)) continue;
 		ShclTrivia *t = triv_mut(a, &NODE(d, ROOT));
 		int dup = 0;
-		for (size_t k = 0; k < had && !dup; k++) dup = s_eq(t->head.data[k].text, o->text) && t->head.data[k].depth == o->depth;
+		for (size_t k = 0; k < had && !dup; k++) dup = repeat_line(t->head.data[k].text, o->text) && t->head.data[k].depth == o->depth;
 		if (dup) continue;
 		ShclLead c = lead_copy(a, o);
 		if (!added) c.blank_before = had > 0;
@@ -10175,7 +10184,7 @@ void shcl_merge(shcl_doc *d, const shcl_doc *over) {
 			whole = (depth > 0 && prev > 0) || (next < over->orphans.len && over->orphans.data[next].depth > 0);
 		}
 		int dup = 0;
-		for (size_t k = 0; k < had && !whole; k++) if (s_eq(d->orphans.data[k].text, ot) && d->orphans.data[k].depth == depth) { dup = 1; break; }
+		for (size_t k = 0; k < had && !whole; k++) if (repeat_line(d->orphans.data[k].text, ot) && d->orphans.data[k].depth == depth) { dup = 1; break; }
 		if (dup) {
 			/* The table lets the dedup skip a footer line the base has. */
 			if (lead_is_kept_line(&over->orphans.data[i]) && d->kept_owed > 0) d->kept_owed--;

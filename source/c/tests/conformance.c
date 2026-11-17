@@ -8088,6 +8088,24 @@ int main(int argc, char **argv) {
 			shcl_free(b);
 		}
 	}
+	/* A layer's Format line repeats the base's whatever format each names, so
+	   a layer saved since and a base that wasn't merge to one line, at the top
+	   and in the footer. Same fixture in every runner. */
+	test_id("dfe99", "a_merge_keeps_one_format_line");
+	{
+#define FBLOCK(n) "\n##\n## This config file format is SHCL.\n##    Format   " n "\n##\n"
+		static const char *const mb[] = { "a: 1\n" FBLOCK("3"), "a: 1\n" FBLOCK("3.0"), "##    Format   3\n\na: 1\n" };
+		static const char *const ml[] = { "b: 2\n" FBLOCK("3.0"), "b: 2\n" FBLOCK("3"), SHCL_FORMAT_LINE "\n\nb: 2\n" };
+		static const char *const mw[] = { "a: 1\nb: 2\n" FBLOCK("3.0"), "a: 1\nb: 2\n" FBLOCK("3.0"), SHCL_FORMAT_LINE "\n\na: 1\n\nb: 2\n" };
+#undef FBLOCK
+		for (size_t i = 0; i < 3; i++) {
+			shcl_doc *b = shcl_parse(mb[i], strlen(mb[i])), *l = shcl_parse(ml[i], strlen(ml[i]));
+			shcl_merge(b, l);
+			if (!str_is(shcl_to_canonical(b), mw[i])) fail("merge_format_line", mb[i]);
+			shcl_free(l);
+			shcl_free(b);
+		}
+	}
 	test_id_end();
 	if (nfail) { fprintf(stderr, "conformance: %d failure(s)\n", nfail); return 1; }
 	printf("conformance: %zu case(s) pass\n", nn);

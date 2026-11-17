@@ -1683,10 +1683,17 @@ fn merge_never_panics_and_stays_fixpoint() {
 		from_text.merge(&Document::parse(&b));
 		let mut from_canon = Document::parse(&a);
 		from_canon.merge(&Document::parse(&Document::parse(&b).to_canonical()));
-		// Up to the layer's stamp line, which its canonical form rewrites.
+		// Up to the layer's stamp line, which its canonical form rewrites, and
+		// the stamp a save adds at the end. A layer's older Format line reads
+		// by the older rules' raw blocks, and the one its canonical form
+		// rewrites to name this format by the current ones, so after the base's
+		// lines one can read where the other doesn't, and the save adds a
+		// stamp for the one that doesn't.
+		let end_off =
+			|t: String| same_stamps(t.strip_suffix(&format!("{STAMP_LINE}\n")).unwrap_or(&t));
 		assert_eq!(
-			same_stamps(&from_canon.to_canonical()),
-			same_stamps(&from_text.to_canonical()),
+			end_off(from_canon.to_canonical()),
+			end_off(from_text.to_canonical()),
 			"merging a layer differs from merging its canonical form at iteration {} for:\nA:\n{}\nB:\n{}",
 			i,
 			a,
@@ -4998,15 +5005,19 @@ fn kept_lines_survive_edits() {
 			);
 			// (c) A remove only takes lines away.
 			if op > 10 && took {
-				// A settle can turn a line into a comment, or back.
-				let had: std::collections::HashSet<String> = fences_joined(&before)
+				// A settle can turn a line into a comment, or back. The save
+				// names this format, so a remove that takes the line it read
+				// leaves another one restamped, or the stamp added at the end.
+				let had: std::collections::HashSet<String> = fences_joined(&same_stamps(&before))
 					.into_iter()
 					.map(|l| unsettled(&l).to_string())
 					.collect();
 				let after = doc.to_canonical();
-				let new: Vec<String> = fences_joined(&after)
+				let new: Vec<String> = fences_joined(&same_stamps(&after))
 					.into_iter()
-					.filter(|t| !t.is_empty() && !had.contains(unsettled(t)))
+					.filter(|t| {
+						!t.is_empty() && *t != STAMP_HEAD.trim_end() && !had.contains(unsettled(t))
+					})
 					.collect();
 				assert!(
 					new.is_empty(),

@@ -3561,6 +3561,22 @@ func restampAs(text string, line int, stamp string) (string, bool) {
 	return s, true
 }
 
+// repeatLine says a merge's line repeats here: the same text, or a Format
+// line or stamp with the same head, whatever format each names. A save
+// rewrites the line it reads to name this format, so a layer saved since and
+// a base that wasn't would otherwise write the line twice.
+func repeatLine(here, line string) bool {
+	if here == line {
+		return true
+	}
+	for _, h := range []string{FormatLineHead, StampHead} {
+		if strings.HasPrefix(here, h) && strings.HasPrefix(line, h) {
+			return true
+		}
+	}
+	return false
+}
+
 // namesThis says the stamp read names this format whole, as `3.0`, rather
 // than beta1's major alone or a pin.
 func namesThis(stamp Read[int]) bool {
@@ -13991,7 +14007,7 @@ func (d *Document) Merge(over *Document) {
 		}
 		seen := false
 		for _, e := range d.orphans[:had] {
-			if !whole[i] && e.text == o.text && e.depth == o.depth {
+			if !whole[i] && repeatLine(e.text, o.text) && e.depth == o.depth {
 				seen = true
 				break
 			}
@@ -14068,7 +14084,7 @@ func (d *Document) mergeTop(over *Document) {
 		t := d.arena[root].trivMut()
 		dup := false
 		for _, e := range t.head[:had] {
-			dup = dup || e.text == o.text && e.depth == o.depth
+			dup = dup || repeatLine(e.text, o.text) && e.depth == o.depth
 		}
 		if dup {
 			continue

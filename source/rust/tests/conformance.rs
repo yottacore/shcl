@@ -6968,3 +6968,35 @@ fn a_save_names_this_format() {
 	doc.merge(&Document::parse(&format!("b: 2\n{s}\n")));
 	assert_eq!(doc.to_canonical(), format!("a: 1\nb: 2\n{f}\n"));
 }
+
+/// A layer's Format line repeats the base's whatever format each names, so a
+/// layer saved since and a base that wasn't merge to one line, at the top and
+/// in the footer. Same fixture in every runner.
+#[test]
+fn a_merge_keeps_one_format_line() {
+	let _id = test_id("dfe96");
+	let f = FORMAT_LINE;
+	let block =
+		|n: &str| format!("\n##\n## This config file format is SHCL.\n##    Format   {n}\n##\n");
+	for (base, layer, want) in [
+		(
+			format!("a: 1\n{}", block("3")),
+			format!("b: 2\n{}", block("3.0")),
+			format!("a: 1\nb: 2\n{}", block("3.0")),
+		),
+		(
+			format!("a: 1\n{}", block("3.0")),
+			format!("b: 2\n{}", block("3")),
+			format!("a: 1\nb: 2\n{}", block("3.0")),
+		),
+		(
+			"##    Format   3\n\na: 1\n".to_string(),
+			format!("{f}\n\nb: 2\n"),
+			format!("{f}\n\na: 1\n\nb: 2\n"),
+		),
+	] {
+		let mut doc = Document::parse(&base);
+		doc.merge(&Document::parse(&layer));
+		assert_eq!(doc.to_canonical(), want, "{base:?} under {layer:?}");
+	}
+}
