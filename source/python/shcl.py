@@ -1306,8 +1306,14 @@ def _unstack(nd):
 # Who gets the lines of something an edit took away, with a node, for
 # _adopt() (design.md, Lines an edit takes from their node): what takes its
 # place, such as a list for its items; else the next sibling; else the
-# parent's trailing lines, or the footer at the top, with the parent.
-_HEIR_TAKES, _HEIR_NEXT, _HEIR_LAST = 0, 1, 2
+# parent's trailing lines, or the footer at the top, with the parent. For
+# something that sat in a lead list, such as the info block, the lines stay
+# where it was: _HEIR_AT, with the node, the list's spot and the index.
+_HEIR_TAKES, _HEIR_NEXT, _HEIR_LAST, _HEIR_AT = 0, 1, 2, 3
+
+# The lead lists something can be taken out of. The footer's node is the
+# root.
+_SPOT_LEADING, _SPOT_AFTER, _SPOT_HEAD, _SPOT_FOOTER = 0, 1, 2, 3
 
 
 def _adopt_heir(nd, lines):
@@ -6700,25 +6706,23 @@ def _current_footer(leads):
 	return t - 1 if own == GEN_BANNER.rstrip("\n").split("\n") else -1
 
 
-def _drop_banners(leads, mark, blocks):
-	"""Take the info block out of `leads`, from the lone "##" above its "This
+def _banner_spans(leads, mark, blocks):
+	"""Where the info block is in `leads`, from the lone "##" above its "This
 	config file format is SHCL." line to the next lone "##", and each version
-	line migrate stamped, with the note under it. A block with no closing "##"
-	ends after its last line written the block's way. A line in a block that
-	the block does not write stays, as a Schema line or an author's own
-	"##    Owner" line does, and so does any other comment around one, even
-	written right against it. Returns how many came off, whether the last one had a blank above it
-	with no line after it to take that blank, and the lines left. A `mark` of
-	"#" takes 2.x's block instead, which had no version line. With `blocks`
-	false a block stays whole, and only a Format line outside one comes off."""
+	line migrate stamped, with the note under it, as (start, end) pairs. A
+	block with no closing "##" ends after its last line written the block's
+	way. A "##" comment around one stays out of it, even written right
+	against it. A `mark` of "#" finds 2.x's block instead, which had no
+	version line. With `blocks` false a block is left whole, and only a
+	Format line outside one counts."""
 	def in_run(c):
 		return c.text.startswith(mark) and not c.blank_before
 
 	title = mark + _BANNER_TITLE[2:]
 	name = mark + _BANNER_NAME[2:]
 	field = mark + "    "
-	keep: list[_Lead] = []
-	removed, owed, prev_kept = 0, False, False
+	spans: list[tuple[int, int]] = []
+	prev_kept = False
 	i = 0
 	while i < len(leads):
 		start, end = i, i + 1
@@ -6736,40 +6740,22 @@ def _drop_banners(leads, mark, blocks):
 				):
 					end += 1
 			if not blocks:
-				keep.extend(leads[i:end])
 				prev_kept = True
 				i = end
 				continue
 			if prev_kept and not leads[i].blank_before and leads[i - 1].text == mark:
-				keep.pop()
 				start = i - 1
 		elif mark == "##" and leads[i].text.startswith(FORMAT_LINE_HEAD):
 			if end < len(leads) and in_run(leads[end]) and leads[end].text == MIGRATED_LINE:
 				end += 1
 		else:
-			keep.append(leads[i])
 			prev_kept = True
 			i += 1
 			continue
-		# The blank that set the block off moves to whatever followed it, so
-		# the lines around it stay apart. The author's lines in the block,
-		# such as a Schema line, stay, with the blank.
-		blank = leads[start].blank_before
-		at = len(keep)
-		keep.extend(c for c in leads[start:end] if not _banner_own(c.text, mark))
-		if at < len(keep):
-			keep[at].blank_before = blank
-		elif end < len(leads):
-			leads[end].blank_before = leads[end].blank_before or blank
-		else:
-			owed = blank
-		removed += 1
+		spans.append((start, end))
 		prev_kept = False
 		i = end
-	if removed:
-		# What followed a block steps up to fit the run.
-		_restep(keep)
-	return removed, owed, (keep if removed else leads)
+	return spans
 
 
 def _errors_within(d, of):
@@ -8725,7 +8711,7 @@ class Document:
 		for p in sorted({m[0] for m in moves}):
 			_settle_block(self.arena, p, 1)
 
-	def _adopt(self, to: tuple[int, int], lines: list[_Lead], blank: bool) -> None:
+	def _adopt(self, to: tuple[int, ...], lines: list[_Lead], blank: bool) -> None:
 		"""Lines an edit took off a node that went, and the blank above it
 		when blank is set, go to `to` (design.md, Lines an edit takes from
 		their node). What takes its place keeps its comments against its
@@ -8737,8 +8723,8 @@ class Document:
 		set off. A misplaced line has no level at the end of a block, so it
 		goes to the next binding line, as a reload files it, with the
 		comments after it."""
-		kind, node = to
-		if blank and kind != _HEIR_LAST:
+		kind, node = to[0], to[1]
+		if blank and kind in (_HEIR_TAKES, _HEIR_NEXT):
 			# Above the node's comments, else above its line.
 			nd = self.arena[node]
 			if nd.trivia is not None and nd.trivia.leading:
@@ -8747,6 +8733,19 @@ class Document:
 				nd.blank_before = True
 		if kind == _HEIR_TAKES:
 			_adopt_heir(self.arena[node], lines)
+			return
+		if kind == _HEIR_AT:
+			# The blank goes on the first line left, else on the line that
+			# followed, else on the line the list is above.
+			spot, at = to[2], to[3]
+			ls = self._spot_list(node, spot)
+			if lines:
+				lines[0].blank_before = blank
+			elif at < len(ls):
+				ls[at].blank_before = ls[at].blank_before or blank
+			elif spot == _SPOT_LEADING:
+				self.arena[node].blank_before = self.arena[node].blank_before or blank
+			ls[at:at] = lines
 			return
 		if kind == _HEIR_NEXT:
 			if not lines:
@@ -8798,6 +8797,37 @@ class Document:
 				return
 			at = up
 		self._adopt((_HEIR_LAST, _ROOT), below, False)
+
+	def _spot_list(self, node: int, spot: int) -> list[_Lead]:
+		"""The lead list `spot` names on `node`."""
+		if spot == _SPOT_FOOTER:
+			return self.orphans
+		t = self.arena[node]._triv()
+		if spot == _SPOT_AFTER:
+			return t.after
+		if spot == _SPOT_HEAD:
+			return t.head
+		return t.leading
+
+	def _take_banners(self, node: int, spot: int, mark: str, blocks: bool) -> int:
+		"""Take the info block out of the lead list `spot` names on `node`,
+		where _banner_spans() finds it. A line in a block that the block does
+		not write is the author's, as a Schema line or an "##    Owner" line
+		is, and stays where the block was, through _adopt(), with the blank
+		that set the block off. Returns how many came off."""
+		spans = _banner_spans(self._spot_list(node, spot), mark, blocks)
+		# From the end, so each start still holds.
+		for start, end in reversed(spans):
+			ls = self._spot_list(node, spot)
+			blank = ls[start].blank_before
+			left = [c for c in ls[start:end] if not _banner_own(c.text, mark)]
+			del ls[start:end]
+			self._adopt((_HEIR_AT, node, spot, start), left, blank)
+		if spans:
+			# What followed a block steps up to fit the run, once the run is
+			# whole again.
+			_restep(self._spot_list(node, spot))
+		return len(spans)
 
 	def _heir_at(self, parent: int, at: int) -> tuple[int, int]:
 		"""The heir of what left slot at in parent's list: the sibling now
@@ -8979,22 +9009,15 @@ class Document:
 				# A block set off from the lines around it is filed as the
 				# trailing lines of the field above, or as the lines that open a
 				# block. A blank it leaves is the next line's, which has one.
-				gone, _, nd.trivia.after = _drop_banners(nd.trivia.after, mark, True)
-				removed += gone
-				gone, _, nd.trivia.head = _drop_banners(nd.trivia.head, mark, True)
-				removed += gone
+				removed += self._take_banners(n, _SPOT_AFTER, mark, True)
+				removed += self._take_banners(n, _SPOT_HEAD, mark, True)
 				if at_top and not on:
 					continue
-				gone, blank, nd.trivia.leading = _drop_banners(nd.trivia.leading, mark, not at_top)
-				if gone:
-					removed += gone
-					nd.blank_before = nd.blank_before or blank
+				removed += self._take_banners(n, _SPOT_LEADING, mark, not at_top)
 		# The top of the file set off from the first field is the root's.
-		rt = self.arena[_ROOT].trivia
-		if on and rt is not None:
+		if on and self.arena[_ROOT].trivia is not None:
 			for mark in marks:
-				gone, _, rt.head = _drop_banners(rt.head, mark, False)
-				removed += gone
+				removed += self._take_banners(_ROOT, _SPOT_HEAD, mark, False)
 		# A block that already ends the file as this release writes it stays
 		# as it is, and so do the author's lines in it.
 		current = _current_footer(self.orphans) if on else -1
@@ -9002,8 +9025,7 @@ class Document:
 		if current >= 0:
 			self.orphans = self.orphans[:current]
 		for mark in marks:
-			gone, _, self.orphans = _drop_banners(self.orphans, mark, True)
-			removed += gone
+			removed += self._take_banners(_ROOT, _SPOT_FOOTER, mark, True)
 		self.orphans = self.orphans + block
 		if on:
 			# A block kept at the top reads before the new one, so it names this

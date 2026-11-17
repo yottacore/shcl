@@ -226,7 +226,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The banner toggle hands the author's lines on through `adopt`
 	- ID: 2026111623192800
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz (`dd3t9`, `dderx`, `de116` and the rest), where `dd16k` fails until 2026111623445822 is fixed, and the cppcheck line from `LINT_EXTRA` for `shcl.h`.
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261116-231928
@@ -236,6 +237,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Problem description: `drop_banners` moves the lines around the info block it takes off in its own code.
 	- Requirements: the lines it leaves go through `adopt` in all 4, with the author's lines kept where the block was (2026110613470302). Then a check-docs row greps the 4 bindings for the retired helper names, and design.md's "Where the code still differs" bullet loses its second half.
 	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Progress log:
+		- 20261117, all 4 bindings: `banner_spans` finds the blocks in a lead list and moves nothing. `take_banners` takes each one out, from the end, and hands the author's lines and the blank to `adopt` with a new heir kind, `At`, for something that sat in a lead list. It puts them back where the block was, with the blank on the first of them, else on the line after, else on the node the list is above, as before. `drop_banners` is gone. check-docs `dfdpp` greps the 4 bindings for every retired mover. design.md's banner sub-bullet says so, and "Where the code still differs" is gone, since nothing differs now. No output changed, so no changelog entry.
+	- Decisions:
+		- me, 20261117: the info block isn't a node, so none of the 3 heir kinds puts its lines where the block was. `adopt` takes a fourth, the place in a lead list, named by a `Spot` (leading, trailing, opening lines, or the footer) and an index. It's `Heir::At` in Rust, `heirAt` with `spot` and `at` fields in Go, `(_HEIR_AT, node, spot, at)` in Python, and `HEIR_AT` with `spot` and `at` fields in C. Go's and C's other heir literals name their fields now.
+		- me, 20261117: the list is stepped (`restep`) once after all its blocks are off, not in each `adopt` call. A step with an earlier block still in the list could lower a line further than the old single pass did.
+		- me, 20261117: a current block at the end of the footer is split off before the footer goes through `adopt`, as before, so the blank of an old block above it isn't handed to it.
+	- Swept: every caller of the old `drop_banners`, `dropBanners` and `_drop_banners` in all 4, which is `swap_banner` only: trailing lines, opening lines, leading lines, the root's opening lines, and the footer. `adopt`'s blank step for what takes the place and the next sibling skips the new kind in all 4. A grep of `source/` for every retired mover finds none.
+	- Test case: check-docs `dfdpp`, corpus `149-banner`, `161-banner-moved`, `180-banner-first-child`, `190-banner-own-comments`, `217-banner-author-line` (`dez6b`), `218-banner-off-author-line` (`dez6c`), cli-regress `dez6e`, fuzz `de116`.
+	- Verified: `dfdpp` fails on an injected `_leave_above` and its grep finds the old names in all 4 files at `31714ad8`, and it passes on the change. A differential over 11,000 random files with info blocks, through `set_banner` on and off and `upgrade` with and without `from_v2`, gives the same results on the old and new Python library, and it catches a dropped blank. The 4 CLIs agree on `banner on`, `banner off` and `upgrade --from-2x` over 300 more. The 4 conformance suites, the Rust lib, upgrade and fuzz tests, the Go tests in both modules, `--backlog-run-quick rust go python c`, cli-regress (671 rows), crosscheck (23862 comparisons), check-docs, lint-report, the banner-touching fuzz properties at 200,000 in release apart from `dd16k` (2026111623445822, at the same iteration as before), rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, and gcc, gcc 15 and clang at `-Werror`. analyze-c's 2 reds are the older `set_off` and `fs_property.c` ones (2026111623502776).
+	- Branch: `nov17-2026111623192800`
 
 - One helper reattaches the lines around a node an edit takes away
 	- ID: 2026110616475902

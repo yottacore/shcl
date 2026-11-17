@@ -782,14 +782,13 @@ When an edit removes, replaces, folds, or merges a node, or replaces a list's it
 
 - The lines of something an edit takes away go to what takes its place, or else the next sibling, or else the parent's trailing lines. They go right above the heir's line, after the comments it already has, and the heir's blank goes above them. So a comment stays against a line, and the blank that set the heir off from the line above it still does. A blank between 2 of the lines that moved stays. One above the first of them goes, since it would set the heir off where the file didn't.
 	- With nothing in its place, the lines go above the next sibling's comments, since a kept line beside what went stays above them. The blank above what went goes right above the the sibling's comments, under the lines that moved. A remove, a setter's fold of 2 instances, and the load's fold hand on their lines this way. The load's fold hands each line to the next sibling read after it, so the lines of 2 folds keep file order.
+	- The info block `SetBanner` takes off isn't a node, and the lines in it that the block doesn't write are the author's. They stay where the block was, in the same list. The blank that set the block off goes above the first of them, else on the line that followed the block, else on the line the list is above. A list is stepped to fit once all its blocks are off (2026111623192800).
 
 - `adopt` is the one function that does it, with the same name and the same call sites in all 4 bindings. No edit moves a comment or a blank any other way, so a new kind of edit can't get the blank wrong on its own.
 
 - A replaced item list goes through it. A setter or a merge that writes the list anew puts the comments among its items, and the ones on them, right above the field (2026110613470311). Before that they went above the field's blank, so they read as part of the block above. The ones above a blank between 2 of them are then set off from the field, so they're filed as the line above's, as a reload files them.
 
 - `settle_first_blank` stays under its own name. It files the lines at the ends of the file as a reload files them, and clears the blank where output starts, and no line in it leaves a node that goes. The load runs it once, after the fold, since the fold can hand a blank to the first field and put footer lines after the ones read before them (2026111623192782).
-
-- The code still differs in one place. The banner toggle still uses its own helper, which goes once the comment placement suite (2026110616475903) passes with both in place (2026111623192800).
 
 ### Default forms
 

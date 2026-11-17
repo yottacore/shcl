@@ -1449,11 +1449,28 @@ const (
 	// heirLast is, with neither, the parent's trailing lines, or the footer
 	// at the top. Its node is the parent.
 	heirLast
+	// heirAt is something that sat in a lead list, such as the info block:
+	// its lines stay where it was, at index at of the list spot names on
+	// node.
+	heirAt
+)
+
+// spotKind names a lead list something can be taken out of. spotFooter's
+// node is the root.
+type spotKind int
+
+const (
+	spotLeading spotKind = iota
+	spotAfter
+	spotHead
+	spotFooter
 )
 
 type heir struct {
 	kind heirKind
 	node int
+	spot spotKind
+	at   int
 }
 
 // adoptHeir is adopt for what takes the place of what went, which a list's
@@ -7646,7 +7663,7 @@ func (d *Document) settleKeptOnce() bool {
 		moved = moved[:0]
 		// Right above the line, with its blank above them, as a reload files
 		// them.
-		d.adopt(heir{heirTakes, f.node}, lines, false)
+		d.adopt(heir{kind: heirTakes, node: f.node}, lines, false)
 		d.refile(f.node)
 	}
 	// A line moved above the first list in the file is now the first
@@ -9054,24 +9071,21 @@ func keepLinesAs(src string, doc *Document, dropBare bool, bare *bool) (string, 
 	return "", false
 }
 
-// dropBanners takes the info block out of leads, from the lone "##" above its
-// "This config file format is SHCL." line to the next lone "##", and each
-// version line Migrate stamped, with the note under it. A block with no
-// closing "##" ends after its last line written the block's way. A line in a
-// block that the block does not write stays, as a Schema line or an author's
-// own "##    Owner" line does, and so does any other comment around one, even
-// written right against it. It returns how many came off, and whether the last one
-// had a blank above it with no line after it to take that blank. A mark of
-// "#" takes 2.x's block instead, which had no version line. With blocks false
-// a block stays whole, and only a Format line outside one comes off.
-func dropBanners(leads *[]lead, mark string, blocks bool) (int, bool) {
-	ls := *leads
+// bannerSpans says where the info block is in leads, from the lone "##"
+// above its "This config file format is SHCL." line to the next lone "##",
+// and each version line Migrate stamped, with the note under it, as start
+// and end pairs. A block with no closing "##" ends after its last line
+// written the block's way. A "##" comment around one stays out of it, even
+// written right against it. A mark of "#" finds 2.x's block instead, which
+// had no version line. With blocks false a block is left whole, and only a
+// Format line outside one counts.
+func bannerSpans(ls []lead, mark string, blocks bool) [][2]int {
 	inRun := func(l lead) bool { return strings.HasPrefix(l.text, mark) && !l.blankBefore }
 	title := mark + bannerTitle[2:]
 	name := mark + bannerName[2:]
 	field := mark + "    "
-	keep := make([]lead, 0, len(ls))
-	removed, owed, prevKept := 0, false, false
+	var spans [][2]int
+	prevKept := false
 	for i := 0; i < len(ls); {
 		start, end := i, i+1
 		switch {
@@ -9088,13 +9102,11 @@ func dropBanners(leads *[]lead, mark string, blocks bool) (int, bool) {
 				end++
 			}
 			if !blocks {
-				keep = append(keep, ls[i:end]...)
 				prevKept = true
 				i = end
 				continue
 			}
 			if prevKept && !ls[i].blankBefore && ls[i-1].text == mark {
-				keep = keep[:len(keep)-1]
 				start = i - 1
 			}
 		case mark == "##" && strings.HasPrefix(ls[i].text, FormatLineHead):
@@ -9102,38 +9114,15 @@ func dropBanners(leads *[]lead, mark string, blocks bool) (int, bool) {
 				end++
 			}
 		default:
-			keep = append(keep, ls[i])
 			prevKept = true
 			i++
 			continue
 		}
-		// The blank that set the block off moves to whatever followed it, so
-		// the lines around it stay apart. The author's lines in the block,
-		// such as a Schema line, stay, with the blank.
-		at := len(keep)
-		for _, l := range ls[start:end] {
-			if !bannerOwn(l.text, mark) {
-				keep = append(keep, l)
-			}
-		}
-		switch {
-		case at < len(keep):
-			keep[at].blankBefore = ls[start].blankBefore
-		case end < len(ls):
-			ls[end].blankBefore = ls[end].blankBefore || ls[start].blankBefore
-		default:
-			owed = ls[start].blankBefore
-		}
-		removed++
+		spans = append(spans, [2]int{start, end})
 		prevKept = false
 		i = end
 	}
-	if removed > 0 {
-		// What followed a block steps up to fit the run.
-		restep(keep)
-		*leads = keep
-	}
-	return removed, owed
+	return spans
 }
 
 // bannerOwn says whether t is a line the info block writes, in mark comments:
@@ -12526,13 +12515,13 @@ func (d *Document) foldDupsBelow(start int) {
 				stack = append(stack, survivor)
 			} else {
 				slotInsert(first, h, c)
-				d.adopt(heir{heirNext, c}, left, blank)
+				d.adopt(heir{kind: heirNext, node: c}, left, blank)
 				left, blank = nil, false
 				keep = append(keep, c)
 			}
 		}
 		d.arena[parent].children = keep
-		d.adopt(heir{heirLast, parent}, left, blank)
+		d.adopt(heir{kind: heirLast, node: parent}, left, blank)
 		d.settle(parent, 1)
 	}
 }
@@ -12660,7 +12649,7 @@ func (d *Document) TryRemove(path string) Read[int] {
 				mine, blank = besideKept(&d.arena[c], blank)
 				left = append(left, mine...)
 			} else {
-				d.adopt(heir{heirNext, c}, left, blank)
+				d.adopt(heir{kind: heirNext, node: c}, left, blank)
 				left, blank = nil, false
 				kids = append(kids, c)
 			}
@@ -12669,7 +12658,7 @@ func (d *Document) TryRemove(path string) Read[int] {
 		d.arena[pr.parent].starList = d.arena[pr.parent].starList || stacked
 		// The next merge has a stacked list to put in brackets.
 		d.bracketed = d.bracketed && !stacked
-		d.adopt(heir{heirLast, pr.parent}, left, blank)
+		d.adopt(heir{kind: heirLast, node: pr.parent}, left, blank)
 		// The lines around what went are filed as a reload files them.
 		settlePairs(d.arena, pr.parent, 0)
 		settleHead(d.arena, pr.parent)
@@ -12873,7 +12862,7 @@ func (d *Document) adoptFolded(folded []foldRec) {
 // reload files it, with the comments after it.
 func (d *Document) adopt(to heir, lines []lead, blank bool) {
 	// Above the node's comments, else above its line.
-	if blank && to.kind != heirLast {
+	if blank && (to.kind == heirTakes || to.kind == heirNext) {
 		nd := &d.arena[to.node]
 		if nd.trivia != nil && len(nd.trivia.leading) > 0 {
 			nd.trivia.leading[0].blankBefore = true
@@ -12884,6 +12873,20 @@ func (d *Document) adopt(to heir, lines []lead, blank bool) {
 	switch {
 	case to.kind == heirTakes:
 		adoptHeir(&d.arena[to.node], lines)
+	case to.kind == heirAt:
+		// The blank goes on the first line left, else on the line that
+		// followed, else on the line the list is above.
+		list := d.spotList(to.node, to.spot)
+		ls := *list
+		switch {
+		case len(lines) > 0:
+			lines[0].blankBefore = blank
+		case to.at < len(ls):
+			ls[to.at].blankBefore = ls[to.at].blankBefore || blank
+		case to.spot == spotLeading:
+			d.arena[to.node].blankBefore = d.arena[to.node].blankBefore || blank
+		}
+		*list = append(ls[:to.at:to.at], append(lines, ls[to.at:]...)...)
 	case to.kind == heirNext:
 		if len(lines) == 0 {
 			return
@@ -12946,23 +12949,69 @@ func (d *Document) adopt(to heir, lines []lead, blank bool) {
 			kids := d.arena[up].children
 			for k, c := range kids {
 				if c == at && k+1 < len(kids) {
-					d.adopt(heir{heirNext, kids[k+1]}, below, false)
+					d.adopt(heir{kind: heirNext, node: kids[k+1]}, below, false)
 					return
 				}
 			}
 			at = up
 		}
-		d.adopt(heir{heirLast, root}, below, false)
+		d.adopt(heir{kind: heirLast, node: root}, below, false)
 	}
+}
+
+// spotList is the lead list spot names on node n.
+func (d *Document) spotList(n int, spot spotKind) *[]lead {
+	if spot == spotFooter {
+		return &d.orphans
+	}
+	t := d.arena[n].trivMut()
+	switch spot {
+	case spotAfter:
+		return &t.after
+	case spotHead:
+		return &t.head
+	default:
+		return &t.leading
+	}
+}
+
+// takeBanners takes the info block out of the lead list spot names on node
+// n, where bannerSpans finds it. A line in a block that the block does not
+// write is the author's, as a Schema line or an "##    Owner" line is, and
+// stays where the block was, through adopt, with the blank that set the
+// block off. It returns how many came off.
+func (d *Document) takeBanners(n int, spot spotKind, mark string, blocks bool) int {
+	spans := bannerSpans(*d.spotList(n, spot), mark, blocks)
+	// From the end, so each start still holds.
+	for k := len(spans) - 1; k >= 0; k-- {
+		start, end := spans[k][0], spans[k][1]
+		list := d.spotList(n, spot)
+		ls := *list
+		blank := ls[start].blankBefore
+		var left []lead
+		for _, l := range ls[start:end] {
+			if !bannerOwn(l.text, mark) {
+				left = append(left, l)
+			}
+		}
+		*list = append(ls[:start:start], ls[end:]...)
+		d.adopt(heir{kind: heirAt, node: n, spot: spot, at: start}, left, blank)
+	}
+	if len(spans) > 0 {
+		// What followed a block steps up to fit the run, once the run is
+		// whole again.
+		restep(*d.spotList(n, spot))
+	}
+	return len(spans)
 }
 
 // heirAt is the heir of what left slot at in parent's list: the sibling now
 // there, else the parent.
 func (d *Document) heirAt(parent, at int) heir {
 	if kids := d.arena[parent].children; at < len(kids) {
-		return heir{heirNext, kids[at]}
+		return heir{kind: heirNext, node: kids[at]}
 	}
-	return heir{heirLast, parent}
+	return heir{kind: heirLast, node: parent}
 }
 
 // refile files the lines above a node as a reload files them: a run a blank
@@ -13194,33 +13243,25 @@ func (d *Document) swapBanner(on, v2 bool) int {
 		for _, t := range top {
 			first = first || t == n
 		}
-		tr := d.arena[n].trivia
-		if tr == nil {
+		if d.arena[n].trivia == nil {
 			continue
 		}
 		for _, mark := range marks {
 			// A block set off from the lines around it is filed as the
 			// trailing lines of the field above, or as the lines that open a
 			// block. A blank it leaves is the next line's, which has one.
-			gone, _ := dropBanners(&tr.after, mark, true)
-			removed += gone
-			gone, _ = dropBanners(&tr.head, mark, true)
-			removed += gone
+			removed += d.takeBanners(n, spotAfter, mark, true)
+			removed += d.takeBanners(n, spotHead, mark, true)
 			if first && !on {
 				continue
 			}
-			gone, blank := dropBanners(&tr.leading, mark, !first)
-			if gone > 0 {
-				removed += gone
-				d.arena[n].blankBefore = d.arena[n].blankBefore || blank
-			}
+			removed += d.takeBanners(n, spotLeading, mark, !first)
 		}
 	}
 	// The top of the file set off from the first field is the root's.
-	if tr := d.arena[root].trivia; on && tr != nil {
+	if on && d.arena[root].trivia != nil {
 		for _, mark := range marks {
-			gone, _ := dropBanners(&tr.head, mark, false)
-			removed += gone
+			removed += d.takeBanners(root, spotHead, mark, false)
 		}
 	}
 	// A block that already ends the file as this release writes it stays as
@@ -13235,8 +13276,7 @@ func (d *Document) swapBanner(on, v2 bool) int {
 		d.orphans = d.orphans[:current:current]
 	}
 	for _, mark := range marks {
-		gone, _ := dropBanners(&d.orphans, mark, true)
-		removed += gone
+		removed += d.takeBanners(root, spotFooter, mark, true)
 	}
 	d.orphans = append(d.orphans, block...)
 	if on {

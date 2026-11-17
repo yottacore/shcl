@@ -1382,6 +1382,20 @@ for src in source/rust/src/lib.rs source/go/shcl.go source/python/shcl.py source
 	grep -q 'fold is not associative' "${repoDir}/${src}" \
 		|| fBad "${src}: the merge doc comment does not say the fold is not associative"
 done
+fTest dfdpp edits-move-lines-only-through-adopt
+##	Each edit that took a node away moved the lines around it in its own code,
+##	and each got the blank line wrong at least once. They all go through adopt
+##	now (design.md, Lines an edit takes from their node), so none of the old
+##	movers may come back, in any binding (2026110616475902).
+retiredMovers='\b_?(leave_above|leave_last|leave_below|leave_orphans|hand_blank|set_blank|blank_below|refile_folded|folded_kept|folded_span|drop_banners|leaveAbove|leaveLast|leaveBelow|handBlank|setBlank|blankBelow|refileFolded|foldedKept|foldedSpan|dropBanners)\b'
+for src in source/rust/src source/go source/python source/c; do
+	found="$(grep -rnE --include='*.rs' --include='*.go' --include='*.py' --include='*.h' --include='*.c' --include='*.cpp' --include='*.hpp' "${retiredMovers}" "${repoDir}/${src}" || true)"
+	if [[ -n "${found}" ]]; then
+		while IFS= read -r hit; do
+			fBad "a retired line mover is back, where adopt should do it: ${hit#"${repoDir}/"}"
+		done <<<"${found}"
+	fi
+done
 
 fTest dc438 tie-rounding-and-status-order
 ##	Two rules every port has to implement identically and that lived only in the
@@ -1590,3 +1604,4 @@ echo "check-docs: OK"
 ##		2026-10-30  The header checks read 120 lines, since cicd.bash's help grew past 95.
 ##		2026-10-31  A closed item from 2026-11-01 on names its test's ID or says why none.
 ##		2026-10-31  Every closed item names its test's ID or says why none, however old.
+##		2026-11-17  No line mover adopt replaced is back in any binding.

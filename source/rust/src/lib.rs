@@ -1379,6 +1379,18 @@ enum Heir {
 	Next(usize),
 	/// With neither, the parent's trailing lines, or the footer at the top.
 	Last(usize),
+	/// Something that sat in a lead list, such as the info block: its lines
+	/// stay where it was.
+	At(Spot, usize),
+}
+
+/// A lead list something can be taken out of.
+#[derive(Clone, Copy)]
+enum Spot {
+	Leading(usize),
+	After(usize),
+	Head(usize),
+	Footer,
 }
 
 /// adopt() for what takes the place of what went, which a list's settle
@@ -9263,24 +9275,21 @@ fn keep_lines_as(src: &str, doc: &Document, drop_bare: bool, bare: &mut bool) ->
 	.then_some(out)
 }
 
-/// Take the info block out of `leads`, from the lone `##` above its
+/// Where the info block is in `leads`, from the lone `##` above its
 /// `This config file format is SHCL.` line to the next lone `##`, and each
 /// version line `migrate` stamped, with the note under it. A block with no
-/// closing `##` ends after its last line written the block's way. A line in
-/// a block that the block does not write stays, as a Schema line or an
-/// author's own `##    Owner` line does, and so does any other comment around
-/// one, even written right against it. Returns how many came off, and
-/// whether the last one had a blank above it with no line after it to take
-/// that blank. A `mark` of `#` takes 2.x's block instead, which had no version
-/// line. With `blocks` false a block stays whole, and only a Format line
-/// outside one comes off.
-fn drop_banners(leads: &mut Vec<Lead>, mark: &str, blocks: bool) -> (usize, bool) {
+/// closing `##` ends after its last line written the block's way. A `##`
+/// comment around one stays out of it, even written right against it. A
+/// `mark` of `#` finds 2.x's block instead, which had no version line. With
+/// `blocks` false a block is left whole, and only a Format line outside one
+/// counts.
+fn banner_spans(leads: &[Lead], mark: &str, blocks: bool) -> Vec<(usize, usize)> {
 	let in_run = |l: &Lead| l.text.starts_with(mark) && !l.blank_before;
 	let title = format!("{mark}{}", &BANNER_TITLE[2..]);
 	let name = format!("{mark}{}", &BANNER_NAME[2..]);
 	let field = format!("{mark}    ");
-	let mut keep: Vec<Lead> = Vec::with_capacity(leads.len());
-	let (mut removed, mut owed, mut prev_kept) = (0, false, false);
+	let mut spans = Vec::new();
+	let mut prev_kept = false;
 	let mut i = 0;
 	while i < leads.len() {
 		let mut start = i;
@@ -9301,13 +9310,11 @@ fn drop_banners(leads: &mut Vec<Lead>, mark: &str, blocks: bool) -> (usize, bool
 				}
 			}
 			if !blocks {
-				keep.extend_from_slice(&leads[i..end]);
 				prev_kept = true;
 				i = end;
 				continue;
 			}
 			if prev_kept && !leads[i].blank_before && leads[i - 1].text == mark {
-				keep.pop();
 				start = i - 1;
 			}
 		} else if mark == "##" && leads[i].text.starts_with(FORMAT_LINE_HEAD) {
@@ -9315,40 +9322,15 @@ fn drop_banners(leads: &mut Vec<Lead>, mark: &str, blocks: bool) -> (usize, bool
 				end += 1;
 			}
 		} else {
-			keep.push(leads[i].clone());
 			prev_kept = true;
 			i += 1;
 			continue;
 		}
-		// The blank that set the block off moves to whatever followed it, so
-		// the lines around it stay apart. The author's lines in the block,
-		// such as a Schema line, stay, with the blank.
-		let blank = leads[start].blank_before;
-		let at = keep.len();
-		keep.extend(
-			leads[start..end]
-				.iter()
-				.filter(|l| !banner_own(&l.text, mark))
-				.cloned(),
-		);
-		if let Some(first) = keep.get_mut(at) {
-			first.blank_before = blank;
-		} else {
-			match leads.get_mut(end) {
-				Some(next) => next.blank_before |= blank,
-				None => owed = blank,
-			}
-		}
-		removed += 1;
+		spans.push((start, end));
 		prev_kept = false;
 		i = end;
 	}
-	if removed > 0 {
-		// What followed a block steps up to fit the run.
-		restep(&mut keep);
-		*leads = keep;
-	}
-	(removed, owed)
+	spans
 }
 
 /// Whether `t` is a line the info block writes, in `mark` comments: a lone
@@ -13094,6 +13076,23 @@ impl Document {
 		}
 		match to {
 			Heir::Takes(n) => adopt_heir(&mut self.arena[n], lines),
+			Heir::At(spot, at) => {
+				// The blank goes on the first line left, else on the line
+				// that followed, else on the line the list is above.
+				let list = self.spot_mut(spot);
+				let mut owed = false;
+				match lines.first_mut() {
+					Some(first) => first.blank_before = blank,
+					None => match list.get_mut(at) {
+						Some(l) => l.blank_before |= blank,
+						None => owed = blank,
+					},
+				}
+				list.splice(at..at, lines);
+				if let Spot::Leading(n) = spot {
+					self.arena[n].blank_before |= owed;
+				}
+			}
 			Heir::Next(n) => {
 				if lines.is_empty() {
 					return;
@@ -13164,6 +13163,41 @@ impl Document {
 				}
 			}
 		}
+	}
+
+	/// The lead list `spot` names.
+	fn spot_mut(&mut self, spot: Spot) -> &mut Vec<Lead> {
+		match spot {
+			Spot::Leading(n) => &mut self.arena[n].triv_mut().leading,
+			Spot::After(n) => &mut self.arena[n].triv_mut().after,
+			Spot::Head(n) => &mut self.arena[n].triv_mut().head,
+			Spot::Footer => &mut self.orphans,
+		}
+	}
+
+	/// Take the info block out of the lead list `spot` names, where
+	/// banner_spans() finds it. A line in a block that the block does not
+	/// write is the author's, as a Schema line or an `##    Owner` line is,
+	/// and stays where the block was, through adopt(), with the blank that
+	/// set the block off. Returns how many came off.
+	fn take_banners(&mut self, spot: Spot, mark: &str, blocks: bool) -> usize {
+		let spans = banner_spans(self.spot_mut(spot), mark, blocks);
+		// From the end, so each start still holds.
+		for &(start, end) in spans.iter().rev() {
+			let list = self.spot_mut(spot);
+			let blank = list[start].blank_before;
+			let left = list
+				.drain(start..end)
+				.filter(|l| !banner_own(&l.text, mark))
+				.collect();
+			self.adopt(Heir::At(spot, start), left, blank);
+		}
+		if !spans.is_empty() {
+			// What followed a block steps up to fit the run, once the run is
+			// whole again.
+			restep(self.spot_mut(spot));
+		}
+		spans.len()
 	}
 
 	/// The heir of what left slot `at` in `parent`'s list: the sibling now
@@ -13365,28 +13399,24 @@ impl Document {
 			stack.extend_from_slice(&self.arena[n].children);
 			let at_top = top.contains(&n);
 			for mark in marks {
-				let Some(tr) = self.arena[n].trivia.as_deref_mut() else {
+				if self.arena[n].trivia.is_none() {
 					continue;
-				};
+				}
 				// A block set off from the lines around it is filed as the
 				// trailing lines of the field above, or as the lines that open
 				// a block. A blank it leaves is the next line's, which has one.
-				removed += drop_banners(&mut tr.after, mark, true).0;
-				removed += drop_banners(&mut tr.head, mark, true).0;
+				removed += self.take_banners(Spot::After(n), mark, true);
+				removed += self.take_banners(Spot::Head(n), mark, true);
 				if at_top && !on {
 					continue;
 				}
-				let (gone, blank) = drop_banners(&mut tr.leading, mark, !at_top);
-				if gone > 0 {
-					removed += gone;
-					self.arena[n].blank_before |= blank;
-				}
+				removed += self.take_banners(Spot::Leading(n), mark, !at_top);
 			}
 		}
 		// The top of the file set off from the first field is the root's.
-		if on && let Some(tr) = self.arena[ROOT].trivia.as_deref_mut() {
+		if on && self.arena[ROOT].trivia.is_some() {
 			for mark in marks {
-				removed += drop_banners(&mut tr.head, mark, false).0;
+				removed += self.take_banners(Spot::Head(ROOT), mark, false);
 			}
 		}
 		// A block that already ends the file as this release writes it stays
@@ -13400,7 +13430,7 @@ impl Document {
 			.map(|s| self.orphans.split_off(s))
 			.unwrap_or_default();
 		for mark in marks {
-			removed += drop_banners(&mut self.orphans, mark, true).0;
+			removed += self.take_banners(Spot::Footer, mark, true);
 		}
 		self.orphans.append(&mut block);
 		if on {
