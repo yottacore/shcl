@@ -300,7 +300,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: the reading rules of each published format, and the pins
 	- ID: 2026111018212701
 	- Type: Task
-	- Status: Queued
+	- Status: Done
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-182127
@@ -311,6 +311,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- List the dev snapshots that consumers pinned, from each one's lockfiles and vendored copies, with the shortest commit name for each.
 		- Write a table of tells per format for the content scan.
 	- Estimated effort: Avg
+	- Decisions:
+		- me, 20261117: v1.1.0 starts format 1.1, since it reads 4 documents differently from v1.0.0. It's one fold fix with no text tell. v1.2.0 reads like v1.1.0, so there's no 1.2.
+		- me, 20261117: pinned commits that read every document the same share one format, named after the earliest, as releases are. That gives 7 pin formats for the 15 pins, 3.0-1f8 to 3.0-a65.
+		- me, 20261117: a pin's name is its first 3 characters. 2 tell the 15 apart, but `3.0-b1` reads as beta1, and 3 matches the decisions' `3.0-a37`. Each pin's own name is accepted as another name for its format.
+		- me, 20261117: formats that differ only where a line has an error stay separate. Their steps have nothing to rewrite, and a clean file is stamped with the newest of the run.
+	- Progress log:
+		- 20261117: built the Rust CLI at the 8 tags and the 15 pins, and ran each over every tag's corpus files (787) and 800 fuzz-dumped documents through `fmt` and `check`. A probe set of 31 spellings gives the tells. Results are in the design doc's Format numbers, Pinned dev snapshots and Tells sections.
+		- 20261117: check-migrate's 2.x oracle is `7be348d0`, not the v2.0.0 tag, and the two read 519 documents differently. Noted in the design doc's Testing for 2026111018212703.
+	- Verified: documents read differently from the version before, corpus plus fuzz: beta2 329, rc1 1, v1.0.0 0, v1.1.0 4, v1.2.0 0, v2.0.0 933. Inside each pin format's group, 0.
+	- Test case: none, a research task. The tools are `private/claude_simple/tools/format-reads.py` and `format-tells.py` beside it, and 2026111018212703's round-trip gate tests the findings.
+	- Acceptance signoff: Self-closed: each table row comes from a run of the CLI at that tag or pin. The format list is also a Check: entry.
+	- Branch: `nov17-2026111018212701`
+	- Closed: 20261117-015854
 
 - Format versions: the stamp on every save, and the format constants
 	- ID: 2026111018212702
