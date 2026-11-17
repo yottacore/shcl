@@ -38,7 +38,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A load's fold of a second instance moves the blank line above it among the comments, or above the wrong field
 	- ID: 2026111700365065
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Severity: Avg
 	- Target version: v3.0.0
 	- Opened: 20261117-003650
@@ -50,6 +50,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261117, all 4 CLIs on `nov17-2026111623191935`.
 	- Possible cause: the load's fold appends the second instance's leading lines to the first one's with their blank, and the instance's own blank is dropped. The setter's fold takes both off and hands them on through `adopt`. 2026111623192782 moves the load's fold onto `adopt` and may close this with it.
 	- Estimated effort: Avg
+	- Prereq IDs: 2026111623192782
+	- Test case: placement rows 2026111700365065-1 to -5 in project/conformance/placement.txt
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz and the cppcheck line for shcl.h, shared with 2026111623192782
+	- Fixed by 2026111623192782's commit, whose new placement rows -1 and -2 are this Bug's 2 commands. They failed on 59074148 in all 4 runners and pass after.
 
 - analyze-c fails on dev: clang-tidy on `set_off`, and the clang analyzer on `fs_property.c`
 	- ID: 2026111623502776
