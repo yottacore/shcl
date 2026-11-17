@@ -320,6 +320,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Each published format and pin round-trips against its own tag's CLI in a gate.
 	- Estimated effort: High
 
+- Increase the importance of mtime in deciding format
+	- ID: 2026111707384944
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-073849
+	- Opened by: JC
+	- Parent ID: 2026111018212700
+	- Related IDs: 2026111018212703
+	- Requirements:
+		- First, if there is a clear format specified in the appropriate comment, use that.
+		- Next, use mtime to resolve in more detail, or if no format specifier was found.
+		- Next, look for certain "tells" that only certain versions supported.
+		- Finally, if all that doesn't settle the question, and/or the other content is contradictory, try to figure out which format supports the content in the most "legal" way, most completely.
+	- Note: this changes the order in 2026111018212700 and the format versions design doc, where content that says a newer format beats the mtime. The design doc and 2026111018212703's content scan follow this item.
+
 - A program that migrates in memory, or saves through text, gets none of the save's guards
 	- ID: 2026111016205704
 	- Type: Enhancement
