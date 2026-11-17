@@ -757,6 +757,7 @@ struct ArrayLine {
 	line: usize,
 	leads: usize,
 	trailing: bool,
+	// The blank above the line, which a re-mention owes the line after it.
 	blank: bool,
 }
 
@@ -4565,9 +4566,9 @@ struct Parser<'a> {
 	// Parents where a remap ended up on a key a sibling already held: the only
 	// places a duplicate can survive the keyed lookup, so the fold starts here.
 	late_dups: Vec<usize>,
-	// Nodes a fold or a re-mention gave a later line's leading lines to,
-	// for refile_folded().
-	folded: Vec<usize>,
+	// Each fold or re-mention, for adopt_folded(): the node a later line
+	// joined, that line, and the blank above it.
+	folded: Vec<(usize, usize, bool)>,
 	// Node -> line of the re-open that H002-hinted it. A merge under a hinted
 	// container combines the same two textual regions, so it hints too even
 	// when it ends up on the newest child at its own scope - that is how every
@@ -4850,10 +4851,15 @@ impl<'a> Parser<'a> {
 			);
 			// The lines this one brought to the binding it joined go with it,
 			// and so do its blank and its comment, which its kept text has.
-			let nd = &mut self.arena[node];
-			let blank_before = nd.blank_before && !m.blank;
-			nd.blank_before = m.blank;
-			let t = nd.triv_mut();
+			let blank_before = m.blank;
+			if let Some(k) = self
+				.folded
+				.iter()
+				.rposition(|f| f.0 == node && f.1 == m.line)
+			{
+				self.folded[k].2 = false;
+			}
+			let t = self.arena[node].triv_mut();
 			let mut moved = t.leading.split_off(m.leads.min(t.leading.len()));
 			if !m.trailing {
 				t.trailing.clear();
@@ -5057,8 +5063,9 @@ impl<'a> Parser<'a> {
 						// Apart when a sibling kept since stands between them,
 						// as a merge at parse time asks of the newest child.
 						self.hint_fold(parent, keep[i], c, i + 1 != keep.len());
+						let nd = &self.arena[c];
+						self.folded.push((keep[i], nd.line, nd.blank_before));
 						fold_node_into(&mut self.arena, keep[i], c);
-						self.folded.push(keep[i]);
 						grew[i] = true;
 					}
 					None => {
@@ -6716,9 +6723,12 @@ impl<'a> Parser<'a> {
 					line: lineno,
 					leads: self.arena[node].leading().len(),
 					trailing: !self.arena[node].trailing().is_empty(),
-					blank: self.arena[node].blank_before,
+					blank: had_blank,
 				};
-				if had_blank {
+				// A re-mention's blank goes on with what it leaves, in
+				// adopt_folded().
+				let again = self.arena[node].line != lineno;
+				if had_blank && !again {
 					self.arena[node].blank_before = true;
 				}
 				if next > i + 1 {
@@ -6732,8 +6742,8 @@ impl<'a> Parser<'a> {
 				{
 					self.give_pending(self.head_of(node, nsegs), indent, k + 1, Site::Leading);
 				}
-				if self.arena[node].line != lineno {
-					self.folded.push(node);
+				if again {
+					self.folded.push((node, lineno, had_blank));
 				}
 				self.attach_trivia(node, indent, comment);
 				self.stack.push((indent, node));
@@ -6758,7 +6768,7 @@ impl<'a> Parser<'a> {
 		// they were found in. Before the cap entry, which ends the list.
 		self.diags.sort_by_key(|d| d.line);
 		let (mut chain, mut held) = (Vec::new(), Vec::new());
-		let mut orphans: Vec<Lead> = self
+		let orphans: Vec<Lead> = self
 			.pending
 			.drain(..)
 			.map(|p| Lead {
@@ -6769,7 +6779,6 @@ impl<'a> Parser<'a> {
 				kept: false,
 			})
 			.collect();
-		settle_first_blank(&mut self.arena, &mut orphans);
 		// The one entry past the cap: what was not listed, and whether any
 		// of it was an error, so a consumer scanning the list for errors
 		// still finds one and a Strict load still fails.
@@ -6814,7 +6823,10 @@ impl<'a> Parser<'a> {
 			seen: Box::default(),
 			newer,
 		};
-		doc.refile_folded(folded);
+		doc.adopt_folded(folded);
+		// After the fold, which can give the first node a blank from a later
+		// line and the footer lines read before the ones there.
+		settle_first_blank(&mut doc.arena, &mut doc.orphans);
 		doc.settle_kept();
 		doc
 	}
@@ -7936,39 +7948,27 @@ fn restep(leads: &mut [Lead]) {
 	}
 }
 
-/// The kept lines a load's fold gave this node from a later instance of
-/// it, with the comments before them: what beside_kept() takes, from the
-/// first line read after the node's own. Only a fold puts those there.
-fn folded_kept(nd: &mut NodeData) -> Vec<Lead> {
-	let Some((from, end)) = folded_span(nd) else {
-		return Vec::new();
-	};
-	let Some(t) = nd.trivia.as_deref_mut() else {
-		return Vec::new();
-	};
-	let left = t.leading.drain(from..end).collect();
-	restep(&mut t.leading);
-	left
-}
-
-/// Where folded_kept() would take its lines from in the node's leading
-/// list, or None when it would take nothing.
-fn folded_span(nd: &NodeData) -> Option<(usize, usize)> {
+/// The lines a load's fold or re-mention gave this node from a later line:
+/// its leading lines from the first read after its own line, but the kept
+/// line written in place of its line. The range, or None with none there.
+fn folded_from(nd: &NodeData) -> Option<(usize, usize)> {
 	let t = nd.trivia.as_deref()?;
 	let from = t.leading.iter().position(|l| l.line > nd.line)?;
-	let end = t.leading[..t.leading.len() - usize::from(heads_block(nd))]
-		.iter()
-		.rposition(Lead::is_kept_line)
-		.map_or(0, |k| k + 1);
+	let end = t.leading.len() - usize::from(heads_block(nd));
 	(end > from).then_some((from, end))
 }
 
-/// For each move of refile_folded(), (parent, first child, line, the line),
-/// the child the line goes above: the first at or past that one read after
-/// the line, or past the last. One sweep per parent from its end, keeping only
+/// What adopt_folded() hands on: the parent, the child it goes above (past
+/// the last, the block's end), the line it was read at, the lines and the
+/// blank.
+type FoldMove = (usize, usize, usize, (Vec<Lead>, bool));
+
+/// For each move of adopt_folded(), (parent, first child, line, ...), the
+/// child the lines go above: the first at or past that one read after the
+/// line, or past the last. One sweep per parent from its end, keeping only
 /// the children no earlier one hides, so a fold far from its later instance
 /// doesn't walk every sibling between them.
-fn place_folded(arena: &[NodeData], moves: &mut [(usize, usize, usize, Lead)]) {
+fn place_folded<T>(arena: &[NodeData], moves: &mut [(usize, usize, usize, T)]) {
 	let mut order: Vec<usize> = (0..moves.len()).collect();
 	order.sort_by_key(|&m| (moves[m].0, std::cmp::Reverse(moves[m].1)));
 	// Child places, their lines rising toward the bottom.
@@ -12978,27 +12978,34 @@ impl Document {
 		Read::new(targets.len(), status, None).at(line, None)
 	}
 
-	/// A load that folds 2 instances leaves the kept lines read beside the
-	/// later one where they were, as a setter's fold does: above the next
-	/// sibling read after them, or at the end of the block. `folded` holds
-	/// the nodes a fold or a re-mention gave lines to.
-	fn refile_folded(&mut self, mut folded: Vec<usize>) {
+	/// A load's fold hands on what the later instance leaves, as a setter's
+	/// fold does (collapse_dup()): the kept lines read beside it, with the
+	/// comments before them, and the blank above it go to the next sibling
+	/// read after them, or the end of the block, through adopt(). The
+	/// comments written against it stay with the node it joined. `folded`
+	/// holds the node each fold or re-mention joined, its line, and its
+	/// blank.
+	fn adopt_folded(&mut self, mut folded: Vec<(usize, usize, bool)>) {
 		folded.sort_unstable();
-		folded.dedup();
-		// Every line that binds to a node already there is in `folded`, so a
-		// file that re-opens many blocks has many with nothing to move, and
-		// those may cost no more than this test.
-		folded.retain(|&c| folded_span(&self.arena[c]).is_some());
-		if folded.is_empty() {
-			return;
-		}
 		// Each node's place among its siblings, for the parents of these.
 		let n = self.arena.len();
 		let (mut at_of, mut indexed) = (vec![usize::MAX; n], vec![false; n]);
 		// Parent, the child they go above (past the last, the block's end),
-		// line, the line. All first, since 2 folds can fill one place.
-		let mut moves: Vec<(usize, usize, usize, Lead)> = Vec::new();
-		for c in folded {
+		// line, the lines and the blank. All first, since 2 folds can fill
+		// one place.
+		let mut moves: Vec<FoldMove> = Vec::new();
+		for each in folded.chunk_by(|a, b| a.0 == b.0) {
+			let c = each[0].0;
+			// Every line that binds to a node already there is here, so a
+			// file that re-opens many blocks has many with nothing to hand
+			// on, and those may cost no more than this test.
+			let span = folded_from(&self.arena[c]);
+			let lines = span.map_or(&[][..], |(a, b)| &self.arena[c].leading()[a..b]);
+			if !each.iter().any(|f| f.2)
+				&& !lines.iter().any(|l| l.is_kept_line() || l.blank_before)
+			{
+				continue;
+			}
 			let p = self.arena[c].parent;
 			if !indexed[p] {
 				indexed[p] = true;
@@ -13009,10 +13016,41 @@ impl Document {
 			if at_of[c] == usize::MAX {
 				continue;
 			}
-			let mut line = 0;
-			for l in folded_kept(&mut self.arena[c]) {
-				line = line.max(l.line);
-				moves.push((p, at_of[c] + 1, line, l));
+			// What the later lines leave, as beside_kept() splits a node's
+			// lines: up to the last kept line among them. The rest are the
+			// comments written against a later line, which stay, but for the
+			// blank above them.
+			if let Some((a, b)) = span {
+				let t = self.arena[c].triv_mut();
+				let end = t.leading[a..b]
+					.iter()
+					.rposition(Lead::is_kept_line)
+					.map_or(a, |k| a + k + 1);
+				let mut line = 0;
+				for l in t.leading.drain(a..end) {
+					line = line.max(l.line);
+					moves.push((p, at_of[c] + 1, line, (vec![l], false)));
+				}
+				// The first comment each later line left owes its blank.
+				let (mut r, mut first) = (0, usize::MAX);
+				for l in &mut t.leading[a..b - (end - a)] {
+					while r < each.len() && each[r].1 < l.line {
+						r += 1;
+					}
+					if l.line == 0 || r == first {
+						continue;
+					}
+					first = r;
+					if std::mem::take(&mut l.blank_before) {
+						moves.push((p, at_of[c] + 1, l.line, (Vec::new(), true)));
+					}
+				}
+				restep(&mut t.leading);
+			}
+			for &(_, line, blank) in each {
+				if blank {
+					moves.push((p, at_of[c] + 1, line, (Vec::new(), true)));
+				}
 			}
 		}
 		if moves.is_empty() {
@@ -13022,19 +13060,17 @@ impl Document {
 		// Stable, so the lines of one fold keep their order.
 		moves.sort_by_key(|m| (m.0, m.1, m.2));
 		let mut moves = moves.into_iter().peekable();
-		while let Some((p, j, _, l)) = moves.next() {
-			let mut group = vec![l];
+		while let Some((p, j, _, (mut group, mut blank))) = moves.next() {
 			while let Some(m) = moves.next_if(|m| m.0 == p && m.1 == j) {
-				group.push(m.3);
+				let (mut lines, b) = m.3;
+				group.append(&mut lines);
+				blank |= b;
 			}
-			self.adopt(self.heir_at(p, j), group, false);
+			self.adopt(self.heir_at(p, j), group, blank);
 			if moves.peek().is_none_or(|m| m.0 != p) {
 				settle_block(&mut self.arena, p, 1);
 			}
 		}
-		// The first node can have lost the lines above it, and with them the
-		// room for a blank a re-mention left it.
-		settle_first_blank(&mut self.arena, &mut self.orphans);
 	}
 
 	/// Lines an edit took off a node that went, and the blank above it

@@ -4099,9 +4099,9 @@ class _Parser:
 		# Parents where a remap ended up on a key a sibling already held: the only
 		# places a duplicate can survive the keyed lookup, so the fold starts here.
 		self.late_dups = []
-		# Nodes a fold or a re-mention gave a later line's leading lines to,
-		# for _refile_folded().
-		self.folded: list[int] = []
+		# Each fold or re-mention, for _adopt_folded(): the node a later line
+		# joined, that line, and the blank above it.
+		self.folded: list[list] = []
 		# Node -> line of the re-open that H002-hinted it. A merge under a hinted
 		# container combines the same two textual regions, so it hints too even
 		# when it ends up on the newest child at its own scope - that is how every
@@ -4188,8 +4188,11 @@ class _Parser:
 			name, name_src, up = nd.name, nd.name_src, nd.parent
 			# The lines this one brought to the binding it joined go with it,
 			# and so do its blank and its comment, which its kept text has.
-			blank_before = nd.blank_before and not blank
-			nd.blank_before = blank
+			blank_before = blank
+			for f in reversed(self.folded):
+				if f[0] == node and f[1] == mark[0]:
+					f[2] = False
+					break
 			t = nd._triv()
 			at = min(leads, len(t.leading))
 			moved = t.leading[at:]
@@ -4317,8 +4320,8 @@ class _Parser:
 					# Apart when a sibling kept since stands between them, as a
 					# merge at parse time asks of the newest child.
 					self._hint_fold(parent, keep[i], c, i + 1 != len(keep))
+					self.folded.append([keep[i], self.arena[c].line, self.arena[c].blank_before])
 					_fold_node_into(self.arena, keep[i], c)
-					self.folded.append(keep[i])
 					grew[i] = True
 				else:
 					first[key] = len(keep)
@@ -5393,8 +5396,13 @@ class _Parser:
 						self.arena[node].src = src_text
 				# What the node had before this line, for an array line that
 				# turns out to have a field under it.
-				mark = (lineno, len(self.arena[node].leading()), self.arena[node].trailing() != "", self.arena[node].blank_before)
-				if had_blank:
+				# Its blank is the blank above the line, which a re-mention owes
+				# the line after it.
+				mark = (lineno, len(self.arena[node].leading()), self.arena[node].trailing() != "", had_blank)
+				# A re-mention's blank goes on with what it leaves, in
+				# _adopt_folded().
+				again = self.arena[node].line != lineno
+				if had_blank and not again:
 					self.arena[node].blank_before = True
 				if nxt > i + 1:
 					self.ends.append((lineno, nxt))
@@ -5405,8 +5413,8 @@ class _Parser:
 					k = next((j for j in range(len(self.pending) - 1, -1, -1) if _is_field(self.pending[j].text)), None)
 					if k is not None:
 						self._give_pending(self._head_of(node, nsegs), indent, k + 1, "leading")
-				if self.arena[node].line != lineno:
-					self.folded.append(node)
+				if again:
+					self.folded.append([node, lineno, had_blank])
 				self._attach_trivia(node, indent, comment)
 				self.stack.append((indent, node))
 				if tok.array is not None:
@@ -5429,7 +5437,6 @@ class _Parser:
 		held: list[tuple[str, int]] = []
 		orphans = [_Lead(p.text, p.blank_before, _comment_depth(chain, held, "", p.text, p.indent), p.line) for p in self.pending]
 		self.pending = []
-		_settle_first_blank(self.arena, orphans)
 		# The one entry past the cap: what was not listed, and whether any of
 		# it was an error, so a consumer scanning the list for errors still
 		# finds one and a Strict load still fails.
@@ -5447,7 +5454,10 @@ class _Parser:
 		doc._arrays = self.kept_arrays
 		doc._kept_owed = self.kept_owed
 		doc._newer = newer
-		doc._refile_folded(self.folded)
+		doc._adopt_folded(self.folded)
+		# After the fold, which can give the first node a blank from a later
+		# line and the footer lines read before the ones there.
+		_settle_first_blank(doc.arena, doc.orphans)
 		doc._settle_kept()
 		return doc
 
@@ -5624,24 +5634,10 @@ def _restep(leads):
 			room = c.depth + 1
 
 
-def _folded_kept(nd):
-	"""The kept lines a load's fold gave this node from a later instance of
-	it, with the comments before them: what _beside_kept() takes, from the
-	first line read after the node's own. Only a fold puts those there."""
-	span = _folded_span(nd)
-	if span is None:
-		return []
-	start, end = span
-	lead = nd.trivia.leading
-	left = lead[start:end]
-	del lead[start:end]
-	_restep(lead)
-	return left
-
-
-def _folded_span(nd):
-	"""Where _folded_kept() would take its lines from in the node's leading
-	list, or None when it would take nothing."""
+def _folded_from(nd):
+	"""The range of lines a load's fold or re-mention gave this node from a
+	later line: its leading lines from the first read after its own line, but
+	the kept line written in place of its line. None with none there."""
 	t = nd.trivia
 	if t is None:
 		return None
@@ -5649,15 +5645,14 @@ def _folded_span(nd):
 	start = next((k for k, c in enumerate(lead) if c.line > nd.line), None)
 	if start is None:
 		return None
-	last = len(lead) - 1 if _heads_block(nd) else len(lead)
-	end = next((k + 1 for k in range(last - 1, -1, -1) if lead[k].is_kept_line()), 0)
+	end = len(lead) - 1 if _heads_block(nd) else len(lead)
 	return (start, end) if end > start else None
 
 
 def _place_folded(arena, moves):
-	"""For each move of _refile_folded(), [parent, first child, line, the
-	line], the child the line goes above: the first at or past that one read
-	after the line, or past the last. One sweep per parent from its end,
+	"""For each move of _adopt_folded(), [parent, first child, line, ...],
+	the child the lines go above: the first at or past that one read after
+	the line, or past the last. One sweep per parent from its end,
 	keeping only the children no earlier one hides, so a fold far from its
 	later instance doesn't walk every sibling between them."""
 	order = sorted(range(len(moves)), key=lambda m: (moves[m][0], -moves[m][1]))
@@ -8656,47 +8651,79 @@ class Document:
 		self._resettle_kept()
 		return Read(len(targets), status, None)._at(line, None)
 
-	def _refile_folded(self, folded: list[int]) -> None:
-		"""A load that folds 2 instances leaves the kept lines read beside
-		the later one where they were, as a setter's fold does: above the
-		next sibling read after them, or at the end of the block. `folded`
-		holds the nodes a fold or a re-mention gave lines to."""
-		# Every line that binds to a node already there is in `folded`, so a
-		# file that re-opens many blocks has many with nothing to move, and
-		# those may cost no more than this test.
-		folded = [c for c in sorted(set(folded)) if _folded_span(self.arena[c]) is not None]
-		if not folded:
-			return
+	def _adopt_folded(self, folded: list[list]) -> None:
+		"""A load's fold hands on what the later instance leaves, as a
+		setter's fold does (_collapse_dup()): the kept lines read beside it,
+		with the comments before them, and the blank above it go to the next
+		sibling read after them, or the end of the block, through _adopt().
+		The comments written against it stay with the node it joined.
+		`folded` holds the node each fold or re-mention joined, its line, and
+		its blank."""
+		folded.sort(key=lambda f: (f[0], f[1]))
 		# Each node's place among its siblings, for the parents of these.
 		at_of: dict[int, int] = {}
 		indexed: set[int] = set()
 		# Parent, the child they go above (past the last, the block's end),
-		# line, the line. All first, since 2 folds can fill one place.
+		# line, the lines, the blank. All first, since 2 folds can fill one
+		# place.
 		moves: list[list] = []
-		for c in folded:
+		for c, run in itertools.groupby(folded, key=lambda f: f[0]):
+			each = list(run)
+			# Every line that binds to a node already there is here, so a
+			# file that re-opens many blocks has many with nothing to hand
+			# on, and those may cost no more than this test.
+			span = _folded_from(self.arena[c])
+			lines = self.arena[c].trivia.leading[span[0]:span[1]] if span else []
+			if not any(f[2] for f in each) and not any(x.is_kept_line() or x.blank_before for x in lines):
+				continue
 			p = self.arena[c].parent
 			if p not in indexed:
 				indexed.add(p)
 				at_of.update((kid, k) for k, kid in enumerate(self.arena[p].children))
 			if c not in at_of:
 				continue
-			line = 0
-			for x in _folded_kept(self.arena[c]):
-				line = max(line, x.line)
-				moves.append([p, at_of[c] + 1, line, x])
+			# What the later lines leave, as _beside_kept() splits a node's
+			# lines: up to the last kept line among them. The rest are the
+			# comments written against a later line, which stay, but for the
+			# blank above them.
+			if span:
+				a, b = span
+				lead = self.arena[c].trivia.leading
+				end = next((k + 1 for k in range(b - 1, a - 1, -1) if lead[k].is_kept_line()), a)
+				line = 0
+				for x in lead[a:end]:
+					line = max(line, x.line)
+					moves.append([p, at_of[c] + 1, line, [x], False])
+				del lead[a:end]
+				# The first comment each later line left owes its blank.
+				r, first = 0, -1
+				for x in lead[a:b - (end - a)]:
+					while r < len(each) and each[r][1] < x.line:
+						r += 1
+					if x.line == 0 or r == first:
+						continue
+					first = r
+					if x.blank_before:
+						x.blank_before = False
+						moves.append([p, at_of[c] + 1, x.line, [], True])
+				_restep(lead)
+			for _, line, blank in each:
+				if blank:
+					moves.append([p, at_of[c] + 1, line, [], True])
 		if not moves:
 			return
 		_place_folded(self.arena, moves)
 		# Stable, so the lines of one fold keep their order.
 		moves.sort(key=lambda m: m[:3])
 		for (p, j), run in itertools.groupby(moves, key=lambda m: m[:2]):
-			group = [m[3] for m in run]
-			self._adopt(self._heir_at(p, j), group, False)
+			group: list[_Lead] = []
+			blank = False
+			for m in run:
+				group.extend(m[3])
+				blank = blank or m[4]
+			self._adopt(self._heir_at(p, j), group, blank)
 		for p in sorted({m[0] for m in moves}):
 			_settle_block(self.arena, p, 1)
-		# The first node can have lost the lines above it, and with them the
-		# room for a blank a re-mention left it.
-		_settle_first_blank(self.arena, self.orphans)
 
 	def _adopt(self, to: tuple[int, int], lines: list[_Lead], blank: bool) -> None:
 		"""Lines an edit took off a node that went, and the blank above it

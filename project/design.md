@@ -746,7 +746,7 @@ Where a kept line is comes from canonical output before the edit. Under the targ
 
 - A setter whose `(value)` selector doesn't find any instance, and that writes a value another instance of that name has, sets that instance, as a set without a selector does, since the instance it would make folds into it. So the lines beside it stay where they were. A fold of 2 instances, such as a setter giving one the value of an earlier one, leaves the kept lines beside the one that goes where they were, as a remove does. The comments written against it move to the one that stays, and the blank line above it stays where it was, above the next line, as a remove hands it on (2026111623191935).
 
-- The load folds a second instance of one name and value into the first the same way. The kept lines read beside the second one stay above the next line of the block read after them, or at the end of the block, and the comments written against it move to the first. A kept line before a dotted line still goes to the line's first segment, where the dotted line is written.
+- The load folds a second instance of one name and value into the first the same way. The kept lines read beside the second one stay above the next line of the block read after them, or at the end of the block, and the comments written against it move to the first. The blank line above it goes on with the kept lines, above that next line, as a setter's fold hands it on (2026111623192782). It used to stay with the first instance, between the 2 instances' comments. A kept line before a dotted line still goes to the line's first segment, where the dotted line is written.
 
 - There are 2 kinds of kept line that stay as they are. One has a kept line written under it and isn't where a new field goes, since as a comment it would leave that line under the field above. The other has a misplaced line under it, since a misplaced line is filed by its own text and can't move with it. The first comment is then the first of the others. `SetComment` makes a missing field without touching any of these lines.
 
@@ -781,13 +781,15 @@ When an edit removes, replaces, folds, or merges a node, or replaces a list's it
 	- `SetBanner` looks for an info block in the trailing lines and opening lines too, where the parse now files one set off by blank lines. The top of the file is the root's opening lines with the first field's leading lines, and a block there stays.
 
 - The lines of something an edit takes away go to what takes its place, or else the next sibling, or else the parent's trailing lines. They go right above the heir's line, after the comments it already has, and the heir's blank goes above them. So a comment stays against a line, and the blank that set the heir off from the line above it still does. A blank between 2 of the lines that moved stays. One above the first of them goes, since it would set the heir off where the file didn't.
-	- With nothing in its place, the lines go above the next sibling's comments, since a kept line beside what went stays above them. The blank above what went goes right above the the sibling's comments, under the lines that moved. A remove and a setter's fold of 2 instances hand on their lines this way.
+	- With nothing in its place, the lines go above the next sibling's comments, since a kept line beside what went stays above them. The blank above what went goes right above the the sibling's comments, under the lines that moved. A remove, a setter's fold of 2 instances, and the load's fold hand on their lines this way. The load's fold hands each line to the next sibling read after it, so the lines of 2 folds keep file order.
 
 - `adopt` is the one function that does it, with the same name and the same call sites in all 4 bindings. No edit moves a comment or a blank any other way, so a new kind of edit can't get the blank wrong on its own.
 
 - A replaced item list goes through it. A setter or a merge that writes the list anew puts the comments among its items, and the ones on them, right above the field (2026110613470311). Before that they went above the field's blank, so they read as part of the block above. The ones above a blank between 2 of them are then set off from the field, so they're filed as the line above's, as a reload files them.
 
-- The code still differs in places. The load's fold and the banner toggle still use their own helpers, which go once the comment placement suite (2026110616475903) passes with both in place (2026111623192782, 2026111623192800).
+- `settle_first_blank` stays under its own name. It files the lines at the ends of the file as a reload files them, and clears the blank where output starts, and no line in it leaves a node that goes. The load runs it once, after the fold, since the fold can hand a blank to the first field and put footer lines after the ones read before them (2026111623192782).
+
+- The code still differs in one place. The banner toggle still uses its own helper, which goes once the comment placement suite (2026110616475903) passes with both in place (2026111623192800).
 
 ### Default forms
 

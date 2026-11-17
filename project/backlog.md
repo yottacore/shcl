@@ -192,7 +192,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The load's fold hands its lines on through `adopt`
 	- ID: 2026111623192782
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz (`dd3t9`, `dderx` and the rest), where `dd16k` fails until 2026111623445822 is fixed, and the cppcheck line from `LINT_EXTRA` for `shcl.h`.
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261116-231927
@@ -204,6 +205,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: High
 	- Related IDs: 2026111700365065
 	- Bug 2026111700365065 (the load's fold puts its blank among the comments) likely closes with this item, since it moves the load's fold onto adopt.
+	- Actual effort: Avg
+	- Progress log:
+		- 20261117, all 4 bindings: the load notes each fold and re-mention with its line and the blank above it, and `adopt_folded` hands on what the later line leaves through `adopt`. That's its lines up to the last kept line among them, the blank above it, and the blank above the comments written against it, which stay with the first instance. Placement is `place_folded`'s file order, as before. A re-mention no longer puts its blank on the first instance. `refile_folded`, `folded_kept` and `folded_span` are gone. design.md, spec.md's blank-line bullet, and the changelog say so.
+		- Golden changed: corpus `001-messy-cities` (`d9s1g`) and `013-comments` (`da4hk`), `expected.shcl`. Each loses the blank between the first instance's comments and the second's. In 001 no line comes after the second Chicago block, so the blank goes. In 013 it goes to `items:`, which has one. The conformance README's notes for both say so.
+		- This fixes Bug 2026111700365065: placement rows `2026111700365065-1` and `-2` are its 2 commands.
+	- Decisions:
+		- me, 20261117: `settle_first_blank` stays under its own name. It files the lines at the ends as a reload does and clears the blank where output starts, and it moves no line off a node that goes, so it isn't `adopt`'s work. The load runs it once, after the fold rather than before. The fold can hand a blank to the first field, and a kept line it hands to the end of the file has to go after the footer lines read before it.
+		- me, 20261117: the lines that move are the old span, from a node's first later line to the last kept line among them, so placement is as before. The blank of each fold goes to the heir of its own line.
+		- me, 20261117: an `E028` re-mention, whose lines move to a field of their own, takes its blank with them and clears it on its fold record.
+	- Swept: the 2 load sites that note a fold, the field-line bind and `fold_dups_from`, and `array_under`'s re-mention branch, in `lib.rs`, `shcl.go`, `shcl.py`, and `shcl.h`. The setter's folds already go through `adopt`. A grep of the repo for the retired names finds only design.md's history sentence.
+	- Test case: placement rows `2026111700365065-1` to `-5` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), corpus `001-messy-cities` (`d9s1g`), `013-comments` (`da4hk`), `213-load-fold-keeps-kept-lines` (`devra`), perf-gate `reopens` (`df014`), `dd3t9`, `dderx`.
+	- Verified: the 5 rows fail on the library at `59074148` in all 4 runners and pass on the change, and the rest of the placement table passes on both. The 4 conformance suites, the whole Rust suite, the Go tests in both modules, `--backlog-run-quick rust go python c`, cli-regress (671 rows), crosscheck with a 2000-iteration dump (55461 comparisons), perf-gate, check-docs, the 200,000-iteration release fuzz apart from `dd16k` (2026111623445822, at the same iteration as before), rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, and gcc, gcc 15 and clang at `-Werror`. analyze-c's 2 reds are the older `set_off` and `fs_property.c` ones (2026111623502776).
+	- Branch: `nov17-2026111623192782`
 
 - The banner toggle hands the author's lines on through `adopt`
 	- ID: 2026111623192800

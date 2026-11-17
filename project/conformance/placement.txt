@@ -581,3 +581,102 @@ b: x
 	d: 2
 
 	e: 3
+
+:: row 2026111700365065-1 a load's fold hands the blank above the instance that folds to the next line
+:: before
+q: 0
+
+# about x
+b: x
+	p: 1
+c: 1
+
+# about y
+b: x
+	q: 2
+d: 2
+:: ops
+:: expected
+q: 0
+
+# about x
+# about y
+b: x
+	p: 1
+	q: 2
+c: 1
+
+d: 2
+
+:: row 2026111700365065-2 a re-mention of a field under a block opened again hands its blank on too
+:: before
+b: x
+	k: 1
+		m: 1
+	c: 1
+b: x
+	d: 2
+
+	k: 1
+		n: 2
+	e: 3
+:: ops
+:: expected
+b: x
+	k: 1
+		m: 1
+		n: 2
+	c: 1
+	d: 2
+
+	e: 3
+
+:: row 2026111700365065-3 the blank of a later instance of the first field goes on rather than off the top
+:: before
+a: 1
+x: 2
+
+# c
+a: 1
+z: 1
+:: ops
+:: expected
+# c
+a: 1
+x: 2
+
+z: 1
+
+:: row 2026111700365065-4 a list that folds once it closes hands its blank on
+:: before
+l: [1, 2]
+q: 1
+
+# c
+l:
+	- 1
+	- 2
+z: 1
+:: ops
+:: expected
+# c
+l: [1, 2]
+q: 1
+
+z: 1
+
+:: row 2026111700365065-5 a kept line a fold hands to the end of the file stays after the comments read before it
+:: before
+a: 1
+b: 2
+# t
+
+k: [1
+a: 1
+:: ops
+:: expected
+a: 1
+b: 2
+# t
+
+k: [1

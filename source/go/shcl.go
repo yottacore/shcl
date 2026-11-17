@@ -4804,7 +4804,8 @@ type stackEnt struct {
 
 // arrayLine is the last array line a node's level was opened by, and what the
 // node had before it: its leading line count, whether it had a trailing
-// comment, and its blank.
+// comment, and the blank above the line, which a re-mention owes the line
+// after it.
 type arrayLine struct {
 	line     int
 	leads    int
@@ -4848,9 +4849,9 @@ type parser struct {
 	// Parents where a remap ended up on a key a sibling already held: the only
 	// places a duplicate can survive the keyed lookup, so the fold starts here.
 	lateDups []int
-	// Nodes a fold or a re-mention gave a later line's leading lines to, for
-	// refileFolded().
-	folded []int
+	// Each fold or re-mention, for adoptFolded(): the node a later line
+	// joined, that line, and the blank above it.
+	folded []foldRec
 	// Node -> line of the re-open that H002-hinted it. A merge under a hinted
 	// container combines the same two textual regions, so it hints too even
 	// when it ends up on the newest child at its own scope - that is how every
@@ -4953,10 +4954,14 @@ func (p *parser) arrayUnder(node int) int {
 		name, nameSrc, up := p.arena[node].name, p.arena[node].authored(), p.arena[node].parent
 		// The lines this one brought to the binding it joined go with it, and
 		// so do its blank and its comment, which its kept text has.
-		nd := &p.arena[node]
-		blankBefore := nd.blankBefore && !mark.blank
-		nd.blankBefore = mark.blank
-		t := nd.trivMut()
+		blankBefore := mark.blank
+		for k := len(p.folded) - 1; k >= 0; k-- {
+			if p.folded[k].node == node && p.folded[k].line == mark.line {
+				p.folded[k].blank = false
+				break
+			}
+		}
+		t := p.arena[node].trivMut()
 		at := mark.leads
 		if at > len(t.leading) {
 			at = len(t.leading)
@@ -5126,8 +5131,8 @@ func (p *parser) foldDupsFrom(start int) {
 				// Apart when a sibling kept since stands between them, as a
 				// merge at parse time asks of the newest child.
 				p.hintFold(parent, keep[i], c, i+1 != len(keep))
+				p.folded = append(p.folded, foldRec{keep[i], p.arena[c].line, p.arena[c].blankBefore})
 				foldNodeInto(p.arena, keep[i], c)
-				p.folded = append(p.folded, keep[i])
 				grew[i] = true
 			} else {
 				slotInsert(first, h, len(keep))
@@ -6754,9 +6759,12 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 				line:     lineno,
 				leads:    len(p.arena[node].leading()),
 				trailing: p.arena[node].trailing() != "",
-				blank:    p.arena[node].blankBefore,
+				blank:    hadBlank,
 			}
-			if hadBlank {
+			// A re-mention's blank goes on with what it leaves, in
+			// adoptFolded().
+			again := p.arena[node].line != lineno
+			if hadBlank && !again {
 				p.arena[node].blankBefore = true
 			}
 			if next > i+1 {
@@ -6773,8 +6781,8 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 					}
 				}
 			}
-			if p.arena[node].line != lineno {
-				p.folded = append(p.folded, node)
+			if again {
+				p.folded = append(p.folded, foldRec{node, lineno, hadBlank})
 			}
 			p.attachTrivia(node, indent, comment)
 			p.stack = append(p.stack, stackEnt{indent: indent, node: node})
@@ -6804,7 +6812,6 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		orphans = append(orphans, lead{text: pn.text, blankBefore: pn.blankBefore, depth: commentDepth(&chain, &held, "", pn.text, pn.indent), line: pn.line})
 	}
 	p.pending = p.pending[:0]
-	settleFirstBlank(p.arena, &orphans)
 	// The one entry past the cap: what was not listed, and whether any of it
 	// was an error, so a consumer scanning the list for errors still finds
 	// one and a Strict load still fails.
@@ -6827,7 +6834,10 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		p.arena = append([]nodeData(nil), p.arena...)
 	}
 	doc := &Document{arena: p.arena, diags: p.diags, strictness: strictness, orphans: orphans, lost: p.lost, keptOwed: p.keptOwed, kept: p.keptAny, arrays: p.keptArrays, ends: p.ends, dropped: p.dropped, newer: newer}
-	doc.refileFolded(p.folded)
+	doc.adoptFolded(p.folded)
+	// After the fold, which can give the first node a blank from a later line
+	// and the footer lines read before the ones there.
+	settleFirstBlank(doc.arena, &doc.orphans)
 	doc.settleKept()
 	return doc
 }
@@ -7007,24 +7017,11 @@ func restep(leads []lead) {
 	}
 }
 
-// foldedKept is the kept lines a load's fold gave this node from a later
-// instance of it, with the comments before them: what besideKept takes, from
-// the first line read after the node's own. Only a fold puts those there.
-func foldedKept(nd *nodeData) []lead {
-	from, end, ok := foldedSpan(nd)
-	if !ok {
-		return nil
-	}
-	t := nd.trivia
-	left := append([]lead(nil), t.leading[from:end]...)
-	t.leading = append(t.leading[:from], t.leading[end:]...)
-	restep(t.leading)
-	return left
-}
-
-// foldedSpan is where foldedKept would take its lines from in the node's
-// leading list, with ok false when it would take nothing.
-func foldedSpan(nd *nodeData) (from, end int, ok bool) {
+// foldedFrom is the range of lines a load's fold or re-mention gave this
+// node from a later line: its leading lines from the first read after its own
+// line, but the kept line written in place of its line. ok is false with none
+// there.
+func foldedFrom(nd *nodeData) (from, end int, ok bool) {
 	t := nd.trivia
 	if t == nil {
 		return 0, 0, false
@@ -7039,24 +7036,27 @@ func foldedSpan(nd *nodeData) (from, end int, ok bool) {
 	if from < 0 {
 		return 0, 0, false
 	}
-	last := len(t.leading)
+	end = len(t.leading)
 	if headsBlock(nd) {
-		last--
-	}
-	for k := last - 1; k >= 0; k-- {
-		if t.leading[k].isKeptLine() {
-			end = k + 1
-			break
-		}
+		end--
 	}
 	return from, end, end > from
 }
 
-// refileMove is one line refileFolded moves: the parent, the child it goes
-// above (past the last, the block's end), the line it was read at, the line.
-type refileMove struct {
+// foldRec is one fold or re-mention at load: the node a later line joined,
+// that line, and the blank above it.
+type foldRec struct {
+	node, line int
+	blank      bool
+}
+
+// foldMove is what adoptFolded hands on: the parent, the child it goes above
+// (past the last, the block's end), the line it was read at, the lines and
+// the blank.
+type foldMove struct {
 	parent, at, line int
-	l                lead
+	lines            []lead
+	blank            bool
 }
 
 // placeFolded sets each move's at, which holds the first child it may go
@@ -7064,7 +7064,7 @@ type refileMove struct {
 // after the line, or past the last. One sweep per parent from its end,
 // keeping only the children no earlier one hides, so a fold far from its
 // later instance doesn't walk every sibling between them.
-func placeFolded(arena []nodeData, moves []refileMove) {
+func placeFolded(arena []nodeData, moves []foldMove) {
 	order := make([]int, len(moves))
 	for m := range order {
 		order[m] = m
@@ -12732,35 +12732,54 @@ func (d *Document) TryRemove(path string) Read[int] {
 	return Read[int]{Value: len(targets), Status: status}.at(line, nil)
 }
 
-// refileFolded: a load that folds 2 instances leaves the kept lines read
-// beside the later one where they were, as a setter's fold does: above the
-// next sibling read after them, or at the end of the block. folded holds the
-// nodes a fold or a re-mention gave lines to.
-func (d *Document) refileFolded(folded []int) {
-	sort.Ints(folded)
-	// Every line that binds to a node already there is in folded, so a file
-	// that re-opens many blocks has many with nothing to move, and those may
-	// cost no more than this test.
-	keep := folded[:0]
-	for x, c := range folded {
-		if x > 0 && folded[x-1] == c {
-			continue
+// adoptFolded: a load's fold hands on what the later instance leaves, as a
+// setter's fold does (collapseDup): the kept lines read beside it, with the
+// comments before them, and the blank above it go to the next sibling read
+// after them, or the end of the block, through adopt. The comments written
+// against it stay with the node it joined. folded holds the node each fold or
+// re-mention joined, its line, and its blank.
+func (d *Document) adoptFolded(folded []foldRec) {
+	sort.Slice(folded, func(a, b int) bool {
+		x, y := folded[a], folded[b]
+		if x.node != y.node {
+			return x.node < y.node
 		}
-		if _, _, ok := foldedSpan(&d.arena[c]); ok {
-			keep = append(keep, c)
-		}
-	}
-	if len(keep) == 0 {
-		return
-	}
+		return x.line < y.line
+	})
 	// Each node's place among its siblings, for the parents of these.
 	atOf, indexed := make([]int, len(d.arena)), make([]bool, len(d.arena))
 	for k := range atOf {
 		atOf[k] = -1
 	}
 	// All first, since 2 folds can fill one place.
-	var moves []refileMove
-	for _, c := range keep {
+	var moves []foldMove
+	for x := 0; x < len(folded); {
+		c := folded[x].node
+		y := x
+		for y < len(folded) && folded[y].node == c {
+			y++
+		}
+		each := folded[x:y]
+		x = y
+		// Every line that binds to a node already there is here, so a file
+		// that re-opens many blocks has many with nothing to hand on, and
+		// those may cost no more than this test.
+		a, b, ok := foldedFrom(&d.arena[c])
+		owes := false
+		for _, f := range each {
+			owes = owes || f.blank
+		}
+		if ok && !owes {
+			for _, l := range d.arena[c].trivia.leading[a:b] {
+				if l.isKeptLine() || l.blankBefore {
+					owes = true
+					break
+				}
+			}
+		}
+		if !owes {
+			continue
+		}
 		p := d.arena[c].parent
 		if !indexed[p] {
 			indexed[p] = true
@@ -12771,10 +12790,46 @@ func (d *Document) refileFolded(folded []int) {
 		if atOf[c] < 0 {
 			continue
 		}
-		line := 0
-		for _, l := range foldedKept(&d.arena[c]) {
-			line = maxInt(line, l.line)
-			moves = append(moves, refileMove{p, atOf[c] + 1, line, l})
+		// What the later lines leave, as besideKept splits a node's lines: up
+		// to the last kept line among them. The rest are the comments written
+		// against a later line, which stay, but for the blank above them.
+		if ok {
+			t := d.arena[c].trivia
+			end := a
+			for k := b - 1; k >= a; k-- {
+				if t.leading[k].isKeptLine() {
+					end = k + 1
+					break
+				}
+			}
+			line := 0
+			for _, l := range t.leading[a:end] {
+				line = maxInt(line, l.line)
+				moves = append(moves, foldMove{p, atOf[c] + 1, line, []lead{l}, false})
+			}
+			t.leading = append(t.leading[:a], t.leading[end:]...)
+			// The first comment each later line left owes its blank.
+			r, first := 0, -1
+			for k := a; k < b-(end-a); k++ {
+				l := &t.leading[k]
+				for r < len(each) && each[r].line < l.line {
+					r++
+				}
+				if l.line == 0 || r == first {
+					continue
+				}
+				first = r
+				if l.blankBefore {
+					l.blankBefore = false
+					moves = append(moves, foldMove{p, atOf[c] + 1, l.line, nil, true})
+				}
+			}
+			restep(t.leading)
+		}
+		for _, f := range each {
+			if f.blank {
+				moves = append(moves, foldMove{p, atOf[c] + 1, f.line, nil, true})
+			}
 		}
 	}
 	if len(moves) == 0 {
@@ -12794,17 +12849,16 @@ func (d *Document) refileFolded(folded []int) {
 	for k := 0; k < len(moves); {
 		p, j := moves[k].parent, moves[k].at
 		var group []lead
+		blank := false
 		for ; k < len(moves) && moves[k].parent == p && moves[k].at == j; k++ {
-			group = append(group, moves[k].l)
+			group = append(group, moves[k].lines...)
+			blank = blank || moves[k].blank
 		}
-		d.adopt(d.heirAt(p, j), group, false)
+		d.adopt(d.heirAt(p, j), group, blank)
 		if k == len(moves) || moves[k].parent != p {
 			settleBlock(d.arena, p, 1)
 		}
 	}
-	// The first node can have lost the lines above it, and with them the room
-	// for a blank a re-mention left it.
-	settleFirstBlank(d.arena, &d.orphans)
 }
 
 // adopt gives to the lines an edit took off a node that went, and the blank

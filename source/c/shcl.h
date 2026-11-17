@@ -5052,7 +5052,13 @@ DEFINE_VEC(ShclVecLazy, ShclLazy)
 /* An array line a node's level was opened by, and what the node had before
    it: its leading line count, whether it had a trailing comment, and its
    blank. */
+/* blank is the blank above the line, which a re-mention owes the line after
+   it. */
 typedef struct { size_t node, line, leads; int trailing, blank; } ShclArrayMark;
+/* One fold or re-mention at load: the node a later line joined, that line,
+   and the blank above it. */
+typedef struct { size_t node, line; int blank; } ShclFoldRec;
+DEFINE_VEC(ShclVecFoldRec, ShclFoldRec)
 DEFINE_VEC(ShclVecArrayMark, ShclArrayMark)
 
 /* What a parse owns outright and has to give back, on the heap rather than in
@@ -5094,9 +5100,8 @@ typedef struct { shcl_doc *d; ShclArena *tmp; ShclArena *line; ShclArena *hints;
 	/* Parents where a remap ended up on a key a sibling already held: the only
 	   places a duplicate can survive the keyed lookup, so the fold starts here. */
 	ShclVecSize late_dups;
-	/* Nodes a fold or a re-mention gave a later line's leading lines to, for
-	   refile_folded(). */
-	ShclVecSize folded;
+	/* Each fold or re-mention, for adopt_folded(). */
+	ShclVecFoldRec folded;
 	/* shcl_parse_limited's caps, 0 = uncapped: nodes counted against the
 	   arena (root excluded) plus held, elements against a single value's
 	   cell. */
@@ -5462,7 +5467,7 @@ static void refile_pair(shcl_doc *d, size_t n, size_t i) { // NOLINT(bugprone-ea
    a new first line - where it is no longer first - would place a blank nobody
    wrote. Clear it wherever output starts. */
 static void settle_kept(shcl_doc *d); /* with the emitter, which it runs */
-static void refile_folded(shcl_doc *d, ShclVecSize *folded);
+static void adopt_folded(shcl_doc *d, ShclVecFoldRec *folded);
 static void resettle_kept(shcl_doc *d);
 static void settle_first_blank(shcl_doc *d) {
 	ShclVecSize kids = NODE(d, ROOT).children;
@@ -5585,8 +5590,9 @@ static void fold_dups_from(ShclParser *P, size_t start) {
 				/* Apart when a sibling kept since stands between them, as a
 				   merge at parse time asks of the newest child. */
 				hint_fold(P, parent, ch->data[hit], c, hit + 1 != w);
+				ShclFoldRec f; f.node = ch->data[hit]; f.line = NODE(d, c).line; f.blank = NODE(d, c).blank_before;
+				ShclVecFoldRec_push(P->tmp, &P->folded, f);
 				fold_node_into(d, ch->data[hit], c);
-				ShclVecSize_push(P->tmp, &P->folded, ch->data[hit]);
 				grew[hit] = 1;
 			} else {
 				cmap_put(t, &first, h, w);
@@ -5997,8 +6003,9 @@ static size_t array_under(ShclParser *P, size_t node) {
 		size_t up = NODE(d, node).parent;
 		/* The lines this one brought to the binding it joined go with it, and
 		   so do its blank and its comment, which its kept text has. */
-		int blank_before = NODE(d, node).blank_before && !mark.blank;
-		NODE(d, node).blank_before = mark.blank;
+		int blank_before = mark.blank;
+		for (size_t k = P->folded.len; k > 0; k--)
+			if (P->folded.data[k - 1].node == node && P->folded.data[k - 1].line == mark.line) { P->folded.data[k - 1].blank = 0; break; }
 		ShclTrivia *t = triv_mut(a, &NODE(d, node));
 		size_t at = min_sz(mark.leads, t->leading.len);
 		ShclVecLead moved = {0};
@@ -7146,8 +7153,11 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 			/* What the node had before this line, for an array line that
 			   turns out to have a field under it. */
 			ShclArrayMark mark; mark.node = node; mark.line = lineno; mark.leads = triv_leading(&NODE(d, node)).len;
-			mark.trailing = triv_trailing(&NODE(d, node)).n != 0; mark.blank = NODE(d, node).blank_before;
-			if (had_blank) NODE(d, node).blank_before = 1;
+			mark.trailing = triv_trailing(&NODE(d, node)).n != 0; mark.blank = had_blank;
+			/* A re-mention's blank goes on with what it leaves, in
+			   adopt_folded(). */
+			int again = NODE(d, node).line != lineno;
+			if (had_blank && !again) NODE(d, node).blank_before = 1;
 			if (next > i + 1) { ShclVecSize_push(a, &d->ends, lineno); ShclVecSize_push(a, &d->ends, next); }
 			/* A kept line before a dotted line sits level with its first
 			   segment, so it goes there with the comments before it. Under the
@@ -7157,7 +7167,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 				while (kf > 0 && !is_field(P.pending.data[kf - 1].text)) kf--;
 				give_pending(&P, head_of(&P, node, nsegs), indent, kf, SITE_LEADING);
 			}
-			if (NODE(d, node).line != lineno) ShclVecSize_push(P.tmp, &P.folded, node);
+			if (again) { ShclFoldRec rec; rec.node = node; rec.line = lineno; rec.blank = had_blank; ShclVecFoldRec_push(P.tmp, &P.folded, rec); }
 			attach_trivia(&P, node, indent, comment);
 			ShclStackEnt se; se.indent = indent; se.node = node; ShclVecStack_push(P.tmp, &P.stack, se);
 			if (arrayed) array_mark_set(&P, mark);
@@ -7179,7 +7189,6 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 	P.held_chain.len = 0;
 	for (size_t k = 0; k < P.pending.len; k++)
 		ShclVecLead_push(a, &d->orphans, lead_at(P.pending.data[k].text, P.pending.data[k].blank_before, comment_depth(&P, s_empty(), P.pending.data[k].text, P.pending.data[k].indent), P.pending.data[k].line));
-	settle_first_blank(d);
 	/* The one entry past the cap: what was not listed, and whether any of it
 	   was an error, so a consumer scanning the list for errors still finds
 	   one and a strict load still fails. */
@@ -7190,7 +7199,10 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 		sb_puts(a, &m, " more not listed, "); sb_put_u64(a, &m, P.unlisted_errors); sb_puts(a, &m, " of them errors");
 		push_diag(d, 0, P.unlisted_errors ? SHCL_SEV_ERROR : SHCL_SEV_HINT, "E022", sb_S(&m)); /* line 0: about the list */
 	}
-	refile_folded(d, &P.folded);
+	adopt_folded(d, &P.folded);
+	/* After the fold, which can give the first node a blank from a later line
+	   and the footer lines read before the ones there. */
+	settle_first_blank(d);
 	/* The parser's scratch is dead by now, and the settle builds in it. */
 	d->kept = P.kept_any;
 	d->arrays = P.kept_arrays;
@@ -8497,62 +8509,50 @@ static int beside_kept(shcl_doc *d, ShclNode *nd, ShclVecLead *left, int owed) {
 	return blank;
 }
 
-/* The kept lines a load's fold gave this node from a later instance of it,
-   with the comments before them, onto the end of left: what beside_kept
-   takes, from the first line read after the node's own. Only a fold puts
-   those there. */
-/* Where folded_kept would take its lines from in the node's leading list,
-   0 when it would take nothing. */
-static int folded_span(shcl_doc *d, ShclNode *nd, size_t *from_out, size_t *end_out) { // NOLINT(bugprone-easily-swappable-parameters): from, then end, as the Rust twin returns them
+/* The range of lines a load's fold or re-mention gave this node from a later
+   line: its leading lines from the first read after its own line, but the
+   kept line written in place of its line. 0 with none there. */
+static int folded_from(shcl_doc *d, ShclNode *nd, size_t *from_out, size_t *end_out) { // NOLINT(bugprone-easily-swappable-parameters): from, then end, as the Rust twin returns them
 	ShclTrivia *t = nd->trivia;
 	if (!t) return 0;
 	size_t from = t->leading.len;
 	for (size_t k = 0; k < t->leading.len; k++)
 		if (t->leading.data[k].line > nd->line) { from = k; break; }
 	if (from == t->leading.len) return 0;
-	int heads = heads_block(&d->scratch, nd);
-	size_t end = 0;
-	for (size_t k = t->leading.len - (heads ? 1 : 0); k > 0; k--)
-		if (lead_is_kept_line(&t->leading.data[k - 1])) { end = k; break; }
+	size_t end = t->leading.len - (heads_block(&d->scratch, nd) ? 1 : 0);
 	*from_out = from; *end_out = end;
 	return end > from;
 }
 
-static void folded_kept(shcl_doc *d, ShclNode *nd, ShclVecLead *left) {
-	size_t from, end;
-	if (!folded_span(d, nd, &from, &end)) return;
-	ShclTrivia *t = nd->trivia;
-	for (size_t k = from; k < end; k++) ShclVecLead_push(&d->arena, left, t->leading.data[k]);
-	memmove(t->leading.data + from, t->leading.data + end, (t->leading.len - end) * sizeof *t->leading.data);
-	t->leading.len -= end - from;
-	restep(&t->leading);
-}
-
-/* A load that folds 2 instances leaves the kept lines read beside the later
-   one where they were, as a setter's fold does: above the next sibling read
-   after them, or at the end of the block. folded holds the nodes a fold or a
-   re-mention gave lines to. */
-typedef struct { size_t parent, at, line, seq; ShclLead l; } ShclRefile;
-static int refile_cmp(const void *pa, const void *pb) {
-	const ShclRefile *x = (const ShclRefile *)pa, *y = (const ShclRefile *)pb;
+/* What adopt_folded hands on: the parent, the child it goes above (past the
+   last, the block's end), the line it was read at, the line when has is set,
+   and the blank. seq keeps the lines of one fold in their order. */
+typedef struct { size_t parent, at, line, seq; int has, blank; ShclLead l; } ShclFoldMove;
+static int fold_move_cmp(const void *pa, const void *pb) {
+	const ShclFoldMove *x = (const ShclFoldMove *)pa, *y = (const ShclFoldMove *)pb;
 	if (x->parent != y->parent) return x->parent < y->parent ? -1 : 1;
 	if (x->at != y->at) return x->at < y->at ? -1 : 1;
 	if (x->line != y->line) return x->line < y->line ? -1 : 1;
 	return x->seq < y->seq ? -1 : x->seq > y->seq;
 }
-/* For each move of refile_folded, at holds the first child it may go above.
-   Set it to the child the line goes above: the first at or past that one read
+static int fold_rec_cmp(const void *pa, const void *pb) {
+	const ShclFoldRec *x = (const ShclFoldRec *)pa, *y = (const ShclFoldRec *)pb;
+	if (x->node != y->node) return x->node < y->node ? -1 : 1;
+	return x->line < y->line ? -1 : x->line > y->line;
+}
+/* For each move of adopt_folded, at holds the first child it may go above.
+   Set it to the child the lines go above: the first at or past that one read
    after the line, or past the last. One sweep per parent from its end,
    keeping only the children no earlier one hides, so a fold far from its
    later instance doesn't walk every sibling between them. */
 static int place_cmp(const void *pa, const void *pb) {
-	const ShclRefile *x = *(const ShclRefile *const *)pa, *y = *(const ShclRefile *const *)pb;
+	const ShclFoldMove *x = *(const ShclFoldMove *const *)pa, *y = *(const ShclFoldMove *const *)pb;
 	if (x->parent != y->parent) return x->parent < y->parent ? -1 : 1;
 	if (x->at != y->at) return x->at > y->at ? -1 : 1;
 	return 0;
 }
-static void place_folded(shcl_doc *d, ShclRefile *moves, size_t n) {
-	ShclRefile **order = (ShclRefile **)arena_alloc(&d->scratch, n * sizeof *order);
+static void place_folded(shcl_doc *d, ShclFoldMove *moves, size_t n) {
+	ShclFoldMove **order = (ShclFoldMove **)arena_alloc(&d->scratch, n * sizeof *order);
 	for (size_t m = 0; m < n; m++) order[m] = &moves[m];
 	qsort((void *)order, n, sizeof *order, place_cmp);
 	/* Child places, their lines rising toward the bottom. */
@@ -8562,7 +8562,7 @@ static void place_folded(shcl_doc *d, ShclRefile *moves, size_t n) {
 		size_t *seen = (size_t *)arena_alloc(&d->scratch, (kids.len ? kids.len : 1) * sizeof *seen), nseen = 0;
 		size_t next = kids.len;
 		for (; k < n && order[k]->parent == p; k++) {
-			ShclRefile *m = order[k];
+			ShclFoldMove *m = order[k];
 			while (next > m->at) {
 				next--;
 				size_t line = NODE(d, kids.data[next]).line;
@@ -8580,31 +8580,53 @@ static void place_folded(shcl_doc *d, ShclRefile *moves, size_t n) {
 	}
 }
 
-static void refile_folded(shcl_doc *d, ShclVecSize *folded) {
-	if (!folded->len) return;
-	qsort(folded->data, folded->len, sizeof *folded->data, size_cmp);
-	/* Every line that binds to a node already there is in folded, so a file
-	   that re-opens many blocks has many with nothing to move, and those may
-	   cost no more than this test. */
-	size_t nkeep = 0;
-	for (size_t x = 0; x < folded->len; x++) {
-		size_t c = folded->data[x], from, end;
-		if (x > 0 && folded->data[x - 1] == c) continue;
-		if (folded_span(d, &NODE(d, c), &from, &end)) folded->data[nkeep++] = c;
+static void fold_move_push(shcl_doc *d, ShclFoldMove **moves, size_t *n, size_t *cap, ShclFoldMove m) { // NOLINT(bugprone-easily-swappable-parameters): count, then room
+	if (*n == *cap) {
+		size_t ncap = *cap ? 2 * *cap : 8;
+		ShclFoldMove *grown = (ShclFoldMove *)arena_alloc(&d->scratch, ncap * sizeof *grown);
+		if (*n) memcpy(grown, *moves, *n * sizeof **moves);
+		*moves = grown; *cap = ncap;
 	}
-	if (!nkeep) return;
+	m.seq = *n;
+	(*moves)[(*n)++] = m;
+}
+
+/* A load's fold hands on what the later instance leaves, as a setter's fold
+   does (collapse_dup): the kept lines read beside it, with the comments
+   before them, and the blank above it go to the next sibling read after
+   them, or the end of the block, through adopt. The comments written against
+   it stay with the node it joined. folded holds the node each fold or
+   re-mention joined, its line, and its blank. */
+static void adopt_folded(shcl_doc *d, ShclVecFoldRec *folded) {
+	if (!folded->len) return;
+	qsort(folded->data, folded->len, sizeof *folded->data, fold_rec_cmp);
 	/* Each node's place among its siblings, for the parents of these. */
 	size_t nn = d->nodes.len;
 	size_t *at_of = (size_t *)arena_alloc(&d->scratch, nn * sizeof *at_of);
 	unsigned char *indexed = (unsigned char *)arena_alloc(&d->scratch, nn);
 	for (size_t k = 0; k < nn; k++) at_of[k] = (size_t)-1;
 	memset(indexed, 0, nn);
-	/* Parent, the child they go above (past the last, the block's end), line,
-	   the line. All first, since 2 folds can fill one place. */
-	ShclRefile *moves = NULL;
+	/* All first, since 2 folds can fill one place. */
+	ShclFoldMove *moves = NULL;
 	size_t n = 0, cap = 0;
-	for (size_t x = 0; x < nkeep; x++) {
-		size_t c = folded->data[x];
+	for (size_t x = 0; x < folded->len;) {
+		size_t c = folded->data[x].node, y = x;
+		while (y < folded->len && folded->data[y].node == c) y++;
+		ShclFoldRec *each = folded->data + x;
+		size_t neach = y - x;
+		x = y;
+		/* Every line that binds to a node already there is here, so a file
+		   that re-opens many blocks has many with nothing to hand on, and
+		   those may cost no more than this test. */
+		size_t a = 0, b = 0;
+		int span = folded_from(d, &NODE(d, c), &a, &b);
+		int owes = 0;
+		for (size_t k = 0; k < neach && !owes; k++) owes = each[k].blank;
+		for (size_t k = a; span && !owes && k < b; k++) {
+			ShclLead *l = &NODE(d, c).trivia->leading.data[k];
+			owes = lead_is_kept_line(l) || l->blank_before;
+		}
+		if (!owes) continue;
 		size_t p = NODE(d, c).parent;
 		ShclVecSize kids = NODE(d, p).children;
 		if (!indexed[p]) {
@@ -8612,35 +8634,60 @@ static void refile_folded(shcl_doc *d, ShclVecSize *folded) {
 			for (size_t k = 0; k < kids.len; k++) at_of[kids.data[k]] = k;
 		}
 		if (at_of[c] == (size_t)-1) continue;
-		ShclVecLead left = {0};
-		folded_kept(d, &NODE(d, c), &left);
-		size_t line = 0;
-		for (size_t k = 0; k < left.len; k++) {
-			if (left.data[k].line > line) line = left.data[k].line;
-			if (n == cap) {
-				size_t ncap = cap ? 2 * cap : 8;
-				ShclRefile *grown = (ShclRefile *)arena_alloc(&d->scratch, ncap * sizeof *grown);
-				if (n) memcpy(grown, moves, n * sizeof *moves);
-				moves = grown; cap = ncap;
+		ShclFoldMove m;
+		memset(&m, 0, sizeof m);
+		m.parent = p; m.at = at_of[c] + 1;
+		/* What the later lines leave, as beside_kept splits a node's lines: up
+		   to the last kept line among them. The rest are the comments written
+		   against a later line, which stay, but for the blank above them. */
+		if (span) {
+			ShclTrivia *t = NODE(d, c).trivia;
+			size_t end = a;
+			for (size_t k = b; k > a; k--)
+				if (lead_is_kept_line(&t->leading.data[k - 1])) { end = k; break; }
+			size_t line = 0;
+			for (size_t k = a; k < end; k++) {
+				if (t->leading.data[k].line > line) line = t->leading.data[k].line;
+				m.line = line; m.has = 1; m.blank = 0; m.l = t->leading.data[k];
+				fold_move_push(d, &moves, &n, &cap, m);
 			}
-			moves[n].parent = p; moves[n].at = at_of[c] + 1; moves[n].line = line; moves[n].seq = n; moves[n].l = left.data[k];
-			n++;
+			memmove(t->leading.data + a, t->leading.data + end, (t->leading.len - end) * sizeof *t->leading.data);
+			t->leading.len -= end - a;
+			/* The first comment each later line left owes its blank. */
+			size_t r = 0, first = (size_t)-1;
+			for (size_t k = a; k < b - (end - a); k++) {
+				ShclLead *l = &t->leading.data[k];
+				while (r < neach && each[r].line < l->line) r++;
+				if (l->line == 0 || r == first) continue;
+				first = r;
+				if (l->blank_before) {
+					l->blank_before = 0;
+					m.line = l->line; m.has = 0; m.blank = 1;
+					fold_move_push(d, &moves, &n, &cap, m);
+				}
+			}
+			restep(&t->leading);
 		}
+		for (size_t k = 0; k < neach; k++)
+			if (each[k].blank) {
+				m.line = each[k].line; m.has = 0; m.blank = 1;
+				fold_move_push(d, &moves, &n, &cap, m);
+			}
 	}
 	if (!n) return;
 	place_folded(d, moves, n);
-	/* seq keeps the lines of one fold in their order. */
-	qsort(moves, n, sizeof *moves, refile_cmp);
+	qsort(moves, n, sizeof *moves, fold_move_cmp);
 	for (size_t k = 0; k < n;) {
 		size_t p = moves[k].parent, j = moves[k].at;
 		ShclVecLead group = {0};
-		for (; k < n && moves[k].parent == p && moves[k].at == j; k++) ShclVecLead_push(&d->arena, &group, moves[k].l);
-		adopt(d, heir_at(d, p, j), &group, 0);
+		int blank = 0;
+		for (; k < n && moves[k].parent == p && moves[k].at == j; k++) {
+			if (moves[k].has) ShclVecLead_push(&d->arena, &group, moves[k].l);
+			blank |= moves[k].blank;
+		}
+		adopt(d, heir_at(d, p, j), &group, blank);
 		if (k == n || moves[k].parent != p) settle_block(d, p, 1);
 	}
-	/* The first node can have lost the lines above it, and with them the room
-	   for a blank a re-mention left it. */
-	settle_first_blank(d);
 }
 
 /* Lines an edit took off a node that went, and the blank above it when blank

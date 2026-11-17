@@ -1,5 +1,4 @@
 # Indented style
-
 # Redundant path (collapses into Chicago)
 base: Chicago
 	metrics:
