@@ -35,6 +35,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Fuzz `dc26d` fails at iteration 1076243 at 2,000,000: a write on structural soup is not a fixpoint
+	- ID: 2026111703284678
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261117-032846
+	- Opened by:
+	- Progress log:
+		- Fails at iteration 1076243 (op 0, path "c", a value with an emoji flag, a dollar sign, a quote and a tab) on dev at 813dfecf, so it predates round nov17. Passes at 200,000. Found by the nov17 gate step's 2M release fuzz.
+	- Test case: dc26d (writes_on_structural_soup_stay_fixpoint) at SHCL_FUZZ_ITERS=2000000 in release
+
 - A load's fold of a second instance moves the blank line above it among the comments, or above the wrong field
 	- ID: 2026111700365065
 	- Type: Bug
