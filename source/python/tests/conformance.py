@@ -4324,6 +4324,14 @@ def main():
 		("a: 1\n## SHCL format 3-a37\n", 0, BT, 2, ""),
 		("note: ~~~\n## SHCL format 4.0\n~~~\n", 0, NF, 0, ""),
 		("a: 1\n## SHCL Format 3.0\n", 0, NF, 0, ""),
+		# A newer minor of this major is a newer format, and the highest
+		# minor decides (2026111702033137).
+		("a: 1\n## SHCL format 3.1\n", 3, G, 2, "H006"),
+		("a: 1\n##    Format   3.1-x9\n", 3, G, 2, "H006"),
+		("## SHCL format 3.0\n## SHCL format 3.1\n", 3, G, 2, "H006"),
+		("## SHCL format 3.1\n##    Format   3\n", 3, G, 1, "H006"),
+		("## SHCL format 3.99999999999\n", 3, G, 1, "H006"),
+		("## SHCL format 3.00\n", 3, G, 1, ""),
 	):
 		stamp = shcl.read_format_version(ftext)
 		if (stamp.value, stamp.status, stamp.line) != (fvalue, fstatus, fline):
@@ -4364,7 +4372,7 @@ def main():
 		if shcl.read_format_version(htext).value != hvalue:
 			raise SystemExit(f"read_format_version {htext!r}: {shcl.read_format_version(htext)}")
 		word = "newer" if hcode == "H006" else "older"
-		hwant = f"the file names format {hshown}, {word} than this reader's format {shcl.FORMAT_MAJOR},"
+		hwant = f"the file names format {hshown}, {word} than this reader's format {shcl.FORMAT_MAJOR}.{shcl.FORMAT_MINOR},"
 		quoted_hints = [d for d in shcl.Document.parse(htext).diagnostics() if d.code in ("H006", "H007")]
 		if len(quoted_hints) != 1 or (quoted_hints[0].code, quoted_hints[0].line) != (hcode, hline) \
 				or not quoted_hints[0].message.startswith(hwant):
@@ -6118,6 +6126,19 @@ def main():
 		nunder = shcl.Document.parse(newer)
 		nunder.merge(shcl.Document.parse("b: 2\n"))
 		nsame("merged under", nunder.newer_format(), True)
+		# A newer minor of this major is refused the same way, and upgrade
+		# leaves it alone (2026111702033137).
+		if os.path.exists(nother):
+			os.remove(nother)
+		for text in ("a: 1\n## SHCL format 3.1\n", "a: 1\n##    Format   3.1\n",
+				"## SHCL format 3.0\na: 1\n## SHCL format 3.1-x9\n"):
+			d = shcl.Document.parse(text)
+			nsame(repr(text), d.newer_format(), True)
+			nrefused(repr(text), lambda d=d: d.save_file(nother), nother)
+			nsame("none made " + repr(text), os.path.exists(nother), False)
+			for from_v2 in (False, True):
+				up = shcl.upgrade(text, from_v2)
+				nsame("upgrade " + repr(text), (up.current, up.text), (True, text))
 
 	test_id("ddrnd", "default_fills_what_does_not_read")
 	# A default form writes where the field is missing, empty or does not read

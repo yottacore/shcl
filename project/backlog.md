@@ -303,6 +303,61 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: every save and every text call that saves writes `## SHCL format 3.0`, or rewrites the stamp there, in all 4 and the C++ interface. The info block's row becomes `##    Format   3.0`. A stamp naming a newer minor of this major is refused for saves, as `TooNew` is.
 	- Estimated effort: Avg
 	- Note: `set_banner` and its `banner_spans` find a Format line by `FORMAT_LINE_HEAD` only, so they don't yet see a `## SHCL format` stamp. The Format read gives the major only, so a newer minor needs the minor from it too.
+	- Note: split for its time cap. The newer-minor refusal is child 2026111708125354, which is done. The info block's `3.0` row and the banner calls seeing the stamp are child 2026111708125373, and the stamp on every save is child 2026111708130702, both Queued.
+
+- Format versions: refuse a save of a file whose stamp names a newer minor
+	- ID: 2026111708125354
+	- Type: Feature
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-081253
+	- Opened by: me
+	- Parent ID: 2026111702033137
+	- Requirements: a stamp naming a newer minor of this major is refused for saves, as `TooNew` is, in all 4 and the C++ interface. The Format read takes the minor too.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261117: a newer minor sets the same newer flag a newer major does, so `H006`, `TooNew`, the CLI's exit 7 refusals and `upgrade` leaving the file alone all follow from the one reading. A minor adds syntax this reader doesn't know, so the hint fits it too.
+		- me, 20261117: where lines name the same major, the highest minor decides, the first of equals as before. The read's value is still the major, so `format_version` and `migrate` don't change.
+		- me, 20261117: `H006` and `H007` name this reader's format as `3.0` rather than `3`. An older minor of this major gets no hint, since it reads the same.
+			- 20261117: the expected message in `stamp_hints_quote_digits` (`de0zn`, `de0zp`, `de0zq`, `de0zr`) and in cli-regress `ddqhe` and `ddzwe` went from "this reader's format 3," to "this reader's format 3.0,". Nothing else they check changed.
+	- Actual fix: the stamp read gives the minor too (`stamp_format`, `stampFormat`, `_stamp_format`), and `names_newer` and its spellings decide the load's newer flag, the hint and `upgrade`'s early return, in all 4. The C++ interface wraps the C calls, so it changed with them. spec.md and design.md say so.
+	- Swept: every reader of the stamp's number in all 4: `format_line_read` and its spellings, the load's newer flag and hint, `upgrade` (C `shcl_upgrade` and `upgrade_into`), `migrate_text` and `restamp`. `migrate` and `restamp` compare the major only, which a newer minor already passes as current. No CLI reads the line itself.
+	- Verified: the new rows fail in all 4 on the unfixed library, `stamp_reads_say_why`, `stamp_hints_quote_digits` and `a_newer_format_document_saves_nowhere` in Rust, Go and C, and the first in Python, which stops there, and pass with the fix. `--backlog-run-quick rust python` and `--backlog-run-quick go c cli` passed, as did cli-regress over the 4 CLIs, the crosscheck over the corpus (23862 comparisons), check-docs, check-veneer, `test-ids.py check` and `lint-report.bash --check --no-mark`. analyze-c's 2 reds are the older `set_off` and `fs_property.c` ones (2026111623502776).
+	- Test case: new rows in `stamp_reads_say_why` (`ddqh8`, `ddqh9`, `ddqha`, `ddqhb`), `stamp_hints_quote_digits` (`de0zn`, `de0zp`, `de0zq`, `de0zr`), new asserts in `a_newer_format_document_saves_nowhere` (`dekvt`, `dekvv`, `dekvw`, `dekvx`), and cli-regress `dfe2v`, `dfe2w`, `dfe2x`, `dfe2y`.
+	- Acceptance signoff: Self-closed: the refusal is what the parent asks for, and its tests failed before and pass after.
+	- Branch: `nov17b-2026111702033137`
+	- Closed: 20261117-081329
+
+- Format versions: write `##    Format   3.0` in the info block, and let the banner calls see a `## SHCL format` stamp
+	- ID: 2026111708125373
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-081253
+	- Opened by: me
+	- Parent ID: 2026111702033137
+	- Requirements: the info block's row is `##    Format   3.0` wherever the block is written, in all 4 and the C++ interface. `set_banner`, `banner_spans` and `swap_banner` find a `## SHCL format` stamp as they find a Format line.
+	- Estimated effort: Avg
+	- Note: `FORMAT_LINE` changes every banner and every `migrate` stamp, so corpus outputs and cli-regress rows change with it. A changed corpus input shifts the fuzz seeds, so a 2M release fuzz and check-migrate go on the same commit.
+
+- Format versions: write the stamp on every save and every text call that saves
+	- ID: 2026111708130702
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-081307
+	- Opened by: me
+	- Parent ID: 2026111702033137
+	- Prereq IDs: 2026111708125373
+	- Requirements: every save and every text call that saves writes `## SHCL format 3.0` at the end, or rewrites the stamp there to name this format, in all 4 and the C++ interface. `fmt --check` and the write's nothing-to-write check agree with it.
+	- Estimated effort: High
+	- Decisions:
+		- me, 20261117: the stamp goes in through `to_canonical` and `to_text_keep_lines` (each binding's spelling), which every save and every save through text go through. So `fmt` to stdout, `set`'s print and `fmt --check` match `--write`, and every corpus `expected.shcl` gains the stamp. Stamping only in the file saves and the CLI writes would leave those 3 to add it on their own.
+	- Note: a line-keeping save adds the stamp as a new last line, so an unedited file without one no longer comes back byte for byte. The fuzz gets a property that a saved file names this format and reloads the same (design doc, Testing).
 
 - Format versions: find an unstamped file's format, and convert any older one
 	- ID: 2026111018212703

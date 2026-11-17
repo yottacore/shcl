@@ -1045,7 +1045,7 @@ rows=(
 	## a hint, H006 newer and H007 older, on every loading command. A hint
 	## changes no outcome, so Strict still passes. A line whose number does
 	## not read gets none (2026100912352401 gives it a status instead).
-	"ddqhe|stamp-newer-hint|check -|a: 1\n##    Format   4\n|0|line 2: Hint: H006\nok (1 diagnostic(s))\n|=line 2: Hint: H006 the file names format 4, newer than this reader's format 3, so some lines may read differently than written\n(run 'shcl explain CODE' for the rule behind a code)\n"
+	"ddqhe|stamp-newer-hint|check -|a: 1\n##    Format   4\n|0|line 2: Hint: H006\nok (1 diagnostic(s))\n|=line 2: Hint: H006 the file names format 4, newer than this reader's format 3.0, so some lines may read differently than written\n(run 'shcl explain CODE' for the rule behind a code)\n"
 	'ddqhf|stamp-older-hint|get - p|p: a,b\n##    Format   2\n|0|a,b\n|^line 2: Hint: H007 .*; shcl upgrade --from-2x rewrites it$'
 	## 2026100717500017: with --from-2x, a file whose only change is its stamp
 	## gets this format on that line, so H007's advice does something. Without
@@ -1073,7 +1073,7 @@ rows=(
 	## when the fresh text loads clean, as for a beta file, so a later run
 	## never reads its own output by 2.x rules.
 	'de02y|upgrade-from-2x-left|upgrade --from-2x -|a: 1\nb 2\n|7||=line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\n-: line(s) 2 would still have an error once converted from 2.x; nothing written\n'
-	'ddzwe|upgrade-newer-diags|upgrade -|a: 1\n##    Format   4\n|0|a: 1\n##    Format   4\n|=line 2: Hint: H006 the file names format 4, newer than this reader\x27s format 3, so some lines may read differently than written\n-: nothing to upgrade, left as is\n'
+	'ddzwe|upgrade-newer-diags|upgrade -|a: 1\n##    Format   4\n|0|a: 1\n##    Format   4\n|=line 2: Hint: H006 the file names format 4, newer than this reader\x27s format 3.0, so some lines may read differently than written\n-: nothing to upgrade, left as is\n'
 	## 2026101514324701: a refused line led by a tilde or backtick still takes
 	## its raw block, so the Format and Schema reads find the lines after the
 	## block, and none inside it. The block's closing fence opened one that ran
@@ -1113,6 +1113,12 @@ rows=(
 	'detr2|set-print-newer-after-current|set --set=p=y -|##    Format   3\np: x\n##    Format   4\n|7||refusing to print: the document has lines from a newer format'
 	'detr3|fmt-check-newer-after-current|fmt --check -|##    Format   3\np: x\n##    Format   4\n|7||fmt --write would refuse: the document has lines from a newer format'
 	'detr4|upgrade-newer-after-current|upgrade --from-2x -|##    Format   3\np: a, b\n##    Format   4\n|0|##    Format   3\np: a, b\n##    Format   4\n|^line 3: Hint: H006 the file names format 4, newer'
+	## 2026111702033137: a newer minor of this major is a newer format: the
+	## load hints H006, and every write and print that would save refuses.
+	"dfe2v|check-newer-minor|check -|a: 1\n## SHCL format 3.1\n|0|line 2: Hint: H006\nok (1 diagnostic(s))\n|=line 2: Hint: H006 the file names format 3.1, newer than this reader's format 3.0, so some lines may read differently than written\n(run 'shcl explain CODE' for the rule behind a code)\n"
+	'dfe2w|set-print-newer-minor|set --set=a=2 -|a: 1\n## SHCL format 3.1\n|7||refusing to print: the document has lines from a newer format'
+	'dfe2x|fmt-check-newer-minor|fmt --check -|a: 1\n##    Format   3.1\n|7||fmt --write would refuse: the document has lines from a newer format'
+	'dfe2y|upgrade-newer-minor|upgrade --from-2x -|p: a, b\n## SHCL format 3.1\n|0|p: a, b\n## SHCL format 3.1\n|^line 2: Hint: H006 the file names format 3.1, newer'
 	## 2026102307035776: a '#' against text opens a comment as any other does,
 	## and the load hints H008 so the cut is not silent. A blank before it gets
 	## none, and Strict still passes. The prose is the same in all four.

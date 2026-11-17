@@ -2784,16 +2784,18 @@ _FORMAT_WORD = "##    Format"
 _STAMP_WORD = "## SHCL format"
 
 
-def _stamp_major(n: str) -> int | None:
-	"""The major a stamp's format names: `3` as beta1 wrote it, `3.0`, or a pin
-	such as `3.0-a37`. None when it is none of those. A major too big for 32
-	bits reads as the largest that fits, a format newer than this one."""
+def _stamp_format(n: str) -> tuple[int, int] | None:
+	"""The major and minor a stamp's format names: `3` as beta1 wrote it,
+	which is minor 0, `3.0`, or a pin such as `3.0-a37`. None when it is none
+	of those. A number too big for 32 bits reads as the largest that fits, a
+	format newer than this one."""
 	k = 0
 	while k < len(n) and "0" <= n[k] <= "9":
 		k += 1
 	if k == 0:
 		return None
 	rest = n[k:]
+	minor = "0"
 	if rest:
 		if rest[0] != ".":
 			return None
@@ -2802,12 +2804,27 @@ def _stamp_major(n: str) -> int | None:
 			return None
 		if has_pin and (not pin or not all("0" <= c <= "9" or "a" <= c <= "z" for c in pin)):
 			return None
-	# A number too long for int() - CPython refuses past 4300 digits - is one
-	# no format will ever have (20260918b item 30). Read as this major, a
-	# number that doesn't fit would make a file `upgrade --from-2x` takes for
-	# a beta one.
-	major = n[:k].lstrip("0") or "0"
-	return 0xFFFFFFFF if len(major) > 10 or int(major) > 0xFFFFFFFF else int(major)
+		minor = digits
+	return _stamp_number(n[:k]), _stamp_number(minor)
+
+
+def _stamp_number(digits: str) -> int:
+	"""A stamp's number, capped at 32 bits. A number too long for int() -
+	CPython refuses past 4300 digits - is one no format will ever have
+	(20260918b item 30). Read as this major, a number that doesn't fit would
+	make a file `upgrade --from-2x` takes for a beta one."""
+	v = digits.lstrip("0") or "0"
+	return 0xFFFFFFFF if len(v) > 10 or int(v) > 0xFFFFFFFF else int(v)
+
+
+def _names_newer(stamp: Read[int]) -> bool:
+	"""The stamp names a newer format than this reader's: a newer major, or a
+	newer minor of this one, whose added syntax these rules don't know. A save
+	of it would write those lines by these rules, so none does."""
+	if stamp.status is not Status.Good:
+		return False
+	f = _stamp_format(stamp.raw or "")
+	return f is not None and f > (FORMAT_MAJOR, FORMAT_MINOR)
 
 
 def _format_line_read(text: str) -> Read[int]:
@@ -2830,8 +2847,8 @@ def _format_line_read(text: str) -> Read[int]:
 		return Read(0, Status.NotFound, None)
 	now = _RawLines(Rules.Current)
 	then = _RawLines(Rules.V2)
-	found: Read[int] | None = None
-	newest: Read[int] | None = None
+	found: tuple[tuple[int, int], Read[int]] | None = None
+	newest: tuple[tuple[int, int], Read[int]] | None = None
 	unread: Read[int] | None = None
 	for i, line in enumerate(text.split("\n")):
 		current = now.step(line)
@@ -2847,20 +2864,20 @@ def _format_line_read(text: str) -> Read[int]:
 			n = ""
 		else:
 			continue
-		v = _stamp_major(n)
+		v = _stamp_format(n)
 		if v is None:
 			if unread is None:
 				unread = Read(0, Status.BadType if n else Status.Empty, n)._at(i + 1, None)
 			continue
-		if v >= FORMAT_MAJOR:
-			if current is not None and (newest is None or v > newest.value):
-				newest = Read(v, Status.Good, n)._at(i + 1, None)
-		elif old is not None and (found is None or v > found.value):
-			found = Read(v, Status.Good, n)._at(i + 1, None)
+		if v[0] >= FORMAT_MAJOR:
+			if current is not None and (newest is None or v > newest[0]):
+				newest = (v, Read(v[0], Status.Good, n)._at(i + 1, None))
+		elif old is not None and (found is None or v > found[0]):
+			found = (v, Read(v[0], Status.Good, n)._at(i + 1, None))
 	if newest is not None:
-		return newest
+		return newest[1]
 	if found is not None:
-		return found
+		return found[1]
 	if unread is not None:
 		return unread
 	return Read(0, Status.NotFound, None)
@@ -2886,20 +2903,22 @@ def _restamp(text: str, line: int) -> str | None:
 
 
 def _stamp_hint(stamp: Read[int]) -> Diagnostic | None:
-	"""The load's hint for a file whose Format line names another major than
-	this one: H006 for a newer one, H007 for an older one. It reads the line
-	the way read_format_version() does, so the two never disagree. The number
-	is quoted as written, leading zeros and all, since the read caps one too
-	big for 32 bits."""
-	if stamp.status is not Status.Good or stamp.value == FORMAT_MAJOR:
+	"""The load's hint for a file whose Format line names another format than
+	this one: H006 for a newer one, a newer minor of this major included, and
+	H007 for an older major. An older minor reads the same, so it gets none.
+	It reads the line the way read_format_version() does, so the two never
+	disagree. The number is quoted as written, leading zeros and all, since
+	the read caps one too big for 32 bits."""
+	newer = _names_newer(stamp)
+	if stamp.status is not Status.Good or (not newer and stamp.value >= FORMAT_MAJOR):
 		return None
 	written = _one_line(stamp.raw or "")
-	if stamp.value > FORMAT_MAJOR:
+	if newer:
 		return Diagnostic(stamp.line, Severity.Hint,
-			f"the file names format {written}, newer than this reader's format {FORMAT_MAJOR}, "
+			f"the file names format {written}, newer than this reader's format {FORMAT_MAJOR}.{FORMAT_MINOR}, "
 			"so some lines may read differently than written", "H006")
 	return Diagnostic(stamp.line, Severity.Hint,
-		f"the file names format {written}, older than this reader's format {FORMAT_MAJOR}, "
+		f"the file names format {written}, older than this reader's format {FORMAT_MAJOR}.{FORMAT_MINOR}, "
 		"so some lines may read differently than written; shcl upgrade --from-2x rewrites it", "H007")
 
 
@@ -3191,7 +3210,7 @@ def upgrade(text: str, from_v2: bool) -> Upgrade:
 	named = read_format_version(text)
 	version = named.value if named.status is Status.Good else None
 	up = Upgrade(text, True, version if version is not None else 2)
-	if version is not None and (version > FORMAT_MAJOR or (version == FORMAT_MAJOR and not from_v2)):
+	if _names_newer(named) or (version == FORMAT_MAJOR and not from_v2):
 		return up
 	before = Document.parse(text)
 	clean = before.error_count() == 0
@@ -5120,7 +5139,7 @@ class _Parser:
 			lines.pop()
 		self.src = lines
 		stamp = _format_line_read(text)
-		newer = stamp.status == Status.Good and stamp.value > FORMAT_MAJOR
+		newer = _names_newer(stamp)
 		hint = _stamp_hint(stamp)
 		if hint is not None:
 			self._diag(hint)

@@ -3281,43 +3281,60 @@ const formatWord = "##    Format"
 // formatWord is.
 const stampWord = "## SHCL format"
 
-// stampMajor is the major a stamp's format names: `3` as beta1 wrote it,
-// `3.0`, or a pin such as `3.0-a37`. ok is false when it is none of those. A
-// major too big for 32 bits reads as the largest that fits, a format newer
-// than this one.
-func stampMajor(n string) (int, bool) {
+// stampFormat is the major and minor a stamp's format names: `3` as beta1
+// wrote it, which is minor 0, `3.0`, or a pin such as `3.0-a37`. ok is false
+// when it is none of those. A number too big for 32 bits reads as the largest
+// that fits, a format newer than this one.
+func stampFormat(n string) (major, minor int, ok bool) {
 	k := 0
 	for k < len(n) && n[k] >= '0' && n[k] <= '9' {
 		k++
 	}
 	if k == 0 {
-		return 0, false
+		return 0, 0, false
 	}
 	if rest := n[k:]; rest != "" {
-		minor, ok := strings.CutPrefix(rest, ".")
+		after, ok := strings.CutPrefix(rest, ".")
 		if !ok {
-			return 0, false
+			return 0, 0, false
 		}
-		digits, pin, hasPin := strings.Cut(minor, "-")
+		digits, pin, hasPin := strings.Cut(after, "-")
 		if digits == "" || (hasPin && pin == "") {
-			return 0, false
+			return 0, 0, false
 		}
 		for j := 0; j < len(digits); j++ {
 			if digits[j] < '0' || digits[j] > '9' {
-				return 0, false
+				return 0, 0, false
 			}
 		}
 		for j := 0; j < len(pin); j++ {
 			if (pin[j] < '0' || pin[j] > '9') && (pin[j] < 'a' || pin[j] > 'z') {
-				return 0, false
+				return 0, 0, false
 			}
 		}
+		minor = stampNumber(digits)
 	}
-	v, err := strconv.Atoi(n[:k])
+	return stampNumber(n[:k]), minor, true
+}
+
+// stampNumber is a stamp's number, capped at 32 bits.
+func stampNumber(digits string) int {
+	v, err := strconv.Atoi(digits)
 	if err != nil || v > math.MaxUint32 {
 		v = math.MaxUint32
 	}
-	return v, true
+	return v
+}
+
+// namesNewer says the stamp names a newer format than this reader's: a newer
+// major, or a newer minor of this one, whose added syntax these rules don't
+// know. A save of it would write those lines by these rules, so none does.
+func namesNewer(stamp Read[int]) bool {
+	if stamp.Status != Good || stamp.Raw == nil {
+		return false
+	}
+	major, minor, ok := stampFormat(*stamp.Raw)
+	return ok && (major > FormatMajor || (major == FormatMajor && minor > FormatMinor))
 }
 
 // SchemaRef is the schema a document's `##    Schema   REF` line names: a
@@ -3451,6 +3468,8 @@ func formatLineRead(text string) Read[int] {
 	now := newRawLines(RulesCurrent)
 	then := newRawLines(RulesV2)
 	var found, newest, unread Read[int]
+	// The minors of found and newest, which decide between equal majors.
+	var foundMinor, newestMinor int
 	for i, line := range strings.Split(text, "\n") {
 		current, inNow := now.step(line)
 		old, inThen := then.step(line)
@@ -3471,7 +3490,7 @@ func formatLineRead(text string) Read[int] {
 			}
 			n = ""
 		}
-		v, ok := stampMajor(n)
+		v, minor, ok := stampFormat(n)
 		if !ok {
 			if unread.Line == 0 {
 				unread = Read[int]{Status: BadType, Raw: &n, Line: i + 1}
@@ -3482,11 +3501,13 @@ func formatLineRead(text string) Read[int] {
 			continue
 		}
 		if v >= FormatMajor {
-			if inNow && (newest.Line == 0 || v > newest.Value) {
+			if inNow && (newest.Line == 0 || v > newest.Value || (v == newest.Value && minor > newestMinor)) {
 				newest = Read[int]{Value: v, Status: Good, Raw: &n, Line: i + 1}
+				newestMinor = minor
 			}
-		} else if inThen && (found.Line == 0 || v > found.Value) {
+		} else if inThen && (found.Line == 0 || v > found.Value || (v == found.Value && minor > foundMinor)) {
 			found = Read[int]{Value: v, Status: Good, Raw: &n, Line: i + 1}
+			foundMinor = minor
 		}
 	}
 	if newest.Line != 0 {
@@ -3536,12 +3557,14 @@ func restamp(text string, line int) (string, bool) {
 }
 
 // stampHint is the load's hint for a file whose Format line names another
-// major than this one: H006 for a newer one, H007 for an older one. It reads
-// the line the way ReadFormatVersion does, so the two never disagree. The
-// number is quoted as written, leading zeros and all, since the read caps one
-// too big for 32 bits.
+// format than this one: H006 for a newer one, a newer minor of this major
+// included, and H007 for an older major. An older minor reads the same, so it
+// gets none. It reads the line the way ReadFormatVersion does, so the two
+// never disagree. The number is quoted as written, leading zeros and all,
+// since the read caps one too big for 32 bits.
 func stampHint(stamp Read[int]) (Diagnostic, bool) {
-	if stamp.Status != Good || stamp.Value == FormatMajor {
+	newer := namesNewer(stamp)
+	if stamp.Status != Good || (!newer && stamp.Value >= FormatMajor) {
 		return Diagnostic{}, false
 	}
 	written := ""
@@ -3549,13 +3572,13 @@ func stampHint(stamp Read[int]) (Diagnostic, bool) {
 		written = oneLine(*stamp.Raw)
 	}
 	d := Diagnostic{Line: stamp.Line, Severity: SeverityHint, Code: "H006", Message: fmt.Sprintf(
-		"the file names format %s, newer than this reader's format %d, so some lines may read differently than written",
-		written, FormatMajor)}
-	if stamp.Value < FormatMajor {
+		"the file names format %s, newer than this reader's format %d.%d, so some lines may read differently than written",
+		written, FormatMajor, FormatMinor)}
+	if !newer {
 		d.Code = "H007"
 		d.Message = fmt.Sprintf(
-			"the file names format %s, older than this reader's format %d, so some lines may read differently than written; shcl upgrade --from-2x rewrites it",
-			written, FormatMajor)
+			"the file names format %s, older than this reader's format %d.%d, so some lines may read differently than written; shcl upgrade --from-2x rewrites it",
+			written, FormatMajor, FormatMinor)
 	}
 	return d, true
 }
@@ -3794,7 +3817,7 @@ func Upgrade(text string, fromV2 bool) Upgraded {
 	if hasVersion {
 		up.Format = version
 	}
-	if hasVersion && (version > FormatMajor || (version == FormatMajor && !fromV2)) {
+	if namesNewer(named) || (hasVersion && version == FormatMajor && !fromV2) {
 		return up
 	}
 	before := Parse(text)
@@ -6454,7 +6477,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 	}
 	p.src = lines
 	stamp := formatLineRead(text)
-	newer := stamp.Status == Good && stamp.Value > FormatMajor
+	newer := namesNewer(stamp)
 	if d, ok := stampHint(stamp); ok {
 		p.diag(d)
 	}

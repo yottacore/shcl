@@ -4550,6 +4550,14 @@ func TestStampReadsSayWhy(t *testing.T) {
 		{"a: 1\n## SHCL format 3-a37\n", 0, BadType, 2, ""},
 		{"note: ~~~\n## SHCL format 4.0\n~~~\n", 0, NotFound, 0, ""},
 		{"a: 1\n## SHCL Format 3.0\n", 0, NotFound, 0, ""},
+		// A newer minor of this major is a newer format, and the highest
+		// minor decides (2026111702033137).
+		{"a: 1\n## SHCL format 3.1\n", 3, Good, 2, "H006"},
+		{"a: 1\n##    Format   3.1-x9\n", 3, Good, 2, "H006"},
+		{"## SHCL format 3.0\n## SHCL format 3.1\n", 3, Good, 2, "H006"},
+		{"## SHCL format 3.1\n##    Format   3\n", 3, Good, 1, "H006"},
+		{"## SHCL format 3.99999999999\n", 3, Good, 1, "H006"},
+		{"## SHCL format 3.00\n", 3, Good, 1, ""},
 	}
 	for _, c := range formats {
 		r := ReadFormatVersion(c.text)
@@ -4627,7 +4635,7 @@ func TestStampHintsQuoteDigits(t *testing.T) {
 		if c.code == "H007" {
 			word = "older"
 		}
-		want := fmt.Sprintf("the file names format %s, %s than this reader's format %d,", c.shown, word, FormatMajor)
+		want := fmt.Sprintf("the file names format %s, %s than this reader's format %d.%d,", c.shown, word, FormatMajor, FormatMinor)
 		var hints []Diagnostic
 		for _, d := range Parse(c.text).Diagnostics() {
 			if d.Code == "H006" || d.Code == "H007" {
@@ -8068,6 +8076,28 @@ func TestANewerFormatDocumentSavesNowhere(t *testing.T) {
 	under.Merge(Parse("b: 2\n"))
 	if !under.NewerFormat() {
 		t.Errorf("a merge onto a newer document: not newer")
+	}
+	// A newer minor of this major is refused the same way, and Upgrade
+	// leaves it alone (2026111702033137).
+	_ = os.Remove(other)
+	for _, text := range []string{
+		"a: 1\n## SHCL format 3.1\n",
+		"a: 1\n##    Format   3.1\n",
+		"## SHCL format 3.0\na: 1\n## SHCL format 3.1-x9\n",
+	} {
+		d := Parse(text)
+		if !d.NewerFormat() {
+			t.Errorf("%q: not newer", text)
+		}
+		tooNew(text, d.SaveFile(other), other)
+		if _, err := os.Stat(other); err == nil {
+			t.Errorf("%q: a file was made", text)
+		}
+		for _, fromV2 := range []bool{false, true} {
+			if up := Upgrade(text, fromV2); !up.Current || up.Text != text {
+				t.Errorf("%q: Upgrade(%v) gave %+v", text, fromV2, up)
+			}
+		}
 	}
 }
 

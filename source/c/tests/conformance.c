@@ -5024,6 +5024,14 @@ int main(int argc, char **argv) {
 			{"a: 1\n## SHCL format 3-a37\n", 0, SHCL_BAD_TYPE, 2, ""},
 			{"note: ~~~\n## SHCL format 4.0\n~~~\n", 0, SHCL_NOT_FOUND, 0, ""},
 			{"a: 1\n## SHCL Format 3.0\n", 0, SHCL_NOT_FOUND, 0, ""},
+			/* A newer minor of this major is a newer format, and the highest
+			   minor decides (2026111702033137). */
+			{"a: 1\n## SHCL format 3.1\n", 3, SHCL_GOOD, 2, "H006"},
+			{"a: 1\n##    Format   3.1-x9\n", 3, SHCL_GOOD, 2, "H006"},
+			{"## SHCL format 3.0\n## SHCL format 3.1\n", 3, SHCL_GOOD, 2, "H006"},
+			{"## SHCL format 3.1\n##    Format   3\n", 3, SHCL_GOOD, 1, "H006"},
+			{"## SHCL format 3.99999999999\n", 3, SHCL_GOOD, 1, "H006"},
+			{"## SHCL format 3.00\n", 3, SHCL_GOOD, 1, ""},
 		};
 		for (size_t k = 0; k < sizeof ft / sizeof ft[0]; k++) {
 			size_t n = strlen(ft[k].text);
@@ -5079,7 +5087,7 @@ int main(int argc, char **argv) {
 			size_t n = strlen(ht[k].text);
 			if (shcl_read_format_version(ht[k].text, n).value != ht[k].value) fail("stamp_hints_quote_digits", ht[k].text);
 			char want[512];
-			snprintf(want, sizeof want, "the file names format %s, %s than this reader's format %d,", ht[k].shown, strcmp(ht[k].code, "H006") ? "older" : "newer", SHCL_FORMAT_MAJOR);
+			snprintf(want, sizeof want, "the file names format %s, %s than this reader's format %d.%d,", ht[k].shown, strcmp(ht[k].code, "H006") ? "older" : "newer", SHCL_FORMAT_MAJOR, SHCL_FORMAT_MINOR);
 			shcl_doc *hd = shcl_parse(ht[k].text, n);
 			size_t hints = 0;
 			for (size_t i = 0; i < shcl_diag_count(hd); i++) {
@@ -7851,6 +7859,28 @@ int main(int argc, char **argv) {
 		shcl_free(cur);
 		shcl_free(lay);
 		shcl_free(base);
+		/* A newer minor of this major is refused the same way, and upgrade
+		   leaves it alone (2026111702033137). */
+		remove(other);
+		const char *minors[] = {
+			"a: 1\n## SHCL format 3.1\n",
+			"a: 1\n##    Format   3.1\n",
+			"## SHCL format 3.0\na: 1\n## SHCL format 3.1-x9\n",
+		};
+		for (size_t i = 0; i < sizeof minors / sizeof *minors; i++) {
+			shcl_doc *d = shcl_parse(minors[i], strlen(minors[i]));
+			if (!shcl_newer_format(d)) fail(at, minors[i]);
+			if (shcl_save_file(d, other, NULL) != SHCL_SAVE_TOO_NEW) fail(at, minors[i]);
+			shcl_free(d);
+			ost = SHCL_FILE_CLEAN;
+			free(shcl_read_file(other, 0, NULL, &ost));
+			if (ost != SHCL_FILE_NOT_FOUND) fail(at, minors[i]);
+			for (int v2 = 0; v2 < 2; v2++) {
+				shcl_upgraded up = shcl_upgrade(minors[i], strlen(minors[i]), v2);
+				if (!up.current || up.len != strlen(minors[i]) || memcmp(up.text, minors[i], up.len) != 0) fail(at, minors[i]);
+				shcl_upgraded_free(&up);
+			}
+		}
 		dir_clear(ndir);
 	}
 	test_id_end();

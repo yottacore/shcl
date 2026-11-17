@@ -4717,6 +4717,20 @@ fn stamp_reads_say_why() {
 		("a: 1\n## SHCL format 3-a37\n", 0, BadType, 2, ""),
 		("note: ~~~\n## SHCL format 4.0\n~~~\n", 0, NotFound, 0, ""),
 		("a: 1\n## SHCL Format 3.0\n", 0, NotFound, 0, ""),
+		// A newer minor of this major is a newer format, and the highest
+		// minor decides (2026111702033137).
+		("a: 1\n## SHCL format 3.1\n", 3, Good, 2, "H006"),
+		("a: 1\n##    Format   3.1-x9\n", 3, Good, 2, "H006"),
+		(
+			"## SHCL format 3.0\n## SHCL format 3.1\n",
+			3,
+			Good,
+			2,
+			"H006",
+		),
+		("## SHCL format 3.1\n##    Format   3\n", 3, Good, 1, "H006"),
+		("## SHCL format 3.99999999999\n", 3, Good, 1, "H006"),
+		("## SHCL format 3.00\n", 3, Good, 1, ""),
 	];
 	for (text, value, status, line, hint) in formats {
 		let r = read_format_version(text);
@@ -4831,8 +4845,8 @@ fn stamp_hints_quote_digits() {
 		assert_eq!(read_format_version(&text).value, value, "{:?}", text);
 		let word = if code == "H006" { "newer" } else { "older" };
 		let want = format!(
-			"the file names format {}, {} than this reader's format {},",
-			shown, word, FORMAT_MAJOR
+			"the file names format {}, {} than this reader's format {}.{},",
+			shown, word, FORMAT_MAJOR, FORMAT_MINOR
 		);
 		let doc = Document::parse(&text);
 		let hints: Vec<_> = doc
@@ -6692,5 +6706,23 @@ fn a_newer_format_document_saves_nowhere() {
 	let mut under = Document::parse(newer);
 	under.merge(&Document::parse("b: 2\n"));
 	assert!(under.newer_format());
+	// A newer minor of this major is refused the same way, and upgrade
+	// leaves it alone (2026111702033137).
+	let _ = std::fs::remove_file(&other);
+	for text in [
+		"a: 1\n## SHCL format 3.1\n",
+		"a: 1\n##    Format   3.1\n",
+		"## SHCL format 3.0\na: 1\n## SHCL format 3.1-x9\n",
+	] {
+		let mut d = Document::parse(text);
+		assert!(d.newer_format(), "{text:?}");
+		assert_eq!(d.save_file(&other), Err(too_new(&other)), "{text:?}");
+		assert!(!Path::new(&other).exists());
+		for from_v2 in [false, true] {
+			let up = shcl::upgrade(text, from_v2);
+			assert!(up.current, "{text:?}");
+			assert_eq!(up.text, text);
+		}
+	}
 	let _ = std::fs::remove_dir_all(&dir);
 }

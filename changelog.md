@@ -24,6 +24,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `instances`, `get --array`, and `get --slots` print a value quoted when it has any line break that Python's `splitlines()` splits at. Besides LF and CR, those are VT, FF, U+001C to U+001E, U+0085, U+2028, and U+2029. Those used to print bare, so a consumer splitting the output counted more values than there were.
 
+- A file whose stamp names a newer minor of this format, such as `## SHCL format 3.1`, is a newer format: the load hints `H006`, no save writes it, and `upgrade` leaves it alone, as for a newer major. `H006` and `H007` name this reader's format as `3.0`.
+
 ### Fixed
 
 - `fmt` wrote a comment one level in when a blank line set it off from the comments above and the line under it was a top-level line kept for an error. Any edit put it back at column 0, so the file had 2 forms. It's written at column 0 now, and the save that keeps lines leaves it as written after an edit.

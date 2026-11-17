@@ -3779,7 +3779,7 @@ static int raw_lines_step(ShclArena *ta, ShclArena *sc, ShclRawLines *w, ShclStr
 /* What a document's Format line says, as shcl_read_format_version gives it,
    with the line it is on and, when SHCL_GOOD, the digits as written there,
    which the hints quote. */
-typedef struct { int64_t value; shcl_status status; size_t line; ShclStr digits; } ShclStamp;
+typedef struct { int64_t value; int64_t minor; shcl_status status; size_t line; ShclStr digits; } ShclStamp;
 
 /* The Format line's head without the blanks before the number. A line that is
    only this names no number. */
@@ -3811,20 +3811,29 @@ const char *const shcl_format_names[SHCL_FORMAT_NAME_COUNT][2] = {
    is. */
 #define SHCL_STAMP_WORD "## SHCL format"
 
-/* The major a stamp's format names: `3` as beta1 wrote it, `3.0`, or a pin
-   such as `3.0-a37`, or -1 when it is none of those. A major too big for 32
-   bits reads as the largest that fits, a format newer than this one. */
-static int64_t stamp_major(ShclStr n) {
+/* A stamp's digits from k on as a number, capped at 32 bits, with k left
+   after them. */
+static int64_t stamp_number(ShclStr n, size_t *k) {
 	uint64_t u = 0; int big = 0;
-	size_t k = 0;
-	for (; k < n.n && is_adigit((unsigned char)n.p[k]); k++) {
-		if (!big) { u = u * 10 + (uint64_t)(n.p[k] - '0'); if (u > UINT32_MAX) big = 1; }
+	for (; *k < n.n && is_adigit((unsigned char)n.p[*k]); (*k)++) {
+		if (!big) { u = u * 10 + (uint64_t)(n.p[*k] - '0'); if (u > UINT32_MAX) big = 1; }
 	}
+	return big ? (int64_t)UINT32_MAX : (int64_t)u;
+}
+
+/* The major a stamp's format names, with its minor in *minor: `3` as beta1
+   wrote it, which is minor 0, `3.0`, or a pin such as `3.0-a37`, or -1 when
+   it is none of those. A number too big for 32 bits reads as the largest that
+   fits, a format newer than this one. */
+static int64_t stamp_format(ShclStr n, int64_t *minor) {
+	size_t k = 0;
+	int64_t major = stamp_number(n, &k);
+	*minor = 0;
 	if (k == 0) return -1;
 	if (k < n.n) {
 		if (n.p[k] != '.') return -1;
 		size_t d = ++k;
-		while (k < n.n && is_adigit((unsigned char)n.p[k])) k++;
+		*minor = stamp_number(n, &k);
 		if (k == d) return -1;
 		if (k < n.n) {
 			if (n.p[k] != '-' || k + 1 == n.n) return -1;
@@ -3834,8 +3843,17 @@ static int64_t stamp_major(ShclStr n) {
 			}
 		}
 	}
-	return big ? (int64_t)UINT32_MAX : (int64_t)u;
+	return major;
 }
+
+/* The stamp names a newer format than this reader's: a newer major, or a
+   newer minor of this one, whose added syntax these rules don't know. A save
+   of it would write those lines by these rules, so none does. */
+static int names_newer(ShclStamp st) {
+	return st.status == SHCL_GOOD && (st.value > SHCL_FORMAT_MAJOR || (st.value == SHCL_FORMAT_MAJOR && st.minor > SHCL_FORMAT_MINOR));
+}
+
+static shcl_read_i64 stamp_read(const char *text, size_t len, int *newer);
 
 /* Whether text holds needle anywhere. */
 static int s_has(ShclStr text, ShclStr needle) {
@@ -3865,7 +3883,7 @@ static int s_has(ShclStr text, ShclStr needle) {
    block, and only when no line names one. */
 static ShclStamp format_line_read(ShclArena *ta, ShclArena *sc, ShclStr text) {
 	size_t headn = sizeof(SHCL_FORMAT_LINE_HEAD) - 1, stampn = sizeof(SHCL_STAMP_HEAD) - 1, start = 0;
-	ShclStamp none; none.value = 0; none.status = SHCL_NOT_FOUND; none.line = 0; none.digits = s_empty();
+	ShclStamp none; none.value = 0; none.minor = 0; none.status = SHCL_NOT_FOUND; none.line = 0; none.digits = s_empty();
 	/* Most documents have no Format line, and every load asks. */
 	if (!s_has(text, s_lit(SHCL_FORMAT_WORD)) && !s_has(text, s_lit(SHCL_STAMP_WORD))) return none;
 	ShclStamp found = none, newest = none, unread = none;
@@ -3888,17 +3906,18 @@ static ShclStamp format_line_read(ShclArena *ta, ShclArena *sc, ShclStr text) {
 		else if (line.n >= stampn && memcmp(line.p, SHCL_STAMP_HEAD, stampn) == 0) n = s_slice(line, stampn, line.n);
 		else if (s_eq(line, s_lit(SHCL_FORMAT_WORD)) || s_eq(line, s_lit(SHCL_STAMP_WORD))) n = s_empty();
 		else continue;
-		int64_t v = stamp_major(n);
+		int64_t minor;
+		int64_t v = stamp_format(n, &minor);
 		if (v < 0) {
 			if (!unread.line) { unread.status = n.n ? SHCL_BAD_TYPE : SHCL_EMPTY; unread.line = lineno; }
 			continue;
 		}
 		if (v >= SHCL_FORMAT_MAJOR) {
-			if (in_now && (!newest.line || v > newest.value)) {
-				newest.value = v; newest.status = SHCL_GOOD; newest.line = lineno; newest.digits = n;
+			if (in_now && (!newest.line || v > newest.value || (v == newest.value && minor > newest.minor))) {
+				newest.value = v; newest.minor = minor; newest.status = SHCL_GOOD; newest.line = lineno; newest.digits = n;
 			}
-		} else if (in_then && (!found.line || v > found.value)) {
-			found.value = v; found.status = SHCL_GOOD; found.line = lineno; found.digits = n;
+		} else if (in_then && (!found.line || v > found.value || (v == found.value && minor > found.minor))) {
+			found.value = v; found.minor = minor; found.status = SHCL_GOOD; found.line = lineno; found.digits = n;
 		}
 	}
 	if (newest.line) return newest;
@@ -4221,13 +4240,13 @@ static size_t error_lines(const shcl_doc *d, size_t **out, jmp_buf *panic) {
 	return u;
 }
 
-static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, size_t len, int from_v2, int64_t version, shcl_upgraded *up) {
+static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, size_t len, int from_v2, int64_t version, int newer, shcl_upgraded *up) {
 	if (!text) { text = ""; len = 0; }
 	up->current = 1;
 	up->format = version < 0 ? 2 : (uint32_t)version;
 	shcl_str keep; keep.p = text; keep.n = len;
 	int restamped = 0;
-	if (version < SHCL_FORMAT_MAJOR || (version == SHCL_FORMAT_MAJOR && from_v2)) {
+	if (!newer && (version < SHCL_FORMAT_MAJOR || (version == SHCL_FORMAT_MAJOR && from_v2))) {
 		own->before = shcl_parse(text, len);
 		if (!own->before) longjmp(*panic, 1);
 		int clean = shcl_error_count(own->before) == 0;
@@ -4297,7 +4316,9 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 }
 
 shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2) {
-	int64_t version = shcl_format_version(text, len);
+	int newer = 0;
+	shcl_read_i64 named = stamp_read(text, len, &newer);
+	int64_t version = named.status == SHCL_GOOD ? named.value : -1;
 	shcl_upgraded up; memset(&up, 0, sizeof up);
 	SHCL_VOLATILE_OWNER_BEGIN
 	ShclUpgradeOwn *volatile own = (ShclUpgradeOwn *)calloc(1, sizeof *own);
@@ -4310,7 +4331,7 @@ shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2) {
 		SHCL_OOM();
 		abort();
 	}
-	upgrade_into(own, &panic, text, len, from_v2, version, &up);
+	upgrade_into(own, &panic, text, len, from_v2, version, newer, &up);
 	ShclUpgradeOwn *done = own;
 	shcl_free(done->before); shcl_free(done->fresh); shcl_free(done->made); free(done->migrated); free(done->left); free(done);
 	return up;
@@ -4328,6 +4349,12 @@ int64_t shcl_format_version(const char *text, size_t len) {
 }
 
 shcl_read_i64 shcl_read_format_version(const char *text, size_t len) {
+	return stamp_read(text, len, NULL);
+}
+
+/* shcl_read_format_version, with *newer, when given, set as names_newer
+   says. */
+static shcl_read_i64 stamp_read(const char *text, size_t len, int *newer) {
 	SHCL_VOLATILE_OWNER_BEGIN
 	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
 	if (!own) { SHCL_OOM(); abort(); }
@@ -4345,6 +4372,7 @@ shcl_read_i64 shcl_read_format_version(const char *text, size_t len) {
 	ShclStamp st = format_line_read(&own->a, &own->sc, in);
 	ShclMigrateOwn *done = own;
 	arena_free(&done->a); arena_free(&done->sc); free(done);
+	if (newer) *newer = names_newer(st);
 	shcl_read_i64 r; r.value = st.status == SHCL_GOOD ? st.value : 0; r.status = st.status;
 	return r;
 }
@@ -6786,8 +6814,10 @@ static void diags_by_line(ShclArena *tmp, ShclVecDiag *v) {
 	if (src != v->data) memcpy(v->data, src, n * sizeof *src);
 }
 
-/* The load's hint for a file whose Format line names another major than this
-   one: H006 for a newer one, H007 for an older one. It reads the line the way
+/* The load's hint for a file whose Format line names another format than
+   this one: H006 for a newer one, a newer minor of this major included, and
+   H007 for an older major. An older minor reads the same, so it gets none. It
+   reads the line the way
    shcl_read_format_version does, so the two never disagree. The number is
    quoted as written, leading zeros and all, since the read caps one too big
    for 32 bits. The walk builds in the per-line arena and the hints one, both
@@ -6795,13 +6825,15 @@ static void diags_by_line(ShclArena *tmp, ShclVecDiag *v) {
 static void stamp_hint(ShclParser *P, ShclStr text) {
 	ShclStamp st = format_line_read(P->line, P->hints, text);
 	/* Read here, so the save's refusal and the hint come from one reading. */
-	P->d->newer = st.status == SHCL_GOOD && st.value > SHCL_FORMAT_MAJOR;
-	if (st.status == SHCL_GOOD && st.value != SHCL_FORMAT_MAJOR) {
-		int newer = st.value > SHCL_FORMAT_MAJOR;
+	int newer = names_newer(st);
+	P->d->newer = newer;
+	if (newer || (st.status == SHCL_GOOD && st.value < SHCL_FORMAT_MAJOR)) {
 		ShclSB m = {0};
 		sb_puts(P->line, &m, "the file names format "); sb_putS(P->line, &m, v_one_line_in(P->line, st.digits, "", ""));
 		sb_puts(P->line, &m, newer ? ", newer than this reader's format " : ", older than this reader's format ");
 		sb_put_u64(P->line, &m, SHCL_FORMAT_MAJOR);
+		sb_puts(P->line, &m, ".");
+		sb_put_u64(P->line, &m, SHCL_FORMAT_MINOR);
 		sb_puts(P->line, &m, ", so some lines may read differently than written");
 		if (!newer) sb_puts(P->line, &m, "; shcl upgrade --from-2x rewrites it");
 		p_diag(P, st.line, SHCL_SEV_HINT, newer ? "H006" : "H007", sb_S(&m));

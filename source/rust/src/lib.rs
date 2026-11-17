@@ -3006,14 +3006,16 @@ const FORMAT_WORD: &str = "##    Format";
 /// The stamp's head without the blank before the format, as `FORMAT_WORD` is.
 const STAMP_WORD: &str = "## SHCL format";
 
-/// The major a stamp's format names: `3` as beta1 wrote it, `3.0`, or a pin
-/// such as `3.0-a37`. None when it is none of those. A major too big for 32
-/// bits reads as the largest that fits, a format newer than this one.
-fn stamp_major(n: &str) -> Option<u32> {
+/// The major and minor a stamp's format names: `3` as beta1 wrote it, which
+/// is minor 0, `3.0`, or a pin such as `3.0-a37`. None when it is none of
+/// those. A number too big for 32 bits reads as the largest that fits, a
+/// format newer than this one.
+fn stamp_format(n: &str) -> Option<(u32, u32)> {
 	let (major, rest) = n.split_at(n.find(|c: char| !c.is_ascii_digit()).unwrap_or(n.len()));
 	if major.is_empty() {
 		return None;
 	}
+	let mut minor_v = 0;
 	if !rest.is_empty() {
 		let minor = rest.strip_prefix('.')?;
 		let (digits, pin) = minor.split_at(minor.find('-').unwrap_or(minor.len()));
@@ -3025,8 +3027,18 @@ fn stamp_major(n: &str) -> Option<u32> {
 		if digits.is_empty() || !digits.bytes().all(|c| c.is_ascii_digit()) || !pin_ok {
 			return None;
 		}
+		minor_v = digits.parse().unwrap_or(u32::MAX);
 	}
-	Some(major.parse().unwrap_or(u32::MAX))
+	Some((major.parse().unwrap_or(u32::MAX), minor_v))
+}
+
+/// The stamp names a newer format than this reader's: a newer major, or a
+/// newer minor of this one, whose added syntax these rules don't know. A save
+/// of it would write those lines by these rules, so none does.
+fn names_newer(stamp: &Read<u32>) -> bool {
+	stamp.status == Status::Good
+		&& stamp_format(stamp.raw.as_deref().unwrap_or_default())
+			.is_some_and(|f| f > (FORMAT_MAJOR, FORMAT_MINOR))
 }
 
 /// read_format_version() on text with the BOM already off. Digits that do
@@ -3050,8 +3062,8 @@ fn format_line_read(text: &str) -> Read<u32> {
 	}
 	let mut now = RawLines::new(Rules::Current);
 	let mut then = RawLines::new(Rules::V2);
-	let mut found: Option<(u32, usize, &str)> = None;
-	let mut newest: Option<(u32, usize, &str)> = None;
+	let mut found: Option<((u32, u32), usize, &str)> = None;
+	let mut newest: Option<((u32, u32), usize, &str)> = None;
 	let mut unread: Option<(Status, usize, &str)> = None;
 	for (i, line) in text.split('\n').enumerate() {
 		let current = now.step(line);
@@ -3067,7 +3079,7 @@ fn format_line_read(text: &str) -> Read<u32> {
 			None if rest == FORMAT_WORD || rest == STAMP_WORD => "",
 			None => continue,
 		};
-		let Some(v) = stamp_major(n) else {
+		let Some(v) = stamp_format(n) else {
 			if unread.is_none() {
 				let st = if n.is_empty() {
 					Status::Empty
@@ -3078,7 +3090,7 @@ fn format_line_read(text: &str) -> Read<u32> {
 			}
 			continue;
 		};
-		if v >= FORMAT_MAJOR {
+		if v.0 >= FORMAT_MAJOR {
 			if current.is_some() && newest.is_none_or(|(f, _, _)| v > f) {
 				newest = Some((v, i + 1, n));
 			}
@@ -3086,7 +3098,7 @@ fn format_line_read(text: &str) -> Read<u32> {
 			found = Some((v, i + 1, n));
 		}
 	}
-	if let Some((v, line, n)) = newest.or(found) {
+	if let Some(((v, _), line, n)) = newest.or(found) {
 		return Read::new(v, Status::Good, Some(n.to_string())).at(line, None);
 	}
 	match unread {
@@ -3124,30 +3136,32 @@ fn restamp(text: &str, line: usize) -> Option<String> {
 	(now.status == Status::Good && now.value == FORMAT_MAJOR && now.line == line).then_some(out)
 }
 
-/// The load's hint for a file whose Format line names another major than
-/// this one: `H006` for a newer one, `H007` for an older one. It reads the
-/// line the way read_format_version() does, so the two never disagree. The
-/// number is quoted as written, leading zeros and all, since the read caps
-/// one too big for 32 bits.
+/// The load's hint for a file whose Format line names another format than
+/// this one: `H006` for a newer one, a newer minor of this major included,
+/// and `H007` for an older major. An older minor reads the same, so it gets
+/// none. It reads the line the way read_format_version() does, so the two
+/// never disagree. The number is quoted as written, leading zeros and all,
+/// since the read caps one too big for 32 bits.
 fn stamp_hint(stamp: &Read<u32>) -> Option<Diagnostic> {
-	if stamp.status != Status::Good || stamp.value == FORMAT_MAJOR {
+	let newer = names_newer(stamp);
+	if stamp.status != Status::Good || (!newer && stamp.value >= FORMAT_MAJOR) {
 		return None;
 	}
 	let written = one_line(stamp.raw.as_deref().unwrap_or_default());
-	let (code, message) = if stamp.value > FORMAT_MAJOR {
+	let (code, message) = if newer {
 		(
 			"H006",
 			format!(
-				"the file names format {}, newer than this reader's format {}, so some lines may read differently than written",
-				written, FORMAT_MAJOR
+				"the file names format {}, newer than this reader's format {}.{}, so some lines may read differently than written",
+				written, FORMAT_MAJOR, FORMAT_MINOR
 			),
 		)
 	} else {
 		(
 			"H007",
 			format!(
-				"the file names format {}, older than this reader's format {}, so some lines may read differently than written; shcl upgrade --from-2x rewrites it",
-				written, FORMAT_MAJOR
+				"the file names format {}, older than this reader's format {}.{}, so some lines may read differently than written; shcl upgrade --from-2x rewrites it",
+				written, FORMAT_MAJOR, FORMAT_MINOR
 			),
 		)
 	};
@@ -3524,7 +3538,7 @@ pub fn upgrade(text: &str, from_v2: bool) -> Upgrade {
 		backup: String::new(),
 		errors_left: Vec::new(),
 	};
-	if version.is_some_and(|v| v > FORMAT_MAJOR || (v == FORMAT_MAJOR && !from_v2)) {
+	if names_newer(&named) || (version == Some(FORMAT_MAJOR) && !from_v2) {
 		return up;
 	}
 	let before = Document::parse(text);
@@ -6240,7 +6254,7 @@ impl<'a> Parser<'a> {
 		}
 		self.src = lines.clone();
 		let stamp = format_line_read(text);
-		let newer = stamp.status == Status::Good && stamp.value > FORMAT_MAJOR;
+		let newer = names_newer(&stamp);
 		if let Some(d) = stamp_hint(&stamp) {
 			self.diag(d);
 		}
