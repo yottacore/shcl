@@ -189,6 +189,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: High
 	- Decisions:
 		- me, 20261117: the stamp goes in through `to_canonical` and `to_text_keep_lines` (each binding's spelling), which every save and every save through text go through. So `fmt` to stdout, `set`'s print and `fmt --check` match `--write`, and every corpus `expected.shcl` gains the stamp. Stamping only in the file saves and the CLI writes would leave those 3 to add it on their own.
+		- JC, 20261117: through `to_canonical` and `to_text_keep_lines`, as built.
+		- me, 20261117, left to me by JC: the edge cases below stand as built. Writing `3.0` over a newer stamp would hide that the file is newer. A canonical fallback for an open raw block would rewrite a whole file the user asked to keep. Layer stamps piling up in a merge would name files that aren't the output.
 		- me, 20261117: a stamp naming a newer format is left as it is, so the next load still sees it, and a save of that document is refused anyway (`TooNew`). The text call's refusal is 2026111708542868.
 		- me, 20261117: beta1's `Format 3` and a pin such as `3.0-a37` are rewritten to name `3.0`, since the save writes by this format's rules. Only the line the format read picks is rewritten, and it keeps its head and indent.
 		- me, 20261117: a kept text that ends in a raw block left open goes without a stamp, as `migrate` does, rather than fall back to canonical. Appended, the line would be the block's content.
@@ -1588,11 +1590,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 20261117: a format counts from the day before its release or commit date, so the writer's time zone doesn't matter. An mtime before any format, or one that would rule out every format the stamp left, is ignored.
 		- me, 20261117: the tells are the design doc's table. A footer or a spelling that a format refuses, or reads as binding nothing, rules that format out. A spelling that reads clean 2 ways rules nothing out, since the text can't say which one the writer meant.
 		- me, 20261117: the most legal reading counts the lines with a tell that each format refuses or reads as binding nothing, among the formats the stamp and the mtime left. The lowest count wins and a tie goes to the newest. Scoring every format would let newer-looking content beat the mtime again.
+		- JC, 20261117: the reading of the 4 steps stands as written.
 	- Progress log:
 		- 20261117: the design doc's section on finding an unstamped file's format is now Finding a file's format, with the 4 steps and the rejected options. Its Decisions bullet, the beta1 stamp bullet, Risks, and Testing follow it. 2026111018212700 and 2026111018212703 have sub-bullets that point at it. design.md doesn't state this rule, so it didn't change.
 	- Verified: markdownlint and the markdown check pass on the design doc and the backlog.
 	- Test case: none, a design change. 2026111018212703's `touch -d` cases pin it once the scan is built.
-	- Acceptance signoff: Self-closed: design doc only, by the memory.md close policy. The reading of JC's steps is also a Check: entry.
+	- Acceptance signoff: Self-closed: design doc only, by the memory.md close policy. JC confirmed the reading of the steps, 20261117.
 	- Branch: `nov17b-2026111707384944`
 	- Closed: 20261117-085200
 
@@ -1609,7 +1612,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Avg
 	- Actual effort: Avg
 	- Decisions:
-		- me, 20261117: the call is `load_file_opts(path, level, &LoadOptions)` with `keep_lines`, `migrate` and `from_v2` (Go `LoadFileOpts`, C `shcl_load_file_opts` with `shcl_load_options` by value, C++ `Document::load_file_opts`). The level stays its own argument, since a zero level in Go and C is Loose, so all-zero options are `load_file_with`. `load_file_with` keeps its signature, since changing it touches every caller. Also a Check: entry.
+		- me, 20261117: the call is `load_file_opts(path, level, &LoadOptions)` with `keep_lines`, `migrate` and `from_v2` (Go `LoadFileOpts`, C `shcl_load_file_opts` with `shcl_load_options` by value, C++ `Document::load_file_opts`). The level stays its own argument, since a zero level in Go and C is Loose, so all-zero options are `load_file_with`. `load_file_with` keeps its signature, since changing it touches every caller. JC, 20261117: as built.
 		- me, 20261117: it runs `migrate_unstamped`, as the issue's note asks, so 2026111018212703 can swap in its format steps. The document keeps the bytes the load read, so a save over that file passes the changed check, and with `keep_lines` it keeps the migrated text.
 		- me, 20261117: the lines `migrate` counts in `lost` add to the document's lost count, so a canonical save refuses over them, and a save that keeps lines writes them as they were.
 		- me, 20261117: no accessor for `ambiguous` or whether the text changed. A caller that wants them can call `migrate_unstamped` on the text, and the stamp on every save (2026111708130702) will tell the next load the file is current.
@@ -1617,7 +1620,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: every load that reads a file in all 4 goes through `load_file_any` (C `s_load_file_any`), and each caller passes no migrate. The C++ interface refuses a NUL in the path first, as its other loads do, and `devwa` covers it. Python's `__all__` has `LoadOptions`.
 	- Verified: the new tests fail in all 4 and the C++ interface with the migrate step turned off, and pass with it. `cicd.bash --backlog-run-quick rust python` and `--backlog-run-quick go c` passed, as did check-veneer, check-docs, `test-ids.py check` and the markdown checks. codeql-scan passed `de5ag` and `de5am`, so the new veneer call's suppression covers a finding. Its `de5aj` red is older than the round (2026111709183317). analyze-c didn't fit in 4 minutes, so it waits for the full run.
 	- Test case: `a_load_that_migrates_saves_through_the_guards` in Rust (`dfe4q`), Go `TestALoadThatMigratesSavesThroughTheGuards` (`dfe4r`), Python (`dfe4s`), the C runner (`dfe4t`) and the veneer smoke (`dfe4v`), plus a `load_file_opts` row in `devwa`.
-	- Acceptance signoff: Self-closed: the load does what the requirement asks, each test failed with the step off and passes with it. The API names are a Check: entry.
+	- Acceptance signoff: Self-closed: the load does what the requirement asks, each test failed with the step off and passes with it. JC confirmed the API names, 20261117.
 	- Branch: `nov17b-2026111016205704`
 	- Closed: 20261117-091532
 
