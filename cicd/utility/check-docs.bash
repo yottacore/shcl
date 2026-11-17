@@ -960,7 +960,7 @@ done <<<"${hits}"
 fTest dd72g backlog-closed-items-name-a-test
 ##	Every closed item says which test pins it, or why none does: a legacy
 ##	checkmark item has a Test case, Test or Pinned by line of its own or
-##	under a checked item it sits in, and a new-format item that is Done or
+##	under a checked item it sits in, and a new-format item closed as Done or
 ##	waiting on UAT has a Test case row. 98 closed items had none before
 ##	anything checked (20260926 idea 1).
 hits="$(python3 - "${backlog}" <<'PYEOF'
@@ -1017,7 +1017,7 @@ status = None
 for i, line in enumerate(lines):
 	if re.match(r"^- \S", line):
 		status, start, found = None, i, False
-	m = re.match(r"^\t- Status: (Done|Waiting on UAT)$", line)
+	m = re.match(r"^\t- (Status: Waiting on UAT|Closed reason: Done)$", line)
 	if m:
 		status = start
 	if re.match(r"^\t- Test case: ", line):
@@ -1047,6 +1047,46 @@ hits="$(fIdGaps)" || fFeedBad $?
 while IFS= read -r hit; do
 	[[ "${hit}" == backlog.md:* ]] || continue
 	fBad "backlog.md: a closed item names no test ID and gives no reason: ${hit#backlog.md:}"
+done <<<"${hits}"
+
+fTest dfebr backlog-closed-items-give-a-reason
+##	A closed item says why: Status is Closed with a Closed reason from the
+##	template's list, and no other status carries one. Done, Moot and Can't
+##	reproduce are reasons now, not statuses. Canceled and Deferred stay
+##	statuses with no reason.
+hits="$(python3 - "${backlog}" <<'PYEOF'
+import re, sys
+lines = open(sys.argv[1], encoding="utf-8").read().split("\n")
+statuses = {"Queued", "Waiting for answers", "Waiting on UAT", "Waiting for a full CICD run", "Waiting for a partial CICD run",
+	"Waiting on automated testing", "Started", "Testing", "Stalled", "Canceled", "Deferred", "Closed"}
+reasons = {"Done", "Could not reproduce", "Won't fix", "Moot", "Duplicate", "Superseded", "Works as designed", "Invalid"}
+start = lines.index("## Issues") + 1
+end = next(i for i in range(start, len(lines)) if lines[i].startswith("## "))
+items = []
+for i in range(start, end):
+	if re.match(r"^- \S", lines[i]):
+		items.append([i, None, None])
+	elif items:
+		m = re.match(r"^\t- (Status|Closed reason): (.*)$", lines[i])
+		if m:
+			k = 1 if m.group(1) == "Status" else 2
+			if items[-1][k] is None:
+				items[-1][k] = m.group(2).strip()
+for i, st, why in items:
+	if st is None and why is None:
+		continue
+	name = f"{i + 1}: {lines[i][2:62]}"
+	if st not in statuses:
+		print(f"{name}: status {st!r} is not one the template lists")
+	elif st == "Closed" and why not in reasons:
+		print(f"{name}: closed with reason {why!r}, which the template doesn't list")
+	elif st != "Closed" and why is not None:
+		print(f"{name}: a Closed reason on an item with status {st}")
+PYEOF
+)" || fFeedBad $?
+while IFS= read -r hit; do
+	[[ -n "${hit}" ]] || continue
+	fBad "backlog.md: ${hit}"
 done <<<"${hits}"
 
 fTest dc0c8 no-found-by-bullets
@@ -1605,3 +1645,4 @@ echo "check-docs: OK"
 ##		2026-10-31  A closed item from 2026-11-01 on names its test's ID or says why none.
 ##		2026-10-31  Every closed item names its test's ID or says why none, however old.
 ##		2026-11-17  No line mover adopt replaced is back in any binding.
+##		2026-11-17  A closed backlog item has Status Closed and a Closed reason.

@@ -473,6 +473,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: Avg
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261117-032846
 	- Opened by:
 	- Progress log:
@@ -1496,7 +1497,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The stamp on save turns the quick run red: check-readme dcbc6 and Rust fuzz dderx and dab72
 	- ID: 2026111711103371
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261117-111033
@@ -1519,11 +1520,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `nov17b-2026111709431277-fix`
 	- Commit: `d720082e`
 	- Closed: 20261117-113900
+	- Closed reason: Done
 
 - shell-regress funnel-scan fails: load_file_opts adds to the lost count outside the funnel in all 4
 	- ID: 2026111710564830
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261117-105648
@@ -1541,11 +1543,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: dcavz failed before and passes now, and the code change is a rename.
 	- Branch: `nov17b-2026111016205704-fix`
 	- Closed: 20261117-111200
+	- Closed reason: Done
 
 - Format versions: refuse a save of a file whose stamp names a newer minor
 	- ID: 2026111708125354
 	- Type: Feature
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261117-081253
@@ -1566,11 +1569,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: the refusal is what the parent asks for, and its tests failed before and pass after.
 	- Branch: `nov17b-2026111702033137`
 	- Closed: 20261117-081329
+	- Closed reason: Done
 
 - Increase the importance of mtime in deciding format
 	- ID: 2026111707384944
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261117-073849
@@ -1598,11 +1602,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: design doc only, by the memory.md close policy. JC confirmed the reading of the steps, 20261117.
 	- Branch: `nov17b-2026111707384944`
 	- Closed: 20261117-085200
+	- Closed reason: Done
 
 - Format versions: a load option that migrates in memory and keeps the path
 	- ID: 2026111708542849
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261117-085428
@@ -1623,11 +1628,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: the load does what the requirement asks, each test failed with the step off and passes with it. JC confirmed the API names, 20261117.
 	- Branch: `nov17b-2026111016205704`
 	- Closed: 20261117-091532
+	- Closed reason: Done
 
 - Format versions: the reading rules of each published format, and the pins
 	- ID: 2026111018212701
 	- Type: Task
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-182127
@@ -1651,11 +1657,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: each table row comes from a run of the CLI at that tag or pin. The format list is also a Check: entry.
 	- Branch: `nov17-2026111018212701`
 	- Closed: 20261117-015854
+	- Closed reason: Done
 
 - Format versions: add the format constants and name table, and read every stamp form
 	- ID: 2026111702033119
 	- Type: Feature
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261117-020331
@@ -1675,11 +1682,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: each form reads in all 4, by test, and nothing that saves changed.
 	- Branch: `nov17-2026111018212702`
 	- Closed: 20261117-022040
+	- Closed reason: Done
 
 - A node's blank above its comments, from the parse on
 	- ID: 2026110712372276
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261107-123722
@@ -1714,11 +1722,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `b2bits`
 	- Acceptance signoff: Self-closed: each requirement is met in all 4 bindings, and each new row was seen to fail on the old code.
 	- Closed: 20261111-113303
+	- Closed reason: Done
 
 - Quote the other line breaks in `instances` and `get --array` output
 	- ID: 2026110613470324
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-134703
@@ -1738,11 +1747,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `b2bits`
 	- Acceptance signoff: Self-closed: each named character prints quoted in all 4 CLIs, and the rows failed before the fix.
 	- Closed: 20261111-100928
+	- Closed reason: Done
 
 - set --write refuses a file deleted during its wait, where the library's save writes it back
 	- ID: 2026110914412379
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Low
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261109-144123
@@ -1760,11 +1770,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `b2bits`
 	- Acceptance signoff: Self-closed: the deleted file is written and says created in all 4 CLIs, and the row failed before the fix.
 	- Closed: 20261111-100928
+	- Closed reason: Done
 
 - The comment placement property fails the 2M release fuzz in dd3t9
 	- ID: 2026111022322992
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-223229
@@ -1786,11 +1797,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: each new `df50j` row fails on the property before its fix and passes now. `dd3t9` and `dderx` at 2,000,000 in release with the cap, all of `fuzz_smoke` in debug, clippy `--all-targets`, rustfmt, `test-ids.py check`, and the cross check over the corpus and a dump of 100 `dd3t9` inputs (4 bindings agree on 26670 comparisons, `ddesf` included).
 	- Acceptance signoff: Self-closed: the 2M release run passes, with the iteration cap set in run b2bits.
 	- Closed: 20261111-095409
+	- Closed reason: Done
 
 - The changed check misses a file reached through a second spelling of its path
 	- ID: 2026110613470307
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs external testing: No
 	- Severity: High
 	- Target version: v3.0.0-beta.2
@@ -1843,12 +1855,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Not run: `--backlog-run-quick` with every area (past one call), check-c-compilers (past one call), check-docs, crosscheck.
 		- 20261107, b29w with a short-name TEMP, at `30887e7e` plus the 2 test fixes below: Rust `cargo test` whole (all binaries, `detpn`, `dc42j`, `dekj7`, `save_rewrites_a_read_only_file` included), the C runner whole (`dekkm`, `detpr`, `dc42n`, `dbxm2`), and the veneer smoke (`dekkn`, `detps`) linked static, 3 runs. The dynamic veneer build dies at startup on b29w on dev too, so that failure belongs to the box.
 	- Closed: 20261110-205935
+	- Closed reason: Done
 	- Verified: 20261110, the fs property test ran in all 4 bindings on b29w with a short-name TEMP and on vmKt6m (2026111019505842, 2026111019505861, 2026111020030146, round r1111).
 
 - `set_literal` cuts a value at an unquoted `#` and returns Ok
 	- ID: 2026111016205700
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-162057
@@ -1878,11 +1891,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `044-write-literal` (`datds`) and `065-bracket-array` (`dbzdt`) write-bad rows, veneer smoke `d9v59`, cli-regress `dcegf`.
 	- Acceptance signoff: Self-closed 20261110: the expected behavior on the item, and the tests fail before and pass after.
 	- Closed: 20261110-190133
+	- Closed reason: Done
 
 - The fuzz counts inputs where comment and kept lines take the node cap
 	- ID: 2026110707441268
 	- Type: Task
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261107-074413
@@ -1902,11 +1916,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: `df4wt` at 300, 20,000, and 200,000 iterations, with guards of 176 and 132 of 300 and 123,160 and 94,905 of 200,000. `--backlog-run-quick rust`, lint-report, rustfmt, clippy, test-ids.
 	- Acceptance signoff: Self-closed: the property and its guard are in, and the test was seen to fail on the old code.
 	- Closed: 20261110-191231
+	- Closed reason: Done
 
 - A filesystem property test for the save's checks, over every past path bug
 	- ID: 2026110616475901
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-164759
@@ -1937,11 +1952,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261110: the tmpfs routes on the boxes (2026111010331517) are Done. The Windows and macOS rows (2026111010012360) are Queued.
 	- Test case: its children's: 2026111010012360: its children's: 2026111019505842: the `2026110613470307-case` row of `the_save_checks_hold_on_every_past_path_bug` (Rust `df4bw`, Go `df4c4`, Python `df4dk`, C `df4ep`), and the `case` spelling in the drawn tests (`df4bx`, `df4c5`, `df4dm`, `df4eq`).; 2026111019505861: the `2026110613470307-win` row of `the_save_checks_hold_on_every_past_path_bug` (Rust `df4bw`, Go `df4c4`, Python `df4dk`), and the Windows spellings in the drawn tests (`df4bx`, `df4c5`, `df4dm`).; 2026111020030146: the `2026110613470307-win` row of `the_save_checks_hold_on_every_past_path_bug` (C `df4ep`) and the Windows spellings in `the_save_checks_hold_on_drawn_paths_and_events` (C `df4eq`), held to Rust's answers by `df4cf` and `df4cg`.; 2026111010331517: shell-regress `df4xc`, check-boxes `df4x7`, fs-property `df4ch`.; 2026111010012269: `the_save_checks_hold_on_every_past_path_bug` (`df4bw`) and `the_save_checks_hold_on_drawn_paths_and_events` (`df4bx`).; 2026111010012287: fs-property `df4ch`, `df4cf`, `df4cg`, check-push-gate `df4cj`, shell-regress `df4cq`.; 2026111010012304: `TestTheSaveChecksHoldOnEveryPastPathBug` (`df4c4`) and `TestTheSaveChecksHoldOnDrawnPathsAndEvents` (`df4c5`).; 2026111010012324: `the_save_checks_hold_on_every_past_path_bug` (`df4dk`) and `the_save_checks_hold_on_drawn_paths_and_events` (`df4dm`).; 2026111010012342: `the_save_checks_hold_on_every_past_path_bug` (`df4ep`) and `the_save_checks_hold_on_drawn_paths_and_events` (`df4eq`).
 	- Closed: 20261110-205935
+	- Closed reason: Done
 
 - Filesystem property test: the Windows and macOS rows on their boxes
 	- ID: 2026111010012360
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-100123
@@ -1957,11 +1973,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261110: C's Windows rows (2026111020030146) are Done.
 	- Test case: its children's: 2026111019505842: the `2026110613470307-case` row of `the_save_checks_hold_on_every_past_path_bug` (Rust `df4bw`, Go `df4c4`, Python `df4dk`, C `df4ep`), and the `case` spelling in the drawn tests (`df4bx`, `df4c5`, `df4dm`, `df4eq`).; 2026111019505861: the `2026110613470307-win` row of `the_save_checks_hold_on_every_past_path_bug` (Rust `df4bw`, Go `df4c4`, Python `df4dk`), and the Windows spellings in the drawn tests (`df4bx`, `df4c5`, `df4dm`).; 2026111020030146: the `2026110613470307-win` row of `the_save_checks_hold_on_every_past_path_bug` (C `df4ep`) and the Windows spellings in `the_save_checks_hold_on_drawn_paths_and_events` (C `df4eq`), held to Rust's answers by `df4cf` and `df4cg`.
 	- Closed: 20261110-205934
+	- Closed reason: Done
 
 - Filesystem property test: the macOS case rows on vmKt6m
 	- ID: 2026111019505842
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-195058
@@ -1978,11 +1995,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1111`
 	- Acceptance signoff: Self-closed: the row runs on its box in all 4 bindings, went red on the code before the fix, and the gates are green.
 	- Closed: 20261110-200107
+	- Closed reason: Done
 
 - Filesystem property test: the Windows rows on b29w
 	- ID: 2026111019505861
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-195058
@@ -2001,11 +2019,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1111`
 	- Acceptance signoff: Self-closed: the rows ran on b29w with a short-name TEMP, the new row went red on the code before the fix, and the gates are green.
 	- Closed: 20261110-202817
+	- Closed reason: Done
 
 - Filesystem property test: the C port's Windows rows on b29w
 	- ID: 2026111020030146
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-200301
@@ -2025,11 +2044,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1111`
 	- Acceptance signoff: Self-closed: the rows ran on b29w with a short-name TEMP, went red on the code before the fixes, and the gates are green.
 	- Closed: 20261110-205822
+	- Closed reason: Done
 
 - Filesystem property test: the tmpfs routes on the boxes
 	- ID: 2026111010331517
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-103315
@@ -2053,11 +2073,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1111`
 	- Acceptance signoff: Self-closed: each route ran on its box and was checked, and the gates are green.
 	- Closed: 20261110-193935
+	- Closed reason: Done
 
 - Pre-beta, pin-era and beta1 files all say `Format 3`, though their syntax differs
 	- ID: 2026111016205706
 	- Type: Enhancement
-	- Status: Moot
+	- Status: Closed
+	- Closed reason: Moot
 	- Priority: Avg
 	- Target version: v3.0.0
 	- Opened: 20261110-162057
@@ -2090,7 +2112,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Filesystem property test: Rust, with the shared generator rules and the case dump
 	- ID: 2026111010012269
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-100122
@@ -2114,11 +2136,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1110`
 	- Acceptance signoff: Self-closed: the rows went red at the commits before their fixes and pass now, and the gates are green.
 	- Closed: 20261110-101653
+	- Closed reason: Done
 
 - Filesystem property test: a tmpfs made for each cicd run
 	- ID: 2026111010012287
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-100122
@@ -2139,11 +2162,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1110`
 	- Acceptance signoff: Self-closed: each route this item kept ran and was checked, the compare goes red on a differing dump, and the gates are green.
 	- Closed: 20261110-104504
+	- Closed reason: Done
 
 - Filesystem property test: the Go port
 	- ID: 2026111010012304
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-100123
@@ -2162,11 +2186,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1110`
 	- Acceptance signoff: Self-closed: the rows went red at the commits before their fixes, pass now, and agree with Rust's case by case.
 	- Closed: 20261110-101653
+	- Closed reason: Done
 
 - Filesystem property test: the Python port
 	- ID: 2026111010012324
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-100123
@@ -2184,11 +2209,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1110`
 	- Acceptance signoff: Self-closed: the rows went red at the commits before their fixes, pass now, and agree with Rust's and Go's case by case.
 	- Closed: 20261110-110830
+	- Closed reason: Done
 
 - Filesystem property test: the C port
 	- ID: 2026111010012342
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-100123
@@ -2208,11 +2234,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1110`
 	- Acceptance signoff: Self-closed: the rows went red at the commits before their fixes, pass now, and agree with Rust's and Go's case by case.
 	- Closed: 20261110-120236
+	- Closed reason: Done
 
 - An exhaustive comment placement suite, with a placement property in the fuzz
 	- ID: 2026110616475903
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-164759
@@ -2235,11 +2262,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: through its children, 2026111012160064, 2026111012160083, 2026111012160102, and 2026111012160121. The table rows fail before their fixes, and the property fails on `343334df` with 2026110613470311's case.
 	- Acceptance signoff: Self-closed: every child is done.
 	- Closed: 20261111-095409
+	- Closed reason: Done
 
 - A comment placement property in the fuzz, replayed in all 4 bindings
 	- ID: 2026111012160121
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-121601
@@ -2281,11 +2309,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Prereq IDs: 2026111022322992
 	- Acceptance signoff: Self-closed: the requirements are met, with the iteration cap set in run b2bits, and each new test was seen to fail first.
 	- Closed: 20261111-095409
+	- Closed reason: Done
 
 - The comment placement table and its Rust runner
 	- ID: 2026111012160064
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-121600
@@ -2309,11 +2338,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1110`
 	- Acceptance signoff: Self-closed: the rows fail before their fixes (2026111012160102) and pass now.
 	- Closed: 20261110-122900
+	- Closed reason: Done
 
 - The comment placement table in the Go, Python, and C runners
 	- ID: 2026111012160083
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-121600
@@ -2328,11 +2358,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1110`
 	- Acceptance signoff: Self-closed: it has the same rows and checks as the Rust runner.
 	- Closed: 20261110-122900
+	- Closed reason: Done
 
 - Each placement table row watched to fail before its fix
 	- ID: 2026111012160102
 	- Type: Task
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-121601
@@ -2352,11 +2383,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1110`
 	- Acceptance signoff: Self-closed: every row with a fix was seen to fail before it.
 	- Closed: 20261110-122900
+	- Closed reason: Done
 
 - Make `children` and `instances` exit 3 on a path that isn't there
 	- ID: 2026110613470323
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-134703
@@ -2378,12 +2410,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `6be031a6`
 	- Test case: cli-regress `df4hf`, `df4hg`, `df4hh`, `df4hj`, `df4hk`, `df4hm`, and `dc09s`.
 	- Closed: 20261110-131441
+	- Closed reason: Done
 
 - perf-gate's `deqqs` self-test passes on vm925w, so the gate fails there
 	- ID: 2026110810540701
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261108-105407
 	- Opened by: main's pre-push merge gate on the installer sync `8f1c320a`
 	- Related IDs: 2026110110325317, 2026103016433965
@@ -2400,12 +2434,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: perf-gate `deqqs` and `deqqr` at `--factor 3`, `4`, and `30` on b23. `deqqs` failed at 30 before the fix and passes at all 3 now.
 	- Acceptance signoff: Self-closed: the failure is reproduced on b23 and gone with the fix. vm925w runs it on the next merge gate.
 	- Closed: 20261109-215302
+	- Closed reason: Done
 
 - A merge gate records its tree before the release builds and test boxes, so a re-push skips a gate that failed there
 	- ID: 2026110810540702
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261108-105407
 	- Opened by: main's pre-push merge gate on the installer sync `8f1c320a`
 	- Related IDs: 2026110810540701
@@ -2420,11 +2456,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-push-gate `df3me`: `--merge-gate` and a no-flag run (frozen copy) with a box that fails record nothing, and with one that passes they record. It failed with "recorded 1" on the old cicd.bash. `de61p` still records through the image.
 	- Acceptance signoff: Self-closed: the new test fails on the old code and check-push-gate passes on the fix.
 	- Closed: 20261109-215302
+	- Closed reason: Done
 
 - codeql-scan fails on 39b06389: an unsuppressed `cpp/large-parameter` in shcl.h and a stale suppression in conformance.c
 	- ID: 2026110913374081
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261109-133740
@@ -2441,11 +2478,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: 20261109, codeql-scan.bash passed every test on the fix (run 20261109-140803_001, 360 s).
 	- Acceptance signoff: me, 20261109, codeql-scan green.
 	- Closed: 20261109-141600
+	- Closed reason: Done
 
 - Comments taken off a replaced item list end up above the list's blank line
 	- ID: 2026110613470311
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: No
 	- Severity: High
 	- Target version: v3.0.0-beta.2
@@ -2481,11 +2519,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1107c`
 	- Acceptance signoff: me, 20261109, every Needs row ran green.
 	- Closed: 20261109-140900
+	- Closed reason: Done
 
 - One rule for where the comments and blank of a removed list item go, through `adopt`
 	- ID: 2026110712372271
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: No
 	- Priority: High
 	- Target version: v3.0.0-beta.2
@@ -2513,11 +2552,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1107c`
 	- Acceptance signoff: me, 20261109, every Needs row ran green.
 	- Closed: 20261109-140900
+	- Closed reason: Done
 
 - CodeQL fails on test code from the last rounds, so every full run and main push fails
 	- ID: 2026110908100001
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261109-081000
@@ -2548,11 +2588,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: the 3 tests failed before and pass after, and the gates are green.
 	- Branch: `r1109`
 	- Closed: 20261109-115623
+	- Closed reason: Done
 
 - Spec promises the depth cap keeps every binding inside a thread stack
 	- ID: 2026110713595457
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261107-135954
@@ -2568,13 +2609,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none new. The change is wording, and check-docs passed. The C 64 KB tests (`df0c9`, `df0d5`, `df32k`, `df32m`, `df32n`) pin the C half of the claim.
 	- Acceptance signoff: Self-closed: wording only, and the numbers come from the measurements on the parent.
 	- Closed: 20261109-130014
+	- Closed reason: Done
 	- Verified: check-docs passed.
 	- Swept: the same claim in `shcl.h`'s `SHCL_MAX_DEPTH` comment, now reworded. No other binding, README, or design.md text makes it.
 
 - C's validate, generate and path walks need stack in proportion to the depth
 	- ID: 2026110713595434
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261107-135954
@@ -2593,13 +2635,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1109`
 	- Acceptance signoff: Self-closed: the output is unchanged across the crosscheck, and the tests were seen to fail first.
 	- Closed: 20261109-122736
+	- Closed reason: Done
 	- Verified: C runner, mem_bounds, crosscheck, cli-regress, perf-gate (`recurse` among them), sanitize-c, analyze-c, check-c-compilers, check-docs, and `--backlog-run-quick c cli` passed. The runner's Windows branch builds with mingw and passes under wine.
 	- Swept: a scan of `shcl.h` for functions that call themselves didn't find another walk that goes a level a call, and every op in the harness fits 16 KB now. Python already iterates all 5 walks, Go grows its stack, and Rust is 2026110713595457.
 
 - A document at the 512 depth cap needs about 190 KB of stack in C
 	- ID: 2026110613470315
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-134703
@@ -2616,11 +2659,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Children: 2026110713595389 (emit, Done), 2026110713595411 (overlay and clone, Done), 2026110713595434 (validate, generate, paths, Done), 2026110713595457 (spec and Rust). The C walks go iterative, as Python's did, since 128 bytes a level is all a 64 KB stack leaves at the cap.
 	- Test case: its children's: 2026110713595457: none new. The change is wording, and check-docs passed. The C 64 KB tests (`df0c9`, `df0d5`, `df32k`, `df32m`, `df32n`) pin the C half of the claim.; 2026110713595434: C runner `wildcards_at_the_depth_cap_fit_a_64_kb_stack` (`df32k`), `validate_through_mounts_at_the_depth_cap_fits_a_64_kb_stack` (`df32m`) and `generate_through_mounts_at_the_depth_cap_fits_a_64_kb_stack` (`df32n`), each a new op in `deep_round_trip` on a 64 KB thread. The runner crashed at `df32k` on the old header, and the tools folder's `deepstack` harness crashed on all 4 ops there. All pass now.; 2026110713595411: C runner `merge_at_the_depth_cap_fits_a_64_kb_stack` (`df0d5`): the capped document laid over an empty one (the clone) and a bare copy laid over that (the overlay), on a 64 KB thread, same bytes back. It crashed the runner on `528ade2c` and passes now.; 2026110713595389: C runner `canonical_at_the_depth_cap_fits_a_64_kb_stack` (`df0c9`), parse and format at the cap on a 64 KB thread (CreateThread's size on Windows), same bytes back. It crashed the runner on the old header and passes now.
 	- Closed: 20261109-130039
+	- Closed reason: Done
 
 - comparison.md's peak memory row comes from the 2026-10-02 run
 	- ID: 2026110613470320
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-134703
@@ -2642,11 +2686,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: the doc numbers are fixed, and the test failed before and passes after.
 	- Branch: `r1109`
 	- Closed: 20261109-131102
+	- Closed reason: Done
 
 - A save where nothing is at the path writes, as an editor's does
 	- ID: 2026110907535001
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261109-075350
@@ -2673,11 +2718,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1109`
 	- Acceptance signoff: Self-closed: every named row passed locally and on b29w.
 	- Closed: 20261109-154811
+	- Closed reason: Done
 
 - Say so when an installer moves a beta install back to the older stable
 	- ID: 2026110613470322
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-134703
@@ -2703,11 +2749,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `df38m` (install.bash, plan, note, receipt exact, removal, rerun as update) and `df38n` (install.ps1 plan and note). Both fail on the old scripts and pass now.
 	- Acceptance signoff: Self-closed: the plan, note, receipt, and drop-in removal ran on b29w.
 	- Closed: 20261109-154811
+	- Closed reason: Done
 
 - Make a Go zero-value `Document` usable, or say to use `New()`
 	- ID: 2026110613470325
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-134703
@@ -2731,11 +2778,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1109`
 	- Acceptance signoff: Self-closed: the requirement's first option, with its regression test watched to fail.
 	- Closed: 20261109-151300
+	- Closed reason: Done
 
 - Fuzz `dd3t9` fails at iteration 863179: a remove puts a kept line below the next kept line, and the reload gets a new `E018`
 	- ID: 2026110714552634
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261107-145526
@@ -2766,12 +2814,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `a_remove_that_moves_a_misplaced_line_adds_no_error` (`df34z` Rust, `df350` Go, `df351` Python, `df352` C); fuzz `dd3t9`.
 	- Acceptance signoff: Self-closed: its tests failed before and pass after, and the result is what design.md's table says.
 	- Closed: 20261109-134020
+	- Closed reason: Done
 
 - The save comments in shcl.h and its twins still describe a change since the load
 	- ID: 2026110710374311
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261107-103743
 	- Opened by:
 	- Related IDs: 2026110613470307
@@ -2783,11 +2833,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none, comments only. The C runner, the veneer smoke and check-docs pass.
 	- Branch: `r1109`
 	- Closed: 20261109-144355
+	- Closed reason: Done
 
 - The parse caps don't count comment lines or kept lines, so a capped parse can still use 100 times the file's size
 	- ID: 2026110613470304
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0
 	- Opened: 20261106-134703
@@ -2819,11 +2870,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `the_node_cap_counts_comment_and_kept_lines` (`df003` Rust, `df004` Go, `df005` Python, `df006` C) and the budget tests (`df007` Rust `mem_caps`, `df008` Go `mem_test`, `df009` C `mem_bounds`, `df00a` Python). All failed on the old code and pass now. The fuzz guard is the child's.
 	- Acceptance signoff: Self-closed: the fix and the budget tests went in on 20261107, and each test was seen to fail on the old code. The fuzz guard is its own item, 2026110707441268.
 	- Closed: 20261109-114119
+	- Closed reason: Done
 
 - C's overlay and clone walks need stack in proportion to the depth
 	- ID: 2026110713595411
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0
 	- Opened: 20261107-135954
@@ -2844,11 +2896,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1107c`
 	- Acceptance signoff: Self-closed: the output is unchanged across the crosscheck, and the test was seen to fail first.
 	- Closed: 20261107-143247
+	- Closed reason: Done
 
 - C's emit walk needs stack in proportion to the depth
 	- ID: 2026110713595389
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0
 	- Opened: 20261107-135953
@@ -2866,13 +2919,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1107c`
 	- Acceptance signoff: Self-closed: the output is unchanged across the crosscheck, and the test was seen to fail first.
 	- Closed: 20261107-142536
+	- Closed reason: Done
 	- Verified: C runner, crosscheck with a fuzz dump, cli-regress, sanitize-c, analyze-c, perf-gate, and `--backlog-run-quick c` passed. The Windows branch of the test cross-compiles with mingw.
 	- Swept: the other depth-linear C walks are in 2026110713595411 and 2026110713595434. Python's emit already iterates, Go grows its stack, and Rust is 2026110713595457.
 
 - C checks a recursive schema in time cubic in the nesting depth
 	- ID: 2026110613470309
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0
 	- Opened: 20261106-134703
@@ -2899,11 +2953,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The square, each node's chain built from the root, is its own Bug, since it's in all 4 and needs the matcher to pass its state down the tree.
 	- Test case: `mem_bounds` `df080` (`recursive_mount_check_is_not_cubic_in_depth`), which fails on the old code and passes now, and corpus `220-deep-fragment-chain` (`df07z`) in all 4 suites.
 	- Closed: 20261107-120026
+	- Closed reason: Done
 
 - `set_literal` leaves `quoted` false on a value the save writes quoted
 	- ID: 2026110613470310
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0
 	- Opened: 20261106-134703
@@ -2929,11 +2984,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `set_literal_quoted_flag_survives_a_save`, Rust `df08k`, Go `df08m`, Python `df08n`, C `df08p`: each listed value read before the save and after a reload, both true, with a bare word, a bare thousands number, a quoted value and a one-element array beside them.
 	- Acceptance signoff: Self-closed 20261107: the expected behavior on the item. The tests fail before and pass after.
 	- Closed: 20261107-122414
+	- Closed reason: Done
 
 - Some spec sentences don't match what all 4 bindings do
 	- ID: 2026110613470314
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0
 	- Opened: 20261106-134703
@@ -2966,11 +3022,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: the docs now say what all 4 bindings do, with the code unchanged.
 	- Branch: `r1107c`
 	- Closed: 20261107-135444
+	- Closed reason: Done
 
 - The setup's PATH removal rewrites a machine PATH that doesn't have the folder
 	- ID: 2026110613470316
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0
 	- Opened: 20261106-134703
@@ -2994,11 +3051,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: winpath-regress.ps1 `df0af` (a remove of an absent folder leaves a machine PATH ending in `;;` byte for byte) and `df0ag` (an add keeps the empty segments), in win-runners on Windows, and shell-regress `df0ah`, the released script against a stand-in registry key on Linux.
 	- Acceptance signoff: Self-closed 20261107: the expected behavior on the item. The tests fail before and pass after.
 	- Closed: 20261107-134129
+	- Closed reason: Done
 
 - install.ps1 calls `tar` by name, so a GNU tar ahead of System32 can't unpack the payload
 	- ID: 2026110613470317
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0
 	- Opened: 20261106-134703
@@ -3024,11 +3082,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: win-runners `df0ap` (a `tar` ahead of System32 on PATH is never called, and the payload unpacks), shell-regress `df0aj` (the same with a stand-in System32 on Linux).
 	- Acceptance signoff: Self-closed 20261107: reproduced, and the tests fail before and pass after.
 	- Closed: 20261107-134129
+	- Closed reason: Done
 
 - install.bash fails when a temp folder's name has `..` in it, and the tag filter isn't anchored
 	- ID: 2026110613470318
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0
 	- Opened: 20261106-134703
@@ -3052,11 +3111,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `df0ak` (install.bash under a TMPDIR named `tmp sp..x` exits 0 and leaves nothing), `df0am` (both pickers drop `v2.0.0x`, `v2.0.1.4`, `v2.0.1+build`); check-push-gate `df0an` (`fSafeRm`, `fSafeRmUnder`, and `fRmTmp` take a folder with `..` in a name, and no guard tests `*..*`).
 	- Acceptance signoff: Self-closed 20261107: the expected behavior on the item. The tests fail before and pass after.
 	- Closed: 20261107-134129
+	- Closed reason: Done
 
 - A load that re-opens many blocks takes time in the square of their count since 2026-11-04
 	- ID: 2026110613470305
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0
 	- Opened: 20261106-134703
@@ -3092,11 +3152,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: conformance `reopened_blocks_load_in_linear_time` (`df010` Rust, `df011` Go, `df012` Python), C mem_bounds `df013`, perf-gate `reopens` (`df014`).
 	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new tests failed before and pass after, and the named gates pass.
 	- Closed: 20261107-083437
+	- Closed reason: Done
 
 - Python decodes escapes in time in the square of their count
 	- ID: 2026110613470306
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0
 	- Opened: 20261106-134703
@@ -3125,11 +3186,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `df026` (Python), `df028` (Go), `df02a` (Rust), `df02b` (C) scaling over 10,000 and 80,000 escapes; `df027` (Python), `df029` (Go) no message text for a good escape.
 	- Acceptance signoff: Self-closed: the scaling and message tests fail on the old code and pass on the fix.
 	- Closed: 20261107-085100
+	- Closed reason: Done
 
 - A path that names a folder gets the wrong refusal in Rust and C, and from the CLIs' own changed check
 	- ID: 2026110613470308
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0
 	- Opened: 20261106-134703
@@ -3156,13 +3218,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `save_refuses_a_directory_shaped_path` (`dc42j`, `dc42p`, `dc42k`, `dc42n`), cli-regress `df03q` (`write-dir-during-wait`, stdin `@dir`), `df03r` (`write-dir-shaped`) and `df03s` (`write-dir-shaped-dot`). POSIX only for `df03q`.
 	- Branch: `r1107b`
 	- Closed: 20261107-103409
+	- Closed reason: Done
 
 - A `#` in an unquoted path cuts the path, so `--remove` and the setters act on the field above it
 	- ID: 2026110613470301
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: No
 	- Severity: High
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 1
 	- Version and build: dev at `343334df`
@@ -3190,13 +3254,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `c423e310`
 	- Acceptance signoff: Self-closed: the 2M release fuzz and check-migrate passed on c423e310.
 	- Closed: 20261107-022500
+	- Closed reason: Done
 	- 20261107: Verified: SHCL_FUZZ_ITERS=2000000 release fuzz_smoke passed (31 tests, 507 s) and check-migrate.bash passed (655 documents) on c423e310, log /mnt/ext/wip2/wip/tmp/shcl/20261107-010737_001/fuzzmig.log.
 
 - `banner on` and `upgrade` drop an author's line inside the info block
 	- ID: 2026110613470302
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 2
 	- Related IDs: 2026100307163904
@@ -3225,13 +3291,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed
 	- Branch: `r1107`
 	- Closed: 20261106-182500
+	- Closed reason: Done
 	- 20261107: Verified: SHCL_FUZZ_ITERS=2000000 release fuzz_smoke passed (31 tests) and check-migrate.bash passed on e7e7af3a, log /mnt/ext/wip2/wip/tmp/shcl/20261107-010737_001/fuzzmig2.log.
 
 - The publish script tells the user to drop a stash that has the only copy of their untracked files
 	- ID: 2026110613470303
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 3
 	- Version and build: dev at `343334df`
@@ -3258,12 +3326,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `dez7m`.
 	- Acceptance signoff: Self-closed: the row runs the script itself and failed before the fix.
 	- Closed: 20261106-190311
+	- Closed reason: Done
 
 - Removing one field of a dotted pair writes a bare header line
 	- ID: 2026110613470312
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 12
 	- Version and build: dev at `343334df`
@@ -3289,6 +3359,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed
 	- Branch: `r1107`
 	- Closed: 20261106-182500
+	- Closed reason: Done
 	- 20261107: Verified: SHCL_FUZZ_ITERS=2000000 release fuzz_smoke passed (31 tests) and check-migrate.bash passed on e7e7af3a, log /mnt/ext/wip2/wip/tmp/shcl/20261107-010737_001/fuzzmig2.log.
 	- 20261107: hosted ci.yml 42332336973 failed perf-gate `dd3w8` (keeps) in Go and Python. Cause: the head check split all the text after each group to find the next line, which is quadratic in the file. Fixed: `headsOnly` and `_heads_only` read only up to the next line, as Rust and C already did.
 		- Verified: perf-gate passes for all 4 CLIs, keeps at rust 844, go 171, python 2818 and c 98 ms. On 20,000 keys, user CPU went from 3.04 to 0.14 s in Go and 7.23 to 2.92 s in Python, with the same output. Go and Python conformance pass, `dez6d` included.
@@ -3297,8 +3368,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `E003` names the capped number, not the index as written
 	- ID: 2026110613470313
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 13
 	- Related IDs: 2026101514324705
@@ -3323,12 +3395,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `c423e310`
 	- Acceptance signoff: me, 20261106, each new test failed on the old library and passes on the fix
 	- Closed: 20261106-172859
+	- Closed reason: Done
 
 - sign-release.bash's key fingerprint check can't fail
 	- ID: 2026110613470319
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 19
 	- Version and build: dev at `343334df`
@@ -3351,12 +3425,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `dez7n`.
 	- Acceptance signoff: Self-closed: the row failed before the fix.
 	- Closed: 20261106-190311
+	- Closed reason: Done
 
 - Make sign-release.bash refuse a dated build
 	- ID: 2026110613470321
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 21
 	- Problem description: the signer checks that the sums match the files beside them, then signs. Every pipeline run writes the local release folder, and today it has a dated build from a later run, not the beta1 bytes. Signing it with `--no-tag-check`, as beta1 was signed, passes and makes a good signature over bytes that aren't the cut. `release-table.bash --version-of` already refuses a dated build.
@@ -3381,13 +3457,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `dez7p`.
 	- Acceptance signoff: Self-closed: each requirement has a row that failed before.
 	- Closed: 20261106-190311
+	- Closed reason: Done
 
 - Give the dogfood launcher's copy its own temp name, and swap its link by rename
 	- ID: 2026110613470326
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs external testing: No
 	- Priority: High
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-134703
 	- Opened by: Code review 20261106 item 26
 	- Related IDs: 2026110215285714
@@ -3409,13 +3487,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `dez7q`, `dez7r`; win-runners `dd71z` for Windows.
 	- Acceptance signoff: Self-closed: win-runners dd71z passed on the hosted windows job, under powershell and pwsh.
 	- Closed: 20261107-035500
+	- Closed reason: Done
 	- 20261107: Verified: hosted ci.yml run 42332336973 on r1107 (5fbc1faf, which has 873010a3), windows job: PASS dd71z win-runners dogfood runner, which runs it under both powershell and pwsh.
 
 - How `◉` shows in a Windows console
 	- ID: 2026110609135700
 	- Type: Task
-	- Status: Done
+	- Status: Closed
 	- Priority: Low
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-091357
 	- Opened by: gitsby's move to 3.0.0-beta1
 	- Related IDs: 2026100812323841
@@ -3435,12 +3515,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none, a one-off look with `private/claude_simple/tools/glyph-probe/`.
 	- Acceptance signoff: Self-closed: every case in the requirements ran on b29w.
 	- Closed: 20261106-093500
+	- Closed reason: Done
 
 - The Go binding doesn't build for wasm: "undefined: syscall.O_NONBLOCK"
 	- ID: 2026110611562400
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-115624
 	- Opened by: convert-base-v2 (its 2026110610591137), moving to beta1
 	- Version and build: `v3.0.0-beta1` at `99a9f7b6`
@@ -3454,12 +3536,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: Go `deyvb` TestNoWaitFlagIsNonblock (the table against `syscall.O_NONBLOCK` on every unix it runs on), `deyvc` and `deyvd` in check-go-alone. `deyvc` and `deyvd` failed on dev's `shcl.go` for js and wasip1, and `deyvb` failed with a wrong Linux value.
 	- Acceptance signoff: Self-closed: the checks fail without the fix and pass with it, and convert-base-v2's wasm builds pass with it.
 	- Closed: 20261106-120800
+	- Closed reason: Done
 
 - `sign-release.bash` refuses the right key: "install.ps1 has a different key"
 	- ID: 2026110607341200
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261106-073412
 	- Opened by: JC, signing the 3.0.0-beta1 cut
 	- Version and build: `v3.0.0-beta1` at `99a9f7b6`
@@ -3471,11 +3555,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `deyk6`. It puts the throwaway key into copies of the real installers and key file in place of the real one, and the run has to sign. It failed before the fix with "install.ps1 has a different key".
 	- Acceptance signoff: Self-closed: `deyk6` fails without the fix and passes with it.
 	- Closed: 20261106-074500
+	- Closed reason: Done
 
 - Go back to docker's default builder for the images
 	- ID: 2026110311291920
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261103-112919
 	- Opened by: JC
@@ -3501,11 +3586,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261104: `de635`'s prune assert went from `buildx prune --builder shcl-cicd -f --filter until=168h` to nothing asked of docker. `desm7`'s went from that prune and `buildx stop shcl-cicd` to `buildx rm shcl-cicd`, and `de8j8`'s from the prune to `buildx rm shcl-cicd`. `ded0y` counts plain builds only.
 	- Acceptance signoff: Self-closed: each requirement has a check that passed, and b23's daemon.json has the `builder.gc` block.
 	- Closed: 20261104-163500
+	- Closed reason: Done
 
 - `--quick` runs every test box
 	- ID: 2026110215285702
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 2
@@ -3528,11 +3614,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-push-gate `dewd9` (`--list --quick` lists no box, a `--quick` run says the box step is off and doesn't take it, and `--list` alone lists the box).
 	- Acceptance signoff: Self-closed: the test failed before the fix and passes after, and the expected behavior is the item's own.
 	- Closed: 20261104-184500
+	- Closed reason: Done
 
 - A failed image build stops the run instead of falling back to the host
 	- ID: 2026110215285703
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 3
@@ -3558,11 +3645,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-push-gate `dewda` (a run with neither flag whose image fails to build goes on here with one note and records, and `--container` stops with `could not build`).
 	- Acceptance signoff: Self-closed: the test failed before the fix and passes after, and the expected behavior is the item's own.
 	- Closed: 20261104-184500
+	- Closed reason: Done
 
 - The dev setup script doesn't check everything the merge gate needs
 	- ID: 2026110215285716
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 16
@@ -3586,11 +3674,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: check-install-dev passes whole, and fails `dewe3` and `dewe4` on the old script.
 	- Acceptance signoff: me, the plan's new lines checked against a fixture config. The real installs aren't run here. The nfpm and PSScriptAnalyzer ones are the commands ci.yml uses.
 	- Closed: 20261104-190309
+	- Closed reason: Done
 
 - check-migrate diverges on the 2.x Unicode trim fix, and fuzz_00150 changes its exit code
 	- ID: 2026110410134605
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261104-101346
 	- Opened by: round r1104, worker for 2026110312163206
@@ -3612,11 +3701,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-migrate `dewb9` (215's edge lines found) and `dcqf3` over the corpus and fuzz documents.
 	- Acceptance signoff: Self-closed: check-migrate failed on the fix before the filter and passes after.
 	- Closed: 20261104-180734
+	- Closed reason: Done
 
 - `upgrade` keeps a no-break space that 2.0 trimmed, so a value changes with no word
 	- ID: 2026110312163206
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261103-121632
 	- Opened by: Code review 20261103 item 6
@@ -3650,12 +3740,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `devxe` (`215-migrate-unicode-trim`) in all 4 runners.
 	- Acceptance signoff: Self-closed: corpus 215 failed before and passes after, and the named gates pass.
 	- Closed: 20261104-180734
+	- Closed reason: Done
 	- Prereq IDs: 2026110410134605
 
 - Fuzz `dd3t9` fails at iteration 32783: a save that keeps lines reloads with an `E011` the document didn't have
 	- ID: 2026110407313888
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261104-073138
 	- Opened by: found while working 2026110315051536
@@ -3681,11 +3772,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: fuzz `dd3t9`, and the edits-and-merges fuzz in Go (`dd16m`), Python (`dd16n`) and C (`dc474`).
 	- Acceptance signoff: Self-closed: its test failed before and passes after, and the result is what design.md's table says.
 	- Closed: 20261104-082609
+	- Closed reason: Done
 
 - `fmt` moves a kept line above an earlier instance when the load merges 2 of one name and value
 	- ID: 2026110315051536
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261103-150515
 	- Opened by: found while working 2026110312163204
@@ -3720,11 +3812,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `213-load-fold-keeps-kept-lines` (`devra`), corpus `214-fold-first-blank-merge` (`devsm`), cli-regress `fmt-fold-keeps-kept-lines` (`devrb`), corpus `145-kept-misplaced` (`dd2kg`).
 	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new tests failed before and pass after, and the named gates pass.
 	- Closed: 20261104-082609
+	- Closed reason: Done
 
 - Two spellings of one path under a missing folder can resolve apart in C, Go and Python
 	- ID: 2026110314240418
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261103-142404
 	- Opened by: 2026110314064292's sweep
@@ -3748,11 +3841,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: the new rows failed on the old code and pass on the new, and the gates are green.
 	- Branch: `r1104`
 	- Closed: 20261104-091417
+	- Closed reason: Done
 
 - The CLI's changed-since-read check hangs on a FIFO swapped in during `set`'s stdin wait
 	- ID: 2026110313211991
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261103-132119
 	- Opened by: 2026110312163202's sweep
@@ -3777,11 +3871,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: the new row hung on the old CLIs and passes on the new, and the gates are green.
 	- Branch: `r1104`
 	- Closed: 20261104-103248
+	- Closed reason: Done
 
 - A create-only save writes through a dangling link at the path
 	- ID: 2026110312163207
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261103-121632
 	- Opened by: Code review 20261103 item 7
@@ -3806,11 +3901,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: reproduced, the new rows failed before and pass after, and the gates are green.
 	- Branch: `r1104`
 	- Closed: 20261104-090220
+	- Closed reason: Done
 
 - The C++ interface saves to a cut-off path when the path contains a NUL
 	- ID: 2026110312163208
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261103-121632
 	- Opened by: Code review 20261103 item 8
@@ -3838,11 +3934,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: reproduced, `devwa` failed before and passes after, and the gates are green.
 	- Branch: `r1104`
 	- Closed: 20261104-094647
+	- Closed reason: Done
 
 - The changed check misses an edit when the load and the save spell the path differently, so another program's edit is lost
 	- ID: 2026110312163201
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs external testing: No
 	- Severity: High
 	- Opened: 20261103-121632
@@ -3878,11 +3975,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `2f38f68b`
 	- Acceptance signoff: me 20261103, hosted windows job and b29w short-name TEMP run above.
 	- Closed: 20261103
+	- Closed reason: Done
 
 - Go and Python create a file through a missing folder named with `..`
 	- ID: 2026110314064292
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261103-140642
 	- Opened by: 2026110312163203
@@ -3910,11 +4008,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: reproduced, the new rows failed on the old resolve and pass on the new, `dd5h4` passes in all 4 CLIs, and the gates are green.
 	- Branch: `r1103b`
 	- Closed: 20261103-142339
+	- Closed reason: Done
 
 - The changed check hangs on a FIFO, and saves over a file it can't read
 	- ID: 2026110312163202
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261103-121632
 	- Opened by: Code review 20261103 item 2
@@ -3948,11 +4047,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1103b`
 	- Commit: `2f38f68b`
 	- Closed: 20261103-135026
+	- Closed reason: Done
 
 - A newer Format line after a `Format 3` line is ignored, so a save writes the file anyway
 	- ID: 2026110312163203
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261103-121632
 	- Opened by: Code review 20261103 item 3
@@ -3978,11 +4078,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1103b`
 	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new tests failed before and pass after, and the reading is what spec.md already says.
 	- Closed: 20261103-140642
+	- Closed reason: Done
 
 - A set that makes a second instance with an existing value moves kept lines, and can comment one out
 	- ID: 2026110312163204
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261103-121632
 	- Opened by: Code review 20261103 item 4
@@ -4019,11 +4120,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `a_set_that_folds_leaves_kept_lines` (`detsb` Rust, `detsc` Go, `detsd` Python, `detse` C); cli-regress `detsf` (`set-fold-keeps-kept-lines`); fuzz `dderx`.
 	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new tests failed before and pass after, and the result is what design.md's table already says.
 	- Closed: 20261103-150515
+	- Closed reason: Done
 
 - Setting a list field twice gives 2 different files when a kept line sits among its items
 	- ID: 2026110312163205
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261103-121632
 	- Opened by: Code review 20261103 item 5
@@ -4044,11 +4146,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: the last case of `a_set_that_folds_leaves_kept_lines` (`detsb`, `detsc`, `detsd`, `detse`), which sets twice; cli-regress `detsg` (`set-stacked-kept-name-once`).
 	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new tests failed before and pass after.
 	- Closed: 20261103-150515
+	- Closed reason: Done
 
 - The man page leaves the newer-format refusal out of exit 7
 	- ID: 2026110312163209
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261103-121632
 	- Opened by: Code review 20261103 item 9
@@ -4068,11 +4171,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1103b`
 	- Acceptance signoff: Self-closed: docs only, and the line says what `--help` and spec.md say.
 	- Closed: 20261103-140642
+	- Closed reason: Done
 
 - check-boxes names a private helper script by its file name
 	- ID: 2026110215285701
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 1
@@ -4097,11 +4201,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: no tracked file under `cicd/`, `.github/`, or the installers names a private helper now.
 	- Acceptance signoff: Self-closed: the helper is found by the setting or the link, and the box is a SKIP with neither.
 	- Closed: 20261102-180031
+	- Closed reason: Done
 
 - The dogfood launcher expands wildcards and `~` in arguments, and exits 0 on Ctrl+C
 	- ID: 2026110215202340
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs external testing: No
 	- Severity: Avg
 	- Opened: 20261102-152023
@@ -4135,11 +4240,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `desp5`; win-runners `ddg6q` and `dd71z` for the Windows run mode.
 	- Acceptance signoff: Self-closed: desp5 tests the bash launcher path, and the Windows run mode passed hosted under 5.1 and 7.
 	- Closed: 20261102-205537
+	- Closed reason: Done
 
 - Running the pipeline prunes every project's docker build cache on a contributor's box
 	- ID: 2026110215285719
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 19
@@ -4163,11 +4269,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261102: `de635`'s prune assert went from `builder prune -f --filter until=168h` to `buildx prune --builder shcl-cicd -f --filter until=168h`.
 	- Acceptance signoff: Self-closed: JC's answer asked for a prune of only our own cache, and docker's own way to keep a project's cache apart is a builder of its own.
 	- Closed: 20261102-194240
+	- Closed reason: Done
 
 - Apply the 2026-11-02 doc suggestions that are accepted
 	- ID: 2026110215285723
 	- Type: Task
-	- Status: Done
+	- Status: Closed
 	- Priority: Low
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 23
@@ -4179,11 +4286,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none, docs only. check-readme, check-docs and markdownlint pass.
 	- Acceptance signoff: JC asked for the changes, 20261102.
 	- Closed: 20261102-162543
+	- Closed reason: Done
 
 - The publish script wants rar with the backup off
 	- ID: 2026110215202335
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261102-152023
 	- Opened by: tukfs-hash 2026102814341411
@@ -4197,11 +4305,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `desdr`.
 	- Acceptance signoff: Self-closed: `desdr` passes, and failed on the old script.
 	- Closed: 20261102-152023
+	- Closed reason: Done
 
 - CICD reset: version line
 	- ID: 2026102416250100
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261024-162500
 	- Opened by: JC
@@ -4240,11 +4349,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `der1c`, shell-regress `der1d`, `der1e`, `debjb` and `des49`, crosscheck `d9tsx` (usage, now with `--version`).
 	- Acceptance signoff: Self-closed: the receipt in a 5.1 console on b29w shows the build's exact 2 lines.
 	- Closed: 20261102-102209
+	- Closed reason: Done
 
 - CICD reset: CICD process gaps
 	- ID: 2026102416250120
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261024-162500
 	- Opened by: JC
@@ -4261,11 +4371,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: children 2026110116125875, 2026110116125880 and 2026110116125885 (shell-regress der2e, check-push-gate der3w, sanitize-rust des2x).
 	- Acceptance signoff: Self-closed: every child is Done.
 	- Closed: 20261102-112931
+	- Closed reason: Done
 
 - CICD reset: Rust ThreadSanitizer run
 	- ID: 2026110116125885
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs external testing: No
 	- Priority: Low
 	- Opened: 20261101-161258
@@ -4284,11 +4395,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: sanitize-rust `des2x`.
 	- Acceptance signoff: Self-closed: des2x passes on the host, in the main image and on the hosted runner.
 	- Closed: 20261102-112922
+	- Closed reason: Done
 
 - CICD reset: FreeBSD package
 	- ID: 2026110116125875
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: No
 	- Priority: Avg
 	- Opened: 20261101-161258
@@ -4314,11 +4426,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `der2e`.
 	- Acceptance signoff: me, 20261101
 	- Closed: 20261101-203121
+	- Closed reason: Done
 
 - CICD reset: prune build caches on a toolchain or lockfile change
 	- ID: 2026110116125880
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: No
 	- Priority: Avg
 	- Opened: 20261101-161258
@@ -4344,11 +4457,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-push-gate `der3w`.
 	- Acceptance signoff: me, 20261101
 	- Closed: 20261101-203121
+	- Closed reason: Done
 
 - Other hosts: timed work, such as perf-gate, on vm925w
 	- ID: 2026103016433965
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs external testing: vm925w in a full run's box step, check-boxes `dep83` with its perf-gate lines. It was off on 20261031 and couldn't start, since vmKt6m held its SPICE port.
 	- Priority: High
 	- Opened: 20261030-164339
@@ -4379,11 +4493,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: `cicd.bash --backlog-run-quick cicd` passed all 5 steps, and so did shell-regress, perf-gate over the Rust CLI, `lint-report.bash --check --no-mark`, PSScriptAnalyzer on `box-cases.ps1` and `cpu-time.ps1`, and `test-ids.py check`.
 	- Acceptance signoff: Self-closed: vm925w's box step passed over the dev release build.
 	- Closed: 20261101-145822
+	- Closed reason: Done
 
 - CICD reset: other hosts and VMs
 	- ID: 2026102416250010
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261024-162500
 	- Opened by: JC
@@ -4402,11 +4517,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: the children's, 2026102419263412, 2026102419263417, 2026102419263422, 2026102419263427 and 2026102419263432.
 	- Acceptance signoff: Self-closed: every child is Done.
 	- Closed: 20261101-145822
+	- Closed reason: Done
 
 - Other hosts: Windows on b29w, timed work on vm925w
 	- ID: 2026102419263432
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261024-192634
 	- Opened by: 2026102416250010
@@ -4422,11 +4538,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: the children's, 2026103016433921, 2026103016433943 and 2026103016433965.
 	- Acceptance signoff: Self-closed: every child is Done.
 	- Closed: 20261101-145822
+	- Closed reason: Done
 
 - lint-report reads a passing run as INCOMPLETE when box SKIP lines follow the done line
 	- ID: 2026103109184125
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261031-091841
 	- Opened by: me
@@ -4440,11 +4557,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `deqyq`, red on the old cicd.bash and lint-report, both halves.
 	- Acceptance signoff: Self-closed: `lint-report.bash --check` now reads `run_20261101-120609` as CLEAN. shell-regress, check-docs and check-push-gate pass.
 	- Closed: 20261101-143128
+	- Closed reason: Done
 
 - write_file_atomic replaces a link to a missing file with a regular file
 	- ID: 2026110114120156
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: No
 	- Severity: Avg
 	- Opened: 20261101-141201
@@ -4459,11 +4577,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: conformance `dbxk2` (a save through a dangling link creates its file and keeps the link), in every POSIX runner.
 	- Acceptance signoff: Self-closed: fixed before this was filed, and tukzmon's case passes on dev.
 	- Closed: 20261101-141500
+	- Closed reason: Done
 
 - perf-gate fails Python's reads when a load spike raises its CPU time but not its baseline's
 	- ID: 2026110110325317
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. perf-gate alone, all 4 bindings.
 	- Severity: Low
 	- Opened: 20261101-103253
@@ -4483,11 +4602,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: every budget in perf-gate goes through `fJudge`, `fills` included, which retimes its spread-out twin. `write-counts` is a count rather than a clock. No other gate holds a CLI to a timed budget.
 	- Acceptance signoff: Self-closed: each new self-test was seen red, and the gate passes whole.
 	- Closed: 20261101-104500
+	- Closed reason: Done
 
 - CICD reset: the safe removal guard in the hook, gate scripts and installers
 	- ID: 2026103114560029
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: No
 	- Needs external testing: No
 	- Priority: Avg
@@ -4518,11 +4638,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1031b`
 	- Acceptance signoff: me, full run and every hosted job passed
 	- Closed: 20261031-185525
+	- Closed reason: Done
 
 - CICD reset: a safe removal guard for the PowerShell scripts
 	- ID: 2026103114555334
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs external testing: No
 	- Priority: Avg
 	- Opened: 20261031-145553
@@ -4550,11 +4671,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1031b`
 	- Acceptance signoff: me, hosted windows job passed depma and the windows path row
 	- Closed: 20261031-185525
+	- Closed reason: Done
 
 - CICD reset: the run folder and its guard
 	- ID: 2026103114555299
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: No
 	- Priority: Avg
 	- Opened: 20261031-145552
@@ -4587,11 +4709,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1031b`
 	- Acceptance signoff: me, full run passed with the run folder in the image and nothing left after
 	- Closed: 20261031-185525
+	- Closed reason: Done
 
 - CICD reset: a test for every Done item
 	- ID: 2026102416250070
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261024-162500
 	- Opened by: JC
@@ -4616,11 +4739,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1031`
 	- Acceptance signoff: me, every child closed and test-ids.py backlog passes over every closed item
 	- Closed: 20261031-145343
+	- Closed reason: Done
 
 - A test that the publish helper keeps quotes in `--message`
 	- ID: 2026103111123585
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261031-111235
 	- Opened by: 2026102416250070
@@ -4635,11 +4759,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1031b`
 	- Acceptance signoff: Self-closed: its test passes.
 	- Closed: 20261031-144904
+	- Closed reason: Done
 
 - CICD reset: temp files and safe removal
 	- ID: 2026102416250090
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261024-162500
 	- Opened by: JC
@@ -4656,11 +4781,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: the children's: 2026103114555299, 2026103114560029, 2026103114555334
 	- Acceptance signoff: me, every child closed
 	- Closed: 20261031-185525
+	- Closed reason: Done
 
 - CICD reset: install-dev's gate lines
 	- ID: 2026102813104377
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs external testing: No
 	- Priority: High
 	- Opened: 20261028-131043
@@ -4680,12 +4806,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: every `--gate` in install-dev.bash, and the installers install.bash and install.ps1 (none). contributing.md's and install.md's lines were done in 2026102814013272. The other 3 bindings have no pipeline of their own, so there's no twin there.
 	- Acceptance signoff: me, 20261031: dcbc2 is green on dev with main synced, which is all this item asked.
 	- Closed: 20261031-091854
+	- Closed reason: Done
 	- 20261029: the round is on dev (`93ac745a`), so check-docs `dcbc2` is red there until main has the new text. The sync commit is ready on a local branch, `installsync` at `58231025`, off origin/main.
 
 - CICD builds and tests in a container if one is available
 	- ID: 2026101920461174
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: No
 	- Priority: High
 	- Opened: 20261019-204611
@@ -4727,12 +4854,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-push-gate `de61k` (no docker, a silent one, or aarch64: local with a note, and it records), `de61m` (`--no-container` asks no docker), `de61n` (the refused pairs exit 2), `de61p` (a docker that responds: one run in the main image, which records), `de61q` (`--container` with a silent docker fails). check-pins `de61r`, shell-regress `de61s` and `de61t`.
 	- Acceptance signoff: me, 20261031: the hook has no code of its own here and follows the default, and check-push-gate `de61p` tests that path. The cut push is gated, so a failure there stops the cut.
 	- Closed: 20261031-091854
+	- Closed reason: Done
 	- It was held for the next push that moves main, which is the only thing left to watch.
 
 - CICD reset: standard flags
 	- ID: 2026102416250050
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261024-162500
 	- Opened by: JC
@@ -4754,11 +4882,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: the Test case rows of its children 2026102515494614, 2026102515494619, 2026102515494624, 2026102515494629 and 2026102515494634.
 	- Acceptance signoff: me, 20261031: each requirement is met by a closed child.
 	- Closed: 20261031-100512
+	- Closed reason: Done
 
 - CICD reset: backlog runs
 	- ID: 2026102515494624
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261025-154946
 	- Opened by: 2026102416250050
@@ -4789,11 +4918,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-push-gate `dep78`, and the children's tests: check-push-gate `dej6y`, `dej6z`, `dej8h`, `dekgv`, `dekgw`, shell-regress `dej8g`.
 	- Acceptance signoff: me, 20261031: the run with no area fits in 4 minutes, which the note accepts.
 	- Closed: 20261031-095700
+	- Closed reason: Done
 
 - Closed items name a test ID: new format, and legacy bugs before the 20260904 review
 	- ID: 2026103111123554
 	- Type: Task
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261031-111235
 	- Opened by: 2026102416250070
@@ -4807,6 +4937,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1031`
 	- Acceptance signoff: Self-closed: its test passes.
 	- Closed: 20261031-114917
+	- Closed reason: Done
 	- Requirements:
 		- It only edits backlog rows, which is light-tier work.
 		- Each item `test-ids.py backlog` lists from the top of the backlog down to the `Code review 20260904:` bullet under `Done - Bugs` names its test's ID, or says in a few words why it has none, starting the row with "none". About 135 items.
@@ -4816,7 +4947,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Closed items name a test ID: legacy bugs from the 20260904 review on
 	- ID: 2026103111123559
 	- Type: Task
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261031-111235
 	- Opened by: 2026102416250070
@@ -4830,13 +4961,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1031`
 	- Acceptance signoff: Self-closed: its test passes.
 	- Closed: 20261031-114917
+	- Closed reason: Done
 	- Requirements:
 		- As 2026103111123554, for the items `test-ids.py backlog` lists under `Done - Bugs` from the `Code review 20260904:` bullet to the end of that heading. About 128 items.
 
 - Closed items name a test ID: legacy features before the 20260904 review
 	- ID: 2026103111123564
 	- Type: Task
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261031-111235
 	- Opened by: 2026102416250070
@@ -4850,13 +4982,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1031`
 	- Acceptance signoff: Self-closed: its test passes.
 	- Closed: 20261031-115311
+	- Closed reason: Done
 	- Requirements:
 		- As 2026103111123554, for the items `test-ids.py backlog` lists under `Done - Features and enhancements` down to its `Code review 20260904:` bullet. About 98 items.
 
 - Closed items name a test ID: legacy features from the 20260904 review on
 	- ID: 2026103111123569
 	- Type: Task
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261031-111235
 	- Opened by: 2026102416250070
@@ -4870,13 +5003,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1031`
 	- Acceptance signoff: Self-closed: its test passes.
 	- Closed: 20261031-115311
+	- Closed reason: Done
 	- Requirements:
 		- As 2026103111123554, for the items `test-ids.py backlog` lists under `Done - Features and enhancements` from its `Code review 20260904:` bullet to the end. About 105 items.
 
 - check-docs `dep9w` checks every closed item
 	- ID: 2026103111123574
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261031-111235
 	- Opened by: 2026102416250070
@@ -4895,11 +5029,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1031`
 	- Acceptance signoff: Self-closed: its test passes.
 	- Closed: 20261031-120544
+	- Closed reason: Done
 
 - A test that `-q` is passed on to each tool's quiet flag
 	- ID: 2026103111123580
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261031-111235
 	- Opened by: 2026102416250070
@@ -4919,11 +5054,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1031`
 	- Acceptance signoff: Self-closed: its test passes.
 	- Closed: 20261031-120544
+	- Closed reason: Done
 
 - `shcl explain E008` says the item is dropped
 	- ID: 2026102919222300
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261029-192223
 	- Opened by: 2026102821334970's sweep
@@ -4939,11 +5075,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: the `CODES` text in the 4 CLIs, and the other explain rows. No other text says dropped or ignored for a kept line.
 	- Acceptance signoff: Self-closed: its test passes.
 	- Closed: 20261031-123846
+	- Closed reason: Done
 
 - Other hosts: win-runners.bash and winpath-regress.ps1 on b29w
 	- ID: 2026103016433943
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs external testing: No
 	- Priority: High
 	- Opened: 20261030-164339
@@ -4968,11 +5105,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1030b`
 	- Acceptance signoff: Self-closed: the whole b29w suite run passed after the PSModulePath fix.
 	- Closed: 20261030-193825
+	- Closed reason: Done
 
 - Other hosts: the windows-x86_64 release over the CLI cases on b29w
 	- ID: 2026103016433921
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261030-164339
 	- Opened by: 2026102419263432
@@ -4999,11 +5137,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: `cicd.bash --backlog-run-quick cicd --skip=check-docs.bash` passed all 5 steps, PSScriptAnalyzer on `box-cases.ps1` included, and so did shell-regress and `lint-report.bash --check --no-mark`. check-docs fails only `dcbc2`, red on dev until the installer sync to main.
 	- Acceptance signoff: Self-closed: b29w passed through the real host lock, and a changed output and a wrong build were each seen to fail.
 	- Closed: 20261030-170201
+	- Closed reason: Done
 
 - Hosted macos job fails: the macos-14 runner image is retired on 2026-11-02
 	- ID: 2026103014303616
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs external testing: No
 	- Severity: High
 	- Opened: 20261030-143036
@@ -5023,11 +5162,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: both halves of the last local `macos-universal` build have `LC_BUILD_VERSION` with `minos 13.0`, the field the check reads. check-pins, shellcheck, and check-docs pass on the job, apart from `dcbc2`, which is red on dev until the installer sync to main.
 	- Acceptance signoff: Self-closed: both hosted runs passed.
 	- Closed: 20261030-193808
+	- Closed reason: Done
 
 - Other hosts: macOS on b26 and vmKt6m
 	- ID: 2026102419263427
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261024-192634
 	- Opened by: 2026102416250010
@@ -5053,11 +5193,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-boxes `decyk` for vmKt6m and b26.
 	- Acceptance signoff: Self-closed: both Macs passed through the real host lock, and a wrong build on b26 was seen to fail.
 	- Closed: 20261030-163100
+	- Closed reason: Done
 
 - Other hosts: Linux arm64 on vmDebARM64
 	- ID: 2026102419263422
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: No
 	- Priority: High
 	- Opened: 20261024-192634
@@ -5093,11 +5234,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261030: `demzb`'s config check wanted vmDebARM64's row to end in `|suites-long`, and now wants `|suites=go|suites-long`.
 	- Acceptance signoff: Self-closed: the new row passed inside a whole full run, and demzb was seen to fail with either fault. 20261030: the Go row passed on the real box, and demzb was seen to fail with each old file.
 	- Closed: 20261030-163100
+	- Closed reason: Done
 
 - CICD reset: macOS runner
 	- ID: 2026102416250110
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs external testing: No
 	- Priority: Avg
 	- Opened: 20261024-162500
@@ -5129,11 +5271,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261102: the help, config.bash's note, `--list`'s Off lines and `dee74`'s count of them, which stays 7.
 	- Acceptance signoff: Self-closed: both dispatch forms and the full run's start and wait each ran as written. The 2026-11-02 change follows JC's answer, and `den5e` tests it.
 	- Closed: 20261102-180031
+	- Closed reason: Done
 
 - check-push-gate `dee74` failed once under load and passed on a rerun
 	- ID: 2026102821264857
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: check-push-gate `dena0` against the cicd.bash from before this fix (af3ebc16), to see it fail. It passes with the fix.
 	- Severity: Low
 	- Opened: 20261028-212648
@@ -5152,12 +5295,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: 20261030, check-push-gate run whole on a copy of HEAD with cicd.bash from af3ebc16: `dena0` FAIL ("a run whose log is slow to write: exit 0, of 5 steps ran"), `dee74` PASS. With HEAD's cicd.bash: `dena0` PASS, `dee74` PASS. The one other failure (`dct5a`, cannot clone the copy) is the same in both and comes from the copy having no git history.
 	- Acceptance signoff: Self-closed: `dena0` fails without the fix and passes with it.
 	- Closed: 20261030-193745
+	- Closed reason: Done
 	- Branch: `r1030b`
 
 - The profiler attribution check fails every run since its status word became PASS
 	- ID: 2026103011015050
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Opened: 20261030-110150
 	- Opened by: found while working 2026102515494634
@@ -5178,11 +5322,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `demx9`.
 	- Acceptance signoff: Self-closed: its test passes.
 	- Closed: 20261030-112322
+	- Closed reason: Done
 
 - CICD reset: keep-temp and list
 	- ID: 2026102515494634
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261025-154946
 	- Opened by: 2026102416250050
@@ -5210,11 +5355,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1030`
 	- Acceptance signoff: Self-closed: each requirement has a test that failed before and passes now.
 	- Closed: 20261030-111559
+	- Closed reason: Done
 
 - Other hosts: the 4 suites on vmFreeBSD
 	- ID: 2026102419263417
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261024-192634
 	- Opened by: 2026102416250010
@@ -5242,11 +5388,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-boxes `demxj` (Rust), `demxk` (Go), `demxm` (Python), `demxn` (C), `demxp` (cli-regress), beside `decyk`.
 	- Acceptance signoff: Self-closed: the box step passed inside a whole full run, and each suite was seen to fail on a broken golden.
 	- Closed: 20261030-143026
+	- Closed reason: Done
 
 - CICD reset: test IDs
 	- ID: 2026102416250080
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs external testing: No
 	- Priority: High
 	- Opened: 20261024-162500
@@ -5274,11 +5421,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `817ea2e1`
 	- Acceptance signoff: Self-closed: every runner prints the new line, and demvq failed against the old tool.
 	- Closed: 20261030-143035
+	- Closed reason: Done
 
 - CICD reset: --gate as a backlog run
 	- ID: 2026102814013272
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261028-140132
 	- Opened by: 2026102813104371
@@ -5299,11 +5447,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: 20261029, `cicd.bash --container=ubuntu` on `r1029b` at `d67cc4fd` passed all 7 steps, the tests stage in 20 minutes. The first try failed check-c-compilers' musl row (`de1aa`) in strict mode, since the ubuntu image had no zig while the hosted runner installs it. The image installs the pinned zig now, with its cache in the run's `/tmp`, and check-pins passes.
 	- Acceptance signoff: me, 20261029, the ubuntu image passes with its new arguments
 	- Closed: 20261029-194055
+	- Closed reason: Done
 
 - A stacked list and a field under one parent load 3 different ways
 	- ID: 2026102307035771
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 		- Its first child 2026102307143752 goes on with option A (JC).
 	- Priority: Avg
 	- Opened: 20261023-070357
@@ -5330,11 +5479,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: the children's, 2026102307143752 and 2026102307143758.
 	- Acceptance signoff: me, 20261029, both children are Done
 	- Closed: 20261029-193147
+	- Closed reason: Done
 
 - Dropping follows one test, and `E003`, `E004`, `E007`, `E009` and `E011` are retained
 	- ID: 2026102307143758
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261023-071437
 	- Opened by: JC
@@ -5357,11 +5507,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: the children's, 2026102820320485 and 2026102820321403.
 	- Acceptance signoff: me, 20261029, both children are Done
 	- Closed: 20261029-193147
+	- Closed reason: Done
 
 - `E003`, `E007` and `E011` are retained, and dropping follows one test
 	- ID: 2026102820321403
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261028-203214
 	- Opened by: me
@@ -5379,11 +5530,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: the children's, 2026102821334870 and 2026102821334970.
 	- Acceptance signoff: me, 20261029, both children are Done
 	- Closed: 20261029-193147
+	- Closed reason: Done
 
 - `E003` is retained, and dropping follows one test
 	- ID: 2026102821334970
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: No
 	- Priority: Avg
 	- Opened: 20261028-213349
@@ -5420,11 +5572,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `90870748`
 	- Acceptance signoff: me, 20261029, each new test failed on the old library, and the 2,000,000 fuzz and the quick run passed
 	- Closed: 20261029-193147
+	- Closed reason: Done
 
 - A merge writes a layer's kept line from inside a merged block at the root
 	- ID: 2026102821530643
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: No
 	- Severity: Low
 	- Opened: 20261028-215306
@@ -5450,11 +5603,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `dffd891d`
 	- Acceptance signoff: me, 20261029, the repro and corpus 091 keep the line in its block, and each new test failed on the old library
 	- Closed: 20261029-193147
+	- Closed reason: Done
 
 - Hosted ci.yml tests half runs past its 60-minute timeout
 	- ID: 2026102915235852
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Opened: 20261029-152358
 	- Opened by:
@@ -5470,11 +5624,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1029b`
 	- Acceptance signoff: me, 20261029, the hosted run passed with room to spare
 	- Closed: 20261029-181922
+	- Closed reason: Done
 
 - Create-only save and a new file's mode, in C and the C++ veneer, and say so in the docs
 	- ID: 2026102913213704
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs external testing: No
 	- Priority: High
 	- Opened: 20261029-132137
@@ -5497,11 +5652,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: 20261029, cppcheck (the lint line's exhaustive pass over main.c and the C runner) passed on dev `32b0d8ff`, which has 42a12d0d, and hosted ci.yml run 40976604414's lint part passed it again on `f378ca34`.
 	- Acceptance signoff: me, 20261029, cppcheck and the hosted Windows job pass
 	- Closed: 20261029-181922
+	- Closed reason: Done
 
 - Refuse a changed file's save, in C and the C++ veneer, and say so in the docs
 	- ID: 2026102912203343
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs external testing: No
 	- Priority: High
 	- Opened: 20261029-122033
@@ -5531,11 +5687,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: 20261029, cppcheck (the lint line's exhaustive pass over main.c and the C runner) passed on dev `32b0d8ff`, which has 42a12d0d, and hosted ci.yml run 40976604414's lint part passed it again on `f378ca34`.
 	- Acceptance signoff: me, 20261029, cppcheck and the hosted Windows job pass
 	- Closed: 20261029-181922
+	- Closed reason: Done
 
 - Refuse a save over a file that changed since the load
 	- ID: 2026102910482342
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261029-104823
 	- Opened by: JC
@@ -5563,11 +5720,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: the children's, one per binding: 2026102912203339, 2026102912203341 and 2026102912203343.
 	- Acceptance signoff: me, 20261029, every child is Done
 	- Closed: 20261029-181922
+	- Closed reason: Done
 
 - Let a save create a new file only, and give a new file its mode
 	- ID: 2026102910482343
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261029-104823
 	- Opened by: JC
@@ -5591,11 +5749,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: the children's, one per binding: 2026102913213663, 2026102913213683 and 2026102913213704.
 	- Acceptance signoff: me, 20261029, every child is Done
 	- Closed: 20261029-181922
+	- Closed reason: Done
 
 - Open a newer format's file read-only
 	- ID: 2026102910482344
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: cppcheck over the C, which the quick run skips.
 	- Needs external testing: the hosted ci.yml windows job, for the new tests' saves there.
 	- Priority: High
@@ -5626,11 +5785,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `7f2aa27c`, `ddfe3333`
 	- Acceptance signoff: me, 20261029, every save of a newer doc is refused in all 4, and each new test failed with it off
 	- Closed: 20261029-181655
+	- Closed reason: Done
 
 - The C runner's swap test leaves its folder behind on windows
 	- ID: 2026102915173442
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261029-151734
 	- Opened by: 2026102912203343
@@ -5650,11 +5810,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1029b`
 	- Acceptance signoff: me, 20261029, 2 runs in a row pass under wine
 	- Closed: 20261029-165629
+	- Closed reason: Done
 
 - A kept line under an `E028` array line moves out of its block when an `E011` item follows it
 	- ID: 2026102820592074
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261028-205920
 	- Opened by: me
@@ -5674,11 +5835,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1029b`
 	- Acceptance signoff: me, 20261029, the case keeps `* 7` under `srv` in all 4
 	- Closed: 20261029-165346
+	- Closed reason: Done
 
 - Create-only save and a new file's mode, in Go
 	- ID: 2026102913213683
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs external testing: No
 	- Priority: High
 	- Opened: 20261029-132136
@@ -5698,11 +5860,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `a618835c`
 	- Acceptance signoff: me, 20261029, the hosted Windows run passed the item's tests
 	- Closed: 20261029-154325
+	- Closed reason: Done
 
 - Create-only save and a new file's mode, in Rust and Python
 	- ID: 2026102913213663
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs external testing: No
 	- Priority: High
 	- Opened: 20261029-132136
@@ -5722,11 +5885,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `a618835c`
 	- Acceptance signoff: me, 20261029, the hosted Windows run passed the item's tests
 	- Closed: 20261029-154325
+	- Closed reason: Done
 
 - CICD reset: CPU and priority on the test boxes
 	- ID: 2026102421025788
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261024-210257
 	- Opened by: 2026102416250040
@@ -5747,11 +5911,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-boxes `decyk` (the box half still runs and matches); `ionice-probe.bash` in the stub tools folder for the class.
 	- Acceptance signoff: me, 20261029, decyk passed with vmFreeBSD in the full run
 	- Closed: 20261029-154325
+	- Closed reason: Done
 
 - Refuse a changed file's save, in Rust and Python
 	- ID: 2026102912203339
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs external testing: No
 	- Priority: High
 	- Opened: 20261029-122033
@@ -5773,11 +5938,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `e799b7c6`
 	- Acceptance signoff: me, 20261029, the hosted Windows run passed the item's tests
 	- Closed: 20261029-154325
+	- Closed reason: Done
 
 - CICD reset: CPU and priority
 	- ID: 2026102416250040
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261024-162500
 	- Opened by: JC
@@ -5796,11 +5962,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: its children's tests: 2026102421025778, 2026102421025783, and decyk with ionice-probe.bash for 2026102421025788.
 	- Acceptance signoff: me, 20261029, all 3 children closed
 	- Closed: 20261029-154325
+	- Closed reason: Done
 
 - Refuse a changed file's save, in Go
 	- ID: 2026102912203341
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261029-122033
 	- Opened by: 2026102910482342
@@ -5821,11 +5988,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `34536e68`
 	- Acceptance signoff: Self-closed: the new test failed with the check off and passes with it, and every gate run is green. The API follows Rust's and Python's, and their Check: entry stays open.
 	- Closed: 20261029-125838
+	- Closed reason: Done
 
 - `E004` and `E009` are retained
 	- ID: 2026102820320485
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: No
 	- Priority: Avg
 	- Opened: 20261028-203204
@@ -5854,12 +6022,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Swept: the `E004` and `E009` arms, `is_item`, the parser's item test and the tokens dump in all 4 bindings and CLIs. `attach_path`'s wildcard arm stays, unreachable from a load, with a comment. Go, Python and C have no twin of the fuzz properties.
 	- Acceptance signoff: Self-closed: its test passes.
 	- Closed: 20261028-234500
+	- Closed reason: Done
 	- Verified: 2026-10-28, r1028b's `--backlog-run-full` on a31c2774 (run dir shcl/20261028-223000_001) passed all 7 steps, the C leak and sanitizer checks, cppcheck and analyze-c included, and hosted ci.yml 40822191966 passed.
 
 - `E007` and `E011` are retained
 	- ID: 2026102821334870
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: No
 	- Priority: Avg
 	- Opened: 20261028-213348
@@ -5886,12 +6055,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Swept: the item arm, `add_star_element` and the emitter's kept-line check in all 4 bindings, the 4 CLIs' explain text, the fuzz outcome table, and the `REFUSING` list. No other site filed an `E007` or `E011`.
 	- Acceptance signoff: Self-closed: its test passes.
 	- Closed: 20261028-234500
+	- Closed reason: Done
 	- Verified: 2026-10-28, r1028b's `--backlog-run-full` on a31c2774 (run dir shcl/20261028-223000_001) passed all 7 steps, the C leak and sanitizer checks, cppcheck and analyze-c included, and hosted ci.yml 40822191966 passed.
 
 - CICD reset: backlog run flags
 	- ID: 2026102813104060
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: No
 	- Priority: High
 	- Opened: 20261028-131040
@@ -5919,12 +6089,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-push-gate `dej6y` and `dej6z`.
 	- Acceptance signoff: Self-closed: its test passes.
 	- Closed: 20261028-162500
+	- Closed reason: Done
 	- Verified: 2026-10-28, r1028's `--backlog-run-full` on 9d0943c1 (run dir shcl/20261028-143500_001) passed all 7 steps, as the round's full run. dcv3m, dct5a and shell-regress passed there with pwsh working again. `--backlog-run-quick` with every area named took 12 min at load 13 to 27, and the worker timed it at 6.5 min with none named, so the 4-minute aim is still the parent's to meet.
 
 - CICD reset: hosted workflow on the merge gate, and --gate as a backlog run
 	- ID: 2026102813104371
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs external testing: No
 	- Priority: High
 	- Opened: 20261028-131043
@@ -5951,12 +6122,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261028: `ddwkm`'s 5 rows edit the new args lines. Their patterns went from `args: --gate --no-tests$` and `args: --gate --no-lint --no-cross$` to `args: --merge-gate --no-tests --no-release --no-remote$` and `--no-cross --no-remote --skip`, and the added job runs `--merge-gate --no-remote --skip=codeql-scan.bash` in place of `--gate`. Each still has to fail check-pins.
 	- Acceptance signoff: Self-closed: its test passes.
 	- Closed: 20261028-162500
+	- Closed reason: Done
 	- Verified: 2026-10-28, hosted ci.yml run 40779407541 on r1028 passed after the runner's kernel was made readable (commit after 9d0943c1). The lint half took 12 min and the tests half 50 min. The tests half built the release, booted it on Penryn and Phenom (ddwpp to ddwpt), built packages and passed the leak checks. CodeQL and the test boxes were off.
 
 - CICD reset: CPU and priority in containers
 	- ID: 2026102421025783
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261024-210257
 	- Opened by: 2026102416250040
@@ -5976,12 +6148,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-push-gate `ded2j`.
 	- Acceptance signoff: Self-closed: its test passes.
 	- Closed: 20261028-162500
+	- Closed reason: Done
 	- Verified: 2026-10-28, r1028's `--backlog-run-full` on 9d0943c1 (run dir shcl/20261028-143500_001) passed all 7 steps, in the main image with the CPU limits on.
 
 - Upgrade drops and folds blank lines, so every line after them moves
 	- ID: 2026102620591101
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261026-205911
 	- Opened by: JC
@@ -6006,11 +6179,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Waits on JC: it keeps the whole layout rather than only the blank lines, which changes what `upgrade` writes (questions.md Check line).
 	- Acceptance signoff: me, 2026-10-28, per the standing call that a behavior change that fits the project better is made, not parked. Keeping each line where it was is what the item asks, and shclwrap needs it. The Check: entry in questions.md stays open for a veto.
 	- Closed: 20261028-120000
+	- Closed reason: Done
 
 - Step lines from inside the image print UTC, while the host's print local time
 	- ID: 2026102520122877
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261025-201228
 	- Opened by: the r1025 test batch
@@ -6035,11 +6209,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-push-gate `dej63`: each run of cicd.bash or a gate in the image gets the zone file for `TZ` unset, a zone name and a `:`-led name, and `-e TZ` for a rule.
 	- Acceptance signoff: closed on JC's criteria. The next full run's step lines in the image show it end to end.
 	- Closed: 20261028-130250
+	- Closed reason: Done
 
 - lint-report flags govulncheck's wrapped "vulnerabilities." line and a git hint as warnings
 	- ID: 2026102520122882
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261025-201228
 	- Opened by: the r1025 test batch
@@ -6062,11 +6237,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `dej69`: the wrapped note and the hint read `CLEAN`, and a govulncheck finding and a git `warning:` line still flag.
 	- Acceptance signoff: closed on JC's criteria.
 	- Closed: 20261028-130250
+	- Closed reason: Done
 
 - Upgrade splits a 2.x element at a comma inside quotes
 	- ID: 2026102620591100
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Opened: 20261026-205911
 	- Opened by: JC
@@ -6088,11 +6264,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `dej4g` (`210-migrate-mid-quote-comma`) in all 4 runners, check-migrate `dej4h`.
 	- Acceptance signoff: Self-closed: the new case failed before and passes after, and every gate run is green.
 	- Closed: 20261028-121432
+	- Closed reason: Done
 
 - CICD reset: step output
 	- ID: 2026102416250060
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261024-162500
 	- Opened by: JC
@@ -6120,11 +6297,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261025: `dee4w` reads the off list for Dogfood and Backup + publish, where it read `dogfood skipped` and `publish skipped`.
 	- Acceptance signoff: closed on JC's criteria. The full run's log shows each point except the image's time zone, which is Bug 2026102520122877.
 	- Closed: 20261025-201300
+	- Closed reason: Done
 
 - CICD reset: merge gate
 	- ID: 2026102515494619
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261025-154946
 	- Opened by: 2026102416250050
@@ -6148,11 +6326,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-push-gate `dee4w`, `dee4v`, `dct5c` and `de4bf`.
 	- Acceptance signoff: closed on JC's criteria. The full run and the merge gate's own tests check each point. The call made here is what the merge gate runs, under Decisions.
 	- Closed: 20261025-201300
+	- Closed reason: Done
 
 - CICD reset: run lengths
 	- ID: 2026102515494614
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261025-154946
 	- Opened by: 2026102416250050
@@ -6174,11 +6353,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-push-gate `dee4t`.
 	- Acceptance signoff: closed on JC's criteria, since the full run fit in about an hour. The call made here is which leak checks are fast, slow, and long, under Decisions.
 	- Closed: 20261025-201300
+	- Closed reason: Done
 
 - CICD reset: CPU and priority on this box
 	- ID: 2026102421025778
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261024-210257
 	- Opened by: 2026102416250040
@@ -6209,11 +6389,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261024: `dd2fp` finds the native release build by its line, which is now `fStep "${RELEASE_NATIVE_CMD[@]}"`. Its pattern went from `^[[:space:]]*"${RELEASE_NATIVE_CMD\[@\]}"$` to one that also takes a leading `fStep `. `debjb` reads the same line number.
 	- Acceptance signoff: closed on JC's criteria, since the full run's `jobs:` lines and the hosted run show each point.
 	- Closed: 20261025-201300
+	- Closed reason: Done
 
 - CICD reset: container cleanup
 	- ID: 2026102416250030
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261024-162500
 	- Opened by: JC
@@ -6253,11 +6434,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: shellcheck over every cicd script, shell-regress, check-pins, check-docs, markdownlint, and `test-ids.py check` pass.
 	- Acceptance signoff: closed on JC's criteria, since the full run, the kept run's containers, and the hand pass show each point.
 	- Closed: 20261025-201300
+	- Closed reason: Done
 
 - CICD reset: Zig cache
 	- ID: 2026102416250020
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261024-162500
 	- Opened by: JC
@@ -6287,11 +6469,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: shellcheck, shell-regress, check-pins, check-docs, and `test-ids.py check` pass.
 	- Acceptance signoff: closed on JC's criteria, since the full run and the volume show each point.
 	- Closed: 20261025-201300
+	- Closed reason: Done
 
 - CICD reset: docs-only pushes to main
 	- ID: 2026102515494629
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261025-154946
 	- Opened by: 2026102416250050
@@ -6310,11 +6493,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-push-gate `dee5j`.
 	- Acceptance signoff: closed on JC's criteria. The call made here is which paths count as docs, under Decisions.
 	- Closed: 20261025-162100
+	- Closed reason: Done
 
 - A release build's size in the run log reads 1.0K
 	- ID: 2026102421543041
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261024-215430
 	- Opened by: the r1024c test batch
@@ -6331,11 +6515,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `dee4s`.
 	- Acceptance signoff: Self-closed: it's a mechanical fix, and its test failed before and passes after.
 	- Closed: 20261025-160100
+	- Closed reason: Done
 
 - A merge can still build a list with a field under it, at 2M fuzz
 	- ID: 2026102322270349
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 		- Fixed in the load rather than the merge.
 	- Needs local test suite run?: Y, done: the no-publish full run on `r1024c`'s frozen `d842ecf8`.
 	- Severity: High
@@ -6370,11 +6555,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `an_index_onto_a_list_takes_no_field` (`decb2` Rust, `decb3` Go, `decb4` Python, `decb5` C). It checks each case's fixpoint and lost count apart from the list check, the merge case included. `dab72` at 2,000,000.
 	- Acceptance signoff: Self-closed on JC's criteria. The tests went red on the old library in each runner, and the 2,000,000 fuzz and the full run passed. It departs from the wording, since the fix is in the load rather than the merge, as the progress log says.
 	- Closed: 20261024-215700
+	- Closed reason: Done
 
 - Two slow fuzz tests fail under Miri's `--miri-all`
 	- ID: 2026102413172941
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 		- Fixed in the 2 tests. Both pass under `--miri-all`.
 	- Needs local test suite run?: Y, done: the no-publish full run on `r1024c`'s frozen `d842ecf8`.
 	- Severity: Avg
@@ -6410,11 +6596,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `de116` and `dab72` under `--miri-all` themselves.
 	- Acceptance signoff: Self-closed: `de116` failed at 100 rounds before the fix and passes after, and both pass under `--miri-all` in the full run.
 	- Closed: 20261024-215700
+	- Closed reason: Done
 
 - Other hosts: the box step, and the FreeBSD release on vmFreeBSD
 	- ID: 2026102419263412
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: Y, done: the no-publish full run on `r1024c`'s frozen `d842ecf8` ended its `6/9  Test boxes` step with `PASS vmFreeBSD`.
 	- Needs external testing: Y, done: vmFreeBSD from a paused VM, through the real host lock and VM state helper. It ended paused.
 	- Priority: High
@@ -6439,11 +6626,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-boxes `decyk`.
 	- Acceptance signoff: Self-closed: the step passed in the full run, and from a paused VM it ran and put the VM back as found.
 	- Closed: 20261024-215700
+	- Closed reason: Done
 
 - `E001` and `E008` are retained
 	- ID: 2026102307143752
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 		- The 2,000,000 fuzz passes after the planned fix and one more, and so does the full run.
 	- Question, answered: the emitter checked with a reload only for lines kept with their own indent and for `E028`'s array line, rather than for every retained line, so the item's premise didn't hold.
 		- JC, 20261023: option A, with the stop rule below.
@@ -6488,11 +6676,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Needs local test suite run?: done: the no-publish full run on `r1024c`'s frozen `d842ecf8`.
 	- Acceptance signoff: Self-closed: JC picked option A, each new test failed on the old library, and the 2,000,000 fuzz and the full run passed.
 	- Closed: 20261024-215700
+	- Closed reason: Done
 
 - An apostrophe inside a bare word is an error
 	- ID: 2026102307035781
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: Y, done: the no-publish full run on `r1024c`'s frozen `d842ecf8`.
 	- Priority: Avg
 	- Opened: 20261023-070357
@@ -6526,11 +6715,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `209-apostrophe-in-word` (`debpc`, all 4 runners), cli-regress `debp8`, `debp9`, `debpa` and `debpb`, and the updated 088 and 193.
 	- Acceptance signoff: Self-closed: the new tests failed on the old code, and the full run passed.
 	- Closed: 20261024-215700
+	- Closed reason: Done
 
 - 3 shell-regress blocks pass with no line when the file they test is gone
 	- ID: 2026102420263500
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261024-202635
 	- Opened by: 2026102419595509's sweep
@@ -6546,11 +6736,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1024c`
 	- Acceptance signoff: Self-closed: each block went red with its file gone where the old one stayed green, and the gates pass on the round branch.
 	- Closed: 20261024-203400
+	- Closed reason: Done
 
 - check-push-gate's gate worktree half of `de18w` never runs
 	- ID: 2026102419595509
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261024-195955
 	- Opened by: 2026102416250020
@@ -6566,11 +6757,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `r1024c`
 	- Acceptance signoff: Self-closed: the test went red on 3 faults the old one passed, and passes on the round branch.
 	- Closed: 20261024-202500
+	- Closed reason: Done
 
 - check-migrate counts no errors in a file whose Schema line names a missing schema
 	- ID: 2026102322233656
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Opened: 20261023-222336
 	- Opened by: 2026102307035781's test run
@@ -6590,11 +6782,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `debqj`: a file with an error and a Schema line naming a missing file counts 1 error, and its read from stdin shows the `E014`.
 	- Acceptance signoff: Self-closed: reproduced, the new row failed before the fix and passes after, and check-migrate is green.
 	- Closed: 20261023-224421
+	- Closed reason: Done
 
 - r1024's kept banner stamp leaves mypy and check-docs red
 	- ID: 2026102321462051
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261023-214620
 	- Opened by: the work on 2026102307143752
@@ -6614,11 +6807,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none new. The gates that went red are the checks: mypy in the lint stage, and check-docs `dcv66`.
 	- Acceptance signoff: Self-closed: both gates were red before and pass after, with no change in behavior.
 	- Closed: 20261023-215140
+	- Closed reason: Done
 
 - `upgrade --from-2x` can write a fresh file that names no current format
 	- ID: 2026102309053667
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261023-090602
 	- Opened by: 2026102307035776
@@ -6642,11 +6836,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `a_block_kept_at_the_top_names_this_format_too` in Rust (`debk5`), Go (`debk6`), Python (`debk7`), and C (`debk8`), through `upgrade` and `set_banner`, and fuzz `de116`.
 	- Acceptance signoff: Self-closed on JC's criteria. It was reproduced, the new test failed before and passes after, and the fuzz that found it passes. Setting the line rather than refusing is my call, noted under Decisions.
 	- Closed: 20261023-205517
+	- Closed reason: Done
 
 - A dev build shows its date after the build number
 	- ID: 2026102319430000
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261023-194300
 	- Opened by: JC
@@ -6663,11 +6858,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: Rust `debj8`, `debj9` and `debja` in main.rs, and shell-regress `debjb`, seen to fail with the tag test broken.
 	- Acceptance signoff: Self-closed on JC's criteria. Each requirement is in and tested, and JC made the release call.
 	- Closed: 20261023-201500
+	- Closed reason: Done
 
 - A `#` glued to text changes a value with no word
 	- ID: 2026102307035776
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261023-070357
 	- Opened by: JC
@@ -6701,11 +6897,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `207-hash-against-text-hint` and `208-hash-against-text-errors`, cli-regress `deawt`, `deaww` and `deawv`, and fuzz `dcb0c`.
 	- Acceptance signoff: Self-closed on JC's criteria. The hint doesn't change a read or an exit code, each case it names is pinned by a test seen to fail before, and the full run passed. The call on "right before it" is noted under Decisions.
 	- Closed: 20261023-183115
+	- Closed reason: Done
 
 - Doc fixes from the 2026-10-22 design review
 	- ID: 2026102307035786
 	- Type: Task
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261023-070357
 	- Opened by: JC
@@ -6738,11 +6935,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-docs and check-readme, which runs the README and examples.md blocks. It's docs only, so there's no new test.
 	- Acceptance signoff: Self-closed on JC's criteria. Each listed doc fix is in, and the help line already met its point.
 	- Closed: 20261023-071039
+	- Closed reason: Done
 
 - CICD runs on GitHub's M4 macOS runners
 	- ID: 2026102216325314
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261022-163253
 	- Opened by: JC
@@ -6761,11 +6959,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none by ID, since the hosted job is the test: ci.yml's `macos` job, which runs `cargo test`, then crosscheck over the corpus and cli-regress on the release.
 	- Acceptance signoff: Self-closed on JC's criteria. The job already does each requirement on M1, and JC chose M1.
 	- Closed: 20261022-173253
+	- Closed reason: Done
 
 - Implement leak and static checks of the C and C++ code run as part of CI/CD
 	- ID: 2026101707582803
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261017-075828
 	- Opened by: JC
@@ -6927,11 +7126,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: analyze-c `de2wz` to `de2x4`, `de57y` and `de57z`; sanitize-c `de2wy`, `de580` and `de581`; soak-c `de57v`, `de57w` and `de57x`; codeql-scan `de5a7`, `de5a8`, `de5ac`, `de5ag` and `de5am`; check-push-gate `de582`.
 	- Acceptance signoff: Self-closed on JC's criteria. Every plant was seen red, and a full run with no flags passed each step and row above.
 	- Closed: 20261022-112537
+	- Closed reason: Done
 
 - Implement leak and static checks of the Rust, Go, and Python code run as part of CI/CD
 	- ID: 2026101711273980
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261017-112739
 	- Opened by: JC
@@ -7044,11 +7244,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: sanitize-rust `de2pb`, `de2pc` and `de2pd`; soaks `de2ns`, `de2w0` and `de2w1`; `de2vz`, `de2w2` and `de60c`; codeql-scan `de5a9`, `de5pg`, `de5aa`, `de5ab`, `de5ad`, `de5ph`, `de5ae`, `de5af`, `de5ah`, `de5pj`, `de5aj`, `de5ak` and `de5am`; check-push-gate `de582`.
 	- Acceptance signoff: Self-closed on JC's criteria. Every plant was seen red, hosted run 39663476196's windows job passed the soaks and `de60c`, and a full run with no flags, `--miri-all` included, passed each row above.
 	- Closed: 20261022-112537
+	- Closed reason: Done
 
 - Builds clean up stale artifacts and side-effects when they're done
 	- ID: 2026101920461153
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Needs local test suite run?: none left, since 2 bare runs in the image passed on 20261022, the second stopped partway.
 	- Opened: 20261019-204611
@@ -7092,11 +7293,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-push-gate `de633`, `de634`, `de635`, `de636`, `de8j7` (a stopped run takes down the frozen copy's run and its children) and `de8j8` (a container whose client won't stop is killed by its ID).
 	- Acceptance signoff: Self-closed on JC's criteria. Each check-push-gate row was seen red, a whole run and a stopped run in the real image left nothing behind, and the 10-20 `--gate` removed the superseded images.
 	- Closed: 20261022-112537
+	- Closed reason: Done
 
 - A long run reads the live tree, so nothing can merge or check out there until it ends
 	- ID: 2026102108300000
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Medium
 	- Opened: 20261021-083000
 	- Related IDs: 2026102021300000, 2026102106592600
@@ -7135,11 +7337,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `de89c` drives the engine on a stub repo whose tests stage edits the checkout and rewrites cicd.bash in place mid-run. It checks that the copy has the format stage's output and the uncommitted, new, and deleted files, and that the run lists them. It also checks that the worktree is locked and gone after, a linked dir points into the checkout, the copied tree is recorded and HEAD's isn't, and `--no-freeze` runs in place. It failed with the brace group taken out (syntax error after the edit) and with freezing off (5 checks).
 	- Acceptance signoff: Self-closed on JC's criteria. `de89c` was seen red, and a bare run, a `--gate` in the main image, and a hosted run all ran from a copy and passed.
 	- Closed: 20261022-112537
+	- Closed reason: Done
 
 - check-freebsd fetches its image again on a bare run in the main image, though the cached copy is still there
 	- ID: 2026102114300000
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261021-143000
 	- Opened by: 2026102022450000
@@ -7160,11 +7363,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: `de8k2` failed on the old check-freebsd and passes on the fix. shellcheck over `SHELLCHECK_TARGETS` and shell-regress passed. The rebuilt main image, `shcl-cicd:7f80c73639ce`, ran check-freebsd on this box's cache with no fetch line: 4347 CLI runs passed, the cached image's mtime didn't change, and nothing was written under the image's HOME. The stray copy went to the trash.
 	- Acceptance signoff: Self-closed on JC's criteria. It's a mechanical fix, red before and green after, and checked in the real image.
 	- Closed: 20261021-174500
+	- Closed reason: Done
 
 - cicd.bash's longer help pushed its copyright and SPDX lines out of the header check's window
 	- ID: 2026102113494069
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Opened: 20261021-134940
 	- Opened by: 2026102108300000
@@ -7187,11 +7391,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-docs `dcv6f`.
 	- Acceptance signoff: Self-closed on JC's criteria. It's a mechanical fix whose test went red before and green after.
 	- Closed: 20261021-141000
+	- Closed reason: Done
 
 - check-push-gate's stand-in docker misreads `--device`, so `de61p` fails on a box with KVM
 	- ID: 2026102114060102
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261021-140601
 	- Opened by: 2026102113494069
@@ -7210,11 +7415,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-push-gate `de61p`.
 	- Acceptance signoff: Self-closed on JC's criteria. It's a test stand-in fix, red before and green after.
 	- Closed: 20261021-141000
+	- Closed reason: Done
 
 - The freebsd-x86_64 release build never runs in a pipeline test
 	- ID: 2026102022450000
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Low
 	- Opened: 20261020-224500
 	- Opened by: 2026102019500000
@@ -7238,11 +7444,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-freebsd `de8ae` (image pinned and cached), `de8ac` (FreeBSD boots and runs the build), `de8ad` (same bytes and exit codes as the Linux build).
 	- Acceptance signoff: Self-closed on JC's criteria. Stage 6 runs the check through the image with KVM, and its 3 rows pass.
 	- Closed: 20261021-134800
+	- Closed reason: Done
 
 - `sanitize-rust.bash --miri-all` never finishes, so a bare run never does either
 	- ID: 2026102106592600
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Opened: 20261021-065926
 	- Related IDs: 2026101711273980
@@ -7265,11 +7472,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `de82q`.
 	- Acceptance signoff: Self-closed on JC's criteria. The whole mode finishes, and a stuck test fails by name.
 	- Closed: 20261021-102500
+	- Closed reason: Done
 
 - The linux-arm64, windows-arm64 and freebsd-x86_64 release builds never run in a pipeline test
 	- ID: 2026102019500000
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Low
 	- Opened: 20261020-195000
 	- Opened by: 2026101921290754
@@ -7290,11 +7498,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: in hosted run 39543831612, `linux-arm` agreed on 7412 crosscheck comparisons and passed cli-regress. In run 39544603290, `winarm-test` passed 622 cli-regress rows, 871 checks, with 71 skipped out loud. The jobs weren't fault-injected; the gates they run are the ones every other job runs.
 	- Acceptance signoff: Self-closed on JC's criteria. The call is hosted arm runners over an emulated boot for the 2 arm builds, and both jobs pass.
 	- Closed: 20261020-224500
+	- Closed reason: Done
 
 - The windows setup is never run by a test, so NSIS's installer code goes untested
 	- ID: 2026101921290791
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Low
 	- Needs external testing: Y. A windows host, hosted or a test box.
 	- Opened: 20261019-212908
@@ -7314,11 +7523,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: hosted run 39542902000 passed all 3. Run 39537878800 failed all 3 on a setup path that didn't resolve, so nothing was installed. Run 39542221440 failed `de7c4` while the uninstaller returned before it ran, and `de7c2` on the 32-bit key.
 	- Acceptance signoff: Self-closed: each test was red on the hosted runner with nothing installed or nothing removed, and all 3 pass now.
 	- Closed: 20261020-215500
+	- Closed reason: Done
 
 - `write_backup` takes the file and its text as 2 strings, and swapped it writes a junk backup and reports success
 	- ID: 2026101807501110
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N
 	- Needs external testing: Y. The hosted windows job, for the veneer smoke `d9v59`.
 	- Severity: Low
@@ -7344,6 +7554,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: each new test failed on the old code and passes now. On the old code Rust, Go, and Python wrote the junk backup and returned its name, C returned OK, and C built with ASan reported a heap-buffer-overflow reading the path. The veneer check failed too. With the fix, these pass: cargo test, go test -count=1 for the library, the Python runner, the C conformance runner, the veneer smoke, check-veneer, sanitize-c, analyze-c, cli-regress over all 4 CLIs, crosscheck, check-docs, test-ids check, cargo fmt, clippy for linux and the windows target, go vet, staticcheck, ruff, and mypy. The C runner and CLI built with mingw, and the runner passed under wine. The Rust upgrade tests and the Go library tests passed for windows under wine.
 	- Acceptance signoff: Self-closed: it's a review item reproduced in all 4, its tests failed before the fix and pass after, and its Sweep has its Swept answer. It follows the Possible fix row, and nothing the CLI writes changes.
 	- Closed: 20261018-170500
+	- Closed reason: Done
 	- 20261019, reopened: hosted run 39307128325 on dev at `59c6ecfb` failed the veneer smoke `d9v59` on windows, at `veneer_smoke.cpp:887`: `shcl::read_file(shcl::backup_file_name(swappedText, 3)).second` isn't `NotFound` there. The swapped text has characters windows refuses in a file name, so the read likely fails with another status. Python's `de4bc` passed there.
 	- 20261019, branch `winfix`:
 		- Cause: the veneer smoke read the backup name made from the swapped text and wanted `NotFound`. That name has a newline and colons, which windows refuses in a name, so the read fails another way there. The swapped call was refused and wrote nothing.
@@ -7357,7 +7568,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A run in the image unregisters every other worktree of the repo
 	- ID: 2026102021300000
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Medium
 	- Opened: 20261020-213000
 	- Opened by: me, while a `--gate` ran in `gatewt-r1020`
@@ -7373,11 +7584,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: check-migrate built its 2.x reference through its own worktree and removed it, and the 3 other worktrees stayed listed. shell-regress, check-push-gate, and shellcheck pass.
 	- Acceptance signoff: Self-closed: the test failed on the old scripts and passes now, and the live run kept the other worktrees.
 	- Closed: 20261020-213500
+	- Closed reason: Done
 
 - The cross-built release binaries never run in a pipeline test, so the toolchain code they link goes untested
 	- ID: 2026101921290754
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Low
 	- Opened: 20261019-212908
 	- Opened by: 2026101920461160
@@ -7397,11 +7609,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: it passes on this host and in the current image with wine added, on the 2026-10-16 release builds. The RELEASE_CHECKS entry passes through `eval` with and without a windows build. shellcheck, test-ids check, shell-regress, check-pins, check-push-gate, and check-docs pass.
 	- Acceptance signoff: Self-closed: each new test was seen red with a fault and green after, and the second requirement is answered with a follow-up item. The first full run with the new image is the end-to-end check.
 	- Closed: 20261020-195000
+	- Closed reason: Done
 
 - lint-report says FAILED for a passing run that has a python step with `-W error::ResourceWarning`
 	- ID: 2026102019120000
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261020-191200
 	- Opened by: me, from the startup check
@@ -7415,11 +7628,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `de7a1`. The `extra:` lines read CLEAN, and a real ResourceWarning and C error beside them still count. It failed on the old script.
 	- Acceptance signoff: Self-closed: the test failed before the fix and passes after, and the running log reads INCOMPLETE now.
 	- Closed: 20261020-192000
+	- Closed reason: Done
 
 - `migrate --from-2x` writes a value ending in a backslash as `...\"`, which looks like an escaped quote
 	- ID: 2026102016593100
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261020-165931
 	- Version and build: dev at `bfc384c2`
@@ -7435,11 +7649,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `de79q` (the report's line through `migrate --from-2x`), `de79r` (`get` of `"C:\temp\"`), and `de79s` (`fmt` keeps it), over all 4 CLIs.
 	- Acceptance signoff: Self-closed on JC's criteria. The call is that the text stays as written, per value-syntax.md, and the 3 rows pin it in all 4.
 	- Closed: 20261020-190900
+	- Closed reason: Works as designed
 
 - Nothing fails when a runtime dependency or vendored code arrives, so the third-party scope of the leak checks can go stale unseen
 	- ID: 2026101921290717
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261019-212908
 	- Opened by: 2026101920461160
@@ -7468,11 +7683,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-deps de629 (crates), de62a (Go), de62b (Python), de62c (C includes), de62d (libraries in code), de62e (built CLIs), de62f (vendored trees), de62g (shipped files are ours).
 	- Acceptance signoff: Self-closed: the intent was clear, the check does what the item asked, and it was seen to fail for each language.
 	- Closed: 20261019-220911
+	- Closed reason: Done
 
 - `upgrade` and `migrate` change what a 2.x value with a backslash escape reads as, and say nothing
 	- ID: 2026101911300000
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Opened: 20261019-113000
 	- Opened by: shclwrap
@@ -7529,11 +7745,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: with the old `shcl.go`, `shcl.py`, and `shcl.h`, each port failed the 5 corpus goldens, its 3 new tests, and its `say "hi"` upgrade test. With the fix, these pass: `go test -count=1` for both Go modules, `-race`, the Python runner and soak, the C runner with the strict warnings, `cargo test`, cli-regress over all 4 CLIs (619 rows), crosscheck over the corpus (22236 comparisons), check-migrate (630 documents), check-veneer, sanitize-c, `test-ids.py check`, go vet, staticcheck, gofmt, ruff, and mypy. A quoted name with a backslash pair before a same-line fence, and a trailing backslash, a backslash before a multibyte character, and a `\'` in single quotes, migrate the same in all 4.
 	- Acceptance signoff: Closed on JC's criteria. JC, 20261019, left the call to the Objectives, and (c) was offered as the reversal of the 2026-10-05 answer, so it doesn't move any decision JC kept. Each new test failed on the old code in all 4 bindings, and the gates above passed.
 	- Closed: 20261019-214731
+	- Closed reason: Done
 
 - CICD leak tests, and all tests, include third-party and vendored code
 	- ID: 2026101920461160
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261019-204611
 	- Opened by: JC
@@ -7562,11 +7779,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: None, since it's an audit. The check it needs is filed as 2026101921290717.
 	- Acceptance signoff: Self-closed: it's an audit whose gaps are filed, and the 2 related items' wording follows JC's rule.
 	- Closed: 20261019-213000
+	- Closed reason: Done
 
 - CICD has both `--leakcheck` and `--no-leakcheck`
 	- ID: 2026101920461167
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. check-push-gate and shell-regress ran green on `353da441`.
 	- Priority: Avg
 	- Opened: 20261019-204611
@@ -7593,11 +7811,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-push-gate `de582` (`--no-leakcheck` drops the checks from a bare, `--gate` and `--quick` run) and `de609` (the pair exits 2 in either order and runs nothing).
 	- Acceptance signoff: Self-closed on JC's criteria. The flag is the item's own, and the pair's refusal follows design.md.
 	- Closed: 20261019-211430
+	- Closed reason: Done
 
 - perf-gate fails a workload when a load spike comes during it but not during the baseline
 	- ID: 2026101914014130
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. perf-gate alone, all 4 bindings, exit 0 on `353da441`.
 	- Severity: Low
 	- Opened: 20261019-140141
@@ -7626,11 +7845,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: every timer in `cicd/` and the 4 test suites. perf-gate is the only one that holds a CLI to a budget. The suites time a few checks in-process, with bounds such as 25 times plus a second. Those belong to their own items and were left alone.
 	- Acceptance signoff: Self-closed: reproduced with a spike over the workload alone, red before the fix and green after, a real cost still fails, and each new self-test was seen red.
 	- Closed: 20261019-211430
+	- Closed reason: Done
 
 - Updates to CICD script flags
 	- ID: 2026101816034794
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. A full `cicd.bash --gate` passed on dev at `aa2e3b33`, 20261019, tree `0a5629682b6d` recorded.
 	- Needs external testing: N. Hosted run 39307128325 on dev at `59c6ecfb`: `ci (lint)` and `ci (tests)` green, at 44m45s and 43m33s of their 60-minute limit, up from about 26 and 31.
 	- Priority: High
@@ -7673,11 +7893,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- 20261019: the full `--gate` passed on its fifth run. The first stopped on check-docs' installer row until `install-dev.bash` was synced to main (`803d1815`), the next 2 on a flaky test (2026101912125490) and a perf-gate row under load (2026101914014130), and one more on sanitize-rust, whose pinned nightly wasn't installed on this host yet.
 	- Acceptance signoff: Self-closed: each new row was seen red and then green, a full `--gate` passed locally, and both hosted ubuntu jobs passed with `--gate` in run 39307128325.
 	- Closed: 20261019-160500
+	- Closed reason: Done
 
 - `edits_and_merges_match_a_reload` fails when its 2 setter notes are stamped a second apart on the real clock
 	- ID: 2026101912125490
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. The exhaustive cppcheck runs with the next full `--gate`.
 	- Needs external testing: N. The windows side of the C pin is the `_putenv_s` call the C runner already made.
 	- Severity: Low
@@ -7703,11 +7924,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: on the real clock, `cargo test`, clippy for linux and windows, `cargo fmt --check`, the Go suite plain and with `-race`, `go vet` and staticcheck on both modules, the Python runner and soak, ruff and mypy, the C runner, veneer smoke, `oom_hook`, `oom_recover`, `mem_bounds`, and soak with the gate's flags, `test-ids.py check`, `check-docs.bash`, `check-doc-examples.bash` over the 4 CLIs, `shell-regress.bash`, and shellcheck. cppcheck at the normal level found nothing in `conformance.c` or `soak.c`.
 	- Acceptance signoff: Self-closed: reproduced, failed before the fix and passes after, and swept.
 	- Closed: 20261019-124500
+	- Closed reason: Done
 
 - cli-regress `json-reads-back` fails all 4 CLIs under a pwsh with no `-DateKind`
 	- ID: 2026101905321200
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261019-053212
 	- Opened by: me, merging `wbswap`
@@ -7729,11 +7951,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: before the fix, `cli-regress.bash` over the 4 CLIs failed `ddqj7` on all 4 under pwsh 7.4.6 with the line number dropped. After it, the whole suite passed under 7.4.6 and under 7.6.6 (3699 checks). With the old awk blanking put back into the new pass, it failed all 4 under 7.6.6. `shell-regress.bash`, `shellcheck` over the cicd list, and `test-ids.py check` passed.
 	- Acceptance signoff: Self-closed: reproduced, failed before the fix and passes after under both pwsh versions, and swept.
 	- Closed: 20261019-073800
+	- Closed reason: Done
 
 - spec.md says several threads can read one C++ `Document`, and nothing checks it
 	- ID: 2026101612343301
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. sanitize-c `de1a6` passed in hosted run 38962944867.
 	- Needs external testing: N. Hosted run 38993541382 on dev at `a8b7836d`: all 5 jobs green, `ok de1a5` on windows.
 	- Priority: Low
@@ -7757,11 +7980,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Verified: sanitize-c still goes red on `de1a6` with `instance_paths()` taking no lock, and green restored. The C conformance suite, the plain smoke, check-veneer, sanitize-c, check-docs, and test-ids check passed too. Only the hosted windows job is left.
 	- Acceptance signoff: closed on JC's criteria. `de1a5` passes on the hosted windows job, and `de1a6` still goes red with a lock taken out.
 	- Closed: 20261017-021500
+	- Closed reason: Done
 
 - C has no call for a value's text as written
 	- ID: 2026101612221649
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Low
 	- Opened: 20261016-122216
 	- Opened by: shclwrap
@@ -7783,11 +8007,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `97779a33`
 	- Acceptance signoff: closed on JC's criteria. It does what the item asked, its test went red with each part taken out, and the name is my call, noted above.
 	- Closed: 20261016-185648
+	- Closed reason: Done
 
 - An extra image's run writes into this box's builds
 	- ID: 2026101514324713
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Ran 2026-10-16, see the last Verified line.
 	- Severity: Low
 	- Opened: 20261015-143247
@@ -7813,11 +8038,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: a whole `cicd/cicd.bash --container=alpine -y --no-publish` from the main checkout on dev at `34bb71fb`, 2026-10-16. Tests passed with no FAIL rows. After it, `source/rust/target` here isn't root-owned, `source/c/shcl` and `source/go/shcl` match their checksums from before the run, and the copies under `~/.cache/shcl-cicd/alpine/private` are new.
 	- Acceptance signoff: closed on JC's criteria. The fix does what the cicd.bash and config.bash comments said, and `de18w` went red on the old code.
 	- Closed: 20261016-140831
+	- Closed reason: Done
 
 - 4 closed fixes have no check on the gate's usual path that goes red with the fix taken out
 	- ID: 2026101514324719
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. check-c-compilers ran here with the new job.
 	- Needs external testing: N. Hosted run 38962944867 on dev at `34bb71fb`: `de1aa` ok, and `ci (tests)` took 28m39s.
 	- Priority: Low
@@ -7848,11 +8074,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `9b9ab508`, `604f7771`, `431e5386`, `f2d558e5`
 	- Acceptance signoff: closed on JC's criteria. Each new check went red with its fix taken out, and passes on the hosted job.
 	- Closed: 20261016-140831
+	- Closed reason: Done
 
 - 3 checkable doc sentences have no check
 	- ID: 2026101514324720
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Hosted run 38962944867 on dev at `34bb71fb` passed the `go test -race` step and exhaustive cppcheck.
 	- Priority: Low
 	- Opened: 20261015-143247
@@ -7878,11 +8105,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `069b42fc`
 	- Acceptance signoff: closed on JC's criteria. Each claim has a check seen to fail with the claim broken. The SYNOPSIS rule and the 2 man page additions are my call.
 	- Closed: 20261016-123433
+	- Closed reason: Done
 
 - crosscheck's save-gate and `fFixLost` write rows only compare bindings, never what the call has to do
 	- ID: 2026101609320201
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Low
 	- Opened: 20261016-093202
 	- Opened by: backlog round 2026-10-16, while fixing 2026101514324716
@@ -7901,11 +8129,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `d74fa56b`
 	- Acceptance signoff: Self-closed: the checks do what the comments say, the new test failed before and passes after, and the 2 rewritten rows are named with their reason.
 	- Closed: 20261016-123433
+	- Closed reason: Done
 
 - check-pins' container checks pass recipes they say they refuse
 	- ID: 2026101514324712
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 12
@@ -7928,11 +8157,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `7967ebac`, `c820e581`
 	- Acceptance signoff: Self-closed: the review item was reproduced, each case failed before the fix and passes after, and the Sweep line is answered.
 	- Closed: 20261016-122859
+	- Closed reason: Done
 
 - `--no-tests` drops the profiler calibration on a local run too
 	- ID: 2026101514324714
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 14
@@ -7951,11 +8181,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `31e91ff4`
 	- Acceptance signoff: Self-closed: the review item was reproduced, and its test failed before the fix and passes after.
 	- Closed: 20261016-122859
+	- Closed reason: Done
 
 - nfpm is pinned at 2.43.0, and this box builds with 2.47.0
 	- ID: 2026101612281470
 	- Type: Task
-	- Status: Done
+	- Status: Closed
 	- Priority: Low
 	- Opened: 20261016-122814
 	- Opened by: me, from the lint gate's drift warning
@@ -7968,11 +8199,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `398a88e6`
 	- Acceptance signoff: Self-closed: mechanical version bump.
 	- Closed: 20261016-122859
+	- Closed reason: Done
 
 - Replacing a bad value with a default walks all its siblings each time
 	- ID: 2026101514324721
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Priority: Low
 	- Opened: 20261015-143247
@@ -7991,11 +8223,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `3c0a544a`
 	- Acceptance signoff: Self-closed: a review item reproduced by timing, with a perf row that fails on the old code in all 4 and passes on the fix.
 	- Closed: 20261016-122000
+	- Closed reason: Done
 
 - spec.md says only `V090` to `V093` print `schema line N`, and nothing pins `V094` or `V095`
 	- ID: 2026101514324711
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 11
@@ -8014,11 +8247,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `2f961afe`
 	- Acceptance signoff: Self-closed: a doc range fix with a check that was seen to fail on the old text, and pins for each code.
 	- Closed: 20261016-091129
+	- Closed reason: Done
 
 - A few stderr messages differ between the 4 CLIs
 	- ID: 2026101514324710
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Needs external testing: N. Hosted run 38950612020 on dev at `56a37a27` passed the windows job, `de132` included.
 	- Severity: Low
@@ -8042,11 +8276,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `a3b730db`
 	- Acceptance signoff: Self-closed: reproduced, each new row failed before on the bindings it tests and passes after, and the Swept line names the sites. Rust's wording won everywhere, so no wording call was made.
 	- Closed: 20261016-090735
+	- Closed reason: Done
 
 - An op indented with a tab is refused as `unknown op: `, naming nothing
 	- ID: 2026101514324709
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Severity: Low
 	- Opened: 20261015-143247
@@ -8068,11 +8303,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `9a52f21b`
 	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new rows failed before and pass after, and the wording call is noted above.
 	- Closed: 20261016-085702
+	- Closed reason: Done
 
 - There's no fuzz property for `upgrade`
 	- ID: 2026101514324704
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 4
@@ -8093,11 +8329,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `4bdfe352`
 	- Acceptance signoff: Self-closed: the property and the `ddf41` change are in, and each was seen to fail on the defects it targets.
 	- Closed: 20261016-082453
+	- Closed reason: Done
 
 - 2 fuzz properties never run a branch they're meant to check
 	- ID: 2026101514324718
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 18
@@ -8117,11 +8354,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `4bdfe352`
 	- Acceptance signoff: Self-closed: each break the item names was seen red.
 	- Closed: 20261016-082453
+	- Closed reason: Done
 
 - The help, examples.md, and the `upgrade` doc comments promise more than `upgrade` does
 	- ID: 2026101514324708
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 8
@@ -8145,11 +8383,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `c525d086`
 	- Acceptance signoff: Self-closed on JC's criteria: the `--from-2x` sentence is JC's 2026-10-15 requirement, and the rest makes the help, examples.md, and the doc comments say what spec.md and the man page say. The wording is my call.
 	- Closed: 20261016-082019
+	- Closed reason: Done
 
 - `upgrade --write` calls a file it has no permission to read "cannot be read as UTF-8 text"
 	- ID: 2026101514324707
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 7
@@ -8172,11 +8411,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `e498787b`
 	- Acceptance signoff: Self-closed: reproduced, the new asserts failed before and pass after, and `Unreadable` now means what its doc says.
 	- Closed: 20261016-081639
+	- Closed reason: Done
 
 - `test-ids.py` takes a commented-out Python or C test marker for a live test
 	- ID: 2026101514324717
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 17
@@ -8194,11 +8434,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `8eba94bc`
 	- Acceptance signoff: Self-closed: reproduced, the new test failed before and passes after, and the scan does what the item asked.
 	- Closed: 20261016-081446
+	- Closed reason: Done
 
 - crosscheck's bad-op dimension never checks that a bad op fails
 	- ID: 2026101514324716
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 16
@@ -8216,11 +8457,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `33fcb499`
 	- Acceptance signoff: Self-closed: reproduced, the new test failed before and passes after, and the check does what its comment says.
 	- Closed: 20261016-081026
+	- Closed reason: Done
 
 - `upgrade --write` doesn't print any of the load's diagnostics when it refuses, or fails after the load
 	- ID: 2026101514324706
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 6
@@ -8246,11 +8488,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `538e3359`
 	- Acceptance signoff: Self-closed: reproduced, the new rows failed before and pass after, and it follows design.md's rule that every loading subcommand prints the load's diagnostics once.
 	- Closed: 20261016-080915
+	- Closed reason: Done
 
 - check-docs `ddzx2` takes a `#` line inside a code fence for a heading
 	- ID: 2026101514324715
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 15
@@ -8270,11 +8513,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `9028769e`
 	- Acceptance signoff: Self-closed: reproduced, the new test failed before and passes after, and the fix is the one the item named.
 	- Closed: 20261016-080415
+	- Closed reason: Done
 
 - `upgrade --from-2x` reads a Format number too big for 32 bits as format 3, and converts the file by 2.x rules
 	- ID: 2026101514324705
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 5
@@ -8306,11 +8550,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `bca7322f`, `25b4e53d`
 	- Acceptance signoff: JC, 2026-10-16, on the fix with the hint change, which is in.
 	- Closed: 20261016-073233
+	- Closed reason: Done
 
 - A refused line whose name starts with `~` or a backtick hides its raw block from the Format and Schema line scan
 	- ID: 2026101514324701
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 1
@@ -8342,11 +8587,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `9da3dd3c`
 	- Acceptance signoff: Self-closed: reproduced, the new tests failed before and pass after, and the scan now does what spec.md says.
 	- Closed: 20261015-162922
+	- Closed reason: Done
 
 - A setter writing a thousands number over a quoted value keeps the quotes, so Loose reads it as a number
 	- ID: 2026101514324702
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Severity: Avg
 	- Opened: 20261015-143247
@@ -8373,11 +8619,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `75ea0170`
 	- Acceptance signoff: Self-closed: reproduced, the new checks failed before the fix and pass after, and the Sweep has its Swept answer. It applies spec.md's own setter sentence and doesn't change any recorded decision.
 	- Closed: 20261015-162300
+	- Closed reason: Done
 
 - `upgrade --from-2x` stamps a converted file that still has an error, and a second run reads it by 2.x rules again
 	- ID: 2026101515372401
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261015-153724
 	- Opened by: Code review 20261015 item 22
@@ -8405,11 +8652,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `88daada9`
 	- Acceptance signoff: Self-closed on JC's criteria: reproduced, the new tests failed before and pass after, and the rule is JC's 2026-10-15 call on the item. The refusal line's wording is my call; the rest of the `upgrade` help wording is 2026101514324708's.
 	- Closed: 20261015-165000
+	- Closed reason: Done
 
 - Nothing tests the Loose thousands grouping rule itself
 	- ID: 2026101514324703
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261015-143247
 	- Opened by: Code review 20261015 item 3
@@ -8434,11 +8682,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `2af9be49`
 	- Acceptance signoff: Self-closed: each Requirement has its check, and each break the review named fails one.
 	- Closed: 20261015-162300
+	- Closed reason: Done
 
 - check-docs gates fed by a Python script pass when the script crashes
 	- ID: 2026101419280002
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261014-192800
 	- Opened by: Code review 20261014b item 2
@@ -8460,11 +8709,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `b3199842`
 	- Acceptance signoff: Self-closed: the item's own steps fail the gate now and passed it before, and the Sweep has its Swept line.
 	- Closed: 20261015-125237
+	- Closed reason: Done
 
 - The installers still send people to README.md for steps that moved to `project/install.md`
 	- ID: 2026101419280006
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261014-192800
 	- Opened by: Code review 20261014b item 6
@@ -8488,11 +8738,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `b3199842`
 	- Acceptance signoff: closed on JC's criteria. The call was the message wording, with the URL in the same form as the installers' other links (me).
 	- Closed: 20261015-125237
+	- Closed reason: Done
 
 - check-migrate's Format 3 upgrade check judges a file by what upgrade did to it, so a file it should have converted and didn't passes
 	- ID: 2026101419280003
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261014-192800
 	- Opened by: Code review 20261014b item 3
@@ -8510,11 +8761,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `migcheck`
 	- Acceptance signoff: Self-closed. The check does what the item asked, no more, and was seen to fail.
 	- Closed: 20261015-125008
+	- Closed reason: Done
 
 - Assertions 2026101407100010 replaced are commented out rather than deleted
 	- ID: 2026101419280007
 	- Type: Task
-	- Status: Done
+	- Status: Closed
 	- Priority: Low
 	- Opened: 20261014-192800
 	- Opened by: Code review 20261014b item 7
@@ -8533,11 +8785,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `migcheck`
 	- Acceptance signoff: closed on JC's call, "JC, 2026-10-15: keep commented, fix the notes."
 	- Closed: 20261015-125008
+	- Closed reason: Done
 
 - An indented `#` comment line in the ops script is refused as an unknown op
 	- ID: 2026101419280004
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Severity: Low
 	- Opened: 20261014-192800
@@ -8561,11 +8814,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `7ac89887`
 	- Acceptance signoff: Self-closed: reproduced, the new rows and corpus lines failed before and pass after, the Sweep has its Swept answer, and the one wording call is noted above.
 	- Closed: 20261015-124104
+	- Closed reason: Done
 
 - `upgrade` on a file naming this format doesn't print any of the load's diagnostics, and with `--from-2x` drops the ones it found
 	- ID: 2026101419280005
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Severity: Low
 	- Opened: 20261014-192800
@@ -8592,11 +8846,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `7ac89887`
 	- Acceptance signoff: Self-closed: reproduced, the new rows failed before and pass after, and it follows design.md's rule with JC's call on the library contract.
 	- Closed: 20261015-124104
+	- Closed reason: Done
 
 - `upgrade` with `from_v2` reads a 3.0 file with one error by 2.x rules, so its good lines change meaning at exit 0
 	- ID: 2026101419280001
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261014-192800
 	- Opened by: Code review 20261014b item 1
@@ -8628,11 +8883,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `upfix`
 	- Acceptance signoff: closed on JC's 20261014 criteria, with JC's decisions above. The lone-Format-line one doesn't apply, as found (me).
 	- Closed: 20261015-102649
+	- Closed reason: Done
 
 - shell-regress is red on dev since the usage message fixes
 	- ID: 2026101415332594
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261014-153325
 	- Opened by: me, found by the README split's gate run
@@ -8648,11 +8904,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `srfix`
 	- Acceptance signoff: closed on JC's 20261014 criteria. It's a gate-script fix only, with no behavior change.
 	- Closed: 20261014-154200
+	- Closed reason: Done
 
 - No public call gives an array, or one element of it, the way the writer writes it
 	- ID: 2026101412591471
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Priority: Low
 	- Opened: 20261014-125914
@@ -8673,11 +8930,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `6d5d8dd1`
 	- Acceptance signoff: closed on JC's 20261014 criteria. The call is mine: a whole array, `format_array`, built through the array setter's own path, so there's no second copy of the quoting or bracket rules. It matches value-syntax.md's Arrays and Canonical output and doesn't change any closed decision. The 4 runner tests failed against a broken call and pass.
 	- Closed: 20261014-152747
+	- Closed reason: Done
 
 - Move the detailed comparisons out of README.md into their own doc
 	- ID: 2026101414312546
 	- Type: Task
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261014-143125
 	- Opened by: JC
@@ -8696,11 +8954,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `b30d70a8`
 	- Acceptance signoff: closed on JC's 20261014 criteria. The calls are the name and place, `project/comparison.md`, and keeping the wrong-choice bullets in the README.
 	- Closed: 20261014-152200
+	- Closed reason: Done
 
 - Move the installation instructions out of README.md
 	- ID: 2026101414312547
 	- Type: Task
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261014-143125
 	- Opened by: JC
@@ -8718,11 +8977,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `b30d70a8`
 	- Acceptance signoff: closed on JC's 20261014 criteria. The calls are one doc for both, and its name and place.
 	- Closed: 20261014-152200
+	- Closed reason: Done
 
 - Move CLI usage and other examples out of README.md
 	- ID: 2026101414312548
 	- Type: Task
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261014-143125
 	- Opened by: JC
@@ -8741,11 +9001,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `b30d70a8`
 	- Acceptance signoff: closed on JC's 20261014 criteria. The calls are the name and place, and keeping the web server file in the README as the snippet.
 	- Closed: 20261014-152200
+	- Closed reason: Done
 
 - A public call that writes one value the way the writer would
 	- ID: 2026101407100011
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Priority: Low
 	- Opened: 20261014-071000
@@ -8767,11 +9028,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `85ea3f9b`
 	- Acceptance signoff: closed on JC's 20261014 criteria. It's JC's `format_value`, built through the setter's own path, so there's no second copy of the quoting rules. Text input matches `set_string`. Array elements are 2026101412591471. The 4 runner tests failed against a broken call and pass.
 	- Closed: 20261014-142729
+	- Closed reason: Done
 
 - A one-line text for a diagnostic in the library
 	- ID: 2026101407100012
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Priority: Low
 	- Opened: 20261014-071000
@@ -8793,11 +9055,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `02241ff5`
 	- Acceptance signoff: JC, 20261014: the names and the display hooks.
 	- Closed: 20261014-142729
+	- Closed reason: Done
 
 - The help, the man page, the README, and the CLI style guide disagree on what the CLI does
 	- ID: 2026101407100006
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261014-071000
 	- Opened by: Code review 20261014 item 6
@@ -8825,11 +9088,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `6314a79b`
 	- Acceptance signoff: closed on JC's 20261014 criteria. Each doc now says what the CLI does, the help changes past the item's list fix points 3, 4, 6, and 7 where the help was wrong too, and `ddyde` and `ddydf` failed before and pass after.
 	- Closed: 20261014-142729
+	- Closed reason: Done
 
 - The style guide's deviation list misses several binding differences, and a few names differ with no listed reason
 	- ID: 2026101407100008
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261014-071000
 	- Opened by: Code review 20261014 item 8
@@ -8856,11 +9120,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `3f870f9d`
 	- Acceptance signoff: JC, 20261014: `Quote.None_`, the dropped `RULES_*` aliases and the C unit value names.
 	- Closed: 20261014-142729
+	- Closed reason: Done
 
 - spec.md leaves out what consumers had to find by probing
 	- ID: 2026101407100009
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261014-071000
 	- Opened by: Code review 20261014 item 9
@@ -8885,11 +9150,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `6314a79b`
 	- Acceptance signoff: Self-closed: each sentence was probed on dev, and both version floors ran.
 	- Closed: 20261014-130532
+	- Closed reason: Done
 
 - `load_and_validate` takes schema text, so a cached schema is re-parsed on every load, and the two-step form differs
 	- ID: 2026101407100013
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Priority: Low
 	- Opened: 20261014-071000
@@ -8911,11 +9177,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `3305630e`
 	- Acceptance signoff: Self-closed: it's the call and semantics JC named, and its tests pass. The 2 (me) calls above are on the item.
 	- Closed: 20261014-122817
+	- Closed reason: Done
 
 - `Cargo.toml` has no `rust-version`, so cargo 1.85 to 1.87 fails on a let-chain syntax error rather than naming the version the crate needs
 	- ID: 2026101411292443
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261014-112924
 	- Opened by: found while working 2026101407100009
@@ -8929,11 +9196,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `1a7c41a6`
 	- Acceptance signoff: Self-closed: it's mechanical, and its test failed before and passes after.
 	- Closed: 20261014-114937
+	- Closed reason: Done
 
 - 7 usage messages end without `(see --help)` and don't name a fix
 	- ID: 2026101407100007
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261014-071000
 	- Opened by: Code review 20261014 item 7
@@ -8954,11 +9222,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `75c1067f`
 	- Acceptance signoff: Self-closed: reproduced, the new check failed before and passes after, and the 2 wording calls are noted above.
 	- Closed: 20261014-110400
+	- Closed reason: Done
 
 - `get --on-bad=default` without `--default` prints an empty line at exit 0 for a missing or bad value
 	- ID: 2026101407100004
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261014-071000
 	- Opened by: Code review 20261014 item 4
@@ -8980,11 +9249,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `75c1067f`
 	- Acceptance signoff: Self-closed: the message is the one the item named, and the new rows failed before and pass after.
 	- Closed: 20261014-110400
+	- Closed reason: Done
 
 - `fmt --check` with `--layer` or `--set` always exits 6, and its message names a `--write` the CLI refuses
 	- ID: 2026101407100002
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261014-071000
 	- Opened by: Code review 20261014 item 2
@@ -9006,11 +9276,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `75c1067f`
 	- Acceptance signoff: Self-closed: reproduced, the new rows failed before and pass after, and the Sweep has its Swept answer.
 	- Closed: 20261014-110400
+	- Closed reason: Done
 
 - `upgrade --from-2x` leaves a file a beta build stamped `Format 3` alone, so every user file of 2 consumers needs its Format line stripped by hand first
 	- ID: 2026101407100010
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Priority: Avg
 	- Opened: 20261014-071000
@@ -9035,11 +9306,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x` (Rust `ddy83`, Go `ddy84`, Python `ddy85`, C `ddy86`), cli-regress `ddy87`, `ddy88`, and save case `ddy89`, and check-migrate `ddmp8`. The beta assertion in `upgrade_leaves_a_clean_or_stamped_file` (`ddmhb` and its twins) is commented out with the reason.
 	- Acceptance signoff: JC, 20261014, on the narrowed rule.
 	- Closed: 20261014-095800
+	- Closed reason: Done
 
 - An ops-script line with too few fields is read with the missing ones empty, so `raw<TAB>n<TAB>info` replaces a raw block with an empty one at exit 0
 	- ID: 2026101407100003
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Severity: Avg
 	- Opened: 20261014-071000
@@ -9063,11 +9335,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `366f8e6a`
 	- Acceptance signoff: Self-closed: reproduced, the new rows and corpus lines failed before and pass after, the Sweep is answered, and the one wording call is noted above.
 	- Closed: 20261014-082700
+	- Closed reason: Done
 
 - A whitespace-only line in the ops script is refused as `unknown op: ` where a blank line is skipped
 	- ID: 2026101407100005
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261014-071000
 	- Opened by: Code review 20261014 item 5
@@ -9088,11 +9361,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `366f8e6a`
 	- Acceptance signoff: Self-closed: the call is noted above, and the new rows and corpus lines failed before and pass after.
 	- Closed: 20261014-082700
+	- Closed reason: Done
 
 - `upgrade --from-2x` and `upgrade_file` leave an older Format line above the new info block, so the file names 2 formats
 	- ID: 2026101407100001
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Severity: Avg
 	- Opened: 20261014-071000
@@ -9116,11 +9390,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `a_format_line_at_the_top_goes_when_the_block_goes_on` (Rust `ddy7s`, Go `ddy7t`, Python `ddy7v`, C `ddy7w`) and cli-regress save case `ddy7x`.
 	- Acceptance signoff: self-closed 20261014. Reproduced, the new tests fail before the fix and pass after, and the Sweep has its Swept answer.
 	- Closed: 20261014-082520
+	- Closed reason: Done
 
 - Loose doesn't read a quoted thousands number, such as `"1,200"` or `"$1,200"`, as a number
 	- ID: 2026101309122757
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Needs external testing: a hosted run with the next main push.
 	- Priority: Avg
@@ -9161,11 +9436,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `4527cc4e`, `bae0d847`, `10deaa99`
 	- Acceptance signoff: JC 20261013, the calls above, with the trailing `.` moved to 2026101318521195. Then the full `--ci` here on dev at `c741ccbf`, judged as main and recorded, and hosted run 38505851633 on dev, green on all 5 jobs.
 	- Closed: 20261013-211124
+	- Closed reason: Done
 
 - On musl, the C binding's schema-line check fails on `/proc/self/pagemap` with the wrong error
 	- ID: 2026101316013508
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261013-160135
 	- Opened by: me, from the Alpine image run in 2026101309250977
@@ -9187,11 +9463,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `60d9719a`
 	- Acceptance signoff: Self-closed: the fix gives the answer the other 3 bindings and glibc already give, and the existing row was seen to fail before and pass after in the Alpine image.
 	- Closed: 20261013-201858
+	- Closed reason: Done
 
 - On musl, the C binding's `reads` workload is about 4 times slower than on glibc
 	- ID: 2026101316013509
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261013-160135
 	- Opened by: me, from the Alpine image run in 2026101309250977
@@ -9216,11 +9493,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `60d9719a`
 	- Acceptance signoff: Self-closed: the cause was measured before the fix, the fix is in one helper, and the new count test and the Alpine perf row were each seen to fail before and pass after.
 	- Closed: 20261013-201858
+	- Closed reason: Done
 
 - Loose refuses a quoted thousands number with a trailing `.`, such as `"1,200."`
 	- ID: 2026101318521195
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261013-185211
 	- Opened by: JC, at the signoff of 2026101309122757
@@ -9242,11 +9520,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `738a6b64`
 	- Acceptance signoff: Self-closed: JC's call was clear and narrow, the change does that and no more, and each new test was seen to fail on dev.
 	- Closed: 20261013-193000
+	- Closed reason: Done
 
 - Build and test in a pinned container.
 	- ID: 2026101303344553
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority [Feature|Enhancement] | Severity [Bug]: Low
 	- Opened: 20261013-033445
 	- Opened by: JC
@@ -9277,11 +9556,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `a1afc401`, `bb96e452`, `07914455`
 	- Acceptance signoff: Self-closed: the item's requirements and notes were the spec, the gate passed in the image and recorded its tree, and the new checks were seen to fail.
 	- Closed: 20261013-155744
+	- Closed reason: Done
 
 - Extra Linux test images
 	- ID: 2026101309250977
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority [Feature|Enhancement] | Severity [Bug]: Low
 	- Opened: 20261013-092509
 	- Opened by: me, agreed by JC
@@ -9306,11 +9586,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `a1afc401`, `bb96e452`, `07914455`
 	- Acceptance signoff: Self-closed: both images build and run the stages the item named, and the gates each one skips are listed with the reason.
 	- Closed: 20261013-155744
+	- Closed reason: Done
 
 - A Rust memory-cap test fails when another test in its file runs beside it
 	- ID: 2026101308163572
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261013-081635
 	- Opened by: me, from the hosted run at the end of the 20261013 round
@@ -9330,11 +9611,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `974de060`
 	- Acceptance signoff: Self-closed: reproduced, the forced overlap failed before the fix and passes after, and the sweep found no other file with the pattern.
 	- Closed: 20261013-105855
+	- Closed reason: Done
 
 - The hosted ubuntu job no longer fits its 60-minute limit
 	- ID: 2026101011200000
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. The engine side is pinned by check-push-gate's stubbed engine.
 	- Needs external testing: a hosted run on the branch (`gh workflow run ci --ref cisplit`). Watch the times of the 2 ubuntu jobs, `ci (lint)` and `ci (tests)`. Each should end well inside 60 minutes: lint about 30 with a cold cppcheck and under 10 with a warm one, tests about 30. Also check that both are green with no strict skip, that the tests job prints the profiler calibration line `dczst`, and that the lint job's last step saves a `cppcheck-` cache.
 	- Severity: High
@@ -9365,11 +9647,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `cbfced5c`
 	- Acceptance signoff: me 20261013, self-closed: the hosted run 38415689485 on dev finished both halves inside the limit, `ci (lint)` in 26 minutes with a cold cppcheck cache and `ci (tests)` in 31, both green with no strict skip. The tests half printed `dczst`, and the lint half saved its `cppcheck-` cache.
 	- Closed: 20261013-081635
+	- Closed reason: Done
 
 - A `--json` mode for the list commands
 	- ID: 2026100814455655
 	- Type: Feature
-	- Status: Done
+	- Status: Closed
 	- Needs external testing: the hosted windows job (`gh workflow run ci --ref winscan`): cli-regress `ddqj7` green for every binding. Also check the README PowerShell blocks, and the full `--ci` (exhaustive cppcheck over the C changes) and a hosted run with the next main push.
 	- Priority: Avg
 	- Opened: 20261008-144556
@@ -9405,11 +9688,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `fields_give_each_instance_its_own_path` (Rust `ddqh3`, Go `ddqh4`, Python `ddqh5`, C `ddqh6`) and the veneer smoke; cli-regress `ddqhn`, `ddqhq`, `ddqhs` to `ddqj5`, and `ddqj7` (every corpus input's `--json` lines through `jq -c .` and `ConvertFrom-Json`); crosscheck and sanitize-c `--json` on every listing row and `paths --json` on every input; check-readme's bash and PowerShell blocks.
 	- Acceptance signoff: me 20261013, the full `--ci` here on dev at `8a803032`, judged as main and recorded, and the hosted run 38415689485 on dev: `ddqj7` green on windows, ubuntu and the local run, and the README PowerShell blocks green in check-readme. The output calls made while building it are in the progress log.
 	- Closed: 20261013-081635
+	- Closed reason: Done
 
 - Doc examples, man page blocks and help text aren't run as tests
 	- ID: 2026100719122102
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: Y, the full `--ci`, whose tests stage runs the new gate.
 	- Needs external testing: a hosted run (`gh workflow run ci --ref winscan`). The windows job: cli-regress `ddrkm`, `ddwmy` and `ddwmz` green for every binding, and the Go `ddwn4` and Python `ddwn3` runner tests. The ubuntu job runs check-doc-examples with jq, and the macos job cli-regress's 2 scans.
 	- Priority: Avg
@@ -9441,11 +9725,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-doc-examples `ddrkg` (value-syntax.md tables), `ddrkh` (spec.md tables) and `ddrkj` (man page examples). cli-regress `ddrkk` (help, code texts and man page) and `ddrkm` (every row's output). For the OS error text, cli-regress `ddwmy` and `ddwmz` (a failed temp file gives the file and the system's message, in all 4 CLIs), Python `ddwn3` and Go `ddwn4` (the same with a windows path in the OS error). Rust and C don't get a runner test, since their OS error text never includes a path.
 	- Acceptance signoff: me 20261013, the full `--ci` here on dev at `8a803032`, judged as main and recorded, and the hosted run 38415689485 on dev: `ddrkm`, `ddwmy`, `ddwmz`, `ddwn3`, and `ddwn4` green on windows, and check-doc-examples green in the local run and the hosted tests half.
 	- Closed: 20261013-081635
+	- Closed reason: Done
 
 - Library gaps a generic tool has to work around
 	- ID: 2026100717500020
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?:
 		- (schema resolve) Y, the full `--ci` for exhaustive cppcheck over the C change, and the hosted windows job for Python's Windows branch, which nothing here runs.
 		- (kind) the full `--ci`, for exhaustive cppcheck, check-c-compilers, and sanitize-c over the C change.
@@ -9514,11 +9799,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: each part has its own row above, for schema resolve (`ddrn7`), kind (`ddrn3`) and default (`ddrnb`).
 	- Acceptance signoff: me 20261013, the full `--ci` here on dev at `8a803032`, judged as main and recorded, and the hosted run 38415689485 on dev: exhaustive cppcheck, check-c-compilers, and sanitize-c green over the C changes, and the windows job runs the new tests green in all 4 runners. The calls marked (me) are on the item.
 	- Closed: 20261013-081635
+	- Closed reason: Done
 
 - Run on the last Core 2 Duo, and AMD CPUs from that era.
 	- ID: 2026101301161858
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs external testing: Yes, on an old CPU or an emulated one.
 	- Priority [Feature|Enhancement] | Severity [Bug]: Low
 	- Opened: 20261013-011618
@@ -9547,11 +9833,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `b2c6f659`
 	- Acceptance signoff: Self-closed: the floor holds on every x86_64 release build, and the check was seen to fail on builds past it.
 	- Closed: 20261013-065126
+	- Closed reason: Done
 
 - `fmt` turns a bare `80,443` into a number
 	- ID: 2026101010054746
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Opened: 20261010-100547
 	- Opened by: found while working 2026100717500020
@@ -9580,11 +9867,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `50be3ed9`
 	- Acceptance signoff: Self-closed. It does what the recorded decision asked, and each new test fails before the fix and passes after.
 	- Closed: 20261013-041158
+	- Closed reason: Done
 
 - check-migrate fails on 2 fuzz documents
 	- ID: 2026100919123100
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Opened: 20261009-191231
 	- Opened by: found while working 2026100717500017
@@ -9614,11 +9902,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: it's High, since check-migrate is in the pre-push gate, so the next main push fails until this is fixed.
 	- Acceptance signoff: me 20261010. check-migrate `dcqf3` was green in the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, and in the hosted run 38070871137 on dev. In that run macos and go-floor were green, the ubuntu job was green through check-locale and was canceled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job was red only on `ddqj7` and `ddrkm`, which belong to 2026100814455655 and 2026100719122102.
 	- Closed: 20261010-111707
+	- Closed reason: Done
 
 - A file stamped with a newer Format major should load clean
 	- ID: 2026100717500017
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Needs external testing: a hosted run.
 	- Priority: Avg
@@ -9650,11 +9939,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `204-format-newer-hint` (`ddqhc`) and `205-format-older-hint` (`ddqhd`) in all 4 runners, the hint rows of `stamp_reads_say_why` (Rust `ddqh8`, Go `ddqh9`, Python `ddqha`, C `ddqhb`), cli-regress `ddqhe` to `ddqhk`, and veneer_smoke `d9v59`. The restamp: `an_older_format_line_becomes_this_one_in_place` (Rust `ddqrp`, Go `ddqrq`, Python `ddqrr`, C `ddqrs`), cli-regress `ddqrv`, `ddqrw` and save case `ddqrx`, and the changed row `ddqhk`.
 	- Acceptance signoff: me 20261010, after the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, exhaustive cppcheck included, and the hosted run 38070871137 on dev. In that run macos and go-floor were green, the ubuntu job was green through check-locale and was canceled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job was red only on `ddqj7` and `ddrkm`, which belong to 2026100814455655 and 2026100719122102.
 	- Closed: 20261010-111707
+	- Closed reason: Done
 
 - `line`, `lines`, `authored_name`, `comments`, `exists`, `remove` and `clear_comments` can't report a path that doesn't parse
 	- ID: 2026100912271700
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Needs external testing: the hosted run, whose windows job runs the new test in all 4 runners.
 	- Priority: Avg
@@ -9688,11 +9978,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `path_twins_say_bad_path` in all 4 runners (Rust `ddrha`, Go `ddrhb`, Python `ddrhc`, C `ddrhd`), the twin checks in the C++ `veneer_smoke` (`d9v59`), and the `comments` rows in case `162`, which now pin `read_comments`.
 	- Acceptance signoff: me 20261010, after the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, with check-c-compilers and sanitize-c, and the hosted run 38070871137 on dev. In that run macos and go-floor were green, the ubuntu job was green through check-locale and was canceled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job was red only on `ddqj7` and `ddrkm`, which belong to 2026100814455655 and 2026100719122102. `ddrha`, `ddrhb`, `ddrhc`, and `ddrhd` were ok on windows.
 	- Closed: 20261010-111707
+	- Closed reason: Done
 
 - Long values make messages huge
 	- ID: 2026100818251400
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Needs external testing: the hosted run, for cli-regress on windows and macos.
 	- Severity: Low
@@ -9719,11 +10010,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `ddqga` to `ddqgf`, with 2 and 4 byte characters and the 200 and 201 character edges.
 	- Acceptance signoff: me 20261010, after the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, and the hosted run 38070871137 on dev. In that run macos and go-floor were green, the ubuntu job was green through check-locale and was canceled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job was red only on `ddqj7` and `ddrkm`, which belong to 2026100814455655 and 2026100719122102. `ddqga` to `ddqgf` were ok on windows and macos.
 	- Closed: 20261010-111707
+	- Closed reason: Done
 
 - `migrate --write` leaves the old Format line beside the new one
 	- ID: 2026100916475300
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Needs external testing: a hosted run.
 	- Severity: Low
@@ -9744,11 +10036,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `ddqrt`, `ddqrz` and save case `ddqry`, the migrate half of `an_older_format_line_becomes_this_one_in_place` (`ddqrp` to `ddqrs`), and the corpus stamp check in the 4 runners.
 	- Acceptance signoff: me 20261010, after the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, and the hosted run 38070871137 on dev. In that run macos and go-floor were green, the ubuntu job was green through check-locale and was canceled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job was red only on `ddqj7` and `ddrkm`, which belong to 2026100814455655 and 2026100719122102.
 	- Closed: 20261010-111707
+	- Closed reason: Done
 
 - Messages on stderr show value text with 2.x backslash escapes
 	- ID: 2026100812323841
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Needs external testing: the hosted run, for cli-regress on windows and macos. The windows job runs the row whose argument has a line break.
 	- Severity: Low
@@ -9789,11 +10082,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `ddqg6` to `ddqg9` and `ddqgg`, and the changed rows `dct3y` to `dct45`, `dc45p` and `dd5h2`. The rework adds `ddrjf` to `ddrjj`: a BEL, a C1 control, a zero-width space and a direction override in a `get` type error, in an `E023` escape name and in a schema path, and `◉NUL◉`, `◉ESC◉`, `◉DEL◉` and `◉CRLF◉` in a `get` type error.
 	- Acceptance signoff: me 20261010, after the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, and the hosted run 38070871137 on dev. In that run macos and go-floor were green, the ubuntu job was green through check-locale and was canceled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job was red only on `ddqj7` and `ddrkm`, which belong to 2026100814455655 and 2026100719122102. `ddqg6`, `ddqg9`, `ddqgg`, `ddrjf`, and `ddrjj` were ok on windows and macos.
 	- Closed: 20261010-111707
+	- Closed reason: Done
 
 - A failed write says why only in text
 	- ID: 2026100912352400
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Low
 	- Opened: 20261009-123524
 	- Opened by: JC, from 2026100912271700
@@ -9823,11 +10117,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `6e0210c2`
 	- Acceptance signoff: me 20261010, after the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, exhaustive cppcheck included, and the hosted run 38070871137 on dev. In that run macos and go-floor were green, the ubuntu job was green through check-locale and was canceled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job was red only on `ddqj7` and `ddrkm`, which belong to 2026100814455655 and 2026100719122102. The OS error table tests `ddqfs`, `ddqfw`, `ddqfz`, and `ddqg5` were ok on windows.
 	- Closed: 20261010-111707
+	- Closed reason: Done
 
 - `format_version` gives the same answer for a garbled Format line and for none
 	- ID: 2026100912352401
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Needs external testing: a hosted run.
 	- Priority: Low
@@ -9851,11 +10146,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `stamp_reads_say_why` in all 4 runners (Rust `ddqh8`, Go `ddqh9`, Python `ddqha`, C `ddqhb`), and the status checks in veneer_smoke (`d9v59`).
 	- Acceptance signoff: me 20261010, after the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, and the hosted run 38070871137 on dev. In that run macos and go-floor were green, the ubuntu job was green through check-locale and was canceled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job was red only on `ddqj7` and `ddrkm`, which belong to 2026100814455655 and 2026100719122102.
 	- Closed: 20261010-111707
+	- Closed reason: Done
 
 - The 2M release fuzz fails `edits_and_merges_match_a_reload` once corpus 204 and 205 move the seeds
 	- ID: 2026100914525821
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Opened: 20261009-145258
 	- Opened by: found while working 2026100717500017
@@ -9879,11 +10175,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `14e0a249`
 	- Acceptance signoff: Self-closed. The fuzz failed before and passes after, each new test fails without the fix, and the reload's order is what the document's own text says.
 	- Closed: 20261009-183713
+	- Closed reason: Done
 
 - A setter's false doesn't say why
 	- ID: 2026100907362300
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261009-073623
 	- Opened by: JC, from 2026100717500009
@@ -9949,11 +10246,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `c251f741`, C `4aea318a`
 	- Acceptance signoff: JC 20261009.
 	- Closed: 20261009-162016
+	- Closed reason: Done
 
 - `instances` output can't be fed back into a selector
 	- ID: 2026100717500016
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 16
@@ -9976,11 +10274,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `ddqhm` (instances-paths), `ddqhp` (slot miss), `ddqhr` (2 instances with one value), `ddqj4` and `ddqj6` (refusals); crosscheck `instances --paths` on every corpus `instances` row.
 	- Acceptance signoff: JC 20261009.
 	- Closed: 20261009-162016
+	- Closed reason: Done
 
 - Python's `write_file_atomic` returns an error string, and `Document()` raises
 	- ID: 2026100717500014
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 14
@@ -9997,11 +10296,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: Python `write_file_atomic_raises` (`ddqg1`) and `document_constructor_is_empty` (`ddqg2`).
 	- Acceptance signoff: Self-closed. The item's intent was clear, and its tests fail without the fix and pass with it.
 	- Closed: 20261009-133641
+	- Closed reason: Done
 
 - Doc text left behind by earlier changes
 	- ID: 2026100717500015
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 15
@@ -10019,11 +10319,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none, comment and README text only.
 	- Acceptance signoff: Self-closed. The change is mechanical.
 	- Closed: 20261009-132539
+	- Closed reason: Done
 
 - `count`, `instances` and `children` can't report a path that doesn't parse
 	- ID: 2026100818140260
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Opened: 20261008-181402
 	- Opened by: JC, from 2026100717500001
@@ -10051,11 +10352,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `list_reads_say_bad_path` in all 4 runners (Rust `ddq60`, Go `ddq61`, Python `ddq62`, C `ddq63`), list-read checks in the C++ `veneer_smoke` (`d9v59`), and the corpus rows in `081` and `203`.
 	- Acceptance signoff: signed off 20261009.
 	- Closed: 20261009-084449
+	- Closed reason: Done
 
 - Retire the bash and PowerShell wrappers
 	- ID: 2026100818251401
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs external testing: win-runners' `ps args` step, which lost its shcl.ps1 calls, on the hosted windows job with the next main push. The setup's removal of an older `scripts\` is untested on Windows.
 	- Priority: Avg
 	- Opened: 20261008-182514
@@ -10077,11 +10379,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `cee64cc4`
 	- Acceptance signoff: Self-closed. Its test passes.
 	- Closed: 20261008-184153
+	- Closed reason: Done
 
 - `fmt` leaves a value bare that a reader could misread
 	- ID: 2026100719122101
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: the full `--ci` with the next main push, and a demo GIF rerender (shell-regress `dcvej` is red until then).
 	- Needs external testing: a hosted run with the next main push.
 	- Priority: High
@@ -10118,11 +10421,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `ce9c8a87`
 	- Acceptance signoff: JC 20261008.
 	- Closed: 20261008-181402
+	- Closed reason: Done
 
 - A repeated-field hint prints the whole suggested array on every run
 	- ID: 2026100717500013
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Needs external testing: a hosted run with the next main push.
 	- Severity: Avg
@@ -10148,11 +10452,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `86825250`
 	- Acceptance signoff: JC 20261008.
 	- Closed: 20261008-181402
+	- Closed reason: Done
 
 - C's `shcl_get_int` is the fallback read, where `get_int` is the status read in every other binding
 	- ID: 2026100717500011
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Needs external testing: a hosted run with the next main push.
 	- Severity: Avg
@@ -10175,11 +10480,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `daa1d9fe`
 	- Acceptance signoff: JC 20261008.
 	- Closed: 20261008-181402
+	- Closed reason: Done
 
 - A strict load failure looks different from each entry point
 	- ID: 2026100717500012
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Needs external testing: a hosted run with the next main push.
 	- Severity: Avg
@@ -10211,11 +10517,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `daa1d9fe`
 	- Acceptance signoff: JC 20261008.
 	- Closed: 20261008-181402
+	- Closed reason: Done
 
 - `shcl help fmt` prints part of `set`'s help
 	- ID: 2026100717500007
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: the full `--ci` with the next main push.
 	- Severity: Avg
 	- Opened: 20261007-175000
@@ -10238,11 +10545,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: helphint
 	- Commit: `288ce795`
 	- Closed: 20261008-162924
+	- Closed reason: Done
 
 - C and Python setters take text that isn't valid UTF-8, where Go refuses it
 	- ID: 2026100815543610
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261008-155436
 	- Opened by: found while working 2026100717500009
@@ -10265,11 +10573,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `setters_refuse_text_that_is_not_utf8`, Python `ddp8j` and C `ddp8k`: strings, string arrays, comments, raw bodies and info strings, `set_literal`, the default forms, a quoted field name and a selector value a setter would create, each refused with nothing written and the path at Ok. The C test also checks a bad byte, a cut sequence, an encoded surrogate, and an overlong form. There's one case in the C++ `veneer_smoke` (`d9v59`).
 	- Acceptance signoff: Self-closed 20261008. It does what the item expected, matching Go, and the tests fail before and pass after.
 	- Closed: 20261008-164310
+	- Closed reason: Done
 
 - A setter on a repeated path writes the first instance and returns true
 	- ID: 2026100717500010
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 10
@@ -10297,11 +10606,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `repeated_path_refuses_a_setter` in all 4 runners (Rust `ddp8e`, Go `ddp8f`, Python `ddp8g`, C `ddp8h`): each setter kind on a repeated leaf, a child of a repeated block, a new child under it and a repeated child, refused with nothing written and the path at `Multiple`; an index or value selector writes the one it names; a remove takes both. There are 2 checks in the C++ `veneer_smoke` (`d9v59`). cli-regress `ddp8m` to `ddp8r` (`--set`, a repeated parent, `get --set`, `--set-literal-default`, an ops line), `ddp8s` (an index picks one) and `ddp8t` (a remove takes every instance).
 	- Acceptance signoff: Self-closed 20261008. It was built as the call on the item, and the tests fail before and pass after in all 4. The calls above are listed for review.
 	- Closed: 20261008-164310
+	- Closed reason: Done
 
 - A setter returns false while `write_reason` says Writable
 	- ID: 2026100717500009
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 9
@@ -10323,11 +10633,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `refused_values_pass_the_path_check` in all 4 runners (Rust `ddp7b`, Go `ddp7c`, Python `ddp7d`, C `ddp7e`): each listed refusal returns false, writes nothing, and the path checks Ok. Go adds its UTF-8 cases and Python its 64-bit ones. The C++ `veneer_smoke` (`d9v59`) has 2 of them.
 	- Acceptance signoff: Self-closed 20261008. The fix is docs only, and the test checks the list.
 	- Closed: 20261008-155436
+	- Closed reason: Done
 
 - CLI reads take a path that can't parse as not found, so `get --default` prints the default at exit 0
 	- ID: 2026100717500001
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 1
@@ -10368,11 +10679,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `check_set_path_names_the_failure` (`daqta` to `daqtd`, renamed in place) uses the new names. `bad_path_reads_say_bad_path` in all 4 runners (Rust `ddp69`, Go `ddp6a`, Python `ddp6b`, C `ddp6c`), plus BadPath checks in the C++ `veneer_smoke` (`d9v59`), and the 23 corpus rows. CLI half: cli-regress `ddnzc` to `ddnzn` (each refusal, the `--default` cases included), plus `ddnzp` (`children` with an empty path lists the top level) and `ddnzq` (a missing path still gives the default). `ddkd6`, `ddkd7`, and `ddhxc` expected exit 3 and are commented out, replaced by `ddnzc`, `ddnzf`, and `ddnzg`.
 	- Acceptance signoff: Signed off 20261009 (JC).
 	- Closed: 20261008-152746
+	- Closed reason: Done
 
 - The README's bash and PowerShell CLI examples fail on 3.0
 	- ID: 2026100717500005
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 5
@@ -10394,11 +10706,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-readme `ddp6d` (shell blocks), `ddp6e` (PowerShell blocks), and `ddp6f` (the `--set` prose).
 	- Acceptance signoff: Self-closed. The blocks follow value-syntax.md, and the tests fail before and pass after. The one prose change is the example.
 	- Closed: 20261008-153500
+	- Closed reason: Done
 
 - The README's `migrate` paragraph lists 2.x rewrites that 3.0 no longer makes
 	- ID: 2026100717500008
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 8
@@ -10415,11 +10728,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-readme `ddp6g` (runs the paragraph's comma value and backslash value through `migrate`).
 	- Acceptance signoff: Self-closed. The text follows spec.md and the man page, and the test fails before and passes after. The backslash sentence is new README wording.
 	- Closed: 20261008-153500
+	- Closed reason: Done
 
 - The ops-script note prints when stdin is piped
 	- ID: 2026100717500018
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Low
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 18
@@ -10441,11 +10755,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `ddp1k` (no note with stdin from /dev/null or a pipe) and `ddp1m` (the note at a terminal, through a pseudo-terminal; skipped on Windows or without python3). `dd52a` pinned the note on /dev/null and is commented out.
 	- Acceptance signoff: JC 20261008, OK as long as it doesn't open up churn.
 	- Closed: 20261008-144500
+	- Closed reason: Done
 
 - The write-ops script still decodes `\t`, `\n` and `\\` in a value
 	- ID: 2026100717500002
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 2
@@ -10469,11 +10784,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `ddp12` to `ddp1a` (backslash text, names, raw line break, array, comment, default, both quote kinds, unknown name) and `ddp18` (a raw body's CR before a line break), plus the corpus write ops above. `ddhev` and `dcrth` pinned the old decode and are commented out, replaced by `ddp12` and `ddp18`.
 	- Acceptance signoff: Self-closed. It follows the answer on the item, and the tests fail before and pass after. The help, man page, and README wording is new.
 	- Closed: 20261008-123238
+	- Closed reason: Done
 
 - `set` without `--write` prints a result that drops a line, where `--write` refuses to
 	- ID: 2026100717500003
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 3
@@ -10499,11 +10815,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `ddp0q` (the review's repro), `ddp0r`, `ddp0s`, `ddp0v`, `ddp0w`, `ddp0x` (`set` printing), `ddp0y`, `ddp0z`, `ddp10` (`migrate` printing and `--check --lossy`), plus guards `ddp0t` (kept lines still print at 0) and `ddp11` (`fmt --lossy` without `--write` still 1).
 	- Acceptance signoff: Self-closed 20261008. The tests fail before and pass after in all 4, and the calls follow the item's expected behavior. They're listed above for review.
 	- Closed: 20261008-123947
+	- Closed reason: Done
 
 - `get --array` and `instances` print a line break as `\n`
 	- ID: 2026100717500006
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 6
@@ -10524,11 +10841,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `ddp1b` to `ddp1j`, including a backslash pair printed as text beside a real line break, and a lone CR. `dcx42`, `dd24r`, `dd24s`, `dd24t`, `dd28j`, and `dd28k` pinned the `\n` form and are commented out, replaced by `ddp1b` to `ddp1g`.
 	- Acceptance signoff: Self-closed. The item named the form, and the tests fail before and pass after.
 	- Closed: 20261008-123238
+	- Closed reason: Done
 
 - `validate()` says a document conforms when the schema failed to load
 	- ID: 2026100717500004
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 4
@@ -10554,11 +10872,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: `validate`, `load_and_validate`, and `generate` in Rust, Go, Python, C, and their C++ wrappers. `check --schema` and `init` already refuse in all 4 CLIs and are left as they are. The docs are README, spec.md, design.md, and the changelog. The Rust and Python READMEs, the man page, and `check-veneer.bash` don't show any parse-then-validate on a broken schema.
 	- Note: `veneer_smoke.cpp`'s check that `generate` gives `V097` on a schema containing `bad line` is commented out. It expected generation to run over a schema with a load error (`E014`), which this fix makes `V099`. The `E014` was only there so the schema kept a diagnostic of its own. The new check expects `V099` there, and the `V097` loop now runs on the same schema without that line.
 	- Closed: 20261008-115144
+	- Closed reason: Done
 
 - A merge after an empty field writes a list that a reload joins to it
 	- ID: 2026100520243961
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Critical
 	- Opened: 20261005-202439
 	- Opened by: JC
@@ -10581,11 +10900,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `vsjoin`
 	- Commit: `95727823`
 	- Closed: 20261005-205600
+	- Closed reason: Done
 
 - A canonical save after a merge and a raw set loses kept lines, found by the kept-lines fuzz
 	- ID: 2026100316012486
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Severity: Critical
 	- Opened: 20261003-160124
@@ -10617,11 +10937,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `ddg72` (Rust), `ddg73` (Go), `ddg74` (Python), `ddg75` (C), `a_replaced_leaf_leaves_the_lines_beside_it`; each fails on the old code. Corpus 091. `dderx` at 2,000,000.
 	- Acceptance signoff: 20261004, signed off. Its tests check it, and the hosted run passed.
 	- Closed: 20261004-114043
+	- Closed reason: Done
 
 - `remove` deletes kept lines next to the field it removes, at exit 0
 	- ID: 2026100307163901
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Critical
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 1
@@ -10653,11 +10974,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `ddf8c` (Rust), `ddf8e` (Go), `ddf8g` (Python), `ddf8k` (C); cli-regress `ddesk`; fuzz `dderx`.
 	- Acceptance signoff: 20261004, signed off. Its tests check it, and the full run passed.
 	- Closed: 20261004-110932
+	- Closed reason: Done
 
 - A field line refused for its name that opens a raw block has its body read as fields, and `fmt --write` scrambles the file at exit 0
 	- ID: 2026100307163902
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Critical
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 2
@@ -10691,11 +11013,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus 191 (`ddfb9`) in all 4; fuzz `dderx` (open row taken out) and `dct3h` (its `E014` excuse taken out).
 	- Acceptance signoff: 20261004, signed off. Its tests check it, and the full run passed.
 	- Closed: 20261004-110932
+	- Closed reason: Done
 
 - `check` can take its Schema line from inside a raw block and validate against the wrong schema at exit 0
 	- ID: 2026100307163903
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Severity: Critical
 	- Opened: 20261003-071639
@@ -10724,11 +11047,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: left for signoff: the new `migrate` refusal and no-stamp rule, which go past the item, and the `dderx` trim change.
 	- Acceptance signoff: 20261003, signed off. The `migrate` refusal at 7 was OK'd. The no-stamp rule is the one design.md already had, now checked under both rule sets, and the `dderx` change is a fix to the test, so neither needed a call.
 	- Closed: 20261003-162005
+	- Closed reason: Done
 
 - No '\' escapes
 	- ID: 2026100207032800
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Critical
 	- Needs local test suite run?: Y
 	- Needs external testing: Y
@@ -11026,11 +11350,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed. Every rule the design doc settles is built in all 4 bindings, and the full gate and hosted run pass.
 	- Superseded by ID:
 	- Closed: 20261007-130000
+	- Closed reason: Done
 
 - Gate fixtures and a generator still in the old value syntax
 	- ID: 2026100711350582
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Opened: 20261007-113505
 	- Opened by: the full `--ci` on valsyn at `c4c6273c` and hosted run 37659235658
@@ -11059,11 +11384,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `vsgate`
 	- Commit: `ad9c8510`
 	- Closed: 20261007-114200
+	- Closed reason: Done
 
 - A remove next to a settled kept line gives one answer on the document and another on its reload
 	- ID: 2026100506223902
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. The 2,000,000 release fuzz runs the 200,000 debug run's inputs and more, and passed on dev and on `valsyn`.
 	- Severity: High
 	- Opened: 20261005-062239
@@ -11087,11 +11413,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `002b821f`
 	- Acceptance signoff: Self-closed. The fuzz failed before and passes after on `valsyn`, and the table settles which side keeps the line.
 	- Closed: 20261005-071935
+	- Closed reason: Done
 
 - Started with `pwsh -File`, the PowerShell wrapper splits an argument at its first colon, and the answer is wrong at exit 0
 	- ID: 2026100307163905
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Needs external testing: the hosted windows job. Its win-runners row `ddg6q` runs both scripts under 5.1 and 7, and the `.cmd` launcher.
 	- Opened: 20261003-071639
@@ -11124,11 +11451,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `ddg6m` (`shcl.ps1` by `-File` and as pwsh's first word, and the steps above on the real binary) and `ddg6j` (the bash launcher); win-runners `ddg6q`.
 	- Acceptance signoff: 20261004, signed off. Its tests check it, and the hosted run passed.
 	- Closed: 20261004-114043
+	- Closed reason: Done
 
 - `banner on` and `banner off` delete the file's own `##` comments written against the info block
 	- ID: 2026100307163904
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Severity: High
 	- Opened: 20261003-071639
@@ -11155,11 +11483,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `190-banner-own-comments` (`ddf5q`). cli-regress `ddf5r` and `ddf5s` run `banner off` and `banner on` on the review's file. `ddf5t` and `ddf5v` run `migrate --from-2x --write` then `banner on`, without and with the migrated note.
 	- Acceptance signoff: 20261003, signed off.
 	- Closed: 20261003-162005
+	- Closed reason: Done
 
 - The banner's Syntax link names a tag the cut may not create
 	- ID: 2026100115323211
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Opened: 20261001-153232
 	- Opened by: gitsby feedback
@@ -11181,11 +11510,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `check-push-gate` `ddccv`, `ddccw`, `ddccx`, `ddccy`, `ddcd2`, `ddccz`, `ddcd0`, `ddcd1`.
 	- Acceptance signoff: Self-closed. It does what the decision asked, and its tests were seen to fail with the check removed.
 	- Closed: 20261001-155818
+	- Closed reason: Done
 
 - A Schema line makes `check` open any path, devices and network shares included
 	- ID: 2026092813365302
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 2
@@ -11209,11 +11539,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `schema-line-device` (`dd83m`) and `schema-line-fifo` (`dd83n`), both failing on dev, and `schema-line-share` (`dd83s`), which runs on Windows only, in the hosted windows job with all 4.
 	- Acceptance signoff: signed off 20260930.
 	- Closed: 20260930-143350
+	- Closed reason: Done
 
 - `fmt` indents a Schema line, and `check` then stops validating at exit 0
 	- ID: 2026092813365301
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 1
@@ -11235,11 +11566,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus 182 (`dd83j`), cli-regress `schema-line-indented` (`dd83k`) and `migrate-indented-stamp-noop` (`dd83r`). Each fails on dev.
 	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
+	- Closed reason: Done
 
 - A line-keeping save deletes lines the load dropped, at exit 0
 	- ID: 2026092620255201
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 1
@@ -11265,11 +11597,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `set-write-keeps-dropped-element` (`dd6wm`) and `set-write-keeps-dropped-between`. The Rust fuzz `keeping_lines_reloads_as_the_document` (`dd3t9`) and the shared fixture `edits_and_merges_match_a_reload` (`dd16k`, `dd16n`, `dc474`) in Go, Python and C now check the reload loses as many lines as the source. Each fails on the old code.
 	- Acceptance signoff: signed off 20260928.
 	- Closed: 20260928-100140
+	- Closed reason: Done
 
 - `clear-comments` deletes a misplaced line kept as written
 	- ID: 2026092620255202
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: High
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 2
@@ -11293,11 +11626,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `178-clear-comments-kept-line` (`dd6ww`), both routes, with `comments` reads. It fails on the old code.
 	- Acceptance signoff: signed off 20260928.
 	- Closed: 20260928-100140
+	- Closed reason: Done
 
 - A CICD test that makes old shcl files and checks the automatic conversion
 	- ID: 2026100313461650
 	- Type: Task
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261003-134616
 	- Opened by: JC
@@ -11318,11 +11652,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `upgtest`
 	- Commit: `2fd2b410`
 	- Closed: 20261007-142313
+	- Closed reason: Done
 
 - Back up and rewrite a config file when a program's shcl upgrade breaks it
 	- ID: 2026100313461649
 	- Type: Feature
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261003-134616
 	- Opened by: JC
@@ -11386,11 +11721,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `60d0196c`, `019400ad`
 	- Acceptance signoff: Self-closed. It's built in all 4 bindings and the C++ interface, the from-2x question is settled, and the full gate and hosted run pass.
 	- Closed: 20261007-134500
+	- Closed reason: Done
 
 - Selectors use `()`, and `[]` is for arrays only
 	- ID: 2026100610073400
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261006-100734
 	- Opened by: JC
@@ -11463,11 +11799,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: 20261007, on valsyn `aec9959b` with all 4 bindings: the full `--ci` (1989 ok, 0 FAIL, tree recorded), the 2,000,000 release fuzz (all 25 pass) and hosted run 37668959888 (ci, windows, macos and go-floor all green).
 	- Acceptance signoff: Self-closed. It's built in all 4 bindings with the docs, and the full gate and hosted run pass.
 	- Closed: 20261007-130000
+	- Closed reason: Done
 
 - A fuzz property and a save-gate check for kept lines, so edits stop losing them one site at a time
 	- ID: 2026100307310000
 	- Type: Task
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Opened: 20261003-073100
 	- Opened by: Code review 20261003, OK'd 2026-10-03
@@ -11492,11 +11829,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `dderx` (`kept_lines_survive_edits`, fuzz_smoke.rs); per binding `kept_gate` tests `dders`, `ddes3`, `ddert` (Rust), `ddes4`, `ddes5`, `ddes6` (Go), `ddes7`, `ddes8`, `ddes9` (Python), `ddesc`, `ddesd`, `ddese`, `ddesm` (C); the merge's 2 exceptions `ddez2`, `ddez3` (Rust), `ddez4`, `ddez5` (Go), `ddez6`, `ddez7` (Python), `ddez8`, `ddez9` (C); cli-regress `ddesk`; crosscheck `ddesf`.
 	- Acceptance signoff: 20261004, signed off. Its tests cover it and the full run passed.
 	- Closed: 20261004-110932
+	- Closed reason: Done
 
 - The comparison tool writes its SHCL documents in the old value syntax
 	- ID: 2026100711403568
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261007-114035
 	- Opened by: found while working 2026100711350582
@@ -11523,11 +11861,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `cmpsyn`
 	- Commit: `42e6e85f`
 	- Closed: 20261007-132734
+	- Closed reason: Done
 
 - The pending full gate and the hosted run on dev were red on 2 test fixtures
 	- ID: 2026100514300000
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261005-143000
 	- Opened by: the pending full `--ci` and hosted run 37308154902, on dev at `7517627e`
@@ -11543,11 +11882,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-c-compilers `dc25g` and `dc112`; cli-regress `ddgj0` on the hosted windows job.
 	- Acceptance signoff: Self-closed. Its test passes.
 	- Closed: 20261005-143000
+	- Closed reason: Done
 
 - Removing the only line under a lazily opened field leaves a bare `name:`, and the field later reads as Multiple
 	- ID: 2026100307163907
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 7
@@ -11592,11 +11932,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `ddf8d` (Rust), `ddf8f` (Go), `ddf8h` (Python), `ddf8m` (C); cli-regress `ddf8j`; corpus 187; fuzz `dderx`. Setter: `ddgg6` and `ddgg7` (Rust), `ddgg8` and `ddgg9` (Go), `ddgga` and `ddggb` (Python), `ddggc` and `ddggd` (C); cli-regress `ddgge`. Create case: `ddgq1` (Rust), `ddgq2` (Go), `ddgq3` (Python), `ddgq4` (C); cli-regress `ddgq5`.
 	- Acceptance signoff: Self-closed 20261004. It's built as answered, and its tests and the fuzz runs pass.
 	- Closed: 20261004-190620
+	- Closed reason: Done
 
 - The dogfood runner drops quotes and empty arguments under Windows PowerShell 5.1
 	- ID: 2026100307163908
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Needs external testing: 5.1 on Windows, through the hosted windows job's win-runners row `ddg6q`.
 	- Opened: 20261003-071639
@@ -11622,11 +11963,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `ddg6k` (Legacy mode of 7, the values of `dd85s` plus the one above); win-runners `ddg6q` under 5.1.
 	- Acceptance signoff: 20261004, signed off. Its tests cover it and the hosted run passed.
 	- Closed: 20261004-114043
+	- Closed reason: Done
 
 - `migrate` exits 0 on a file whose raw block never closes, and leaves it unstamped
 	- ID: 2026100316275800
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261003-162758
 	- Opened by: signoff talk on 2026100307163903
@@ -11653,11 +11995,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `ddg87` (`--check`) and `ddg88` (`--write`, file unchanged), all 4 CLIs. Both fail on the old code and pass on the new. check-migrate `dcqf3` over the corpus and fuzz dump, and `ddg9d` on corpus 096.
 	- Acceptance signoff: 20261004, signed off. Its tests cover it and the full run passed.
 	- Closed: 20261004-110932
+	- Closed reason: Done
 
 - `migrate --check` exits 6 and `--write` keeps a needless copy when a CRLF file has no final newline
 	- ID: 2026100307163906
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 6
@@ -11681,11 +12024,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `ddg89` to `ddg8d`: `--check` and `--write` on a CRLF file with no final newline, the same on an LF file whose last line ends in a lone CR, and `--check` on a CRLF file whose last line does. `ddg89`, `ddg8a` and `ddg8d` fail on the old code and pass on the new. The 2 LF rows pass on both.
 	- Acceptance signoff: Self-closed. It's reproduced, its tests fail before the fix and pass after, and the sweep is done.
 	- Closed: 20261004-100737
+	- Closed reason: Done
 
 - check-migrate leaves out the lines a broken migrate writes as E024, so it passes over a lost value
 	- ID: 2026100307163909
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 9
@@ -11708,11 +12052,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `check-migrate` `dcqf3` and `ddg90`, and `ddcfc` still checks 170.
 	- Acceptance signoff: Self-closed. It's reproduced, and the gate was seen to fail on both injected defects after the fix and pass on the real `migrate`.
 	- Closed: 20261004-100557
+	- Closed reason: Done
 
 - check-banner-tag passes when it can't read the banner's Syntax line
 	- ID: 2026100307163910
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 10
@@ -11735,11 +12080,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `check-push-gate` `ddg81`, `ddg82`, `ddg83`.
 	- Acceptance signoff: Self-closed. It's reproduced, and its test failed before the fix and passes after.
 	- Closed: 20261004-100557
+	- Closed reason: Done
 
 - The hosted windows job's dogfood row still runs `shcl version`
 	- ID: 2026093009281083
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20260930-092810
 	- Opened by: the Windows batch for review 20260928
@@ -11757,11 +12103,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `dd71z` (`win-runners` dogfood runner), red on dev in the hosted windows job.
 	- Acceptance signoff: Self-closed. The change is mechanical, and the row passes the flag the CLIs now take.
 	- Closed: 20260930-101555
+	- Closed reason: Done
 
 - Under Windows PowerShell 5.1 the binary never gets a quote inside an argument
 	- ID: 2026092813365304
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 4
@@ -11782,11 +12129,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `20260928-item4-ps1-legacy-quotes` (retired with the `shcl.ps1` wrapper, its values are now `ddg6k`), which fails on dev. No hosted test runs it under 5.1 itself. That run is the Verified line above.
 	- Acceptance signoff: Self-closed. The binary gets the arguments as typed under real 5.1, as the header says, and the test fails on the old code.
 	- Closed: 20260930-093300
+	- Closed reason: Done
 
 - The H005 check slows every parse, most in Python and on escaped values in C
 	- ID: 2026092813365305
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 5
@@ -11808,11 +12156,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none for the time being. perf-gate's ratio catches worse than linear growth rather than a constant factor like this. H005 itself stays pinned by corpus 176 and cli-regress `unit-hint`.
 	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
+	- Closed reason: Done
 
 - The `_old_v2` copy takes the directory's group, so a private config gets a backup that group can read
 	- ID: 2026092813365303
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 3
@@ -11834,11 +12183,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress save case `migrate-setgid` (`dd84g`), which fails on dev in all 4.
 	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
+	- Closed reason: Done
 
 - C `shcl_compact` hits the out-of-memory hook on a document with a kept misplaced line
 	- ID: 2026092620255203
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 3
@@ -11855,11 +12205,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `oom_recover.c` (`dc114`) runs a compaction of a document with a kept line under every allocation budget and checks the canonical text is unchanged. It hit the hook on the old code.
 	- Acceptance signoff: signed off 20260928.
 	- Closed: 20260928-100140
+	- Closed reason: Done
 
 - An unknown escape in double quotes loads silently, with the known escapes around it decoded
 	- ID: 2026092616330237
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20260926-163302
 	- Opened by: gitsby feedback, side note
@@ -11887,11 +12238,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `170-unknown-escape` (`dd5dp`), cli-regress `escape-unknown-*` and `escape-doubled-path` (`dd5dr`) rows, check-abnf `field-line` samples. Each fails on the old code.
 	- Acceptance signoff: 20260926
 	- Closed: 20260926-171332
+	- Closed reason: Done
 
 - A bad escape on a line that opens a block drops the whole block
 	- ID: 2026100115403384
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Severity: Avg
 	- Opened: 20261001-154033
@@ -11920,11 +12272,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `187-value-fault-opens-block` (`ddcdm`); cli-regress `sugar-check-block` (`ddceb`), `sugar-block-read` (`ddcec`), `sugar-write-kept` (`ddced`), `path-escape-block` (`ddcee`).
 	- Acceptance signoff: signed off 20261003.
 	- Closed: 20261003-080056
+	- Closed reason: Done
 
 - A kept line under a kept value-only line is saved at column 0
 	- ID: 2026100213205957
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Avg
 	- Opened: 20261002-132059
 	- Opened by: found while discussing 2026100115403384
@@ -11956,11 +12309,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: fuzz `dddp5` (`kept_lines_keep_their_path`); corpus `188-kept-line-keeps-parent`; cli-regress `kept-under-kept-fmt`, `kept-before-dotted-fmt`, `set-write-keeps-dropped-gap`, `set-write-gap-fallback-refused`.
 	- Acceptance signoff: 20261003, closed without a hand check. The fuzz property, corpus 188, and the cli-regress rows check what a hand test would, and the open question on the item went to 2026100218185700.
 	- Closed: 20261003-113243
+	- Closed reason: Done
 
 - Make sure the demo GIF is still accurate and current
 	- ID: 2026100306315606
 	- Type: Task
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261003-063156
 	- Opened by: JC
@@ -11982,11 +12336,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `vsgate`
 	- Commit: `493552b9`
 	- Closed: 20261007-114200
+	- Closed reason: Done
 
 - A macOS universal binary for amd64 and ARM
 	- ID: 2026100313461652
 	- Type: Feature
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. The stage 6 command was run as stage 6 runs it, and the gates it touches pass.
 	- Needs external testing: b26 is done (20261006). The x86_64 half passed the corpus, cli-regress, and an `install.bash` run, with details in the progress log. Hosted, 20261006: run 37548387357 died in crosscheck on the runner's `/bin/bash` 3.2, which was fixed by installing Homebrew bash in the job. Run 37550690633 on `macb26`: the build, the Rust tests, and crosscheck pass on arm64, and cli-regress fails only `man-width` (2026100617010925). The job still needs a run once that bug is fixed. Run 37637035207 on dev `9300b1be`, 20261007: the macos job passed, `man-width` included.
 	- Priority: Avg
@@ -12024,11 +12379,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Hosted: the `macos` job, run 37637035207.
 	- Acceptance signoff: 20261007, the b26 run and the hosted macos job both passed, with the gates in Verified.
 	- Closed: 20261007-075500
+	- Closed reason: Done
 
 - Run the Linux ARM64 release binary on real ARM64 hardware
 	- ID: 2026100413052100
 	- Type: Task
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261004-130521
 	- Opened by: JC
@@ -12063,11 +12419,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus goldens, cli-regress and crosscheck against the arm64 binary. The Go, Python and C conformance suites run natively. It was a one-off run on a test host, so there's no new CI test.
 	- Acceptance signoff: Self-closed. It's a test task, and every run passed.
 	- Closed: 20261006-132324
+	- Closed reason: Done
 
 - Group a release's downloads in a table, with the CPU architecture in columns and the target OS in rows
 	- ID: 2026100411093274
 	- Type: Feature
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261004-110932
 	- Opened by: JC
@@ -12093,11 +12450,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `ddj7s` (fixture names to the expected table) and `ddj7t` (upload names, and the refusals).
 	- Acceptance signoff: Self-closed. The change does what the item asked, and its tests pass.
 	- Closed: 20261005-193533
+	- Closed reason: Done
 
 - Prebuilt FreeBSD binaries
 	- ID: 2026100413191500
 	- Type: Feature
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261004-131915
 	- Opened by: JC
@@ -12116,11 +12474,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `ddgev` (FreeBSD plan line and the arm64 refusal), `ddgew` (a release with no binary for the platform is named and nothing is fetched), and `dd51j` (the FreeBSD floor). Each failed with its fix taken out.
 	- Acceptance signoff: Self-closed. Its test passes.
 	- Closed: 20261004-131915
+	- Closed reason: Done
 
 - Read the lock script and add b26
 	- ID: 2026100314005369
 	- Type: Task
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261003-140053
 	- Opened by: JC
@@ -12133,11 +12492,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none in this repo. The script and its notes are in the synced util dir.
 	- Acceptance signoff: Self-closed. It was done elsewhere.
 	- Closed: 20261004-095708
+	- Closed reason: Done
 
 - The C++ interface is a full binding of its own, with the C interface kept out of sight
 	- ID: 2026092617331100
 	- Type: Done
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20260926-173311
 	- Opened by: JC
@@ -12155,11 +12515,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `veneer_smoke.cpp` tests the new API. `check-veneer.bash` fails when the public half names C, when a consumer file can call `shcl_parse`, or when a consumer and the implementation built apart don't link and run. Each was watched to fail. `check-readme.bash` builds the new C++ README example the same way and compares the file it saves.
 	- Acceptance signoff: signed off 20260928.
 	- Closed: 20260928-100140
+	- Closed reason: Done
 
 - Make sure the benchmark comparisons in README.md are current
 	- ID: 2026100219565400
 	- Type: Task
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261002-195654
 	- Opened by: JC
@@ -12175,11 +12536,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-docs `dcwgc` performance-numbers-match-results. It works out the ratios, places, gzip gap and schema sentence from the newest run and fails when a document doesn't match.
 	- Acceptance signoff: Self-closed. Its test passes.
 	- Closed: 20261002-212153
+	- Closed reason: Done
 
 - Every closed backlog item gets a Test line
 	- ID: 2026092620255216
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 idea 1, directives of 20260926
@@ -12194,11 +12556,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `check-docs.bash` `backlog-closed-items-name-a-test` (`dd72g`), which refuses a closed item with no Test line, legacy or new format. It finds 78 on the old backlog.
 	- Acceptance signoff: signed off 20260928.
 	- Closed: 20260928-100140
+	- Closed reason: Done
 
 - `set` says when it wrote the canonical form instead of keeping lines
 	- ID: 2026092620255217
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 idea 2
@@ -12214,11 +12577,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `set-write-says-canonical` (`dd71c`). It fails on the old code.
 	- Acceptance signoff: signed off 20260928.
 	- Closed: 20260928-100140
+	- Closed reason: Done
 
 - `fmt` keeps the quotes on a number with a leading zero
 	- ID: 2026092621211801
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20260926-212118
 	- Opened by: JC
@@ -12236,11 +12600,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `172-leading-zero-quotes` (`dd5pd`). It fails on the old code.
 	- Acceptance signoff: signed off 20260928.
 	- Closed: 20260928-100140
+	- Closed reason: Done
 
 - `0o` and `0b` integer spellings
 	- ID: 2026092621211802
 	- Type: Feature
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20260926-212118
 	- Opened by: JC
@@ -12256,11 +12621,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `173-octal-binary` (`dd5ph`). It fails on the old code.
 	- Acceptance signoff: signed off 20260928.
 	- Closed: 20260928-100140
+	- Closed reason: Done
 
 - Duration read
 	- ID: 2026092621211803
 	- Type: Feature
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20260926-212118
 	- Opened by: JC
@@ -12285,11 +12651,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `176-durations-sizes` (`dd5s7`) and `177-schema-durations-sizes` (`dd5s8`), a `duration` row type in all 4 runners, crosscheck and sanitize-c, cli-regress `duration-*` and `unit-*` rows, veneer smoke checks. Each fails on the old code.
 	- Acceptance signoff: signed off 20260928.
 	- Closed: 20260928-100140
+	- Closed reason: Done
 
 - Byte size read
 	- ID: 2026092621211804
 	- Type: Feature
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20260926-212118
 	- Opened by: JC
@@ -12310,11 +12677,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `176-durations-sizes` (`dd5s7`) and `177-schema-durations-sizes` (`dd5s8`), a `size` row type in all 4 runners, cli-regress `size-*` rows. Each fails on the old code.
 	- Acceptance signoff: signed off 20260928.
 	- Closed: 20260928-100140
+	- Closed reason: Done
 
 - `\u` escapes, with invisible characters escaped on output
 	- ID: 2026092621211805
 	- Type: Feature
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20260926-212118
 	- Opened by: JC
@@ -12338,11 +12706,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20260928: the hosted run found 2 things this change left red. `strings.ContainsFunc` is newer than the Go floor (1.20), and 2 `escape-unicode` rows wrote their text with `\u`, which msys printf leaves as written under the windows runner's locale. The fix uses `strings.IndexFunc` and raw UTF-8 bytes in the rows, on `windev`.
 	- Acceptance signoff: signed off 20260928.
 	- Closed: 20260928-100140
+	- Closed reason: Done
 
 - A schema pointer in the config file
 	- ID: 2026092621211806
 	- Type: Feature
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20260926-212118
 	- Opened by: JC
@@ -12362,11 +12731,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `175-schema-line` (`dd5qr`) with a new `schema` read in all 4 runners, cli-regress `schema-line-*` rows. Each fails on the old code, except the `--schema` override row.
 	- Acceptance signoff: signed off 20260928.
 	- Closed: 20260928-100140
+	- Closed reason: Done
 
 - `migrate --write` keeps the original file beside the migrated one
 	- ID: 2026092709243678
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20260927-092436
 	- Opened by: JC
@@ -12389,11 +12759,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress save cases `migrate` (`dd6dg`), `migrate-taken` (`dd6dh`), `migrate-dotname` (`dd6dk`), `migrate-dotdir` (`dd6dm`) and `migrate-link` (`dd6ef`), and row `migrate-write-keeps` (`dd6ee`), which windows runs too. Each fails on the old code. `migrate-stamp` (`dd6dj`) pins the no-copy case, which didn't change. The `migrate-failed-save` (`dd6eg`) block caps the file size so the save fails after the copy, and fails when the copy is left behind.
 	- Acceptance signoff: Jim Collier, 20260927
 	- Closed: 20260927-110011
+	- Closed reason: Done
 
 - Hint when a double-quoted Windows path has a `\t` or `\n` escape
 	- ID: 2026092617133293
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20260926-171332
 	- Opened by: follow-up to 2026092616330237
@@ -12414,11 +12785,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `171-windows-path-hint` (now `171-windows-path-escape`, `dd5en`), cli-regress `path-hint-*` rows (retired). The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
 	- Acceptance signoff: signed off 20260926.
 	- Closed: 20260926-174804
+	- Closed reason: Done
 
 - A file stamped Format 3 during the beta is never migrated
 	- ID: 2026100115403385
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Note: 20261002, this is an open point in the design for 2026100207032800, which changes much more of format 3. The proposal there is that pre-release files are on their own, per the 2.x low-stakes rule. Design: `project/design_docs/20261002-132445_value-syntax.md`.
 	- Note: 20261002, the proposal was OK'd. What's left is saying so in the docs.
@@ -12441,12 +12813,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: `escnote`
 	- Commit: `8c216fa7`
 	- Closed: 20261007-143147
+	- Closed reason: Done
 	- Note: 20261110, superseded by 2026111018212700, where every published format is read and converted (JC).
 
 - cli-regress fails 3 rows on macOS's own tools
 	- ID: 2026100617010925
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. cli-regress, check-migrate, shell-regress, test-ids and shellcheck pass on Linux.
 	- Needs external testing: a cli-regress run on b26 with stock macOS tools plus a `timeout`. Hosted is done: run 37637035207 on dev `9300b1be`, 20261007, passed all 4 jobs, and the macos job passed all 3 rows, `man-width` through `mandoc`.
 	- Severity: Low
@@ -12478,11 +12851,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: 20261007, cli-regress on b26 (macOS 15.8.1, Intel) as `mactest`, under Homebrew bash 5.2 with only `/usr/bin` and `/bin` tools and a perl stand-in for `timeout`, against the stage 6 universal binary from dev `9300b1be`. There were 372 rows ok, all 3 included, and 14 skipped for no `/dev/full`, `/proc` or strace and the Windows rows.
 	- Acceptance signoff: Self-closed. The 3 rows pass on real BSD tools and in the hosted macos job.
 	- Closed: 20261007-102000
+	- Closed reason: Done
 
 - A merge can leave a list with a field under it after an empty binding of its name that has fields, which no text reloads as
 	- ID: 2026100511210900
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261005-112109
 	- Opened by: the work on 2026100207032800
@@ -12501,11 +12875,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: conformance `ddj1h`; cli-regress `ddj1f` and `ddj1g`.
 	- Acceptance signoff: Self-closed. It does what the 20261005 decision asked, and its tests fail before and pass after.
 	- Closed: 20261005-164930
+	- Closed reason: Done
 
 - The macOS cross build warns twice that xcrun found no Apple SDK
 	- ID: 2026100708240546
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261007-082405
 	- Opened by: the full cicd run 20261007-054904
@@ -12528,11 +12903,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `ddmcy`. It fails on the old config and passes on the new one.
 	- Acceptance signoff: Self-closed. The warning is gone, the binary is byte for byte the same, and the test failed before and passes after.
 	- Closed: 20261007-083039
+	- Closed reason: Done
 
 - The C CLI doesn't build at `-O3` with gcc 14 or 15
 	- ID: 2026100516162200
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261005-161622
 	- Opened by: found while working 2026100511212359
@@ -12549,11 +12925,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-c-compilers `dc0dc`.
 	- Acceptance signoff: Self-closed. The build fix does what the item asked, and its gate failed before and passes after.
 	- Closed: 20261005-171000
+	- Closed reason: Done
 
 - A quoted value with an invalid UTF-8 byte can lose its closing quote and fail as `E017`
 	- ID: 2026100511212359
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261005-112123
 	- Opened by: convert-base-v2 feedback
@@ -12576,11 +12953,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: Go `ddj0v` (`TestABadUTF8ByteKeepsItsClosingQuote`), C `ddj0w` (`a_bad_utf8_byte_keeps_its_closing_quote`).
 	- Acceptance signoff: Self-closed. It's reproduced, and the test failed before the fix and passes after.
 	- Closed: 20261005-161622
+	- Closed reason: Done
 
 - Called from a session, an unquoted `-x:y` argument loses its `-x:` on the way through either PowerShell script
 	- ID: 2026100408550401
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Needs external testing: Ran. Hosted run 37317758758 on `68f40e78` passed, with `ddg6q` ok on the windows job under 5.1 and 7.
 	- Severity: Low
 	- Opened: 20261004-085504
@@ -12607,11 +12985,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `ddgt6` (`shcl.ps1` dot-sourced, a typed helper, `& shcl.ps1`, a user's wrapper, piped input, a statement over 2 lines, the fallback, and Legacy mode) and `ddgt5` (`dogfood_shcl.ps1` called with `&`); win-runners `ddg6q` under 5.1 and 7.
 	- Acceptance signoff: Self-closed. Its test passes.
 	- Closed: 20261005-151500
+	- Closed reason: Done
 
 - A crosscheck run aborted the Python CLI with exit 134 under load
 	- ID: 2026100313174976
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261003-131749
 	- Opened by: found while working 2026100307310000
@@ -12640,11 +13019,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Acceptance signoff: self-closed. The crash is in the interpreter on a faulting host. The crosscheck change only adds reporting.
 	- Closed: 20261004-193939
+	- Closed reason: Done
 
 - The library `save_file` doc comments still say the save refuses over what the load dropped
 	- ID: 2026100414480001
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261004-144800
 	- Opened by: 2026100313174973's sweep
@@ -12660,11 +13040,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none, comments only.
 	- Acceptance signoff: Self-closed. The change is mechanical.
 	- Closed: 20261004-172341
+	- Closed reason: Done
 
 - The zsh completion still says `set` prints the canonical form
 	- ID: 2026100307163915
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 15
@@ -12683,11 +13064,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-completions `ddgfw`.
 	- Acceptance signoff: 20261004, OK'd.
 	- Closed: 20261004-162000
+	- Closed reason: Done
 
 - The man page says the wrappers are installed beside `shcl`, and no install puts them there
 	- ID: 2026100307163916
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 16
@@ -12706,11 +13088,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none now. shell-regress `ddggr` and `ddggs` were retired with the wrappers.
 	- Acceptance signoff: 20261004, OK'd.
 	- Closed: 20261004-162000
+	- Closed reason: Done
 
 - The E019, E023, and E024 text says a read on the field is NotFound, but it's Empty when lines load under it
 	- ID: 2026100307163914
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 14
@@ -12732,11 +13115,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `ddghs`, `ddght`, `ddgj5` (`get` exits 2 for `E019`, `E023` and `E024` with a line under), `ddghr`, `ddghv`, `ddgj4` (`explain` text for the 3).
 	- Acceptance signoff: 20261004, OK'd.
 	- Closed: 20261004-162000
+	- Closed reason: Done
 
 - README, the man page, and the UI guide say a save refuses only over lines the load dropped
 	- ID: 2026100313174975
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261003-131749
 	- Opened by: the review of 2026100307310000, round 1
@@ -12753,11 +13137,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none, wording only. The behavior is `ddesk` and the per-binding `kept_gate` tests.
 	- Acceptance signoff: 20261004, OK'd.
 	- Closed: 20261004-162000
+	- Closed reason: Done
 
 - `Remove` of the last key under a repeated header leaves the header and takes the blank line
 	- ID: 2026100115323232
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261001-153232
 	- Opened by: gitsby feedback
@@ -12779,11 +13164,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `ddghy` (`remove-emptied-repeat-header`), `ddghz` (`set-keeps-blank-above-repeat`).
 	- Acceptance signoff: 20261004, OK'd.
 	- Closed: 20261004-162000
+	- Closed reason: Done
 
 - New lines from a keep-lines save copy an odd block's indent step
 	- ID: 2026100115403386
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261001-154033
 	- Opened by: silkterm feedback
@@ -12806,11 +13192,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `ddgj0` (`set-new-block-majority-step`), `ddgj1` (`set-new-block-space-step`).
 	- Acceptance signoff: 20261004, OK'd.
 	- Closed: 20261004-162000
+	- Closed reason: Done
 
 - `set` on a file ending in a kept line writes the new key above it
 	- ID: 2026100117214802
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Note: 20261002, under 2026100207032800 this repro has no kept line. Any other kept line, such as `a: My App`, does the same thing, so the bug stays.
 	- Opened: 20261001-172148
@@ -12832,11 +13219,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `ddghw` (`set-new-key-after-kept-end`), `ddghx` (`set-new-key-after-kept-in-block`); corpus `065-bracket-array`.
 	- Acceptance signoff: 20261004, OK'd.
 	- Closed: 20261004-162000
+	- Closed reason: Done
 
 - A comment between nested kept lines is written at column 0
 	- ID: 2026100218185700
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261002-181857
 	- Opened by: question on 2026100213205957
@@ -12862,11 +13250,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `ddgj2` (`comment-under-kept-fmt`), `ddgj3` (`comment-under-kept-in-block-fmt`); the fuzz fixpoint and `edits_and_merges_match_a_reload` properties.
 	- Acceptance signoff: 20261004, OK'd.
 	- Closed: 20261004-162000
+	- Closed reason: Done
 
 - The C header's comment on the save result still says the save refuses only over what the load dropped
 	- ID: 2026100313174973
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261003-131749
 	- Opened by: the review of 2026100307310000, round 1 (F7)
@@ -12882,11 +13271,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none, a comment only.
 	- Acceptance signoff: Self-closed. The change is mechanical.
 	- Closed: 20261004-144800
+	- Closed reason: Done
 
 - design.md's kept-line table puts the merge's replaced-leaf exception in the wrong column
 	- ID: 2026100313174974
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261003-131749
 	- Opened by: the review of 2026100307310000, round 1 (F8)
@@ -12901,11 +13291,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none for the table itself. The behavior it states is `ddez2` to `ddez9`, one pair per binding.
 	- Acceptance signoff: Self-closed. The change is mechanical, and it matches the bullet under the table and `ddez2`.
 	- Closed: 20261004-144800
+	- Closed reason: Done
 
 - A FIFO swapped in at the Schema path between the type check and the open hangs `check`
 	- ID: 2026100307163911
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 11
@@ -12930,11 +13321,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `ddggf` (`schema-line-fifo-swap`). It needs strace, which the hosted job installs. It's POSIX only.
 	- Acceptance signoff: Self-closed. It's reproduced, its test failed before the fix and passes after, and the sweep is done.
 	- Closed: 20261004-141028
+	- Closed reason: Done
 
 - The C CLI exits 6 where the other 3 exit 8 when a strict layer fails before a missing one
 	- ID: 2026100307163913
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 13
@@ -12955,11 +13347,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `ddgfx` (`paths`) and `ddgfy` (`set`), a strict failure in the first layer and a missing second one.
 	- Acceptance signoff: Self-closed. It's reproduced, and its test failed before the fix and passes after.
 	- Closed: 20261004-134958
+	- Closed reason: Done
 
 - A bad escape in the name of a line that opens a raw block leaves the body to be read as lines
 	- ID: 2026100117214801
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Note: 20261002, under 2026100207032800 a backslash is text, so this repro no longer fails. A bad `◉` escape in the name, such as `"a◉X◉":`, does the same thing, so the bug stays.
 	- Opened: 20261001-172148
@@ -12983,11 +13376,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus 191 (`ddfb9`), its line 9, in all 4.
 	- Acceptance signoff: 20261004, signed off. Its tests cover it and the full run passed.
 	- Closed: 20261004-110932
+	- Closed reason: Done
 
 - crosscheck's line-ending replay skips without a word when the dump has no `eol/` folder
 	- ID: 2026100307163912
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 12
@@ -13010,11 +13404,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `shell-regress` `ddg86`.
 	- Acceptance signoff: Self-closed. It's reproduced, and its test failed before the fix and passes after.
 	- Closed: 20261004-100557
+	- Closed reason: Done
 
 - `migrate` counts lost values, not lines, in its refusal
 	- ID: 2026100410055748
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261004-100557
 	- Opened by: found while fixing 2026100307163909
@@ -13039,11 +13434,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `ddg9e` (replaced by `ddhet`), all 4 CLIs. It fails on the old code and passes on the new.
 	- Acceptance signoff: Self-closed. It's reproduced, its test fails before the fix and passes after, and the sweep is done.
 	- Closed: 20261004-104626
+	- Closed reason: Done
 
 - On Windows the Python save may write CRLF line endings
 	- ID: 2026093012535909
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260930-125359
 	- Opened by: the design for 2026093009281183
@@ -13065,11 +13461,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `save_writes_lf_bytes` (Python, ddaxv), a byte check of a create and an overwrite, in the hosted windows job.
 	- Acceptance signoff: Self-closed. Its test passes.
 	- Closed: 20260930-161101
+	- Closed reason: Done
 
 - A Schema line naming `/proc/self/pagemap` makes `check` read until memory runs out
 	- ID: 2026093019075903
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260930-190759
 	- Opened by: Code review 20260930 item 3
@@ -13101,11 +13498,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `schema-line-pagemap` (`ddc52`) and `schema-line-over-cap` (`ddc54`), both failing on dev, and `schema-line-at-cap` (`ddc53`).
 	- Acceptance signoff: 20261001
 	- Closed: 20261001-142038
+	- Closed reason: Done
 
 - A keep save gives a raw block turned scalar the file's line ending rather than its own
 	- ID: 2026093019075901
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260930-190759
 	- Opened by: Code review 20260930 item 1
@@ -13129,11 +13527,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `ddc5p` (`set-write-eol-raw-to-scalar`).
 	- Acceptance signoff: Self-closed. It's reproduced, and its test failed before the fix and passes after in all 4.
 	- Closed: 20261001-121827
+	- Closed reason: Done
 
 - A keep save can leave a lone CR at the end of a file with no final newline
 	- ID: 2026093019075902
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260930-190759
 	- Opened by: Code review 20260930 item 2
@@ -13157,11 +13556,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `ddc5q` (`set-write-eol-no-final-crlf`) and `ddc5r` (`set-write-eol-no-final-lf`).
 	- Acceptance signoff: Self-closed. It's reproduced, and its tests failed before the fix and pass after in all 4.
 	- Closed: 20261001-121827
+	- Closed reason: Done
 
 - On Windows the library save's temp file takes the directory's ACL
 	- ID: 2026093009281183
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Hosted windows job, 20260930: Rust, Go and Python fail on the tests-only commit `0671c515` and pass on the tip. C doesn't build on either. The new C test's `snprintf` into `cmd` trips `-Werror=format-truncation` under the runner's gcc 15 (`conformance.c:575`), so the windows job is red on dev and the C fix is unproven there.
 	- Severity: Low
 	- Opened: 20260930-092811
@@ -13186,11 +13586,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `temp_file_takes_the_targets_dacl` (Rust, ddate), `TestTempFileTakesTargetsDACL` (Go, ddatf), `temp_takes_the_targets_dacl` (C, ddatg; Python, ddath), in the hosted windows job. They skip under wine, which doesn't keep ACLs.
 	- Acceptance signoff: 20260930
 	- Closed: 20260930-164249
+	- Closed reason: Done
 
 - Clippy for the Windows target fails on the Rust conformance tests
 	- ID: 2026093013402836
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260930-134028
 	- Opened by: the review of 2026093009281183
@@ -13213,11 +13614,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none, a lint step: the Windows-target clippy line in the lint stage, `LINT_EXTRA` in `cicd/config.bash`.
 	- Acceptance signoff: Self-closed. The change is a scoped lint allow with the reason, and the new lint line fails without it.
 	- Closed: 20260930-161101
+	- Closed reason: Done
 
 - Under Windows PowerShell 5.1, `install.ps1` may follow an https to http redirect for the release list
 	- ID: 2026092813365314
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 14
@@ -13236,11 +13638,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none hosted. The list URL comes from the repo name, so a redirect needs an edited copy of the installer. The Verified line above is that run.
 	- Acceptance signoff: signed off 20260930.
 	- Closed: 20260930-143350
+	- Closed reason: Done
 
 - On Windows, the `_old_v2` copy may take the directory's ACL rather than the original's
 	- ID: 2026092815155546
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260928-151555
 	- Opened by: split from 2026092813365303
@@ -13262,11 +13665,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `windows-migrate-acl` (`ddaj0`), in the hosted windows job. It failed on dev in all 4 and passes with the fix.
 	- Acceptance signoff: signed off 20260930.
 	- Closed: 20260930-143350
+	- Closed reason: Done
 
 - The hosted ci job runs close to its 45-minute timeout
 	- ID: 2026093010155541
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260930-101555
 	- Opened by: hosted run `36744540495` on `dogfoodver`
@@ -13282,11 +13686,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none fits. A timeout margin shows only on a slow hosted run.
 	- Acceptance signoff: Self-closed. It was asked for directly, and the change is one number.
 	- Closed: 20260930-115848
+	- Closed reason: Done
 
 - On Windows, the `_old_v2` name for `C:.shclrc` puts the suffix in the wrong place
 	- ID: 2026092813365313
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 13
@@ -13307,11 +13712,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `windows-migrate-drive-relative` (`ddaj4`), which names the file by the fixture's own drive and runs in the hosted windows job with all 4.
 	- Acceptance signoff: Self-closed. It's reproduced before the fix, passes after in all 4, and the fix is mechanical.
 	- Closed: 20260930-083333
+	- Closed reason: Done
 
 - On Windows, Python's `_old_v2` copy of a read-only file comes out read-only
 	- ID: 2026092813365312
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 12
@@ -13329,11 +13735,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `windows-migrate-readonly` (`ddaj3`), which the hosted windows job runs with Python 3.13.
 	- Acceptance signoff: Self-closed. It's reproduced before the fix and passes after, and the fix is mechanical.
 	- Closed: 20260930-083333
+	- Closed reason: Done
 
 - The C CLI cuts a Schema path at a NUL and validates against another file
 	- ID: 2026092813365307
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 7
@@ -13350,11 +13757,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `schema-line-nul` (`dd83p`). C exits 6 on dev.
 	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
+	- Closed reason: Done
 
 - `check` without `--schema` got about 3 times slower on large escaped files in C
 	- ID: 2026092813365308
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 8
@@ -13372,11 +13780,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus 182 (`dd83j`) has a quoted fence run that opens nothing and a value fence that opens a block. The time has no gate, as in item 5.
 	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
+	- Closed reason: Done
 
 - The Schema line's directory is split at a backslash on Linux and macOS
 	- ID: 2026092813365310
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 10
@@ -13393,11 +13802,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `schema-line-backslash-name` (`dd83q`), which fails on dev.
 	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
+	- Closed reason: Done
 
 - Go and Python drop the setuid, setgid and sticky bits from the `_old_v2` copy
 	- ID: 2026092813365306
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 6
@@ -13414,11 +13824,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress save case `migrate-setid` (`dd84h`) at 6755, which fails on dev for Go and Python.
 	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
+	- Closed reason: Done
 
 - Go's `_old_v2` copy errors name the path twice
 	- ID: 2026092813365311
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 11
@@ -13436,11 +13847,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress save case `migrate-rodir` (`dd84j`), which fails on dev for Go.
 	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
+	- Closed reason: Done
 
 - `about --version` and `version --donate` are usage errors now
 	- ID: 2026092813365309
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 9
@@ -13464,11 +13876,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `version-word-gone` (`dd850`), `about-word-gone` (`dd851`), `donate-word-gone` (`dd852`), `help-topic-version-word` (`dd855`), `info-flags-in-order` (`dd853`) and `info-about-covers-version` (`dd854`). Each fails on dev.
 	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
+	- Closed reason: Done
 
 - Help leaves out `kB` and the `--duration` and `--size` refusals with `--array`
 	- ID: 2026092813365317
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 17
@@ -13484,11 +13897,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none new. cli-regress keeps the 4 helps identical and within 80 columns, and check-completions ties the completions to the CLI's tables.
 	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
+	- Closed reason: Done
 
 - The dogfood runner's header still says stamps are UTC
 	- ID: 2026092813365315
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 15
@@ -13504,11 +13918,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none, a comment.
 	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
+	- Closed reason: Done
 
 - One pool file with an impossible date stops the dogfood runner on every run
 	- ID: 2026092813365316
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 16
@@ -13524,11 +13939,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `20260928-item16-dogfood-impossible-date` (`dd85m`), which fails on dev.
 	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
+	- Closed reason: Done
 
 - The closed-items Test check borrows a Test line from an unrelated item
 	- ID: 2026092813365318
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 18
@@ -13546,11 +13962,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `20260928-item18-closed-items-test-parent` (`dd86e`), which lifts the check out of check-docs and runs it on a small backlog. It fails on dev.
 	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
+	- Closed reason: Done
 
 - Gate status lines can say `ok` for a test that failed or didn't run
 	- ID: 2026092813365319
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 19
@@ -13571,11 +13988,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `20260928-item19-skipped-block-names-its-tests` (`dd86p`) for the helper. The floors and skips were checked by hand, as above.
 	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
+	- Closed reason: Done
 
 - `config.bash` says the hosted gate doesn't install makensis, but it does, unpinned
 	- ID: 2026092813365320
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 20
@@ -13591,11 +14009,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none, comments.
 	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
+	- Closed reason: Done
 
 - Style: 3 small leftovers in the range
 	- ID: 2026092813365321
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 21
@@ -13617,11 +14036,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none new. The change is comments and structure only, and corpus `176-durations-sizes` and `177-schema-durations-sizes` and the crosscheck pin the behavior.
 	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
+	- Closed reason: Done
 
 - The dogfood runner stamps builds in local time and the current culture
 	- ID: 2026092620255211
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 11
@@ -13642,11 +14062,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `shell-regress.bash` row `20260926-item11-dogfood-stamp-culture` (`dd6yq`), under th-TH and `Asia/Bangkok`. It fails on the original runner, which drifts by 543 years a run, and on the UTC one. The other dogfood rows pin `TZ=UTC`.
 	- Acceptance signoff: signed off 20260928.
 	- Closed: 20260928-120852
+	- Closed reason: Done
 
 - A merge result depends on whether the lower layer writes a list stacked or inline
 	- ID: 2026092620255204
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 4
@@ -13667,11 +14088,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `179-merge-stacked-spelling` (`dd6xs`). It fails on the old code.
 	- Acceptance signoff: signed off 20260928.
 	- Closed: 20260928-100140
+	- Closed reason: Done
 
 - `banner on` adds a second info block when the old one is under the first field
 	- ID: 2026092620255205
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 5
@@ -13693,11 +14115,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `180-banner-first-child` (`dd6y1`) pins that the block stays and a new one goes at the end.
 	- Acceptance signoff: signed off 20260928.
 	- Closed: 20260928-100140
+	- Closed reason: Done
 
 - C `shcl_compact` turns earlier generation faults into ordinary diagnostics
 	- ID: 2026092620255206
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 6
@@ -13714,11 +14137,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: C runner `compact_keeps_generation_faults` (`dd6xj`). It fails on the old code.
 	- Acceptance signoff: signed off 20260928.
 	- Closed: 20260928-100140
+	- Closed reason: Done
 
 - C++ `const` reads on one document race each other
 	- ID: 2026092620255207
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 7
@@ -13738,11 +14162,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `check-veneer.bash` `const-reads-share-across-threads` (`dd75a`), 2 threads of mixed const reads under ThreadSanitizer. It fails on the old header.
 	- Acceptance signoff: signed off 20260928.
 	- Closed: 20260928-100140
+	- Closed reason: Done
 
 - On Windows, creating a file through a `\\.\C:\` path is refused as not a regular file
 	- ID: 2026092620255208
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 8
@@ -13761,11 +14186,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `windows-volume-path-create` (`dd71r`), which runs on windows only.
 	- Acceptance signoff: signed off 20260928.
 	- Closed: 20260928-100140
+	- Closed reason: Done
 
 - `FormatVersion` in Go, Python and C reads Format numbers past 2^32 that Rust reads as the current major
 	- ID: 2026092620255209
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 9
@@ -13785,11 +14211,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `format_version_caps_at_32_bits` (`dd6yh`, `dd6yk`, `dd6ym`) in all 4 runners. The Go and Python ones fail on the old code.
 	- Acceptance signoff: signed off 20260928.
 	- Closed: 20260928-100140
+	- Closed reason: Done
 
 - Man page and README lag 3 changes
 	- ID: 2026092620255210
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 10
@@ -13807,11 +14234,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none. It's prose, checked against the spec by reading.
 	- Acceptance signoff: signed off 20260928.
 	- Closed: 20260928-100140
+	- Closed reason: Done
 
 - The drop-ins tarball's file modes follow the checkout's umask
 	- ID: 2026092620255212
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 12
@@ -13828,11 +14256,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `shell-regress.bash` row `20260829-26-dropins-tarball-reproducible` (`dd5hf`) now takes the second copy's group and other bits away. It fails on the old tar line.
 	- Acceptance signoff: signed off 20260928.
 	- Closed: 20260928-100140
+	- Closed reason: Done
 
 - The pre-push green-tree skip passes over the main-push installer check
 	- ID: 2026092620255213
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 13
@@ -13849,11 +14278,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `check-push-gate.bash` row "a recorded tree whose installers differ from dev is gated on main" (`dd6zd`). It fails on the old hook.
 	- Acceptance signoff: signed off 20260928.
 	- Closed: 20260928-100140
+	- Closed reason: Done
 
 - `conformance.c` doesn't build at `-Os` with the gate's warnings
 	- ID: 2026092620255214
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 14
@@ -13870,11 +14300,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `check-c-compilers.bash` now builds `conformance.c` and `mem_bounds.c` at every `-O` level (`dc0dd`, `dc25g`). It fails with the old buffer.
 	- Acceptance signoff: signed off 20260928.
 	- Closed: 20260928-100140
+	- Closed reason: Done
 
 - shell-regress's sourced wrapper mode runs `shcl.bash` as a script
 	- ID: 2026092917233341
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260929-172333
 	- Opened by: found while working 2026092813365324
@@ -13892,11 +14323,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: with an override of `shcl` added only on the sourced path, `dcbcw` stayed green on the old form and went red on the new one, all 10 rows, stdin rows included. With the wrapper restored, shell-regress exits 0, and shellcheck and `test-ids.py check` pass.
 	- Acceptance signoff: Self-closed. It's a test harness fix, red on the old form and green on the new.
 	- Closed: 20260930-073042
+	- Closed reason: Done
 
 - A kept line moved above the first list keeps its blank line, so a merge differs from a merge of the `fmt` form
 	- ID: 2026092918110222
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260929-181102
 	- Opened by: the 2,000,000 release fuzz while working 2026092813365325
@@ -13922,11 +14354,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `186-kept-line-first-blank` (`ddagb`), a kept line that turns into a comment above the first list, merged under a one-line layer.
 	- Acceptance signoff: Self-closed. It's reproduced, and its test failed before the fix and passes after in all 4.
 	- Closed: 20260930-080144
+	- Closed reason: Done
 
 - Build and test on FreeBSD
 	- ID: 2026100413052101
 	- Type: Task
-	- Status: Done
+	- Status: Closed
 	- Priority: Low
 	- Opened: 20261004-130521
 	- Opened by: JC
@@ -13969,11 +14402,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: a one-off run on vmFreeBSD rather than CI. Rust `dbcwv`, Go `dbcww`, Python `dbzbp` and the C file-tier block, C `dc0b4`, and cli-regress `dd84h`, `dd517` and `dd518` each failed there on dev and pass with the fix.
 	- Acceptance signoff: Self-closed. It's a test task, and every requirement ran and passed.
 	- Closed: 20261007-092637
+	- Closed reason: Done
 
 - `explain` on a retired code could name the code that replaced it
 	- ID: 2026100307163917
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: N. Exhaustive cppcheck passed on dev at `34bb71fb`, hosted run 38962944867.
 	- Priority: Low
 	- Opened: 20261003-071639
@@ -14001,11 +14435,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `ddgv5` and `ddgv6`, which both failed before the fix in all 4 and pass after. crosscheck's usage check and cli-regress `dcrhg` read the retired list from the reference.
 	- Acceptance signoff: 20261005, the wording, exit 0 and leaving retired codes out of the listing.
 	- Closed: 20261005-151500
+	- Closed reason: Done
 
 - The kept-line property's merge step has 2 loose ends
 	- ID: 2026100313174977
 	- Type: Task
-	- Status: Done
+	- Status: Closed
 	- Priority: Low
 	- Opened: 20261003-131749
 	- Opened by: the review of 2026100307310000, round 1
@@ -14035,11 +14470,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `ddhda` (`merge_exceptions_go_by_position`), and `dderx` at 2,000,000.
 	- Acceptance signoff: Self-closed: a test-only change that does what the item asked, and its test passes.
 	- Closed: 20261005-055131
+	- Closed reason: Done
 
 - The kept-line property's remove and setter steps take lines off by text
 	- ID: 2026100505513100
 	- Type: Task
-	- Status: Done
+	- Status: Closed
 	- Priority: Low
 	- Opened: 20261005-055131
 	- Opened by: the work on 2026100313174977
@@ -14071,11 +14507,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `ddhn5` (`remove_and_setter_exceptions_go_by_position`), and `dderx` at 2,000,000.
 	- Acceptance signoff: Self-closed: a test-only change that does what the item asked. Its checks fail on both broken libraries and pass on the real one.
 	- Closed: 20261005-102024
+	- Closed reason: Done
 
 - check-banner-tag trusts the push to be atomic and the tag to point at the cut
 	- ID: 2026100307163918
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Low
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 idea 2
@@ -14097,11 +14534,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `check-push-gate` `ddg84`, `ddg85`. The `--atomic` half is a recipe step, without a test.
 	- Acceptance signoff: 20261004, signed off. Its tests check it and the full run passed.
 	- Closed: 20261004-110932
+	- Closed reason: Done
 
 - Compare the 4 bindings' keep saves on mixed line-ending inputs
 	- ID: 2026100114175701
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Low
 	- Opened: 20261001-141757
 	- Opened by: the fuzz work for 2026093019075905
@@ -14122,11 +14560,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: crosscheck `ddca7` (mixed line-ending keep saves agree), and shell-regress `ddca8` for its failure paths.
 	- Acceptance signoff: Self-closed: a test only, it does what the item asked, and it failed on each injected defect.
 	- Closed: 20261001-143722
+	- Closed reason: Done
 
 - A line-keeping save ends new lines the way most of the file's lines do
 	- ID: 2026093018312980
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Low
 	- Opened: 20260930-183129
 	- Opened by: a question about CRLF after 2026093012535909
@@ -14140,11 +14579,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `ddb4v` (`set-write-eol-mostly-crlf`) and `ddb4w` (`set-write-eol-mostly-lf`).
 	- Acceptance signoff: Self-closed: asked for directly, and the rows fail on the old code.
 	- Closed: 20260930-183520
+	- Closed reason: Done
 
 - `set --write` builds the kept text twice
 	- ID: 2026092620255218
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 idea 3
@@ -14159,11 +14599,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none of its own. The cli-regress keep rows and the fallback refusal rows test the write and the refusal, and perf-gate's `keeps` row times it.
 	- Acceptance signoff: signed off 20260928.
 	- Closed: 20260928-100140
+	- Closed reason: Done
 
 - `perf-gate`'s Python `keeps` row runs close to its budget
 	- ID: 2026092620255219
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 idea 4
@@ -14178,11 +14619,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: perf-gate `keeps` (`dd3w8`) itself.
 	- Acceptance signoff: signed off 20260928.
 	- Closed: 20260928-100140
+	- Closed reason: Done
 
 - `cli-regress` rows have no timeout
 	- ID: 2026092620255220
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Priority: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 idea 5
@@ -14197,11 +14639,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none standing, since a row that must hang costs the full limit on every run.
 	- Acceptance signoff: signed off 20260928.
 	- Closed: 20260928-100140
+	- Closed reason: Done
 
 - `"C:\temp"` loads with a tab and only a hint says so
 	- ID: 2026100115323227
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Needs local test suite run?: full `--ci` at the next main push, as for 2026100115403384.
 	- Priority: Low
 	- Opened: 20261001-153232
@@ -14230,11 +14673,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `171-windows-path-escape` (`dd5en`) (was `171-windows-path-hint`) with new `write.ops` rows and a `write-bad.ops`; cli-regress `path-escape-read`, `path-escape-strict`, `path-escape-set`, `path-escape-literal`, `path-escape-migrate-lost`, `migrate-from-2x-tab` (`ddcef`); check-migrate `ddcfc`. The old `path-hint-*` rows are commented out.
 	- Acceptance signoff: 20261003, closed without a hand check: every case is pinned in all 4 bindings, its sibling 2026100115403384 was signed off from the same branch, and 2026100207032800 replaces this behavior anyway.
 	- Closed: 20261003-113243
+	- Closed reason: Done
 
 - `migrate --write` stamps its lines with LF in a CRLF file
 	- ID: 2026093019075904
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Opened: 20260930-190759
 	- Opened by: Code review 20260930 idea 1
 	- Requirements:
@@ -14253,11 +14697,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: cli-regress `ddc5s` (`migrate-write-eol-crlf`) and `ddc5t` (`migrate-eol-tie-lf`), and corpus `124-migrate-crlf-fence`.
 	- Acceptance signoff: 20261001
 	- Closed: 20261001-141757
+	- Closed reason: Done
 
 - Mixed line endings in the keep-save fuzz
 	- ID: 2026093019075905
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Opened: 20260930-190759
 	- Opened by: Code review 20260930 idea 2
 	- Related IDs: 2026093019075901, 2026093019075902
@@ -14276,11 +14721,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: fuzz `keeping_lines_ends_each_line_by_the_rule` (`ddc6m`).
 	- Acceptance signoff: Self-closed: a test only, it does what the item asked, and it failed with each fix undone.
 	- Closed: 20261001-124327
+	- Closed reason: Done
 
 - The cli-regress group rows skip without a recorded skip
 	- ID: 2026093019075906
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Opened: 20260930-190759
 	- Opened by: Code review 20260930 idea 3
 	- Requirements:
@@ -14295,11 +14741,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `dcvgt` and `dd84g` (cli-regress), and `dct57` (shell-regress), which checks the skip against the strict read and the note.
 	- Acceptance signoff: Self-closed: the change does what the item asked, and its pin fails when the note is dropped.
 	- Closed: 20261001-122751
+	- Closed reason: Done
 
 - `test-ids.py` passes a test in a place its tables don't know
 	- ID: 2026092813365327
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 idea 6
 	- Requirements: a `#[test]` in a Rust source file other than `lib.rs`, a Go test whose parameter isn't `t`, or a test under `source/go/cmd/` doesn't get an ID and isn't flagged. Find every `#[test]` and `func Test` in any file, and fail on any it can't place.
@@ -14310,11 +14757,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `20260928-idea6-test-ids-strays` (`dd86w`), a fake tree with 3 misplaced tests. It fails on dev.
 	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
+	- Closed reason: Done
 
 - The drop-ins tarball mode row passes on a checkout made under umask 077
 	- ID: 2026092813365328
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 idea 7
 	- Requirements: the row compares the tarball built under umask 077 with the checkout. When the checkout was itself made under 077, both match under the old tar line too. Check the modes themselves, 644 and 755.
@@ -14325,11 +14773,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress `20260829-26-dropins-tarball-reproducible` (`dd5hf`). With `--mode` taken off the tar line it fails on the modes.
 	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
+	- Closed reason: Done
 
 - The dropped-line bookkeeping has an arm that can't run
 	- ID: 2026092813365326
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 idea 5
 	- Requirements: the `Stopped` outcome in the `track_dropped` path never happens. Only the line-keeping save's reparse sets `track_dropped`, and it has no node cap. Remove it in all 4, or say in a comment why it stays.
@@ -14342,11 +14791,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none new, since no input can run the removed code. The keep-dropped cli-regress rows, the Rust fuzz and the shared fixtures pass unchanged.
 	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
+	- Closed reason: Done
 
 - Escape more invisible characters on output
 	- ID: 2026092813365322
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 idea 1
 	- Requirements:
@@ -14371,11 +14821,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the 4 conformance suites, cargo test, go test per module, crosscheck with a fuzz dump, cli-regress, shell-regress, check-migrate, check-abnf, check-docs, check-veneer, perf-gate, test-ids check, the fuzz at 2,000,000 in release, clippy, go vet, staticcheck, cppcheck, ruff, mypy, shellcheck, and markdownlint. Random selector and tag text through all 4 CLIs gave the same output and a fixpoint.
 	- Acceptance signoff: signed off 20260929.
 	- Closed: 20260929-052459
+	- Closed reason: Done
 
 - A schema `min` and `max` could take the unit from the field name
 	- ID: 2026092813365323
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 idea 2
 	- Requirements:
@@ -14395,11 +14846,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `184-schema-bound-name-unit` (`dd9mk`), red on dev in all 4 runners. It pins a bare bound from `-ms`, `_mb`, and a decimal `-kb`, the name winning over `unit`, a bound's own unit winning over the name, and `V092` where neither the name nor `unit` gives one, a `*` path included.
 	- Acceptance signoff: Self-closed: the bound now reads the way the value does, as asked, and its case fails on dev.
 	- Closed: 20260930-073042
+	- Closed reason: Done
 
 - Duration and size helpers in the bash and PowerShell bindings
 	- ID: 2026092813365324
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 idea 3
 	- Requirements: `shcl.bash` has a helper per `get` type (`shcl_int`, `shcl_datetime` and the rest), and no `shcl_duration` or `shcl_size`. `shcl.ps1` is the same.
@@ -14413,11 +14865,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none now. The shell-regress rows (`20260928-idea-3-bash-typed-helpers-match-the-binary`, `20260918b-32-piped-helpers-match-the-binary`) were retired with the wrappers.
 	- Acceptance signoff: Self-closed: mechanical, 2 helpers beside the existing ones, and the new rows fail on dev.
 	- Closed: 20260930-073042
+	- Closed reason: Done
 
 - Late-fold H002 hints print after every other parse diagnostic
 	- ID: 2026092813365325
 	- Type: Enhancement
-	- Status: Done
+	- Status: Closed
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 idea 4
 	- Requirements: `a: 1, 2`, `b: 0`, then `a:` with 2 stacked elements, then `c: [x]` prints line 6's E019 before line 3's H002. Nothing requires line order, but a sort by line at the end of the parse reads better. All 4 agree today.
@@ -14438,6 +14891,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: the 2,000,000-iteration fuzz now fails `merge_never_panics_and_stays_fixpoint`. Case 185 shifts the seeds onto a shared merge defect. A layer and its canonical form merge one blank line apart, above a comment. dev's code fails the same way with the case added and passes without it. Filed as 2026092918110222.
 	- Acceptance signoff: Self-closed: it's the sort by line that was asked for, and its tests fail on dev.
 	- Closed: 20260930-073042
+	- Closed reason: Done
 
 - Read TOML, YAML, JSON and XML, and convert them to SHCL
 	- ID: 2026111018424200
@@ -15055,7 +15509,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Don't allow the `[#N]` index selector
 	- ID: 2026100609552447
 	- Type: Enhancement
-	- Status: Moot
+	- Status: Closed
 	- Priority: High
 	- Note: 20261006, superseded by 2026100610073400. Every selector moves to parens there, so `[#N]` goes with the rest of the bracket forms. Its requirements moved there too.
 	- Superseded by ID: 2026100610073400
@@ -15076,11 +15530,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: 20261006, 2026100207032800 changes the selector code on `valsyn`. Do this there or after it merges, not on dev alongside.
 	- Estimated effort: Avg
 	- Closed: 20261006-100734
+	- Closed reason: Moot
 
 - Windows paths are written 3 different ways
 	- ID: 2026100115323216
 	- Type: Enhancement
-	- Status: Moot
+	- Status: Closed
 	- Priority: Avg
 	- Note: 20261002, superseded by 2026100207032800. With no backslash escapes, a backslash plays no part in choosing quotes, so nothing here is needed. Design: `project/design_docs/20261002-132445_value-syntax.md`.
 	- Superseded by ID: 2026100207032800
@@ -15103,11 +15558,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261001: single quotes for a value with a backslash, since they stop escaping. A Windows path can contain a `'`, which single quotes can't, so that one goes in double quotes with each backslash doubled. Canonical output does the same, so `fmt` does too.
 		- 20261002: closed as Moot. A backslash is plain text under 2026100207032800.
 	- Closed: 20261002-184515
+	- Closed reason: Moot
 
 - Lookups walk every instance of a name, so a loop over instances is quadratic
 	- ID: 2026100717500019
 	- Type: Enhancement
-	- Status: Moot
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 19
@@ -15118,11 +15574,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: none. Nothing is built for it. Any test goes under 2026100307163919.
 	- Origin: Confirmed, in all 4, by timing.
 	- Closed: 20261008-105752
+	- Closed reason: Moot
 
 - No way to ask a setter for single quotes
 	- ID: 2026100115323222
 	- Type: Enhancement
-	- Status: Moot
+	- Status: Closed
 	- Priority: Low
 	- Note: 20261002, superseded by 2026100207032800. With no backslash escapes, a backslash plays no part in choosing quotes, so nothing here is needed. Design: `project/design_docs/20261002-132445_value-syntax.md`.
 	- Superseded by ID: 2026100207032800
@@ -15139,6 +15596,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261001, from the answer on 2026100115323216: single quotes are the go-to for stopping escapes, when the string doesn't contain a `'`.
 		- 20261002: closed as Moot. There are no setter options. A setter that overwrites a value keeps its quote kind when it can, and `SetLiteral` takes any quotes as written.
 	- Closed: 20261002-184515
+	- Closed reason: Moot
 
 ## Old format
 
@@ -24628,11 +25086,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 	- The ID is the local time to the hundredth of a second. Opened is when it was written down, which may differ. (Use a keyboard macro and possibly something like project 'zuid' to generate.)
 
-	- Status values meaning: Testing means the fix is in and checks are running or still to run. Waiting on UAT means automated testing passed and a person has to accept it (user acceptance testing). Moot means something else changed that made it irrelevant. Canceled means it still applies but was decided against. Waiting for a full CICD run means all that's left is a full `cicd.bash` run with no flags, which either of us can start. Waiting for a partial CICD run means all that's left is some stages of it, such as a `--quick` run, which either of us can start. Waiting on automated testing means the fix is in and waits on testing the next round runs and reads itself, such as an outside test host or a run stopped partway. Can't reproduce means a real attempt to reproduce it failed.
-		- An item with nothing left for a person to judge skips Waiting on UAT and goes straight to Done. `Clean up the backlog` in the directives says when.
+	- Status values meaning: Testing means the fix is in and checks are running or still to run. Waiting on UAT means automated testing passed and a person has to accept it (user acceptance testing). Canceled means it still applies but was decided against. Closed means it's finished with, and `Closed reason` says how. Waiting for a full CICD run means all that's left is a full `cicd.bash` run with no flags, which either of us can start. Waiting for a partial CICD run means all that's left is some stages of it, such as a `--quick` run, which either of us can start. Waiting on automated testing means the fix is in and waits on testing the next round runs and reads itself, such as an outside test host or a run stopped partway.
+		- Closed reasons: Done means the work is finished and tested. Could not reproduce means a real attempt to reproduce it failed. Won't fix means it's real, and we accept it as it is. Moot means something else changed that made it irrelevant. Duplicate means another item covers it. Superseded means another item replaces it, named in `Superseded by ID`. Works as designed means the behavior is intended. Invalid means the report was wrong, or not a defect. Canceled and Deferred stay statuses of their own, with no reason. Canceled is for work dropped, and Won't fix for a reported defect we leave.
+		- An item with nothing left for a person to judge skips Waiting on UAT and goes straight to Closed, with the reason Done. `Clean up the backlog` in the directives says when.
 
 	- As issues are worked, and statuses change, place them in correct sorting order within the list:
-		- First by status: Waiting for answers, Waiting on UAT, Waiting for a full CICD run, Waiting for a partial CICD run, Testing, Waiting on automated testing, Can't reproduce, Stalled, Started, Queued, Done, Deferred, Canceled, Moot
+		- First by status: Waiting for answers, Waiting on UAT, Waiting for a full CICD run, Waiting for a partial CICD run, Testing, Waiting on automated testing, Stalled, Started, Queued, Closed, Deferred, Canceled
 		- Then by severity|priority: Critical, High, Avg, Low
 		- Then by type: Bugs, [not bugs together]
 
@@ -24643,7 +25102,7 @@ Template:
 - Title
 	- ID: YYYYmmDDHHMMSSNN
 	- Type: [Bug|Feature|Enhancement|Task]
-	- Status: [Queued|Waiting for answers|Waiting on UAT|Waiting for a full CICD run|Waiting for a partial CICD run|Waiting on automated testing|Started|Testing|Stalled|Can't reproduce|Moot|Canceled|Deferred|Done]
+	- Status: [Queued|Waiting for answers|Waiting on UAT|Waiting for a full CICD run|Waiting for a partial CICD run|Waiting on automated testing|Started|Testing|Stalled|Canceled|Deferred|Closed]
 	- Needs local test suite run?:
 	- Needs external testing:
 	- Priority [Feature|Enhancement] | Severity [Bug]: [Critical|High|Avg|Low]
@@ -24683,3 +25142,4 @@ Template:
 	- Acceptance signoff:
 	- Superseded by ID:
 	- Closed:
+	- Closed reason: [Done|Could not reproduce|Won't fix|Moot|Duplicate|Superseded|Works as designed|Invalid]

@@ -340,8 +340,8 @@ def fNames(found: list[tuple[str, str, int]]) -> dict[str, list[str]]:
 	return names
 
 
-##	The closed items of a backlog, for `backlog`: each Done bug, feature or
-##	enhancement, and each checkmark item under a legacy Done heading. Gives the
+##	The closed items of a backlog, for `backlog`: each bug, feature or
+##	enhancement closed as Done, and each checkmark item under a legacy Done heading. Gives the
 ##	line, the title, the Closed date and the text of its test row with that
 ##	row's sub-bullets. A legacy item with no row of its own takes the one of the
 ##	nearest item it sits in that has one, as check-docs `dd72g` does.
@@ -399,7 +399,8 @@ def fClosedItems(path: Path) -> tuple[list[tuple[int, str, str, str]], dict[str,
 			row = testRow(rows, 0)
 			if "ID" in field and row is not None:
 				byId[field["ID"]] = row
-			if field.get("Status") == "Done" and field.get("Type") in ("Bug", "Feature", "Enhancement"):
+			fixed = field.get("Status") == "Done" or (field.get("Status") == "Closed" and field.get("Closed reason") == "Done")
+			if fixed and field.get("Type") in ("Bug", "Feature", "Enhancement"):
 				items.append((i + 1, line[2:], field.get("Closed", ""), row or ""))
 			continue
 		m = re.match(r"^(\t*)- \u2705 ", line)
