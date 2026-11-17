@@ -5598,6 +5598,27 @@ def _kept_in(leads):
 	return sum(1 for lead in leads if lead.is_kept_line())
 
 
+def _hand_blank(gone, left, below, owed):
+	"""A remove hands the blank above what it took to the line now in its
+	place: the first of the below lines it left under the node, else the next
+	line left. owed is a blank from a remove just above. True when the blank
+	is still owed, for the next line."""
+	lead = gone.leading()
+	blank = owed or gone.blank_before or (len(lead) > 0 and lead[0].blank_before)
+	if below > 0:
+		left[len(left) - below].blank_before = left[len(left) - below].blank_before or blank
+		return False
+	return blank
+
+
+def _set_blank(nd):
+	"""The blank above a node: above its comments, else above its line."""
+	if nd.trivia is not None and nd.trivia.leading:
+		nd.trivia.leading[0].blank_before = True
+	else:
+		nd.blank_before = True
+
+
 def _kept_in_lists(nd):
 	"""Kept lines in all of one node's trivia lists."""
 	return (_kept_in(nd.leading()) + _kept_in(nd.after()) + _kept_in(nd.inside()) + _kept_in(nd.head())
@@ -6541,14 +6562,12 @@ def _keep_lines_as(src, doc, drop_bare, bare):
 				lead = i + 1
 			continue
 		# The next group stands where the names' line was. The blank lines
-		# above that line go with it, as above any line a remove takes.
+		# above that line stay, since the remove handed its blank to the
+		# next line.
 		at_k = took or k
-		cut = took
-		while cut > 1 and blank(cut - 1):
-			cut -= 1
 
-		def skip(g, took=took, cut=cut):
-			return took != 0 and cut <= g <= end[took]
+		def skip(g, took=took):
+			return took != 0 and took <= g <= end[took]
 
 		spliced = _splice_group(lines, loaded, was_runs, w, now, is_runs, u) if w is not None and not same else None
 		kept = same or spliced is not None
@@ -8585,11 +8604,20 @@ class Document:
 			# finds no place to file at; the settle below files the whole list.
 			old = self.arena[p].children
 			self.arena[p].children = []
+			# The blank above what went, for the next line left in its place.
+			blank = False
 			for c in old:
 				if self.arena[c].parent == _DEAD:
 					self.arena[c].parent = p
-					left.extend(_beside_kept(self.arena[c]))
+					under = len(self.arena[c].after())
+					mine = _beside_kept(self.arena[c])
+					below = under - len(self.arena[c].after())
+					blank = _hand_blank(self.arena[c], mine, below, blank)
+					left.extend(mine)
 				else:
+					if blank:
+						_set_blank(self.arena[c])
+						blank = False
 					if left:
 						self._leave_above(c, left)
 						left = []
@@ -8598,6 +8626,8 @@ class Document:
 			self.arena[p].star_list = self.arena[p].star_list or stacked
 			# The next merge has a stacked list to put in brackets.
 			self._bracketed = self._bracketed and not stacked
+			if blank:
+				self._blank_below(p)
 			if left:
 				self._leave_last(p, left)
 			# The lines around what went are filed as a reload files them.
@@ -8757,6 +8787,18 @@ class Document:
 			at = up
 		self.orphans[:0] = left
 		_restep(self.orphans)
+
+	def _blank_below(self, parent: int) -> None:
+		"""A blank a remove owes the parent's trailing lines, when the last
+		of its children went: the first of them, or the footer at the top.
+		With none, there is nothing to set off."""
+		if parent == _ROOT:
+			if self.orphans:
+				self.orphans[0].blank_before = True
+			return
+		t = self.arena[parent].trivia
+		if t is not None and t.after:
+			t.after[0].blank_before = True
 
 	def _live(self, node: int) -> bool:
 		"""Still in the tree: each node up to _ROOT is in its parent's list. A

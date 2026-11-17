@@ -6968,6 +6968,32 @@ func keptAmong(among []amongLead) int {
 	return n
 }
 
+// handBlank: a remove hands the blank above what it took to the line now
+// in its place, the first of the below lines it left under the node, else
+// the next line left. owed is a blank from a remove just above. True when
+// the blank is still owed, for the next line.
+func handBlank(gone *nodeData, left []lead, below int, owed bool) bool {
+	blank := owed || gone.blankBefore
+	if l := gone.leading(); len(l) > 0 && l[0].blankBefore {
+		blank = true
+	}
+	if below > 0 {
+		left[len(left)-below].blankBefore = left[len(left)-below].blankBefore || blank
+		return false
+	}
+	return blank
+}
+
+// setBlank sets the blank above a node: above its comments, else above its
+// line.
+func setBlank(nd *nodeData) {
+	if nd.trivia != nil && len(nd.trivia.leading) > 0 {
+		nd.trivia.leading[0].blankBefore = true
+	} else {
+		nd.blankBefore = true
+	}
+}
+
 // keptInLists counts kept lines in all of one node's trivia lists.
 func keptInLists(nd *nodeData) int {
 	return keptIn(nd.leading()) + keptIn(nd.after()) + keptIn(nd.inside()) + keptIn(nd.head()) + keptAmong(nd.among())
@@ -8834,16 +8860,13 @@ func keepLinesAs(src string, doc *Document, dropBare bool, bare *bool) (string, 
 			continue
 		}
 		// The next group stands where the names' line was. The blank lines
-		// above that line go with it, as above any line a remove takes.
+		// above that line stay, since the remove handed its blank to the
+		// next line.
 		atL := l
 		if took != 0 {
 			atL = took
 		}
-		cut := took
-		for cut > 1 && blank(cut-1) {
-			cut--
-		}
-		skip := func(k int) bool { return took != 0 && k >= cut && k <= end[took] }
+		skip := func(k int) bool { return took != 0 && k >= took && k <= end[took] }
 		splicedAt, spliced, didSplice := 0, "", false
 		if known && !same {
 			splicedAt, spliced, didSplice = spliceGroup(lines, loaded, loadedText, wasRuns, was[at[l]], now, nowText, isRuns, u)
@@ -12628,11 +12651,21 @@ func (d *Document) TryRemove(path string) Read[int] {
 		d.arena[pr.parent].children = nil
 		kids := old[:0]
 		var left []lead
+		// The blank above what went, for the next line left in its place.
+		blank := false
 		for _, c := range old {
 			if d.arena[c].parent == dead {
 				d.arena[c].parent = pr.parent
-				left = append(left, besideKept(&d.arena[c])...)
+				under := len(d.arena[c].after())
+				mine := besideKept(&d.arena[c])
+				below := under - len(d.arena[c].after())
+				blank = handBlank(&d.arena[c], mine, below, blank)
+				left = append(left, mine...)
 			} else {
+				if blank {
+					setBlank(&d.arena[c])
+					blank = false
+				}
 				if len(left) > 0 {
 					d.leaveAbove(c, left)
 					left = nil
@@ -12644,6 +12677,9 @@ func (d *Document) TryRemove(path string) Read[int] {
 		d.arena[pr.parent].starList = d.arena[pr.parent].starList || stacked
 		// The next merge has a stacked list to put in brackets.
 		d.bracketed = d.bracketed && !stacked
+		if blank {
+			d.blankBelow(pr.parent)
+		}
 		if len(left) > 0 {
 			d.leaveLast(pr.parent, left)
 		}
@@ -12879,6 +12915,21 @@ func (d *Document) leaveBelow(node int, left []lead) {
 	}
 	d.orphans = append(left, d.orphans...)
 	restep(d.orphans)
+}
+
+// blankBelow: a blank a remove owes the parent's trailing lines, when the
+// last of its children went, the first of them, or the footer at the top.
+// With none, there is nothing to set off.
+func (d *Document) blankBelow(parent int) {
+	if parent == root {
+		if len(d.orphans) > 0 {
+			d.orphans[0].blankBefore = true
+		}
+		return
+	}
+	if t := d.arena[parent].trivia; t != nil && len(t.after) > 0 {
+		t.after[0].blankBefore = true
+	}
 }
 
 // live: still in the tree, each node up to root in its parent's list. A

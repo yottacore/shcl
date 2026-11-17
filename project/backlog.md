@@ -35,6 +35,34 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- analyze-c fails on dev: clang-tidy on `set_off`, and the clang analyzer on `fs_property.c`
+	- ID: 2026111623502776
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261116-235027
+	- Opened by: found while working 2026111623191917
+	- Version and build: `nov17` at `813dfecf`
+	- Steps to reproduce: `cicd/utility/analyze-c.bash`.
+	- Incorrect behavior: `de2x4` fails on `bugprone-easily-swappable-parameters` for `set_off` in `shcl.h` (its `comment` and `above` arrays), from `1bbee68b` (2026-11-11). `de2x3` fails on `fs_slurp` in `source/c/tests/fs_property.c`, a read after end of file the analyzer assumes.
+	- Expected behavior: both pass, with a real fix or a suppression at the line with its reason, as the 3 bugprone checks are judged.
+	- Estimated effort: Low
+
+- Fuzz `dd16k` fails at iteration 124446 at 200,000: a `set_literal` then `clear_comments` gives a document and its reload different text
+	- ID: 2026111623445822
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261116-234458
+	- Opened by: found while working 2026111623191917
+	- Version and build: `nov17` at `813dfecf`
+	- Steps to reproduce: `SHCL_FUZZ_ITERS=200000 cargo test --release --test fuzz_smoke edits_and_merges_match_a_reload`. The base is a mutated corpus input with BOM, fence and kept lines, then op 9 (`set_literal`) and op 10 (`clear_comments`) at `c`.
+	- Incorrect behavior: the step gives different canonical text on the document and on the reload of its canonical text.
+	- Expected behavior: the same text, as the property holds.
+	- Reproduced: 20261116, Rust, on `813dfecf` with its own library, so it is older than 2026111623191917. The other 3 bindings weren't tried. The gate fuzz at 200,000 fails on it.
+	- Estimated effort: Avg
+
 - Rust's file calls can't save to a path that isn't UTF-8
 	- ID: 2026111217560157
 	- Type: Enhancement
@@ -91,6 +119,75 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A remove takes the node's comment lines, per spec.md's Remove, and hands its blank line to the heir. So `x`, a blank, `y`, `z`, minus `y`, gives `x`, a blank, `z`, and 2026110613470312's dotted pair keeps the blank above it (me, 20261109, from that item's `Check:`). spec.md's Remove sentence says so, and a corpus golden that changes is named on this item.
 	- Regression test: 2026110616475903's property and table run against both the old helpers and `adopt` before the old ones go, and a check-docs row greps the 4 bindings for the retired helper names. The table gets the `x`, blank, `y`, `z` remove row and 2026110613470312's dotted pair with a blank above it.
 	- Estimated effort: High
+	- Progress log:
+		- 20261116: split in 4. The remove's blank is child 2026111623191917. The remove and the setter folds through `adopt` are 2026111623191935, the load's fold 2026111623192782, and the banner toggle with the check-docs row and the design.md bullet 2026111623192800.
+
+- A remove drops the blank line above its target, so the gap between 2 groups closes
+	- ID: 2026111623191917
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261116-231919
+	- Opened by: split from 2026110712372281
+	- Parent ID: 2026110712372281
+	- Problem description: `x`, a blank, `y`, `z`, minus `y`, gives `x`, `z`. The remove takes its comment lines, per spec.md, and the blank goes with them. A dotted pair with a blank above it loses the blank the same way (2026110613470312).
+	- Requirements: the remove hands its blank to the line that now follows in the file, in all 4 bindings. spec.md Remove says so. Placement rows for the `x`, blank, `y`, `z` remove and the dotted pair with a blank above it.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Progress log:
+		- 20261116, all 4 bindings: the remove's rebuild hands the blank above what it took (`hand_blank`) to the first kept line it left under the target, else the next sibling (`set_blank`), else the first of the parent's trailing lines or the footer (`blank_below`). The save that keeps lines keeps the blank lines above a dotted line whose last name went, where it used to cut them. spec.md's Remove, design.md's "Kept lines under edits", and the changelog say so. The placement property in `fuzz_smoke.rs` lets the line after a removed target gain its blank.
+	- Decisions:
+		- me, 20261116: past the parent's trailing lines the blank goes, as design.md's fallback reads, so a block's last field doesn't hand its blank to the next field outside the block, and row `2026110712372276-7` stays as it was. Handing it to the next line in the file was the other option. Filed as a `Check:` in questions.md.
+		- me, 20261116: a repeated header's blank still goes with the header when its last line is removed, as design.md's kept-lines bullet says, since it isn't the removed field's own blank.
+		- me, 20261116: the setter's folds still drop the blank of the instance that folds, which is 2026111623191935's, along with `adopt`. This item only changes the remove.
+	- Swept: the remove's rebuild is the one place a remove drops a node's lines in all 4: `try_remove` in Rust, `TryRemove` in Go, `try_remove` in Python, `shcl_try_remove` in C. The opened-by-kept path moves the field's lines whole, with its blank on its kept line. The keep-lines cut was in `keep_lines_as` in Rust, `keepLinesAs` in Go, `_keep_lines_as` in Python, and `keep_lines` in C. `collapse_dup` and `fold_dups_below` call `beside_kept` too, unchanged on purpose.
+	- Test case: placement rows `2026111623191917-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dd3t9`, `dderx`.
+	- Verified: the 3 rows fail on the library at `813dfecf` in all 4 (Rust and Go runners, C runner, `placement-watch.py` for Python) and pass on the change. The 4 conformance suites, the whole Rust suite, the Go tests in both modules, the 200,000-iteration release fuzz apart from `dd16k` (2026111623445822, which fails the same way at `813dfecf`), cli-regress (671 rows), crosscheck with a 2000-iteration dump (55461 comparisons), perf-gate, check-docs, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, gcc and clang at `-Werror`, and markdownlint. analyze-c found 2 things in C's `hand_blank`, a null dereference it couldn't rule out and swappable parameters, both fixed, and the pinned clang analyzer passes on `main.c`. Its other 2 reds are older (2026111623502776).
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz (`dd3t9`, `dderx` and the rest), clean once 2026111623445822 is fixed, and the cppcheck line from `LINT_EXTRA` for `shcl.h`.
+	- Branch: `nov17-2026110712372281`
+
+- The remove and the setter folds hand their lines on through `adopt`
+	- ID: 2026111623191935
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261116-231919
+	- Opened by: split from 2026110712372281
+	- Parent ID: 2026110712372281
+	- Problem description: the remove, `collapse_dup` and `fold_dups_below` move the lines a node leaves with `beside_kept`, `leave_above`, `leave_last` and `leave_below` rather than `adopt`.
+	- Requirements: those callers go through `adopt`, with its fallback of the heir, else the next sibling, else the parent's trailing lines, in all 4. The kept-line rules stay as they are. The old helpers go in the same commit, once the placement table and fuzz property pass with both in place.
+	- Note: `refile_folded` calls `leave_above` and `leave_last` too, so they turn into `adopt`'s fallback here rather than going, and 2026111623192782 takes the last of them. The remove's blank handover from 2026111623191917 (`hand_blank`, `set_blank`, `blank_below`) joins `adopt` too. `adopt` places lines after the heir's comments for what takes the node's place, and before them for a next sibling, since a kept line beside a removed node stays above that sibling's comments.
+	- Estimated effort: High
+
+- The load's fold hands its lines on through `adopt`
+	- ID: 2026111623192782
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261116-231927
+	- Opened by: split from 2026110712372281
+	- Parent ID: 2026110712372281
+	- Prereq IDs: 2026111623191935
+	- Problem description: a fold at load moves the kept lines of the later instance with `refile_folded` and `folded_kept`, and fixes the first blank with `settle_first_blank`, rather than `adopt`.
+	- Requirements: the fold goes through `adopt` in all 4, with the same file-order placement `refile_folded` gives now. The old helpers go in the same commit, once the placement table and fuzz property pass with both in place. `settle_first_blank` also clears the blank at the top of the output for every edit, which moves no line, so this item decides whether that part stays under its own name.
+	- Estimated effort: High
+
+- The banner toggle hands the author's lines on through `adopt`
+	- ID: 2026111623192800
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261116-231928
+	- Opened by: split from 2026110712372281
+	- Parent ID: 2026110712372281
+	- Prereq IDs: 2026111623191935, 2026111623192782
+	- Problem description: `drop_banners` moves the lines around the info block it takes off in its own code.
+	- Requirements: the lines it leaves go through `adopt` in all 4, with the author's lines kept where the block was (2026110613470302). Then a check-docs row greps the 4 bindings for the retired helper names, and design.md's "Where the code still differs" bullet loses its second half.
+	- Estimated effort: Avg
 
 - One helper reattaches the lines around a node an edit takes away
 	- ID: 2026110616475902

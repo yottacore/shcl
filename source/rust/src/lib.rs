@@ -8012,6 +8012,29 @@ fn beside_kept(nd: &mut NodeData) -> Vec<Lead> {
 	left
 }
 
+/// A remove hands the blank above what it took to the line now in its
+/// place: the first of the `below` lines it left under the node, else the
+/// next line left. `owed` is a blank from a remove just above. True when the
+/// blank is still owed, for the next line.
+fn hand_blank(gone: &NodeData, left: &mut [Lead], below: usize, owed: bool) -> bool {
+	let blank = owed || gone.blank_before || gone.leading().first().is_some_and(|l| l.blank_before);
+	match left.len().checked_sub(below).and_then(|k| left.get_mut(k)) {
+		Some(l) => {
+			l.blank_before |= blank;
+			false
+		}
+		None => blank,
+	}
+}
+
+/// The blank above a node: above its comments, else above its line.
+fn set_blank(nd: &mut NodeData) {
+	match nd.trivia.as_mut().and_then(|t| t.leading.first_mut()) {
+		Some(l) => l.blank_before = true,
+		None => nd.blank_before = true,
+	}
+}
+
 /// Kept lines in all of one node's trivia lists.
 fn kept_in_lists(nd: &NodeData) -> usize {
 	kept_in(nd.leading())
@@ -9096,13 +9119,10 @@ fn keep_lines_as(src: &str, doc: &Document, drop_bare: bool, bare: &mut bool) ->
 			continue;
 		}
 		// The next group stands where the names' line was. The blank lines
-		// above that line go with it, as above any line a remove takes.
+		// above that line stay, since the remove handed its blank to the
+		// next line.
 		let at_l = if took != 0 { took } else { l };
-		let mut cut = took;
-		while cut > 1 && blank(cut - 1) {
-			cut -= 1;
-		}
-		let skip = |k: usize| took != 0 && (cut..=end[took]).contains(&k);
+		let skip = |k: usize| took != 0 && (took..=end[took]).contains(&k);
 		let spliced = match from {
 			Some(w) if !same => splice_group(&lines, &loaded, (&was_runs, w), &now, (&is_runs, u)),
 			_ => None,
@@ -12882,11 +12902,20 @@ impl Document {
 			let kids = std::mem::take(&mut self.arena[p].children);
 			let mut keep: Vec<usize> = Vec::with_capacity(kids.len());
 			let mut left: Vec<Lead> = Vec::new();
+			// The blank above what went, for the next line left in its place.
+			let mut blank = false;
 			for c in kids {
 				if self.arena[c].parent == DEAD {
 					self.arena[c].parent = p;
-					left.append(&mut beside_kept(&mut self.arena[c]));
+					let under = self.arena[c].after().len();
+					let mut mine = beside_kept(&mut self.arena[c]);
+					let below = under - self.arena[c].after().len();
+					blank = hand_blank(&self.arena[c], &mut mine, below, blank);
+					left.append(&mut mine);
 				} else {
+					if std::mem::take(&mut blank) {
+						set_blank(&mut self.arena[c]);
+					}
 					if !left.is_empty() {
 						self.leave_above(c, std::mem::take(&mut left));
 					}
@@ -12897,6 +12926,9 @@ impl Document {
 			self.arena[p].star_list |= stacked;
 			// The next merge has a stacked list to put in brackets.
 			self.bracketed &= !stacked;
+			if blank {
+				self.blank_below(p);
+			}
 			if !left.is_empty() {
 				self.leave_last(p, left);
 			}
@@ -13106,6 +13138,23 @@ impl Document {
 		left.append(&mut self.orphans);
 		self.orphans = left;
 		restep(&mut self.orphans);
+	}
+
+	/// A blank a remove owes the parent's trailing lines, when the last of
+	/// its children went: the first of them, or the footer at the top. With
+	/// none, there is nothing to set off.
+	fn blank_below(&mut self, parent: usize) {
+		let first = if parent == ROOT {
+			self.orphans.first_mut()
+		} else {
+			self.arena[parent]
+				.trivia
+				.as_deref_mut()
+				.and_then(|t| t.after.first_mut())
+		};
+		if let Some(l) = first {
+			l.blank_before = true;
+		}
 	}
 
 	/// Still in the tree: each node up to ROOT is in its parent's list. A

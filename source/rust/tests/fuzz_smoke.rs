@@ -2988,10 +2988,14 @@ fn placement_slips(
 		// 2026111021153725: a comment edit that makes its field after a kept
 		// last line puts the new blank above that line's comments.
 		let made = edit == Placed::Comment && base.lines(named).is_empty();
+		// A remove hands the blank above what it took to the line now in its
+		// place (2026111623191917).
+		let handed = edit == Placed::Remove && blank && !a.blank && by_target(a.above, &was);
 		let unheld = a.first
 			|| b.first
 			|| noted || made && kept.contains(&a.line)
-			|| noted_new && heads_target(a);
+			|| noted_new && heads_target(a)
+			|| handed;
 		if fresh && !unheld && a.blank != blank {
 			slips.push(format!(
 				"{}: blank above its comments {} is now {}",

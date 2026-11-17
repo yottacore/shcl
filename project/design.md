@@ -728,11 +728,13 @@ Where a kept line is comes from canonical output before the edit. Under the targ
 | `Merge`, the layer's lines                                   | comes in                                                                                                              | comes in           | comes in, except a footer line the base already has, unless kept lines sit under it
 
 - A remove only takes lines away. It doesn't write any line the document didn't write before, so a field opened from a kept line doesn't leave a bare `name:` behind.
-	- Neither does a dotted line whose last name a remove takes, when the next line names the same names again. After `a.b: 1` goes, `a.c: 2` opens `a` (2026110613470312). The blank line above the removed line goes with it, as it does above any removed line.
+	- Neither does a dotted line whose last name a remove takes, when the next line names the same names again. After `a.b: 1` goes, `a.c: 2` opens `a` (2026110613470312). The blank line above the removed line stays above `a.c: 2`, as above any line a remove takes.
 
 - A field opened from a kept line goes with the last line under it, and the kept line stays where it was. A raw block of the same name after it had its fence on the name's line only because of that empty field, so the fence moves to a line of its own. That's the one rewrite a remove makes.
 
 - A remove takes the comments written against its target. Above it, that's the ones after the last kept line, and below it, the ones before the first kept line or blank line. A comment on the far side of a kept line stays with that line, and so does a run a blank line sets off from the target below it, which is the target's trailing lines only up to that blank (2026110712372276). A kept line the settle wrote as a comment counts as kept here, even though a reload of the canonical text reads it as a plain comment.
+
+- A remove hands the blank line above what it takes to what's left in its place: the first kept line it left under the target, else the next sibling, else the first of the parent's trailing lines, or the footer at the top. With none of those, the blank goes, since there's nothing under it to set off. So `x`, a blank, `y`, `z`, minus `y`, gives `x`, a blank, `z`, as cutting the line in an editor does (2026111623191917). The save that keeps lines keeps the blank above a dotted line whose last name went, for the same reason.
 
 - A repeated header goes when the last line under it is removed, since an earlier block already has that instance, and the blank line above it goes too. While anything stays under it, the header and its blank line both stay.
 

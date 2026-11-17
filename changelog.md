@@ -16,6 +16,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A comment run that a blank line sets off from the field below it belongs to the line above it, or to the file at the top, in every binding. So a remove, `clear_comments`, or `comments` on that field leaves it alone, where before they took it as the field's own comment, and a remove of the first field no longer takes the file's header comment or its info block. A comment added to the field goes right above it, under the blank. A remove still takes the comments right above the field and right under it, up to a blank line.
 
+- A remove keeps the blank line above the field it takes, above the next field, so a gap between 2 groups stays as it does when the line is cut in an editor. Removing one field of a dotted pair keeps the blank line above the pair the same way. It used to take the blank line with the field.
+
 - `instances`, `get --array`, and `get --slots` print a value quoted when it has any line break that Python's `splitlines()` splits at. Besides LF and CR, those are VT, FF, U+001C to U+001E, U+0085, U+2028, and U+2029. Those used to print bare, so a consumer splitting the output counted more values than there were.
 
 ### Fixed

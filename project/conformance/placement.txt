@@ -454,3 +454,59 @@ a: 1
 a: 1
 
 # section
+
+:: row 2026111623191917-1 a remove hands its blank line to the next line
+:: before
+x: 1
+
+y: 2
+z: 3
+:: ops
+remove	y
+:: expected
+x: 1
+
+z: 3
+:: keep
+x: 1
+
+z: 3
+
+:: row 2026111623191917-2 a remove takes its comments and hands its blank to the next line's
+:: before
+x: 1
+
+# about y
+y: 2
+# about z
+z: 3
+:: ops
+remove	y
+:: expected
+x: 1
+
+# about z
+z: 3
+:: keep
+x: 1
+
+# about z
+z: 3
+
+:: row 2026111623191917-3 a dotted pair keeps the blank above it when one of its fields goes
+:: before
+q: 0
+
+a.b: 1
+a.c: 2
+:: ops
+remove	a.b
+:: expected
+q: 0
+a:
+
+	c: 2
+:: keep
+q: 0
+
+a.c: 2

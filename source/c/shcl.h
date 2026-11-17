@@ -8476,6 +8476,37 @@ static void beside_kept(shcl_doc *d, ShclNode *nd, ShclVecLead *left) {
 	t->after.len = from;
 }
 
+/* A remove hands the blank above what it took to the line now in its place:
+   the first of the below lines beside_kept left on the end of left, else the
+   next line left. owed is a blank from a remove just above. True when the
+   blank is still owed, for the next line. */
+static int hand_blank(const ShclNode *gone, ShclVecLead *left, size_t below, int owed) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
+	int blank = owed || gone->blank_before || (gone->trivia && gone->trivia->leading.len && gone->trivia->leading.data[0].blank_before);
+	if (below > 0 && below <= left->len && left->data) {
+		left->data[left->len - below].blank_before = left->data[left->len - below].blank_before || blank;
+		return 0;
+	}
+	return blank;
+}
+
+/* The blank above a node: above its comments, else above its line. */
+static void set_blank(ShclNode *nd) {
+	if (nd->trivia && nd->trivia->leading.len) nd->trivia->leading.data[0].blank_before = 1;
+	else nd->blank_before = 1;
+}
+
+/* A blank a remove owes the parent's trailing lines, when the last of its
+   children went: the first of them, or the footer at the top. With none,
+   there is nothing to set off. */
+static void blank_below(shcl_doc *d, size_t parent) {
+	if (parent == ROOT) {
+		if (d->orphans.len) d->orphans.data[0].blank_before = 1;
+		return;
+	}
+	ShclTrivia *t = NODE(d, parent).trivia;
+	if (t && t->after.len) t->after.data[0].blank_before = 1;
+}
+
 /* The kept lines a load's fold gave this node from a later instance of it,
    with the comments before them, onto the end of left: what beside_kept
    takes, from the first line read after the node's own. Only a fold puts
@@ -8751,12 +8782,18 @@ shcl_read_usize shcl_try_remove(shcl_doc *d, const char *path, size_t plen) {
 		NODE(d, pn).children.len = 0;
 		ShclVecLead left = {0};
 		size_t w = 0;
+		/* The blank above what went, for the next line left in its place. */
+		int blank = 0;
 		for (size_t k = 0; k < kids->len; k++) {
 			size_t c = kids->data[k];
 			if (NODE(d, c).parent == DEAD) {
 				NODE(d, c).parent = pn;
+				size_t under = NODE(d, c).trivia ? NODE(d, c).trivia->after.len : 0;
 				beside_kept(d, &NODE(d, c), &left);
+				size_t below = under - (NODE(d, c).trivia ? NODE(d, c).trivia->after.len : 0);
+				blank = hand_blank(&NODE(d, c), &left, below, blank);
 			} else {
+				if (blank) { set_blank(&NODE(d, c)); blank = 0; }
 				if (left.len) leave_above(d, c, &left);
 				kids->data[w++] = c;
 			}
@@ -8766,6 +8803,7 @@ shcl_read_usize shcl_try_remove(shcl_doc *d, const char *path, size_t plen) {
 		NODE(d, pn).star_list = NODE(d, pn).star_list || stacked;
 		/* The next merge has a stacked list to put in brackets. */
 		d->bracketed = d->bracketed && !stacked;
+		if (blank) blank_below(d, pn);
 		if (left.len) leave_last(d, pn, &left);
 		/* The lines around what went are filed as a reload files them. */
 		settle_pairs(d, pn, 0);
@@ -12041,9 +12079,9 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 			continue;
 		}
 		/* The next group stands where the names' line was. The blank lines
-		   above that line go with it, as above any line a remove takes. */
+		   above that line stay, since the remove handed its blank to the
+		   next line. */
 		size_t at_l = took ? took : l, cut = took;
-		while (cut > 1 && kl_blank(KL_LINE(cut - 1))) cut--;
 		ShclStr spliced = s_empty();
 		size_t splice_at = 0;
 		int has_splice = from && !same && splice_group(a, &lines, &was, &wasR, from, &now, &isR, u, &splice_at, &spliced);
