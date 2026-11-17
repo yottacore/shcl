@@ -487,6 +487,82 @@ static int a_newer_format_document_saves_nowhere() {
 	return test_id_end(fails);
 }
 
+// A load that migrates in memory writes nothing, and its save gets every
+// check a plain load's does, over the file it read (2026111708542849).
+static int a_load_that_migrates_saves_through_the_guards() {
+	test_id("dfe4v", "a_load_that_migrates_saves_through_the_guards");
+	const char *tmp = std::getenv("TMPDIR");
+	if (!tmp || !*tmp) tmp = std::getenv("TEMP");
+	if (!tmp || !*tmp) tmp = std::getenv("TMP");
+	std::string dir = std::string(tmp && *tmp ? tmp : "/tmp") + "/shcl-veneer-loadmig-" + std::to_string((long)getpid());
+#ifdef _WIN32
+	CHECK(_mkdir(dir.c_str()) == 0);
+#else
+	CHECK(mkdir(dir.c_str(), 0700) == 0);
+#endif
+	using R = shcl::SaveResult;
+	using F = shcl::FileStatus;
+	const auto std_ = shcl::Strictness::Standard;
+	const std::string f = dir + "/f.shcl", gone = dir + "/gone.shcl";
+	const std::string old = "p: a,b\n# kept\nq: 1\n";
+	shcl::LoadOptions opts;
+	opts.keep_lines = opts.migrate = opts.from_v2 = true;
+	const std::string migrated = shcl::migrate_unstamped(old, true).text;
+	CHECK(migrated != old);
+	// The document is the migrated text's, and the load writes nothing.
+	CHECK(shcl::write_file_atomic(f, old) == shcl::WriteStatus::Ok);
+	{
+		auto loaded = shcl::Document::load_file_opts(f, std_, opts);
+		auto &doc = loaded.first;
+		CHECK(loaded.second == F::Clean);
+		CHECK(doc.to_text_keep_lines() == std::make_pair(migrated, true));
+		CHECK(shcl::read_file(f).first == old);
+		// A save over the file it read is no change, and keeps its lines.
+		CHECK(doc.set_int("q", 2) == shcl::SetStatus::Ok);
+		CHECK(doc.save_file_keep_lines(f) == std::make_pair(R::Ok, true));
+		CHECK(shcl::read_file(f).first == "p: [a, b]\n# kept\nq: 2\n");
+	}
+	// Another program's edit since the load is refused.
+	CHECK(shcl::write_file_atomic(f, old) == shcl::WriteStatus::Ok);
+	{
+		auto loaded = shcl::Document::load_file_opts(f, std_, opts);
+		CHECK(shcl::write_file_atomic(f, "p: x\n") == shcl::WriteStatus::Ok);
+		CHECK(loaded.first.save_file_keep_lines(f).first == R::Changed);
+		CHECK(shcl::read_file(f).first == "p: x\n");
+	}
+	// A newer format's file is parsed as it is, and refuses every save.
+	const std::string newer = "a: 1\n\n##    Format   4\n";
+	CHECK(shcl::write_file_atomic(f, newer) == shcl::WriteStatus::Ok);
+	{
+		auto loaded = shcl::Document::load_file_opts(f, std_, opts);
+		CHECK(loaded.first.newer_format());
+		CHECK(loaded.first.save_file_keep_lines(f).first == R::TooNew);
+		CHECK(shcl::read_file(f).first == newer);
+	}
+	// What the migration counts lost is lost to a canonical save.
+	const std::string lossy = "k: [x, y]\n";
+	CHECK(shcl::migrate_unstamped(lossy, true).lost > 0);
+	CHECK(shcl::write_file_atomic(f, lossy) == shcl::WriteStatus::Ok);
+	{
+		shcl::LoadOptions canon = opts;
+		canon.keep_lines = false;
+		auto loaded = shcl::Document::load_file_opts(f, std_, canon);
+		CHECK(loaded.first.save_file(f) == R::Refused);
+		CHECK(shcl::read_file(f).first == lossy);
+	}
+	// Without migrate it is load_file, and with it a missing file is too.
+	CHECK(shcl::write_file_atomic(f, old) == shcl::WriteStatus::Ok);
+	{
+		auto plain = shcl::Document::load_file_opts(f, std_, shcl::LoadOptions{});
+		auto want = shcl::Document::load_file(f);
+		CHECK(plain.second == want.second && plain.first.to_canonical() == want.first.to_canonical());
+		CHECK(shcl::Document::load_file_opts(gone, std_, opts).second == F::NotFound);
+	}
+	std::remove(f.c_str());
+	rmdir(dir.c_str());
+	return test_id_end(fails);
+}
+
 // A path holding a NUL is refused, as Rust, Go and Python refuse it, rather
 // than cut short at the NUL into another file's name (2026110312163208).
 static int a_path_holding_a_nul_is_refused() {
@@ -518,7 +594,8 @@ static int a_path_holding_a_nul_is_refused() {
 	CHECK(shcl::write_file_atomic(real, "b: 2\n") == W::Ok);
 	CHECK(shcl::read_file(cut) == std::make_pair(std::string(), F::Unreadable));
 	for (const auto &loaded : {shcl::Document::load_file(cut), shcl::Document::load_file_with(cut, shcl::Strictness::Strict),
-		     shcl::Document::load_file_keep_lines(cut, shcl::Strictness::Standard)}) {
+		     shcl::Document::load_file_keep_lines(cut, shcl::Strictness::Standard),
+		     shcl::Document::load_file_opts(cut, shcl::Strictness::Standard, shcl::LoadOptions{true, true, true})}) {
 		CHECK(loaded.second == F::Unreadable && loaded.first.read_int("b").status == shcl::Status::NotFound);
 	}
 	auto up = shcl::upgrade_file(cut, true).second;
@@ -1318,7 +1395,9 @@ int main() {
 	fails = 0;
 	const int newer = a_newer_format_document_saves_nowhere();
 	fails = 0;
-	return changed | spellings | created | newer | a_path_holding_a_nul_is_refused() | threads | smoke;
+	const int migrating = a_load_that_migrates_saves_through_the_guards();
+	fails = 0;
+	return changed | spellings | created | newer | migrating | a_path_holding_a_nul_is_refused() | threads | smoke;
 #else
 	return threads | smoke;
 #endif

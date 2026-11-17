@@ -221,6 +221,24 @@ pub struct SaveOptions {
 	pub mode: u32,
 }
 
+/// How `load_file_opts` loads. The default is `load_file_with`. The level is
+/// its own argument, since it is the one choice every load makes, and an
+/// all-zero options struct in Go and C would be Loose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LoadOptions {
+	/// Keep the text for `to_text_keep_lines`, as `load_file_keep_lines`
+	/// does. With `migrate`, the text kept is the migrated one.
+	pub keep_lines: bool,
+	/// Parse what `migrate_unstamped` makes of the file rather than the file
+	/// itself. Only the document changes: the file is not written, and a
+	/// save checks the path against the bytes the load read, so a save over
+	/// the file gets every check a plain load's does.
+	pub migrate: bool,
+	/// migrate's `from_v2`: the file can only have been written for 2.x.
+	/// Ignored without `migrate`.
+	pub from_v2: bool,
+}
+
 /// What a save checks the bytes at its path against: what the load read, and
 /// what this document's last save wrote. No path is kept, since a path taken
 /// at the load names another file by the save once a folder or a link on it
@@ -7106,7 +7124,7 @@ impl Document {
 	/// be read), and the status separates the four cases consumers otherwise
 	/// confuse: absent, present-but-unreadable, parsed with errors, clean.
 	pub fn load_file(path: &str) -> (Document, FileStatus) {
-		Document::load_file_any(path, Strictness::Standard, false)
+		Document::load_file_any(path, Strictness::Standard, false, None)
 	}
 
 	/// load_file at a chosen strictness. As parse_with, only Strict can fail:
@@ -7121,32 +7139,60 @@ impl Document {
 		Document::load_file_gated(path, level, false)
 	}
 
+	/// load_file_with, as the options describe. With `migrate`, the document is the
+	/// one `migrate_unstamped` makes of the file, in memory, for a program
+	/// whose files may be older than this format: its save goes through every
+	/// check a save of a plain load does, over the file it read. The lines
+	/// `migrate` counts in `lost` count in `lost_count`, so a save that
+	/// would write them canonical refuses as for any lost line. A file
+	/// naming a newer format is parsed as it is, so its save is `TooNew`.
+	#[allow(clippy::result_large_err)]
+	pub fn load_file_opts(
+		path: &str,
+		level: Strictness,
+		opts: &LoadOptions,
+	) -> Result<(Document, FileStatus), LoadError> {
+		let migrate = opts.migrate.then_some(opts.from_v2);
+		let (doc, st) = Document::load_file_any(path, level, opts.keep_lines, migrate);
+		Ok((doc.strict_gate()?, st))
+	}
+
 	#[allow(clippy::result_large_err)]
 	fn load_file_gated(
 		path: &str,
 		level: Strictness,
 		keep: bool,
 	) -> Result<(Document, FileStatus), LoadError> {
-		let (doc, st) = Document::load_file_any(path, level, keep);
+		let (doc, st) = Document::load_file_any(path, level, keep, None);
 		Ok((doc.strict_gate()?, st))
 	}
 
-	fn load_file_any(path: &str, level: Strictness, keep: bool) -> (Document, FileStatus) {
+	/// `migrate` is Some(from_v2) to parse the migrated text.
+	fn load_file_any(
+		path: &str,
+		level: Strictness,
+		keep: bool,
+		migrate: Option<bool>,
+	) -> (Document, FileStatus) {
 		let text = match read_file(path, 0) {
 			Ok(t) => t,
 			// A file that could not be read gives a save nothing to compare,
 			// so its bytes are as unread as a parsed document's.
 			Err(st) => return (Parser::new().parse("", level), st),
 		};
-		let mut doc = Parser::new().parse(&text, level);
+		let m = migrate.map(|from_v2| migrate_unstamped(&text, from_v2));
+		let parsed = m.as_ref().map_or(text.as_str(), |m| m.text.as_str());
+		let mut doc = Parser::new().parse(parsed, level);
+		doc.lost += m.as_ref().map_or(0, |m| m.lost);
 		let st = if doc.error_count() > 0 {
 			FileStatus::HadErrors
 		} else {
 			FileStatus::Clean
 		};
 		if keep {
-			doc.keep_source(&text);
+			doc.keep_source(parsed);
 		}
+		// The file's own bytes, so a save over it is no change.
 		doc.seen.read = Some(text);
 		(doc, st)
 	}

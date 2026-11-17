@@ -6155,6 +6155,83 @@ def main():
 				up = shcl.upgrade(text, from_v2)
 				nsame("upgrade " + repr(text), (up.current, up.text), (True, text))
 
+	test_id("dfe4s", "a_load_that_migrates_saves_through_the_guards")
+	# A load that migrates in memory writes nothing, and its save gets every
+	# check a plain load's does, over the file it read (2026111708542849).
+	with tempfile.TemporaryDirectory() as md:
+		mf = os.path.join(md, "f.shcl")
+
+		def mwrite(text):
+			with open(mf, "w", encoding="utf-8", newline="") as fh:
+				fh.write(text)
+
+		def mread():
+			with open(mf, encoding="utf-8", newline="") as fh:
+				return fh.read()
+
+		def msame(what, got, want):
+			if got != want:
+				raise SystemExit(f"{what}: {got!r}, want {want!r}")
+
+		def mraises(what, call, kind):
+			try:
+				call()
+			except kind as e:
+				return e
+			raise SystemExit(f"{what}: saved")
+
+		def mload(opts):
+			return shcl.Document.load_file_opts(mf, shcl.Strictness.Standard, opts)
+
+		mold = "p: a,b\n# kept\nq: 1\n"
+		mopts = shcl.LoadOptions(keep_lines=True, migrate=True, from_v2=True)
+		migrated = shcl.migrate_unstamped(mold, True).text
+		if migrated == mold:
+			raise SystemExit("migrate left the 2.x text as it was")
+		# The document is the migrated text's, and the load writes nothing.
+		mwrite(mold)
+		mdoc, mst = mload(mopts)
+		msame("status", mst, shcl.FileStatus.Clean)
+		msame("kept text", mdoc.to_text_keep_lines(), (migrated, True))
+		msame("file after load", mread(), mold)
+		# A save over the file it read is no change, and keeps its lines.
+		msame("set", mdoc.set_int("q", 2), shcl.SetStatus.Ok)
+		msame("save", mdoc.save_file_keep_lines(mf), True)
+		msame("saved", mread(), migrated.replace("q: 1", "q: 2"))
+		# Another program's edit since the load is refused.
+		mwrite(mold)
+		mdoc, _ = mload(mopts)
+		mwrite("p: x\n")
+		e = mraises("changed", lambda: mdoc.save_file_keep_lines(mf), shcl.SaveChanged)
+		msame("changed path", e.path, mf)
+		msame("changed left", mread(), "p: x\n")
+		# A newer format's file is parsed as it is, and refuses every save.
+		mnewer = "a: 1\n\n##    Format   4\n"
+		mwrite(mnewer)
+		mdoc, _ = mload(mopts)
+		msame("newer", mdoc.newer_format(), True)
+		e = mraises("newer", lambda: mdoc.save_file_keep_lines(mf), shcl.SaveTooNew)
+		msame("newer path", e.path, mf)
+		msame("newer left", mread(), mnewer)
+		# What migrate counts lost is lost to a canonical save.
+		mlossy = "k: [x, y]\n"
+		mm = shcl.migrate_unstamped(mlossy, True)
+		if mm.lost == 0:
+			raise SystemExit("migrate lost nothing")
+		mwrite(mlossy)
+		mdoc, _ = mload(shcl.LoadOptions(migrate=True, from_v2=True))
+		msame("lost", mdoc.lost_count(), mm.lost)
+		e = mraises("lossy", lambda: mdoc.save_file(mf), shcl.SaveRefused)
+		msame("lossy refusal", (e.path, e.lost), (mf, mm.lost))
+		msame("lossy left", mread(), mlossy)
+		# Without migrate it is load_file, and with it a missing file is too.
+		mwrite(mold)
+		mplain, mpst = mload(shcl.LoadOptions())
+		mwant, mwst = shcl.Document.load_file(mf)
+		msame("no options", (mplain.to_canonical(), mpst), (mwant.to_canonical(), mwst))
+		_, mst = shcl.Document.load_file_opts(os.path.join(md, "gone.shcl"), shcl.Strictness.Standard, mopts)
+		msame("missing", mst, shcl.FileStatus.NotFound)
+
 	test_id("ddrnd", "default_fills_what_does_not_read")
 	# A default form writes where the field is missing, empty or does not read
 	# as its type, and keeps a value it replaces above the field as a comment

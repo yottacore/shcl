@@ -7903,6 +7903,80 @@ int main(int argc, char **argv) {
 		}
 		dir_clear(ndir);
 	}
+	test_id("dfe4t", "a_load_that_migrates_saves_through_the_guards");
+	{
+		/* A load that migrates in memory writes nothing, and its save gets
+		   every check a plain load's does, over the file it read
+		   (2026111708542849). Same fixture in every runner. */
+		const char *at = "load migrate";
+		const char *old = "p: a,b\n# kept\nq: 1\n";
+		char mdir[256], f[320], gone[320];
+		up_dir(mdir, sizeof mdir, "loadmig");
+		snprintf(f, sizeof f, "%s/f.shcl", mdir);
+		snprintf(gone, sizeof gone, "%s/gone.shcl", mdir);
+		shcl_load_options opts = {0};
+		opts.keep_lines = opts.migrate = opts.from_v2 = 1;
+		shcl_migration mig = shcl_migrate_unstamped(old, strlen(old), 1);
+		if (mig.len == strlen(old) && memcmp(mig.text, old, mig.len) == 0) fail(at, "migrate left the 2.x text as it was");
+		/* The document is the migrated text's, and the load writes nothing. */
+		put_file(f, old);
+		shcl_file_status st = SHCL_FILE_UNREADABLE;
+		shcl_doc *doc = shcl_load_file_opts(f, SHCL_STANDARD, opts, &st);
+		if (st != SHCL_FILE_CLEAN) fail(at, "status");
+		int k = 0;
+		shcl_str kt = shcl_to_text_keep_lines(doc, &k);
+		if (!k || kt.n != mig.len || memcmp(kt.p, mig.text, mig.len) != 0) fail(at, "kept text");
+		if (!file_is(f, old)) fail(at, "the load wrote the file");
+		/* A save over the file it read is no change, and keeps its lines. */
+		if (shcl_set_int(doc, "q", 1, 2) != SHCL_SET_OK) fail(at, "set");
+		k = 0;
+		if (shcl_save_file_keep_lines(doc, f, &k, NULL) != SHCL_SAVE_OK || !k) fail(at, "save");
+		if (!file_is(f, "p: [a, b]\n# kept\nq: 2\n")) fail(at, "saved text");
+		shcl_free(doc);
+		free(mig.text);
+		/* Another program's edit since the load is refused. */
+		put_file(f, old);
+		doc = shcl_load_file_opts(f, SHCL_STANDARD, opts, NULL);
+		put_file(f, "p: x\n");
+		if (shcl_save_file_keep_lines(doc, f, NULL, NULL) != SHCL_SAVE_CHANGED) fail(at, "changed");
+		if (!file_is(f, "p: x\n")) fail(at, "a changed file was written");
+		shcl_free(doc);
+		/* A newer format's file is parsed as it is, and refuses every save. */
+		const char *newer = "a: 1\n\n##    Format   4\n";
+		put_file(f, newer);
+		doc = shcl_load_file_opts(f, SHCL_STANDARD, opts, NULL);
+		if (!shcl_newer_format(doc)) fail(at, "newer: not newer");
+		if (shcl_save_file_keep_lines(doc, f, NULL, NULL) != SHCL_SAVE_TOO_NEW) fail(at, "newer save");
+		if (!file_is(f, newer)) fail(at, "a newer file was written");
+		shcl_free(doc);
+		/* What the migration counts lost is lost to a canonical save. */
+		const char *lossy = "k: [x, y]\n";
+		shcl_migration lm = shcl_migrate_unstamped(lossy, strlen(lossy), 1);
+		if (lm.lost == 0) fail(at, "migrate lost nothing");
+		put_file(f, lossy);
+		shcl_load_options canon = opts;
+		canon.keep_lines = 0;
+		doc = shcl_load_file_opts(f, SHCL_STANDARD, canon, NULL);
+		if (shcl_lost_count(doc) != lm.lost) fail(at, "lost count");
+		if (shcl_save_file(doc, f, NULL) != SHCL_SAVE_REFUSED) fail(at, "lossy save");
+		if (!file_is(f, lossy)) fail(at, "a refused save wrote the file");
+		shcl_free(doc);
+		free(lm.text);
+		/* Without migrate it is shcl_load_file, and with it a missing file is too. */
+		put_file(f, old);
+		shcl_load_options none = {0};
+		shcl_file_status pst = SHCL_FILE_UNREADABLE, wst = SHCL_FILE_UNREADABLE;
+		shcl_doc *plain = shcl_load_file_opts(f, SHCL_STANDARD, none, &pst);
+		shcl_doc *want = shcl_load_file(f, &wst);
+		shcl_str pc = shcl_to_canonical(plain), wc = shcl_to_canonical(want);
+		if (pst != wst || pc.n != wc.n || memcmp(pc.p, wc.p, pc.n) != 0) fail(at, "no options: not shcl_load_file");
+		shcl_free(plain);
+		shcl_free(want);
+		doc = shcl_load_file_opts(gone, SHCL_STANDARD, opts, &st);
+		if (st != SHCL_FILE_NOT_FOUND) fail(at, "missing");
+		shcl_free(doc);
+		dir_clear(mdir);
+	}
 	test_id_end();
 	if (nfail) { fprintf(stderr, "conformance: %d failure(s)\n", nfail); return 1; }
 	printf("conformance: %zu case(s) pass\n", nn);

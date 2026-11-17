@@ -357,6 +357,14 @@ typedef struct {
 	int create;     /* only make a new file: SHCL_SAVE_EXISTS when one is there, even one another save makes at the same time */
 	unsigned mode;  /* the permission bits (0777) a file this save makes gets, exactly, whatever the umask; 0 is an ordinary create's; a file already there keeps its own, and windows has no such bits */
 } shcl_save_options;
+/* How shcl_load_file_opts loads. All zero, as {0} gives, is
+   shcl_load_file_with. The level is its own argument, since it is the one
+   choice every load makes, and a zero level is SHCL_LOOSE. */
+typedef struct {
+	int keep_lines; /* keep the text for shcl_to_text_keep_lines, as shcl_load_file_keep_lines; with migrate, the migrated text */
+	int migrate;    /* parse what shcl_migrate_unstamped makes of the file; the file is not written, and a save checks the path against the bytes the load read */
+	int from_v2;    /* migrate's from_v2: the file can only have been written for 2.x; ignored without migrate */
+} shcl_load_options;
 /* Why a write failed, so a program can tell a missing folder from no
    permission or a full disk without reading errno itself. NOT_FOUND and
    UNREADABLE are shcl_file_status's names. Every call that writes takes a
@@ -392,6 +400,14 @@ shcl_save_result shcl_save_file_lossy(shcl_doc *d, const char *path, shcl_write_
 int shcl_write_file_atomic(const char *path, const char *data, size_t n, shcl_write_status *why);
 // shcl_load_file_with, keeping the text for shcl_to_text_keep_lines.
 shcl_doc *shcl_load_file_keep_lines(const char *path, shcl_strictness s, shcl_file_status *status);
+// shcl_load_file_with, as the options describe. With migrate, the document is
+// the one shcl_migrate_unstamped makes of the file, in memory, for a program
+// whose files may be older than this format: its save goes through every
+// check a save of a plain load does, over the file it read. The lines the
+// migration counts in lost count in shcl_lost_count, so a save that would
+// write them canonical refuses as for any lost line. A file naming a newer
+// format is parsed as it is, so its save is SHCL_SAVE_TOO_NEW.
+shcl_doc *shcl_load_file_opts(const char *path, shcl_strictness s, shcl_load_options opts, shcl_file_status *status);
 // shcl_save_file with shcl_to_text_keep_lines: *kept (when not NULL) is 1 when
 // it kept the lines, 0 when it wrote the canonical form instead. A line the
 // load dropped comes back as written when the lines are kept, so this refuses
@@ -15641,13 +15657,23 @@ static int s_something_at(const char *path) {
 /* Every load that reads a file comes here, as the reference's load_file_any:
    read, parse, and keep the text for a save's changed check. A file that could
    not be read gives a save nothing to compare, so its bytes are as unread as a
-   parsed document's. */
-static shcl_doc *s_load_file_any(const char *path, shcl_strictness s, int keep, shcl_file_status *status) {
+   parsed document's. migrate is from_v2 to parse the migrated text, or -1. */
+static shcl_doc *s_load_file_any(const char *path, shcl_strictness s, int keep, int migrate, shcl_file_status *status) {
 	size_t len = 0;
 	shcl_file_status st = SHCL_FILE_UNREADABLE;
 	char *buf = shcl_read_file(path, 0, &len, &st);
 	if (status) *status = st;
-	shcl_doc *d = !buf ? shcl_parse_with("", 0, s) : keep ? shcl_parse_keep_lines(buf, len, s) : shcl_parse_with(buf, len, s);
+	shcl_doc *d;
+	if (buf && migrate >= 0) {
+		shcl_migration m = shcl_migrate_unstamped(buf, len, migrate);
+		if (!m.text) { free(buf); return NULL; }
+		d = keep ? shcl_parse_keep_lines(m.text, m.len, s) : shcl_parse_with(m.text, m.len, s);
+		free(m.text);
+		if (d) d->lost += m.lost;
+	} else {
+		d = !buf ? shcl_parse_with("", 0, s) : keep ? shcl_parse_keep_lines(buf, len, s) : shcl_parse_with(buf, len, s);
+	}
+	// The file's own bytes, so a save over it is no change.
 	if (d && buf) { d->read_text = buf; d->read_len = len; buf = NULL; }
 	free(buf);
 	if (!d || st != SHCL_FILE_CLEAN || !status) return d;
@@ -15661,7 +15687,7 @@ static shcl_doc *s_load_file_any(const char *path, shcl_strictness s, int keep, 
 // status out-param separates the four cases consumers otherwise confuse:
 // absent, present-but-unreadable, parsed with errors, clean.
 shcl_doc *shcl_load_file_with(const char *path, shcl_strictness s, shcl_file_status *status) {
-	return s_load_file_any(path, s, 0, status);
+	return s_load_file_any(path, s, 0, -1, status);
 }
 
 const char *shcl_file_status_name(shcl_file_status s) {
@@ -15675,7 +15701,11 @@ shcl_doc *shcl_load_file(const char *path, shcl_file_status *status) {
 
 // shcl_load_file_with, keeping the text for shcl_to_text_keep_lines.
 shcl_doc *shcl_load_file_keep_lines(const char *path, shcl_strictness s, shcl_file_status *status) {
-	return s_load_file_any(path, s, 1, status);
+	return s_load_file_any(path, s, 1, -1, status);
+}
+
+shcl_doc *shcl_load_file_opts(const char *path, shcl_strictness s, shcl_load_options opts, shcl_file_status *status) {
+	return s_load_file_any(path, s, opts.keep_lines != 0, opts.migrate ? (opts.from_v2 != 0) : -1, status);
 }
 
 // File tier, save half: write the document's canonical text to PATH through

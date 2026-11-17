@@ -35,6 +35,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- codeql-scan fails de5aj on an empty except in the Python CLI's gone_since_read
+	- ID: 2026111709183317
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261117-091833
+	- Opened by: nov17b-2026111016205704
+	- Steps to reproduce: run cicd/utility/codeql-scan.bash.
+	- Incorrect behavior: de5aj fails with py/empty-except at source/python/cmd/shcl/main.py's gone_since_read, an except clause that only passes with no comment.
+	- Estimated effort: Low
+	- Origin: Confirmed. 1bbee68b (2026-11-11, beta2 bits), older than round nov17b.
+
 - A remove drops the blank line above its target, so the gap between 2 groups closes
 	- ID: 2026111623191917
 	- Type: Enhancement
@@ -436,6 +449,44 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Add a `load_file` option that migrates in memory and keeps the path, so a later save goes through every guard.
 		- A text call on a document naming a newer major refuses, as the save does with `TooNew`.
 		- Make the same change in all 4 and the C++ interface.
+	- Estimated effort: Avg
+	- Note: split in 2. The load option is 2026111708542849, and the text call's refusal is 2026111708542868.
+
+- Format versions: a load option that migrates in memory and keeps the path
+	- ID: 2026111708542849
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-085428
+	- Opened by: 2026111016205704
+	- Parent ID: 2026111016205704
+	- Requirements: the parent's first requirement, in all 4 and the C++ interface. A save of the migrated document goes through every save guard.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261117: the call is `load_file_opts(path, level, &LoadOptions)` with `keep_lines`, `migrate` and `from_v2` (Go `LoadFileOpts`, C `shcl_load_file_opts` with `shcl_load_options` by value, C++ `Document::load_file_opts`). The level stays its own argument, since a zero level in Go and C is Loose, so all-zero options are `load_file_with`. `load_file_with` keeps its signature, since changing it touches every caller. Also a Check: entry.
+		- me, 20261117: it runs `migrate_unstamped`, as the issue's note asks, so 2026111018212703 can swap in its format steps. The document keeps the bytes the load read, so a save over that file passes the changed check, and with `keep_lines` it keeps the migrated text.
+		- me, 20261117: the lines `migrate` counts in `lost` add to the document's lost count, so a canonical save refuses over them, and a save that keeps lines writes them as they were.
+		- me, 20261117: no accessor for `ambiguous` or whether the text changed. A caller that wants them can call `migrate_unstamped` on the text, and the stamp on every save (2026111708130702) will tell the next load the file is current.
+	- Actual fix: `load_file_any` and its spellings take an optional migrate, parse the migrated text, add its lost count, and keep the file's own bytes for the save. spec.md's file tier, design.md's format bullets and the changelog's New say so.
+	- Swept: every load that reads a file in all 4 goes through `load_file_any` (C `s_load_file_any`), and each caller passes no migrate. The C++ interface refuses a NUL in the path first, as its other loads do, and `devwa` covers it. Python's `__all__` has `LoadOptions`.
+	- Verified: the new tests fail in all 4 and the C++ interface with the migrate step turned off, and pass with it. `cicd.bash --backlog-run-quick rust python` and `--backlog-run-quick go c` passed, as did check-veneer, check-docs, `test-ids.py check` and the markdown checks. codeql-scan passed `de5ag` and `de5am`, so the new veneer call's suppression covers a finding. Its `de5aj` red is older than the round (2026111709183317). analyze-c didn't fit in 4 minutes, so it waits for the full run.
+	- Test case: `a_load_that_migrates_saves_through_the_guards` in Rust (`dfe4q`), Go `TestALoadThatMigratesSavesThroughTheGuards` (`dfe4r`), Python (`dfe4s`), the C runner (`dfe4t`) and the veneer smoke (`dfe4v`), plus a `load_file_opts` row in `devwa`.
+	- Acceptance signoff: Self-closed: the load does what the requirement asks, each test failed with the step off and passes with it. The API names are a Check: entry.
+	- Branch: `nov17b-2026111016205704`
+	- Closed: 20261117-091532
+
+- Format versions: the line-keeping text call gives a newer format's text with no refusal
+	- ID: 2026111708542868
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-085428
+	- Opened by: 2026111016205704
+	- Parent ID: 2026111016205704
+	- Requirements: the parent's second requirement, in all 4 and the C++ interface. A text call on a document naming a newer format refuses, as the save does with TooNew.
 	- Estimated effort: Avg
 
 - A save can't choose whether to add the info block

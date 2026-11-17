@@ -6726,3 +6726,85 @@ fn a_newer_format_document_saves_nowhere() {
 	}
 	let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_load_that_migrates_saves_through_the_guards() {
+	let _id = test_id("dfe4q");
+	use shcl::{FileStatus, LoadOptions, SaveError};
+	let dir = std::env::temp_dir().join(format!("shcl-loadmig-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(&dir).unwrap();
+	let f = dir.join("f.shcl").to_str().unwrap().to_string();
+	let read = |p: &str| std::fs::read_to_string(p).unwrap();
+	let old = "p: a,b\n# kept\nq: 1\n";
+	let opts = LoadOptions {
+		keep_lines: true,
+		migrate: true,
+		from_v2: true,
+	};
+	let migrated = migrate_unstamped(old, true).text;
+	assert_ne!(migrated, old);
+
+	// The document is the migrated text's, and the load writes nothing.
+	std::fs::write(&f, old).unwrap();
+	let (mut doc, st) = Document::load_file_opts(&f, Strictness::Standard, &opts).unwrap();
+	assert_eq!(st, FileStatus::Clean);
+	assert_eq!(doc.to_text_keep_lines(), (migrated.clone(), true));
+	assert_eq!(read(&f), old);
+	// A save over the file it read is no change, and keeps its lines.
+	assert_eq!(doc.set_int("q", 2), shcl::SetStatus::Ok);
+	assert_eq!(doc.save_file_keep_lines(&f), Ok(true));
+	assert_eq!(read(&f), migrated.replace("q: 1", "q: 2"));
+
+	// Another program's edit since the load is refused.
+	std::fs::write(&f, old).unwrap();
+	let (mut doc, _) = Document::load_file_opts(&f, Strictness::Standard, &opts).unwrap();
+	std::fs::write(&f, "p: x\n").unwrap();
+	assert_eq!(
+		doc.save_file_keep_lines(&f),
+		Err(SaveError::Changed { path: f.clone() })
+	);
+	assert_eq!(read(&f), "p: x\n");
+
+	// A newer format's file is parsed as it is, and refuses every save.
+	let newer = "a: 1\n\n##    Format   4\n";
+	std::fs::write(&f, newer).unwrap();
+	let (mut doc, _) = Document::load_file_opts(&f, Strictness::Standard, &opts).unwrap();
+	assert!(doc.newer_format());
+	assert_eq!(
+		doc.save_file_keep_lines(&f),
+		Err(SaveError::TooNew { path: f.clone() })
+	);
+	assert_eq!(read(&f), newer);
+
+	// What migrate counts lost is lost to a canonical save.
+	let lossy = "k: [x, y]\n";
+	let m = migrate_unstamped(lossy, true);
+	assert!(m.lost > 0);
+	std::fs::write(&f, lossy).unwrap();
+	let canon = LoadOptions {
+		keep_lines: false,
+		..opts
+	};
+	let (mut doc, _) = Document::load_file_opts(&f, Strictness::Standard, &canon).unwrap();
+	assert_eq!(doc.lost_count(), m.lost);
+	assert_eq!(
+		doc.save_file(&f),
+		Err(SaveError::Refused {
+			path: f.clone(),
+			lost: m.lost,
+		})
+	);
+	assert_eq!(read(&f), lossy);
+
+	// Without migrate it is load_file, and with it a missing file is too.
+	std::fs::write(&f, old).unwrap();
+	let (plain, st) =
+		Document::load_file_opts(&f, Strictness::Standard, &LoadOptions::default()).unwrap();
+	let (want, wst) = Document::load_file(&f);
+	assert_eq!((plain.to_canonical(), st), (want.to_canonical(), wst));
+	let gone = dir.join("gone.shcl").to_str().unwrap().to_string();
+	let (_, st) = Document::load_file_opts(&gone, Strictness::Standard, &opts).unwrap();
+	assert_eq!(st, FileStatus::NotFound);
+	let _ = std::fs::remove_dir_all(&dir);
+}

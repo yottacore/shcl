@@ -28,6 +28,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The info block's version row is `##    Format   3.0`, in `init`, a creating `set --write`, `banner on`, `upgrade`, and `GEN_BANNER` (each binding's spelling), and `migrate` stamps `##    Format   3.0` too. beta1's `##    Format   3` still reads as format 3.0. So `banner on` replaces a beta1 block at the end of a file rather than leaving it as it is. `banner on` and `banner off` take a `## SHCL format` stamp off where they take a Format line off, and a block kept at the top gets its stamp set to this format.
 
+### New
+
+- `load_file_opts()` with `migrate` loads a file that may be older than this format by migrating it in memory. A save of that document over the file gets every check a save does, a newer format's refusal included.
+
 ### Fixed
 
 - `fmt` wrote a comment one level in when a blank line set it off from the comments above and the line under it was a top-level line kept for an error. Any edit put it back at column 0, so the file had 2 forms. It's written at column 0 now, and the save that keeps lines leaves it as written after an edit.

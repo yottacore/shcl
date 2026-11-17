@@ -8101,6 +8101,120 @@ func TestANewerFormatDocumentSavesNowhere(t *testing.T) {
 	}
 }
 
+func TestALoadThatMigratesSavesThroughTheGuards(t *testing.T) {
+	defer testID(t, "dfe4r")
+	dir := t.TempDir()
+	f := filepath.Join(dir, "f.shcl")
+	write := func(text string) {
+		t.Helper()
+		if err := os.WriteFile(f, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read := func() string {
+		t.Helper()
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	load := func(opts LoadOptions) (*Document, FileStatus) {
+		t.Helper()
+		doc, st, err := LoadFileOpts(f, Standard, opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return doc, st
+	}
+	old := "p: a,b\n# kept\nq: 1\n"
+	opts := LoadOptions{KeepLines: true, Migrate: true, FromV2: true}
+	migrated := MigrateUnstamped(old, true).Text
+	if migrated == old {
+		t.Fatalf("migrate left %q as it was", old)
+	}
+
+	// The document is the migrated text's, and the load writes nothing.
+	write(old)
+	doc, st := load(opts)
+	if st != FileClean {
+		t.Errorf("status %v", st)
+	}
+	if got, kept := doc.ToTextKeepLines(); got != migrated || !kept {
+		t.Errorf("kept text %q %v, want %q", got, kept, migrated)
+	}
+	if read() != old {
+		t.Errorf("the load wrote the file")
+	}
+	// A save over the file it read is no change, and keeps its lines.
+	if st := doc.SetInt("q", 2); st != SetOk {
+		t.Fatalf("set: %v", st)
+	}
+	if kept, err := doc.SaveFileKeepLines(f); err != nil || !kept {
+		t.Errorf("save: %v %v", kept, err)
+	}
+	if want := strings.Replace(migrated, "q: 1", "q: 2", 1); read() != want {
+		t.Errorf("saved %q, want %q", read(), want)
+	}
+
+	// Another program's edit since the load is refused.
+	write(old)
+	doc, _ = load(opts)
+	write("p: x\n")
+	var changed *SaveChanged
+	if _, err := doc.SaveFileKeepLines(f); !errors.As(err, &changed) || changed.Path != f {
+		t.Errorf("changed: %v", err)
+	}
+	if read() != "p: x\n" {
+		t.Errorf("a refused save wrote the file")
+	}
+
+	// A newer format's file is parsed as it is, and refuses every save.
+	newer := "a: 1\n\n##    Format   4\n"
+	write(newer)
+	doc, _ = load(opts)
+	if !doc.NewerFormat() {
+		t.Errorf("newer: not newer")
+	}
+	var tooNew *SaveTooNew
+	if _, err := doc.SaveFileKeepLines(f); !errors.As(err, &tooNew) || tooNew.Path != f {
+		t.Errorf("newer: %v", err)
+	}
+	if read() != newer {
+		t.Errorf("a newer file was written")
+	}
+
+	// What Migrate counts lost is lost to a canonical save.
+	lossy := "k: [x, y]\n"
+	m := MigrateUnstamped(lossy, true)
+	if m.Lost == 0 {
+		t.Fatalf("migrate lost nothing of %q", lossy)
+	}
+	write(lossy)
+	doc, _ = load(LoadOptions{Migrate: true, FromV2: true})
+	if doc.LostCount() != m.Lost {
+		t.Errorf("lost %d, want %d", doc.LostCount(), m.Lost)
+	}
+	var refused *SaveRefused
+	if err := doc.SaveFile(f); !errors.As(err, &refused) || refused.Path != f || refused.Lost != m.Lost {
+		t.Errorf("lossy: %v", err)
+	}
+	if read() != lossy {
+		t.Errorf("a refused save wrote the file")
+	}
+
+	// Without Migrate it is LoadFile, and with it a missing file is too.
+	write(old)
+	plain, pst := load(LoadOptions{})
+	want, wst := LoadFile(f)
+	if plain.ToCanonical() != want.ToCanonical() || pst != wst {
+		t.Errorf("no options: not LoadFile")
+	}
+	if _, st, _ := LoadFileOpts(filepath.Join(dir, "gone.shcl"), Standard, opts); st != FileNotFound {
+		t.Errorf("missing: %v", st)
+	}
+}
+
 // A zero-value Document is New()'s empty document: every exported method on
 // one gives what it gives on New(), and none panics. The walk finds the
 // methods itself, so a new one that skips ready() fails here

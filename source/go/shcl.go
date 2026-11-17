@@ -10575,7 +10575,7 @@ func (s FileStatus) String() string {
 // otherwise confuse: absent, present-but-unreadable, parsed with errors,
 // clean.
 func LoadFile(path string) (*Document, FileStatus) {
-	return loadFileAny(path, Standard, false)
+	return loadFileAny(path, Standard, false, false, false)
 }
 
 // LoadFileWith is LoadFile at a chosen strictness. As ParseWith, only Strict
@@ -10587,13 +10587,44 @@ func LoadFileWith(path string, level Strictness) (*Document, FileStatus, error) 
 	return loadFileGated(path, level, false)
 }
 
-func loadFileGated(path string, level Strictness, keep bool) (*Document, FileStatus, error) {
-	doc, st := loadFileAny(path, level, keep)
+// LoadOptions is how LoadFileOpts loads. The zero value is LoadFileWith.
+// The level is its own argument, since it is the one choice every load makes,
+// and a zero Strictness is Loose.
+type LoadOptions struct {
+	// KeepLines keeps the text for ToTextKeepLines, as LoadFileKeepLines
+	// does. With Migrate, the text kept is the migrated one.
+	KeepLines bool
+	// Migrate parses what MigrateUnstamped makes of the file rather than the
+	// file itself. Only the document changes: the file is not written, and a
+	// save checks the path against the bytes the load read, so a save over
+	// the file gets every check a plain load's does.
+	Migrate bool
+	// FromV2 is Migrate's fromV2: the file can only have been written for
+	// 2.x. Ignored without Migrate.
+	FromV2 bool
+}
+
+// LoadFileOpts is LoadFileWith, as the options describe. With Migrate, the
+// document is the one MigrateUnstamped makes of the file, in memory, for a
+// program whose files may be older than this format: its save goes through
+// every check a save of a plain load does, over the file it read. The lines
+// Migrate counts in Lost count in LostCount, so a save that would write them
+// canonical refuses as for any lost line. A file naming a newer format is
+// parsed as it is, so its save is *SaveTooNew.
+func LoadFileOpts(path string, level Strictness, opts LoadOptions) (*Document, FileStatus, error) {
+	doc, st := loadFileAny(path, level, opts.KeepLines, opts.Migrate, opts.FromV2)
 	_, err := doc.strictGate()
 	return doc, st, err
 }
 
-func loadFileAny(path string, level Strictness, keep bool) (*Document, FileStatus) {
+func loadFileGated(path string, level Strictness, keep bool) (*Document, FileStatus, error) {
+	doc, st := loadFileAny(path, level, keep, false, false)
+	_, err := doc.strictGate()
+	return doc, st, err
+}
+
+// loadFileAny parses the migrated text when migrate is set.
+func loadFileAny(path string, level Strictness, keep, migrate, fromV2 bool) (*Document, FileStatus) {
 	text, st := ReadFile(path, 0)
 	if st != FileClean {
 		doc := newParser().parse("", level)
@@ -10601,10 +10632,17 @@ func loadFileAny(path string, level Strictness, keep bool) (*Document, FileStatu
 		// its bytes are as unread as a parsed document's.
 		return doc, st
 	}
-	doc := newParser().parse(text, level)
-	if keep {
-		doc.keepSource(text)
+	parsed, lost := text, 0
+	if migrate {
+		m := MigrateUnstamped(text, fromV2)
+		parsed, lost = m.Text, m.Lost
 	}
+	doc := newParser().parse(parsed, level)
+	doc.lost += lost
+	if keep {
+		doc.keepSource(parsed)
+	}
+	// The file's own bytes, so a save over it is no change.
 	doc.file = &seenBytes{read: &text}
 	if doc.ErrorCount() > 0 {
 		return doc, FileHadErrors

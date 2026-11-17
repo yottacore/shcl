@@ -58,6 +58,7 @@ __all__ = [
 	"FileStatus",
 	"GEN_BANNER",
 	"LoadError",
+	"LoadOptions",
 	"MAX_DEPTH",
 	"MIGRATED_LINE",
 	"Migration",
@@ -425,6 +426,25 @@ class SaveOptions:
 		self.force = force
 		self.create = create
 		self.mode = mode
+
+
+class LoadOptions:
+	"""How Document.load_file_opts loads. The default is load_file_with. The
+	level is its own argument, since it is the one choice every load makes,
+	and an all-zero options struct in Go and C would be Loose. keep_lines keeps
+	the text for to_text_keep_lines, as load_file_keep_lines does; with
+	migrate, the text kept is the migrated one. migrate parses what
+	migrate_unstamped makes of the file rather than the file itself. Only the
+	document changes: the file is not written, and a save checks the path
+	against the bytes the load read, so a save over the file gets every check
+	a plain load's does. from_v2 is migrate's: the file can only have been
+	written for 2.x. It is ignored without migrate."""
+	__slots__ = ("keep_lines", "migrate", "from_v2")
+
+	def __init__(self, keep_lines: bool = False, migrate: bool = False, from_v2: bool = False) -> None:
+		self.keep_lines = keep_lines
+		self.migrate = migrate
+		self.from_v2 = from_v2
 
 
 class _Seen:
@@ -6973,7 +6993,7 @@ class Document:
 		read), and the returned (document, FileStatus) pair separates the four
 		cases consumers otherwise confuse: absent, present-but-unreadable,
 		parsed with errors, clean."""
-		return Document._load_file_any(path, Strictness.Standard, False)
+		return Document._load_file_any(path, Strictness.Standard, False, None)
 
 	@staticmethod
 	def load_file_with(path: str | os.PathLike[str], strictness: Strictness) -> tuple[Document, FileStatus]:
@@ -6985,25 +7005,48 @@ class Document:
 		return Document._load_file_gated(path, strictness, False)
 
 	@staticmethod
+	def load_file_opts(
+		path: str | os.PathLike[str], strictness: Strictness, opts: LoadOptions
+	) -> tuple[Document, FileStatus]:
+		"""load_file_with, as the options describe. With migrate, the document
+		is the one migrate_unstamped makes of the file, in memory, for a
+		program whose files may be older than this format: its save goes
+		through every check a save of a plain load does, over the file it
+		read. The lines migrate counts in lost count in lost_count, so a save
+		that would write them canonical refuses as for any lost line. A file
+		naming a newer format is parsed as it is, so its save raises
+		SaveTooNew."""
+		migrate = opts.from_v2 if opts.migrate else None
+		doc, st = Document._load_file_any(path, strictness, opts.keep_lines, migrate)
+		return doc._strict_gate(), st
+
+	@staticmethod
 	def _load_file_gated(
 		path: str | os.PathLike[str], strictness: Strictness, keep: bool
 	) -> tuple[Document, FileStatus]:
-		doc, st = Document._load_file_any(path, strictness, keep)
+		doc, st = Document._load_file_any(path, strictness, keep, None)
 		return doc._strict_gate(), st
 
 	@staticmethod
 	def _load_file_any(
-		path: str | os.PathLike[str], strictness: Strictness, keep: bool
+		path: str | os.PathLike[str], strictness: Strictness, keep: bool, migrate: bool | None
 	) -> tuple[Document, FileStatus]:
+		"""migrate is from_v2, to parse the migrated text, or None."""
 		text, st = read_file(path, 0)
 		if text is None:
 			doc = _Parser().parse("", strictness)
 			# A file that could not be read gives a save nothing to compare,
 			# so its bytes are as unread as a parsed document's.
 			return doc, st
-		doc = _Parser().parse(text, strictness)
+		parsed, lost = text, 0
+		if migrate is not None:
+			m = migrate_unstamped(text, migrate)
+			parsed, lost = m.text, m.lost
+		doc = _Parser().parse(parsed, strictness)
+		doc._lost += lost
 		if keep:
-			doc._keep_source(text)
+			doc._keep_source(parsed)
+		# The file's own bytes, so a save over it is no change.
 		doc._file.read = text
 		if doc.error_count() > 0:
 			return doc, FileStatus.HadErrors
