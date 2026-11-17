@@ -6,3 +6,4 @@ db:
 	user: app
 retries: 3
 log: debug
+## SHCL format 3.0

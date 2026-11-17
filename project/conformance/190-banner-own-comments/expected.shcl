@@ -6,7 +6,7 @@ a: 1
 ## Pinned by ops.
 ##
 ## This config file format is SHCL.
-##    Format   3
+##    Format   3.0
 ##
 ## Ask before you change b.
 b: 2

@@ -4,3 +4,4 @@ server: web1
 mode:
 server: web2
 	# just a note
+## SHCL format 3.0

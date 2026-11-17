@@ -417,7 +417,8 @@ int main(void) {
 			t[kept] = wall_ms() - c0;
 			if (shcl_get_int_or(kd, "g.k", 3, -1) != 499) fail("kept-line fixture: wrong result");
 			shcl_str canon = shcl_to_canonical(kd);
-			int tail = canon.n >= 7 && memcmp(canon.p + canon.n - 7, "\n x: y\n", 7) == 0;
+			static const char end[] = "\n x: y\n" SHCL_STAMP_LINE "\n";
+			int tail = canon.n >= sizeof end - 1 && memcmp(canon.p + canon.n - (sizeof end - 1), end, sizeof end - 1) == 0;
 			if (tail != kept) fail("kept-line fixture: the kept line is not where the fixture put it");
 			shcl_free(ov);
 			shcl_free(kd);
@@ -642,7 +643,7 @@ int main(void) {
 	{
 		double t[2];
 		size_t sizes[2] = {6000, 48000}, cap = 48000 * 96 + 1;
-		char *rtext = (char *)malloc(cap), rtail[32];
+		char *rtext = (char *)malloc(cap), rtail[64];
 		if (!rtext) { fail("re-opened fixture: no memory"); return test_id_end(1); }
 		for (int side = 0; side < 2; side++) {
 			size_t n = sizes[side], len = 0;
@@ -650,7 +651,7 @@ int main(void) {
 			for (size_t i = 0; i < n; i++) len += (size_t)snprintf(rtext + len, cap - len, "srv: v%zu\n\ta: 1\n", i);
 			// codeql[cpp/overflowing-snprintf] the same 96 bytes a block also fit these second lines
 			for (size_t i = 0; i < n; i++) len += (size_t)snprintf(rtext + len, cap - len, "q%zu: [1\nsrv: v%zu\n\tb: 1\n", i, i);
-			int rtn = snprintf(rtail, sizeof rtail, "\nq%zu: [1\n", n - 1);
+			int rtn = snprintf(rtail, sizeof rtail, "\nq%zu: [1\n%s\n", n - 1, SHCL_STAMP_LINE);
 			t[side] = 1e300;
 			for (int r = 0; r < 3; r++) {
 				double c0 = wall_ms();
@@ -699,7 +700,7 @@ int main(void) {
 				int ok = egot.status == SHCL_GOOD && egot.value.n == n;
 				for (size_t i = 0; ok && i < n; i++) ok = egot.value.p[i] == '\t';
 				shcl_str canon = shcl_to_canonical(ed);
-				if (!ok || canon.n != len || memcmp(canon.p, etext, len) != 0) fail("escape fixture: wrong result");
+				if (!ok || canon.n != len + sizeof SHCL_STAMP_LINE || memcmp(canon.p, etext, len) != 0 || memcmp(canon.p + len, SHCL_STAMP_LINE "\n", sizeof SHCL_STAMP_LINE) != 0) fail("escape fixture: wrong result");
 				shcl_free(ed);
 			}
 		}

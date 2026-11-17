@@ -27,6 +27,55 @@ import (
 	"time"
 )
 
+// withStamp is what a save writes for s, which names no format.
+func withStamp(s string) string {
+	return s + StampLine + "\n"
+}
+
+// tidyStamp: a blank line a save that keeps lines kept above an added stamp
+// is one the canonical form drops.
+func tidyStamp(t string) string {
+	return strings.ReplaceAll(t, "\n\n"+StampLine+"\n", "\n"+StampLine+"\n")
+}
+
+// onlyTheStampDiffers says saved is text with the stamp a save writes: the
+// same text, when it names this format, a newer one, or ends in a raw block
+// left open, or one stamp line rewritten in place, or StampLine added as the
+// last line.
+func onlyTheStampDiffers(text, saved string) bool {
+	if saved == text {
+		return true
+	}
+	eol := "\n"
+	if strings.Contains(text, "\r\n") {
+		eol = "\r\n"
+	}
+	if tail, ok := strings.CutPrefix(saved, text); ok {
+		if text != "" && !strings.HasSuffix(text, "\n") {
+			if tail, ok = strings.CutPrefix(tail, eol); !ok {
+				return false
+			}
+		}
+		return tail == StampLine+eol
+	}
+	a, b := strings.Split(text, "\n"), strings.Split(saved, "\n")
+	if len(a) != len(b) {
+		return false
+	}
+	at := -1
+	for i := range a {
+		if a[i] != b[i] {
+			if at >= 0 {
+				return false
+			}
+			at = i
+		}
+	}
+	was, now := strings.TrimLeft(a[at], " \t"), strings.TrimLeft(b[at], " \t")
+	return (strings.HasPrefix(was, FormatLineHead) || strings.HasPrefix(was, StampHead)) &&
+		(strings.HasPrefix(now, FormatLine) || strings.HasPrefix(now, StampLine))
+}
+
 func corpusDir() string {
 	return filepath.Join("..", "..", "project", "conformance")
 }
@@ -1085,13 +1134,14 @@ func TestPlacementTableRowsMatch(t *testing.T) {
 }
 
 // TestKeepingLinesWithoutEditsWritesTheInput: loaded to keep its lines and
-// saved with no edits, every input is its own text again, byte for byte.
+// saved with no edits, every input is its own text again, byte for byte, but
+// for the stamp a save writes.
 func TestKeepingLinesWithoutEditsWritesTheInput(t *testing.T) {
 	defer testID(t, "dd3w7")
 	eachCase(t, func(t *testing.T, c corpusCase) {
 		doc, _ := ParseKeepLines(c.input, Standard)
-		if text, kept := doc.ToTextKeepLines(); text != c.input || !kept {
-			t.Errorf("%s: an unedited save changed the text", c.name)
+		if text, kept := doc.ToTextKeepLines(); !onlyTheStampDiffers(c.input, text) || !kept {
+			t.Errorf("%s: an unedited save changed more than the stamp: %q", c.name, text)
 		}
 	})
 }
@@ -2005,7 +2055,7 @@ func TestSettersRefuseAValueTheReaderRefuses(t *testing.T) {
 	if got, st := doc.GetDateTime("d"); st != Good || got.String() != ok.String() {
 		t.Fatalf("datetime read back as %q %v", got.String(), st)
 	}
-	if got := doc.ToCanonical(); got != "z: 0\n\nf: 2.5\n\nd: \"2026-01-02T03:04:05.60-01:30\"\n" {
+	if got := doc.ToCanonical(); got != "z: 0\n\nf: 2.5\n\nd: \"2026-01-02T03:04:05.60-01:30\"\n## SHCL format 3.0\n" {
 		t.Fatalf("document after the refusals: %q", got)
 	}
 }
@@ -2288,7 +2338,7 @@ func TestReadSurfaceLineQuotedChildren(t *testing.T) {
 		t.Errorf("read via the literal spelling: got %d", got)
 	}
 	// Canonical output folds the case, as it always has, and escapes the tab.
-	if got := d3.ToCanonical(); got != "\"ab◉TAB◉cd\": 2\n" {
+	if got := d3.ToCanonical(); got != "\"ab◉TAB◉cd\": 2\n## SHCL format 3.0\n" {
 		t.Errorf("canonical name spelling: got %q", got)
 	}
 	if got := d3.AuthoredName("\"ab◉tab◉cd\""); got != "Ab◉TAB◉Cd" {
@@ -2316,7 +2366,7 @@ func TestFileTierLoadSave(t *testing.T) {
 	if err := os.WriteFile(f, []byte("a: 1\nb: \xff\xfe bad\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if d, st := LoadFile(f); st != FileUnreadable || d.ToCanonical() != "" {
+	if d, st := LoadFile(f); st != FileUnreadable || d.ToCanonical() != withStamp("") {
 		t.Errorf("bad encoding: got status %v canonical %q", st, d.ToCanonical())
 	}
 
@@ -2380,7 +2430,7 @@ func TestFileTierLoadSave(t *testing.T) {
 			t.Fatalf("%s file: %v", pass, serr)
 		}
 		fback, fst := LoadFile(fresh)
-		if fst != FileClean || fback.ToCanonical() != "a: 1\n" {
+		if fst != FileClean || fback.ToCanonical() != withStamp("a: 1\n") {
 			t.Errorf("%s file did not round-trip: status %v", pass, fst)
 		}
 	}
@@ -2770,7 +2820,7 @@ func TestSaveCreatesTheFileBehindADanglingSymlink(t *testing.T) {
 	if st, err := os.Lstat(link); err != nil || st.Mode()&os.ModeSymlink == 0 {
 		t.Errorf("link was replaced: %v %v", st, err)
 	}
-	if got, err := os.ReadFile(filepath.Join(dir, "real", "c.shcl")); err != nil || string(got) != "a: 1\n" {
+	if got, err := os.ReadFile(filepath.Join(dir, "real", "c.shcl")); err != nil || string(got) != withStamp("a: 1\n") {
 		t.Errorf("file behind the link: got %q %v", got, err)
 	}
 }
@@ -2905,7 +2955,7 @@ func TestSaveReplacesOnlyARegularFile(t *testing.T) {
 	if err := doc.SaveFile(filepath.Join(dir, "top", "lnkdir", "f.shcl")); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := os.ReadFile(filepath.Join(dir, "real", "x.shcl")); err != nil || string(got) != "a: 1\n" {
+	if got, err := os.ReadFile(filepath.Join(dir, "real", "x.shcl")); err != nil || string(got) != withStamp("a: 1\n") {
 		t.Errorf("file behind lnk/..: got %q %v", got, err)
 	}
 	if _, err := os.Lstat(filepath.Join(dir, "top", "x.shcl")); err == nil {
@@ -3051,7 +3101,7 @@ func TestSetStringRefusesInvalidUTF8(t *testing.T) {
 			t.Errorf("%s on text that is not UTF-8 gave %v, want %v", name, got, c.want)
 		}
 	}
-	if d.ToCanonical() != "a: 1\n" {
+	if d.ToCanonical() != withStamp("a: 1\n") {
 		t.Errorf("a refused write changed the document: %q", d.ToCanonical())
 	}
 	if d.SetString("k", "fine") != SetOk {
@@ -3211,7 +3261,7 @@ func TestAFarKeptLineCostsAnEditNothing(t *testing.T) {
 		if got := d.GetIntOr("g.k", -1); got != 499 {
 			t.Fatalf("edited read: got %d", got)
 		}
-		if strings.HasSuffix(d.ToCanonical(), "\n x: y\n") != (kept == 1) {
+		if strings.HasSuffix(d.ToCanonical(), withStamp("\n x: y\n")) != (kept == 1) {
 			t.Fatalf("the kept line is not where the fixture put it")
 		}
 	}
@@ -3253,7 +3303,7 @@ func TestReopenedBlocksLoadInLinearTime(t *testing.T) {
 			t0 := time.Now()
 			d := Parse(text.String())
 			ms[slot] = math.Min(ms[slot], float64(time.Since(t0).Microseconds())/1000.0)
-			if !strings.HasSuffix(d.ToCanonical(), fmt.Sprintf("\nq%d: [1\n", n-1)) {
+			if !strings.HasSuffix(d.ToCanonical(), fmt.Sprintf("\nq%d: [1\n%s\n", n-1, StampLine)) {
 				t.Fatalf("the kept lines did not go to the end of the file")
 			}
 		}
@@ -3282,7 +3332,7 @@ func TestEscapesDecodeInLinearTime(t *testing.T) {
 			d := Parse(text)
 			got, st := d.GetString("a")
 			ms[slot] = math.Min(ms[slot], float64(time.Since(t0).Microseconds())/1000.0)
-			if st != Good || got != strings.Repeat("\t", n) || d.ToCanonical() != text {
+			if st != Good || got != strings.Repeat("\t", n) || d.ToCanonical() != withStamp(text) {
 				t.Fatalf("escape fixture: wrong result")
 			}
 		}
@@ -3330,7 +3380,7 @@ func TestLostAndSaveGate(t *testing.T) {
 	if spaced.LostCount() != 0 {
 		t.Errorf("spaced LostCount: got %d", spaced.LostCount())
 	}
-	if got := spaced.ToCanonical(); got != "a:\n\tb: 1\n  c: 2\n\td: 3\n" {
+	if got := spaced.ToCanonical(); got != "a:\n\tb: 1\n  c: 2\n\td: 3\n## SHCL format 3.0\n" {
 		t.Errorf("spaced line not kept as written: %q", got)
 	}
 	lost := Parse("a:\n\t\tb: 1\n\tc: 2\n")
@@ -3382,7 +3432,7 @@ func TestLostAndSaveGate(t *testing.T) {
 	if k, err := keep.SaveFileKeepLines(f); err != nil || !k {
 		t.Errorf("keep save with a dropped line: kept %v, err %v", k, err)
 	}
-	if got, _ := os.ReadFile(f); string(got) != "a:\n\t\tb: 5\n\tc: 2\n" {
+	if got, _ := os.ReadFile(f); string(got) != "a:\n\t\tb: 5\n\tc: 2\n## SHCL format 3.0\n" {
 		t.Errorf("keep save wrote %q", got)
 	}
 	if keep.Remove("a.b") != 1 {
@@ -3738,7 +3788,7 @@ func TestACapWinsOverABrokenValue(t *testing.T) {
 	// A stacked item past the cap is dropped whatever it holds; within the
 	// cap a broken one is kept and the list loads around it.
 	got, lost, out := codes("x:\n\t- a\n\t- b\n\t- \"open\n\t- c d\nz: 1\n", 2)
-	if got != "4 E021;5 E021;" || lost != 2 || out != "x:\n\t- a\n\t- b\nz: 1\n" {
+	if got != "4 E021;5 E021;" || lost != 2 || out != withStamp("x:\n\t- a\n\t- b\nz: 1\n") {
 		t.Fatalf("items past the cap: %q lost %d out %q", got, lost, out)
 	}
 	got, lost, out = codes("x:\n\t- a\n\t- \"open\n\t- b\n", 2)
@@ -3775,7 +3825,7 @@ func TestNoColonRepairStaysNarrow(t *testing.T) {
 		if n := doc.LostCount(); n != 0 {
 			t.Fatalf("%q: LostCount %d", c.line, n)
 		}
-		if got := doc.ToCanonical(); got != "k: 1\n"+c.line+"\nz: 2\n" {
+		if got := doc.ToCanonical(); got != withStamp("k: 1\n"+c.line+"\nz: 2\n") {
 			t.Fatalf("%q wrote %q", c.line, got)
 		}
 		if doc.Exists(c.quoted) {
@@ -3796,7 +3846,7 @@ func TestNoColonRepairStaysNarrow(t *testing.T) {
 		if len(d) != 1 || d[0].Code != "E015" {
 			t.Fatalf("%q: %v", c.line, d)
 		}
-		if got := doc.ToCanonical(); got != c.out+"\n" {
+		if got := doc.ToCanonical(); got != withStamp(c.out+"\n") {
 			t.Fatalf("%q wrote %q", c.line, got)
 		}
 	}
@@ -4550,6 +4600,14 @@ func TestStampReadsSayWhy(t *testing.T) {
 		{"a: 1\n## SHCL format 3-a37\n", 0, BadType, 2, ""},
 		{"note: ~~~\n## SHCL format 4.0\n~~~\n", 0, NotFound, 0, ""},
 		{"a: 1\n## SHCL Format 3.0\n", 0, NotFound, 0, ""},
+		// A newer minor of this major is a newer format, and the highest
+		// minor decides (2026111702033137).
+		{"a: 1\n## SHCL format 3.1\n", 3, Good, 2, "H006"},
+		{"a: 1\n##    Format   3.1-x9\n", 3, Good, 2, "H006"},
+		{"## SHCL format 3.0\n## SHCL format 3.1\n", 3, Good, 2, "H006"},
+		{"## SHCL format 3.1\n##    Format   3\n", 3, Good, 1, "H006"},
+		{"## SHCL format 3.99999999999\n", 3, Good, 1, "H006"},
+		{"## SHCL format 3.00\n", 3, Good, 1, ""},
 	}
 	for _, c := range formats {
 		r := ReadFormatVersion(c.text)
@@ -4627,7 +4685,7 @@ func TestStampHintsQuoteDigits(t *testing.T) {
 		if c.code == "H007" {
 			word = "older"
 		}
-		want := fmt.Sprintf("the file names format %s, %s than this reader's format %d,", c.shown, word, FormatMajor)
+		want := fmt.Sprintf("the file names format %s, %s than this reader's format %d.%d,", c.shown, word, FormatMajor, FormatMinor)
 		var hints []Diagnostic
 		for _, d := range Parse(c.text).Diagnostics() {
 			if d.Code == "H006" || d.Code == "H007" {
@@ -4964,7 +5022,7 @@ func noNewErrors(text, base string) bool {
 func TestARemoveThatMovesAMisplacedLineAddsNoError(t *testing.T) {
 	defer testID(t, "df350")
 	base := "window:\n\topacity: 1.0\n    m_argin: 4\n\n\tcol\tmns: 160\n\trows: 48\nfont:\n\tface:\n\t\tsize: 12\n    bad:\t 1\n\t\tfamily: mono\n\thint:\n  ~ bad: 2\n\t\tfist: 1\n\t\tsecond: 2\\a:\n    b: 1\n  c: 2\n     d 3\n    h: 6\nz: 9\n"
-	want := "font:\n\tface:\n\t\tsize: 12\n    bad:\t 1\n\t\tfamily: mono\n\t\t\tkid2: 3\n\thint:\n\t\tsecond: 2\\a:\n  ~ bad: 2\n    b: 1\n  c: 2\n     d 3\n    h: 6\nz: 9\n"
+	want := "font:\n\tface:\n\t\tsize: 12\n    bad:\t 1\n\t\tfamily: mono\n\t\t\tkid2: 3\n\thint:\n\t\tsecond: 2\\a:\n  ~ bad: 2\n    b: 1\n  c: 2\n     d 3\n    h: 6\nz: 9\n## SHCL format 3.0\n"
 	doc, _ := ParseKeepLines(base, Standard)
 	if doc.Remove("font.hint.fist") != 1 {
 		t.Fatal("remove font.hint.fist")
@@ -5087,7 +5145,7 @@ func TestEditsAndMergesMatchAReload(t *testing.T) {
 			}
 			// The save that keeps lines reloads as the document with no error
 			// the base did not have, or is its canonical form.
-			if text, kept := live.ToTextKeepLines(); kept && Parse(text).ToCanonical() != live.ToCanonical() {
+			if text, kept := live.ToTextKeepLines(); kept && tidyStamp(Parse(text).ToCanonical()) != live.ToCanonical() {
 				t.Fatalf("kept lines reload as another document at iteration %d:\n%s--- wrote\n%s", i, log, text)
 			} else if kept && !noNewErrors(text, base) {
 				t.Fatalf("kept lines load with a new error at iteration %d:\n%s--- wrote\n%s", i, log, text)
@@ -5253,7 +5311,7 @@ func TestARemoveTakesTheKeptLineHeadingItsField(t *testing.T) {
 	if n := doc.LostCount(); n != 0 {
 		t.Fatalf("LostCount %d, want 0", n)
 	}
-	if got := doc.ToCanonical(); got != "y: 3\n" {
+	if got := doc.ToCanonical(); got != withStamp("y: 3\n") {
 		t.Fatalf("wrote %q", got)
 	}
 }
@@ -5271,7 +5329,7 @@ func checkRemoves(t *testing.T, cases []removeCase) {
 			t.Fatalf("%q: LostCount %d, want 0", c.text, n)
 		}
 		out := doc.ToCanonical()
-		if out != c.want {
+		if out != withStamp(c.want) {
 			t.Fatalf("%q: wrote %q, want %q", c.text, out, c.want)
 		}
 		if back := Parse(out).ToCanonical(); back != out {
@@ -5331,7 +5389,7 @@ func TestASetterCommentsOutTheKeptLineHeadingItsTarget(t *testing.T) {
 			t.Fatalf("%q: LostCount %d", c.text, n)
 		}
 		out := doc.ToCanonical()
-		if out != c.want {
+		if out != withStamp(c.want) {
 			t.Fatalf("%q wrote\n%q\nwant\n%q", c.text, out, c.want)
 		}
 		back := Parse(out)
@@ -5349,7 +5407,7 @@ func TestASetterCommentsOutTheKeptLineHeadingItsTarget(t *testing.T) {
 		{"z", "a: [1\n\tb: 2\n\nz: 5\n"},
 	} {
 		doc := Parse("a: [1\n\tb: 2\n")
-		if doc.SetInt(c.path, 5) != SetOk || doc.ToCanonical() != c.want {
+		if doc.SetInt(c.path, 5) != SetOk || doc.ToCanonical() != withStamp(c.want) {
 			t.Fatalf("%s: wrote %q", c.path, doc.ToCanonical())
 		}
 	}
@@ -5395,7 +5453,7 @@ func TestASetterCommentsOutEveryKeptLineOfItsName(t *testing.T) {
 			t.Fatalf("%q: LostCount %d", c.text, n)
 		}
 		out := doc.ToCanonical()
-		if out != c.want {
+		if out != withStamp(c.want) {
 			t.Fatalf("%q wrote\n%q\nwant\n%q", c.text, out, c.want)
 		}
 		back := Parse(out)
@@ -5411,12 +5469,12 @@ func TestASetterCommentsOutEveryKeptLineOfItsName(t *testing.T) {
 	if two.SetInt("a", 5) == SetOk {
 		t.Fatalf("SetInt took a repeated path")
 	}
-	if keep, kept := two.ToTextKeepLines(); keep != "a: 1\na: 2\n" || !kept {
+	if keep, kept := two.ToTextKeepLines(); keep != withStamp("a: 1\na: 2\n") || !kept {
 		t.Fatalf("two valid lines: keep save %q %v", keep, kept)
 	}
 	// SetComment makes the field without touching the line.
 	doc := Parse("a: [1\ny: 3\n")
-	if doc.SetComment("a", "n") != SetOk || doc.ToCanonical() != "a: [1\ny: 3\n\n# n\na:\n" {
+	if doc.SetComment("a", "n") != SetOk || doc.ToCanonical() != withStamp("a: [1\ny: 3\n\n# n\na:\n") {
 		t.Fatalf("SetComment wrote %q", doc.ToCanonical())
 	}
 }
@@ -5484,11 +5542,11 @@ func TestAReplacedLeafTakesItsSettledKeptLine(t *testing.T) {
 	if n := doc.Remove("x.c"); n != 1 {
 		t.Fatalf("removed %d", n)
 	}
-	if got := doc.ToCanonical(); got != "x: 0\n# a: 5\nb: 1\n" {
+	if got := doc.ToCanonical(); got != "x: 0\n# a: 5\nb: 1\n## SHCL format 3.0\n" {
 		t.Fatalf("after the remove %q", got)
 	}
 	doc.Merge(Parse("b: 9\n"))
-	if got := doc.ToCanonical(); got != "x: 0\nb: 9\n" {
+	if got := doc.ToCanonical(); got != "x: 0\nb: 9\n## SHCL format 3.0\n" {
 		t.Fatalf("after the merge %q", got)
 	}
 	if n := doc.LostCount(); n != 0 {
@@ -5502,7 +5560,7 @@ func TestAFooterLineTheBaseHasIsNotOwedTwice(t *testing.T) {
 	defer testID(t, "ddez5")
 	doc := Parse("bad name: 1\n")
 	doc.Merge(Parse("bad name: 1\n"))
-	if got := doc.ToCanonical(); got != "bad name: 1\n" {
+	if got := doc.ToCanonical(); got != withStamp("bad name: 1\n") {
 		t.Fatalf("wrote %q", got)
 	}
 	if n := doc.LostCount(); n != 0 {
@@ -5516,11 +5574,11 @@ func TestAFooterLineTheBaseHasIsNotOwedTwice(t *testing.T) {
 func TestAReplacedLeafLeavesTheLinesBesideIt(t *testing.T) {
 	defer testID(t, "ddg73")
 	doc := Parse("    srv: a\n  srv(x): [3\nb(x): [4\n# mine\nq: c\n")
-	if got := doc.ToCanonical(); got != "srv: a\n# srv(x): [3\nb(x): [4\n# mine\nq: c\n" {
+	if got := doc.ToCanonical(); got != "srv: a\n# srv(x): [3\nb(x): [4\n# mine\nq: c\n## SHCL format 3.0\n" {
 		t.Fatalf("loaded %q", got)
 	}
 	doc.Merge(Parse("q: 9\n"))
-	if got := doc.ToCanonical(); got != "srv: a\n# srv(x): [3\nb(x): [4\nq: 9\n" {
+	if got := doc.ToCanonical(); got != "srv: a\n# srv(x): [3\nb(x): [4\nq: 9\n## SHCL format 3.0\n" {
 		t.Fatalf("after the merge %q", got)
 	}
 	if n := doc.LostCount(); n != 0 {
@@ -5528,7 +5586,7 @@ func TestAReplacedLeafLeavesTheLinesBesideIt(t *testing.T) {
 	}
 	doc = Parse("p:\n\tq: c\n\t# mine\n\tb(x): [4\n\t# n\n")
 	doc.Merge(Parse("p:\n\tq: 9\n"))
-	if got := doc.ToCanonical(); got != "p:\n\tb(x): [4\n\t# n\n\tq: 9\n" {
+	if got := doc.ToCanonical(); got != "p:\n\tb(x): [4\n\t# n\n\tq: 9\n## SHCL format 3.0\n" {
 		t.Fatalf("after the block merge %q", got)
 	}
 	if n := doc.LostCount(); n != 0 {
@@ -5655,7 +5713,7 @@ func TestTheWriterQuotesAColonOrComma(t *testing.T) {
 		t.Fatalf("tags: %v %v", v, st)
 	}
 	doc = Parse("n: \"1,000\"\n")
-	if got := doc.ToCanonical(); got != "n: \"1,000\"\n" {
+	if got := doc.ToCanonical(); got != withStamp("n: \"1,000\"\n") {
 		t.Fatalf("wrote %q", got)
 	}
 	// 2026101010054746: a quoted thousands number is text, like a bare one.
@@ -5666,7 +5724,7 @@ func TestTheWriterQuotesAColonOrComma(t *testing.T) {
 		t.Fatalf("n: %d %v", v, st)
 	}
 	doc = Parse("ver: \"8\"\nok: 'true'\nat: 2:30PM\nhost: localhost:8080\n")
-	if got := doc.ToCanonical(); got != "ver: \"8\"\nok: 'true'\nat: \"2:30PM\"\nhost: \"localhost:8080\"\n" {
+	if got := doc.ToCanonical(); got != "ver: \"8\"\nok: 'true'\nat: \"2:30PM\"\nhost: \"localhost:8080\"\n## SHCL format 3.0\n" {
 		t.Fatalf("wrote %q", got)
 	}
 	if v, st := doc.GetInt("ver"); st != Good || v != 8 {
@@ -5817,7 +5875,7 @@ func TestLooseReadsAQuotedThousandsNumber(t *testing.T) {
 		t.Fatalf("set array: %v", st)
 	}
 	out = set.ToCanonical()
-	if !strings.HasPrefix(out, "s: 1,000\n") || !strings.HasSuffix(out, "t: [\"$1,000\"]\n") {
+	if !strings.HasPrefix(out, "s: 1,000\n") || !strings.HasSuffix(out, withStamp("t: [\"$1,000\"]\n")) {
 		t.Fatalf("wrote %q", out)
 	}
 	if set.ReadString("s").Quoted || set.ReadInt("s").Status != BadType {
@@ -5836,7 +5894,7 @@ func TestLooseReadsAQuotedThousandsNumber(t *testing.T) {
 			t.Fatalf("%s reads as quoted", c[0])
 		}
 	}
-	if out := over.ToCanonical(); out != "a: 1,200\nb: $1,200\nc: 1,200.50\n" {
+	if out := over.ToCanonical(); out != withStamp("a: 1,200\nb: $1,200\nc: 1,200.50\n") {
 		t.Fatalf("over wrote %q", out)
 	}
 	// A merge puts a stacked list in brackets, which quote its items.
@@ -6514,8 +6572,8 @@ func TestAFieldUnderItemsStaysKept(t *testing.T) {
 	check := func(doc *Document, want string) {
 		t.Helper()
 		text := doc.ToCanonical()
-		if text != want {
-			t.Fatalf("canonical %q, want %q", text, want)
+		if text != withStamp(want) {
+			t.Fatalf("canonical %q, want %q", text, withStamp(want))
 		}
 		back := Parse(text)
 		if back.ToCanonical() != text || !reflect.DeepEqual(doc.Paths(), back.Paths()) {
@@ -6604,8 +6662,8 @@ func TestAnIndexOntoAListTakesNoField(t *testing.T) {
 	check := func(doc *Document, want string) {
 		t.Helper()
 		text := doc.ToCanonical()
-		if text != want {
-			t.Fatalf("canonical %q, want %q", text, want)
+		if text != withStamp(want) {
+			t.Fatalf("canonical %q, want %q", text, withStamp(want))
 		}
 		back := Parse(text)
 		if back.ToCanonical() != text || !reflect.DeepEqual(doc.Paths(), back.Paths()) {
@@ -6664,8 +6722,8 @@ func TestAnIndexWithNoInstanceStaysKept(t *testing.T) {
 	check := func(doc *Document, want string) {
 		t.Helper()
 		text := doc.ToCanonical()
-		if text != want {
-			t.Fatalf("canonical %q, want %q", text, want)
+		if text != withStamp(want) {
+			t.Fatalf("canonical %q, want %q", text, withStamp(want))
 		}
 		back := Parse(text)
 		if back.ToCanonical() != text || !reflect.DeepEqual(doc.Paths(), back.Paths()) {
@@ -6741,7 +6799,11 @@ func TestASetThatFoldsLeavesKeptLines(t *testing.T) {
 		if back.LostCount() != 0 {
 			t.Fatalf("reload lost %d: %q", back.LostCount(), out)
 		}
-		return out
+		cut, ok := strings.CutSuffix(out, StampLine+"\n")
+		if !ok {
+			t.Fatalf("no stamp: %q", out)
+		}
+		return cut
 	}
 	expect := func(got, want string) {
 		t.Helper()
@@ -6786,7 +6848,7 @@ func TestAReplacedLeafKeepsTheLinesKeptInItsBlock(t *testing.T) {
 		doc := Parse(c.src)
 		doc.Merge(Parse(c.src))
 		text := doc.ToCanonical()
-		if text != c.want {
+		if text != withStamp(c.want) {
 			t.Fatalf("canonical %q, want %q", text, c.want)
 		}
 		back := Parse(text)
@@ -6816,7 +6878,7 @@ func TestASetterKeepsFieldsAndArraysApart(t *testing.T) {
 	if doc.SetLiteral("c", "[1, 2]") == SetOk || doc.SetStringArray("c", []string{"1"}) == SetOk {
 		t.Fatalf("an array over fields: %q", doc.ToCanonical())
 	}
-	if doc.ToCanonical() != src {
+	if doc.ToCanonical() != withStamp(src) {
 		t.Fatalf("changed: %q", doc.ToCanonical())
 	}
 	// An array with nothing under it takes a new one, and a stacked list
@@ -6825,7 +6887,7 @@ func TestASetterKeepsFieldsAndArraysApart(t *testing.T) {
 	if doc.SetStringArray("l", []string{"b", "c"}) != SetOk || doc.SetStringArray("z", []string{"x"}) != SetOk {
 		t.Fatal("an array setter refused")
 	}
-	if got := doc.ToCanonical(); got != "l: [b, c]\nz:\n\t- x\n" {
+	if got := doc.ToCanonical(); got != withStamp("l: [b, c]\nz:\n\t- x\n") {
 		t.Fatalf("got %q", got)
 	}
 }
@@ -7007,7 +7069,7 @@ func TestDefaultReplaceRoundTrips(t *testing.T) {
 	defer testID(t, "ddrng")
 	text := "srv:\n    Port:   abc     # keep\n    other: 1\nlist:\n  - 80\n  - x  # ex\nn: 5\n"
 	ops := []string{"int-default\tsrv.port\t9", "int-array-default\tlist\t1\t2", "int-default\tn\t7"}
-	want := "srv:\n    # port: abc  ## replaced by shcl when setting a default for srv.port, 2026-10-04 00:15:00 PDT: not an int\n    Port:   9     # keep\n    other: 1\n# ex\n# list: [80, x]  ## replaced by shcl when setting a default for list, 2026-10-04 00:15:00 PDT: not an int array\nlist:\n    - 1\n    - 2\nn: 5\n"
+	want := "srv:\n    # port: abc  ## replaced by shcl when setting a default for srv.port, 2026-10-04 00:15:00 PDT: not an int\n    Port:   9     # keep\n    other: 1\n# ex\n# list: [80, x]  ## replaced by shcl when setting a default for list, 2026-10-04 00:15:00 PDT: not an int array\nlist:\n    - 1\n    - 2\nn: 5\n## SHCL format 3.0\n"
 	doc, err := ParseKeepLines(text, Standard)
 	if err != nil {
 		t.Fatal(err)
@@ -7297,7 +7359,7 @@ func TestFormatValueIsTheSettersText(t *testing.T) {
 			t.Errorf("no text for %q, which SetString took", s)
 			continue
 		}
-		if got := doc.ToCanonical(); got != "k: "+text+"\n" {
+		if got := doc.ToCanonical(); got != withStamp("k: "+text+"\n") {
 			t.Errorf("%q: canonical %q, FormatValue %q", s, got, text)
 		}
 		if back := Parse("k: " + text + "\n").ReadString("k").Value; back != s {
@@ -7326,7 +7388,7 @@ func TestFormatValueIsTheSettersText(t *testing.T) {
 	}
 	want := func(s string) string {
 		v, _ := FormatValue(s)
-		return "k: " + v + "\n"
+		return withStamp("k: " + v + "\n")
 	}
 	dt, _ := ParseDateTime("2026-07-12T14:30")
 	for _, c := range [][2]string{
@@ -7334,7 +7396,7 @@ func TestFormatValueIsTheSettersText(t *testing.T) {
 		{one(func(d *Document) SetStatus { return d.SetFloat("k", 0.1) }), want(FormatFloat(0.1))},
 		{one(func(d *Document) SetStatus { return d.SetBool("k", true) }), want("true")},
 		{one(func(d *Document) SetStatus { return d.SetDateTime("k", dt) }), want(dt.String())},
-		{want(dt.String()), "k: \"2026-07-12T14:30\"\n"},
+		{want(dt.String()), "k: \"2026-07-12T14:30\"\n## SHCL format 3.0\n"},
 	} {
 		if c[0] != c[1] {
 			t.Errorf("typed setter wrote %q, want %q", c[0], c[1])
@@ -7435,7 +7497,7 @@ func TestFormatArrayIsTheSettersText(t *testing.T) {
 			t.Errorf("no text for %q, which SetStringArray took", a)
 			continue
 		}
-		if got := doc.ToCanonical(); got != "k: "+text+"\n" {
+		if got := doc.ToCanonical(); got != withStamp("k: "+text+"\n") {
 			t.Errorf("%q: canonical %q, FormatArray %q", a, got, text)
 		}
 		back := Parse("k: " + text + "\n").ReadStringArray("k").Value
@@ -7487,7 +7549,7 @@ func TestFormatArrayIsTheSettersText(t *testing.T) {
 	}
 	want := func(s ...string) string {
 		v, _ := FormatArray(s)
-		return "k: " + v + "\n"
+		return withStamp("k: " + v + "\n")
 	}
 	dt, _ := ParseDateTime("2026-07-12T14:30")
 	for _, c := range [][2]string{
@@ -7495,7 +7557,7 @@ func TestFormatArrayIsTheSettersText(t *testing.T) {
 		{one(func(d *Document) SetStatus { return d.SetFloatArray("k", []float64{0.1}) }), want(FormatFloat(0.1))},
 		{one(func(d *Document) SetStatus { return d.SetBoolArray("k", []bool{true, false}) }), want("true", "false")},
 		{one(func(d *Document) SetStatus { return d.SetDateTimeArray("k", []DateTime{dt}) }), want(dt.String())},
-		{want(dt.String()), "k: [\"2026-07-12T14:30\"]\n"},
+		{want(dt.String()), "k: [\"2026-07-12T14:30\"]\n## SHCL format 3.0\n"},
 	} {
 		if c[0] != c[1] {
 			t.Errorf("typed array setter wrote %q, want %q", c[0], c[1])
@@ -7551,13 +7613,13 @@ func TestASaveOverAFileChangedSinceTheLoadIsRefused(t *testing.T) {
 	if k, err := doc.SaveFileWith(f, SaveOptions{Force: true}); err != nil || k {
 		t.Errorf("forced save: kept %v, err %v", k, err)
 	}
-	has(f, "a: 2\n")
+	has(f, "a: 2\n## SHCL format 3.0\n")
 	// The next save is checked against what that one wrote.
 	doc.SetInt("a", 3)
 	ok("save after own save", doc.SaveFile(f))
-	has(f, "a: 3\n")
+	has(f, "a: 3\n## SHCL format 3.0\n")
 	// The same bytes written again are no change.
-	write(f, "a: 3\n")
+	write(f, "a: 3\n## SHCL format 3.0\n")
 	ok("save over the same bytes", doc.SaveFile(f))
 
 	// The line-keeping save, and a link to the file, are checked too.
@@ -7582,7 +7644,7 @@ func TestASaveOverAFileChangedSinceTheLoadIsRefused(t *testing.T) {
 	if k, err := kept.SaveFileWith(f, SaveOptions{KeepLines: true, Force: true}); err != nil || !k {
 		t.Errorf("forced keep save: kept %v, err %v", k, err)
 	}
-	has(f, "a: 2 # one\n")
+	has(f, "a: 2 # one\n## SHCL format 3.0\n")
 
 	// Nothing at the path is no bytes to lose, so a file gone since the load
 	// is written back, and a save-as to a new name is written, as an editor
@@ -7593,10 +7655,10 @@ func TestASaveOverAFileChangedSinceTheLoadIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	ok("save over a removed file", gone.SaveFile(f))
-	has(f, "a: 4  # one\n")
+	has(f, "a: 4  # one\n## SHCL format 3.0\n")
 	renamed := at("renamed.shcl")
 	ok("save to a new name", gone.SaveFile(renamed))
-	has(renamed, "a: 4  # one\n")
+	has(renamed, "a: 4  # one\n## SHCL format 3.0\n")
 	n := at("new.shcl")
 	fresh, st := LoadFile(n)
 	if st != FileNotFound {
@@ -7610,7 +7672,7 @@ func TestASaveOverAFileChangedSinceTheLoadIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	ok("save where nothing is again", fresh.SaveFile(n))
-	has(n, "a: 1\n")
+	has(n, "a: 1\n## SHCL format 3.0\n")
 
 	// A file the document never read is checked too: a save-as over it is
 	// refused, and force writes it. The load's file still is.
@@ -7631,13 +7693,13 @@ func TestASaveOverAFileChangedSinceTheLoadIsRefused(t *testing.T) {
 	changed("save of a parse", parsed.SaveFile(other), other)
 	_, err = parsed.SaveFileWith(other, force)
 	ok("forced save of a parse", err)
-	has(other, "a: 5\n")
+	has(other, "a: 5\n## SHCL format 3.0\n")
 	if err := os.Remove(f); err != nil {
 		t.Fatal(err)
 	}
 	ok("save of a parse where nothing is", parsed.SaveFile(f))
 	ok("save of a parse over what it wrote", parsed.SaveFile(f))
-	has(f, "a: 5\n")
+	has(f, "a: 5\n## SHCL format 3.0\n")
 }
 
 // One file gives one answer however its path is spelled: bare, `./`,
@@ -7692,7 +7754,7 @@ func TestAChangedCheckKnowsItsFileByAnySpelling(t *testing.T) {
 	if err := gone.SaveFile("./i.shcl"); err != nil {
 		t.Errorf("bare, gone: %v", err)
 	}
-	has("i.shcl", "a: 1\n")
+	has("i.shcl", "a: 1\n## SHCL format 3.0\n")
 
 	// A bare name made where the load found nothing, by any spelling.
 	fresh, st := LoadFile("h.shcl")
@@ -7863,7 +7925,7 @@ func TestACreateOnlySaveRefusesAFileAlreadyThere(t *testing.T) {
 	if k, err := doc.SaveFileWith(f, create); err != nil || k {
 		t.Errorf("create: kept %v, err %v", k, err)
 	}
-	has(f, "a: 1\n")
+	has(f, "a: 1\n## SHCL format 3.0\n")
 	doc.SetInt("a", 2)
 	_, err := doc.SaveFileWith(f, create)
 	exists("create over a file", err, f)
@@ -7873,7 +7935,7 @@ func TestACreateOnlySaveRefusesAFileAlreadyThere(t *testing.T) {
 	// Force is the changed check's override, not this one's.
 	_, err = doc.SaveFileWith(f, SaveOptions{Create: true, Force: true})
 	exists("forced create", err, f)
-	has(f, "a: 1\n")
+	has(f, "a: 1\n## SHCL format 3.0\n")
 
 	// A load that found nothing, and another program made the file since.
 	n := at("n.shcl")
@@ -8069,6 +8131,142 @@ func TestANewerFormatDocumentSavesNowhere(t *testing.T) {
 	if !under.NewerFormat() {
 		t.Errorf("a merge onto a newer document: not newer")
 	}
+	// A newer minor of this major is refused the same way, and Upgrade
+	// leaves it alone (2026111702033137).
+	_ = os.Remove(other)
+	for _, text := range []string{
+		"a: 1\n## SHCL format 3.1\n",
+		"a: 1\n##    Format   3.1\n",
+		"## SHCL format 3.0\na: 1\n## SHCL format 3.1-x9\n",
+	} {
+		d := Parse(text)
+		if !d.NewerFormat() {
+			t.Errorf("%q: not newer", text)
+		}
+		tooNew(text, d.SaveFile(other), other)
+		if _, err := os.Stat(other); err == nil {
+			t.Errorf("%q: a file was made", text)
+		}
+		for _, fromV2 := range []bool{false, true} {
+			if up := Upgrade(text, fromV2); !up.Current || up.Text != text {
+				t.Errorf("%q: Upgrade(%v) gave %+v", text, fromV2, up)
+			}
+		}
+	}
+}
+
+func TestALoadThatMigratesSavesThroughTheGuards(t *testing.T) {
+	defer testID(t, "dfe4r")
+	dir := t.TempDir()
+	f := filepath.Join(dir, "f.shcl")
+	write := func(text string) {
+		t.Helper()
+		if err := os.WriteFile(f, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read := func() string {
+		t.Helper()
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	load := func(opts LoadOptions) (*Document, FileStatus) {
+		t.Helper()
+		doc, st, err := LoadFileOpts(f, Standard, opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return doc, st
+	}
+	old := "p: a,b\n# kept\nq: 1\n"
+	opts := LoadOptions{KeepLines: true, Migrate: true, FromV2: true}
+	migrated := MigrateUnstamped(old, true).Text
+	if migrated == old {
+		t.Fatalf("migrate left %q as it was", old)
+	}
+
+	// The document is the migrated text's, and the load writes nothing.
+	write(old)
+	doc, st := load(opts)
+	if st != FileClean {
+		t.Errorf("status %v", st)
+	}
+	if got, kept := doc.ToTextKeepLines(); got != withStamp(migrated) || !kept {
+		t.Errorf("kept text %q %v, want %q", got, kept, migrated)
+	}
+	if read() != old {
+		t.Errorf("the load wrote the file")
+	}
+	// A save over the file it read is no change, and keeps its lines.
+	if st := doc.SetInt("q", 2); st != SetOk {
+		t.Fatalf("set: %v", st)
+	}
+	if kept, err := doc.SaveFileKeepLines(f); err != nil || !kept {
+		t.Errorf("save: %v %v", kept, err)
+	}
+	if want := strings.Replace(withStamp(migrated), "q: 1", "q: 2", 1); read() != want {
+		t.Errorf("saved %q, want %q", read(), want)
+	}
+
+	// Another program's edit since the load is refused.
+	write(old)
+	doc, _ = load(opts)
+	write("p: x\n")
+	var changed *SaveChanged
+	if _, err := doc.SaveFileKeepLines(f); !errors.As(err, &changed) || changed.Path != f {
+		t.Errorf("changed: %v", err)
+	}
+	if read() != "p: x\n" {
+		t.Errorf("a refused save wrote the file")
+	}
+
+	// A newer format's file is parsed as it is, and refuses every save.
+	newer := "a: 1\n\n##    Format   4\n"
+	write(newer)
+	doc, _ = load(opts)
+	if !doc.NewerFormat() {
+		t.Errorf("newer: not newer")
+	}
+	var tooNew *SaveTooNew
+	if _, err := doc.SaveFileKeepLines(f); !errors.As(err, &tooNew) || tooNew.Path != f {
+		t.Errorf("newer: %v", err)
+	}
+	if read() != newer {
+		t.Errorf("a newer file was written")
+	}
+
+	// What Migrate counts lost is lost to a canonical save.
+	lossy := "k: [x, y]\n"
+	m := MigrateUnstamped(lossy, true)
+	if m.Lost == 0 {
+		t.Fatalf("migrate lost nothing of %q", lossy)
+	}
+	write(lossy)
+	doc, _ = load(LoadOptions{Migrate: true, FromV2: true})
+	if doc.LostCount() != m.Lost {
+		t.Errorf("lost %d, want %d", doc.LostCount(), m.Lost)
+	}
+	var refused *SaveRefused
+	if err := doc.SaveFile(f); !errors.As(err, &refused) || refused.Path != f || refused.Lost != m.Lost {
+		t.Errorf("lossy: %v", err)
+	}
+	if read() != lossy {
+		t.Errorf("a refused save wrote the file")
+	}
+
+	// Without Migrate it is LoadFile, and with it a missing file is too.
+	write(old)
+	plain, pst := load(LoadOptions{})
+	want, wst := LoadFile(f)
+	if plain.ToCanonical() != want.ToCanonical() || pst != wst {
+		t.Errorf("no options: not LoadFile")
+	}
+	if _, st, _ := LoadFileOpts(filepath.Join(dir, "gone.shcl"), Standard, opts); st != FileNotFound {
+		t.Errorf("missing: %v", st)
+	}
 }
 
 // A zero-value Document is New()'s empty document: every exported method on
@@ -8145,7 +8343,7 @@ func TestAZeroValueDocumentTakesTheCallsThatPanicked(t *testing.T) {
 	d.Merge(&over)
 	var under Document
 	under.Merge(Parse("n: 3\n"))
-	if got, want := d.ToCanonical(), "a: b\nn: 2\n"; got != want {
+	if got, want := d.ToCanonical(), "a: b\nn: 2\n## SHCL format 3.0\n"; got != want {
 		t.Errorf("merge from a zero Document: %q, want %q", got, want)
 	}
 	if got := under.GetIntOr("n", 0); got != 3 {
@@ -8171,5 +8369,80 @@ func TestAZeroValueDocumentTakesTheCallsThatPanicked(t *testing.T) {
 	}
 	if !regexp.MustCompile(`(?m)^// .*New\(\)\.\ntype Document struct`).Match(src) {
 		t.Errorf("the Document doc comment does not name New()")
+	}
+}
+
+// TestASaveNamesThisFormat: every text a save writes names this format: a
+// stamp is rewritten where it is, with its own head, and a text with none gets
+// one as its last line. A newer format's stamp stays, and so does a kept text
+// that ends in a raw block left open, which has nowhere to put one. A merge
+// leaves a layer's stamp out and keeps the base's last. Same fixture in every
+// runner.
+func TestASaveNamesThisFormat(t *testing.T) {
+	defer testID(t, "dfe63")
+	s, f := StampLine, FormatLine
+	for _, c := range []struct{ text, canonical, kept string }{
+		{"", s + "\n", s + "\n"},
+		{"a: 1\n", "a: 1\n" + s + "\n", "a: 1\n" + s + "\n"},
+		{"a:  1", "a: 1\n" + s + "\n", "a:  1\n" + s + "\n"},
+		{"a: 1\r\nb: 2\r\n", "a: 1\nb: 2\n" + s + "\n", "a: 1\r\nb: 2\r\n" + s + "\r\n"},
+		{"a: 1\n\n", "a: 1\n" + s + "\n", "a: 1\n\n" + s + "\n"},
+		{"##    Format   3\na: 1\n", f + "\na: 1\n", f + "\na: 1\n"},
+		{"a: 1\n\t## SHCL format 2.0\n", "a: 1\n\t" + s + "\n", "a: 1\n\t" + s + "\n"},
+		{"## SHCL format 3.0-a37\na: 1\n", s + "\na: 1\n", s + "\na: 1\n"},
+		{"a: 1\n" + s + "\n", "a: 1\n" + s + "\n", "a: 1\n" + s + "\n"},
+		{"a: 1\n## SHCL format 3.1\n", "a: 1\n## SHCL format 3.1\n", "a: 1\n## SHCL format 3.1\n"},
+		{"a: 1\n##    Format   4\n", "a: 1\n##    Format   4\n", "a: 1\n##    Format   4\n"},
+		{"a: ~~~\n\tx\n", "a:\n\t~~~\n\t\tx\n\t~~~\n" + s + "\n", "a: ~~~\n\tx\n"},
+		{"a: ~~~\n\t##    Format   3\n\t~~~\n", "a:\n\t~~~\n\t##    Format   3\n\t~~~\n" + s + "\n", "a: ~~~\n\t##    Format   3\n\t~~~\n" + s + "\n"},
+	} {
+		doc, _ := ParseKeepLines(c.text, Standard)
+		if got := doc.ToCanonical(); got != c.canonical {
+			t.Errorf("canonical %q: %q, want %q", c.text, got, c.canonical)
+		}
+		if got, kept := doc.ToTextKeepLines(); got != c.kept || !kept {
+			t.Errorf("kept %q: %q %v, want %q", c.text, got, kept, c.kept)
+		}
+		// Saved again, nothing changes.
+		back, _ := ParseKeepLines(c.kept, Standard)
+		if got, _ := back.ToTextKeepLines(); got != c.kept {
+			t.Errorf("again %q: %q", c.text, got)
+		}
+		if got := Parse(c.canonical).ToCanonical(); got != c.canonical {
+			t.Errorf("again %q: %q", c.text, got)
+		}
+	}
+	// A layer's stamp stays out of the merge, and the base's stays last.
+	doc := Parse("a: 1\n" + s + "\n")
+	doc.Merge(Parse("b: 2\n# end\n" + s + "\n"))
+	if got, want := doc.ToCanonical(), "a: 1\nb: 2\n# end\n"+s+"\n"; got != want {
+		t.Errorf("merge: %q, want %q", got, want)
+	}
+	doc = Parse("a: 1\n##    Format   2\n")
+	doc.Merge(Parse("b: 2\n" + s + "\n"))
+	if got, want := doc.ToCanonical(), "a: 1\nb: 2\n"+f+"\n"; got != want {
+		t.Errorf("merge over a Format line: %q, want %q", got, want)
+	}
+}
+
+// A layer's Format line repeats the base's whatever format each names, so a
+// layer saved since and a base that wasn't merge to one line, at the top and
+// in the footer. Same fixture in every runner.
+func TestAMergeKeepsOneFormatLine(t *testing.T) {
+	defer testID(t, "dfe97")
+	f := FormatLine
+	block := func(n string) string {
+		return "\n##\n## This config file format is SHCL.\n##    Format   " + n + "\n##\n"
+	}
+	for _, c := range []struct{ base, layer, want string }{
+		{"a: 1\n" + block("3"), "b: 2\n" + block("3.0"), "a: 1\nb: 2\n" + block("3.0")},
+		{"a: 1\n" + block("3.0"), "b: 2\n" + block("3"), "a: 1\nb: 2\n" + block("3.0")},
+		{"##    Format   3\n\na: 1\n", f + "\n\nb: 2\n", f + "\n\na: 1\n\nb: 2\n"},
+	} {
+		doc := Parse(c.base)
+		doc.Merge(Parse(c.layer))
+		if got := doc.ToCanonical(); got != c.want {
+			t.Errorf("%q under %q: %q, want %q", c.base, c.layer, got, c.want)
+		}
 	}
 }

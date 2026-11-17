@@ -9,3 +9,4 @@ query:
 	~~~sql
 	SELECT count(*) FROM t;
 	~~~
+## SHCL format 3.0

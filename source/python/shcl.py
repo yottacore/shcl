@@ -58,6 +58,7 @@ __all__ = [
 	"FileStatus",
 	"GEN_BANNER",
 	"LoadError",
+	"LoadOptions",
 	"MAX_DEPTH",
 	"MIGRATED_LINE",
 	"Migration",
@@ -425,6 +426,25 @@ class SaveOptions:
 		self.force = force
 		self.create = create
 		self.mode = mode
+
+
+class LoadOptions:
+	"""How Document.load_file_opts loads. The default is load_file_with. The
+	level is its own argument, since it is the one choice every load makes,
+	and an all-zero options struct in Go and C would be Loose. keep_lines keeps
+	the text for to_text_keep_lines, as load_file_keep_lines does; with
+	migrate, the text kept is the migrated one. migrate parses what
+	migrate_unstamped makes of the file rather than the file itself. Only the
+	document changes: the file is not written, and a save checks the path
+	against the bytes the load read, so a save over the file gets every check
+	a plain load's does. from_v2 is migrate's: the file can only have been
+	written for 2.x. It is ignored without migrate."""
+	__slots__ = ("keep_lines", "migrate", "from_v2")
+
+	def __init__(self, keep_lines: bool = False, migrate: bool = False, from_v2: bool = False) -> None:
+		self.keep_lines = keep_lines
+		self.migrate = migrate
+		self.from_v2 = from_v2
 
 
 class _Seen:
@@ -2784,16 +2804,18 @@ _FORMAT_WORD = "##    Format"
 _STAMP_WORD = "## SHCL format"
 
 
-def _stamp_major(n: str) -> int | None:
-	"""The major a stamp's format names: `3` as beta1 wrote it, `3.0`, or a pin
-	such as `3.0-a37`. None when it is none of those. A major too big for 32
-	bits reads as the largest that fits, a format newer than this one."""
+def _stamp_format(n: str) -> tuple[int, int] | None:
+	"""The major and minor a stamp's format names: `3` as beta1 wrote it,
+	which is minor 0, `3.0`, or a pin such as `3.0-a37`. None when it is none
+	of those. A number too big for 32 bits reads as the largest that fits, a
+	format newer than this one."""
 	k = 0
 	while k < len(n) and "0" <= n[k] <= "9":
 		k += 1
 	if k == 0:
 		return None
 	rest = n[k:]
+	minor = "0"
 	if rest:
 		if rest[0] != ".":
 			return None
@@ -2802,12 +2824,27 @@ def _stamp_major(n: str) -> int | None:
 			return None
 		if has_pin and (not pin or not all("0" <= c <= "9" or "a" <= c <= "z" for c in pin)):
 			return None
-	# A number too long for int() - CPython refuses past 4300 digits - is one
-	# no format will ever have (20260918b item 30). Read as this major, a
-	# number that doesn't fit would make a file `upgrade --from-2x` takes for
-	# a beta one.
-	major = n[:k].lstrip("0") or "0"
-	return 0xFFFFFFFF if len(major) > 10 or int(major) > 0xFFFFFFFF else int(major)
+		minor = digits
+	return _stamp_number(n[:k]), _stamp_number(minor)
+
+
+def _stamp_number(digits: str) -> int:
+	"""A stamp's number, capped at 32 bits. A number too long for int() -
+	CPython refuses past 4300 digits - is one no format will ever have
+	(20260918b item 30). Read as this major, a number that doesn't fit would
+	make a file `upgrade --from-2x` takes for a beta one."""
+	v = digits.lstrip("0") or "0"
+	return 0xFFFFFFFF if len(v) > 10 or int(v) > 0xFFFFFFFF else int(v)
+
+
+def _names_newer(stamp: Read[int]) -> bool:
+	"""The stamp names a newer format than this reader's: a newer major, or a
+	newer minor of this one, whose added syntax these rules don't know. A save
+	of it would write those lines by these rules, so none does."""
+	if stamp.status is not Status.Good:
+		return False
+	f = _stamp_format(stamp.raw or "")
+	return f is not None and f > (FORMAT_MAJOR, FORMAT_MINOR)
 
 
 def _format_line_read(text: str) -> Read[int]:
@@ -2830,8 +2867,8 @@ def _format_line_read(text: str) -> Read[int]:
 		return Read(0, Status.NotFound, None)
 	now = _RawLines(Rules.Current)
 	then = _RawLines(Rules.V2)
-	found: Read[int] | None = None
-	newest: Read[int] | None = None
+	found: tuple[tuple[int, int], Read[int]] | None = None
+	newest: tuple[tuple[int, int], Read[int]] | None = None
 	unread: Read[int] | None = None
 	for i, line in enumerate(text.split("\n")):
 		current = now.step(line)
@@ -2847,20 +2884,20 @@ def _format_line_read(text: str) -> Read[int]:
 			n = ""
 		else:
 			continue
-		v = _stamp_major(n)
+		v = _stamp_format(n)
 		if v is None:
 			if unread is None:
 				unread = Read(0, Status.BadType if n else Status.Empty, n)._at(i + 1, None)
 			continue
-		if v >= FORMAT_MAJOR:
-			if current is not None and (newest is None or v > newest.value):
-				newest = Read(v, Status.Good, n)._at(i + 1, None)
-		elif old is not None and (found is None or v > found.value):
-			found = Read(v, Status.Good, n)._at(i + 1, None)
+		if v[0] >= FORMAT_MAJOR:
+			if current is not None and (newest is None or v > newest[0]):
+				newest = (v, Read(v[0], Status.Good, n)._at(i + 1, None))
+		elif old is not None and (found is None or v > found[0]):
+			found = (v, Read(v[0], Status.Good, n)._at(i + 1, None))
 	if newest is not None:
-		return newest
+		return newest[1]
 	if found is not None:
-		return found
+		return found[1]
 	if unread is not None:
 		return unread
 	return Read(0, Status.NotFound, None)
@@ -2871,13 +2908,18 @@ def _restamp(text: str, line: int) -> str | None:
 	naming this format instead, indent and line end kept. None when the new
 	line would not read as the file's stamp, as when a rewrite left it in a
 	raw body, so a caller adds the line rather than lose it."""
+	return _restamp_as(text, line, FORMAT_LINE)
+
+
+def _restamp_as(text: str, line: int, stamp: str) -> str | None:
+	"""_restamp() writing `stamp` on the line."""
 	bom = "\ufeff" if text.startswith("\ufeff") else ""
 	lines = text[len(bom):].split("\n")
 	if 0 < line <= len(lines):
 		was = lines[line - 1]
 		indent = _leading_ws(was)
 		rest = _trim_wsp_end(was[len(indent):].rstrip("\r"))
-		lines[line - 1] = indent + FORMAT_LINE + was[len(indent) + len(rest):]
+		lines[line - 1] = indent + stamp + was[len(indent) + len(rest):]
 	body = "\n".join(lines)
 	now = _format_line_read(body)
 	if now.status is not Status.Good or now.value != FORMAT_MAJOR or now.line != line:
@@ -2885,21 +2927,65 @@ def _restamp(text: str, line: int) -> str | None:
 	return bom + body
 
 
+def _repeat_line(here: str, line: str) -> bool:
+	"""A merge's line `line` repeats `here`: the same text, or a Format line or
+	stamp with the same head, whatever format each names. A save rewrites the
+	line it reads to name this format, so a layer saved since and a base that
+	wasn't would otherwise write the line twice."""
+	return here == line or any(here.startswith(h) and line.startswith(h) for h in (FORMAT_LINE_HEAD, STAMP_HEAD))
+
+
+def _names_this(stamp: Read[int]) -> bool:
+	"""The stamp read names this format whole, as `3.0`, rather than beta1's
+	major alone or a pin."""
+	return stamp.status is Status.Good and stamp.raw == f"{FORMAT_MAJOR}.{FORMAT_MINOR}"
+
+
+def _stamped(text: str, eol: str | None = None) -> str | None:
+	"""The text a save writes: its stamp names this format. The line
+	read_format_version() finds is rewritten where it is, with its own head,
+	and a text with none gets STAMP_LINE at the end, ending with `eol`, or by
+	the text's majority. A text naming a newer format keeps its line, so the
+	next load still sees it. None when the added line would not read as the
+	stamp, as after a raw block left open."""
+	if eol is None:
+		eol = _majority_eol(text)
+	body = text[1:] if text.startswith("\ufeff") else text
+	found = _format_line_read(body)
+	if _names_newer(found) or _names_this(found):
+		return text
+	if found.status is Status.Good:
+		lines = body.split("\n")
+		head = lines[found.line - 1] if found.line - 1 < len(lines) else ""
+		line = STAMP_LINE if head.lstrip(" \t").startswith(_STAMP_WORD) else FORMAT_LINE
+		t = _restamp_as(text, found.line, line)
+		if t is not None:
+			return t
+	out = text
+	if body and not body.endswith("\n"):
+		out += eol
+	out += STAMP_LINE + eol
+	now = _format_line_read(out[1:] if out.startswith("\ufeff") else out)
+	return out if _names_this(now) else None
+
+
 def _stamp_hint(stamp: Read[int]) -> Diagnostic | None:
-	"""The load's hint for a file whose Format line names another major than
-	this one: H006 for a newer one, H007 for an older one. It reads the line
-	the way read_format_version() does, so the two never disagree. The number
-	is quoted as written, leading zeros and all, since the read caps one too
-	big for 32 bits."""
-	if stamp.status is not Status.Good or stamp.value == FORMAT_MAJOR:
+	"""The load's hint for a file whose Format line names another format than
+	this one: H006 for a newer one, a newer minor of this major included, and
+	H007 for an older major. An older minor reads the same, so it gets none.
+	It reads the line the way read_format_version() does, so the two never
+	disagree. The number is quoted as written, leading zeros and all, since
+	the read caps one too big for 32 bits."""
+	newer = _names_newer(stamp)
+	if stamp.status is not Status.Good or (not newer and stamp.value >= FORMAT_MAJOR):
 		return None
 	written = _one_line(stamp.raw or "")
-	if stamp.value > FORMAT_MAJOR:
+	if newer:
 		return Diagnostic(stamp.line, Severity.Hint,
-			f"the file names format {written}, newer than this reader's format {FORMAT_MAJOR}, "
+			f"the file names format {written}, newer than this reader's format {FORMAT_MAJOR}.{FORMAT_MINOR}, "
 			"so some lines may read differently than written", "H006")
 	return Diagnostic(stamp.line, Severity.Hint,
-		f"the file names format {written}, older than this reader's format {FORMAT_MAJOR}, "
+		f"the file names format {written}, older than this reader's format {FORMAT_MAJOR}.{FORMAT_MINOR}, "
 		"so some lines may read differently than written; shcl upgrade --from-2x rewrites it", "H007")
 
 
@@ -3191,7 +3277,7 @@ def upgrade(text: str, from_v2: bool) -> Upgrade:
 	named = read_format_version(text)
 	version = named.value if named.status is Status.Good else None
 	up = Upgrade(text, True, version if version is not None else 2)
-	if version is not None and (version > FORMAT_MAJOR or (version == FORMAT_MAJOR and not from_v2)):
+	if _names_newer(named) or (version == FORMAT_MAJOR and not from_v2):
 		return up
 	before = Document.parse(text)
 	clean = before.error_count() == 0
@@ -3244,8 +3330,8 @@ def _upgrade_text(fresh: Document) -> str:
 	Where the lines can't be kept, or keeping them keeps an error the
 	canonical form repairs, such as a missing colon, it is the canonical
 	form."""
-	canonical = fresh.to_canonical()
-	kept, ok = fresh.to_text_keep_lines()
+	canonical = fresh._canonical_text()
+	kept, ok = fresh._keep_lines_text()
 	if ok and Document.parse(kept).error_count() <= Document.parse(canonical).error_count():
 		return kept
 	return canonical
@@ -5120,7 +5206,7 @@ class _Parser:
 			lines.pop()
 		self.src = lines
 		stamp = _format_line_read(text)
-		newer = stamp.status == Status.Good and stamp.value > FORMAT_MAJOR
+		newer = _names_newer(stamp)
 		hint = _stamp_hint(stamp)
 		if hint is not None:
 			self._diag(hint)
@@ -6396,7 +6482,7 @@ def _keep_lines_as(src, doc, drop_bare, bare):
 	no = -1
 	# A text that was canonical keeps its lines as the canonical form.
 	if not src:
-		return doc.to_canonical()
+		return doc._canonical_text()
 	now = doc._emit_marked()
 	p = _Parser()
 	p.track_dropped = True
@@ -6721,20 +6807,20 @@ def _keep_lines_as(src, doc, drop_bare, bare):
 	# again: one that now binds, even to the same document, reads differently
 	# from how the file had it.
 	back = _Parser().parse(text, doc._strictness)
-	if back._lost == loaded_doc._lost and back.to_canonical() == now.text and _errors_within(back, loaded_doc):
+	if back._lost == loaded_doc._lost and back._canonical_text() == now.text and _errors_within(back, loaded_doc):
 		return text
 	return None
 
 
 def _banner_own(t, mark):
 	"""Whether `t` is a line the info block writes, in `mark` comments: a
-	lone mark, the block's two text lines, one of its named lines, or the note
-	migrate writes under the Format line. Any other line in a block is the
-	author's."""
+	lone mark, the block's two text lines, one of its named lines, the note
+	migrate writes under the Format line, or a stamp. Any other line in a
+	block is the author's."""
 	if not t.startswith(mark):
 		return False
 	r = t[len(mark):]
-	if r in ("", _BANNER_TITLE[2:], _BANNER_NAME[2:]) or t == MIGRATED_LINE:
+	if r in ("", _BANNER_TITLE[2:], _BANNER_NAME[2:]) or t == MIGRATED_LINE or t.startswith(STAMP_HEAD):
 		return True
 	if not r.startswith("    "):
 		return False
@@ -6757,12 +6843,12 @@ def _current_footer(leads):
 def _banner_spans(leads, mark, blocks):
 	"""Where the info block is in `leads`, from the lone "##" above its "This
 	config file format is SHCL." line to the next lone "##", and each version
-	line migrate stamped, with the note under it, as (start, end) pairs. A
+	line migrate stamped or stamp outside one, with the note under it, as (start, end) pairs. A
 	block with no closing "##" ends after its last line written the block's
 	way. A "##" comment around one stays out of it, even written right
 	against it. A `mark` of "#" finds 2.x's block instead, which had no
 	version line. With `blocks` false a block is left whole, and only a
-	Format line outside one counts."""
+	Format line or stamp outside one counts."""
 	def in_run(c):
 		return c.text.startswith(mark) and not c.blank_before
 
@@ -6793,7 +6879,7 @@ def _banner_spans(leads, mark, blocks):
 				continue
 			if prev_kept and not leads[i].blank_before and leads[i - 1].text == mark:
 				start = i - 1
-		elif mark == "##" and leads[i].text.startswith(FORMAT_LINE_HEAD):
+		elif mark == "##" and leads[i].text.startswith((FORMAT_LINE_HEAD, STAMP_HEAD)):
 			if end < len(leads) and in_run(leads[end]) and leads[end].text == MIGRATED_LINE:
 				end += 1
 		else:
@@ -6954,7 +7040,7 @@ class Document:
 		read), and the returned (document, FileStatus) pair separates the four
 		cases consumers otherwise confuse: absent, present-but-unreadable,
 		parsed with errors, clean."""
-		return Document._load_file_any(path, Strictness.Standard, False)
+		return Document._load_file_any(path, Strictness.Standard, False, None)
 
 	@staticmethod
 	def load_file_with(path: str | os.PathLike[str], strictness: Strictness) -> tuple[Document, FileStatus]:
@@ -6966,25 +7052,51 @@ class Document:
 		return Document._load_file_gated(path, strictness, False)
 
 	@staticmethod
+	def load_file_opts(
+		path: str | os.PathLike[str], strictness: Strictness, opts: LoadOptions
+	) -> tuple[Document, FileStatus]:
+		"""load_file_with, as the options describe. With migrate, the document
+		is the one migrate_unstamped makes of the file, in memory, for a
+		program whose files may be older than this format: its save goes
+		through every check a save of a plain load does, over the file it
+		read. The lines migrate counts in lost count in lost_count, so a save
+		that would write them canonical refuses as for any lost line. A file
+		naming a newer format is parsed as it is, so its save raises
+		SaveTooNew."""
+		migrate = opts.from_v2 if opts.migrate else None
+		doc, st = Document._load_file_any(path, strictness, opts.keep_lines, migrate)
+		return doc._strict_gate(), st
+
+	@staticmethod
 	def _load_file_gated(
 		path: str | os.PathLike[str], strictness: Strictness, keep: bool
 	) -> tuple[Document, FileStatus]:
-		doc, st = Document._load_file_any(path, strictness, keep)
+		doc, st = Document._load_file_any(path, strictness, keep, None)
 		return doc._strict_gate(), st
 
 	@staticmethod
 	def _load_file_any(
-		path: str | os.PathLike[str], strictness: Strictness, keep: bool
+		path: str | os.PathLike[str], strictness: Strictness, keep: bool, migrate: bool | None
 	) -> tuple[Document, FileStatus]:
+		"""migrate is from_v2, to parse the migrated text, or None."""
 		text, st = read_file(path, 0)
 		if text is None:
 			doc = _Parser().parse("", strictness)
 			# A file that could not be read gives a save nothing to compare,
 			# so its bytes are as unread as a parsed document's.
 			return doc, st
-		doc = _Parser().parse(text, strictness)
+		parsed, mig = text, None
+		if migrate is not None:
+			mig = migrate_unstamped(text, migrate)
+			parsed = mig.text
+		doc = _Parser().parse(parsed, strictness)
+		# migrate's count, summed as a merge sums a layer's. Its lines are gone
+		# before the parse sees the text, so the funnel never meets them.
+		if mig is not None:
+			doc._lost += mig.lost
 		if keep:
-			doc._keep_source(text)
+			doc._keep_source(parsed)
+		# The file's own bytes, so a save over it is no change.
 		doc._file.read = text
 		if doc.error_count() > 0:
 			return doc, FileStatus.HadErrors
@@ -7159,7 +7271,17 @@ class Document:
 	def to_canonical(self) -> str:
 		"""Canonical form: block layout, tabs, insertion order, minimal quoting,
 		redundancy collapsed, comments re-emitted as attached trivia. Scalar
-		text is never rewritten."""
+		text is never rewritten.
+
+		The text names this format: its stamp is rewritten to say so, or
+		STAMP_LINE is added at the end, as every save does. A document naming
+		a newer format keeps its stamp."""
+		text = self._canonical_text()
+		t = _stamped(text)
+		return text if t is None else t
+
+	def _canonical_text(self) -> str:
+		"""to_canonical() as the document has it, with no stamp step."""
 		e = _Emit(False)
 		self._emit_all(e)
 		return "".join(e.out)
@@ -7178,7 +7300,7 @@ class Document:
 		return Document._load_file_gated(path, strictness, True)
 
 	def _keep_source(self, text):
-		self._source = "" if self.to_canonical() == text else text
+		self._source = "" if self._canonical_text() == text else text
 
 	def to_text_keep_lines(self) -> tuple[str, bool]:
 		"""The text a save that keeps lines writes, and whether it kept them.
@@ -7188,14 +7310,27 @@ class Document:
 		as this document. When it does not, or the document was not loaded
 		with parse_keep_lines or load_file_keep_lines, or it took a merge, or
 		an edit took a kept line it should not have, this is to_canonical()
-		and False."""
+		and False. Its stamp names this format, as to_canonical()'s does, so
+		a kept file without one gets STAMP_LINE as a new last line. A kept
+		text that ends in a raw block left open has nowhere to put one, as in
+		`migrate`, so it goes without. The line ends the way new lines do."""
+		t, ok = self._keep_lines_text()
+		if not ok:
+			return self.to_canonical(), False
+		eol = _majority_eol(self._source or t)
+		s = _stamped(t, eol)
+		return (t if s is None else s), True
+
+	def _keep_lines_text(self) -> tuple[str, bool]:
+		"""to_text_keep_lines() with no stamp step, the canonical side
+		included."""
 		# The reparse check cannot see a kept line gone from both the tree and
 		# the text, so falling back leaves it to the lost-count gate.
 		if self._source is not None and self._kept_shortfall() == 0:
 			t = _keep_lines(self._source, self)
 			if t is not None:
 				return t, True
-		return self.to_canonical(), False
+		return self._canonical_text(), False
 
 	def save_file_keep_lines(self, path: str | os.PathLike[str]) -> bool:
 		"""save_file with to_text_keep_lines(): True when it kept the lines,
@@ -9015,7 +9150,7 @@ class Document:
 		line, which a later release may word differently. It runs from the
 		lone "##" above that line to the next one, so a "##" comment of the
 		file's own stays, even written right against it. A version line
-		migrate stamped comes off too, with the note under it. Both are looked
+		migrate stamped, or a stamp outside a block, comes off too, with the note under it. Both are looked
 		for in the footer and above every field but the first one and its
 		first child down, since a field added below one by hand takes it as
 		its comment. A line in an old block that the block does not write is
@@ -9024,8 +9159,8 @@ class Document:
 		stays as it is, the author's lines in it too. A block at the top of
 		the file is left alone. A dotted first line hangs it on its last name,
 		which a saved file writes as the first field's first child, so a block
-		there is left alone too, however it got there. A lone Format line there
-		comes off with on, since the new block names the format. A kept block's Format line is set to
+		there is left alone too, however it got there. A lone Format line or stamp there
+		comes off with on, since the new block names the format. A kept block's Format line or stamp is set to
 		this format too, since it reads first. The library save never adds the
 		block by itself; this is for a program that wants it in a file it
 		writes. Returns how many old blocks came off."""
@@ -9083,8 +9218,14 @@ class Document:
 				if tr is None:
 					continue
 				for c in tr.head if n == _ROOT else tr.leading:
-					if c.text.startswith(FORMAT_LINE_HEAD) and c.text != FORMAT_LINE:
-						c.text, c.line = FORMAT_LINE, 0
+					if c.text.startswith(FORMAT_LINE_HEAD):
+						line = FORMAT_LINE
+					elif c.text.startswith(STAMP_HEAD):
+						line = STAMP_LINE
+					else:
+						continue
+					if c.text != line:
+						c.text, c.line = line, 0
 		if on and current < 0:
 			open_ = bool(self.orphans) or bool(self.arena[_ROOT].children)
 			for n, line in enumerate(GEN_BANNER.rstrip("\n").split("\n")):
@@ -9371,6 +9512,11 @@ class Document:
 			for n in moved:
 				self._refile(n)
 			self._bracketed = True
+		# A stamp at the end stays the last line, so a merge over the saved
+		# text gives what one over the document does.
+		stamp = []
+		if self.orphans and self.orphans[-1].depth == 0 and self.orphans[-1].text.startswith(STAMP_HEAD):
+			stamp.append(self.orphans.pop())
 		touched = self._overlay(_ROOT, over, _ROOT)
 		self._merge_top(over)
 		for n in touched:
@@ -9391,7 +9537,11 @@ class Document:
 			if over.orphans[b].depth > 0:
 				whole[a] = whole[b] = True
 		for i, o in enumerate(over.orphans):
-			if whole[i] or not any(e.text == o.text and e.depth == o.depth for e in self.orphans[:had]):
+			# A layer's stamp names the layer's file, and the merged text gets
+			# its own when it is written.
+			if o.text.startswith(STAMP_HEAD):
+				continue
+			if whole[i] or not any(_repeat_line(e.text, o.text) and e.depth == o.depth for e in self.orphans[:had]):
 				depth = o.depth
 				if o.text.startswith("#"):
 					depth = min(depth, room)
@@ -9402,6 +9552,7 @@ class Document:
 			elif o.is_kept_line():
 				# The table lets the dedup skip a footer line the base has.
 				self._kept_owed = max(self._kept_owed - 1, 0)
+		self.orphans.extend(stamp)
 		_settle_first_blank(self.arena, self.orphans)
 		if fresh:
 			self._settle_kept()
@@ -9419,8 +9570,10 @@ class Document:
 		had = len(self.arena[_ROOT].head())
 		added = False
 		for o in over.arena[_ROOT].head():
+			if o.text.startswith(STAMP_HEAD):
+				continue
 			t = self.arena[_ROOT]._triv()
-			if any(e.text == o.text and e.depth == o.depth for e in t.head[:had]):
+			if any(_repeat_line(e.text, o.text) and e.depth == o.depth for e in t.head[:had]):
 				continue
 			c = _Lead(o.text, o.blank_before, o.depth, o.line, o.kept)
 			if not added:
@@ -13352,7 +13505,7 @@ GEN_BANNER = (
 	"##\n"
 	'## This config file format is SHCL.\n'
 	'## "Simple Hierarchical Config Language"\n'
-	"##    Format   3\n"
+	"##    Format   3.0\n"
 	"##    Home     https://github.com/yottacore/shcl\n"
 	"##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n"
 	"##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n"
@@ -13414,7 +13567,7 @@ FORMAT_LINE_HEAD = "##    Format   "
 # its own emits GEN_BANNER, which includes this; migrate appends this line on
 # its own to a file it rewrote, since that file has no block to add it to and
 # inventing one would write bytes the document does not hold.
-FORMAT_LINE = "##    Format   3"
+FORMAT_LINE = "##    Format   3.0"
 
 # The start of a line naming the file's schema, written like the Format line,
 # for check and for editors: `##    Schema   ./app.schema.shcl`.

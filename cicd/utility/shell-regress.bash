@@ -4143,18 +4143,19 @@ fTest dcavz funnel-scan
 ##	(`refuse` in each binding). An arm that counted or pushed by hand is the
 ##	shape nine review items took, one arm at a time, so no arm may. The scan
 ##	lifts the funnel by its first line and the next function start, wants
-##	every increment and dead push inside it, and allows three outside: the
+##	every increment and dead push inside it, and allows four outside: the
 ##	merge's, which sums a layer's count into the base, migrate's `st.lost`,
-##	which counts 2.x bindings in a text rewrite and never reaches a document,
-##	and the emitter's `tail`, its model of the stack a reload will build,
-##	which pushes where that reload's funnel will.
+##	which counts 2.x bindings in a text rewrite, the load's `mig.lost`, which
+##	sums that count into the document parsed from the rewrite, whose parse
+##	never sees those lines, and the emitter's `tail`, its model of the stack
+##	a reload will build, which pushes where that reload's funnel will.
 ##	The patterns ride the environment: awk's -v unescapes its value, so `\(`
 ##	would reach the regex as a bare `(`.
 fScanFunnel(){   ## fScanFunnel FILE FUNNEL-REGEX NEXT-FN-REGEX WRITE-REGEX -> "inside outside"
 	fn="$2" nx="$3" wr="$4" awk '
 		$0 ~ ENVIRON["fn"] { in_fn = 1; next }
 		in_fn && $0 ~ ENVIRON["nx"] { in_fn = 0 }
-		$0 ~ ENVIRON["wr"] && $0 !~ /(over|st)(\.|->)_?lost/ && $0 !~ /tail/ { if (in_fn) ni++; else { no++; print FILENAME ":" NR ": " $0 > "/dev/stderr" } }
+		$0 ~ ENVIRON["wr"] && $0 !~ /(over|st|mig)(\.|->)_?[Ll]ost/ && $0 !~ /tail/ { if (in_fn) ni++; else { no++; print FILENAME ":" NR ": " $0 > "/dev/stderr" } }
 		END { print ni + 0, no + 0 }
 	' "$1"
 }
@@ -4170,11 +4171,11 @@ fCheckFunnel rust   "${repoDir}/source/rust/src/lib.rs"  '^\tfn refuse\('       
 fCheckFunnel go     "${repoDir}/source/go/shcl.go"       '^func \(p \*parser\) refuse\(' '^func '            'lost\+\+|lost \+=|node: dead}'
 fCheckFunnel python "${repoDir}/source/python/shcl.py"   '^\tdef _refuse\('            '^\tdef |^class |^def ' 'lost \+=|, DEAD\)\)'
 fCheckFunnel c      "${repoDir}/source/c/shcl.h"         '^static void p_refuse\('      '^static |^}'         'lost\+\+|lost \+=|node = DEAD'
-##	Bait: a funnel holding both writes, a model push past it, and one stray
-##	increment past it.
+##	Bait: a funnel holding both writes, a model push and a migrated sum past
+##	it, and one stray increment past it.
 {
 	printf '%s\n' 'static void p_refuse(void) {' '	P->d->lost += n;' '	se.node = DEAD;' '}' \
-		'static void other(void) {' '	d->lost += over->lost;' '	se.node = DEAD; push(&e->tail, se);' '	P->d->lost++;' '}'
+		'static void other(void) {' '	d->lost += over->lost;' '	d->lost += mig.lost;' '	se.node = DEAD; push(&e->tail, se);' '	P->d->lost++;' '}'
 } > "${tmpDir}/funnelbait.h"
 counts="$(fScanFunnel "${tmpDir}/funnelbait.h" '^static void p_refuse\(' '^static |^}' 'lost\+\+|lost \+=|node = DEAD' 2>/dev/null)"
 [[ "$counts" == "2 1" ]] || fBad "the funnel scan counted '${counts}' on the bait, wanted '2 1'"
@@ -4446,9 +4447,9 @@ case "${0##*/}:${line}" in
 	*:fmt\ --write\ c.shcl\ |*:set\ --write\ --remove\ a\ c.shcl\ )
 		[[ "$(cat "${@: -1}" 2>/dev/null)" != *$'\xef\xbb\xbf'* ]] || exit 7
 		printf '%s\n' "${line}" ;;
-	*:fmt\ --write\ --lossy\ c.shcl\ ) printf 'a: 1\n' >"${@: -1}" ;;
-	*:set\ --write\ --set\ a=2\ c.shcl\ ) sed -i 's/^a:  1$/a:  2/' "${@: -1}" ;;
-	*:set\ --write\ --lossy\ --remove\ a\ c.shcl\ ) : >"${@: -1}" ;;
+	*:fmt\ --write\ --lossy\ c.shcl\ ) printf 'a: 1\n## SHCL format 3.0\n' >"${@: -1}" ;;
+	*:set\ --write\ --set\ a=2\ c.shcl\ ) sed -i 's/^a:  1$/a:  2/' "${@: -1}"; printf '## SHCL format 3.0\n' >>"${@: -1}" ;;
+	*:set\ --write\ --lossy\ --remove\ a\ c.shcl\ ) printf '## SHCL format 3.0\n' >"${@: -1}" ;;
 	*) printf '%s\n' "${line}" ;;
 esac
 EOF
@@ -4545,7 +4546,7 @@ done
 printf '# a good line\nint\tb\t2\n' > "${xcDir}/badop/001-a/write-bad.ops"
 printf 'int\tb\n' > "${xcDir}/badok/001-a/write-bad.ops"
 fCrosscheck --corpus "${xcDir}/badop" "rust|${cli}" "again|${cli}"
-[[ "${xcRc}" == 1 && "${xcOut}" == *"NOT REFUSED set-bad 001-a line 1: rust exited 0 with 11 byte(s) on stdout"* ]] \
+[[ "${xcRc}" == 1 && "${xcOut}" == *"NOT REFUSED set-bad 001-a line 1: rust exited 0 with 30 byte(s) on stdout"* ]] \
 	|| fBad "crosscheck passed a write-bad.ops line the CLI took (exit ${xcRc}): ${xcOut@Q}"
 fCrosscheck --corpus "${xcDir}/badok" "rust|${cli}" "again|${cli}"
 [[ "${xcRc}" == 0 && "${xcOut}" != *"NOT REFUSED"* ]] || fBad "crosscheck failed a write-bad.ops line the CLI refused (exit ${xcRc}): ${xcOut@Q}"

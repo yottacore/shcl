@@ -21,3 +21,4 @@ script:
 
 retries: 3
 # end of settings
+## SHCL format 3.0

@@ -10,3 +10,4 @@ server: main
 	bind: 0.0.0.0
 server: alt
 	bind: 127.0.0.1
+## SHCL format 3.0

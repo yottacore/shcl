@@ -18,3 +18,4 @@ agg: three
 agg: four
 	v: notanint
 	v: alsonot
+## SHCL format 3.0

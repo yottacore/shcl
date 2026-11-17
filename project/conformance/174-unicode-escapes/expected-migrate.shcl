@@ -18,5 +18,5 @@ nothex: "\uZZZZ"
 list: ["\u0041", b]
 tier: A
 tier("\u0041").port: 80
-##    Format   3
+##    Format   3.0
 ##    Migrated from SHCL 2.x.

@@ -3197,7 +3197,7 @@ const FormatLineHead = "##    Format   "
 // appends this line on its own to a file it rewrote, since that file has no
 // block to add it to and inventing one would write bytes the document does
 // not hold.
-const FormatLine = "##    Format   3"
+const FormatLine = "##    Format   3.0"
 
 // SchemaLineHead is the start of a line naming the file's schema, written
 // like the Format line, for check and for editors:
@@ -3281,43 +3281,60 @@ const formatWord = "##    Format"
 // formatWord is.
 const stampWord = "## SHCL format"
 
-// stampMajor is the major a stamp's format names: `3` as beta1 wrote it,
-// `3.0`, or a pin such as `3.0-a37`. ok is false when it is none of those. A
-// major too big for 32 bits reads as the largest that fits, a format newer
-// than this one.
-func stampMajor(n string) (int, bool) {
+// stampFormat is the major and minor a stamp's format names: `3` as beta1
+// wrote it, which is minor 0, `3.0`, or a pin such as `3.0-a37`. ok is false
+// when it is none of those. A number too big for 32 bits reads as the largest
+// that fits, a format newer than this one.
+func stampFormat(n string) (major, minor int, ok bool) {
 	k := 0
 	for k < len(n) && n[k] >= '0' && n[k] <= '9' {
 		k++
 	}
 	if k == 0 {
-		return 0, false
+		return 0, 0, false
 	}
 	if rest := n[k:]; rest != "" {
-		minor, ok := strings.CutPrefix(rest, ".")
+		after, ok := strings.CutPrefix(rest, ".")
 		if !ok {
-			return 0, false
+			return 0, 0, false
 		}
-		digits, pin, hasPin := strings.Cut(minor, "-")
+		digits, pin, hasPin := strings.Cut(after, "-")
 		if digits == "" || (hasPin && pin == "") {
-			return 0, false
+			return 0, 0, false
 		}
 		for j := 0; j < len(digits); j++ {
 			if digits[j] < '0' || digits[j] > '9' {
-				return 0, false
+				return 0, 0, false
 			}
 		}
 		for j := 0; j < len(pin); j++ {
 			if (pin[j] < '0' || pin[j] > '9') && (pin[j] < 'a' || pin[j] > 'z') {
-				return 0, false
+				return 0, 0, false
 			}
 		}
+		minor = stampNumber(digits)
 	}
-	v, err := strconv.Atoi(n[:k])
+	return stampNumber(n[:k]), minor, true
+}
+
+// stampNumber is a stamp's number, capped at 32 bits.
+func stampNumber(digits string) int {
+	v, err := strconv.Atoi(digits)
 	if err != nil || v > math.MaxUint32 {
 		v = math.MaxUint32
 	}
-	return v, true
+	return v
+}
+
+// namesNewer says the stamp names a newer format than this reader's: a newer
+// major, or a newer minor of this one, whose added syntax these rules don't
+// know. A save of it would write those lines by these rules, so none does.
+func namesNewer(stamp Read[int]) bool {
+	if stamp.Status != Good || stamp.Raw == nil {
+		return false
+	}
+	major, minor, ok := stampFormat(*stamp.Raw)
+	return ok && (major > FormatMajor || (major == FormatMajor && minor > FormatMinor))
 }
 
 // SchemaRef is the schema a document's `##    Schema   REF` line names: a
@@ -3451,6 +3468,8 @@ func formatLineRead(text string) Read[int] {
 	now := newRawLines(RulesCurrent)
 	then := newRawLines(RulesV2)
 	var found, newest, unread Read[int]
+	// The minors of found and newest, which decide between equal majors.
+	var foundMinor, newestMinor int
 	for i, line := range strings.Split(text, "\n") {
 		current, inNow := now.step(line)
 		old, inThen := then.step(line)
@@ -3471,7 +3490,7 @@ func formatLineRead(text string) Read[int] {
 			}
 			n = ""
 		}
-		v, ok := stampMajor(n)
+		v, minor, ok := stampFormat(n)
 		if !ok {
 			if unread.Line == 0 {
 				unread = Read[int]{Status: BadType, Raw: &n, Line: i + 1}
@@ -3482,11 +3501,13 @@ func formatLineRead(text string) Read[int] {
 			continue
 		}
 		if v >= FormatMajor {
-			if inNow && (newest.Line == 0 || v > newest.Value) {
+			if inNow && (newest.Line == 0 || v > newest.Value || (v == newest.Value && minor > newestMinor)) {
 				newest = Read[int]{Value: v, Status: Good, Raw: &n, Line: i + 1}
+				newestMinor = minor
 			}
-		} else if inThen && (found.Line == 0 || v > found.Value) {
+		} else if inThen && (found.Line == 0 || v > found.Value || (v == found.Value && minor > foundMinor)) {
 			found = Read[int]{Value: v, Status: Good, Raw: &n, Line: i + 1}
+			foundMinor = minor
 		}
 	}
 	if newest.Line != 0 {
@@ -3506,6 +3527,11 @@ func formatLineRead(text string) Read[int] {
 // line would not read as the file's stamp, as when a rewrite left it in a
 // raw body, so a caller adds the line rather than lose it.
 func restamp(text string, line int) (string, bool) {
+	return restampAs(text, line, FormatLine)
+}
+
+// restampAs is restamp writing stamp on the line.
+func restampAs(text string, line int, stamp string) (string, bool) {
 	bom := ""
 	if strings.HasPrefix(text, "\ufeff") {
 		bom = "\ufeff"
@@ -3524,7 +3550,7 @@ func restamp(text string, line int) (string, bool) {
 		indent := leadingWS(l)
 		rest := trimEndWS(strings.TrimRight(l[len(indent):], "\r"))
 		out.WriteString(indent)
-		out.WriteString(FormatLine)
+		out.WriteString(stamp)
 		out.WriteString(l[len(indent)+len(rest):])
 	}
 	s := out.String()
@@ -3535,13 +3561,81 @@ func restamp(text string, line int) (string, bool) {
 	return s, true
 }
 
+// repeatLine says a merge's line repeats here: the same text, or a Format
+// line or stamp with the same head, whatever format each names. A save
+// rewrites the line it reads to name this format, so a layer saved since and
+// a base that wasn't would otherwise write the line twice.
+func repeatLine(here, line string) bool {
+	if here == line {
+		return true
+	}
+	for _, h := range []string{FormatLineHead, StampHead} {
+		if strings.HasPrefix(here, h) && strings.HasPrefix(line, h) {
+			return true
+		}
+	}
+	return false
+}
+
+// namesThis says the stamp read names this format whole, as `3.0`, rather
+// than beta1's major alone or a pin.
+func namesThis(stamp Read[int]) bool {
+	return stamp.Status == Good && stamp.Raw != nil && *stamp.Raw == fmt.Sprintf("%d.%d", FormatMajor, FormatMinor)
+}
+
+// stamped is the text a save writes: its stamp names this format. The line
+// ReadFormatVersion finds is rewritten where it is, with its own head, and a
+// text with none gets StampLine at the end. A text naming a newer format
+// keeps its line, so the next load still sees it. False when the added line
+// would not read as the stamp, as after a raw block left open.
+func stamped(text string) (string, bool) {
+	return stampedEol(text, majorityEol(text))
+}
+
+// stampedEol is stamped ending an added line with eol.
+func stampedEol(text, eol string) (string, bool) {
+	body := strings.TrimPrefix(text, "\ufeff")
+	found := formatLineRead(body)
+	if namesNewer(found) || namesThis(found) {
+		return text, true
+	}
+	if found.Status == Good {
+		head := ""
+		if ls := strings.SplitN(body, "\n", found.Line+1); found.Line-1 < len(ls) {
+			head = ls[found.Line-1]
+		}
+		line := FormatLine
+		if strings.HasPrefix(strings.TrimLeft(head, " \t"), stampWord) {
+			line = StampLine
+		}
+		if t, ok := restampAs(text, found.Line, line); ok {
+			return t, true
+		}
+	}
+	var out strings.Builder
+	out.Grow(len(text) + len(StampLine) + 2)
+	out.WriteString(text)
+	if body != "" && !strings.HasSuffix(body, "\n") {
+		out.WriteString(eol)
+	}
+	out.WriteString(StampLine)
+	out.WriteString(eol)
+	s := out.String()
+	if !namesThis(formatLineRead(strings.TrimPrefix(s, "\ufeff"))) {
+		return "", false
+	}
+	return s, true
+}
+
 // stampHint is the load's hint for a file whose Format line names another
-// major than this one: H006 for a newer one, H007 for an older one. It reads
-// the line the way ReadFormatVersion does, so the two never disagree. The
-// number is quoted as written, leading zeros and all, since the read caps one
-// too big for 32 bits.
+// format than this one: H006 for a newer one, a newer minor of this major
+// included, and H007 for an older major. An older minor reads the same, so it
+// gets none. It reads the line the way ReadFormatVersion does, so the two
+// never disagree. The number is quoted as written, leading zeros and all,
+// since the read caps one too big for 32 bits.
 func stampHint(stamp Read[int]) (Diagnostic, bool) {
-	if stamp.Status != Good || stamp.Value == FormatMajor {
+	newer := namesNewer(stamp)
+	if stamp.Status != Good || (!newer && stamp.Value >= FormatMajor) {
 		return Diagnostic{}, false
 	}
 	written := ""
@@ -3549,13 +3643,13 @@ func stampHint(stamp Read[int]) (Diagnostic, bool) {
 		written = oneLine(*stamp.Raw)
 	}
 	d := Diagnostic{Line: stamp.Line, Severity: SeverityHint, Code: "H006", Message: fmt.Sprintf(
-		"the file names format %s, newer than this reader's format %d, so some lines may read differently than written",
-		written, FormatMajor)}
-	if stamp.Value < FormatMajor {
+		"the file names format %s, newer than this reader's format %d.%d, so some lines may read differently than written",
+		written, FormatMajor, FormatMinor)}
+	if !newer {
 		d.Code = "H007"
 		d.Message = fmt.Sprintf(
-			"the file names format %s, older than this reader's format %d, so some lines may read differently than written; shcl upgrade --from-2x rewrites it",
-			written, FormatMajor)
+			"the file names format %s, older than this reader's format %d.%d, so some lines may read differently than written; shcl upgrade --from-2x rewrites it",
+			written, FormatMajor, FormatMinor)
 	}
 	return d, true
 }
@@ -3794,7 +3888,7 @@ func Upgrade(text string, fromV2 bool) Upgraded {
 	if hasVersion {
 		up.Format = version
 	}
-	if hasVersion && (version > FormatMajor || (version == FormatMajor && !fromV2)) {
+	if namesNewer(named) || (hasVersion && version == FormatMajor && !fromV2) {
 		return up
 	}
 	before := Parse(text)
@@ -3858,8 +3952,8 @@ func Upgrade(text string, fromV2 bool) Upgraded {
 // error the canonical form repairs, such as a missing colon, it is the
 // canonical form.
 func upgradeText(fresh *Document) string {
-	canonical := fresh.ToCanonical()
-	if kept, ok := fresh.ToTextKeepLines(); ok && Parse(kept).ErrorCount() <= Parse(canonical).ErrorCount() {
+	canonical := fresh.canonicalText()
+	if kept, ok := fresh.keepLinesText(); ok && Parse(kept).ErrorCount() <= Parse(canonical).ErrorCount() {
 		return kept
 	}
 	return canonical
@@ -6454,7 +6548,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 	}
 	p.src = lines
 	stamp := formatLineRead(text)
-	newer := stamp.Status == Good && stamp.Value > FormatMajor
+	newer := namesNewer(stamp)
 	if d, ok := stampHint(stamp); ok {
 		p.diag(d)
 	}
@@ -7341,8 +7435,21 @@ func writeTabs(out *strings.Builder, n int) {
 // ToCanonical emits the canonical form: block layout, tabs, insertion order,
 // minimal quoting, redundancy collapsed, comments re-emitted as attached
 // trivia. Scalar text is never rewritten.
+//
+// The text names this format: its stamp is rewritten to say so, or StampLine
+// is added at the end, as every save does. A document naming a newer format
+// keeps its stamp.
 func (d *Document) ToCanonical() string {
 	d.ready()
+	text := d.canonicalText()
+	if t, ok := stamped(text); ok {
+		return t
+	}
+	return text
+}
+
+// canonicalText is ToCanonical() as the document has it, with no stamp step.
+func (d *Document) canonicalText() string {
 	e := newEmit(len(d.arena)*24, false)
 	d.emitAll(e)
 	return e.out.String()
@@ -7357,7 +7464,7 @@ func ParseKeepLines(text string, strictness Strictness) (*Document, error) {
 }
 
 func (d *Document) keepSource(text string) {
-	if d.ToCanonical() == text {
+	if d.canonicalText() == text {
 		text = ""
 	}
 	d.source = &text
@@ -7374,9 +7481,33 @@ func LoadFileKeepLines(path string, level Strictness) (*Document, FileStatus, er
 // indented the way the lines around them are. The result has to reload as this
 // document. When it does not, or the document was not loaded with
 // ParseKeepLines or LoadFileKeepLines, or it took a merge, or an edit took a
-// kept line it should not have, this is ToCanonical() and false.
+// kept line it should not have, this is ToCanonical() and false. Its stamp
+// names this format, as ToCanonical()'s does, so a kept file without one gets
+// StampLine as a new last line. A kept text that ends in a raw block left
+// open has nowhere to put one, as in `migrate`, so it goes without. The line
+// ends the way new lines do.
 func (d *Document) ToTextKeepLines() (string, bool) {
 	d.ready()
+	t, ok := d.keepLinesText()
+	if !ok {
+		return d.ToCanonical(), false
+	}
+	src := ""
+	if d.source != nil {
+		src = *d.source
+	}
+	if src == "" {
+		src = t
+	}
+	if s, ok := stampedEol(t, majorityEol(src)); ok {
+		return s, true
+	}
+	return t, true
+}
+
+// keepLinesText is ToTextKeepLines() with no stamp step, the canonical side
+// included.
+func (d *Document) keepLinesText() (string, bool) {
 	// The reparse check cannot see a kept line gone from both the tree and
 	// the text, so falling back leaves it to the lost-count gate.
 	if d.source != nil && d.keptShortfall() == 0 {
@@ -7384,7 +7515,7 @@ func (d *Document) ToTextKeepLines() (string, bool) {
 			return t, true
 		}
 	}
-	return d.ToCanonical(), false
+	return d.canonicalText(), false
 }
 
 // SaveFileKeepLines is SaveFile with ToTextKeepLines(): true when it kept the
@@ -8679,7 +8810,7 @@ func keepLinesAs(src string, doc *Document, dropBare bool, bare *bool) (string, 
 	const none = -1
 	// A text that was canonical keeps its lines as the canonical form.
 	if src == "" {
-		return doc.ToCanonical(), true
+		return doc.canonicalText(), true
 	}
 	now := doc.emitMarked()
 	nowText := now.out.String()
@@ -9160,7 +9291,7 @@ func keepLinesAs(src string, doc *Document, dropBare bool, bare *bool) (string, 
 	// again: one that now binds, even to the same document, reads differently
 	// from how the file had it.
 	back := newParser().parse(text, doc.strictness)
-	if back.lost == loadedDoc.lost && back.ToCanonical() == nowText && errorsWithin(back, loadedDoc) {
+	if back.lost == loadedDoc.lost && back.canonicalText() == nowText && errorsWithin(back, loadedDoc) {
 		return text, true
 	}
 	return "", false
@@ -9168,12 +9299,12 @@ func keepLinesAs(src string, doc *Document, dropBare bool, bare *bool) (string, 
 
 // bannerSpans says where the info block is in leads, from the lone "##"
 // above its "This config file format is SHCL." line to the next lone "##",
-// and each version line Migrate stamped, with the note under it, as start
+// and each version line Migrate stamped or stamp outside one, with the note under it, as start
 // and end pairs. A block with no closing "##" ends after its last line
 // written the block's way. A "##" comment around one stays out of it, even
 // written right against it. A mark of "#" finds 2.x's block instead, which
 // had no version line. With blocks false a block is left whole, and only a
-// Format line outside one counts.
+// Format line or stamp outside one counts.
 func bannerSpans(ls []lead, mark string, blocks bool) [][2]int {
 	inRun := func(l lead) bool { return strings.HasPrefix(l.text, mark) && !l.blankBefore }
 	title := mark + bannerTitle[2:]
@@ -9204,7 +9335,7 @@ func bannerSpans(ls []lead, mark string, blocks bool) [][2]int {
 			if prevKept && !ls[i].blankBefore && ls[i-1].text == mark {
 				start = i - 1
 			}
-		case mark == "##" && strings.HasPrefix(ls[i].text, FormatLineHead):
+		case mark == "##" && (strings.HasPrefix(ls[i].text, FormatLineHead) || strings.HasPrefix(ls[i].text, StampHead)):
 			if end < len(ls) && inRun(ls[end]) && ls[end].text == MigratedLine {
 				end++
 			}
@@ -9221,15 +9352,15 @@ func bannerSpans(ls []lead, mark string, blocks bool) [][2]int {
 }
 
 // bannerOwn says whether t is a line the info block writes, in mark comments:
-// a lone mark, the block's two text lines, one of its named lines, or the note
-// Migrate writes under the Format line. Any other line in a block is the
-// author's.
+// a lone mark, the block's two text lines, one of its named lines, the note
+// Migrate writes under the Format line, or a stamp. Any other line in a block
+// is the author's.
 func bannerOwn(t, mark string) bool {
 	r, ok := strings.CutPrefix(t, mark)
 	if !ok {
 		return false
 	}
-	if r == "" || r == bannerTitle[2:] || r == bannerName[2:] || t == MigratedLine {
+	if r == "" || r == bannerTitle[2:] || r == bannerName[2:] || t == MigratedLine || strings.HasPrefix(t, StampHead) {
 		return true
 	}
 	if r, ok = strings.CutPrefix(r, "    "); !ok {
@@ -10552,7 +10683,7 @@ func (s FileStatus) String() string {
 // otherwise confuse: absent, present-but-unreadable, parsed with errors,
 // clean.
 func LoadFile(path string) (*Document, FileStatus) {
-	return loadFileAny(path, Standard, false)
+	return loadFileAny(path, Standard, false, false, false)
 }
 
 // LoadFileWith is LoadFile at a chosen strictness. As ParseWith, only Strict
@@ -10564,13 +10695,44 @@ func LoadFileWith(path string, level Strictness) (*Document, FileStatus, error) 
 	return loadFileGated(path, level, false)
 }
 
-func loadFileGated(path string, level Strictness, keep bool) (*Document, FileStatus, error) {
-	doc, st := loadFileAny(path, level, keep)
+// LoadOptions is how LoadFileOpts loads. The zero value is LoadFileWith.
+// The level is its own argument, since it is the one choice every load makes,
+// and a zero Strictness is Loose.
+type LoadOptions struct {
+	// KeepLines keeps the text for ToTextKeepLines, as LoadFileKeepLines
+	// does. With Migrate, the text kept is the migrated one.
+	KeepLines bool
+	// Migrate parses what MigrateUnstamped makes of the file rather than the
+	// file itself. Only the document changes: the file is not written, and a
+	// save checks the path against the bytes the load read, so a save over
+	// the file gets every check a plain load's does.
+	Migrate bool
+	// FromV2 is Migrate's fromV2: the file can only have been written for
+	// 2.x. Ignored without Migrate.
+	FromV2 bool
+}
+
+// LoadFileOpts is LoadFileWith, as the options describe. With Migrate, the
+// document is the one MigrateUnstamped makes of the file, in memory, for a
+// program whose files may be older than this format: its save goes through
+// every check a save of a plain load does, over the file it read. The lines
+// Migrate counts in Lost count in LostCount, so a save that would write them
+// canonical refuses as for any lost line. A file naming a newer format is
+// parsed as it is, so its save is *SaveTooNew.
+func LoadFileOpts(path string, level Strictness, opts LoadOptions) (*Document, FileStatus, error) {
+	doc, st := loadFileAny(path, level, opts.KeepLines, opts.Migrate, opts.FromV2)
 	_, err := doc.strictGate()
 	return doc, st, err
 }
 
-func loadFileAny(path string, level Strictness, keep bool) (*Document, FileStatus) {
+func loadFileGated(path string, level Strictness, keep bool) (*Document, FileStatus, error) {
+	doc, st := loadFileAny(path, level, keep, false, false)
+	_, err := doc.strictGate()
+	return doc, st, err
+}
+
+// loadFileAny parses the migrated text when migrate is set.
+func loadFileAny(path string, level Strictness, keep, migrate, fromV2 bool) (*Document, FileStatus) {
 	text, st := ReadFile(path, 0)
 	if st != FileClean {
 		doc := newParser().parse("", level)
@@ -10578,10 +10740,19 @@ func loadFileAny(path string, level Strictness, keep bool) (*Document, FileStatu
 		// its bytes are as unread as a parsed document's.
 		return doc, st
 	}
-	doc := newParser().parse(text, level)
-	if keep {
-		doc.keepSource(text)
+	parsed, mig := text, Migration{}
+	if migrate {
+		mig = MigrateUnstamped(text, fromV2)
+		parsed = mig.Text
 	}
+	doc := newParser().parse(parsed, level)
+	// migrate's count, summed as a merge sums a layer's. Its lines are gone
+	// before the parse sees the text, so the funnel never meets them.
+	doc.lost += mig.Lost
+	if keep {
+		doc.keepSource(parsed)
+	}
+	// The file's own bytes, so a save over it is no change.
 	doc.file = &seenBytes{read: &text}
 	if doc.ErrorCount() > 0 {
 		return doc, FileHadErrors
@@ -13295,7 +13466,7 @@ func (d *Document) TryClearComments(path string) Read[int] {
 // "This config file format is SHCL." line, never by its links or Legal line,
 // which a later release may word differently. It runs from the lone "##"
 // above that line to the next one, so a "##" comment of the file's own stays,
-// even written right against it. A version line Migrate stamped comes off
+// even written right against it. A version line Migrate stamped, or a stamp outside a block, comes off
 // too, with the note under it. Both are looked for in the footer and above
 // every field but the first one and its first child down, since a field added
 // below one by hand takes it as its comment. A line in an old block that the
@@ -13304,8 +13475,8 @@ func (d *Document) TryClearComments(path string) Read[int] {
 // writes it stays as it is, the author's lines in it too. A block at the top
 // of the file is left alone. A dotted first line hangs it on its last name,
 // which a saved file writes as the first field's first child, so a block there
-// is left alone too, however it got there. A lone Format line there comes off
-// with on, since the new block names the format. A kept block's Format line is set to this format
+// is left alone too, however it got there. A lone Format line or stamp there comes off
+// with on, since the new block names the format. A kept block's Format line or stamp is set to this format
 // too, since it reads first. The library save never adds the block by itself;
 // this is for a program that wants it in a file it writes. Returns how many old
 // blocks came off.
@@ -13384,8 +13555,16 @@ func (d *Document) swapBanner(on, v2 bool) int {
 					list = tr.head
 				}
 				for k := range list {
-					if l := &list[k]; strings.HasPrefix(l.text, FormatLineHead) && l.text != FormatLine {
-						l.text, l.line = FormatLine, 0
+					l := &list[k]
+					line := ""
+					switch {
+					case strings.HasPrefix(l.text, FormatLineHead):
+						line = FormatLine
+					case strings.HasPrefix(l.text, StampHead):
+						line = StampLine
+					}
+					if line != "" && l.text != line {
+						l.text, l.line = line, 0
 					}
 				}
 			}
@@ -13779,6 +13958,13 @@ func (d *Document) Merge(over *Document) {
 		}
 		d.bracketed = true
 	}
+	// A stamp at the end stays the last line, so a merge over the saved text
+	// gives what one over the document does.
+	var stamp []lead
+	if k := len(d.orphans) - 1; k >= 0 && d.orphans[k].depth == 0 && strings.HasPrefix(d.orphans[k].text, StampHead) {
+		stamp = append(stamp, d.orphans[k])
+		d.orphans = d.orphans[:k]
+	}
 	var touched []int
 	d.overlay(root, over, root, &touched)
 	d.mergeTop(over)
@@ -13814,9 +14000,14 @@ func (d *Document) Merge(over *Document) {
 		prev = i
 	}
 	for i, o := range over.orphans {
+		// A layer's stamp names the layer's file, and the merged text gets
+		// its own when it is written.
+		if strings.HasPrefix(o.text, StampHead) {
+			continue
+		}
 		seen := false
 		for _, e := range d.orphans[:had] {
-			if !whole[i] && e.text == o.text && e.depth == o.depth {
+			if !whole[i] && repeatLine(e.text, o.text) && e.depth == o.depth {
 				seen = true
 				break
 			}
@@ -13838,6 +14029,7 @@ func (d *Document) Merge(over *Document) {
 			}
 		}
 	}
+	d.orphans = append(d.orphans, stamp...)
 	settleFirstBlank(d.arena, &d.orphans)
 	if fresh {
 		d.settleKept()
@@ -13886,10 +14078,13 @@ func (d *Document) mergeTop(over *Document) {
 	had := len(d.arena[root].head())
 	added := false
 	for _, o := range over.arena[root].head() {
+		if strings.HasPrefix(o.text, StampHead) {
+			continue
+		}
 		t := d.arena[root].trivMut()
 		dup := false
 		for _, e := range t.head[:had] {
-			dup = dup || e.text == o.text && e.depth == o.depth
+			dup = dup || repeatLine(e.text, o.text) && e.depth == o.depth
 		}
 		if dup {
 			continue
@@ -16947,7 +17142,7 @@ const genMaxFields = 10000
 const GenBanner = "##\n" +
 	"## This config file format is SHCL.\n" +
 	"## \"Simple Hierarchical Config Language\"\n" +
-	"##    Format   3\n" +
+	"##    Format   3.0\n" +
 	"##    Home     https://github.com/yottacore/shcl\n" +
 	"##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n" +
 	"##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n" +

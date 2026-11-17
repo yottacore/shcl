@@ -4,3 +4,4 @@ server:
 	tls on off
 count: 2
 *bad
+## SHCL format 3.0

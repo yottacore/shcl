@@ -4,3 +4,4 @@ db:
 	host: localhost
 		pool: 4
 	port: 5432
+## SHCL format 3.0

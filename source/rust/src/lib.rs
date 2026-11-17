@@ -221,6 +221,24 @@ pub struct SaveOptions {
 	pub mode: u32,
 }
 
+/// How `load_file_opts` loads. The default is `load_file_with`. The level is
+/// its own argument, since it is the one choice every load makes, and an
+/// all-zero options struct in Go and C would be Loose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LoadOptions {
+	/// Keep the text for `to_text_keep_lines`, as `load_file_keep_lines`
+	/// does. With `migrate`, the text kept is the migrated one.
+	pub keep_lines: bool,
+	/// Parse what `migrate_unstamped` makes of the file rather than the file
+	/// itself. Only the document changes: the file is not written, and a
+	/// save checks the path against the bytes the load read, so a save over
+	/// the file gets every check a plain load's does.
+	pub migrate: bool,
+	/// migrate's `from_v2`: the file can only have been written for 2.x.
+	/// Ignored without `migrate`.
+	pub from_v2: bool,
+}
+
 /// What a save checks the bytes at its path against: what the load read, and
 /// what this document's last save wrote. No path is kept, since a path taken
 /// at the load names another file by the save once a folder or a link on it
@@ -3006,14 +3024,16 @@ const FORMAT_WORD: &str = "##    Format";
 /// The stamp's head without the blank before the format, as `FORMAT_WORD` is.
 const STAMP_WORD: &str = "## SHCL format";
 
-/// The major a stamp's format names: `3` as beta1 wrote it, `3.0`, or a pin
-/// such as `3.0-a37`. None when it is none of those. A major too big for 32
-/// bits reads as the largest that fits, a format newer than this one.
-fn stamp_major(n: &str) -> Option<u32> {
+/// The major and minor a stamp's format names: `3` as beta1 wrote it, which
+/// is minor 0, `3.0`, or a pin such as `3.0-a37`. None when it is none of
+/// those. A number too big for 32 bits reads as the largest that fits, a
+/// format newer than this one.
+fn stamp_format(n: &str) -> Option<(u32, u32)> {
 	let (major, rest) = n.split_at(n.find(|c: char| !c.is_ascii_digit()).unwrap_or(n.len()));
 	if major.is_empty() {
 		return None;
 	}
+	let mut minor_v = 0;
 	if !rest.is_empty() {
 		let minor = rest.strip_prefix('.')?;
 		let (digits, pin) = minor.split_at(minor.find('-').unwrap_or(minor.len()));
@@ -3025,8 +3045,18 @@ fn stamp_major(n: &str) -> Option<u32> {
 		if digits.is_empty() || !digits.bytes().all(|c| c.is_ascii_digit()) || !pin_ok {
 			return None;
 		}
+		minor_v = digits.parse().unwrap_or(u32::MAX);
 	}
-	Some(major.parse().unwrap_or(u32::MAX))
+	Some((major.parse().unwrap_or(u32::MAX), minor_v))
+}
+
+/// The stamp names a newer format than this reader's: a newer major, or a
+/// newer minor of this one, whose added syntax these rules don't know. A save
+/// of it would write those lines by these rules, so none does.
+fn names_newer(stamp: &Read<u32>) -> bool {
+	stamp.status == Status::Good
+		&& stamp_format(stamp.raw.as_deref().unwrap_or_default())
+			.is_some_and(|f| f > (FORMAT_MAJOR, FORMAT_MINOR))
 }
 
 /// read_format_version() on text with the BOM already off. Digits that do
@@ -3050,8 +3080,8 @@ fn format_line_read(text: &str) -> Read<u32> {
 	}
 	let mut now = RawLines::new(Rules::Current);
 	let mut then = RawLines::new(Rules::V2);
-	let mut found: Option<(u32, usize, &str)> = None;
-	let mut newest: Option<(u32, usize, &str)> = None;
+	let mut found: Option<((u32, u32), usize, &str)> = None;
+	let mut newest: Option<((u32, u32), usize, &str)> = None;
 	let mut unread: Option<(Status, usize, &str)> = None;
 	for (i, line) in text.split('\n').enumerate() {
 		let current = now.step(line);
@@ -3067,7 +3097,7 @@ fn format_line_read(text: &str) -> Read<u32> {
 			None if rest == FORMAT_WORD || rest == STAMP_WORD => "",
 			None => continue,
 		};
-		let Some(v) = stamp_major(n) else {
+		let Some(v) = stamp_format(n) else {
 			if unread.is_none() {
 				let st = if n.is_empty() {
 					Status::Empty
@@ -3078,7 +3108,7 @@ fn format_line_read(text: &str) -> Read<u32> {
 			}
 			continue;
 		};
-		if v >= FORMAT_MAJOR {
+		if v.0 >= FORMAT_MAJOR {
 			if current.is_some() && newest.is_none_or(|(f, _, _)| v > f) {
 				newest = Some((v, i + 1, n));
 			}
@@ -3086,7 +3116,7 @@ fn format_line_read(text: &str) -> Read<u32> {
 			found = Some((v, i + 1, n));
 		}
 	}
-	if let Some((v, line, n)) = newest.or(found) {
+	if let Some(((v, _), line, n)) = newest.or(found) {
 		return Read::new(v, Status::Good, Some(n.to_string())).at(line, None);
 	}
 	match unread {
@@ -3100,6 +3130,11 @@ fn format_line_read(text: &str) -> Read<u32> {
 /// line would not read as the file's stamp, as when a rewrite left it in a
 /// raw body, so a caller adds the line rather than lose it.
 fn restamp(text: &str, line: usize) -> Option<String> {
+	restamp_as(text, line, FORMAT_LINE)
+}
+
+/// restamp() writing `stamp` on the line.
+fn restamp_as(text: &str, line: usize, stamp: &str) -> Option<String> {
 	let (bom, body) = match text.strip_prefix('\u{feff}') {
 		Some(t) => ("\u{feff}", t),
 		None => ("", text),
@@ -3117,37 +3152,95 @@ fn restamp(text: &str, line: usize) -> Option<String> {
 		let indent = leading_ws(l);
 		let rest = trim_wsp_end(l[indent.len()..].trim_end_matches('\r'));
 		out.push_str(indent);
-		out.push_str(FORMAT_LINE);
+		out.push_str(stamp);
 		out.push_str(&l[indent.len() + rest.len()..]);
 	}
 	let now = format_line_read(&out[bom.len()..]);
 	(now.status == Status::Good && now.value == FORMAT_MAJOR && now.line == line).then_some(out)
 }
 
-/// The load's hint for a file whose Format line names another major than
-/// this one: `H006` for a newer one, `H007` for an older one. It reads the
-/// line the way read_format_version() does, so the two never disagree. The
-/// number is quoted as written, leading zeros and all, since the read caps
-/// one too big for 32 bits.
+/// A merge's line `line` repeats `here`: the same text, or a Format line or
+/// stamp with the same head, whatever format each names. A save rewrites the
+/// line it reads to name this format, so a layer saved since and a base that
+/// wasn't would otherwise write the line twice.
+fn repeat_line(here: &str, line: &str) -> bool {
+	here == line
+		|| [FORMAT_LINE_HEAD, STAMP_HEAD]
+			.iter()
+			.any(|h| here.starts_with(h) && line.starts_with(h))
+}
+
+/// True when the stamp read names this format whole, as `3.0`, rather than
+/// beta1's major alone or a pin.
+fn names_this(stamp: &Read<u32>) -> bool {
+	stamp.status == Status::Good
+		&& stamp.raw.as_deref() == Some(&format!("{}.{}", FORMAT_MAJOR, FORMAT_MINOR)[..])
+}
+
+/// The text a save writes: its stamp names this format. The line
+/// read_format_version() finds is rewritten where it is, with its own head,
+/// and a text with none gets `STAMP_LINE` at the end. A text naming a newer
+/// format keeps its line, so the next load still sees it. None when the
+/// added line would not read as the stamp, as after a raw block left open.
+fn stamped(text: &str) -> Option<String> {
+	stamped_eol(text, majority_eol(text))
+}
+
+/// stamped() ending an added line with `eol`.
+fn stamped_eol(text: &str, eol: &str) -> Option<String> {
+	let body = text.strip_prefix('\u{feff}').unwrap_or(text);
+	let found = format_line_read(body);
+	if names_newer(&found) || names_this(&found) {
+		return Some(text.to_string());
+	}
+	if found.status == Status::Good {
+		let head = body.split('\n').nth(found.line - 1).unwrap_or_default();
+		let line = if head.trim_start().starts_with(STAMP_WORD) {
+			STAMP_LINE
+		} else {
+			FORMAT_LINE
+		};
+		if let Some(t) = restamp_as(text, found.line, line) {
+			return Some(t);
+		}
+	}
+	let mut out = String::with_capacity(text.len() + STAMP_LINE.len() + 2);
+	out.push_str(text);
+	if !body.is_empty() && !body.ends_with('\n') {
+		out.push_str(eol);
+	}
+	out.push_str(STAMP_LINE);
+	out.push_str(eol);
+	let now = format_line_read(out.strip_prefix('\u{feff}').unwrap_or(&out));
+	names_this(&now).then_some(out)
+}
+
+/// The load's hint for a file whose Format line names another format than
+/// this one: `H006` for a newer one, a newer minor of this major included,
+/// and `H007` for an older major. An older minor reads the same, so it gets
+/// none. It reads the line the way read_format_version() does, so the two
+/// never disagree. The number is quoted as written, leading zeros and all,
+/// since the read caps one too big for 32 bits.
 fn stamp_hint(stamp: &Read<u32>) -> Option<Diagnostic> {
-	if stamp.status != Status::Good || stamp.value == FORMAT_MAJOR {
+	let newer = names_newer(stamp);
+	if stamp.status != Status::Good || (!newer && stamp.value >= FORMAT_MAJOR) {
 		return None;
 	}
 	let written = one_line(stamp.raw.as_deref().unwrap_or_default());
-	let (code, message) = if stamp.value > FORMAT_MAJOR {
+	let (code, message) = if newer {
 		(
 			"H006",
 			format!(
-				"the file names format {}, newer than this reader's format {}, so some lines may read differently than written",
-				written, FORMAT_MAJOR
+				"the file names format {}, newer than this reader's format {}.{}, so some lines may read differently than written",
+				written, FORMAT_MAJOR, FORMAT_MINOR
 			),
 		)
 	} else {
 		(
 			"H007",
 			format!(
-				"the file names format {}, older than this reader's format {}, so some lines may read differently than written; shcl upgrade --from-2x rewrites it",
-				written, FORMAT_MAJOR
+				"the file names format {}, older than this reader's format {}.{}, so some lines may read differently than written; shcl upgrade --from-2x rewrites it",
+				written, FORMAT_MAJOR, FORMAT_MINOR
 			),
 		)
 	};
@@ -3524,7 +3617,7 @@ pub fn upgrade(text: &str, from_v2: bool) -> Upgrade {
 		backup: String::new(),
 		errors_left: Vec::new(),
 	};
-	if version.is_some_and(|v| v > FORMAT_MAJOR || (v == FORMAT_MAJOR && !from_v2)) {
+	if names_newer(&named) || (version == Some(FORMAT_MAJOR) && !from_v2) {
 		return up;
 	}
 	let before = Document::parse(text);
@@ -3586,8 +3679,8 @@ pub fn upgrade(text: &str, from_v2: bool) -> Upgrade {
 /// Where the lines can't be kept, or keeping them keeps an error the
 /// canonical form repairs, such as a missing colon, it is the canonical form.
 fn upgrade_text(fresh: &Document) -> String {
-	let canonical = fresh.to_canonical();
-	match fresh.to_text_keep_lines() {
+	let canonical = fresh.canonical_text();
+	match fresh.keep_lines_text() {
 		(kept, true)
 			if Document::parse(&kept).error_count()
 				<= Document::parse(&canonical).error_count() =>
@@ -6240,7 +6333,7 @@ impl<'a> Parser<'a> {
 		}
 		self.src = lines.clone();
 		let stamp = format_line_read(text);
-		let newer = stamp.status == Status::Good && stamp.value > FORMAT_MAJOR;
+		let newer = names_newer(&stamp);
 		if let Some(d) = stamp_hint(&stamp) {
 			self.diag(d);
 		}
@@ -7092,7 +7185,7 @@ impl Document {
 	/// be read), and the status separates the four cases consumers otherwise
 	/// confuse: absent, present-but-unreadable, parsed with errors, clean.
 	pub fn load_file(path: &str) -> (Document, FileStatus) {
-		Document::load_file_any(path, Strictness::Standard, false)
+		Document::load_file_any(path, Strictness::Standard, false, None)
 	}
 
 	/// load_file at a chosen strictness. As parse_with, only Strict can fail:
@@ -7107,32 +7200,64 @@ impl Document {
 		Document::load_file_gated(path, level, false)
 	}
 
+	/// load_file_with, as the options describe. With `migrate`, the document is the
+	/// one `migrate_unstamped` makes of the file, in memory, for a program
+	/// whose files may be older than this format: its save goes through every
+	/// check a save of a plain load does, over the file it read. The lines
+	/// `migrate` counts in `lost` count in `lost_count`, so a save that
+	/// would write them canonical refuses as for any lost line. A file
+	/// naming a newer format is parsed as it is, so its save is `TooNew`.
+	#[allow(clippy::result_large_err)]
+	pub fn load_file_opts(
+		path: &str,
+		level: Strictness,
+		opts: &LoadOptions,
+	) -> Result<(Document, FileStatus), LoadError> {
+		let migrate = opts.migrate.then_some(opts.from_v2);
+		let (doc, st) = Document::load_file_any(path, level, opts.keep_lines, migrate);
+		Ok((doc.strict_gate()?, st))
+	}
+
 	#[allow(clippy::result_large_err)]
 	fn load_file_gated(
 		path: &str,
 		level: Strictness,
 		keep: bool,
 	) -> Result<(Document, FileStatus), LoadError> {
-		let (doc, st) = Document::load_file_any(path, level, keep);
+		let (doc, st) = Document::load_file_any(path, level, keep, None);
 		Ok((doc.strict_gate()?, st))
 	}
 
-	fn load_file_any(path: &str, level: Strictness, keep: bool) -> (Document, FileStatus) {
+	/// `migrate` is Some(from_v2) to parse the migrated text.
+	fn load_file_any(
+		path: &str,
+		level: Strictness,
+		keep: bool,
+		migrate: Option<bool>,
+	) -> (Document, FileStatus) {
 		let text = match read_file(path, 0) {
 			Ok(t) => t,
 			// A file that could not be read gives a save nothing to compare,
 			// so its bytes are as unread as a parsed document's.
 			Err(st) => return (Parser::new().parse("", level), st),
 		};
-		let mut doc = Parser::new().parse(&text, level);
+		let mig = migrate.map(|from_v2| migrate_unstamped(&text, from_v2));
+		let parsed = mig.as_ref().map_or(text.as_str(), |mig| mig.text.as_str());
+		let mut doc = Parser::new().parse(parsed, level);
+		// migrate's count, summed as a merge sums a layer's. Its lines are gone
+		// before the parse sees the text, so the funnel never meets them.
+		if let Some(mig) = &mig {
+			doc.lost += mig.lost;
+		}
 		let st = if doc.error_count() > 0 {
 			FileStatus::HadErrors
 		} else {
 			FileStatus::Clean
 		};
 		if keep {
-			doc.keep_source(&text);
+			doc.keep_source(parsed);
 		}
+		// The file's own bytes, so a save over it is no change.
 		doc.seen.read = Some(text);
 		(doc, st)
 	}
@@ -7217,7 +7342,17 @@ impl Document {
 	/// Canonical form: block layout, tabs, insertion order, minimal quoting,
 	/// redundancy collapsed, comments re-emitted as attached trivia. Scalar
 	/// text is never rewritten.
+	///
+	/// The text names this format: its stamp is rewritten to say so, or
+	/// `STAMP_LINE` is added at the end, as every save does. A document naming
+	/// a newer format keeps its stamp.
 	pub fn to_canonical(&self) -> String {
+		let text = self.canonical_text();
+		stamped(&text).unwrap_or(text)
+	}
+
+	/// to_canonical() as the document has it, with no stamp step.
+	fn canonical_text(&self) -> String {
 		let mut e = Emit::new(self.arena.len() * 24, false);
 		self.emit_all(&mut e);
 		e.out
@@ -7240,7 +7375,7 @@ impl Document {
 	}
 
 	fn keep_source(&mut self, text: &str) {
-		self.source = Some(if self.to_canonical() == text {
+		self.source = Some(if self.canonical_text() == text {
 			String::new()
 		} else {
 			text.to_string()
@@ -7263,8 +7398,23 @@ impl Document {
 	/// as this document. When it does not, or the document was not loaded
 	/// with parse_keep_lines or load_file_keep_lines, or it took a merge, or
 	/// an edit took a kept line it should not have, this is to_canonical()
-	/// and false.
+	/// and false. Its stamp names this format, as to_canonical()'s does, so
+	/// a kept file without one gets `STAMP_LINE` as a new last line. A kept
+	/// text that ends in a raw block left open has nowhere to put one, as in
+	/// `migrate`, so it goes without. The line ends the way new lines do.
 	pub fn to_text_keep_lines(&self) -> (String, bool) {
+		match self.keep_lines_text() {
+			(t, true) => {
+				let src = self.source.as_deref().unwrap_or_default();
+				let eol = majority_eol(if src.is_empty() { &t } else { src });
+				(stamped_eol(&t, eol).unwrap_or(t), true)
+			}
+			_ => (self.to_canonical(), false),
+		}
+	}
+
+	/// to_text_keep_lines() with no stamp step, the canonical side included.
+	fn keep_lines_text(&self) -> (String, bool) {
 		// The reparse check below cannot see a kept line gone from both the
 		// tree and the text, so falling back leaves it to the lost-count gate.
 		if let Some(src) = &self.source
@@ -7273,7 +7423,7 @@ impl Document {
 		{
 			return (t, true);
 		}
-		(self.to_canonical(), false)
+		(self.canonical_text(), false)
 	}
 
 	/// save_file with to_text_keep_lines(): Ok(true) when it kept the lines,
@@ -8905,7 +9055,7 @@ fn heads_only(out: &str, start: usize, end: usize) -> bool {
 fn keep_lines_as(src: &str, doc: &Document, drop_bare: bool, bare: &mut bool) -> Option<String> {
 	// A text that was canonical keeps its lines as the canonical form.
 	if src.is_empty() {
-		return Some(doc.to_canonical());
+		return Some(doc.canonical_text());
 	}
 	let now = doc.emit_marked();
 	let mut p = Parser::new();
@@ -9313,18 +9463,18 @@ fn keep_lines_as(src: &str, doc: &Document, drop_bare: bool, bare: &mut bool) ->
 	// differently from how the file had it.
 	let back = Parser::new().parse(&out, doc.strictness);
 	(back.lost == loaded_doc.lost
-		&& back.to_canonical() == now.out
+		&& back.canonical_text() == now.out
 		&& errors_within(&back, &loaded_doc))
 	.then_some(out)
 }
 
 /// Where the info block is in `leads`, from the lone `##` above its
 /// `This config file format is SHCL.` line to the next lone `##`, and each
-/// version line `migrate` stamped, with the note under it. A block with no
+/// version line `migrate` stamped or stamp outside one, with the note under it. A block with no
 /// closing `##` ends after its last line written the block's way. A `##`
 /// comment around one stays out of it, even written right against it. A
 /// `mark` of `#` finds 2.x's block instead, which had no version line. With
-/// `blocks` false a block is left whole, and only a Format line outside one
+/// `blocks` false a block is left whole, and only a Format line or stamp outside one
 /// counts.
 fn banner_spans(leads: &[Lead], mark: &str, blocks: bool) -> Vec<(usize, usize)> {
 	let in_run = |l: &Lead| l.text.starts_with(mark) && !l.blank_before;
@@ -9360,7 +9510,10 @@ fn banner_spans(leads: &[Lead], mark: &str, blocks: bool) -> Vec<(usize, usize)>
 			if prev_kept && !leads[i].blank_before && leads[i - 1].text == mark {
 				start = i - 1;
 			}
-		} else if mark == "##" && leads[i].text.starts_with(FORMAT_LINE_HEAD) {
+		} else if mark == "##"
+			&& (leads[i].text.starts_with(FORMAT_LINE_HEAD)
+				|| leads[i].text.starts_with(STAMP_HEAD))
+		{
 			if end < leads.len() && in_run(&leads[end]) && leads[end].text == MIGRATED_LINE {
 				end += 1;
 			}
@@ -9377,9 +9530,9 @@ fn banner_spans(leads: &[Lead], mark: &str, blocks: bool) -> Vec<(usize, usize)>
 }
 
 /// Whether `t` is a line the info block writes, in `mark` comments: a lone
-/// mark, the block's two text lines, one of its named lines, or the note
-/// `migrate` writes under the Format line. Any other line in a block is the
-/// author's.
+/// mark, the block's two text lines, one of its named lines, the note
+/// `migrate` writes under the Format line, or a stamp. Any other line in a
+/// block is the author's.
 fn banner_own(t: &str, mark: &str) -> bool {
 	let Some(r) = t.strip_prefix(mark) else {
 		return false;
@@ -9388,6 +9541,7 @@ fn banner_own(t: &str, mark: &str) -> bool {
 		|| r == &BANNER_TITLE[2..]
 		|| r == &BANNER_NAME[2..]
 		|| t == MIGRATED_LINE
+		|| t.starts_with(STAMP_HEAD)
 		|| r.strip_prefix("    ").is_some_and(|r| {
 			BANNER_FIELDS.iter().any(|f| {
 				r.strip_prefix(f)
@@ -13404,7 +13558,7 @@ impl Document {
 	/// line, which a later release may word differently. It runs from the
 	/// lone `##` above that line to the next one, so a `##` comment of the
 	/// file's own stays, even written right against it. A version line
-	/// `migrate` stamped comes off too, with the note under it. Both are
+	/// `migrate` stamped, or a stamp outside a block, comes off too, with the note under it. Both are
 	/// looked for in the footer and above every field but the first one and
 	/// its first child down, since a field added below one by hand takes it
 	/// as its comment. A line in an old block that the block does not write is
@@ -13414,8 +13568,8 @@ impl Document {
 	/// the file is left alone.
 	/// A dotted first line hangs it on its last name, which a saved file
 	/// writes as the first field's first child, so a block there is left
-	/// alone too, however it got there. A lone Format line there comes off with
-	/// `on`, since the new block names the format. A kept block's Format line
+	/// alone too, however it got there. A lone Format line or stamp there comes off with
+	/// `on`, since the new block names the format. A kept block's Format line or stamp
 	/// is set to this format too, since it reads first. The library save never
 	/// adds the block by itself; this is for a program that wants it in a file
 	/// it writes. Returns how many old blocks came off.
@@ -13487,8 +13641,15 @@ impl Document {
 						&mut tr.leading
 					};
 					for l in list {
-						if l.text.starts_with(FORMAT_LINE_HEAD) && l.text != FORMAT_LINE {
-							l.text = FORMAT_LINE.to_string();
+						let line = if l.text.starts_with(FORMAT_LINE_HEAD) {
+							FORMAT_LINE
+						} else if l.text.starts_with(STAMP_HEAD) {
+							STAMP_LINE
+						} else {
+							continue;
+						};
+						if l.text != line {
+							l.text = line.to_string();
 							l.line = 0;
 						}
 					}
@@ -13888,6 +14049,11 @@ impl Document {
 			}
 			self.bracketed = true;
 		}
+		// A stamp at the end stays the last line, so a merge over the saved
+		// text gives what one over the document does.
+		let stamp = self
+			.orphans
+			.pop_if(|l| l.depth == 0 && l.text.starts_with(STAMP_HEAD));
 		let mut touched = Vec::new();
 		self.overlay(ROOT, over, ROOT, &mut touched);
 		self.merge_top(over);
@@ -13920,10 +14086,15 @@ impl Document {
 			}
 		}
 		for (i, o) in over.orphans.iter().enumerate() {
+			// A layer's stamp names the layer's file, and the merged text gets
+			// its own when it is written.
+			if o.text.starts_with(STAMP_HEAD) {
+				continue;
+			}
 			if whole[i]
 				|| !self.orphans[..had]
 					.iter()
-					.any(|e| e.text == o.text && e.depth == o.depth)
+					.any(|e| repeat_line(&e.text, &o.text) && e.depth == o.depth)
 			{
 				let mut o = o.clone();
 				if o.text.starts_with('#') {
@@ -13938,6 +14109,7 @@ impl Document {
 				self.kept_owed = self.kept_owed.saturating_sub(1);
 			}
 		}
+		self.orphans.extend(stamp);
 		settle_first_blank(&mut self.arena, &mut self.orphans);
 		if fresh {
 			self.settle_kept();
@@ -13953,10 +14125,13 @@ impl Document {
 		let had = self.arena[ROOT].head().len();
 		let mut added = false;
 		for o in over.arena[ROOT].head() {
+			if o.text.starts_with(STAMP_HEAD) {
+				continue;
+			}
 			let t = self.arena[ROOT].triv_mut();
 			if t.head[..had]
 				.iter()
-				.any(|e| e.text == o.text && e.depth == o.depth)
+				.any(|e| repeat_line(&e.text, &o.text) && e.depth == o.depth)
 			{
 				continue;
 			}
@@ -16835,7 +17010,7 @@ pub const GEN_BANNER: &str = "\
 ##
 ## This config file format is SHCL.
 ## \"Simple Hierarchical Config Language\"
-##    Format   3
+##    Format   3.0
 ##    Home     https://github.com/yottacore/shcl
 ##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md
 ##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.
@@ -16906,7 +17081,7 @@ pub const FORMAT_LINE_HEAD: &str = "##    Format   ";
 /// of its own emits `GEN_BANNER`, which includes this; `migrate` appends this
 /// line on its own to a file it rewrote, since that file has no block to add
 /// it to and inventing one would write bytes the document does not hold.
-pub const FORMAT_LINE: &str = "##    Format   3";
+pub const FORMAT_LINE: &str = "##    Format   3.0";
 
 /// The start of a line naming the file's schema, written like the Format line,
 /// for `check` and for editors: `##    Schema   ./app.schema.shcl`.
@@ -18009,6 +18184,11 @@ fn deletion_spellings(cs: &[char], mut f: impl FnMut(u64)) {
 mod kept_gate {
 	use super::*;
 
+	// What a save writes for `s`, which names no format.
+	fn with_stamp(s: &str) -> String {
+		format!("{s}{STAMP_LINE}\n")
+	}
+
 	// The status line tests/common prints, since that module is out of reach.
 	struct TestId(&'static str);
 
@@ -18083,7 +18263,7 @@ mod kept_gate {
 		let mut doc = Document::parse("a: [1\n\tb: 2\ny: 3\n");
 		assert_eq!(doc.remove("a"), 1);
 		assert_eq!(doc.lost_count(), 0);
-		assert_eq!(doc.to_canonical(), "y: 3\n");
+		assert_eq!(doc.to_canonical(), "y: 3\n## SHCL format 3.0\n");
 	}
 
 	// design.md's table: a remove leaves the kept lines beside its target,
@@ -18111,7 +18291,7 @@ mod kept_gate {
 			assert_eq!(doc.remove(path), 1, "{text:?}");
 			assert_eq!(doc.lost_count(), 0, "{text:?}");
 			let out = doc.to_canonical();
-			assert_eq!(out, want, "{text:?}");
+			assert_eq!(out, with_stamp(want), "{text:?}");
 			assert_eq!(Document::parse(&out).to_canonical(), out, "{text:?}");
 		}
 	}
@@ -18144,7 +18324,7 @@ mod kept_gate {
 			assert_eq!(doc.remove(path), 1, "{text:?}");
 			assert_eq!(doc.lost_count(), 0, "{text:?}");
 			let out = doc.to_canonical();
-			assert_eq!(out, want, "{text:?}");
+			assert_eq!(out, with_stamp(want), "{text:?}");
 			assert_eq!(Document::parse(&out).to_canonical(), out, "{text:?}");
 		}
 	}
@@ -18212,7 +18392,7 @@ mod kept_gate {
 				.and_then(|s| s.strip_suffix(&format!(": {why}")))
 				.unwrap_or_else(|| panic!("{text:?} wrote {out:?}"));
 			assert!(is_stamp(stamp), "{stamp:?}");
-			assert_eq!(after, rest, "{text:?}");
+			assert_eq!(after, with_stamp(rest), "{text:?}");
 			let back = Document::parse(&out);
 			assert!(back.diagnostics().is_empty(), "{out:?}");
 			assert_eq!(back.count(path), 1, "{out:?}");
@@ -18227,7 +18407,7 @@ mod kept_gate {
 		] {
 			let mut doc = Document::parse("a: [1\n\tb: 2\n");
 			assert_eq!(doc.set_int(path, 5), SetStatus::Ok);
-			assert_eq!(doc.to_canonical(), want);
+			assert_eq!(doc.to_canonical(), with_stamp(want));
 		}
 	}
 
@@ -18303,7 +18483,7 @@ mod kept_gate {
 			assert_eq!(doc.set_int(path, 5), SetStatus::Ok, "{text:?}");
 			assert_eq!(doc.lost_count(), 0, "{text:?}");
 			let out = doc.to_canonical();
-			assert_eq!(unstamp(&out), want, "{text:?}");
+			assert_eq!(unstamp(&out), with_stamp(&want), "{text:?}");
 			let back = Document::parse(&out);
 			assert_eq!(back.count(path), count, "{out:?}");
 			assert_eq!(back.to_canonical(), out);
@@ -18313,11 +18493,17 @@ mod kept_gate {
 		let mut doc = Document::parse_keep_lines("a: 1\na: 2\n", Strictness::Standard)
 			.unwrap_or_else(|e| e.document);
 		assert_ne!(doc.set_int("a", 5), SetStatus::Ok);
-		assert_eq!(doc.to_text_keep_lines(), ("a: 1\na: 2\n".to_string(), true));
+		assert_eq!(
+			doc.to_text_keep_lines(),
+			("a: 1\na: 2\n## SHCL format 3.0\n".to_string(), true)
+		);
 		// set_comment makes the field without touching the line.
 		let mut doc = Document::parse("a: [1\ny: 3\n");
 		assert_eq!(doc.set_comment("a", "n"), SetStatus::Ok);
-		assert_eq!(doc.to_canonical(), "a: [1\ny: 3\n\n# n\na:\n");
+		assert_eq!(
+			doc.to_canonical(),
+			"a: [1\ny: 3\n\n# n\na:\n## SHCL format 3.0\n"
+		);
 	}
 
 	/// Each note's stamp, checked, as STAMP.
@@ -18411,10 +18597,13 @@ mod kept_gate {
 		let _id = test_id("ddez2");
 		let mut doc = Document::parse("x: 0\n\tc: 2\n  a: 5\nb: 1\n");
 		assert_eq!(doc.remove("x.c"), 1);
-		assert_eq!(doc.to_canonical(), "x: 0\n# a: 5\nb: 1\n");
+		assert_eq!(
+			doc.to_canonical(),
+			"x: 0\n# a: 5\nb: 1\n## SHCL format 3.0\n"
+		);
 		assert_eq!(doc.lost_count(), 0);
 		doc.merge(&Document::parse("b: 9\n"));
-		assert_eq!(doc.to_canonical(), "x: 0\nb: 9\n");
+		assert_eq!(doc.to_canonical(), "x: 0\nb: 9\n## SHCL format 3.0\n");
 		assert_eq!(doc.lost_count(), 0);
 	}
 
@@ -18425,7 +18614,7 @@ mod kept_gate {
 		let _id = test_id("ddez3");
 		let mut doc = Document::parse("bad name: 1\n");
 		doc.merge(&Document::parse("bad name: 1\n"));
-		assert_eq!(doc.to_canonical(), "bad name: 1\n");
+		assert_eq!(doc.to_canonical(), "bad name: 1\n## SHCL format 3.0\n");
 		assert_eq!(doc.lost_count(), 0);
 	}
 
@@ -18438,14 +18627,20 @@ mod kept_gate {
 		let mut doc = Document::parse("    srv: a\n  srv(x): [3\nb(x): [4\n# mine\nq: c\n");
 		assert_eq!(
 			doc.to_canonical(),
-			"srv: a\n# srv(x): [3\nb(x): [4\n# mine\nq: c\n"
+			"srv: a\n# srv(x): [3\nb(x): [4\n# mine\nq: c\n## SHCL format 3.0\n"
 		);
 		doc.merge(&Document::parse("q: 9\n"));
-		assert_eq!(doc.to_canonical(), "srv: a\n# srv(x): [3\nb(x): [4\nq: 9\n");
+		assert_eq!(
+			doc.to_canonical(),
+			"srv: a\n# srv(x): [3\nb(x): [4\nq: 9\n## SHCL format 3.0\n"
+		);
 		assert_eq!(doc.lost_count(), 0);
 		let mut doc = Document::parse("p:\n\tq: c\n\t# mine\n\tb(x): [4\n\t# n\n");
 		doc.merge(&Document::parse("p:\n\tq: 9\n"));
-		assert_eq!(doc.to_canonical(), "p:\n\tb(x): [4\n\t# n\n\tq: 9\n");
+		assert_eq!(
+			doc.to_canonical(),
+			"p:\n\tb(x): [4\n\t# n\n\tq: 9\n## SHCL format 3.0\n"
+		);
 		assert_eq!(doc.lost_count(), 0);
 	}
 }

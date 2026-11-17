@@ -219,7 +219,7 @@ func TestAnOlderFormatLineBecomesThisOneInPlace(t *testing.T) {
 	// (2026100717500017).
 	old := "port: 80\n##    Format   2\n"
 	up := Upgrade(old, true)
-	if up.Current || up.Format != 2 || up.Lost != 0 || up.Text != "port: 80\n##    Format   3\n" {
+	if up.Current || up.Format != 2 || up.Lost != 0 || up.Text != "port: 80\n##    Format   3.0\n" {
 		t.Fatalf("restamp: %+v", up)
 	}
 	h007 := false
@@ -236,15 +236,15 @@ func TestAnOlderFormatLineBecomesThisOneInPlace(t *testing.T) {
 		t.Fatalf("without fromV2: %+v", up)
 	}
 	// Indent, trailing blanks, line end and BOM stay as they were.
-	if got, want := Upgrade("\ufeffp: 1\r\n\t##    Format   1  \r\nq: 2", true).Text, "\ufeffp: 1\r\n\t##    Format   3  \r\nq: 2"; got != want {
+	if got, want := Upgrade("\ufeffp: 1\r\n\t##    Format   1  \r\nq: 2", true).Text, "\ufeffp: 1\r\n\t##    Format   3.0  \r\nq: 2"; got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 	// Migrate writes its stamp there too, and adds one only to a file with
 	// none (2026100916475300).
 	for _, c := range [][2]string{
-		{old, "port: 80\n##    Format   3\n"},
-		{"x: a,b\n##    Format   2\ny: 1\n", "x: [a, b]\n##    Format   3\ny: 1\n##    Migrated from SHCL 2.x.\n"},
-		{"port: 80\n", "port: 80\n##    Format   3\n"},
+		{old, "port: 80\n##    Format   3.0\n"},
+		{"x: a,b\n##    Format   2\ny: 1\n", "x: [a, b]\n##    Format   3.0\ny: 1\n##    Migrated from SHCL 2.x.\n"},
+		{"port: 80\n", "port: 80\n##    Format   3.0\n"},
 	} {
 		if got := Migrate(c[0], false).Text; got != c[1] {
 			t.Fatalf("migrate %q: got %q, want %q", c[0], got, c[1])
@@ -265,13 +265,36 @@ func TestAFormatLineAtTheTopGoesWhenTheBlockGoesOn(t *testing.T) {
 	// Taking the block off leaves the top alone, as does putting one on over
 	// a whole block there.
 	doc = Parse("##    Format   2\nname: x\n")
-	if n := doc.SetBanner(false); n != 0 || doc.ToCanonical() != "##    Format   2\nname: x\n" {
+	if n := doc.SetBanner(false); n != 0 || doc.ToCanonical() != "##    Format   3.0\nname: x\n" {
 		t.Fatalf("off: %d %q", n, doc.ToCanonical())
 	}
 	top := GenBanner + "name: x\n"
 	doc = Parse(top)
 	if n := doc.SetBanner(true); n != 0 || doc.ToCanonical() != top+"\n"+GenBanner {
 		t.Fatalf("top block: %d %q", n, doc.ToCanonical())
+	}
+}
+
+func TestAStampGoesWhereAFormatLineGoes(t *testing.T) {
+	defer testID(t, "dfe3n")
+	// The banner calls take a stamp as they take a Format line, and a kept
+	// block's stamp names this format too.
+	kept := "##\n## This config file format is SHCL.\n"
+	for _, c := range []struct {
+		text string
+		on   bool
+		gone int
+		want string
+	}{
+		{"## SHCL format 2.0\nname: x\n", true, 1, "name: x\n\n" + GenBanner},
+		{"name: x\n## SHCL format 3.0\n", true, 1, "name: x\n\n" + GenBanner},
+		{"name: x\n## SHCL format 3.0\n", false, 1, "name: x\n## SHCL format 3.0\n"},
+		{kept + "## SHCL format 2.0\n##\nname: x\n", true, 0, kept + "## SHCL format 3.0\n##\nname: x\n\n" + GenBanner},
+	} {
+		doc := Parse(c.text)
+		if n := doc.SetBanner(c.on); n != c.gone || doc.ToCanonical() != c.want {
+			t.Errorf("%q: %d %q", c.text, n, doc.ToCanonical())
+		}
 	}
 }
 

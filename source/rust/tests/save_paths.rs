@@ -45,7 +45,7 @@ fn a_changed_check_knows_its_file_by_any_spelling() {
 	let (mut gone, _) = Document::load_file("i.shcl");
 	std::fs::remove_file("i.shcl").unwrap();
 	assert_eq!(gone.save_file("./i.shcl"), Ok(()));
-	assert_eq!(read("i.shcl"), "a: 1\n");
+	assert_eq!(read("i.shcl"), "a: 1\n## SHCL format 3.0\n");
 
 	// A bare name made where the load found nothing, saved by any spelling.
 	let (mut fresh, st) = Document::load_file("h.shcl");

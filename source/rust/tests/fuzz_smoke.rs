@@ -10,9 +10,9 @@ mod common;
 
 use common::test_id;
 use shcl::{
-	Document, FORMAT_MAJOR, Piece, Quote, Rules, SegTok, Severity, Strictness, Tokens,
-	format_array, format_value, format_version, migrate, quote_segment, schema_ref, tokenize,
-	tokenize_value, upgrade,
+	Document, FORMAT_LINE, FORMAT_LINE_HEAD, FORMAT_MAJOR, Piece, Quote, Rules, STAMP_HEAD,
+	STAMP_LINE, SegTok, Severity, Strictness, Tokens, format_array, format_value, format_version,
+	migrate, quote_segment, schema_ref, tokenize, tokenize_value, upgrade,
 };
 
 /// Small deterministic PRNG (xorshift64*); no external crates, stable across runs.
@@ -53,6 +53,65 @@ const INTERESTING: &[char] = &[
 	'\u{e0067}', // tag letter g: kept only inside a subdivision flag
 	'\u{e007f}', // cancel tag, which ends one
 ];
+
+/// A blank line a save that keeps lines kept above an added stamp is one the
+/// canonical form drops.
+fn tidy_stamp(t: String) -> String {
+	t.replace(&format!("\n\n{STAMP_LINE}\n"), &format!("\n{STAMP_LINE}\n"))
+}
+
+/// The text with each stamp line's format taken out, since a save rewrites
+/// it to name this one.
+fn same_stamps(t: &str) -> String {
+	t.split_inclusive('\n')
+		.map(|l| {
+			let body = l.trim_start();
+			match body
+				.strip_prefix(FORMAT_LINE_HEAD)
+				.or_else(|| body.strip_prefix(STAMP_HEAD))
+			{
+				Some(n) => l.replacen(n.trim_end(), "", 1),
+				None => l.to_string(),
+			}
+		})
+		.collect()
+}
+
+/// `saved` is `text` with the stamp a save writes: the same text, when it
+/// names this format, a newer one, or ends in a raw block left open, or one
+/// stamp line rewritten in place, or `STAMP_LINE` added as the last line.
+fn only_the_stamp_differs(text: &str, saved: &str) -> bool {
+	if saved == text {
+		return true;
+	}
+	let body = text.strip_prefix('\u{feff}').unwrap_or(text);
+	let crlf = body.matches("\r\n").count();
+	let eol = if crlf > body.matches('\n').count() - crlf {
+		"\r\n"
+	} else {
+		"\n"
+	};
+	if let Some(tail) = saved.strip_prefix(text) {
+		let tail = if body.is_empty() || body.ends_with('\n') {
+			tail
+		} else {
+			tail.strip_prefix(eol).unwrap_or("")
+		};
+		return tail == format!("{STAMP_LINE}{eol}");
+	}
+	let (a, b): (Vec<&str>, Vec<&str>) = (text.split('\n').collect(), saved.split('\n').collect());
+	let diff: Vec<usize> = (0..a.len().min(b.len()))
+		.filter(|&i| a[i] != b[i])
+		.collect();
+	a.len() == b.len()
+		&& diff.len() == 1
+		&& [FORMAT_LINE_HEAD, STAMP_HEAD]
+			.iter()
+			.any(|h| a[diff[0]].trim_start().starts_with(h))
+		&& [FORMAT_LINE, STAMP_LINE]
+			.iter()
+			.any(|h| b[diff[0]].trim_start().starts_with(h))
+}
 
 /// How many iterations to run, never below `floor`. Split from the environment
 /// so the refusals below can be tested without one.
@@ -1624,9 +1683,17 @@ fn merge_never_panics_and_stays_fixpoint() {
 		from_text.merge(&Document::parse(&b));
 		let mut from_canon = Document::parse(&a);
 		from_canon.merge(&Document::parse(&Document::parse(&b).to_canonical()));
+		// Up to the layer's stamp line, which its canonical form rewrites, and
+		// the stamp a save adds at the end. A layer's older Format line reads
+		// by the older rules' raw blocks, and the one its canonical form
+		// rewrites to name this format by the current ones, so after the base's
+		// lines one can read where the other doesn't, and the save adds a
+		// stamp for the one that doesn't.
+		let end_off =
+			|t: String| same_stamps(t.strip_suffix(&format!("{STAMP_LINE}\n")).unwrap_or(&t));
 		assert_eq!(
-			from_canon.to_canonical(),
-			from_text.to_canonical(),
+			end_off(from_canon.to_canonical()),
+			end_off(from_text.to_canonical()),
 			"merging a layer differs from merging its canonical form at iteration {} for:\nA:\n{}\nB:\n{}",
 			i,
 			a,
@@ -1695,7 +1762,7 @@ fn writer_roundtrips_and_stays_fixpoint() {
 		let text = d.to_canonical();
 		// format_value is the setter's own text, not a second copy of the rule.
 		assert_eq!(
-			format_value(&s).map(|v| format!("k: {v}\n")),
+			format_value(&s).map(|v| format!("k: {v}\n{STAMP_LINE}\n")),
 			Some(text.clone()),
 			"format_value #{} for {:?}",
 			i,
@@ -1728,7 +1795,7 @@ fn writer_roundtrips_and_stays_fixpoint() {
 		let mut da = Document::new();
 		assert_eq!(da.set_string_array("k", &els), shcl::SetStatus::Ok);
 		assert_eq!(
-			format_array(&els).map(|v| format!("k: {v}\n")),
+			format_array(&els).map(|v| format!("k: {v}\n{STAMP_LINE}\n")),
 			Some(da.to_canonical()),
 			"format_array #{} for {:?}",
 			i,
@@ -2305,7 +2372,7 @@ fn no_new_errors(back: &Document, base: &str) -> bool {
 fn a_remove_that_moves_a_misplaced_line_adds_no_error() {
 	let _id = test_id("df34z");
 	let base = "window:\n\topacity: 1.0\n    m_argin: 4\n\n\tcol\tmns: 160\n\trows: 48\nfont:\n\tface:\n\t\tsize: 12\n    bad:\t 1\n\t\tfamily: mono\n\thint:\n  ~ bad: 2\n\t\tfist: 1\n\t\tsecond: 2\\a:\n    b: 1\n  c: 2\n     d 3\n    h: 6\nz: 9\n";
-	let want = "font:\n\tface:\n\t\tsize: 12\n    bad:\t 1\n\t\tfamily: mono\n\t\t\tkid2: 3\n\thint:\n\t\tsecond: 2\\a:\n  ~ bad: 2\n    b: 1\n  c: 2\n     d 3\n    h: 6\nz: 9\n";
+	let want = "font:\n\tface:\n\t\tsize: 12\n    bad:\t 1\n\t\tfamily: mono\n\t\t\tkid2: 3\n\thint:\n\t\tsecond: 2\\a:\n  ~ bad: 2\n    b: 1\n  c: 2\n     d 3\n    h: 6\nz: 9\n## SHCL format 3.0\n";
 	let mut doc =
 		Document::parse_keep_lines(base, Strictness::Standard).unwrap_or_else(|e| e.document);
 	assert_eq!(doc.remove("font.hint.fist"), 1);
@@ -3058,7 +3125,7 @@ fn the_placement_property_reads_a_list_replace() {
 	let after = doc.to_canonical();
 	assert_eq!(
 		after,
-		"outer:\n\tx: 1\n\t*first\n\t- a\u{e9}\t\t*bad\n\n\tq: [x\n\t#  kept: 1\n\tlist:\n\t\t- 9\n\t\t- 8\n\t\t*end\t: 2\n"
+		"outer:\n\tx: 1\n\t*first\n\t- a\u{e9}\t\t*bad\n\n\tq: [x\n\t#  kept: 1\n\tlist:\n\t\t- 9\n\t\t- 8\n\t\t*end\t: 2\n## SHCL format 3.0\n"
 	);
 	let slips = placement_slips(&before, &after, "outer.list", Placed::Set, "");
 	assert!(slips.is_empty(), "{slips:?}");
@@ -3074,7 +3141,7 @@ fn the_placement_property_reads_a_list_replace() {
 	let after = doc.to_canonical();
 	assert_eq!(
 		after,
-		"a:\n\t- one\n\t- two\n\n# before two\nk1:\n\t- 9\n\t- 8\n"
+		"a:\n\t- one\n\t- two\n\n# before two\nk1:\n\t- 9\n\t- 8\n## SHCL format 3.0\n"
 	);
 	let slips = placement_slips(before, &after, "k1", Placed::Set, "");
 	assert!(slips.is_empty(), "{slips:?}");
@@ -3120,7 +3187,7 @@ fn the_placement_property_reads_a_list_replace() {
 	let after = doc.to_canonical();
 	assert_eq!(
 		after,
-		"a: 1\n# comment 2\nno colon here\n\t# comment 0\nc: 7\n"
+		"a: 1\n# comment 2\nno colon here\n\t# comment 0\nc: 7\n## SHCL format 3.0\n"
 	);
 	let slips = placement_slips(&before, &after, "c", Placed::Set, "");
 	assert!(slips.is_empty(), "{slips:?}");
@@ -3141,7 +3208,7 @@ fn the_placement_property_reads_a_list_replace() {
 	// at column 0 on a load, as after an edit (2026111111560900).
 	let base = "# note 0\n\n    # note 2\n        b: [3\n";
 	let before = Document::parse(base).to_canonical();
-	assert_eq!(before, "# note 0\n\n# note 2\nb: [3\n");
+	assert_eq!(before, "# note 0\n\n# note 2\nb: [3\n## SHCL format 3.0\n");
 	let mut doc = Document::parse(base);
 	assert_eq!(doc.set_comment("z0", "added"), shcl::SetStatus::Ok);
 	let after = doc.to_canonical();
@@ -3210,7 +3277,7 @@ fn the_placement_property_reads_a_list_replace() {
 	let after = doc.to_canonical();
 	assert_eq!(
 		after,
-		"a:\n\t# note 0\n\t- name:\n\t\"q.k\": [3\n\t\t\"q.k\": 4, 4\n\t\t\t# note 5\n\tb:\n\t\ta.b: 8, 8\n"
+		"a:\n\t# note 0\n\t- name:\n\t\"q.k\": [3\n\t\t\"q.k\": 4, 4\n\t\t\t# note 5\n\tb:\n\t\ta.b: 8, 8\n## SHCL format 3.0\n"
 	);
 	let slips = placement_slips(&before, &after, "a.b", Placed::Set, "");
 	assert!(slips.is_empty(), "{slips:?}");
@@ -3259,10 +3326,24 @@ fn keeping_lines_reloads_as_the_document() {
 		};
 		let mut doc =
 			Document::parse_keep_lines(&base, Strictness::Standard).unwrap_or_else(|e| e.document);
+		// A save names this format and reads back as the same document.
+		let (saved, all) = doc.to_text_keep_lines();
+		assert!(
+			all && only_the_stamp_differs(&base, &saved),
+			"iteration {i}: no edits, more than the stamp changed:\n{base}\n--- wrote {saved:?}"
+		);
+		// A blank line the save kept above an added stamp is one the
+		// canonical form drops.
+		let back = Document::parse(&saved);
 		assert_eq!(
-			doc.to_text_keep_lines(),
-			(base.clone(), true),
-			"iteration {i}: no edits, text changed:\n{base}"
+			tidy_stamp(back.to_canonical()),
+			doc.to_canonical(),
+			"iteration {i}: the stamped text reads differently:\n{base}"
+		);
+		let stamp = shcl::read_format_version(&saved);
+		assert!(
+			stamp.raw.as_deref() == Some("3.0") || doc.newer_format() || saved == base,
+			"iteration {i}: the save names no format:\n{base}"
 		);
 		// Any base that keeps its lines and loads clean, not only a tidy one:
 		// a repeat the load folded away comes back too (20260925c item 1). A
@@ -3277,7 +3358,8 @@ fn keeping_lines_reloads_as_the_document() {
 		assert!(set || shape < 2, "iteration {i}: no new field:\n{base}");
 		if set {
 			let (text, kept) = added.to_text_keep_lines();
-			let bare = |l: &str| l.trim_end_matches(['\r', '\n']).to_string();
+			// A stamp line the save rewrote to name this format is the same line.
+			let bare = |l: &str| same_stamps(l.trim_end_matches(['\r', '\n']));
 			let no_bom = |t: &str| t.strip_prefix('\u{feff}').unwrap_or(t).to_string();
 			let (text, base) = (no_bom(&text), no_bom(&base));
 			let mut rest = text.split_inclusive('\n').map(bare);
@@ -3406,7 +3488,7 @@ fn keeping_lines_reloads_as_the_document() {
 		if kept {
 			let back = Document::parse(&text);
 			assert_eq!(
-				back.to_canonical(),
+				tidy_stamp(back.to_canonical()),
 				want,
 				"iteration {i}: kept lines reload as another document:\n{log}--- wrote\n{text}"
 			);
@@ -4537,7 +4619,10 @@ fn a_misplaced_tail_line_is_no_skipped_copy() {
 	assert_eq!(skipped, ["- name:"]);
 	doc.merge(&Document::parse(layer));
 	let after = doc.to_canonical();
-	assert_eq!(after, "a: 1\nq: [5]\n- name:\n# - name:\n");
+	assert_eq!(
+		after,
+		"a: 1\nq: [5]\n- name:\n# - name:\n## SHCL format 3.0\n"
+	);
 	assert!(footer_piled(&before, layer, &after, &skipped).is_empty());
 	let piled = "a: 1\nq: [5]\n- name:\n# - name:\n- name:\n";
 	assert_eq!(footer_piled(&before, layer, piled, &skipped), skipped);
@@ -4554,7 +4639,10 @@ fn merge_exceptions_go_by_position() {
 	let leaf = replaced_leaf_lines(&before, "s: v\n\tb: 9\n");
 	assert_eq!(leaf.settled, ["a: 5"]);
 	doc.merge(&Document::parse("s: v\n\tb: 9\n"));
-	assert_eq!(doc.to_canonical(), "s: u\n\tb: 1\ns: v\n\tx: 0\n\tb: 9\n");
+	assert_eq!(
+		doc.to_canonical(),
+		"s: u\n\tb: 1\ns: v\n\tx: 0\n\tb: 9\n## SHCL format 3.0\n"
+	);
 	assert_eq!(
 		left_behind(&leaf, &doc.to_canonical()),
 		Vec::<String>::new()
@@ -4566,7 +4654,10 @@ fn merge_exceptions_go_by_position() {
 	assert_eq!(leaf.settled, ["a: 5"]);
 	let mut doc = Document::parse(before);
 	doc.merge(&Document::parse("b: 9\n"));
-	assert_eq!(doc.to_canonical(), "x: 0\nb: 9\ny: 2\n# a: 5\nz: 3\n");
+	assert_eq!(
+		doc.to_canonical(),
+		"x: 0\nb: 9\ny: 2\n# a: 5\nz: 3\n## SHCL format 3.0\n"
+	);
 	assert_eq!(
 		left_behind(&leaf, &doc.to_canonical()),
 		Vec::<String>::new()
@@ -4582,7 +4673,10 @@ fn merge_exceptions_go_by_position() {
 	let mut doc = Document::parse(before);
 	doc.merge(&Document::parse(layer));
 	let after = doc.to_canonical();
-	assert_eq!(after, "a: 1\nc: 2\n\tbad name: 1\nbad name: 1\n");
+	assert_eq!(
+		after,
+		"a: 1\nc: 2\n\tbad name: 1\nbad name: 1\n## SHCL format 3.0\n"
+	);
 	assert_eq!(
 		footer_piled(before, layer, &after, &skipped),
 		Vec::<String>::new()
@@ -4612,7 +4706,7 @@ fn remove_and_setter_exceptions_go_by_position() {
 	assert_eq!(taken, [(3, "a: [1".to_string()), (4, "b: 2".to_string())]);
 	assert_eq!(doc.remove("a"), 1);
 	let after = doc.to_canonical();
-	assert_eq!(after, "x: 0\na: [1\ny: 1\nz: 3\n");
+	assert_eq!(after, "x: 0\na: [1\ny: 1\nz: 3\n## SHCL format 3.0\n");
 	let listed = ["a: [1".to_string()];
 	assert!(remove_left_behind(&before, &after, &[3, 4], &listed).is_empty());
 	let swapped = "x: 0\ny: 1\na: [1\nz: 3\n";
@@ -4632,7 +4726,7 @@ fn remove_and_setter_exceptions_go_by_position() {
 	let note = "  ## commented out by shcl when setting x.a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing ']' on the line";
 	assert_eq!(
 		after,
-		format!("x:\n\t# a: [1{note}\n\ta: 7\n\tq: 0\ny:\n\ta: [1\n\tq: 0\n")
+		format!("x:\n\t# a: [1{note}\n\ta: 7\n\tq: 0\ny:\n\ta: [1\n\tq: 0\n{STAMP_LINE}\n")
 	);
 	let listed = setter_comments(&before, &after, "x.a");
 	assert_eq!(listed, ["a: [1"]);
@@ -4656,12 +4750,12 @@ fn a_misplaced_copy_moves_down() {
 	let mut doc =
 		Document::parse_keep_lines(base, Strictness::Standard).unwrap_or_else(|e| e.document);
 	let before = doc.to_canonical();
-	assert_eq!(before, base);
+	assert_eq!(before, format!("{base}{STAMP_LINE}\n"));
 	let taken = taken_lines(&before, "k.b.a");
 	assert_eq!(taken, [(4, "a:".to_string())]);
 	assert_eq!(doc.remove("k.b.a"), 1);
 	let after = doc.to_canonical();
-	assert_eq!(after, "k:\n\tj: 1\n\tb: [8] x\n  a:\n");
+	assert_eq!(after, "k:\n\tj: 1\n\tb: [8] x\n  a:\n## SHCL format 3.0\n");
 	assert_eq!(
 		Document::parse("k:\n\tj: 1\n  a:\n\tb: [8] x\n").to_canonical(),
 		after
@@ -4911,15 +5005,19 @@ fn kept_lines_survive_edits() {
 			);
 			// (c) A remove only takes lines away.
 			if op > 10 && took {
-				// A settle can turn a line into a comment, or back.
-				let had: std::collections::HashSet<String> = fences_joined(&before)
+				// A settle can turn a line into a comment, or back. The save
+				// names this format, so a remove that takes the line it read
+				// leaves another one restamped, or the stamp added at the end.
+				let had: std::collections::HashSet<String> = fences_joined(&same_stamps(&before))
 					.into_iter()
 					.map(|l| unsettled(&l).to_string())
 					.collect();
 				let after = doc.to_canonical();
-				let new: Vec<String> = fences_joined(&after)
+				let new: Vec<String> = fences_joined(&same_stamps(&after))
 					.into_iter()
-					.filter(|t| !t.is_empty() && !had.contains(unsettled(t)))
+					.filter(|t| {
+						!t.is_empty() && *t != STAMP_HEAD.trim_end() && !had.contains(unsettled(t))
+					})
 					.collect();
 				assert!(
 					new.is_empty(),
@@ -5175,6 +5273,12 @@ fn keeping_lines_ends_each_line_by_the_rule() {
 		let lf = source.iter().filter(|l| l.1 == "\n").count();
 		let majority = if crlf > lf { "\r\n" } else { "\n" };
 		let no_final = !base.is_empty() && !base.ends_with('\n');
+		// The stamp a save adds is a line of its own, after the text's last.
+		let text = match text.strip_suffix(&format!("{STAMP_LINE}{majority}")) {
+			Some(t) if no_final => t.strip_suffix(majority).unwrap_or(t).to_string(),
+			Some(t) => t.to_string(),
+			None => text,
+		};
 		seen[3] += usize::from(crlf == lf && crlf > 0);
 		let lines = eol_lines(&text);
 		let head = |t: &str| t.find(':').map(|k| t[..=k].to_string());

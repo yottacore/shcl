@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Every save names the format it was written by. A file with a Format line or stamp gets it rewritten where it is to name `3.0`, and a file without one gets `## SHCL format 3.0` as its last line. `fmt`, `set`'s print and `fmt --check` see the same text, so a canonical file without the stamp is one `fmt --check` reports. A file naming a newer format keeps its line. A save that keeps lines adds only that line to an unedited file. A merge writes one Format line where a layer's and the base's differ only in the format they name.
+
 - `children` and `instances` exit 3 on a path that matches nothing, as `get` does, with `cannot list PATH: no field at that path (in FILE)` on stderr. They used to exit 0 with no output, the same as for an empty section. A node with no children still lists nothing at exit 0, and `count` still prints 0 at exit 0.
 
 - An installer run that would put an older release over a newer install says so in its plan and its receipt, and on the stable channel says how to keep the newer one. It also removes the drop-ins, man page, and completions that the older release doesn't include, so they don't sit beside a binary they don't match.
@@ -23,6 +25,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - A load that folds 2 instances of one name and value, such as `b: x` written twice, keeps the blank line above the second one above the next line, as a set that folds them does. It used to stay with the first instance, between the 2 instances' comments, or above the first instance's line, and the next line lost its blank. A kept line the fold hands to the end of the file stays after the comments read before it.
 
 - `instances`, `get --array`, and `get --slots` print a value quoted when it has any line break that Python's `splitlines()` splits at. Besides LF and CR, those are VT, FF, U+001C to U+001E, U+0085, U+2028, and U+2029. Those used to print bare, so a consumer splitting the output counted more values than there were.
+
+- A file whose stamp names a newer minor of this format, such as `## SHCL format 3.1`, is a newer format: the load hints `H006`, no save writes it, and `upgrade` leaves it alone, as for a newer major. `H006` and `H007` name this reader's format as `3.0`.
+
+- The info block's version row is `##    Format   3.0`, in `init`, a creating `set --write`, `banner on`, `upgrade`, and `GEN_BANNER` (each binding's spelling), and `migrate` stamps `##    Format   3.0` too. beta1's `##    Format   3` still reads as format 3.0. So `banner on` replaces a beta1 block at the end of a file rather than leaving it as it is. `banner on` and `banner off` take a `## SHCL format` stamp off where they take a Format line off, and a block kept at the top gets its stamp set to this format.
+
+### New
+
+- `load_file_opts()` with `migrate` loads a file that may be older than this format by migrating it in memory. A save of that document over the file gets every check a save does, a newer format's refusal included.
 
 ### Fixed
 

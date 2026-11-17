@@ -597,9 +597,9 @@ fUsage(){
 	# the tree compare is what sees it; --lossy is the only way past. Each row
 	# names the answer the reference has to give (2026101609320201).
 	mkdir "${tmpDir}/lost"; fFixLost "${tmpDir}/lost"; local lostSrc="$fixTarget"
-	printf 'a: 1\n' >"${tmpDir}/lost/fmt-lossy.want"
-	printf 'a:  2\n\xef\xbb\xbfb: 2\n' >"${tmpDir}/lost/set-keep.want"
-	: >"${tmpDir}/lost/set-lossy.want"
+	printf 'a: 1\n## SHCL format 3.0\n' >"${tmpDir}/lost/fmt-lossy.want"
+	printf 'a:  2\n\xef\xbb\xbfb: 2\n## SHCL format 3.0\n' >"${tmpDir}/lost/set-keep.want"
+	printf '## SHCL format 3.0\n' >"${tmpDir}/lost/set-lossy.want"
 	wantRc=7; wantFile="$lostSrc"
 	fCompareWrite "write refuses to drop a line" fFixLost fmt --write
 	wantRc=0; wantFile="${tmpDir}/lost/fmt-lossy.want"

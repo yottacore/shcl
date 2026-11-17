@@ -5,3 +5,4 @@ script:
 city: [Boston]
 path: "C:\\temp"
 last: 1
+## SHCL format 3.0

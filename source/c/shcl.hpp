@@ -352,6 +352,12 @@ struct SaveOptions {
 	bool create{};     // only make a new file: Exists when one is there, even one another save makes at the same time
 	unsigned mode{};   // the permission bits (0777) a file this save makes gets, exactly, whatever the umask; 0 is an ordinary create's; a file already there keeps its own, and windows has no such bits
 };
+// How load_file_opts loads. The default is load_file_with.
+struct LoadOptions {
+	bool keep_lines{}; // keep the text for to_text_keep_lines(), as load_file_keep_lines; with migrate, the migrated text
+	bool migrate{};    // parse what migrate_unstamped makes of the file; the file is not written, and a save checks the path against the bytes the load read
+	bool from_v2{};    // migrate's from_v2: the file can only have been written for 2.x; ignored without migrate
+};
 // Why a write failed, so a program can tell a missing folder from no
 // permission or a full disk. NotFound and Unreadable are FileStatus's names.
 // Unreadable is upgrade_file's, for a file it could not read as UTF-8 text.
@@ -481,6 +487,13 @@ public:
 	static std::pair<Document, FileStatus> load_file_with(const std::string &path, Strictness s);
 	// load_file_with, keeping the text for to_text_keep_lines().
 	static std::pair<Document, FileStatus> load_file_keep_lines(const std::string &path, Strictness s);
+	// load_file_with, as the options describe. With migrate, the document is
+	// the one migrate_unstamped makes of the file, in memory: its save goes
+	// through every check a save of a plain load does, over the file it read.
+	// The lines the migration counts in lost count in lost_count(), so a save
+	// that would write them canonical refuses. A file naming a newer format
+	// is parsed as it is, so its save is TooNew.
+	static std::pair<Document, FileStatus> load_file_opts(const std::string &path, Strictness s, const LoadOptions &opts);
 	// Canonical text, written atomically: the CLI --write mechanics.
 	// *why (when given) gets why a Failed save failed, else Ok. Over the file
 	// a load read, Changed when that file no longer holds what the load read,
@@ -1287,6 +1300,17 @@ std::pair<Document, FileStatus> Document::load_file_keep_lines(const std::string
 	shcl_file_status cs = SHCL_FILE_UNREADABLE;
 	// codeql[cpp/path-injection] opens the path its caller named, which is the job
 	Document d = Access::wrap(shcl_load_file_keep_lines(path.c_str(), static_cast<shcl_strictness>(s), &cs));
+	return {std::move(d), static_cast<FileStatus>(cs)};
+}
+std::pair<Document, FileStatus> Document::load_file_opts(const std::string &path, Strictness s, const LoadOptions &opts) {
+	if (detail::cut_short(path)) return {Access::wrap(shcl_parse_with("", 0, static_cast<shcl_strictness>(s))), FileStatus::Unreadable};
+	shcl_load_options o{};
+	o.keep_lines = opts.keep_lines ? 1 : 0;
+	o.migrate = opts.migrate ? 1 : 0;
+	o.from_v2 = opts.from_v2 ? 1 : 0;
+	shcl_file_status cs = SHCL_FILE_UNREADABLE;
+	// codeql[cpp/path-injection] opens the path its caller named, which is the job
+	Document d = Access::wrap(shcl_load_file_opts(path.c_str(), static_cast<shcl_strictness>(s), o, &cs));
 	return {std::move(d), static_cast<FileStatus>(cs)};
 }
 SaveResult Document::save_file(const std::string &path, WriteStatus *why) {

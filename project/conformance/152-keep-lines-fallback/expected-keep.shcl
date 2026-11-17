@@ -6,3 +6,4 @@ db:
 	pool: 4
 srv: b
 	port: 80
+## SHCL format 3.0

@@ -161,7 +161,7 @@ workers: 4
 ##
 ## This config file format is SHCL.
 ## "Simple Hierarchical Config Language"
-##    Format   3
+##    Format   3.0
 ##    Home     https://github.com/yottacore/shcl
 ##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md
 ##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.
@@ -604,9 +604,10 @@ maintenance-page:
 	~~~html
 	<h1>Down for maintenance - back in five.</h1>
 	~~~
+## SHCL format 3.0
 ~~~~
 
-That's the whole file after the edits rather than an excerpt, since the point is a formatter that survives a round trip through an editing tool.
+That's the whole file after the edits rather than an excerpt, since the point is a formatter that survives a round trip through an editing tool. The last line names the format the file was written in. Every save adds it, or rewrites a Format line or stamp the file already has to name this format.
 
 A file somebody keeps by hand can be saved the way they keep it instead. Load it with `parse_keep_lines` or `load_file_keep_lines`, and save with `save_file_keep_lines`. Each line the edits didn't touch comes back byte for byte, a changed value is written into its own line, and a new line takes the indent of the lines around it. The text has to load back as the same document without any new error. Where it wouldn't, such as after a merge or after a child is added under a flat dotted line, the save writes the canonical form and returns false, so the program knows which one it got. A line the load dropped comes back as written too, so this save refuses only when it would write the canonical form. `shcl set` saves this way, and `shcl fmt` saves the canonical way.
 

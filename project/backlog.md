@@ -116,6 +116,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 20261117: `settle_first_blank` stays under its own name. It files the lines at the ends as a reload does and clears the blank where output starts, and it moves no line off a node that goes, so it isn't `adopt`'s work. The load runs it once, after the fold rather than before. The fold can hand a blank to the first field, and a kept line it hands to the end of the file has to go after the footer lines read before it.
 		- me, 20261117: the lines that move are the old span, from a node's first later line to the last kept line among them, so placement is as before. The blank of each fold goes to the heir of its own line.
 		- me, 20261117: an `E028` re-mention, whose lines move to a field of their own, takes its blank with them and clears it on its fold record.
+		- JC, 20261117: keep the blank between the 2 instances' comments unless that changes a meaning. me, 20261117: it does, since a reload then files the comments above the blank as the top of the file rather than the field's, so the fold's blank stays as built.
 	- Swept: the 2 load sites that note a fold, the field-line bind and `fold_dups_from`, and `array_under`'s re-mention branch, in `lib.rs`, `shcl.go`, `shcl.py`, and `shcl.h`. The setter's folds already go through `adopt`. A grep of the repo for the retired names finds only design.md's history sentence.
 	- Test case: placement rows `2026111700365065-1` to `-5` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), corpus `001-messy-cities` (`d9s1g`), `013-comments` (`da4hk`), `213-load-fold-keeps-kept-lines` (`devra`), perf-gate `reopens` (`df014`), `dd3t9`, `dderx`.
 	- Verified: the 5 rows fail on the library at `59074148` in all 4 runners and pass on the change, and the rest of the placement table passes on both. The 4 conformance suites, the whole Rust suite, the Go tests in both modules, `--backlog-run-quick rust go python c`, cli-regress (671 rows), crosscheck with a 2000-iteration dump (55461 comparisons), perf-gate, check-docs, the 200,000-iteration release fuzz apart from `dd16k` (2026111623445822, at the same iteration as before), rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, and gcc, gcc 15 and clang at `-Werror`. analyze-c's 2 reds are the older `set_off` and `fs_property.c` ones (2026111623502776).
@@ -147,6 +148,87 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-docs `dfdpp`, corpus `149-banner`, `161-banner-moved`, `180-banner-first-child`, `190-banner-own-comments`, `217-banner-author-line` (`dez6b`), `218-banner-off-author-line` (`dez6c`), cli-regress `dez6e`, fuzz `de116`.
 	- Verified: `dfdpp` fails on an injected `_leave_above` and its grep finds the old names in all 4 files at `31714ad8`, and it passes on the change. A differential over 11,000 random files with info blocks, through `set_banner` on and off and `upgrade` with and without `from_v2`, gives the same results on the old and new Python library, and it catches a dropped blank. The 4 CLIs agree on `banner on`, `banner off` and `upgrade --from-2x` over 300 more. The 4 conformance suites, the Rust lib, upgrade and fuzz tests, the Go tests in both modules, `--backlog-run-quick rust go python c`, cli-regress (671 rows), crosscheck (23862 comparisons), check-docs, lint-report, the banner-touching fuzz properties at 200,000 in release apart from `dd16k` (2026111623445822, at the same iteration as before), rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, and gcc, gcc 15 and clang at `-Werror`. analyze-c's 2 reds are the older `set_off` and `fs_property.c` ones (2026111623502776).
 	- Branch: `nov17-2026111623192800`
+
+- Format versions: write `##    Format   3.0` in the info block, and let the banner calls see a `## SHCL format` stamp
+	- ID: 2026111708125373
+	- Type: Feature
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, since corpus `217-banner-author-line`'s input changed. It already fails on dev at dd16k (2026111623445822) and dc26d (2026111703284678), so only a new failure counts.
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-081253
+	- Opened by: me
+	- Parent ID: 2026111702033137
+	- Requirements: the info block's row is `##    Format   3.0` wherever the block is written, in all 4 and the C++ interface. `set_banner`, `banner_spans` and `swap_banner` find a `## SHCL format` stamp as they find a Format line.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Note: `FORMAT_LINE` changes every banner and every `migrate` stamp, so corpus outputs and cli-regress rows change with it. A changed corpus input shifts the fuzz seeds, so a 2M release fuzz and check-migrate go on the same commit.
+	- Decisions:
+		- me, 20261117: a stamp counts as one of the block's own lines in `banner_own`, as the `migrate` note does, since only shcl writes one. `take_banners` keeps every line that isn't the block's own, so a lone stamp would have stayed otherwise. So a stamp inside a block goes with it, and a stamp in a block at the end makes that block not current, so `banner on` replaces it. Where 2026111708130702 puts the stamp beside a block has to fit that.
+		- me, 20261117: a block kept at the top gets its stamp set to `## SHCL format 3.0`, as its Format line is set to `FORMAT_LINE`.
+		- me, 20261117: corpus `217-banner-author-line` tests a block that reads as the current one, so its input and `expected.shcl` name `3.0` now. With beta1's `3`, `banner on` would replace the block and the case would test something else.
+		- 20261117: asserts updated for the new `FORMAT_LINE`: `an_older_format_line_becomes_this_one_in_place` (`ddqrp`, `ddqrq`, `ddqrs` and Python's `upgrade_restamp`) and veneer_smoke's `FORMAT_LINE` and migrate checks went from `##    Format   3` to `##    Format   3.0`. So did the migrate, init and banner outputs in 35 corpus `expected-*` files and 29 cli-regress rows, plus the `infoBlock` that `ddf5t`, `ddf5v` and `dez6e` compare against. Nothing else they check changed.
+	- Actual fix: `FORMAT_LINE` and the `GEN_BANNER` row are `##    Format   3.0` in all 4. The C++ interface reads the C macros. `banner_spans` takes a lone stamp as it takes a lone Format line, `banner_own` counts a stamp as the block's, and `swap_banner` sets a kept top block's stamp to this format, in all 4. spec.md, design.md, examples.md, the format-versions doc and the changelog say so.
+	- Swept: `banner_spans`, `banner_own` and the kept-top rewrite in `swap_banner` in Rust, Go (`bannerSpans`, `bannerOwn`, `swapBanner`), Python and C. `current_footer` reads through `banner_own` and `GEN_BANNER`. `restamp` and `migrate_text` write `FORMAT_LINE`, so they follow it. No CLI writes the line itself. A grep of `source/`, spec.md and examples.md for `##    Format   3` finds only inputs and reads of beta1's line.
+	- Verified: the new test fails in all 4 with the stamp checks taken out and passes with them. `--backlog-run-quick rust python` and `--backlog-run-quick go c cli` passed, as did cli-regress (675 rows), the crosscheck over the corpus (23862 comparisons), check-migrate, check-docs, check-doc-examples, check-veneer, veneer_smoke, `test-ids.py check` and `lint-report.bash --check --no-mark`.
+	- Test case: `a_stamp_goes_where_a_format_line_goes` (Rust `dfe3m`, Go `dfe3n`, Python `dfe3p`, C `dfe3q`), and the corpus `expected-*` files and cli-regress rows above.
+	- Branch: `nov17b-2026111708125373`
+
+- Format versions: write the stamp on every save and every text call that saves
+	- ID: 2026111708130702
+	- Type: Feature
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz, as child 2026111709431277 says.
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-081307
+	- Opened by: me
+	- Parent ID: 2026111702033137
+	- Prereq IDs: 2026111708125373
+	- Requirements: every save and every text call that saves writes `## SHCL format 3.0` at the end, or rewrites the stamp there to name this format, in all 4 and the C++ interface. `fmt --check` and the write's nothing-to-write check agree with it.
+	- Estimated effort: High
+	- Decisions:
+		- me, 20261117: the stamp goes in through `to_canonical` and `to_text_keep_lines` (each binding's spelling), which every save and every save through text go through. So `fmt` to stdout, `set`'s print and `fmt --check` match `--write`, and every corpus `expected.shcl` gains the stamp. Stamping only in the file saves and the CLI writes would leave those 3 to add it on their own.
+		- me, 20261117: a stamp naming a newer format is left as it is, so the next load still sees it, and a save of that document is refused anyway (`TooNew`). The text call's refusal is 2026111708542868.
+		- me, 20261117: beta1's `Format 3` and a pin such as `3.0-a37` are rewritten to name `3.0`, since the save writes by this format's rules. Only the line the format read picks is rewritten, and it keeps its head and indent.
+		- me, 20261117: a kept text that ends in a raw block left open goes without a stamp, as `migrate` does, rather than fall back to canonical. Appended, the line would be the block's content.
+		- me, 20261117: an added stamp line ends the way the save's new lines do, by the loaded text's majority.
+		- me, 20261117: a merge leaves a layer's `## SHCL format` lines at its top and end out, since they name the layer's file, and keeps the base's end stamp as its last line. Otherwise a merge over a saved file and over the same document differ, which `merge_never_panics_and_stays_fixpoint` and `edits_and_merges_match_a_reload` caught. A layer's stamp inside a node's own comments still rides with the node.
+		- me, 20261117: `upgrade` builds its text without the step, since its info block already carries the Format line.
+		- 20261117: asserts updated for the stamp, in Rust only so far: every one that compares a saved or canonical text gained `## SHCL format 3.0` at the end or a `with_stamp` wrap. `keeping_lines_without_edits_writes_the_input` (`dd3t8`) and the fuzz's no-edit property now allow only the stamp to differ. `a_format_line_at_the_top_goes_when_the_block_goes_on` (`ddy7s`) now expects `##    Format   3.0` after banner off, and `a_stamp_goes_where_a_format_line_goes` (`dfe3m`) expects the stamp back after banner off. The merge fixpoint compares with stamp numbers taken out, since a layer's canonical form rewrites its stamp. Nothing else they check changed.
+	- Note: a line-keeping save adds the stamp as a new last line, so an unedited file without one no longer comes back byte for byte. The fuzz gets a property that a saved file names this format and reloads the same (design doc, Testing).
+	- Progress log:
+		- 20261117: split for its time cap. The Rust step, the stamped corpus (`expected.shcl`, `-write`, `-keep`, `-merged`) and placement table, Rust's asserts and the new test are on `wip/nov17b-2026111708130702`. They can't merge alone, since the other 3 runners read the same corpus. Go, Python, C, the C++ interface, the cli-regress rows and the docs are child 2026111709431277.
+		- 20261117: on the wip branch, `cargo test`, clippy with `-D warnings` and rustfmt pass. Not run there: the other bindings, cli-regress, crosscheck, check-migrate and the 2M release fuzz.
+		- 20261117: child 2026111709431277 brought the Rust half onto `nov17b-2026111709431277` with the other bindings, cli-regress and the docs. It waits on the release fuzz, and so does this one. The demo gif rerender is child 2026111710564808, Stalled for the gif stage.
+	- Test case: `a_save_names_this_format` (Rust `dfe62`; Go `dfe63`, Python `dfe64`, C `dfe65` and veneer `dfe66` with the child), plus the corpus files and the fuzz's no-edit save property in `keeping_lines_reloads_as_the_document`.
+	- Branch: `nov17b-2026111709431277` (the Rust half was `wip/nov17b-2026111708130702`)
+
+- Format versions: write the stamp on every save in Go, Python, C and the C++ interface
+	- ID: 2026111709431277
+	- Type: Feature
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, since the no-edit save property in `keeping_lines_reloads_as_the_document` changed. It already fails on dev at dd16k (2026111623445822) and dc26d (2026111703284678), so only a new failure counts. Also the cppcheck line from `LINT_EXTRA` and analyze-c.bash for the `shcl.h` change, and codeql-scan.bash for the C and Python test code.
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-094312
+	- Opened by: me
+	- Parent ID: 2026111708130702
+	- Requirements: the parent's stamp step, as Rust has it on `wip/nov17b-2026111708130702`, in Go, Python, C and the C++ interface, with their tests, the cli-regress rows, and spec.md, design.md, the format-versions doc and the changelog. Then the parent's work merges as one, since the corpus is shared.
+	- Estimated effort: High
+	- Note: start from `wip/nov17b-2026111708130702`. It has the Rust step (`stamped`, `canonical_text`, `keep_lines_text`, and the merge's stamp lines), the stamped corpus and placement table, Rust's updated asserts, and the new test `a_save_names_this_format` (`dfe62`). The fixture's other runners take `dfe63` (Go), `dfe64` (Python), `dfe65` (C) and `dfe66` (veneer smoke). `private/claude_simple/tools/stamp-expected.py` stamps saved-text fixtures by the same rule.
+	- Actual effort: High
+	- Decisions:
+		- me, 20261117: C adds the stamp in the emitter's own buffer when the canonical text has no Format or stamp line, without the read-back the other 3 do there, since `mem_bounds` holds a released `to_canonical` loop to no allocation, and the canonical form closes every raw block. A text with such a line goes through the whole step.
+		- me, 20261117: cli-regress `dcb0f` writes a fresh copy (`%BW%`) rather than the shared `%BA%`, since the stamp makes its `fmt --write` write the file, which left `dcq6n` nothing to migrate. `dcvgn`, `deky4` and `dcvgr` take an input that has the stamp, so they still test a canonical file.
+		- 20261117: asserts updated for the stamp in Go, Python, C, the C++ interface, cli-regress, crosscheck and check-abnf: every one that compares a saved or canonical text gained `## SHCL format 3.0` at the end, or a `withStamp`, `with_stamp` or `stamped_is` wrap. The no-edit save checks (`dd3w7` and its twins) allow only the stamp to differ. The kept-reload check in `edits_and_merges_match_a_reload` (`dd16m`, `dd16n`, `dc474`) drops a blank line kept above an added stamp, as Rust's fuzz does. `a_format_line_at_the_top_goes_when_the_block_goes_on` expects `##    Format   3.0` after banner off, and `a_stamp_goes_where_a_format_line_goes` expects the stamp back after banner off. 124 cli-regress rows, 3 crosscheck save-gate answers and the check-abnf bareword probe gained the stamp line. Nothing else they check changed.
+	- Actual fix: the stamp step (`stamped`, `names_this` and `restamp_as`, each binding's spelling) in Go, Python and C. `to_canonical` and `to_text_keep_lines` stamp, and the internal callers (`keep_source`, `keep_lines_as`, `upgrade_text`) use the unstamped `canonical_text` and `keep_lines_text`. A merge skips a layer's stamp and keeps the base's end stamp last. C saves through `canonical_stamped` and `keep_text_stamped`. The C++ interface wraps the C calls, so it follows. spec.md, design.md, the format-versions doc and the changelog say so.
+	- Swept: every internal caller of the canonical and line-keeping text calls and the save in Go, Python and C (`upgradeText`, `keepSource`, `keepLinesAs`, `SaveFileWith` and their twins; C's `upgrade_text`, `keep_source_in`, `keep_lines`, `keep_text`, `shcl_save_file_with`), and each merge's footer and top paths. Test programs: the Go module tests, Python's runner, soak and fs_property, C's runner, `mem_bounds`, `oom_hook`, `oom_recover`, `soak`, `fs_property` and the veneer smoke, plus cli-regress, crosscheck, check-doc-examples and check-abnf.
+	- Verified: the 4 conformance suites, the veneer smoke, `mem_bounds`, `oom_hook`, `oom_recover`, C's `soak` and `fs_property`, Python's soak and fs_property, cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), perf-gate, check-doc-examples, check-docs, check-abnf, check-veneer, `test-ids.py check`, `lint-report.bash --check --no-mark`, gofmt, go vet, staticcheck, ruff and mypy. The new test fails in Go and C with the stamp step taken out, and passes with it. Python's wasn't run that way.
+	- Note: shell-regress's crosscheck rows (`dd51b`, `de114` and the rest) pass, after the stub's save-gate answers and `de114`'s byte count gained the stamp line. `dcvej` (the demo gif) waits on child 2026111710564808. `de1a8`, `dc0b5` and `dcavz` fail for causes older than this item, and `dcavz` is 2026111710564830.
+	- Test case: `a_save_names_this_format` (Go `dfe63`, Python `dfe64`, C `dfe65`, veneer `dfe66`), plus the corpus files the 4 runners read and the cli-regress rows above.
+	- Branch: `nov17b-2026111709431277`
+	- Commit: `2109dde5` (the Rust half, picked from `ccbbe057`), `a495d6df`, `db105dcb`, `a3885051`, `10a1729a`
 
 - A load's fold of a second instance moves the blank line above it among the comments, or above the wrong field
 	- ID: 2026111700365065
@@ -200,6 +282,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- After the send-back fix: all of `fuzz_smoke` at 200,000 in release fails only `dd16k` at 124446, as on `f0584691`. `ddrnk`, `dd3t9` and `dderx` pass 1,000,000 in release. The 4 conformance suites, Go's cmd module, cli-regress (671 rows), crosscheck over the corpus and a 2000-iteration dump (55461 comparisons, `ddesf` included), `--backlog-run-quick rust go python c`, and lint-report.
 	- Prereq IDs: 2026111623445822, 2026111703284678
 	- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
+
+- Format versions: the demo gif and its golden text show fmt output without the stamp
+	- ID: 2026111710564808
+	- Type: Feature
+	- Status: Stalled
+		- Held for: the gif stage, which only a full run or a release cut runs.
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-105648
+	- Opened by: 2026111709431277
+	- Parent ID: 2026111708130702
+	- Requirements: rerender assets/demo.gif and refresh cicd/demo/expected.txt (the gif stage, or gen-demo-gif.py), so shell-regress dcvej matches the CLI again. Only a tool run.
+	- Estimated effort: Low
+	- Note: until then shell-regress dcvej fails, since every fmt now ends with the stamp.
 
 - Removes, folds, merges, and the banner toggle hand lines on through `adopt`
 	- ID: 2026110712372281
@@ -262,6 +358,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The format gets its own `MAJOR.MINOR` version, apart from the program's semver. The current format is 3.0.
 		- Every save writes the stamp. A plain save writes `## SHCL format 3.0`, and the info block's row is `##    Format   3.0`.
 		- An unstamped file's format comes from a content scan and its mtime. When the content says newer, it wins. When it can't tell, the mtime decides.
+			- 20261117: replaced by 2026111707384944's order (JC). The stamp comes first, then the mtime, then the tells, then the most legal reading, and content that looks newer than the mtime no longer beats it.
 		- The stamp names the newest format the file reads the same under.
 		- Every release and pre-release on GitHub, plus the dev snapshots consumers pinned, is read and converted. A pre-release folds into its release's format. A pin gets a short commit name, such as `3.0-a37`.
 		- A load never writes. A save, `upgrade_file` and `shcl upgrade` do.
@@ -302,6 +399,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: every save and every text call that saves writes `## SHCL format 3.0`, or rewrites the stamp there, in all 4 and the C++ interface. The info block's row becomes `##    Format   3.0`. A stamp naming a newer minor of this major is refused for saves, as `TooNew` is.
 	- Estimated effort: Avg
 	- Note: `set_banner` and its `banner_spans` find a Format line by `FORMAT_LINE_HEAD` only, so they don't yet see a `## SHCL format` stamp. The Format read gives the major only, so a newer minor needs the minor from it too.
+	- Note: split for its time cap. The newer-minor refusal is child 2026111708125354, which is done. The info block's `3.0` row and the banner calls seeing the stamp are child 2026111708125373, waiting on the release fuzz. The stamp on every save is child 2026111708130702, Started, with its Go, Python, C and C++ part in 2026111709431277.
 
 - Format versions: find an unstamped file's format, and convert any older one
 	- ID: 2026111018212703
@@ -315,27 +413,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Prereq IDs: 2026111018212701, 2026111018212702
 	- Requirements:
 		- Add the content scan and the mtime rule from the design doc.
+			- 20261117: the rule is the 4 steps under the design doc's Finding a file's format (2026111707384944). They apply to a major-only stamp too, such as beta1's `Format 3`.
 		- Add one table-driven step per format, run in order in memory on load.
 		- `from` and `--from=FORMAT` replace `from_v2` and `--from-2x`.
 		- Each published format and pin round-trips against its own tag's CLI in a gate.
 	- Estimated effort: High
-
-- Increase the importance of mtime in deciding format
-	- ID: 2026111707384944
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261117-073849
-	- Opened by: JC
-	- Parent ID: 2026111018212700
-	- Related IDs: 2026111018212703
-	- Requirements:
-		- First, if there is a clear format specified in the appropriate comment, use that.
-		- Next, use mtime to resolve in more detail, or if no format specifier was found.
-		- Next, look for certain "tells" that only certain versions supported.
-		- Finally, if all that doesn't settle the question, and/or the other content is contradictory, try to figure out which format supports the content in the most "legal" way, most completely.
-	- Note: this changes the order in 2026111018212700 and the format versions design doc, where content that says a newer format beats the mtime. The design doc and 2026111018212703's content scan follow this item.
 
 - A program that migrates in memory, or saves through text, gets none of the save's guards
 	- ID: 2026111016205704
@@ -352,6 +434,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Add a `load_file` option that migrates in memory and keeps the path, so a later save goes through every guard.
 		- A text call on a document naming a newer major refuses, as the save does with `TooNew`.
 		- Make the same change in all 4 and the C++ interface.
+	- Estimated effort: Avg
+	- Note: split in 2. The load option is 2026111708542849, and the text call's refusal is 2026111708542868.
+
+- Format versions: the line-keeping text call gives a newer format's text with no refusal
+	- ID: 2026111708542868
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-085428
+	- Opened by: 2026111016205704
+	- Parent ID: 2026111016205704
+	- Requirements: the parent's second requirement, in all 4 and the C++ interface. A text call on a document naming a newer format refuses, as the save does with TooNew.
 	- Estimated effort: Avg
 
 - A save can't choose whether to add the info block
@@ -642,6 +737,29 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Add a read that gives every value across repeats and arrays, in file order.
 		- The `_or` doc says a repeat gives the default, and points to that read.
 	- Estimated effort: Avg
+
+- shell-regress de1a8 and dc0b5 fail on dev
+	- ID: 2026111711415580
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261117-114155
+	- Opened by:
+	- Progress log:
+		- 20261117: both fail on dev at 635440bb, before round nov17b. de1a8: check-docs.bash:1396, the loop over found reads a capture that skips fFeedBad. dc0b5: the check-completions fixture did not build, anchor not found: _shcl: the paths description.
+
+- codeql-scan fails de5aj on an empty except in the Python CLI's gone_since_read
+	- ID: 2026111709183317
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261117-091833
+	- Opened by: nov17b-2026111016205704
+	- Steps to reproduce: run cicd/utility/codeql-scan.bash.
+	- Incorrect behavior: de5aj fails with py/empty-except at source/python/cmd/shcl/main.py's gone_since_read, an except clause that only passes with no comment.
+	- Estimated effort: Low
+	- Origin: Confirmed. 1bbee68b (2026-11-11, beta2 bits), older than round nov17b.
 
 - analyze-c fails on dev: clang-tidy on `set_off`, and the clang analyzer on `fs_property.c`
 	- ID: 2026111623502776
@@ -1372,6 +1490,136 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- spec.md and the `upgrade` docs say 2.x includes 1.x, and that a 1.x file's backup is named `format-v2`.
 		- The next changelog's upgrading notes say C's `SHCL_SET_OK` is 0, so old code testing a setter `!= 0` reads every success as a failure, and that a string read of an array gives its bracket text. The released beta1 section stays as it is.
 	- Estimated effort: Low
+
+- The stamp on save turns the quick run red: check-readme dcbc6 and Rust fuzz dderx and dab72
+	- ID: 2026111711103371
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-111033
+	- Opened by: 2026111710564830
+	- Related IDs: 2026111709431277, 2026111708130702
+	- Version and build: nov17b at ff279feb (stamp on save)
+	- Incorrect behavior: on nov17b, check-readme dcbc6 fails because the C example's saved file now ends with the Format stamp, which the README's 'What saving does' block doesn't show. Rust fuzz_smoke kept_lines_survive_edits (dderx) fails when a remove leaves only the stamp, and merge_never_panics_and_stays_fixpoint (dab72) finds a layer whose merge differs from its canonical form's. Both fuzz tests fail at 20,000 iterations on ff279feb with no other change.
+	- Expected behavior: the README block, check-readme and both fuzz properties agree with the stamp, so the quick run passes.
+	- Origin: ff279feb (stamp on save). Confirmed: all 3 fail on nov17b at 5549931a.
+	- Actual cause: 3 causes. dcbc6: the 'What saving does' block in examples.md had no stamp line. dderx: a stale check. A remove can take the Format line the save read, and the save then adds the stamp, which the "a remove only takes lines away" check read as a new line. dab72: a real merge defect, plus a check the stamp can't meet. A merge skips a footer or top line the base has only when the text is the same, so a layer's `##    Format   3.0` over a base's `##    Format   3` was written twice, as `shcl fmt base --layer=layer` shows. The second find: a layer's older Format line reads by the older rules' raw blocks and its canonical form's `3.0` by the current ones, so after a base with a raw block left open one reads and the other doesn't, and the save adds a stamp to only one of them.
+	- Actual fix: examples.md's block ends with `## SHCL format 3.0`, and a sentence under it says what the line is. In all 4 bindings the merge's footer and top dedups count a layer's Format line or stamp as a repeat of a base line with the same head, whatever format each names (`repeat_line`, Go `repeatLine`, Python `_repeat_line`). The C++ interface wraps C's merge. In `fuzz_smoke.rs`, the remove check compares lines with their format numbers taken out and allows the added stamp, and the merge fixpoint check also ignores a stamp added at the end. spec.md, design.md and the changelog say so.
+	- Decisions:
+		- me, 20261117: a Format line repeats the base's whatever format either names, a newer one included, since a merge already drops every layer stamp and keeps the newer flag. Leaving a newer layer's Format line in would give the merged footer 2 Format lines.
+		- me, 20261117: the second dab72 find is fixed in the test, not the step. Each text's read follows the read rules, and the layer's canonical form changes which rules read its line. Making the merge drop every layer Format line would also take the line out of a layer's info block when the base has none.
+	- Swept: the merge's 2 dedups (footer and top) in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. The bracketing pass and `adopt_trivia` don't dedup. Other `text == o.text` compares in the merges: none left.
+	- Verified: check-readme passes (dcbc6 failed before). dderx and dab72 pass at 20,000 in debug and at 200,000 in release. `a_merge_keeps_one_format_line` fails before the fix in all 4 (all 3 rows in Go, Python and C, each site in Rust) and passes after. `--backlog-run-quick rust python` and `--backlog-run-quick go c` passed. cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), check-docs, `test-ids.py check`, `lint-report.bash --check --no-mark`, clippy, rustfmt, gofmt, go vet, ruff and markdownlint-cli2. `edits_and_merges_match_a_reload` (dd16k) at 200,000 in release fails at iteration 124450 with or without this change, which is 2026111623445822.
+	- Note: the 2M release fuzz, cppcheck, analyze-c and codeql for the `shcl.h` and test changes are in 2026111709431277's Needs row, which covers this commit too.
+	- Test case: check-readme `dcbc6`, fuzz `dderx` and `dab72`, and `a_merge_keeps_one_format_line` (Rust `dfe96`, Go `dfe97`, Python `dfe98`, C `dfe99`).
+	- Acceptance signoff: Self-closed: each failed before and passes now.
+	- Branch: `nov17b-2026111709431277-fix`
+	- Commit: `d720082e`
+	- Closed: 20261117-113900
+
+- shell-regress funnel-scan fails: load_file_opts adds to the lost count outside the funnel in all 4
+	- ID: 2026111710564830
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-105648
+	- Opened by: 2026111709431277
+	- Related IDs: 2026111708542849
+	- Incorrect behavior: shell-regress dcavz names one lost-count write outside the funnel in each binding, all from a7b1ca7e (load opts): Rust lib.rs `doc.lost += m...`, Go `doc.lost += lost`, Python `doc._lost += lost`, C `d->lost += m.lost`.
+	- Expected behavior: the write goes through the funnel, or the scan lists it with a reason.
+	- Actual cause: the load sums `migrate_unstamped`'s lost count into the parsed document. The funnel files a diagnostic per refused line, and migrate gives a count with no lines, which are gone before the parse sees the text. The scan didn't know this sum, as it knows the merge's.
+	- Actual fix: the scan allows the load's sum as a fourth exception, read as `mig.lost`, and its comment says why. Each binding names the migration `mig` and says the same at the sum. The bait has a `mig.lost` line, so the allowance is pinned.
+	- Decisions:
+		- me, 20261117: an allowance in the scan rather than a route through the funnel. The funnel would file an error per line, with no line numbers to give until 2026111016205703, and an error makes the load HadErrors and fails a Strict load, which 2026111708542849 didn't decide.
+	- Swept: every `lost +=` and `lost++` outside the funnel in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. The scan reports none now, and the only allowed ones are the merge, migrate's `st.lost`, the load's `mig.lost` and the emitter's `tail`.
+	- Verified: dcavz failed on nov17b with the 4 writes and passes now, through shell-regress-rows.bash. A full shell-regress fails only dcvej, de1a8 and dc0b5, which are older. `--backlog-run-quick go c` passed. `--backlog-run-quick rust python` passed Format, Build and Lint and failed dderx and dab72, which fail the same way on nov17b's lib.rs (2026111711103371). The rest of cargo test and the Python conformance suite passed, with dfe4q and dfe4s. check-readme dcbc6 fails on nov17b too, so both runs skipped it.
+	- Test case: shell-regress `dcavz`, with its bait line for `mig.lost`. The load's own tests are `dfe4q`, `dfe4r`, `dfe4s` and `dfe4t`.
+	- Acceptance signoff: Self-closed: dcavz failed before and passes now, and the code change is a rename.
+	- Branch: `nov17b-2026111016205704-fix`
+	- Closed: 20261117-111200
+
+- Format versions: refuse a save of a file whose stamp names a newer minor
+	- ID: 2026111708125354
+	- Type: Feature
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-081253
+	- Opened by: me
+	- Parent ID: 2026111702033137
+	- Requirements: a stamp naming a newer minor of this major is refused for saves, as `TooNew` is, in all 4 and the C++ interface. The Format read takes the minor too.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261117: a newer minor sets the same newer flag a newer major does, so `H006`, `TooNew`, the CLI's exit 7 refusals and `upgrade` leaving the file alone all follow from the one reading. A minor adds syntax this reader doesn't know, so the hint fits it too.
+		- me, 20261117: where lines name the same major, the highest minor decides, the first of equals as before. The read's value is still the major, so `format_version` and `migrate` don't change.
+		- me, 20261117: `H006` and `H007` name this reader's format as `3.0` rather than `3`. An older minor of this major gets no hint, since it reads the same.
+			- 20261117: the expected message in `stamp_hints_quote_digits` (`de0zn`, `de0zp`, `de0zq`, `de0zr`) and in cli-regress `ddqhe` and `ddzwe` went from "this reader's format 3," to "this reader's format 3.0,". Nothing else they check changed.
+	- Actual fix: the stamp read gives the minor too (`stamp_format`, `stampFormat`, `_stamp_format`), and `names_newer` and its spellings decide the load's newer flag, the hint and `upgrade`'s early return, in all 4. The C++ interface wraps the C calls, so it changed with them. spec.md and design.md say so.
+	- Swept: every reader of the stamp's number in all 4: `format_line_read` and its spellings, the load's newer flag and hint, `upgrade` (C `shcl_upgrade` and `upgrade_into`), `migrate_text` and `restamp`. `migrate` and `restamp` compare the major only, which a newer minor already passes as current. No CLI reads the line itself.
+	- Verified: the new rows fail in all 4 on the unfixed library, `stamp_reads_say_why`, `stamp_hints_quote_digits` and `a_newer_format_document_saves_nowhere` in Rust, Go and C, and the first in Python, which stops there, and pass with the fix. `--backlog-run-quick rust python` and `--backlog-run-quick go c cli` passed, as did cli-regress over the 4 CLIs, the crosscheck over the corpus (23862 comparisons), check-docs, check-veneer, `test-ids.py check` and `lint-report.bash --check --no-mark`. analyze-c's 2 reds are the older `set_off` and `fs_property.c` ones (2026111623502776).
+	- Test case: new rows in `stamp_reads_say_why` (`ddqh8`, `ddqh9`, `ddqha`, `ddqhb`), `stamp_hints_quote_digits` (`de0zn`, `de0zp`, `de0zq`, `de0zr`), new asserts in `a_newer_format_document_saves_nowhere` (`dekvt`, `dekvv`, `dekvw`, `dekvx`), and cli-regress `dfe2v`, `dfe2w`, `dfe2x`, `dfe2y`.
+	- Acceptance signoff: Self-closed: the refusal is what the parent asks for, and its tests failed before and pass after.
+	- Branch: `nov17b-2026111702033137`
+	- Closed: 20261117-081329
+
+- Increase the importance of mtime in deciding format
+	- ID: 2026111707384944
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-073849
+	- Opened by: JC
+	- Parent ID: 2026111018212700
+	- Related IDs: 2026111018212703
+	- Requirements:
+		- First, if there is a clear format specified in the appropriate comment, use that.
+		- Next, use mtime to resolve in more detail, or if no format specifier was found.
+		- Next, look for certain "tells" that only certain versions supported.
+		- Finally, if all that doesn't settle the question, and/or the other content is contradictory, try to figure out which format supports the content in the most "legal" way, most completely.
+	- Note: this changes the order in 2026111018212700 and the format versions design doc, where content that says a newer format beats the mtime. The design doc and 2026111018212703's content scan follow this item.
+	- Decisions:
+		- me, 20261117: each step takes formats off a list that starts with every format this program reads. That keeps JC's order and lets each step build on the one before.
+		- me, 20261117: a stamp naming a whole format settles it, even against the mtime, since only shcl writes one. beta1's `Format 3` names only the major, so it leaves the 8 formats from 3.0-1f8 to 3.0, and the mtime picks among them.
+		- me, 20261117: the mtime only rules out formats published after it. A program pinned to an old shcl still writes that format, so the mtime can't rule out an older one.
+		- me, 20261117: a format counts from the day before its release or commit date, so the writer's time zone doesn't matter. An mtime before any format, or one that would rule out every format the stamp left, is ignored.
+		- me, 20261117: the tells are the design doc's table. A footer or a spelling that a format refuses, or reads as binding nothing, rules that format out. A spelling that reads clean 2 ways rules nothing out, since the text can't say which one the writer meant.
+		- me, 20261117: the most legal reading counts the lines with a tell that each format refuses or reads as binding nothing, among the formats the stamp and the mtime left. The lowest count wins and a tie goes to the newest. Scoring every format would let newer-looking content beat the mtime again.
+	- Progress log:
+		- 20261117: the design doc's section on finding an unstamped file's format is now Finding a file's format, with the 4 steps and the rejected options. Its Decisions bullet, the beta1 stamp bullet, Risks, and Testing follow it. 2026111018212700 and 2026111018212703 have sub-bullets that point at it. design.md doesn't state this rule, so it didn't change.
+	- Verified: markdownlint and the markdown check pass on the design doc and the backlog.
+	- Test case: none, a design change. 2026111018212703's `touch -d` cases pin it once the scan is built.
+	- Acceptance signoff: Self-closed: design doc only, by the memory.md close policy. The reading of JC's steps is also a Check: entry.
+	- Branch: `nov17b-2026111707384944`
+	- Closed: 20261117-085200
+
+- Format versions: a load option that migrates in memory and keeps the path
+	- ID: 2026111708542849
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-085428
+	- Opened by: 2026111016205704
+	- Parent ID: 2026111016205704
+	- Requirements: the parent's first requirement, in all 4 and the C++ interface. A save of the migrated document goes through every save guard.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261117: the call is `load_file_opts(path, level, &LoadOptions)` with `keep_lines`, `migrate` and `from_v2` (Go `LoadFileOpts`, C `shcl_load_file_opts` with `shcl_load_options` by value, C++ `Document::load_file_opts`). The level stays its own argument, since a zero level in Go and C is Loose, so all-zero options are `load_file_with`. `load_file_with` keeps its signature, since changing it touches every caller. Also a Check: entry.
+		- me, 20261117: it runs `migrate_unstamped`, as the issue's note asks, so 2026111018212703 can swap in its format steps. The document keeps the bytes the load read, so a save over that file passes the changed check, and with `keep_lines` it keeps the migrated text.
+		- me, 20261117: the lines `migrate` counts in `lost` add to the document's lost count, so a canonical save refuses over them, and a save that keeps lines writes them as they were.
+		- me, 20261117: no accessor for `ambiguous` or whether the text changed. A caller that wants them can call `migrate_unstamped` on the text, and the stamp on every save (2026111708130702) will tell the next load the file is current.
+	- Actual fix: `load_file_any` and its spellings take an optional migrate, parse the migrated text, add its lost count, and keep the file's own bytes for the save. spec.md's file tier, design.md's format bullets and the changelog's New say so.
+	- Swept: every load that reads a file in all 4 goes through `load_file_any` (C `s_load_file_any`), and each caller passes no migrate. The C++ interface refuses a NUL in the path first, as its other loads do, and `devwa` covers it. Python's `__all__` has `LoadOptions`.
+	- Verified: the new tests fail in all 4 and the C++ interface with the migrate step turned off, and pass with it. `cicd.bash --backlog-run-quick rust python` and `--backlog-run-quick go c` passed, as did check-veneer, check-docs, `test-ids.py check` and the markdown checks. codeql-scan passed `de5ag` and `de5am`, so the new veneer call's suppression covers a finding. Its `de5aj` red is older than the round (2026111709183317). analyze-c didn't fit in 4 minutes, so it waits for the full run.
+	- Test case: `a_load_that_migrates_saves_through_the_guards` in Rust (`dfe4q`), Go `TestALoadThatMigratesSavesThroughTheGuards` (`dfe4r`), Python (`dfe4s`), the C runner (`dfe4t`) and the veneer smoke (`dfe4v`), plus a `load_file_opts` row in `devwa`.
+	- Acceptance signoff: Self-closed: the load does what the requirement asks, each test failed with the step off and passes with it. The API names are a Check: entry.
+	- Branch: `nov17b-2026111016205704`
+	- Closed: 20261117-091532
 
 - Format versions: the reading rules of each published format, and the pins
 	- ID: 2026111018212701

@@ -7,3 +7,4 @@ indicators:
 		bogus: x
 	rsi:
 		source: close
+## SHCL format 3.0

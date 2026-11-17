@@ -235,6 +235,34 @@ static int reads_from_several_threads() {
 // document never read, a parse's included, is refused the same way, and
 // nothing at the path is written (2026102910482342, 2026110613470307,
 // 2026110907535001). The C runner's fixture, through the veneer.
+// Every text a save writes names this format: a stamp is rewritten where it
+// is, with its own head, and a text with none gets one as its last line. A
+// newer format's stamp stays, and so does a kept text that ends in a raw block
+// left open. A merge leaves a layer's stamp out and keeps the base's last. The
+// C runner's fixture, through the veneer.
+static int a_save_names_this_format() {
+	test_id("dfe66", "a_save_names_this_format");
+	const std::string s(shcl::STAMP_LINE), f(shcl::FORMAT_LINE);
+	const struct { std::string text, canonical, kept; } rows[] = {
+		{"", s + "\n", s + "\n"},
+		{"a:  1", "a: 1\n" + s + "\n", "a:  1\n" + s + "\n"},
+		{"a: 1\r\nb: 2\r\n", "a: 1\nb: 2\n" + s + "\n", "a: 1\r\nb: 2\r\n" + s + "\r\n"},
+		{"##    Format   3\na: 1\n", f + "\na: 1\n", f + "\na: 1\n"},
+		{"a: 1\n\t## SHCL format 2.0\n", "a: 1\n\t" + s + "\n", "a: 1\n\t" + s + "\n"},
+		{"a: 1\n## SHCL format 3.1\n", "a: 1\n## SHCL format 3.1\n", "a: 1\n## SHCL format 3.1\n"},
+		{"a: ~~~\n\tx\n", "a:\n\t~~~\n\t\tx\n\t~~~\n" + s + "\n", "a: ~~~\n\tx\n"},
+	};
+	for (const auto &r : rows) {
+		auto d = shcl::Document::parse_keep_lines(r.text, shcl::Strictness::Standard);
+		CHECK(d.to_canonical() == r.canonical);
+		CHECK(d.to_text_keep_lines() == std::make_pair(r.kept, true));
+	}
+	auto m = shcl::Document::parse("a: 1\n" + s + "\n");
+	m.merge(shcl::Document::parse("b: 2\n# end\n" + s + "\n"));
+	CHECK(m.to_canonical() == "a: 1\nb: 2\n# end\n" + s + "\n");
+	return test_id_end(fails);
+}
+
 static int a_save_over_a_file_changed_since_the_load_is_refused() {
 	test_id("dekkn", "a_save_over_a_file_changed_since_the_load_is_refused");
 	const char *tmp = std::getenv("TMPDIR");
@@ -263,12 +291,12 @@ static int a_save_over_a_file_changed_since_the_load_is_refused() {
 	CHECK(doc.save_file_lossy(f) == R::Changed);
 	CHECK(has(f, "a: 9\n"));
 	CHECK(doc.save_file_with(f, force) == std::make_pair(R::Ok, false));
-	CHECK(has(f, "a: 2\n"));
+	CHECK(has(f, "a: 2\n## SHCL format 3.0\n"));
 	// The next save is checked against what that one wrote.
 	CHECK(doc.set_int("a", 3) == shcl::SetStatus::Ok);
-	CHECK(doc.save_file(f) == R::Ok && has(f, "a: 3\n"));
+	CHECK(doc.save_file(f) == R::Ok && has(f, "a: 3\n## SHCL format 3.0\n"));
 	// The same bytes written again are no change.
-	put_text(f, "a: 3\n");
+	put_text(f, "a: 3\n## SHCL format 3.0\n");
 	CHECK(doc.save_file(f) == R::Ok);
 
 	// The line-keeping save, and a link to the file, are checked too.
@@ -284,7 +312,7 @@ static int a_save_over_a_file_changed_since_the_load_is_refused() {
 #endif
 	CHECK(has(f, "a: 9 # nine\n"));
 	CHECK(kept.save_file_with(f, keepForce) == std::make_pair(R::Ok, true));
-	CHECK(has(f, "a: 2 # one\n"));
+	CHECK(has(f, "a: 2 # one\n## SHCL format 3.0\n"));
 
 	// Nothing at the path is no bytes to lose, so a file gone since the load
 	// is written back, and a save-as to a new name is written, as an editor
@@ -292,15 +320,15 @@ static int a_save_over_a_file_changed_since_the_load_is_refused() {
 	auto gone = shcl::Document::load_file(f).first;
 	CHECK(gone.set_int("a", 4) == shcl::SetStatus::Ok);
 	std::remove(f.c_str());
-	CHECK(gone.save_file(f) == R::Ok && has(f, "a: 4  # one\n"));
-	CHECK(gone.save_file(renamed) == R::Ok && has(renamed, "a: 4  # one\n"));
+	CHECK(gone.save_file(f) == R::Ok && has(f, "a: 4  # one\n## SHCL format 3.0\n"));
+	CHECK(gone.save_file(renamed) == R::Ok && has(renamed, "a: 4  # one\n## SHCL format 3.0\n"));
 	auto [fresh, freshSt] = shcl::Document::load_file(n);
 	CHECK(freshSt == shcl::FileStatus::NotFound);
 	CHECK(fresh.set_int("a", 1) == shcl::SetStatus::Ok);
 	put_text(n, "b: 2\n");
 	CHECK(fresh.save_file(n) == R::Changed && has(n, "b: 2\n"));
 	std::remove(n.c_str());
-	CHECK(fresh.save_file(n) == R::Ok && has(n, "a: 1\n"));
+	CHECK(fresh.save_file(n) == R::Ok && has(n, "a: 1\n## SHCL format 3.0\n"));
 
 	// A file the document never read is checked too: a save-as over it is
 	// refused, and force writes it. The load's file still is.
@@ -314,9 +342,9 @@ static int a_save_over_a_file_changed_since_the_load_is_refused() {
 	// it wrote itself.
 	auto parsed = shcl::Document::parse("a: 5\n");
 	CHECK(parsed.save_file(other) == R::Changed);
-	CHECK(parsed.save_file_with(other, force).first == R::Ok && has(other, "a: 5\n"));
+	CHECK(parsed.save_file_with(other, force).first == R::Ok && has(other, "a: 5\n## SHCL format 3.0\n"));
 	std::remove(f.c_str());
-	CHECK(parsed.save_file(f) == R::Ok && parsed.save_file(f) == R::Ok && has(f, "a: 5\n"));
+	CHECK(parsed.save_file(f) == R::Ok && parsed.save_file(f) == R::Ok && has(f, "a: 5\n## SHCL format 3.0\n"));
 #ifndef _WIN32
 	std::remove(link.c_str());
 #endif
@@ -356,7 +384,7 @@ static int a_changed_check_knows_its_file_by_any_spelling() {
 	put_text("i.shcl", "a: 1\n");
 	auto gone = shcl::Document::load_file("i.shcl").first;
 	std::remove("i.shcl");
-	CHECK(gone.save_file(dir + "/i.shcl") == R::Ok && has("i.shcl", "a: 1\n"));
+	CHECK(gone.save_file(dir + "/i.shcl") == R::Ok && has("i.shcl", "a: 1\n## SHCL format 3.0\n"));
 	std::remove("i.shcl");
 	// A bare name made where the load found nothing, by any spelling.
 	auto [fresh, freshSt] = shcl::Document::load_file("h.shcl");
@@ -406,7 +434,7 @@ static int a_create_only_save_refuses_a_file_already_there() {
 	shcl::WriteStatus why = shcl::WriteStatus::Other;
 	CHECK(doc.save_file_with(f, create, &why).first == R::Exists && why == shcl::WriteStatus::Ok);
 	CHECK(doc.save_file_with(f, forced).first == R::Exists);
-	CHECK(has(f, "a: 1\n"));
+	CHECK(has(f, "a: 1\n## SHCL format 3.0\n"));
 #ifndef _WIN32
 	// A link to nowhere is something at the path, so where it points isn't
 	// made (2026110312163207).
@@ -487,6 +515,82 @@ static int a_newer_format_document_saves_nowhere() {
 	return test_id_end(fails);
 }
 
+// A load that migrates in memory writes nothing, and its save gets every
+// check a plain load's does, over the file it read (2026111708542849).
+static int a_load_that_migrates_saves_through_the_guards() {
+	test_id("dfe4v", "a_load_that_migrates_saves_through_the_guards");
+	const char *tmp = std::getenv("TMPDIR");
+	if (!tmp || !*tmp) tmp = std::getenv("TEMP");
+	if (!tmp || !*tmp) tmp = std::getenv("TMP");
+	std::string dir = std::string(tmp && *tmp ? tmp : "/tmp") + "/shcl-veneer-loadmig-" + std::to_string((long)getpid());
+#ifdef _WIN32
+	CHECK(_mkdir(dir.c_str()) == 0);
+#else
+	CHECK(mkdir(dir.c_str(), 0700) == 0);
+#endif
+	using R = shcl::SaveResult;
+	using F = shcl::FileStatus;
+	const auto std_ = shcl::Strictness::Standard;
+	const std::string f = dir + "/f.shcl", gone = dir + "/gone.shcl";
+	const std::string old = "p: a,b\n# kept\nq: 1\n";
+	shcl::LoadOptions opts;
+	opts.keep_lines = opts.migrate = opts.from_v2 = true;
+	const std::string migrated = shcl::migrate_unstamped(old, true).text;
+	CHECK(migrated != old);
+	// The document is the migrated text's, and the load writes nothing.
+	CHECK(shcl::write_file_atomic(f, old) == shcl::WriteStatus::Ok);
+	{
+		auto loaded = shcl::Document::load_file_opts(f, std_, opts);
+		auto &doc = loaded.first;
+		CHECK(loaded.second == F::Clean);
+		CHECK(doc.to_text_keep_lines() == std::make_pair(migrated + std::string(shcl::STAMP_LINE) + "\n", true));
+		CHECK(shcl::read_file(f).first == old);
+		// A save over the file it read is no change, and keeps its lines.
+		CHECK(doc.set_int("q", 2) == shcl::SetStatus::Ok);
+		CHECK(doc.save_file_keep_lines(f) == std::make_pair(R::Ok, true));
+		CHECK(shcl::read_file(f).first == "p: [a, b]\n# kept\nq: 2\n## SHCL format 3.0\n");
+	}
+	// Another program's edit since the load is refused.
+	CHECK(shcl::write_file_atomic(f, old) == shcl::WriteStatus::Ok);
+	{
+		auto loaded = shcl::Document::load_file_opts(f, std_, opts);
+		CHECK(shcl::write_file_atomic(f, "p: x\n") == shcl::WriteStatus::Ok);
+		CHECK(loaded.first.save_file_keep_lines(f).first == R::Changed);
+		CHECK(shcl::read_file(f).first == "p: x\n");
+	}
+	// A newer format's file is parsed as it is, and refuses every save.
+	const std::string newer = "a: 1\n\n##    Format   4\n";
+	CHECK(shcl::write_file_atomic(f, newer) == shcl::WriteStatus::Ok);
+	{
+		auto loaded = shcl::Document::load_file_opts(f, std_, opts);
+		CHECK(loaded.first.newer_format());
+		CHECK(loaded.first.save_file_keep_lines(f).first == R::TooNew);
+		CHECK(shcl::read_file(f).first == newer);
+	}
+	// What the migration counts lost is lost to a canonical save.
+	const std::string lossy = "k: [x, y]\n";
+	CHECK(shcl::migrate_unstamped(lossy, true).lost > 0);
+	CHECK(shcl::write_file_atomic(f, lossy) == shcl::WriteStatus::Ok);
+	{
+		shcl::LoadOptions canon = opts;
+		canon.keep_lines = false;
+		auto loaded = shcl::Document::load_file_opts(f, std_, canon);
+		CHECK(loaded.first.save_file(f) == R::Refused);
+		CHECK(shcl::read_file(f).first == lossy);
+	}
+	// Without migrate it is load_file, and with it a missing file is too.
+	CHECK(shcl::write_file_atomic(f, old) == shcl::WriteStatus::Ok);
+	{
+		auto plain = shcl::Document::load_file_opts(f, std_, shcl::LoadOptions{});
+		auto want = shcl::Document::load_file(f);
+		CHECK(plain.second == want.second && plain.first.to_canonical() == want.first.to_canonical());
+		CHECK(shcl::Document::load_file_opts(gone, std_, opts).second == F::NotFound);
+	}
+	std::remove(f.c_str());
+	rmdir(dir.c_str());
+	return test_id_end(fails);
+}
+
 // A path holding a NUL is refused, as Rust, Go and Python refuse it, rather
 // than cut short at the NUL into another file's name (2026110312163208).
 static int a_path_holding_a_nul_is_refused() {
@@ -518,7 +622,8 @@ static int a_path_holding_a_nul_is_refused() {
 	CHECK(shcl::write_file_atomic(real, "b: 2\n") == W::Ok);
 	CHECK(shcl::read_file(cut) == std::make_pair(std::string(), F::Unreadable));
 	for (const auto &loaded : {shcl::Document::load_file(cut), shcl::Document::load_file_with(cut, shcl::Strictness::Strict),
-		     shcl::Document::load_file_keep_lines(cut, shcl::Strictness::Standard)}) {
+		     shcl::Document::load_file_keep_lines(cut, shcl::Strictness::Standard),
+		     shcl::Document::load_file_opts(cut, shcl::Strictness::Standard, shcl::LoadOptions{true, true, true})}) {
 		CHECK(loaded.second == F::Unreadable && loaded.first.read_int("b").status == shcl::Status::NotFound);
 	}
 	auto up = shcl::upgrade_file(cut, true).second;
@@ -697,18 +802,18 @@ int main() {
 		CHECK(shcl::format_value("1,200") == "1,200" && shcl::format_value("a b") == "\"a b\"");
 		CHECK(!shcl::format_value("a\xff" "b"));
 		auto fw = shcl::Document::parse("");
-		CHECK(fw.set_string("k", "x\ty") == shcl::SetStatus::Ok && fw.to_canonical() == "k: " + *shcl::format_value("x\ty") + "\n");
+		CHECK(fw.set_string("k", "x\ty") == shcl::SetStatus::Ok && fw.to_canonical() == "k: " + *shcl::format_value("x\ty") + "\n" + std::string(shcl::STAMP_LINE) + "\n");
 		// Over a quoted value too, or Loose reads it as a number (2026101514324702).
 		auto fq = shcl::Document::parse_with("k: \"x\"\n", shcl::Strictness::Loose);
 		CHECK(fq.set_string("k", "1,200") == shcl::SetStatus::Ok && !fq.quoted("k") && fq.read_int("k").status == shcl::Status::BadType);
-		CHECK(fq.to_canonical() == "k: " + *shcl::format_value("1,200") + "\n");
+		CHECK(fq.to_canonical() == "k: " + *shcl::format_value("1,200") + "\n" + std::string(shcl::STAMP_LINE) + "\n");
 	}
 	// An array as set_string_array writes it, through the core.
 	{
 		CHECK(shcl::format_array({"80", "a b", "1,200"}) == "[80, \"a b\", \"1,200\"]" && shcl::format_array({}) == "[]");
 		CHECK(!shcl::format_array({"x", "a\xff" "b"}));
 		auto fa = shcl::Document::parse("");
-		CHECK(fa.set_string_array("k", {"x\ty", ""}) == shcl::SetStatus::Ok && fa.to_canonical() == "k: " + *shcl::format_array({"x\ty", ""}) + "\n");
+		CHECK(fa.set_string_array("k", {"x\ty", ""}) == shcl::SetStatus::Ok && fa.to_canonical() == "k: " + *shcl::format_array({"x\ty", ""}) + "\n" + std::string(shcl::STAMP_LINE) + "\n");
 	}
 	// The CLI's stderr line, through the core.
 	{
@@ -740,7 +845,7 @@ int main() {
 		CHECK(built != *shcl::parse_datetime("2026-01-02T03:04Z"));
 	}
 	// The format constants are the C macros, so there is one copy of each.
-	CHECK(shcl::MAX_DEPTH == 512 && shcl::FORMAT_MAJOR == 3 && shcl::FORMAT_LINE == "##    Format   3");
+	CHECK(shcl::MAX_DEPTH == 512 && shcl::FORMAT_MAJOR == 3 && shcl::FORMAT_LINE == "##    Format   3.0");
 	CHECK(shcl::FORMAT_LINE.substr(0, shcl::FORMAT_LINE_HEAD.size()) == shcl::FORMAT_LINE_HEAD);
 	CHECK(shcl::GEN_BANNER.find(shcl::FORMAT_LINE) != std::string_view::npos && shcl::MIGRATED_LINE == "##    Migrated from SHCL 2.x.");
 	CHECK(!shcl::parse_datetime("notadate") && !shcl::parse_datetime(""));
@@ -855,7 +960,7 @@ int main() {
 	// Told the file is 2.x, the list is rewritten and the result is stamped
 	// with the format line, which is what makes a second run a no-op.
 	auto mig = shcl::migrate("base:[Boston]\n\tlat: 42\nnote: a,b\n", true);
-	CHECK(mig.text == "base: Boston\n\tlat: 42\nnote: [a, b]\n##    Format   3\n##    Migrated from SHCL 2.x.\n");
+	CHECK(mig.text == "base: Boston\n\tlat: 42\nnote: [a, b]\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n");
 	CHECK(!mig.current && mig.ambiguous == 0 && mig.lost == 0);
 	CHECK(shcl::migrate(mig.text, true).current);
 	// Not told, and the file does not say: `a,b` reads as an array under 2.x
@@ -943,7 +1048,7 @@ int main() {
 	CHECK(ownDiags.size() == 1 && ownDiags[0].code == "E014");
 	// A default-constructed Document is an empty one, not a null handle.
 	shcl::Document blank;
-	CHECK(blank.to_canonical().empty() && blank.count("x") == 0 && blank.diagnostics().empty());
+	CHECK(blank.to_canonical() == std::string(shcl::STAMP_LINE) + "\n" && blank.count("x") == 0 && blank.diagnostics().empty());
 
 	// One-shot: one combined list (parse then validation), error predicate.
 	auto combined = shcl::Document::load_and_validate(": nope\nport: x\n", "field: port\n\ttype: int\n", shcl::Strictness::Standard);
@@ -1019,13 +1124,13 @@ int main() {
 		CHECK(w.set_comment("port", "two\nlines") == S::BadComment);
 		CHECK(w.clear_comments("port") == 1 && w.to_canonical().find("# the port") == std::string::npos);
 		CHECK(w.set_banner(true) == 0 && w.to_canonical().find("## This config file format is SHCL.\n") != std::string::npos);
-		CHECK(w.set_banner(false) == 1 && w.to_canonical().find("##") == std::string::npos);
+		CHECK(w.set_banner(false) == 1 && w.to_canonical().find("##") == w.to_canonical().find(shcl::STAMP_LINE));
 		// The save that keeps lines: an edit touches its own line only, a
 		// document not loaded for it writes the canonical form.
 		auto kept = shcl::Document::parse_keep_lines("Name:   \"x\"   # c\nblock:\n    a: 1\n", shcl::Strictness::Standard);
-		CHECK(kept.to_text_keep_lines() == std::make_pair(std::string("Name:   \"x\"   # c\nblock:\n    a: 1\n"), true));
+		CHECK(kept.to_text_keep_lines() == std::make_pair(std::string("Name:   \"x\"   # c\nblock:\n    a: 1\n## SHCL format 3.0\n"), true));
 		CHECK(kept.set_int("block.a", 2) == S::Ok && kept.set_int("block.b", 3) == S::Ok);
-		CHECK(kept.to_text_keep_lines() == std::make_pair(std::string("Name:   \"x\"   # c\nblock:\n    a: 2\n    b: 3\n"), true));
+		CHECK(kept.to_text_keep_lines() == std::make_pair(std::string("Name:   \"x\"   # c\nblock:\n    a: 2\n    b: 3\n## SHCL format 3.0\n"), true));
 		CHECK(w.to_text_keep_lines() == std::make_pair(w.to_canonical(), false));
 		CHECK(w.set_int("a(*)", 1) == S::Wildcard && w.check_set_path("a(*)") == S::Wildcard);
 		CHECK(w.set_int("a[x]", 1) == S::BadPath && w.check_set_path("a[x]") == S::BadPath);
@@ -1135,7 +1240,7 @@ int main() {
 #endif
 		std::string f = dir + "/t.shcl";
 		auto [absent, absentSt] = shcl::Document::load_file(f);
-		CHECK(absent && absentSt == shcl::FileStatus::NotFound && absent.to_canonical().empty());
+		CHECK(absent && absentSt == shcl::FileStatus::NotFound && absent.to_canonical() == std::string(shcl::STAMP_LINE) + "\n");
 		CHECK(std::string(shcl::to_string(absentSt)) == "NotFound");
 		// codeql[cpp/world-writable-file-creation] a test's scratch file, made the way fopen makes any file
 		{ FILE *fh = std::fopen(f.c_str(), "wb"); CHECK(fh && std::fputs("pct: 50%\n", fh) != EOF && std::fclose(fh) == 0); }
@@ -1150,7 +1255,7 @@ int main() {
 		auto [keeping, keepingSt] = shcl::Document::load_file_keep_lines(f, shcl::Strictness::Standard);
 		CHECK(keepingSt == shcl::FileStatus::Clean && keeping.set_int("b", 2) == S::Ok);
 		CHECK(keeping.save_file_keep_lines(f) == std::make_pair(shcl::SaveResult::Ok, true));
-		CHECK(shcl::read_file(f).first == "a:   1\n\nb: 2\n");
+		CHECK(shcl::read_file(f).first == "a:   1\n\nb: 2\n## SHCL format 3.0\n");
 		// Strict fails the load from every entry point the same way:
 		// strict_failed() on what each hands back (2026100717500012).
 		{
@@ -1257,7 +1362,7 @@ int main() {
 		std::string big;
 		for (int i = 0; i < 2000; i++) big += "key" + std::to_string(i) + ": value" + std::to_string(i) + "\n";
 		auto heldBig = shcl::Document::parse(big);
-		for (int i = 0; i < 200; i++) CHECK(heldBig.to_canonical().size() == big.size());
+		for (int i = 0; i < 200; i++) CHECK(heldBig.to_canonical().size() == big.size() + shcl::STAMP_LINE.size() + 1);
 		held_bytes = 0;
 		for (const ShclBlock *b = shcl::detail::Access::doc(heldBig)->reads.head; b; b = b->next) held_bytes += b->used;
 		CHECK(held_bytes <= 2 * big.size());
@@ -1309,6 +1414,8 @@ int main() {
 	fails = 0;
 	const int threads = reads_from_several_threads();
 	fails = 0;
+	const int stamped = a_save_names_this_format();
+	fails = 0;
 #ifndef SHCL_NO_FILE_IO
 	const int changed = a_save_over_a_file_changed_since_the_load_is_refused();
 	fails = 0;
@@ -1318,8 +1425,10 @@ int main() {
 	fails = 0;
 	const int newer = a_newer_format_document_saves_nowhere();
 	fails = 0;
-	return changed | spellings | created | newer | a_path_holding_a_nul_is_refused() | threads | smoke;
+	const int migrating = a_load_that_migrates_saves_through_the_guards();
+	fails = 0;
+	return changed | spellings | created | newer | migrating | a_path_holding_a_nul_is_refused() | threads | stamped | smoke;
 #else
-	return threads | smoke;
+	return threads | stamped | smoke;
 #endif
 }

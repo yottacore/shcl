@@ -17,5 +17,5 @@ city: "New York"
 plain: Boston
 quoted: "~~~q"
 last: 1
-##    Format   3
+##    Format   3.0
 ##    Migrated from SHCL 2.x.

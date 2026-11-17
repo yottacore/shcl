@@ -7,3 +7,4 @@
 	~~~
 ##    Schema   ./app.schema.shcl
 port: 8080
+## SHCL format 3.0

@@ -34,6 +34,41 @@ CORPUS = os.path.join(_REPO, "project", "conformance")
 ## test that needs the real clock calls shcl._local_clock.
 TEST_CLOCK = "2026-10-04 00:15:00 -420 PDT"
 
+
+def with_stamp(s: str) -> str:
+	"""What a save writes for `s`, which names no format."""
+	return s + shcl.STAMP_LINE + "\n"
+
+
+def tidy_stamp(t: str) -> str:
+	"""A blank line a save that keeps lines kept above an added stamp is one
+	the canonical form drops."""
+	return t.replace("\n\n" + shcl.STAMP_LINE + "\n", "\n" + shcl.STAMP_LINE + "\n")
+
+
+def only_the_stamp_differs(text: str, saved: str) -> bool:
+	"""`saved` is `text` with the stamp a save writes: the same text, when it
+	names this format, a newer one, or ends in a raw block left open, or one
+	stamp line rewritten in place, or STAMP_LINE added as the last line."""
+	if saved == text:
+		return True
+	eol = "\r\n" if "\r\n" in text else "\n"
+	if saved.startswith(text):
+		tail = saved[len(text):]
+		if text and not text.endswith("\n"):
+			if not tail.startswith(eol):
+				return False
+			tail = tail[len(eol):]
+		return tail == shcl.STAMP_LINE + eol
+	a, b = text.split("\n"), saved.split("\n")
+	diff = [i for i in range(min(len(a), len(b))) if a[i] != b[i]]
+	return (
+		len(a) == len(b)
+		and len(diff) == 1
+		and a[diff[0]].lstrip(" \t").startswith((shcl.FORMAT_LINE_HEAD, shcl.STAMP_HEAD))
+		and b[diff[0]].lstrip(" \t").startswith((shcl.FORMAT_LINE, shcl.STAMP_LINE))
+	)
+
 ## One status line per test, with its test ID, for the pipeline's console. A
 ## marker opens a test and closes the one before it. A test fails on an exit
 ## while it is open, or on a failure added to FAILS since it opened.
@@ -1106,7 +1141,7 @@ def a_remove_that_moves_a_misplaced_line_adds_no_error():
 	text without the removed line files it, and the misplaced line under them
 	reloads as E018 where it was E012. Same fixture in every runner."""
 	base = "window:\n\topacity: 1.0\n    m_argin: 4\n\n\tcol\tmns: 160\n\trows: 48\nfont:\n\tface:\n\t\tsize: 12\n    bad:\t 1\n\t\tfamily: mono\n\thint:\n  ~ bad: 2\n\t\tfist: 1\n\t\tsecond: 2\\a:\n    b: 1\n  c: 2\n     d 3\n    h: 6\nz: 9\n"
-	want = "font:\n\tface:\n\t\tsize: 12\n    bad:\t 1\n\t\tfamily: mono\n\t\t\tkid2: 3\n\thint:\n\t\tsecond: 2\\a:\n  ~ bad: 2\n    b: 1\n  c: 2\n     d 3\n    h: 6\nz: 9\n"
+	want = "font:\n\tface:\n\t\tsize: 12\n    bad:\t 1\n\t\tfamily: mono\n\t\t\tkid2: 3\n\thint:\n\t\tsecond: 2\\a:\n  ~ bad: 2\n    b: 1\n  c: 2\n     d 3\n    h: 6\nz: 9\n## SHCL format 3.0\n"
 	doc = shcl.Document.parse_keep_lines(base, shcl.Strictness.Standard)
 	if doc.remove("font.hint.fist") != 1:
 		raise SystemExit("remove font.hint.fist")
@@ -1253,7 +1288,7 @@ def edits_and_merges_match_a_reload():
 			if a != b and not (op in (4, 9) and reload_took_only_comments(a, b)):
 				raise SystemExit(f"a step on the document and on its reload differ at iteration {i}:\n{log}--- live\n{a}--- reload\n{b}")
 			t, kept = live.to_text_keep_lines()
-			if kept and shcl.Document.parse(t).to_canonical() != a:
+			if kept and tidy_stamp(shcl.Document.parse(t).to_canonical()) != a:
 				raise SystemExit(f"kept lines reload as another document at iteration {i}:\n{log}--- wrote\n{t}")
 			if kept and not no_new_errors(t, base):
 				raise SystemExit(f"kept lines load with a new error at iteration {i}:\n{log}--- wrote\n{t}")
@@ -1284,7 +1319,7 @@ def main():
 	# raise, where it promises never to. The save is where it fails. Python
 	# only: no other binding's string can hold one.
 	sdoc = shcl.Document.parse("a: x\udc80\n\"k\udc81\": 2\n")
-	if sdoc.to_canonical() != "a: x\udc80\n\"k\udc81\": 2\n" or sdoc.diagnostics():
+	if sdoc.to_canonical() != with_stamp("a: x\udc80\n\"k\udc81\": 2\n") or sdoc.diagnostics():
 		fails.append("surrogate: the parse did not keep the text")
 	if sdoc.read_string("a").value != "x\udc80" or sdoc.read_string('"k\udc81"').status != shcl.Status.Good:
 		fails.append("surrogate: a read did not find what the parse kept")
@@ -1360,11 +1395,12 @@ def main():
 			fails.append(f"{case['name']}: expected-keep.shcl reloads as another document")
 
 	# Loaded to keep its lines and saved with no edits, every input is its own
-	# text again, byte for byte.
+	# text again, byte for byte, but for the stamp a save writes.
 	for case in cases:
 		kdoc = shcl.Document.parse_keep_lines(case["input"], shcl.Strictness.Standard)
-		if kdoc.to_text_keep_lines() != (case["input"], True):
-			fails.append(f"{case['name']}: an unedited save changed the text")
+		ktext, kall = kdoc.to_text_keep_lines()
+		if not kall or not only_the_stamp_differs(case["input"], ktext):
+			fails.append(f"{case['name']}: an unedited save changed more than the stamp: {ktext!r}")
 
 	# Every past case of a comment an edit put in the wrong place, as a fixed
 	# text (2026110616475903).
@@ -2397,7 +2433,7 @@ def main():
 	ok_dt = DT(date=(2026, 1, 2), time=(3, 4, 5), frac="60", zone=("offset", -90))
 	if sdoc.set_datetime("d", ok_dt) is not shcl.SetStatus.Ok or str(sdoc.get_datetime("d")) != str(ok_dt):
 		raise SystemExit("a valid datetime was refused or read back differently")
-	if sdoc.to_canonical() != 'z: 0\n\nf: 2.5\n\nd: "2026-01-02T03:04:05.60-01:30"\n':
+	if sdoc.to_canonical() != with_stamp('z: 0\n\nf: 2.5\n\nd: "2026-01-02T03:04:05.60-01:30"\n'):
 		raise SystemExit(f"document after the refusals: {sdoc.to_canonical()!r}")
 	test_id("ddkh2", "a_backtick_value_reads_raw_with_its_flag")
 	# A backtick value is raw text the program decodes itself: read as
@@ -2595,7 +2631,7 @@ def main():
 	if sdoc3.read_int('"ab\tcd"').value != 2:
 		raise SystemExit("read via the literal spelling failed")
 	# Canonical output folds the case, as it always has, and escapes the tab.
-	if sdoc3.to_canonical() != '"ab◉TAB◉cd": 2\n':
+	if sdoc3.to_canonical() != with_stamp('"ab◉TAB◉cd": 2\n'):
 		raise SystemExit(f"canonical name spelling got {sdoc3.to_canonical()!r}")
 	# An array read of a one-element cell answers the same as the scalar read of
 	# the same node: there is a single scalar element, which is what the flag is
@@ -2643,7 +2679,7 @@ def main():
 				raise SystemExit(f"a save over a folder: {ge.status}") from None
 		os.rmdir(gfile)
 		ddoc.save_file(dfile)
-		if _read(dfile) != "a: 2\n":
+		if _read(dfile) != with_stamp("a: 2\n"):
 			raise SystemExit("the plain path did not save")
 	test_id("dc425", "typed_array_setters_take_a_list")
 	# A typed array setter takes a list of its type, not any iterable: a str is a
@@ -2666,7 +2702,7 @@ def main():
 		except TypeError:
 			pass
 	gen = (x for x in [1, 2, 3])   # not a list on purpose: that is the fixture
-	if not gdoc.set_int_array("k", gen) or gdoc.to_canonical() != "k: [1, 2, 3]\n":  # type: ignore[arg-type]
+	if not gdoc.set_int_array("k", gen) or gdoc.to_canonical() != with_stamp("k: [1, 2, 3]\n"):  # type: ignore[arg-type]
 		raise SystemExit(f"a generator wrote {gdoc.to_canonical()!r}")
 	test_id("dc41j", "written_spelling_matches_its_reload")
 	# A written value with both quote kinds is stored the way its own reload
@@ -2763,7 +2799,7 @@ def main():
 		ms.append((time.perf_counter() - t0) * 1000.0)
 		if kdoc.get_int_or("g.k", -1) != 49:
 			raise SystemExit("kept-line fixture: wrong result")
-		if kdoc.to_canonical().endswith("\n x: y\n") != with_line:
+		if kdoc.to_canonical().endswith(with_stamp("\n x: y\n")) != with_line:
 			raise SystemExit("kept-line fixture: the kept line is not where the fixture put it")
 	bound = 3000.0 if ms[0] <= 0 else ms[0] * 25 + 1000
 	if ms[1] > bound:
@@ -2785,7 +2821,7 @@ def main():
 			t0 = time.perf_counter()
 			rdoc = shcl.Document.parse(text)
 			best = min(best, (time.perf_counter() - t0) * 1000.0)
-			if not rdoc.to_canonical().endswith(f"\nq{n - 1}: [1\n"):
+			if not rdoc.to_canonical().endswith(with_stamp(f"\nq{n - 1}: [1\n")):
 				raise SystemExit("re-opened fixture: the kept lines did not go to the end of the file")
 		ms.append(best)
 	bound = max(ms[0], 1.0) * 24
@@ -2806,7 +2842,7 @@ def main():
 			edoc = shcl.Document.parse(text)
 			got = edoc.get_string("a")
 			best = min(best, (time.perf_counter() - t0) * 1000.0)
-			if got != "\t" * n or edoc.to_canonical() != text:
+			if got != "\t" * n or edoc.to_canonical() != with_stamp(text):
 				raise SystemExit("escape fixture: wrong result")
 		ms.append(best)
 	bound = max(ms[0], 1.0) * 24
@@ -2873,7 +2909,7 @@ def main():
 	# design.md's table: a remove takes the kept line written as the field's
 	# own line, and nothing beside it.
 	kdoc = shcl.Document.parse("a: [1\n\tb: 2\ny: 3\n")
-	if kdoc.remove("a") != 1 or kdoc.lost_count() != 0 or kdoc.to_canonical() != "y: 3\n":
+	if kdoc.remove("a") != 1 or kdoc.lost_count() != 0 or kdoc.to_canonical() != with_stamp("y: 3\n"):
 		fails.append(f"kept gate: removing a field opened from a kept line lost {kdoc.lost_count()} and wrote {kdoc.to_canonical()!r}")
 
 	def check_removes(cases):
@@ -2881,7 +2917,7 @@ def main():
 			kdoc = shcl.Document.parse(text)
 			n = kdoc.remove(path)
 			out = kdoc.to_canonical()
-			if n != 1 or kdoc.lost_count() != 0 or out != want:
+			if n != 1 or kdoc.lost_count() != 0 or out != with_stamp(want):
 				fails.append(f"kept gate: removing {path} from {text!r} took {n}, lost {kdoc.lost_count()} and wrote {out!r}")
 			elif shcl.Document.parse(out).to_canonical() != out:
 				fails.append(f"kept gate: removing {path} from {text!r} wrote text that reloads otherwise")
@@ -2927,7 +2963,7 @@ def main():
 		kdoc = shcl.Document.parse_keep_lines(text, shcl.Strictness.Standard)
 		took = kdoc.set_int(set_path, 5)
 		out = kdoc.to_canonical()
-		if not took or kdoc.lost_count() != 0 or out != set_want:
+		if not took or kdoc.lost_count() != 0 or out != with_stamp(set_want):
 			fails.append(f"kept gate: setting {set_path} in {text!r} wrote {out!r}")
 			continue
 		back = shcl.Document.parse(out)
@@ -2939,7 +2975,7 @@ def main():
 	# kept line, leaves the line as it was.
 	for set_path, set_want in [("a.c", "a: [1\n\tb: 2\n\tc: 5\n"), ("z", "a: [1\n\tb: 2\n\nz: 5\n")]:
 		kdoc = shcl.Document.parse("a: [1\n\tb: 2\n")
-		if not kdoc.set_int(set_path, 5) or kdoc.to_canonical() != set_want:
+		if not kdoc.set_int(set_path, 5) or kdoc.to_canonical() != with_stamp(set_want):
 			fails.append(f"kept gate: setting {set_path} beside a kept line wrote {kdoc.to_canonical()!r}")
 
 	test_id("ddgq3", "a_setter_comments_out_every_kept_line_of_its_name")
@@ -2970,7 +3006,7 @@ def main():
 		kdoc = shcl.Document.parse_keep_lines(text, shcl.Strictness.Standard)
 		took = kdoc.set_int(set_path, 5)
 		out = kdoc.to_canonical()
-		if not took or kdoc.lost_count() != 0 or out != set_want:
+		if not took or kdoc.lost_count() != 0 or out != with_stamp(set_want):
 			fails.append(f"kept gate: setting {set_path} in {text!r} wrote {out!r}")
 			continue
 		back = shcl.Document.parse(out)
@@ -2980,11 +3016,11 @@ def main():
 			fails.append(f"kept gate: the keep save of {text!r} gave {kdoc.to_text_keep_lines()!r}")
 	# Two valid lines stay as they are: the setter refuses the path.
 	kdoc = shcl.Document.parse_keep_lines("a: 1\na: 2\n", shcl.Strictness.Standard)
-	if kdoc.set_int("a", 5) or kdoc.to_text_keep_lines() != ("a: 1\na: 2\n", True):
+	if kdoc.set_int("a", 5) or kdoc.to_text_keep_lines() != (with_stamp("a: 1\na: 2\n"), True):
 		fails.append(f"kept gate: two valid lines gave {kdoc.to_text_keep_lines()!r}")
 	# set_comment makes the field without touching the line.
 	kdoc = shcl.Document.parse("a: [1\ny: 3\n")
-	if not kdoc.set_comment("a", "n") or kdoc.to_canonical() != "a: [1\ny: 3\n\n# n\na:\n":
+	if not kdoc.set_comment("a", "n") or kdoc.to_canonical() != with_stamp("a: [1\ny: 3\n\n# n\na:\n"):
 		fails.append(f"kept gate: set_comment beside a kept line wrote {kdoc.to_canonical()!r}")
 
 	test_id("ddggb", "a_note_names_the_zone_or_its_offset")
@@ -3022,10 +3058,10 @@ def main():
 	# design.md's table: a settled kept line on a leaf the layer replaces goes
 	# with the leaf's comments, so it is no longer owed.
 	kdoc = shcl.Document.parse("x: 0\n\tc: 2\n  a: 5\nb: 1\n")
-	if kdoc.remove("x.c") != 1 or kdoc.to_canonical() != "x: 0\n# a: 5\nb: 1\n":
+	if kdoc.remove("x.c") != 1 or kdoc.to_canonical() != with_stamp("x: 0\n# a: 5\nb: 1\n"):
 		fails.append(f"kept gate: the replaced-leaf fixture wrote {kdoc.to_canonical()!r} after the remove")
 	kdoc.merge(shcl.Document.parse("b: 9\n"))
-	if kdoc.lost_count() != 0 or kdoc.to_canonical() != "x: 0\nb: 9\n":
+	if kdoc.lost_count() != 0 or kdoc.to_canonical() != with_stamp("x: 0\nb: 9\n"):
 		fails.append(f"kept gate: a replaced leaf's settled line lost {kdoc.lost_count()} and wrote {kdoc.to_canonical()!r}")
 
 	test_id("ddez7", "a_footer_line_the_base_has_is_not_owed_twice")
@@ -3033,7 +3069,7 @@ def main():
 	# already has, so that copy is not owed.
 	kdoc = shcl.Document.parse("bad name: 1\n")
 	kdoc.merge(shcl.Document.parse("bad name: 1\n"))
-	if kdoc.lost_count() != 0 or kdoc.to_canonical() != "bad name: 1\n":
+	if kdoc.lost_count() != 0 or kdoc.to_canonical() != with_stamp("bad name: 1\n"):
 		fails.append(f"kept gate: a deduped footer line lost {kdoc.lost_count()} and wrote {kdoc.to_canonical()!r}")
 
 	test_id("ddg74", "a_replaced_leaf_leaves_the_lines_beside_it")
@@ -3041,14 +3077,14 @@ def main():
 	# a remove would take. A settled line or a comment past a kept line beside
 	# it stays with that line.
 	kdoc = shcl.Document.parse("    srv: a\n  srv(x): [3\nb(x): [4\n# mine\nq: c\n")
-	if kdoc.to_canonical() != "srv: a\n# srv(x): [3\nb(x): [4\n# mine\nq: c\n":
+	if kdoc.to_canonical() != with_stamp("srv: a\n# srv(x): [3\nb(x): [4\n# mine\nq: c\n"):
 		fails.append(f"kept gate: the beside fixture loaded as {kdoc.to_canonical()!r}")
 	kdoc.merge(shcl.Document.parse("q: 9\n"))
-	if kdoc.lost_count() != 0 or kdoc.to_canonical() != "srv: a\n# srv(x): [3\nb(x): [4\nq: 9\n":
+	if kdoc.lost_count() != 0 or kdoc.to_canonical() != with_stamp("srv: a\n# srv(x): [3\nb(x): [4\nq: 9\n"):
 		fails.append(f"kept gate: a replaced leaf's neighbors lost {kdoc.lost_count()} and wrote {kdoc.to_canonical()!r}")
 	kdoc = shcl.Document.parse("p:\n\tq: c\n\t# mine\n\tb(x): [4\n\t# n\n")
 	kdoc.merge(shcl.Document.parse("p:\n\tq: 9\n"))
-	if kdoc.lost_count() != 0 or kdoc.to_canonical() != "p:\n\tb(x): [4\n\t# n\n\tq: 9\n":
+	if kdoc.lost_count() != 0 or kdoc.to_canonical() != with_stamp("p:\n\tb(x): [4\n\t# n\n\tq: 9\n"):
 		fails.append(f"kept gate: a replaced leaf's lines below lost {kdoc.lost_count()} and wrote {kdoc.to_canonical()!r}")
 	# The failure report above has run already, so these end the run here.
 	if fails:
@@ -3303,7 +3339,7 @@ def main():
 	# A stacked item past the cap is dropped whatever it holds; within the
 	# cap a broken one is kept and the list loads around it.
 	got, lost, out = cap_codes("x:\n\t- a\n\t- b\n\t- \"open\n\t- c d\nz: 1\n", 2)
-	if got != [(4, "E021"), (5, "E021")] or lost != 2 or out != "x:\n\t- a\n\t- b\nz: 1\n":
+	if got != [(4, "E021"), (5, "E021")] or lost != 2 or out != with_stamp("x:\n\t- a\n\t- b\nz: 1\n"):
 		raise SystemExit(f"items past the cap: {got} lost {lost} out {out!r}")
 	got, lost, out = cap_codes("x:\n\t- a\n\t- \"open\n\t- b\n", 2)
 	if got != [(3, "E017")] or lost != 0 or '- "open' not in out:
@@ -3331,7 +3367,7 @@ def main():
 			raise SystemExit(f"{nline!r}: {ndoc.diagnostics()}")
 		if ndoc.lost_count() != 0:
 			raise SystemExit(f"{nline!r}: lost_count {ndoc.lost_count()}")
-		if ndoc.to_canonical() != f"k: 1\n{nline}\nz: 2\n":
+		if ndoc.to_canonical() != with_stamp(f"k: 1\n{nline}\nz: 2\n"):
 			raise SystemExit(f"{nline!r} wrote {ndoc.to_canonical()!r}")
 		if ndoc.exists(nquoted):
 			raise SystemExit(f"{nline!r} bound {nquoted}")
@@ -3343,7 +3379,7 @@ def main():
 		ndoc = shcl.Document.parse(f"{nline}\n")
 		if [g.code for g in ndoc.diagnostics()] != ["E015"]:
 			raise SystemExit(f"{nline!r}: {ndoc.diagnostics()}")
-		if ndoc.to_canonical() != f"{nout}\n":
+		if ndoc.to_canonical() != with_stamp(f"{nout}\n"):
 			raise SystemExit(f"{nline!r} wrote {ndoc.to_canonical()!r}")
 	test_id("dbeb2", "set_int_refuses_past_64_bits")
 	# Also python-only: an int outside the 64-bit range the other three
@@ -3356,7 +3392,7 @@ def main():
 		raise SystemExit("set_int_array accepted an out-of-range value")
 	if not rdoc.set_int("d", (1 << 63) - 1) or not rdoc.set_int("e", -(1 << 63)):
 		raise SystemExit("set_int refused an in-range edge")
-	if rdoc.to_canonical() != "a: 1\n\nd: 9223372036854775807\n\ne: -9223372036854775808\n":
+	if rdoc.to_canonical() != with_stamp("a: 1\n\nd: 9223372036854775807\n\ne: -9223372036854775808\n"):
 		raise SystemExit(f"set_int range check left the wrong document: {rdoc.to_canonical()!r}")
 	test_id("dbeb3", "deep_documents_from_a_deep_caller")
 	# Also python-only: the frame budget is small, so a document at the
@@ -3428,7 +3464,7 @@ def main():
 		with open(fpath, "wb") as fbin:
 			fbin.write(b"a: 1\nb: \xff\xfe bad\n")
 		fdoc, fst = shcl.Document.load_file(fpath)
-		if fst != shcl.FileStatus.Unreadable or fdoc.to_canonical() != "":
+		if fst != shcl.FileStatus.Unreadable or fdoc.to_canonical() != with_stamp(""):
 			raise SystemExit(f"load_file bad encoding got {fst} {fdoc.to_canonical()!r}")
 		# newline="" on the seeds below: text mode would translate \n on windows,
 		# so the fixture would be feeding different bytes there than anywhere else.
@@ -3475,11 +3511,11 @@ def main():
 		ndoc = shcl.Document.parse("a: 1\n")
 		ndoc.save_file(fresh)
 		back, bst = shcl.Document.load_file(fresh)
-		if bst != shcl.FileStatus.Clean or back.to_canonical() != "a: 1\n":
+		if bst != shcl.FileStatus.Clean or back.to_canonical() != with_stamp("a: 1\n"):
 			raise SystemExit("new file did not round-trip")
 		ndoc.save_file(fresh)
 		back, bst = shcl.Document.load_file(fresh)
-		if bst != shcl.FileStatus.Clean or back.to_canonical() != "a: 1\n":
+		if bst != shcl.FileStatus.Clean or back.to_canonical() != with_stamp("a: 1\n"):
 			raise SystemExit("overwritten file did not round-trip")
 
 		test_id("ddaxv", "save_writes_lf_bytes")
@@ -3490,7 +3526,7 @@ def main():
 		for how in ("create", "overwrite"):
 			lfdoc.save_file(lf)
 			written = Path(lf).read_bytes()
-			if written != b"a: 1\nb:\n\tc: 2\n":
+			if written != b"a: 1\nb:\n\tc: 2\n## SHCL format 3.0\n":
 				raise SystemExit(f"{how} wrote {written!r}")
 
 		test_id("dbhad", "save_keeps_the_file_mode")
@@ -3546,7 +3582,7 @@ def main():
 			shcl.Document.parse("a: 1\n").save_file(link)
 			if not os.path.islink(link):
 				raise SystemExit("save replaced the dangling link")
-			if _read(os.path.join(td, "real", "c.shcl")) != "a: 1\n":
+			if _read(os.path.join(td, "real", "c.shcl")) != with_stamp("a: 1\n"):
 				raise SystemExit("save did not create the file behind the link")
 			test_id("dct3s", "save_takes_a_name_with_no_early_character_start")
 			# A name whose first 64 bytes hold no character start: the cut backs
@@ -3621,7 +3657,7 @@ def main():
 			os.symlink("../real/sub", os.path.join(td, "tgt", "top", "lnkdir"))
 			os.symlink("../x.shcl", os.path.join(td, "tgt", "real", "sub", "f.shcl"))
 			tdoc.save_file(os.path.join(td, "tgt", "top", "lnkdir", "f.shcl"))
-			if _read(os.path.join(td, "tgt", "real", "x.shcl")) != "a: 1\n":
+			if _read(os.path.join(td, "tgt", "real", "x.shcl")) != with_stamp("a: 1\n"):
 				raise SystemExit("save did not create the file behind lnk/..")
 			if os.path.lexists(os.path.join(td, "tgt", "top", "x.shcl")):
 				raise SystemExit("lnk/.. was cleaned as text")
@@ -3636,7 +3672,7 @@ def main():
 			# A parse never read the file there, so these saves force.
 			rforce = shcl.SaveOptions(force=True)
 			shcl.Document.parse("a: 2\n").save_file_with(ro, rforce)
-			if _read(ro) != "a: 2\n":
+			if _read(ro) != with_stamp("a: 2\n"):
 				raise SystemExit("read-only file not rewritten")
 			if os.stat(ro).st_mode & stat.S_IWRITE:
 				raise SystemExit("rewritten file did not come back read-only")
@@ -3859,7 +3895,7 @@ def main():
 		edoc = shcl.Document()
 		if edoc.to_canonical() != shcl.Document.new().to_canonical() or edoc.diagnostics() or edoc.lost_count() != 0:
 			raise SystemExit(f"Document(): {edoc.to_canonical()!r} {edoc.diagnostics()}")
-		if edoc.set_int("a.b", 1) is not shcl.SetStatus.Ok or edoc.to_canonical() != "a:\n\tb: 1\n":
+		if edoc.set_int("a.b", 1) is not shcl.SetStatus.Ok or edoc.to_canonical() != with_stamp("a:\n\tb: 1\n"):
 			raise SystemExit(f"Document() then a setter: {edoc.to_canonical()!r}")
 		if edoc.strictness() is not shcl.Strictness.Standard:
 			raise SystemExit(f"Document() strictness {edoc.strictness()}")
@@ -3894,7 +3930,7 @@ def main():
 		spaced = shcl.Document.parse("a:\n\tb: 1\n  c: 2\n\td: 3\n")
 		if spaced.lost_count() != 0:
 			raise SystemExit(f"spaced lost_count got {spaced.lost_count()}")
-		if spaced.to_canonical() != "a:\n\tb: 1\n  c: 2\n\td: 3\n":
+		if spaced.to_canonical() != with_stamp("a:\n\tb: 1\n  c: 2\n\td: 3\n"):
 			raise SystemExit(f"spaced line not kept as written: {spaced.to_canonical()!r}")
 		lostdoc = shcl.Document.parse("a:\n\t\tb: 1\n\tc: 2\n")
 		if lostdoc.lost_count() != 1:
@@ -3941,7 +3977,7 @@ def main():
 		if keep.save_file_keep_lines(fpath) is not True:
 			raise SystemExit("save_file_keep_lines did not keep the dropped line")
 		with open(fpath, encoding="utf-8", newline="") as fh:
-			if fh.read() != "a:\n\t\tb: 5\n\tc: 2\n":
+			if fh.read() != with_stamp("a:\n\t\tb: 5\n\tc: 2\n"):
 				raise SystemExit("save_file_keep_lines wrote the wrong text")
 		if keep.remove("a.b") != 1:
 			raise SystemExit("keep remove a.b failed")
@@ -4105,7 +4141,7 @@ def main():
 		except TypeError as e:
 			if not str(e).startswith(setter + ":"):
 				raise SystemExit(f"{setter} TypeError does not name it: {e}") from None
-	if tdoc.to_canonical() != "a: 1\n":
+	if tdoc.to_canonical() != with_stamp("a: 1\n"):
 		raise SystemExit("a refused setter changed the document")
 	if not tdoc.set_float("f", 3) or tdoc.read_float("f").value != 3.0:
 		raise SystemExit("set_float refused an int")
@@ -4324,6 +4360,14 @@ def main():
 		("a: 1\n## SHCL format 3-a37\n", 0, BT, 2, ""),
 		("note: ~~~\n## SHCL format 4.0\n~~~\n", 0, NF, 0, ""),
 		("a: 1\n## SHCL Format 3.0\n", 0, NF, 0, ""),
+		# A newer minor of this major is a newer format, and the highest
+		# minor decides (2026111702033137).
+		("a: 1\n## SHCL format 3.1\n", 3, G, 2, "H006"),
+		("a: 1\n##    Format   3.1-x9\n", 3, G, 2, "H006"),
+		("## SHCL format 3.0\n## SHCL format 3.1\n", 3, G, 2, "H006"),
+		("## SHCL format 3.1\n##    Format   3\n", 3, G, 1, "H006"),
+		("## SHCL format 3.99999999999\n", 3, G, 1, "H006"),
+		("## SHCL format 3.00\n", 3, G, 1, ""),
 	):
 		stamp = shcl.read_format_version(ftext)
 		if (stamp.value, stamp.status, stamp.line) != (fvalue, fstatus, fline):
@@ -4364,7 +4408,7 @@ def main():
 		if shcl.read_format_version(htext).value != hvalue:
 			raise SystemExit(f"read_format_version {htext!r}: {shcl.read_format_version(htext)}")
 		word = "newer" if hcode == "H006" else "older"
-		hwant = f"the file names format {hshown}, {word} than this reader's format {shcl.FORMAT_MAJOR},"
+		hwant = f"the file names format {hshown}, {word} than this reader's format {shcl.FORMAT_MAJOR}.{shcl.FORMAT_MINOR},"
 		quoted_hints = [d for d in shcl.Document.parse(htext).diagnostics() if d.code in ("H006", "H007")]
 		if len(quoted_hints) != 1 or (quoted_hints[0].code, quoted_hints[0].line) != (hcode, hline) \
 				or not quoted_hints[0].message.startswith(hwant):
@@ -4485,7 +4529,7 @@ def main():
 	if qcback.get_string_array("tags", None) != ["rw,noatime", "b"]:
 		raise SystemExit(f"tags: {qcback.read_string_array('tags')!r}")
 	qcdoc = shcl.Document.parse('n: "1,000"\n')
-	if qcdoc.to_canonical() != 'n: "1,000"\n':
+	if qcdoc.to_canonical() != with_stamp('n: "1,000"\n'):
 		raise SystemExit(f"wrote {qcdoc.to_canonical()!r}")
 	# 2026101010054746: a quoted thousands number is text, like a bare one.
 	# codeql[py/commented-out-code] a test commented out with its reason above, since old tests aren't deleted
@@ -4494,7 +4538,7 @@ def main():
 	if qcdoc.read_int("n").status != shcl.Status.BadType:
 		raise SystemExit(f"n: {qcdoc.read_int('n')!r}")
 	qcdoc = shcl.Document.parse("ver: \"8\"\nok: 'true'\nat: 2:30PM\nhost: localhost:8080\n")
-	if qcdoc.to_canonical() != "ver: \"8\"\nok: 'true'\nat: \"2:30PM\"\nhost: \"localhost:8080\"\n":
+	if qcdoc.to_canonical() != with_stamp("ver: \"8\"\nok: 'true'\nat: \"2:30PM\"\nhost: \"localhost:8080\"\n"):
 		raise SystemExit(f"wrote {qcdoc.to_canonical()!r}")
 	if qcdoc.get_int("ver", None) != 8:
 		raise SystemExit(f"ver: {qcdoc.read_int('ver')!r}")
@@ -4572,7 +4616,7 @@ def main():
 	if not lt_set.set_string("s", "1,000") or not lt_set.set_string_array("t", ["$1,000"]):
 		raise SystemExit("set")
 	lt_out = lt_set.to_canonical()
-	if not lt_out.startswith("s: 1,000\n") or not lt_out.endswith('t: ["$1,000"]\n'):
+	if not lt_out.startswith("s: 1,000\n") or not lt_out.endswith(with_stamp('t: ["$1,000"]\n')):
 		raise SystemExit(f"wrote {lt_out!r}")
 	if lt_set.read_string("s").quoted or lt_set.read_int("s").status != shcl.Status.BadType:
 		raise SystemExit("s reads as quoted")
@@ -4585,7 +4629,7 @@ def main():
 			raise SystemExit(f"set {lt_path}")
 		if lt_over.read_string(lt_path).quoted or lt_over.read_int(lt_path).status != shcl.Status.BadType:
 			raise SystemExit(f"{lt_path} reads as quoted")
-	if lt_over.to_canonical() != "a: 1,200\nb: $1,200\nc: 1,200.50\n":
+	if lt_over.to_canonical() != with_stamp("a: 1,200\nb: $1,200\nc: 1,200.50\n"):
 		raise SystemExit(f"over wrote {lt_over.to_canonical()!r}")
 	# A merge puts a stacked list in brackets, which quote its items.
 	lt_merged = shcl.Document.parse_with("l:\n\t- 1,200\n", shcl.Strictness.Loose)
@@ -4850,7 +4894,7 @@ def main():
 
 	def fu_check(doc, want):
 		text = doc.to_canonical()
-		if text != want:
+		if text != with_stamp(want):
 			raise SystemExit(f"canonical {text!r}, want {want!r}")
 		back = shcl.Document.parse(text)
 		if back.to_canonical() != text or doc.paths() != back.paths():
@@ -4951,7 +4995,7 @@ def main():
 
 	def nx_check(doc, want):
 		text = doc.to_canonical()
-		if text != want:
+		if text != with_stamp(want):
 			raise SystemExit(f"canonical {text!r}, want {want!r}")
 		back = shcl.Document.parse(text)
 		if back.to_canonical() != text or doc.paths() != back.paths():
@@ -5012,7 +5056,9 @@ def main():
 			raise SystemExit(f"reload differs: {out!r}")
 		if back.lost_count() != 0:
 			raise SystemExit(f"reload lost {back.lost_count()}: {out!r}")
-		return out
+		if not out.endswith(shcl.STAMP_LINE + "\n"):
+			raise SystemExit(f"no stamp: {out!r}")
+		return out[:-len(shcl.STAMP_LINE + "\n")]
 
 	def fo_expect(got, want):
 		if got != want:
@@ -5056,7 +5102,7 @@ def main():
 		rl_doc = shcl.Document.parse(rl_src)
 		rl_doc.merge(shcl.Document.parse(rl_src))
 		rl_text = rl_doc.to_canonical()
-		if rl_text != rl_want:
+		if rl_text != with_stamp(rl_want):
 			raise SystemExit(f"canonical {rl_text!r}, want {rl_want!r}")
 		rl_back = shcl.Document.parse(rl_text)
 		if rl_back.to_canonical() != rl_text or rl_back.lost_count() != 0:
@@ -5074,14 +5120,14 @@ def main():
 		raise SystemExit(f"a field under an array: {adoc.to_canonical()!r}")
 	if adoc.set_literal("c", "[1, 2]") or adoc.set_string_array("c", ["1"]):
 		raise SystemExit(f"an array over fields: {adoc.to_canonical()!r}")
-	if adoc.to_canonical() != asrc:
+	if adoc.to_canonical() != with_stamp(asrc):
 		raise SystemExit(f"changed: {adoc.to_canonical()!r}")
 	# An array with nothing under it takes a new one, and a stacked list
 	# written with '- ' stays stacked.
 	adoc = shcl.Document.parse("l: [a]\nz:\n\t- a\n\t- b\n")
 	if not adoc.set_string_array("l", ["b", "c"]) or not adoc.set_string_array("z", ["x"]):
 		raise SystemExit("an array setter refused")
-	if adoc.to_canonical() != "l: [b, c]\nz:\n\t- x\n":
+	if adoc.to_canonical() != with_stamp("l: [b, c]\nz:\n\t- x\n"):
 		raise SystemExit(f"got {adoc.to_canonical()!r}")
 
 	test_id("ddknz", "bracket_selectors_are_the_old_spelling")
@@ -5513,7 +5559,7 @@ def main():
 	# (2026100717500017).
 	up_old = "port: 80\n##    Format   2\n"
 	up = shcl.upgrade(up_old, True)
-	if up.current or up.format != 2 or up.lost != 0 or up.text != "port: 80\n##    Format   3\n":
+	if up.current or up.format != 2 or up.lost != 0 or up.text != "port: 80\n##    Format   3.0\n":
 		raise SystemExit(f"restamp: {up.current} {up.format} {up.lost} {up.text!r}")
 	if not any(d.code == "H007" for d in up.diagnostics):
 		raise SystemExit(f"no H007 in {up.diagnostics}")
@@ -5524,14 +5570,14 @@ def main():
 		raise SystemExit(f"without from_v2: {up.current} {up.text!r}")
 	# Indent, trailing blanks, line end and BOM stay as they were.
 	up = shcl.upgrade("\ufeffp: 1\r\n\t##    Format   1  \r\nq: 2", True)
-	if up.text != "\ufeffp: 1\r\n\t##    Format   3  \r\nq: 2":
+	if up.text != "\ufeffp: 1\r\n\t##    Format   3.0  \r\nq: 2":
 		raise SystemExit(f"layout: {up.text!r}")
 	# migrate writes its stamp there too, and adds one only to a file with
 	# none (2026100916475300).
 	for up_in, up_want in (
-		(up_old, "port: 80\n##    Format   3\n"),
-		("x: a,b\n##    Format   2\ny: 1\n", "x: [a, b]\n##    Format   3\ny: 1\n##    Migrated from SHCL 2.x.\n"),
-		("port: 80\n", "port: 80\n##    Format   3\n"),
+		(up_old, "port: 80\n##    Format   3.0\n"),
+		("x: a,b\n##    Format   2\ny: 1\n", "x: [a, b]\n##    Format   3.0\ny: 1\n##    Migrated from SHCL 2.x.\n"),
+		("port: 80\n", "port: 80\n##    Format   3.0\n"),
 	):
 		if shcl.migrate(up_in, False).text != up_want:
 			raise SystemExit(f"migrate {up_in!r}: {shcl.migrate(up_in, False).text!r}")
@@ -5549,13 +5595,28 @@ def main():
 	# a whole block there.
 	top_doc = shcl.Document.parse("##    Format   2\nname: x\n")
 	top_n = top_doc.set_banner(False)
-	if top_n != 0 or top_doc.to_canonical() != "##    Format   2\nname: x\n":
+	if top_n != 0 or top_doc.to_canonical() != "##    Format   3.0\nname: x\n":
 		raise SystemExit(f"off: {top_n} {top_doc.to_canonical()!r}")
 	top_text = f"{shcl.GEN_BANNER}name: x\n"
 	top_doc = shcl.Document.parse(top_text)
 	top_n = top_doc.set_banner(True)
 	if top_n != 0 or top_doc.to_canonical() != f"{top_text}\n{shcl.GEN_BANNER}":
 		raise SystemExit(f"top block: {top_n} {top_doc.to_canonical()!r}")
+
+	test_id("dfe3p", "a_stamp_goes_where_a_format_line_goes")
+	# The banner calls take a stamp as they take a Format line, and a kept
+	# block's stamp names this format too.
+	stamp_kept = "##\n## This config file format is SHCL.\n"
+	for stamp_in, stamp_on, stamp_gone, stamp_want in (
+		("## SHCL format 2.0\nname: x\n", True, 1, f"name: x\n\n{shcl.GEN_BANNER}"),
+		("name: x\n## SHCL format 3.0\n", True, 1, f"name: x\n\n{shcl.GEN_BANNER}"),
+		("name: x\n## SHCL format 3.0\n", False, 1, "name: x\n## SHCL format 3.0\n"),
+		(f"{stamp_kept}## SHCL format 2.0\n##\nname: x\n", True, 0, f"{stamp_kept}## SHCL format 3.0\n##\nname: x\n\n{shcl.GEN_BANNER}"),
+	):
+		stamp_doc = shcl.Document.parse(stamp_in)
+		stamp_n = stamp_doc.set_banner(stamp_on)
+		if stamp_n != stamp_gone or stamp_doc.to_canonical() != stamp_want:
+			raise SystemExit(f"stamp {stamp_in!r}: {stamp_n} {stamp_doc.to_canonical()!r}")
 
 	test_id("ddmks", "upgrade_writes_a_fresh_file_with_the_info_block")
 	up = shcl.upgrade(up_v2, False)
@@ -5727,13 +5788,13 @@ def main():
 		same("left", cread(cf), "a: 9\n")
 		same("message", refused("plain", lambda: cdoc.save_file(cf), cf), f"{cf}: refusing to save: what's there isn't what this document read or wrote; nothing written, and force writes over it")
 		same("force", cdoc.save_file_with(cf, force), False)
-		same("forced", cread(cf), "a: 2\n")
+		same("forced", cread(cf), "a: 2\n## SHCL format 3.0\n")
 		# The next save is checked against what that one wrote.
 		cdoc.set_int("a", 3)
 		cdoc.save_file(cf)
-		same("next", cread(cf), "a: 3\n")
+		same("next", cread(cf), "a: 3\n## SHCL format 3.0\n")
 		# The same bytes written again are no change.
-		cwrite(cf, "a: 3\n")
+		cwrite(cf, "a: 3\n## SHCL format 3.0\n")
 		cdoc.save_file(cf)
 
 		# The line-keeping save, and a link to the file, are checked too.
@@ -5748,7 +5809,7 @@ def main():
 			refused("link", lambda: ckept.save_file_keep_lines(clink), clink)
 		same("kept left", cread(cf), "a: 9 # nine\n")
 		same("kept force", ckept.save_file_with(cf, shcl.SaveOptions(keep_lines=True, force=True)), True)
-		same("kept forced", cread(cf), "a: 2 # one\n")
+		same("kept forced", cread(cf), "a: 2 # one\n## SHCL format 3.0\n")
 
 		# Nothing at the path is no bytes to lose, so a file gone since the
 		# load is written back, and a save-as to a new name is written, as an
@@ -5758,10 +5819,10 @@ def main():
 		cgone.set_int("a", 4)
 		os.remove(cf)
 		cgone.save_file(cf)
-		same("gone", cread(cf), "a: 4  # one\n")
+		same("gone", cread(cf), "a: 4  # one\n## SHCL format 3.0\n")
 		crenamed = os.path.join(cd, "renamed.shcl")
 		cgone.save_file(crenamed)
-		same("renamed", cread(crenamed), "a: 4  # one\n")
+		same("renamed", cread(crenamed), "a: 4  # one\n## SHCL format 3.0\n")
 		cn = os.path.join(cd, "new.shcl")
 		cfresh, cst = shcl.Document.load_file(cn)
 		same("new status", cst, shcl.FileStatus.NotFound)
@@ -5771,7 +5832,7 @@ def main():
 		same("made left", cread(cn), "b: 2\n")
 		os.remove(cn)
 		cfresh.save_file(cn)
-		same("created", cread(cn), "a: 1\n")
+		same("created", cread(cn), "a: 1\n## SHCL format 3.0\n")
 
 		# A file the document never read is checked too: a save-as over it is
 		# refused, and force writes it. The load's file still is.
@@ -5789,11 +5850,11 @@ def main():
 		cparsed = shcl.Document.parse("a: 5\n")
 		refused("parsed", lambda: cparsed.save_file(cother), cother)
 		same("parsed force", cparsed.save_file_with(cother, force), False)
-		same("parsed", cread(cother), "a: 5\n")
+		same("parsed", cread(cother), "a: 5\n## SHCL format 3.0\n")
 		os.remove(cf)
 		cparsed.save_file(cf)
 		cparsed.save_file(cf)
-		same("parsed new", cread(cf), "a: 5\n")
+		same("parsed new", cread(cf), "a: 5\n## SHCL format 3.0\n")
 
 	test_id("detpp", "a_changed_check_knows_its_file_by_any_spelling")
 	# One file gives one answer however its path is spelled: bare, `./`,
@@ -5840,7 +5901,7 @@ def main():
 			sgone, _ = shcl.Document.load_file("i.shcl")
 			os.remove("i.shcl")
 			sgone.save_file("./i.shcl")
-			ssame("bare gone", sread("i.shcl"), "a: 1\n")
+			ssame("bare gone", sread("i.shcl"), "a: 1\n## SHCL format 3.0\n")
 
 			# A bare name made where the load found nothing, by any spelling.
 			sfresh, st = shcl.Document.load_file("h.shcl")
@@ -5983,13 +6044,13 @@ def main():
 		xf = os.path.join(xd, "f.shcl")
 		xdoc = shcl.Document.parse("a: 1\n")
 		xsame("made", xdoc.save_file_with(xf, create), False)
-		xsame("made text", xread(xf), "a: 1\n")
+		xsame("made text", xread(xf), "a: 1\n## SHCL format 3.0\n")
 		xdoc.set_int("a", 2)
 		xsame("message", xrefused("there", lambda: xdoc.save_file_with(xf, create), xf),
 			f"{xf}: refusing to save: a file is already there, but create asks for a new one; nothing written")
 		# force is the changed check's override, not this one's.
 		xrefused("forced", lambda: xdoc.save_file_with(xf, shcl.SaveOptions(create=True, force=True)), xf)
-		xsame("left", xread(xf), "a: 1\n")
+		xsame("left", xread(xf), "a: 1\n## SHCL format 3.0\n")
 
 		# A load that found nothing, and another program made the file since.
 		xn = os.path.join(xd, "n.shcl")
@@ -6118,6 +6179,96 @@ def main():
 		nunder = shcl.Document.parse(newer)
 		nunder.merge(shcl.Document.parse("b: 2\n"))
 		nsame("merged under", nunder.newer_format(), True)
+		# A newer minor of this major is refused the same way, and upgrade
+		# leaves it alone (2026111702033137).
+		if os.path.exists(nother):
+			os.remove(nother)
+		for text in ("a: 1\n## SHCL format 3.1\n", "a: 1\n##    Format   3.1\n",
+				"## SHCL format 3.0\na: 1\n## SHCL format 3.1-x9\n"):
+			d = shcl.Document.parse(text)
+			nsame(repr(text), d.newer_format(), True)
+			nrefused(repr(text), lambda d=d: d.save_file(nother), nother)
+			nsame("none made " + repr(text), os.path.exists(nother), False)
+			for from_v2 in (False, True):
+				up = shcl.upgrade(text, from_v2)
+				nsame("upgrade " + repr(text), (up.current, up.text), (True, text))
+
+	test_id("dfe4s", "a_load_that_migrates_saves_through_the_guards")
+	# A load that migrates in memory writes nothing, and its save gets every
+	# check a plain load's does, over the file it read (2026111708542849).
+	with tempfile.TemporaryDirectory() as md:
+		mf = os.path.join(md, "f.shcl")
+
+		def mwrite(text):
+			with open(mf, "w", encoding="utf-8", newline="") as fh:
+				fh.write(text)
+
+		def mread():
+			with open(mf, encoding="utf-8", newline="") as fh:
+				return fh.read()
+
+		def msame(what, got, want):
+			if got != want:
+				raise SystemExit(f"{what}: {got!r}, want {want!r}")
+
+		def mraises(what, call, kind):
+			try:
+				call()
+			except kind as e:
+				return e
+			raise SystemExit(f"{what}: saved")
+
+		def mload(opts):
+			return shcl.Document.load_file_opts(mf, shcl.Strictness.Standard, opts)
+
+		mold = "p: a,b\n# kept\nq: 1\n"
+		mopts = shcl.LoadOptions(keep_lines=True, migrate=True, from_v2=True)
+		migrated = shcl.migrate_unstamped(mold, True).text
+		if migrated == mold:
+			raise SystemExit("migrate left the 2.x text as it was")
+		# The document is the migrated text's, and the load writes nothing.
+		mwrite(mold)
+		mdoc, mst = mload(mopts)
+		msame("status", mst, shcl.FileStatus.Clean)
+		msame("kept text", mdoc.to_text_keep_lines(), (with_stamp(migrated), True))
+		msame("file after load", mread(), mold)
+		# A save over the file it read is no change, and keeps its lines.
+		msame("set", mdoc.set_int("q", 2), shcl.SetStatus.Ok)
+		msame("save", mdoc.save_file_keep_lines(mf), True)
+		msame("saved", mread(), with_stamp(migrated).replace("q: 1", "q: 2"))
+		# Another program's edit since the load is refused.
+		mwrite(mold)
+		mdoc, _ = mload(mopts)
+		mwrite("p: x\n")
+		e = mraises("changed", lambda: mdoc.save_file_keep_lines(mf), shcl.SaveChanged)
+		msame("changed path", e.path, mf)
+		msame("changed left", mread(), "p: x\n")
+		# A newer format's file is parsed as it is, and refuses every save.
+		mnewer = "a: 1\n\n##    Format   4\n"
+		mwrite(mnewer)
+		mdoc, _ = mload(mopts)
+		msame("newer", mdoc.newer_format(), True)
+		e = mraises("newer", lambda: mdoc.save_file_keep_lines(mf), shcl.SaveTooNew)
+		msame("newer path", e.path, mf)
+		msame("newer left", mread(), mnewer)
+		# What migrate counts lost is lost to a canonical save.
+		mlossy = "k: [x, y]\n"
+		mm = shcl.migrate_unstamped(mlossy, True)
+		if mm.lost == 0:
+			raise SystemExit("migrate lost nothing")
+		mwrite(mlossy)
+		mdoc, _ = mload(shcl.LoadOptions(migrate=True, from_v2=True))
+		msame("lost", mdoc.lost_count(), mm.lost)
+		e = mraises("lossy", lambda: mdoc.save_file(mf), shcl.SaveRefused)
+		msame("lossy refusal", (e.path, e.lost), (mf, mm.lost))
+		msame("lossy left", mread(), mlossy)
+		# Without migrate it is load_file, and with it a missing file is too.
+		mwrite(mold)
+		mplain, mpst = mload(shcl.LoadOptions())
+		mwant, mwst = shcl.Document.load_file(mf)
+		msame("no options", (mplain.to_canonical(), mpst), (mwant.to_canonical(), mwst))
+		_, mst = shcl.Document.load_file_opts(os.path.join(md, "gone.shcl"), shcl.Strictness.Standard, mopts)
+		msame("missing", mst, shcl.FileStatus.NotFound)
 
 	test_id("ddrnd", "default_fills_what_does_not_read")
 	# A default form writes where the field is missing, empty or does not read
@@ -6190,7 +6341,7 @@ def main():
 	# the saved text writes nothing. Same fixture in every runner.
 	rtext = "srv:\n    Port:   abc     # keep\n    other: 1\nlist:\n  - 80\n  - x  # ex\nn: 5\n"
 	rops = ["int-default\tsrv.port\t9", "int-array-default\tlist\t1\t2", "int-default\tn\t7"]
-	rwant = "srv:\n    # port: abc  ## replaced by shcl when setting a default for srv.port, 2026-10-04 00:15:00 PDT: not an int\n    Port:   9     # keep\n    other: 1\n# ex\n# list: [80, x]  ## replaced by shcl when setting a default for list, 2026-10-04 00:15:00 PDT: not an int array\nlist:\n    - 1\n    - 2\nn: 5\n"
+	rwant = "srv:\n    # port: abc  ## replaced by shcl when setting a default for srv.port, 2026-10-04 00:15:00 PDT: not an int\n    Port:   9     # keep\n    other: 1\n# ex\n# list: [80, x]  ## replaced by shcl when setting a default for list, 2026-10-04 00:15:00 PDT: not an int array\nlist:\n    - 1\n    - 2\nn: 5\n## SHCL format 3.0\n"
 	rdoc = shcl.Document.parse_keep_lines(rtext, shcl.Strictness.Standard)
 	for rop in rops:
 		apply_op(rdoc, rop, rop)
@@ -6392,7 +6543,7 @@ def main():
 			continue
 		if fvtext is None:
 			raise SystemExit(f"no text for {fvs!r}, which set_string took")
-		if fvdoc.to_canonical() != f"k: {fvtext}\n":
+		if fvdoc.to_canonical() != with_stamp(f"k: {fvtext}\n"):
 			raise SystemExit(f"{fvs!r}: canonical {fvdoc.to_canonical()!r}, format_value {fvtext!r}")
 		if shcl.Document.parse(f"k: {fvtext}\n").read_string("k").value != fvs:
 			raise SystemExit(f"{fvs!r} did not read back")
@@ -6420,7 +6571,7 @@ def main():
 		return d.to_canonical()
 
 	def fv_want(t):
-		return f"k: {shcl.format_value(t)}\n"
+		return with_stamp(f"k: {shcl.format_value(t)}\n")
 
 	fvdt = shcl.parse_datetime("2026-07-12T14:30")
 	if fvdt is None:
@@ -6430,7 +6581,7 @@ def main():
 		(fv_one(lambda d: d.set_float("k", 0.1)), fv_want(shcl.format_float(0.1))),
 		(fv_one(lambda d: d.set_bool("k", True)), fv_want("true")),
 		(fv_one(lambda d: d.set_datetime("k", fvdt)), fv_want(str(fvdt))),
-		(fv_want(str(fvdt)), 'k: "2026-07-12T14:30"\n'),
+		(fv_want(str(fvdt)), with_stamp('k: "2026-07-12T14:30"\n')),
 	):
 		if fvgot != fvwant:
 			raise SystemExit(f"typed setter wrote {fvgot!r}, want {fvwant!r}")
@@ -6537,7 +6688,7 @@ def main():
 			continue
 		if fatext is None:
 			raise SystemExit(f"no text for {faa!r}, which set_string_array took")
-		if fadoc.to_canonical() != f"k: {fatext}\n":
+		if fadoc.to_canonical() != with_stamp(f"k: {fatext}\n"):
 			raise SystemExit(f"{faa!r}: canonical {fadoc.to_canonical()!r}, format_array {fatext!r}")
 		if shcl.Document.parse(f"k: {fatext}\n").read_string_array("k").value != faa:
 			raise SystemExit(f"{faa!r} did not read back")
@@ -6565,17 +6716,81 @@ def main():
 	# The typed array setters write their values' texts the way
 	# set_string_array would.
 	def fa_want(*t):
-		return f"k: {shcl.format_array(list(t))}\n"
+		return with_stamp(f"k: {shcl.format_array(list(t))}\n")
 
 	for fagot, fawant in (
 		(fv_one(lambda d: d.set_int_array("k", [-2020, 80])), fa_want("-2020", "80")),
 		(fv_one(lambda d: d.set_float_array("k", [0.1])), fa_want(shcl.format_float(0.1))),
 		(fv_one(lambda d: d.set_bool_array("k", [True, False])), fa_want("true", "false")),
 		(fv_one(lambda d: d.set_datetime_array("k", [fvdt])), fa_want(str(fvdt))),
-		(fa_want(str(fvdt)), 'k: ["2026-07-12T14:30"]\n'),
+		(fa_want(str(fvdt)), with_stamp('k: ["2026-07-12T14:30"]\n')),
 	):
 		if fagot != fawant:
 			raise SystemExit(f"typed array setter wrote {fagot!r}, want {fawant!r}")
+
+	test_id("dfe64", "a_save_names_this_format")
+	# Every text a save writes names this format: a stamp is rewritten where
+	# it is, with its own head, and a text with none gets one as its last
+	# line. A newer format's stamp stays, and so does a kept text that ends in
+	# a raw block left open, which has nowhere to put one. A merge leaves a
+	# layer's stamp out and keeps the base's last. Same fixture in every
+	# runner.
+	ns, nf = shcl.STAMP_LINE, shcl.FORMAT_LINE
+	for ntext, ncanon, nkept in (
+		("", f"{ns}\n", f"{ns}\n"),
+		("a: 1\n", f"a: 1\n{ns}\n", f"a: 1\n{ns}\n"),
+		("a:  1", f"a: 1\n{ns}\n", f"a:  1\n{ns}\n"),
+		("a: 1\r\nb: 2\r\n", f"a: 1\nb: 2\n{ns}\n", f"a: 1\r\nb: 2\r\n{ns}\r\n"),
+		("a: 1\n\n", f"a: 1\n{ns}\n", f"a: 1\n\n{ns}\n"),
+		("##    Format   3\na: 1\n", f"{nf}\na: 1\n", f"{nf}\na: 1\n"),
+		("a: 1\n\t## SHCL format 2.0\n", f"a: 1\n\t{ns}\n", f"a: 1\n\t{ns}\n"),
+		("## SHCL format 3.0-a37\na: 1\n", f"{ns}\na: 1\n", f"{ns}\na: 1\n"),
+		(f"a: 1\n{ns}\n", f"a: 1\n{ns}\n", f"a: 1\n{ns}\n"),
+		("a: 1\n## SHCL format 3.1\n", "a: 1\n## SHCL format 3.1\n", "a: 1\n## SHCL format 3.1\n"),
+		("a: 1\n##    Format   4\n", "a: 1\n##    Format   4\n", "a: 1\n##    Format   4\n"),
+		("a: ~~~\n\tx\n", f"a:\n\t~~~\n\t\tx\n\t~~~\n{ns}\n", "a: ~~~\n\tx\n"),
+		("a: ~~~\n\t##    Format   3\n\t~~~\n", f"a:\n\t~~~\n\t##    Format   3\n\t~~~\n{ns}\n", f"a: ~~~\n\t##    Format   3\n\t~~~\n{ns}\n"),
+	):
+		ndoc = shcl.Document.parse_keep_lines(ntext, shcl.Strictness.Standard)
+		if ndoc.to_canonical() != ncanon:
+			fails.append(f"stamp: canonical {ntext!r}: {ndoc.to_canonical()!r}, want {ncanon!r}")
+		if ndoc.to_text_keep_lines() != (nkept, True):
+			fails.append(f"stamp: kept {ntext!r}: {ndoc.to_text_keep_lines()!r}, want {nkept!r}")
+		# Saved again, nothing changes.
+		nback = shcl.Document.parse_keep_lines(nkept, shcl.Strictness.Standard)
+		if nback.to_text_keep_lines()[0] != nkept or shcl.Document.parse(ncanon).to_canonical() != ncanon:
+			fails.append(f"stamp: saved again, {ntext!r} changed")
+	# A layer's stamp stays out of the merge, and the base's stays last.
+	ndoc = shcl.Document.parse(f"a: 1\n{ns}\n")
+	ndoc.merge(shcl.Document.parse(f"b: 2\n# end\n{ns}\n"))
+	if ndoc.to_canonical() != f"a: 1\nb: 2\n# end\n{ns}\n":
+		fails.append(f"stamp: merge wrote {ndoc.to_canonical()!r}")
+	ndoc = shcl.Document.parse("a: 1\n##    Format   2\n")
+	ndoc.merge(shcl.Document.parse(f"b: 2\n{ns}\n"))
+	if ndoc.to_canonical() != f"a: 1\nb: 2\n{nf}\n":
+		fails.append(f"stamp: merge over a Format line wrote {ndoc.to_canonical()!r}")
+	if fails:
+		raise SystemExit("\n".join(f"FAIL {f}" for f in fails))
+
+	## A layer's Format line repeats the base's whatever format each names, so
+	## a layer saved since and a base that wasn't merge to one line, at the top
+	## and in the footer. Same fixture in every runner.
+	test_id("dfe98", "a_merge_keeps_one_format_line")
+
+	def nblock(n):
+		return f"\n##\n## This config file format is SHCL.\n##    Format   {n}\n##\n"
+
+	for nbase, nlayer, nwant in (
+		(f"a: 1\n{nblock('3')}", f"b: 2\n{nblock('3.0')}", f"a: 1\nb: 2\n{nblock('3.0')}"),
+		(f"a: 1\n{nblock('3.0')}", f"b: 2\n{nblock('3')}", f"a: 1\nb: 2\n{nblock('3.0')}"),
+		("##    Format   3\n\na: 1\n", f"{nf}\n\nb: 2\n", f"{nf}\n\na: 1\n\nb: 2\n"),
+	):
+		ndoc = shcl.Document.parse(nbase)
+		ndoc.merge(shcl.Document.parse(nlayer))
+		if ndoc.to_canonical() != nwant:
+			fails.append(f"merge: {nbase!r} under {nlayer!r} wrote {ndoc.to_canonical()!r}")
+	if fails:
+		raise SystemExit("\n".join(f"FAIL {f}" for f in fails))
 
 	test_id("de60c", "windows_calls_build_their_ctypes_once")
 	windows_calls_build_their_ctypes_once()
