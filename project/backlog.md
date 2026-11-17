@@ -263,6 +263,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The format gets its own `MAJOR.MINOR` version, apart from the program's semver. The current format is 3.0.
 		- Every save writes the stamp. A plain save writes `## SHCL format 3.0`, and the info block's row is `##    Format   3.0`.
 		- An unstamped file's format comes from a content scan and its mtime. When the content says newer, it wins. When it can't tell, the mtime decides.
+			- 20261117: replaced by 2026111707384944's order (JC). The stamp comes first, then the mtime, then the tells, then the most legal reading, and content that looks newer than the mtime no longer beats it.
 		- The stamp names the newest format the file reads the same under.
 		- Every release and pre-release on GitHub, plus the dev snapshots consumers pinned, is read and converted. A pre-release folds into its release's format. A pin gets a short commit name, such as `3.0-a37`.
 		- A load never writes. A save, `upgrade_file` and `shcl upgrade` do.
@@ -383,6 +384,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Prereq IDs: 2026111018212701, 2026111018212702
 	- Requirements:
 		- Add the content scan and the mtime rule from the design doc.
+			- 20261117: the rule is the 4 steps under the design doc's Finding a file's format (2026111707384944). They apply to a major-only stamp too, such as beta1's `Format 3`.
 		- Add one table-driven step per format, run in order in memory on load.
 		- `from` and `--from=FORMAT` replace `from_v2` and `--from-2x`.
 		- Each published format and pin round-trips against its own tag's CLI in a gate.
@@ -391,7 +393,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Increase the importance of mtime in deciding format
 	- ID: 2026111707384944
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261117-073849
@@ -404,6 +406,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Next, look for certain "tells" that only certain versions supported.
 		- Finally, if all that doesn't settle the question, and/or the other content is contradictory, try to figure out which format supports the content in the most "legal" way, most completely.
 	- Note: this changes the order in 2026111018212700 and the format versions design doc, where content that says a newer format beats the mtime. The design doc and 2026111018212703's content scan follow this item.
+	- Decisions:
+		- me, 20261117: each step takes formats off a list that starts with every format this program reads. That keeps JC's order and lets each step build on the one before.
+		- me, 20261117: a stamp naming a whole format settles it, even against the mtime, since only shcl writes one. beta1's `Format 3` names only the major, so it leaves the 8 formats from 3.0-1f8 to 3.0, and the mtime picks among them.
+		- me, 20261117: the mtime only rules out formats published after it. A program pinned to an old shcl still writes that format, so the mtime can't rule out an older one.
+		- me, 20261117: a format counts from the day before its release or commit date, so the writer's time zone doesn't matter. An mtime before any format, or one that would rule out every format the stamp left, is ignored.
+		- me, 20261117: the tells are the design doc's table. A footer or a spelling that a format refuses, or reads as binding nothing, rules that format out. A spelling that reads clean 2 ways rules nothing out, since the text can't say which one the writer meant.
+		- me, 20261117: the most legal reading counts the lines with a tell that each format refuses or reads as binding nothing, among the formats the stamp and the mtime left. The lowest count wins and a tie goes to the newest. Scoring every format would let newer-looking content beat the mtime again.
+	- Progress log:
+		- 20261117: the design doc's section on finding an unstamped file's format is now Finding a file's format, with the 4 steps and the rejected options. Its Decisions bullet, the beta1 stamp bullet, Risks, and Testing follow it. 2026111018212700 and 2026111018212703 have sub-bullets that point at it. design.md doesn't state this rule, so it didn't change.
+	- Verified: markdownlint and the markdown check pass on the design doc and the backlog.
+	- Test case: none, a design change. 2026111018212703's `touch -d` cases pin it once the scan is built.
+	- Acceptance signoff: Self-closed: design doc only, by the memory.md close policy. The reading of JC's steps is also a Check: entry.
+	- Branch: `nov17b-2026111707384944`
+	- Closed: 20261117-085200
 
 - A program that migrates in memory, or saves through text, gets none of the save's guards
 	- ID: 2026111016205704
