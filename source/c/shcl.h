@@ -5214,14 +5214,21 @@ static int stacks(const ShclNode *nd) {
 	return nd->star_list || triv_among(nd).len || triv_notes(nd).len;
 }
 
-/* Lines an edit took off a node or a list item it took away go to heir:
-   right above its line, after its own comments, with its blank above them
-   (design.md, Lines an edit takes from their node). */
-static void adopt(shcl_doc *d, ShclNode *heir, ShclVecLead lines) {
+/* Who gets the lines of something an edit took away (design.md, Lines an
+   edit takes from their node): what takes its place, such as a list for its
+   items; else the next sibling; else the parent's trailing lines, or the
+   footer at the top, with the parent as the node. */
+typedef enum { HEIR_TAKES, HEIR_NEXT, HEIR_LAST } ShclHeirKind;
+typedef struct { ShclHeirKind kind; size_t node; } ShclHeir;
+
+/* adopt for what takes the place of what went, which a list's settle needs
+   outside a document: right above its line, after its own comments, with
+   its blank above them. */
+static void adopt_heir(shcl_doc *d, ShclNode *nd, ShclVecLead lines) {
 	if (!lines.len) return;
-	lines.data[0].blank_before = heir->blank_before;
-	heir->blank_before = 0;
-	ShclTrivia *t = triv_mut(&d->arena, heir);
+	lines.data[0].blank_before = nd->blank_before;
+	nd->blank_before = 0;
+	ShclTrivia *t = triv_mut(&d->arena, nd);
 	for (size_t i = 0; i < lines.len; i++) ShclVecLead_push(&d->arena, &t->leading, lines.data[i]);
 }
 
@@ -5250,7 +5257,7 @@ static int unstack(shcl_doc *d, ShclNode *nd) {
 	for (; k < t->notes.len; k++) ShclVecLead_push(a, &orphans, lead_plain(t->notes.data[k].text));
 	t->among.len = 0;
 	t->notes.len = 0;
-	adopt(d, nd, orphans);
+	adopt_heir(d, nd, orphans);
 	return orphans.len > 0;
 }
 
@@ -8186,9 +8193,9 @@ static void w_settle_fence_name(shcl_doc *d, size_t parent, ShclStr name) {
 /* Folding moves the loser's children up a level, where they can collide with
    the survivor's own. The parser's fold is depth-first for the same reason;
    only a node that just received children can hold a new pair. */
-static void beside_kept(shcl_doc *d, ShclNode *nd, ShclVecLead *left);
-static void leave_above(shcl_doc *d, size_t node, ShclVecLead *left);
-static void leave_last(shcl_doc *d, size_t parent, ShclVecLead *left);
+static int beside_kept(shcl_doc *d, ShclNode *nd, ShclVecLead *left, int owed);
+static void adopt(shcl_doc *d, ShclHeir to, ShclVecLead *lines, int blank);
+static ShclHeir heir_at(const shcl_doc *d, size_t parent, size_t at);
 static void w_fold_dups_below(shcl_doc *d, size_t start) {
 	ShclArena *t = &d->scratch;
 	ShclVecSize stack = {0};
@@ -8196,8 +8203,8 @@ static void w_fold_dups_below(shcl_doc *d, size_t start) {
 	while (stack.len) {
 		size_t parent = stack.data[--stack.len];
 		ShclCMap first; memset(&first, 0, sizeof first);
-		/* Off the parent while it is rebuilt, as in Rust, so leave_above
-		   finds no place to file at; the settle below files the whole list. */
+		/* Off the parent while it is rebuilt, as in Rust, so adopt finds no
+		   place to file at; the settle below files the whole list. */
 		ShclVecSize kids = NODE(d, parent).children;
 		ShclVecSize *ch = &kids;
 		NODE(d, parent).children.len = 0;
@@ -8206,6 +8213,7 @@ static void w_fold_dups_below(shcl_doc *d, size_t start) {
 		/* What a folded node leaves, as in w_collapse_dup, for the next node
 		   that stays. */
 		ShclVecLead left = {0};
+		int blank = 0;
 		for (size_t k = 0; k < ch->len; k++) {
 			size_t c = ch->data[k];
 			uint64_t h = merge_hash(NODE(d, c).name, &NODE(d, c).value);
@@ -8213,7 +8221,7 @@ static void w_fold_dups_below(shcl_doc *d, size_t start) {
 			for (ShclCMapEnt *e = cmap_first(&first, h); e; e = cmap_next(e, h))
 				if (merge_eq(NODE(d, e->val).name, &NODE(d, e->val).value, NODE(d, c).name, &NODE(d, c).value)) { survivor = e->val; break; }
 			if (survivor != (size_t)-1) {
-				beside_kept(d, &NODE(d, c), &left);
+				blank = beside_kept(d, &NODE(d, c), &left, blank);
 				ShclVecSize moved = NODE(d, c).children;
 				fold_node_into(d, survivor, c);
 				if (d->index_built == 1) {
@@ -8227,13 +8235,14 @@ static void w_fold_dups_below(shcl_doc *d, size_t start) {
 				ShclVecSize_push(t, &stack, survivor);
 			} else {
 				cmap_put(t, &first, h, c);
-				if (left.len) leave_above(d, c, &left);
+				adopt(d, (ShclHeir){HEIR_NEXT, c}, &left, blank);
+				blank = 0;
 				ch->data[w++] = c;
 			}
 		}
 		ch->len = w;
 		NODE(d, parent).children = kids;
-		if (left.len) leave_last(d, parent, &left);
+		adopt(d, (ShclHeir){HEIR_LAST, parent}, &left, blank);
 		w_settle(d, parent, 1);
 	}
 }
@@ -8266,17 +8275,14 @@ static void w_collapse_dup(shcl_doc *d, size_t node) {
 	   they were, as a remove leaves them. Only the comments written against
 	   it go with it. */
 	ShclVecLead left = {0};
-	beside_kept(d, &NODE(d, loser), &left);
+	int blank = beside_kept(d, &NODE(d, loser), &left, 0);
 	ShclVecSize moved = NODE(d, loser).children;
 	fold_node_into(d, survivor, loser);
 	ShclVecSize *pk = &NODE(d, parent).children;
 	size_t w = 0;
 	for (size_t k = 0; k < pk->len; k++) if (pk->data[k] != loser) pk->data[w++] = pk->data[k];
 	pk->len = w;
-	if (left.len) {
-		if (at < pk->len) leave_above(d, pk->data[at], &left);
-		else leave_last(d, parent, &left);
-	}
+	adopt(d, heir_at(d, parent, at), &left, blank);
 	w_settle(d, parent, 1);
 	if (d->index_built == 1) {
 		index_unlink(d, name_key(parent, NODE(d, loser).name), loser);
@@ -8456,11 +8462,16 @@ static void restep(ShclVecLead *v) {
    it that is everything up to its last kept line, below it everything from
    its first kept line or blank, so a comment written against the node goes
    with it. The kept line written in place of its `name:` line goes too. What
-   goes stays on the node, where a fold of two instances still wants it. */
-static void beside_kept(shcl_doc *d, ShclNode *nd, ShclVecLead *left) {
+   goes stays on the node, where a fold of two instances still wants it.
+   The blank above the node goes on the first line left under it, else it is
+   still owed, and the return says so. owed is a blank from a node just above
+   that went too. */
+static int beside_kept(shcl_doc *d, ShclNode *nd, ShclVecLead *left, int owed) {
 	int heads = heads_block(&d->scratch, nd);
+	int blank = owed || nd->blank_before;
+	nd->blank_before = 0;
 	ShclTrivia *t = nd->trivia;
-	if (!t) return;
+	if (!t) return blank;
 	size_t end = 0;
 	for (size_t k = t->leading.len - (heads ? 1 : 0); k > 0; k--)
 		if (lead_is_kept_line(&t->leading.data[k - 1])) { end = k; break; }
@@ -8469,42 +8480,21 @@ static void beside_kept(shcl_doc *d, ShclNode *nd, ShclVecLead *left) {
 		memmove(t->leading.data, t->leading.data + end, (t->leading.len - end) * sizeof *t->leading.data);
 		t->leading.len -= end;
 	}
+	if (t->leading.len && t->leading.data[0].blank_before) {
+		blank = 1;
+		t->leading.data[0].blank_before = 0;
+	}
 	size_t from = t->after.len;
 	for (size_t k = 0; k < t->after.len; k++)
 		if (lead_is_kept_line(&t->after.data[k]) || t->after.data[k].blank_before) { from = k; break; }
+	size_t under = left->len;
 	for (size_t k = from; k < t->after.len; k++) ShclVecLead_push(&d->arena, left, t->after.data[k]);
 	t->after.len = from;
-}
-
-/* A remove hands the blank above what it took to the line now in its place:
-   the first of the below lines beside_kept left on the end of left, else the
-   next line left. owed is a blank from a remove just above. True when the
-   blank is still owed, for the next line. */
-static int hand_blank(const ShclNode *gone, ShclVecLead *left, size_t below, int owed) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
-	int blank = owed || gone->blank_before || (gone->trivia && gone->trivia->leading.len && gone->trivia->leading.data[0].blank_before);
-	if (below > 0 && below <= left->len && left->data) {
-		left->data[left->len - below].blank_before = left->data[left->len - below].blank_before || blank;
-		return 0;
+	if (under < left->len && left->data) {
+		left->data[under].blank_before = left->data[under].blank_before || blank;
+		blank = 0;
 	}
 	return blank;
-}
-
-/* The blank above a node: above its comments, else above its line. */
-static void set_blank(ShclNode *nd) {
-	if (nd->trivia && nd->trivia->leading.len) nd->trivia->leading.data[0].blank_before = 1;
-	else nd->blank_before = 1;
-}
-
-/* A blank a remove owes the parent's trailing lines, when the last of its
-   children went: the first of them, or the footer at the top. With none,
-   there is nothing to set off. */
-static void blank_below(shcl_doc *d, size_t parent) {
-	if (parent == ROOT) {
-		if (d->orphans.len) d->orphans.data[0].blank_before = 1;
-		return;
-	}
-	ShclTrivia *t = NODE(d, parent).trivia;
-	if (t && t->after.len) t->after.data[0].blank_before = 1;
 }
 
 /* The kept lines a load's fold gave this node from a later instance of it,
@@ -8536,38 +8526,6 @@ static void folded_kept(shcl_doc *d, ShclNode *nd, ShclVecLead *left) {
 	memmove(t->leading.data + from, t->leading.data + end, (t->leading.len - end) * sizeof *t->leading.data);
 	t->leading.len -= end - from;
 	restep(&t->leading);
-}
-
-/* Lines a remove left, put above the sibling that followed them. Takes left. */
-static void leave_above(shcl_doc *d, size_t node, ShclVecLead *left) {
-	ShclTrivia *t = triv_mut(&d->arena, &NODE(d, node));
-	for (size_t k = 0; k < t->leading.len; k++) ShclVecLead_push(&d->arena, left, t->leading.data[k]);
-	t->leading = *left;
-	restep(&t->leading);
-	memset(left, 0, sizeof *left);
-	refile(d, node);
-}
-
-/* The same, as the document's footer. */
-static void leave_orphans(shcl_doc *d, ShclVecLead *left) {
-	for (size_t k = 0; k < d->orphans.len; k++) ShclVecLead_push(&d->arena, left, d->orphans.data[k]);
-	d->orphans = *left;
-	restep(&d->orphans);
-	memset(left, 0, sizeof *left);
-}
-
-/* Lines a remove left right after node's block: above the next binding line,
-   or the footer when there is none. Takes left. */
-static void leave_below(shcl_doc *d, size_t node, ShclVecLead *left) {
-	size_t at = node;
-	while (at != ROOT) {
-		size_t up = NODE(d, at).parent;
-		ShclVecSize kids = NODE(d, up).children;
-		for (size_t k = 0; k + 1 < kids.len; k++)
-			if (kids.data[k] == at) { leave_above(d, kids.data[k + 1], left); return; }
-		at = up;
-	}
-	leave_orphans(d, left);
 }
 
 /* A load that folds 2 instances leaves the kept lines read beside the later
@@ -8677,8 +8635,7 @@ static void refile_folded(shcl_doc *d, ShclVecSize *folded) {
 		size_t p = moves[k].parent, j = moves[k].at;
 		ShclVecLead group = {0};
 		for (; k < n && moves[k].parent == p && moves[k].at == j; k++) ShclVecLead_push(&d->arena, &group, moves[k].l);
-		if (j < NODE(d, p).children.len) leave_above(d, NODE(d, p).children.data[j], &group);
-		else leave_last(d, p, &group);
+		adopt(d, heir_at(d, p, j), &group, 0);
 		if (k == n || moves[k].parent != p) settle_block(d, p, 1);
 	}
 	/* The first node can have lost the lines above it, and with them the room
@@ -8686,25 +8643,62 @@ static void refile_folded(shcl_doc *d, ShclVecSize *folded) {
 	settle_first_blank(d);
 }
 
-/* Lines a remove left after the last of parent's children: the document's
-   footer at the top, else after the last child left, else inside the block.
-   A misplaced line has no level there, so a reload files it with the next
-   binding line, and the comments after it go along; kept field lines still
-   go to the block. Takes left. */
-static void leave_last(shcl_doc *d, size_t parent, ShclVecLead *left) {
-	if (parent == ROOT) { leave_orphans(d, left); return; }
+/* Lines an edit took off a node that went, and the blank above it when blank
+   is set, go to `to` (design.md, Lines an edit takes from their node). What
+   takes its place keeps its comments against its line, and the lines go
+   after them. A next sibling gets them above its comments, since a kept line
+   beside what went stays above them. Past the last child they go after it,
+   or inside the block, or to the footer at the top, and the blank goes to
+   the first of the parent's trailing lines. With none of those it goes,
+   since nothing under it is left to set off. A misplaced line has no level
+   at the end of a block, so it goes to the next binding line, as a reload
+   files it, with the comments after it. Takes lines. */
+static void adopt(shcl_doc *d, ShclHeir to, ShclVecLead *lines, int blank) {
+	if (blank && to.kind != HEIR_LAST) {
+		/* Above the node's comments, else above its line. */
+		ShclNode *nd = &NODE(d, to.node);
+		if (nd->trivia && nd->trivia->leading.len) nd->trivia->leading.data[0].blank_before = 1;
+		else nd->blank_before = 1;
+	}
+	if (to.kind == HEIR_TAKES) {
+		adopt_heir(d, &NODE(d, to.node), *lines);
+		memset(lines, 0, sizeof *lines);
+		return;
+	}
+	if (to.kind == HEIR_NEXT) {
+		if (!lines->len) return;
+		ShclTrivia *t = triv_mut(&d->arena, &NODE(d, to.node));
+		for (size_t k = 0; k < t->leading.len; k++) ShclVecLead_push(&d->arena, lines, t->leading.data[k]);
+		t->leading = *lines;
+		restep(&t->leading);
+		memset(lines, 0, sizeof *lines);
+		refile(d, to.node);
+		return;
+	}
+	if (to.node == ROOT) {
+		if (blank && d->orphans.len) d->orphans.data[0].blank_before = 1;
+		if (!lines->len) return;
+		for (size_t k = 0; k < d->orphans.len; k++) ShclVecLead_push(&d->arena, lines, d->orphans.data[k]);
+		d->orphans = *lines;
+		restep(&d->orphans);
+		memset(lines, 0, sizeof *lines);
+		return;
+	}
+	size_t parent = to.node;
+	ShclTrivia *pt = NODE(d, parent).trivia;
+	if (blank && pt && pt->after.len) pt->after.data[0].blank_before = 1;
 	ShclVecLead below = {0};
-	size_t at = left->len;
-	for (size_t k = 0; k < left->len; k++) {
-		ShclStr x = left->data[k].text;
+	size_t at = lines->len;
+	for (size_t k = 0; k < lines->len; k++) {
+		ShclStr x = lines->data[k].text;
 		if (x.n && (x.p[0] == ' ' || x.p[0] == '\t')) { at = k; break; }
 	}
 	size_t w = at;
-	for (size_t k = at; k < left->len; k++) {
-		if (is_field(left->data[k].text)) left->data[w++] = left->data[k];
-		else ShclVecLead_push(&d->arena, &below, left->data[k]);
+	for (size_t k = at; k < lines->len; k++) {
+		if (is_field(lines->data[k].text)) lines->data[w++] = lines->data[k];
+		else ShclVecLead_push(&d->arena, &below, lines->data[k]);
 	}
-	left->len = w;
+	lines->len = w;
 	if (w) {
 		/* Stacked with no kept line among the elements is gone on a reload, so
 		   it may not decide how these lines are written. */
@@ -8713,11 +8707,29 @@ static void leave_last(shcl_doc *d, size_t parent, ShclVecLead *left) {
 		ShclVecLead *list = nd->children.len
 			? &triv_mut(&d->arena, &NODE(d, nd->children.data[nd->children.len - 1]))->after
 			: &triv_mut(&d->arena, nd)->inside;
-		for (size_t k = 0; k < w; k++) ShclVecLead_push(&d->arena, list, left->data[k]);
+		for (size_t k = 0; k < w; k++) ShclVecLead_push(&d->arena, list, lines->data[k]);
 		restep(list);
 	}
-	memset(left, 0, sizeof *left);
-	if (below.len) leave_below(d, parent, &below);
+	memset(lines, 0, sizeof *lines);
+	if (!below.len) return;
+	/* Right after the block: the next binding line, or the footer. */
+	size_t up_from = parent;
+	while (up_from != ROOT) {
+		size_t up = NODE(d, up_from).parent;
+		ShclVecSize kids = NODE(d, up).children;
+		for (size_t k = 0; k + 1 < kids.len; k++)
+			if (kids.data[k] == up_from) { adopt(d, (ShclHeir){HEIR_NEXT, kids.data[k + 1]}, &below, 0); return; }
+		up_from = up;
+	}
+	adopt(d, (ShclHeir){HEIR_LAST, ROOT}, &below, 0);
+}
+
+/* The heir of what left slot at in parent's list: the sibling now there,
+   else the parent. */
+static ShclHeir heir_at(const shcl_doc *d, size_t parent, size_t at) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
+	const ShclVecSize *kids = &NODE(d, parent).children;
+	if (at < kids->len) return (ShclHeir){HEIR_NEXT, kids->data[at]};
+	return (ShclHeir){HEIR_LAST, parent};
 }
 
 /* Still in the tree: each node up to ROOT is in its parent's list. A removed
@@ -8775,8 +8787,8 @@ shcl_read_usize shcl_try_remove(shcl_doc *d, const char *path, size_t plen) {
 		/* A list written stacked for the fields under it stays stacked: a
 		   remove only takes lines away. */
 		int stacked = stacks(&NODE(d, pn));
-		/* Off the parent while it is rebuilt, as in Rust, so leave_above
-		   finds no place to file at; the settle below files the whole list. */
+		/* Off the parent while it is rebuilt, as in Rust, so adopt finds no
+		   place to file at; the settle below files the whole list. */
 		ShclVecSize old = NODE(d, pn).children;
 		ShclVecSize *kids = &old;
 		NODE(d, pn).children.len = 0;
@@ -8788,13 +8800,10 @@ shcl_read_usize shcl_try_remove(shcl_doc *d, const char *path, size_t plen) {
 			size_t c = kids->data[k];
 			if (NODE(d, c).parent == DEAD) {
 				NODE(d, c).parent = pn;
-				size_t under = NODE(d, c).trivia ? NODE(d, c).trivia->after.len : 0;
-				beside_kept(d, &NODE(d, c), &left);
-				size_t below = under - (NODE(d, c).trivia ? NODE(d, c).trivia->after.len : 0);
-				blank = hand_blank(&NODE(d, c), &left, below, blank);
+				blank = beside_kept(d, &NODE(d, c), &left, blank);
 			} else {
-				if (blank) { set_blank(&NODE(d, c)); blank = 0; }
-				if (left.len) leave_above(d, c, &left);
+				adopt(d, (ShclHeir){HEIR_NEXT, c}, &left, blank);
+				blank = 0;
 				kids->data[w++] = c;
 			}
 		}
@@ -8803,8 +8812,7 @@ shcl_read_usize shcl_try_remove(shcl_doc *d, const char *path, size_t plen) {
 		NODE(d, pn).star_list = NODE(d, pn).star_list || stacked;
 		/* The next merge has a stacked list to put in brackets. */
 		d->bracketed = d->bracketed && !stacked;
-		if (blank) blank_below(d, pn);
-		if (left.len) leave_last(d, pn, &left);
+		adopt(d, (ShclHeir){HEIR_LAST, pn}, &left, blank);
 		/* The lines around what went are filed as a reload files them. */
 		settle_pairs(d, pn, 0);
 		settle_head(d, pn);
@@ -8844,8 +8852,7 @@ shcl_read_usize shcl_try_remove(shcl_doc *d, const char *path, size_t plen) {
 		kids->len--;
 		NODE(d, pp).star_list = NODE(d, pp).star_list || stacked;
 		d->bracketed = d->bracketed && !stacked;
-		if (at < kids->len) leave_above(d, kids->data[at], &left);
-		else leave_last(d, pp, &left);
+		adopt(d, heir_at(d, pp, at), &left, 0);
 		ShclVecSize_push(a, &open, pp);
 		ShclVecSize_push(a, &emptied, pp);
 	}
@@ -11350,7 +11357,7 @@ static int settle_kept_once(shcl_doc *d) {
 		moved.len = 0;
 		/* Right above the line, with its blank above them, as a reload files
 		   them. */
-		adopt(d, &NODE(d, f->node), lines);
+		adopt(d, (ShclHeir){HEIR_TAKES, f->node}, &lines, 0);
 		refile(d, f->node);
 	}
 	/* A line moved above the first list in the file is now the first thing

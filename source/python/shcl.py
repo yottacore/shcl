@@ -1299,19 +1299,26 @@ def _unstack(nd):
 		orphans.append(_Lead(text, False))
 	t.among = []
 	t.notes = []
-	_adopt(nd, orphans)
+	_adopt_heir(nd, orphans)
 	return bool(orphans)
 
 
-def _adopt(heir, lines):
-	"""Lines an edit took off a node or a list item it took away go to heir:
-	right above its line, after its own comments, with its blank above them
-	(design.md, Lines an edit takes from their node)."""
+# Who gets the lines of something an edit took away, with a node, for
+# _adopt() (design.md, Lines an edit takes from their node): what takes its
+# place, such as a list for its items; else the next sibling; else the
+# parent's trailing lines, or the footer at the top, with the parent.
+_HEIR_TAKES, _HEIR_NEXT, _HEIR_LAST = 0, 1, 2
+
+
+def _adopt_heir(nd, lines):
+	"""_adopt() for what takes the place of what went, which a list's settle
+	needs outside a document: right above its line, after its own comments,
+	with its blank above them."""
 	if not lines:
 		return
-	lines[0].blank_before = heir.blank_before
-	heir.blank_before = False
-	heir._triv().leading.extend(lines)
+	lines[0].blank_before = nd.blank_before
+	nd.blank_before = False
+	nd._triv().leading.extend(lines)
 
 
 def _bracket(nd):
@@ -5598,27 +5605,6 @@ def _kept_in(leads):
 	return sum(1 for lead in leads if lead.is_kept_line())
 
 
-def _hand_blank(gone, left, below, owed):
-	"""A remove hands the blank above what it took to the line now in its
-	place: the first of the below lines it left under the node, else the next
-	line left. owed is a blank from a remove just above. True when the blank
-	is still owed, for the next line."""
-	lead = gone.leading()
-	blank = owed or gone.blank_before or (len(lead) > 0 and lead[0].blank_before)
-	if below > 0:
-		left[len(left) - below].blank_before = left[len(left) - below].blank_before or blank
-		return False
-	return blank
-
-
-def _set_blank(nd):
-	"""The blank above a node: above its comments, else above its line."""
-	if nd.trivia is not None and nd.trivia.leading:
-		nd.trivia.leading[0].blank_before = True
-	else:
-		nd.blank_before = True
-
-
 def _kept_in_lists(nd):
 	"""Kept lines in all of one node's trivia lists."""
 	return (_kept_in(nd.leading()) + _kept_in(nd.after()) + _kept_in(nd.inside()) + _kept_in(nd.head())
@@ -5701,27 +5687,39 @@ def _place_folded(arena, moves):
 			k += 1
 
 
-def _beside_kept(nd):
+def _beside_kept(nd, owed):
 	"""What a remove of this node leaves of its lines, by design.md's
 	kept-lines table: the kept lines beside it, with the comments that sit
 	with them, and the comments a blank sets off from it below. Above it that
 	is everything up to its last kept line, below it everything from its first
 	kept line or blank, so a comment written against the node goes with it.
 	The kept line written in place of its `name:` line goes too. What goes
-	stays on the node, where a fold of two instances still wants it."""
+	stays on the node, where a fold of two instances still wants it.
+	The blank above the node goes on the first line left under it, else it is
+	still owed, and the bool says so. owed is a blank from a node just above
+	that went too."""
 	heads = _heads_block(nd)
+	blank = owed or nd.blank_before
+	nd.blank_before = False
 	t = nd.trivia
 	if t is None:
-		return []
+		return [], blank
 	left = t.leading
 	last = len(left) - 1 if heads else len(left)
 	end = next((k + 1 for k in range(last - 1, -1, -1) if left[k].is_kept_line()), 0)
 	t.leading = left[end:]
+	if t.leading and t.leading[0].blank_before:
+		blank = True
+		t.leading[0].blank_before = False
 	del left[end:]
 	start = next((k for k, c in enumerate(t.after) if c.is_kept_line() or c.blank_before), len(t.after))
+	under = len(left)
 	left.extend(t.after[start:])
 	del t.after[start:]
-	return left
+	if under < len(left):
+		left[under].blank_before = left[under].blank_before or blank
+		blank = False
+	return left, blank
 
 
 def _heads_block(node):
@@ -7448,7 +7446,7 @@ class Document:
 			moved = []
 			# Right above the line, with its blank above them, as a reload
 			# files them.
-			_adopt(self.arena[node], lines)
+			self._adopt((_HEIR_TAKES, node), lines, False)
 			self._refile(node)
 		# A line moved above the first list in the file is now the first
 		# thing written, so its blank goes the way the load's did.
@@ -8419,16 +8417,12 @@ class Document:
 		# The data does not change, so the kept lines beside the loser stay
 		# where they were, as a remove leaves them. Only the comments written
 		# against it go with it.
-		left = _beside_kept(self.arena[loser])
+		left, blank = _beside_kept(self.arena[loser], False)
 		moved = list(self.arena[loser].children)
 		_fold_node_into(self.arena, survivor, loser)
 		keep = [c for c in self.arena[parent].children if c != loser]
 		self.arena[parent].children = keep
-		if left:
-			if at < len(keep):
-				self._leave_above(keep[at], left)
-			else:
-				self._leave_last(parent, left)
+		self._adopt(self._heir_at(parent, at), left, blank)
 		self._settle(parent, 1)
 		ix = self._index
 		if ix is not None:
@@ -8478,7 +8472,7 @@ class Document:
 		while stack:
 			parent = stack.pop()
 			kids = self.arena[parent].children
-			# Off the parent while it is rebuilt, as in Rust, so _leave_above
+			# Off the parent while it is rebuilt, as in Rust, so _adopt()
 			# finds no place to file at; the settle below files the whole list.
 			self.arena[parent].children = []
 			first: dict = {}
@@ -8486,11 +8480,13 @@ class Document:
 			# What a folded node leaves, as in _collapse_dup(), for the next
 			# node that stays.
 			left: list[_Lead] = []
+			blank = False
 			for c in kids:
 				key = _merge_key(self.arena[c].name, self.arena[c].value)
 				survivor = first.get(key)
 				if survivor is not None:
-					left.extend(_beside_kept(self.arena[c]))
+					mine, blank = _beside_kept(self.arena[c], blank)
+					left.extend(mine)
 					moved = list(self.arena[c].children)
 					_fold_node_into(self.arena, survivor, c)
 					ix = self._index
@@ -8503,13 +8499,11 @@ class Document:
 					stack.append(survivor)
 				else:
 					first[key] = c
-					if left:
-						self._leave_above(c, left)
-						left = []
+					self._adopt((_HEIR_NEXT, c), left, blank)
+					left, blank = [], False
 					keep.append(c)
 			self.arena[parent].children = keep
-			if left:
-				self._leave_last(parent, left)
+			self._adopt((_HEIR_LAST, parent), left, blank)
 			self._settle(parent, 1)
 
 	def _targets_at(self, path):
@@ -8600,7 +8594,7 @@ class Document:
 			stacked = _stacks(self.arena[p])
 			keep: list[int] = []
 			left: list[_Lead] = []
-			# Off the parent while it is rebuilt, as in Rust, so _leave_above
+			# Off the parent while it is rebuilt, as in Rust, so _adopt()
 			# finds no place to file at; the settle below files the whole list.
 			old = self.arena[p].children
 			self.arena[p].children = []
@@ -8609,27 +8603,17 @@ class Document:
 			for c in old:
 				if self.arena[c].parent == _DEAD:
 					self.arena[c].parent = p
-					under = len(self.arena[c].after())
-					mine = _beside_kept(self.arena[c])
-					below = under - len(self.arena[c].after())
-					blank = _hand_blank(self.arena[c], mine, below, blank)
+					mine, blank = _beside_kept(self.arena[c], blank)
 					left.extend(mine)
 				else:
-					if blank:
-						_set_blank(self.arena[c])
-						blank = False
-					if left:
-						self._leave_above(c, left)
-						left = []
+					self._adopt((_HEIR_NEXT, c), left, blank)
+					left, blank = [], False
 					keep.append(c)
 			self.arena[p].children = keep
 			self.arena[p].star_list = self.arena[p].star_list or stacked
 			# The next merge has a stacked list to put in brackets.
 			self._bracketed = self._bracketed and not stacked
-			if blank:
-				self._blank_below(p)
-			if left:
-				self._leave_last(p, left)
+			self._adopt((_HEIR_LAST, p), left, blank)
 			# The lines around what went are filed as a reload files them.
 			_settle_pairs(self.arena, p, 0)
 			_settle_head(self.arena, p)
@@ -8658,10 +8642,7 @@ class Document:
 			del kids[at]
 			self.arena[pp].star_list = self.arena[pp].star_list or stacked
 			self._bracketed = self._bracketed and not stacked
-			if at < len(kids):
-				self._leave_above(kids[at], left)
-			else:
-				self._leave_last(pp, left)
+			self._adopt(self._heir_at(pp, at), left, False)
 			open_.append(pp)
 			emptied.append(pp)
 		# An empty binding that lost its last field takes a stacked list of its
@@ -8710,23 +8691,94 @@ class Document:
 		moves.sort(key=lambda m: m[:3])
 		for (p, j), run in itertools.groupby(moves, key=lambda m: m[:2]):
 			group = [m[3] for m in run]
-			kids = self.arena[p].children
-			if j < len(kids):
-				self._leave_above(kids[j], group)
-			else:
-				self._leave_last(p, group)
+			self._adopt(self._heir_at(p, j), group, False)
 		for p in sorted({m[0] for m in moves}):
 			_settle_block(self.arena, p, 1)
 		# The first node can have lost the lines above it, and with them the
 		# room for a blank a re-mention left it.
 		_settle_first_blank(self.arena, self.orphans)
 
-	def _leave_above(self, node: int, left: list[_Lead]) -> None:
-		"""Lines a remove left, put above the sibling that followed them."""
-		t = self.arena[node]._triv()
-		t.leading = left + t.leading
-		_restep(t.leading)
-		self._refile(node)
+	def _adopt(self, to: tuple[int, int], lines: list[_Lead], blank: bool) -> None:
+		"""Lines an edit took off a node that went, and the blank above it
+		when blank is set, go to `to` (design.md, Lines an edit takes from
+		their node). What takes its place keeps its comments against its
+		line, and the lines go after them. A next sibling gets them above its
+		comments, since a kept line beside what went stays above them. Past
+		the last child they go after it, or inside the block, or to the footer
+		at the top, and the blank goes to the first of the parent's trailing
+		lines. With none of those it goes, since nothing under it is left to
+		set off. A misplaced line has no level at the end of a block, so it
+		goes to the next binding line, as a reload files it, with the
+		comments after it."""
+		kind, node = to
+		if blank and kind != _HEIR_LAST:
+			# Above the node's comments, else above its line.
+			nd = self.arena[node]
+			if nd.trivia is not None and nd.trivia.leading:
+				nd.trivia.leading[0].blank_before = True
+			else:
+				nd.blank_before = True
+		if kind == _HEIR_TAKES:
+			_adopt_heir(self.arena[node], lines)
+			return
+		if kind == _HEIR_NEXT:
+			if not lines:
+				return
+			t = self.arena[node]._triv()
+			t.leading = lines + t.leading
+			_restep(t.leading)
+			self._refile(node)
+			return
+		if node == _ROOT:
+			if blank and self.orphans:
+				self.orphans[0].blank_before = True
+			if not lines:
+				return
+			self.orphans[:0] = lines
+			_restep(self.orphans)
+			return
+		nd = self.arena[node]
+		if blank and nd.trivia is not None and nd.trivia.after:
+			nd.trivia.after[0].blank_before = True
+		below: list[_Lead] = []
+		at = next((k for k, c in enumerate(lines) if c.text.startswith((" ", "\t"))), None)
+		if at is not None:
+			rest = lines[at:]
+			lines = lines[:at] + [c for c in rest if _is_field(c.text)]
+			below = [c for c in rest if not _is_field(c.text)]
+		if lines:
+			# Stacked with no kept line among the elements is gone on a reload,
+			# so it may not decide how these lines are written.
+			nd.star_list = _stacks(nd)
+			if nd.children:
+				t = self.arena[nd.children[-1]]._triv()
+				t.after.extend(lines)
+				_restep(t.after)
+			else:
+				t = nd._triv()
+				t.inside.extend(lines)
+				_restep(t.inside)
+		if not below:
+			return
+		# Right after the block: the next binding line, or the footer.
+		at = node
+		while at != _ROOT:
+			up = self.arena[at].parent
+			kids = self.arena[up].children
+			k = kids.index(at)
+			if k + 1 < len(kids):
+				self._adopt((_HEIR_NEXT, kids[k + 1]), below, False)
+				return
+			at = up
+		self._adopt((_HEIR_LAST, _ROOT), below, False)
+
+	def _heir_at(self, parent: int, at: int) -> tuple[int, int]:
+		"""The heir of what left slot at in parent's list: the sibling now
+		there, else the parent."""
+		kids = self.arena[parent].children
+		if at < len(kids):
+			return (_HEIR_NEXT, kids[at])
+		return (_HEIR_LAST, parent)
 
 	def _refile(self, node: int) -> None:
 		"""The lines above a node filed as a reload files them: a run a blank
@@ -8740,65 +8792,6 @@ class Document:
 			if c == node:
 				_refile_pair(self.arena, p, i)
 				return
-
-	def _leave_last(self, parent: int, left: list[_Lead]) -> None:
-		"""Lines a remove left after the last of `parent`'s children: the
-		document's footer at the top, else after the last child left, else
-		inside the block. A misplaced line has no level there, so a reload
-		files it with the next binding line, and the comments after it go
-		along; kept field lines still go to the block."""
-		if parent == _ROOT:
-			self.orphans[:0] = left
-			_restep(self.orphans)
-			return
-		below: list[_Lead] = []
-		at = next((k for k, c in enumerate(left) if c.text.startswith((" ", "\t"))), None)
-		if at is not None:
-			rest = left[at:]
-			left = left[:at] + [c for c in rest if _is_field(c.text)]
-			below = [c for c in rest if not _is_field(c.text)]
-		if left:
-			# Stacked with no kept line among the elements is gone on a reload,
-			# so it may not decide how these lines are written.
-			nd = self.arena[parent]
-			nd.star_list = _stacks(nd)
-			if nd.children:
-				t = self.arena[nd.children[-1]]._triv()
-				t.after.extend(left)
-				_restep(t.after)
-			else:
-				t = nd._triv()
-				t.inside.extend(left)
-				_restep(t.inside)
-		if below:
-			self._leave_below(parent, below)
-
-	def _leave_below(self, node: int, left: list[_Lead]) -> None:
-		"""Lines a remove left right after `node`'s block: above the next
-		binding line, or the footer when there is none."""
-		at = node
-		while at != _ROOT:
-			up = self.arena[at].parent
-			kids = self.arena[up].children
-			k = kids.index(at)
-			if k + 1 < len(kids):
-				self._leave_above(kids[k + 1], left)
-				return
-			at = up
-		self.orphans[:0] = left
-		_restep(self.orphans)
-
-	def _blank_below(self, parent: int) -> None:
-		"""A blank a remove owes the parent's trailing lines, when the last
-		of its children went: the first of them, or the footer at the top.
-		With none, there is nothing to set off."""
-		if parent == _ROOT:
-			if self.orphans:
-				self.orphans[0].blank_before = True
-			return
-		t = self.arena[parent].trivia
-		if t is not None and t.after:
-			t.after[0].blank_before = True
 
 	def _live(self, node: int) -> bool:
 		"""Still in the tree: each node up to _ROOT is in its parent's list. A

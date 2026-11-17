@@ -35,6 +35,22 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- A load's fold of a second instance moves the blank line above it among the comments, or above the wrong field
+	- ID: 2026111700365065
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261117-003650
+	- Opened by: found while working 2026111623191935
+	- Related IDs: 2026111623192782, 2026111623191935
+	- Steps to reproduce: `printf 'q: 0\n\n# about x\nb: x\n\tp: 1\nc: 1\n\n# about y\nb: x\n\tq: 2\nd: 2\n' | shcl fmt -`, and `printf 'b: x\n\tk: 1\n\t\tm: 1\n\tc: 1\nb: x\n\td: 2\n\n\tk: 1\n\t\tn: 2\n\te: 3\n' | shcl fmt -`.
+	- Incorrect behavior: the first writes a blank between `# about x` and `# about y` above `b: x`, and none above `d: 2`. The second writes a blank above `k: 1` right under `b: x`, and none above `e: 3`. Same output in all 4 CLIs, at exit 0.
+	- Expected behavior: the blank above the instance that folds stays above the next line, `d: 2` and `e: 3` here, as a setter's fold now leaves it (2026111623191935).
+	- Reproduced: 20261117, all 4 CLIs on `nov17-2026111623191935`.
+	- Possible cause: the load's fold appends the second instance's leading lines to the first one's with their blank, and the instance's own blank is dropped. The setter's fold takes both off and hands them on through `adopt`. 2026111623192782 moves the load's fold onto `adopt` and may close this with it.
+	- Estimated effort: Avg
+
 - analyze-c fails on dev: clang-tidy on `set_off`, and the clang analyzer on `fs_property.c`
 	- ID: 2026111623502776
 	- Type: Bug
@@ -150,7 +166,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The remove and the setter folds hand their lines on through `adopt`
 	- ID: 2026111623191935
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz (`dd3t9`, `dderx` and the rest), where `dd16k` fails until 2026111623445822 is fixed, and the cppcheck line from `LINT_EXTRA` for `shcl.h`.
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261116-231919
@@ -160,6 +177,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: those callers go through `adopt`, with its fallback of the heir, else the next sibling, else the parent's trailing lines, in all 4. The kept-line rules stay as they are. The old helpers go in the same commit, once the placement table and fuzz property pass with both in place.
 	- Note: `refile_folded` calls `leave_above` and `leave_last` too, so they turn into `adopt`'s fallback here rather than going, and 2026111623192782 takes the last of them. The remove's blank handover from 2026111623191917 (`hand_blank`, `set_blank`, `blank_below`) joins `adopt` too. `adopt` places lines after the heir's comments for what takes the node's place, and before them for a next sibling, since a kept line beside a removed node stays above that sibling's comments.
 	- Estimated effort: High
+	- Actual effort: Avg
+	- Progress log:
+		- 20261117, all 4 bindings: `adopt` takes who gets the lines, as what takes the node's place, the next sibling, or the parent, and the blank owed, and does the placement each old helper did. The remove's rebuild and its opened-by-kept path, `collapse_dup`, `fold_dups_below`, and `refile_folded`'s 2 placement calls go through it. A setter's fold now hands the blank above the instance that folds to the next line, as a remove does. design.md's fold bullet and "Where the code still differs", spec.md's fold sentence, and the changelog say so.
+	- Decisions:
+		- me, 20261117: the 3 kinds of heir are an enum in Rust (`Heir`), a struct with a kind in Go (`heir`), a tuple in Python, and `ShclHeir` in C. A list's settle runs outside a document, so the heir branch is `adopt_heir`, which `unstack` calls and `adopt` calls for that kind.
+		- me, 20261117: `hand_blank` joined `beside_kept`, since the blank a node owes comes off it with the lines it leaves. `set_blank`, `blank_below`, `leave_above`, `leave_last`, `leave_below`, and C's `leave_orphans` became `adopt`'s branches. `refile_folded` calls `adopt` too, so none of those names is left, and 2026111623192782 still has `refile_folded`, `folded_kept`, and `settle_first_blank`.
+		- me, 20261117: the blank of a setter's fold goes the remove's way, per 2026111623191917's call. It used to be dropped, or left between the 2 instances' comments. The load's fold still does that, filed as 2026111700365065.
+	- Swept: every call of the old helpers in all 4, in `lib.rs`, `shcl.go`, `shcl.py`, and `shcl.h`: the remove's rebuild and opened-by-kept path, `collapse_dup`, `fold_dups_below`, `refile_folded`, `unstack`, and the settle of kept lines among list items. A grep of `source/` for the retired names finds none.
+	- Test case: placement rows `2026111623191935-1` and `-2` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dd3t9`, `dderx`, `dd16k`.
+	- Verified: the 2 rows fail on the library at `87683db6` in Python and C, and row 1 through the Rust CLI, and pass on the change in all 4. The 4 conformance suites, the whole Rust suite, the Go tests in both modules, `--backlog-run-quick rust go python c`, cli-regress (671 rows), crosscheck with a 2000-iteration dump (55461 comparisons), the 200,000-iteration release fuzz apart from `dd16k` (2026111623445822, at the same iteration as before), rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, gcc, gcc 15 and clang at `-Werror`, lint-report, and markdownlint. analyze-c found swappable parameters on the new `heir_at` in C, now marked as the Rust twin's order. Its other reds are older: `set_off` from `1bbee68b`, and `fs_property.c` (2026111623502776).
+	- Branch: `nov17-2026111623191935`
 
 - The load's fold hands its lines on through `adopt`
 	- ID: 2026111623192782

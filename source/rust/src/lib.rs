@@ -1364,14 +1364,26 @@ fn unstack(nd: &mut NodeData) -> bool {
 	}
 	orphans.extend(notes.map(|n| Lead::plain(n.1)));
 	let moved = !orphans.is_empty();
-	adopt(nd, orphans);
+	adopt_heir(nd, orphans);
 	moved
 }
 
-/// Lines an edit took off a node or a list item it took away go to `heir`:
-/// right above its line, after its own comments, with its blank above them
-/// (design.md, Lines an edit takes from their node).
-fn adopt(heir: &mut NodeData, mut lines: Vec<Lead>) {
+/// Who gets the lines of something an edit took away (design.md, Lines an
+/// edit takes from their node).
+#[derive(Clone, Copy)]
+enum Heir {
+	/// What takes its place, such as a list for its items.
+	Takes(usize),
+	/// The next sibling, with none taking its place.
+	Next(usize),
+	/// With neither, the parent's trailing lines, or the footer at the top.
+	Last(usize),
+}
+
+/// adopt() for what takes the place of what went, which a list's settle
+/// needs outside a document: right above its line, after its own comments,
+/// with its blank above them.
+fn adopt_heir(heir: &mut NodeData, mut lines: Vec<Lead>) {
 	let Some(first) = lines.first_mut() else {
 		return;
 	};
@@ -7507,7 +7519,7 @@ impl Document {
 			}
 			// Right above the line, with its blank above them, as a reload
 			// files them.
-			adopt(&mut self.arena[node], lines);
+			self.adopt(Heir::Takes(node), lines, false);
 			self.refile(node);
 		}
 		// A line moved above the first list in the file is now the first
@@ -7992,10 +8004,14 @@ fn place_folded(arena: &[NodeData], moves: &mut [(usize, usize, usize, Lead)]) {
 /// kept line or blank, so a comment written against the node goes with it.
 /// The kept line written in place of its `name:` line goes too. What goes
 /// stays on the node, where a fold of two instances still wants it.
-fn beside_kept(nd: &mut NodeData) -> Vec<Lead> {
+/// The blank above the node goes on the first line left under it, else it
+/// is still owed, and the bool says so. `owed` is a blank from a node just
+/// above that went too.
+fn beside_kept(nd: &mut NodeData, owed: bool) -> (Vec<Lead>, bool) {
 	let heads = heads_block(nd);
+	let mut blank = owed | std::mem::take(&mut nd.blank_before);
 	let Some(t) = nd.trivia.as_deref_mut() else {
-		return Vec::new();
+		return (Vec::new(), blank);
 	};
 	let mut left = std::mem::take(&mut t.leading);
 	let end = left[..left.len() - usize::from(heads)]
@@ -8003,36 +8019,20 @@ fn beside_kept(nd: &mut NodeData) -> Vec<Lead> {
 		.rposition(Lead::is_kept_line)
 		.map_or(0, |k| k + 1);
 	t.leading = left.split_off(end);
+	if let Some(l) = t.leading.first_mut() {
+		blank |= std::mem::take(&mut l.blank_before);
+	}
 	let from = t
 		.after
 		.iter()
 		.position(|l| l.is_kept_line() || l.blank_before)
 		.unwrap_or(t.after.len());
+	let under = left.len();
 	left.extend(t.after.drain(from..));
-	left
-}
-
-/// A remove hands the blank above what it took to the line now in its
-/// place: the first of the `below` lines it left under the node, else the
-/// next line left. `owed` is a blank from a remove just above. True when the
-/// blank is still owed, for the next line.
-fn hand_blank(gone: &NodeData, left: &mut [Lead], below: usize, owed: bool) -> bool {
-	let blank = owed || gone.blank_before || gone.leading().first().is_some_and(|l| l.blank_before);
-	match left.len().checked_sub(below).and_then(|k| left.get_mut(k)) {
-		Some(l) => {
-			l.blank_before |= blank;
-			false
-		}
-		None => blank,
+	if let Some(l) = left.get_mut(under) {
+		l.blank_before |= std::mem::take(&mut blank);
 	}
-}
-
-/// The blank above a node: above its comments, else above its line.
-fn set_blank(nd: &mut NodeData) {
-	match nd.trivia.as_mut().and_then(|t| t.leading.first_mut()) {
-		Some(l) => l.blank_before = true,
-		None => nd.blank_before = true,
-	}
+	(left, blank)
 }
 
 /// Kept lines in all of one node's trivia lists.
@@ -12698,17 +12698,12 @@ impl Document {
 		// The data does not change, so the kept lines beside the loser stay
 		// where they were, as a remove leaves them. Only the comments written
 		// against it go with it.
-		let left = beside_kept(&mut self.arena[loser]);
+		let (left, blank) = beside_kept(&mut self.arena[loser], false);
 		// The fold appends, so what moved is the survivor's new tail.
 		let kept = self.arena[survivor].children.len();
 		fold_node_into(&mut self.arena, survivor, loser);
 		self.arena[parent].children.retain(|&c| c != loser);
-		if !left.is_empty() {
-			match self.arena[parent].children.get(at) {
-				Some(&next) => self.leave_above(next, left),
-				None => self.leave_last(parent, left),
-			}
-		}
+		self.adopt(self.heir_at(parent, at), left, blank);
 		self.settle(parent, 1);
 		if let Some(ix) = self.index.get_mut() {
 			ix.unlink(name_key(parent, &self.arena[loser].name), loser);
@@ -12762,6 +12757,7 @@ impl Document {
 			// What a folded node leaves, as in collapse_dup(), for the next
 			// node that stays.
 			let mut left: Vec<Lead> = Vec::new();
+			let mut blank = false;
 			for c in kids {
 				let h = merge_hash(&self.arena[c].name, &self.arena[c].value);
 				let survivor = first.get(&h).and_then(|s| {
@@ -12776,7 +12772,9 @@ impl Document {
 				});
 				match survivor {
 					Some(s) => {
-						left.append(&mut beside_kept(&mut self.arena[c]));
+						let mut mine;
+						(mine, blank) = beside_kept(&mut self.arena[c], blank);
+						left.append(&mut mine);
 						let kept = self.arena[s].children.len();
 						fold_node_into(&mut self.arena, s, c);
 						if let Some(ix) = self.index.get_mut() {
@@ -12794,17 +12792,14 @@ impl Document {
 							.entry(h)
 							.and_modify(|s| s.push(c))
 							.or_insert(Slot::One(c));
-						if !left.is_empty() {
-							self.leave_above(c, std::mem::take(&mut left));
-						}
+						let lines = std::mem::take(&mut left);
+						self.adopt(Heir::Next(c), lines, std::mem::take(&mut blank));
 						keep.push(c);
 					}
 				}
 			}
 			self.arena[parent].children = keep;
-			if !left.is_empty() {
-				self.leave_last(parent, left);
-			}
+			self.adopt(Heir::Last(parent), left, blank);
 			self.settle(parent, 1);
 		}
 	}
@@ -12907,18 +12902,12 @@ impl Document {
 			for c in kids {
 				if self.arena[c].parent == DEAD {
 					self.arena[c].parent = p;
-					let under = self.arena[c].after().len();
-					let mut mine = beside_kept(&mut self.arena[c]);
-					let below = under - self.arena[c].after().len();
-					blank = hand_blank(&self.arena[c], &mut mine, below, blank);
+					let mut mine;
+					(mine, blank) = beside_kept(&mut self.arena[c], blank);
 					left.append(&mut mine);
 				} else {
-					if std::mem::take(&mut blank) {
-						set_blank(&mut self.arena[c]);
-					}
-					if !left.is_empty() {
-						self.leave_above(c, std::mem::take(&mut left));
-					}
+					let lines = std::mem::take(&mut left);
+					self.adopt(Heir::Next(c), lines, std::mem::take(&mut blank));
 					keep.push(c);
 				}
 			}
@@ -12926,12 +12915,7 @@ impl Document {
 			self.arena[p].star_list |= stacked;
 			// The next merge has a stacked list to put in brackets.
 			self.bracketed &= !stacked;
-			if blank {
-				self.blank_below(p);
-			}
-			if !left.is_empty() {
-				self.leave_last(p, left);
-			}
+			self.adopt(Heir::Last(p), left, blank);
 			// The lines around what went are filed as a reload files them.
 			settle_pairs(&mut self.arena, p, 0);
 			settle_head(&mut self.arena, p);
@@ -12970,10 +12954,7 @@ impl Document {
 			self.arena[pp].children.remove(at);
 			self.arena[pp].star_list |= stacked;
 			self.bracketed &= !stacked;
-			match self.arena[pp].children.get(at) {
-				Some(&next) => self.leave_above(next, left),
-				None => self.leave_last(pp, left),
-			}
+			self.adopt(self.heir_at(pp, at), left, false);
 			open.push(pp);
 			emptied.push(pp);
 		}
@@ -13046,10 +13027,7 @@ impl Document {
 			while let Some(m) = moves.next_if(|m| m.0 == p && m.1 == j) {
 				group.push(m.3);
 			}
-			match self.arena[p].children.get(j) {
-				Some(&next) => self.leave_above(next, group),
-				None => self.leave_last(p, group),
-			}
+			self.adopt(self.heir_at(p, j), group, false);
 			if moves.peek().is_none_or(|m| m.0 != p) {
 				settle_block(&mut self.arena, p, 1);
 			}
@@ -13059,13 +13037,106 @@ impl Document {
 		settle_first_blank(&mut self.arena, &mut self.orphans);
 	}
 
-	/// Lines a remove left, put above the sibling that followed them.
-	fn leave_above(&mut self, node: usize, mut left: Vec<Lead>) {
-		let t = self.arena[node].triv_mut();
-		left.append(&mut t.leading);
-		t.leading = left;
-		restep(&mut t.leading);
-		self.refile(node);
+	/// Lines an edit took off a node that went, and the blank above it
+	/// when `blank`, go to `to` (design.md, Lines an edit takes from their
+	/// node). What takes its place keeps its comments against its line, and
+	/// the lines go after them. A next sibling gets them above its comments,
+	/// since a kept line beside what went stays above them. Past the last
+	/// child they go after it, or inside the block, or to the footer at the
+	/// top, and the blank goes to the first of the parent's trailing lines.
+	/// With none of those it goes, since nothing under it is left to set off.
+	/// A misplaced line has no level at the end of a block, so it goes to the
+	/// next binding line, as a reload files it, with the comments after it.
+	fn adopt(&mut self, to: Heir, mut lines: Vec<Lead>, blank: bool) {
+		// Above the node's comments, else above its line.
+		if blank && let Heir::Takes(n) | Heir::Next(n) = to {
+			let nd = &mut self.arena[n];
+			match nd.trivia.as_mut().and_then(|t| t.leading.first_mut()) {
+				Some(l) => l.blank_before = true,
+				None => nd.blank_before = true,
+			}
+		}
+		match to {
+			Heir::Takes(n) => adopt_heir(&mut self.arena[n], lines),
+			Heir::Next(n) => {
+				if lines.is_empty() {
+					return;
+				}
+				let t = self.arena[n].triv_mut();
+				lines.append(&mut t.leading);
+				t.leading = lines;
+				restep(&mut t.leading);
+				self.refile(n);
+			}
+			Heir::Last(p) if p == ROOT => {
+				if blank && let Some(l) = self.orphans.first_mut() {
+					l.blank_before = true;
+				}
+				if lines.is_empty() {
+					return;
+				}
+				lines.append(&mut self.orphans);
+				self.orphans = lines;
+				restep(&mut self.orphans);
+			}
+			Heir::Last(p) => {
+				if blank
+					&& let Some(l) = self.arena[p]
+						.trivia
+						.as_deref_mut()
+						.and_then(|t| t.after.first_mut())
+				{
+					l.blank_before = true;
+				}
+				let mut below = Vec::new();
+				if let Some(at) = lines.iter().position(|l| l.text.starts_with([' ', '\t'])) {
+					let mut rest = lines.split_off(at);
+					let fields: Vec<Lead>;
+					(fields, below) = rest.drain(..).partition(|l| is_field(&l.text));
+					lines.extend(fields);
+				}
+				if !lines.is_empty() {
+					// Stacked with no kept line among the elements is gone on a
+					// reload, so it may not decide how these lines are written.
+					let stacked = stacks(&self.arena[p]);
+					self.arena[p].star_list = stacked;
+					let list = match self.arena[p].children.last().copied() {
+						Some(last) => &mut self.arena[last].triv_mut().after,
+						None => &mut self.arena[p].triv_mut().inside,
+					};
+					list.append(&mut lines);
+					restep(list);
+				}
+				if !below.is_empty() {
+					// Right after the block: the next binding line, or the
+					// footer.
+					let mut at = p;
+					while at != ROOT {
+						let up = self.arena[at].parent;
+						let kids = &self.arena[up].children;
+						if let Some(&next) = kids
+							.iter()
+							.position(|&c| c == at)
+							.and_then(|k| kids.get(k + 1))
+						{
+							self.adopt(Heir::Next(next), below, false);
+							return;
+						}
+						at = up;
+					}
+					self.adopt(Heir::Last(ROOT), below, false);
+				}
+			}
+		}
+	}
+
+	/// The heir of what left slot `at` in `parent`'s list: the sibling now
+	/// there, else the parent.
+	fn heir_at(&self, parent: usize, at: usize) -> Heir {
+		match self.arena[parent].children.get(at) {
+			Some(&n) => Heir::Next(n),
+			None => Heir::Last(parent),
+		}
 	}
 
 	/// The lines above a node filed as a reload files them: a run a blank
@@ -13079,81 +13150,6 @@ impl Document {
 			.and_then(|nd| nd.children.iter().position(|&c| c == node))
 		{
 			refile_pair(&mut self.arena, p, i);
-		}
-	}
-
-	/// Lines a remove left after the last of `parent`'s children: the
-	/// document's footer at the top, else after the last child left, else
-	/// inside the block. A misplaced line has no level there, so a reload
-	/// files it with the next binding line, and the comments after it go
-	/// along; kept field lines still go to the block.
-	fn leave_last(&mut self, parent: usize, mut left: Vec<Lead>) {
-		if parent == ROOT {
-			left.append(&mut self.orphans);
-			self.orphans = left;
-			restep(&mut self.orphans);
-			return;
-		}
-		let mut below = Vec::new();
-		if let Some(at) = left.iter().position(|l| l.text.starts_with([' ', '\t'])) {
-			let mut rest = left.split_off(at);
-			let fields: Vec<Lead>;
-			(fields, below) = rest.drain(..).partition(|l| is_field(&l.text));
-			left.extend(fields);
-		}
-		if !left.is_empty() {
-			// Stacked with no kept line among the elements is gone on a
-			// reload, so it may not decide how these lines are written.
-			let stacked = stacks(&self.arena[parent]);
-			self.arena[parent].star_list = stacked;
-			let list = match self.arena[parent].children.last().copied() {
-				Some(last) => &mut self.arena[last].triv_mut().after,
-				None => &mut self.arena[parent].triv_mut().inside,
-			};
-			list.append(&mut left);
-			restep(list);
-		}
-		if !below.is_empty() {
-			self.leave_below(parent, below);
-		}
-	}
-
-	/// Lines a remove left right after `node`'s block: above the next
-	/// binding line, or the footer when there is none.
-	fn leave_below(&mut self, node: usize, mut left: Vec<Lead>) {
-		let mut at = node;
-		while at != ROOT {
-			let up = self.arena[at].parent;
-			let kids = &self.arena[up].children;
-			if let Some(&next) = kids
-				.iter()
-				.position(|&c| c == at)
-				.and_then(|k| kids.get(k + 1))
-			{
-				self.leave_above(next, left);
-				return;
-			}
-			at = up;
-		}
-		left.append(&mut self.orphans);
-		self.orphans = left;
-		restep(&mut self.orphans);
-	}
-
-	/// A blank a remove owes the parent's trailing lines, when the last of
-	/// its children went: the first of them, or the footer at the top. With
-	/// none, there is nothing to set off.
-	fn blank_below(&mut self, parent: usize) {
-		let first = if parent == ROOT {
-			self.orphans.first_mut()
-		} else {
-			self.arena[parent]
-				.trivia
-				.as_deref_mut()
-				.and_then(|t| t.after.first_mut())
-		};
-		if let Some(l) = first {
-			l.blank_before = true;
 		}
 	}
 

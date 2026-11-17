@@ -744,7 +744,7 @@ Where a kept line is comes from canonical output before the edit. Under the targ
 
 - A setter that writes a field writes as a comment every kept line at that level of its block that names only that field. That includes the one heading it when the field was opened from a kept line. So once those lines are fixed by hand, the field doesn't read as Multiple. Only a field line refused for its value alone counts, since its name reads. One with a raw body doesn't, since it can't be commented out as one line. Then the setter changes the field in place. Where there isn't any field of that name, the new one goes right under the first of those comments. The lines written under that kept line go under the new field, where a reload files them. A field made on the way to the target does the same. When there are 2 valid lines of one name, they stay as they are, since a setter on that name is refused (`Multiple`) where a read of it would give `Multiple`.
 
-- A setter whose `(value)` selector doesn't find any instance, and that writes a value another instance of that name has, sets that instance, as a set without a selector does, since the instance it would make folds into it. So the lines beside it stay where they were. A fold of 2 instances, such as a setter giving one the value of an earlier one, leaves the kept lines beside the one that goes where they were, as a remove does. The comments written against it move to the one that stays.
+- A setter whose `(value)` selector doesn't find any instance, and that writes a value another instance of that name has, sets that instance, as a set without a selector does, since the instance it would make folds into it. So the lines beside it stay where they were. A fold of 2 instances, such as a setter giving one the value of an earlier one, leaves the kept lines beside the one that goes where they were, as a remove does. The comments written against it move to the one that stays, and the blank line above it stays where it was, above the next line, as a remove hands it on (2026111623191935).
 
 - The load folds a second instance of one name and value into the first the same way. The kept lines read beside the second one stay above the next line of the block read after them, or at the end of the block, and the comments written against it move to the first. A kept line before a dotted line still goes to the line's first segment, where the dotted line is written.
 
@@ -781,12 +781,13 @@ When an edit removes, replaces, folds, or merges a node, or replaces a list's it
 	- `SetBanner` looks for an info block in the trailing lines and opening lines too, where the parse now files one set off by blank lines. The top of the file is the root's opening lines with the first field's leading lines, and a block there stays.
 
 - The lines of something an edit takes away go to what takes its place, or else the next sibling, or else the parent's trailing lines. They go right above the heir's line, after the comments it already has, and the heir's blank goes above them. So a comment stays against a line, and the blank that set the heir off from the line above it still does. A blank between 2 of the lines that moved stays. One above the first of them goes, since it would set the heir off where the file didn't.
+	- With nothing in its place, the lines go above the next sibling's comments, since a kept line beside what went stays above them. The blank above what went goes right above the the sibling's comments, under the lines that moved. A remove and a setter's fold of 2 instances hand on their lines this way.
 
 - `adopt` is the one function that does it, with the same name and the same call sites in all 4 bindings. No edit moves a comment or a blank any other way, so a new kind of edit can't get the blank wrong on its own.
 
 - A replaced item list goes through it. A setter or a merge that writes the list anew puts the comments among its items, and the ones on them, right above the field (2026110613470311). Before that they went above the field's blank, so they read as part of the block above. The ones above a blank between 2 of them are then set off from the field, so they're filed as the line above's, as a reload files them.
 
-- The code still differs in places. The remove, the folds, the merge of a duplicate, and the banner toggle still use their own helpers, which go once the comment placement suite (2026110616475903) passes with both in place (2026110712372281).
+- The code still differs in places. The load's fold and the banner toggle still use their own helpers, which go once the comment placement suite (2026110616475903) passes with both in place (2026111623192782, 2026111623192800).
 
 ### Default forms
 

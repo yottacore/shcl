@@ -18,6 +18,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A remove keeps the blank line above the field it takes, above the next field, so a gap between 2 groups stays as it does when the line is cut in an editor. Removing one field of a dotted pair keeps the blank line above the pair the same way. It used to take the blank line with the field.
 
+- A set that folds 2 instances of one name and value, such as `--set=b(y)=x` with a `b: x` above, keeps the blank line above the instance that folds above the next line, as a remove does. It used to drop it, or leave it between the 2 instances' comments.
+
 - `instances`, `get --array`, and `get --slots` print a value quoted when it has any line break that Python's `splitlines()` splits at. Besides LF and CR, those are VT, FF, U+001C to U+001E, U+0085, U+2028, and U+2029. Those used to print bare, so a consumer splitting the output counted more values than there were.
 
 ### Fixed
