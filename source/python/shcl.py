@@ -7077,12 +7077,15 @@ class Document:
 			# A file that could not be read gives a save nothing to compare,
 			# so its bytes are as unread as a parsed document's.
 			return doc, st
-		parsed, lost = text, 0
+		parsed, mig = text, None
 		if migrate is not None:
-			m = migrate_unstamped(text, migrate)
-			parsed, lost = m.text, m.lost
+			mig = migrate_unstamped(text, migrate)
+			parsed = mig.text
 		doc = _Parser().parse(parsed, strictness)
-		doc._lost += lost
+		# migrate's count, summed as a merge sums a layer's. Its lines are gone
+		# before the parse sees the text, so the funnel never meets them.
+		if mig is not None:
+			doc._lost += mig.lost
 		if keep:
 			doc._keep_source(parsed)
 		# The file's own bytes, so a save over it is no change.

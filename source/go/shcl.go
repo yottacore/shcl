@@ -10724,13 +10724,15 @@ func loadFileAny(path string, level Strictness, keep, migrate, fromV2 bool) (*Do
 		// its bytes are as unread as a parsed document's.
 		return doc, st
 	}
-	parsed, lost := text, 0
+	parsed, mig := text, Migration{}
 	if migrate {
-		m := MigrateUnstamped(text, fromV2)
-		parsed, lost = m.Text, m.Lost
+		mig = MigrateUnstamped(text, fromV2)
+		parsed = mig.Text
 	}
 	doc := newParser().parse(parsed, level)
-	doc.lost += lost
+	// migrate's count, summed as a merge sums a layer's. Its lines are gone
+	// before the parse sees the text, so the funnel never meets them.
+	doc.lost += mig.Lost
 	if keep {
 		doc.keepSource(parsed)
 	}

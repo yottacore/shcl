@@ -15784,11 +15784,13 @@ static shcl_doc *s_load_file_any(const char *path, shcl_strictness s, int keep, 
 	if (status) *status = st;
 	shcl_doc *d;
 	if (buf && migrate >= 0) {
-		shcl_migration m = shcl_migrate_unstamped(buf, len, migrate);
-		if (!m.text) { free(buf); return NULL; }
-		d = keep ? shcl_parse_keep_lines(m.text, m.len, s) : shcl_parse_with(m.text, m.len, s);
-		free(m.text);
-		if (d) d->lost += m.lost;
+		shcl_migration mig = shcl_migrate_unstamped(buf, len, migrate);
+		if (!mig.text) { free(buf); return NULL; }
+		d = keep ? shcl_parse_keep_lines(mig.text, mig.len, s) : shcl_parse_with(mig.text, mig.len, s);
+		free(mig.text);
+		// migrate's count, summed as a merge sums a layer's. Its lines are gone
+		// before the parse sees the text, so the funnel never meets them.
+		if (d) d->lost += mig.lost;
 	} else {
 		d = !buf ? shcl_parse_with("", 0, s) : keep ? shcl_parse_keep_lines(buf, len, s) : shcl_parse_with(buf, len, s);
 	}

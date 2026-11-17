@@ -7230,10 +7230,14 @@ impl Document {
 			// so its bytes are as unread as a parsed document's.
 			Err(st) => return (Parser::new().parse("", level), st),
 		};
-		let m = migrate.map(|from_v2| migrate_unstamped(&text, from_v2));
-		let parsed = m.as_ref().map_or(text.as_str(), |m| m.text.as_str());
+		let mig = migrate.map(|from_v2| migrate_unstamped(&text, from_v2));
+		let parsed = mig.as_ref().map_or(text.as_str(), |mig| mig.text.as_str());
 		let mut doc = Parser::new().parse(parsed, level);
-		doc.lost += m.as_ref().map_or(0, |m| m.lost);
+		// migrate's count, summed as a merge sums a layer's. Its lines are gone
+		// before the parse sees the text, so the funnel never meets them.
+		if let Some(mig) = &mig {
+			doc.lost += mig.lost;
+		}
 		let st = if doc.error_count() > 0 {
 			FileStatus::HadErrors
 		} else {

@@ -35,10 +35,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- The stamp on save turns the quick run red: check-readme dcbc6 and Rust fuzz dderx and dab72
+	- ID: 2026111711103371
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-111033
+	- Opened by: 2026111710564830
+	- Related IDs: 2026111709431277, 2026111708130702
+	- Version and build: nov17b at ff279feb (stamp on save)
+	- Incorrect behavior: on nov17b, check-readme dcbc6 fails because the C example's saved file now ends with the Format stamp, which the README's 'What saving does' block doesn't show. Rust fuzz_smoke kept_lines_survive_edits (dderx) fails when a remove leaves only the stamp, and merge_never_panics_and_stays_fixpoint (dab72) finds a layer whose merge differs from its canonical form's. Both fuzz tests fail at 20,000 iterations on ff279feb with no other change.
+	- Expected behavior: the README block, check-readme and both fuzz properties agree with the stamp, so the quick run passes.
+
 - shell-regress funnel-scan fails: load_file_opts adds to the lost count outside the funnel in all 4
 	- ID: 2026111710564830
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261117-105648
@@ -46,6 +59,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Related IDs: 2026111708542849
 	- Incorrect behavior: shell-regress dcavz names one lost-count write outside the funnel in each binding, all from a7b1ca7e (load opts): Rust lib.rs `doc.lost += m...`, Go `doc.lost += lost`, Python `doc._lost += lost`, C `d->lost += m.lost`.
 	- Expected behavior: the write goes through the funnel, or the scan lists it with a reason.
+	- Actual cause: the load sums `migrate_unstamped`'s lost count into the parsed document. The funnel files a diagnostic per refused line, and migrate gives a count with no lines, which are gone before the parse sees the text. The scan didn't know this sum, as it knows the merge's.
+	- Actual fix: the scan allows the load's sum as a fourth exception, read as `mig.lost`, and its comment says why. Each binding names the migration `mig` and says the same at the sum. The bait has a `mig.lost` line, so the allowance is pinned.
+	- Decisions:
+		- me, 20261117: an allowance in the scan rather than a route through the funnel. The funnel would file an error per line, with no line numbers to give until 2026111016205703, and an error makes the load HadErrors and fails a Strict load, which 2026111708542849 didn't decide.
+	- Swept: every `lost +=` and `lost++` outside the funnel in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. The scan reports none now, and the only allowed ones are the merge, migrate's `st.lost`, the load's `mig.lost` and the emitter's `tail`.
+	- Verified: dcavz failed on nov17b with the 4 writes and passes now, through shell-regress-rows.bash. A full shell-regress fails only dcvej, de1a8 and dc0b5, which are older. `--backlog-run-quick go c` passed. `--backlog-run-quick rust python` passed Format, Build and Lint and failed dderx and dab72, which fail the same way on nov17b's lib.rs (2026111711103371). The rest of cargo test and the Python conformance suite passed, with dfe4q and dfe4s. check-readme dcbc6 fails on nov17b too, so both runs skipped it.
+	- Test case: shell-regress `dcavz`, with its bait line for `mig.lost`. The load's own tests are `dfe4q`, `dfe4r`, `dfe4s` and `dfe4t`.
+	- Acceptance signoff: Self-closed: dcavz failed before and passes now, and the code change is a rename.
+	- Branch: `nov17b-2026111016205704-fix`
+	- Closed: 20261117-111200
 
 - codeql-scan fails de5aj on an empty except in the Python CLI's gone_since_read
 	- ID: 2026111709183317
