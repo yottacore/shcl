@@ -4018,7 +4018,7 @@ static int stamped_in(ShclArena *a, ShclArena *sc, ShclStr text, const char *eol
 	memset(&sb, 0, sizeof sb);
 	sb_reserve(a, &sb, text.n + sizeof(SHCL_STAMP_LINE) + 2);
 	sb_putS(a, &sb, text);
-	if (body.n && body.p[body.n - 1] != '\n') sb_puts(a, &sb, eol);
+	SHCL_ANALYZER_SKIP if (body.n && body.p[body.n - 1] != '\n') sb_puts(a, &sb, eol); // body.n is what the emitter wrote; clang loses it
 	sb_puts(a, &sb, SHCL_STAMP_LINE);
 	sb_puts(a, &sb, eol);
 	ShclStr r = sb_S(&sb);
@@ -5563,7 +5563,7 @@ static void settle_head(shcl_doc *d, size_t n) {
    (design.md, Lines an edit takes from their node). comment[i] and above[i]
    say whether line i is a comment and has a blank above, and blank is the
    field line's blank. */
-static size_t set_off(size_t n, int blank, const unsigned char *comment, const unsigned char *above) {
+static size_t set_off(size_t n, int blank, const unsigned char *comment, const unsigned char *above) { // NOLINT(bugprone-easily-swappable-parameters): every call passes locals named comment and above
 	size_t cut = 0;
 	for (size_t i = 0; i < n; i++) {
 		if (above[i] && i > 0) cut = i;
@@ -15786,7 +15786,7 @@ static int s_something_at(const char *path) {
    read, parse, and keep the text for a save's changed check. A file that could
    not be read gives a save nothing to compare, so its bytes are as unread as a
    parsed document's. migrate is from_v2 to parse the migrated text, or -1. */
-static shcl_doc *s_load_file_any(const char *path, shcl_strictness s, int keep, int migrate, shcl_file_status *status) {
+static shcl_doc *s_load_file_any(const char *path, shcl_strictness s, int keep, int migrate, shcl_file_status *status) { // NOLINT(bugprone-easily-swappable-parameters): migrate is -1, 0 or 1, and the 3 callers sit below
 	size_t len = 0;
 	shcl_file_status st = SHCL_FILE_UNREADABLE;
 	char *buf = shcl_read_file(path, 0, &len, &st);
