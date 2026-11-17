@@ -348,7 +348,11 @@ static char *fs_slurp(const char *p, size_t *len) {
 	fs_buf b = {0};
 	fs_put(&b, "", 0);
 	char chunk[4096];
-	for (size_t got; (got = fread(chunk, 1, sizeof chunk, f)) > 0;) fs_put(&b, chunk, got);
+	size_t got;
+	do { // a short read is EOF or an error, and the stream says no more after it
+		got = fread(chunk, 1, sizeof chunk, f);
+		fs_put(&b, chunk, got);
+	} while (got == sizeof chunk);
 	int bad = ferror(f);
 	fclose(f);
 	if (bad) {
