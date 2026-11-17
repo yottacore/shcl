@@ -202,6 +202,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Problem description: a fold at load moves the kept lines of the later instance with `refile_folded` and `folded_kept`, and fixes the first blank with `settle_first_blank`, rather than `adopt`.
 	- Requirements: the fold goes through `adopt` in all 4, with the same file-order placement `refile_folded` gives now. The old helpers go in the same commit, once the placement table and fuzz property pass with both in place. `settle_first_blank` also clears the blank at the top of the output for every edit, which moves no line, so this item decides whether that part stays under its own name.
 	- Estimated effort: High
+	- Related IDs: 2026111700365065
+	- Bug 2026111700365065 (the load's fold puts its blank among the comments) likely closes with this item, since it moves the load's fold onto adopt.
 
 - The banner toggle hands the author's lines on through `adopt`
 	- ID: 2026111623192800
