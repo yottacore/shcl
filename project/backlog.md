@@ -317,7 +317,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: every save and every text call that saves writes `## SHCL format 3.0`, or rewrites the stamp there, in all 4 and the C++ interface. The info block's row becomes `##    Format   3.0`. A stamp naming a newer minor of this major is refused for saves, as `TooNew` is.
 	- Estimated effort: Avg
 	- Note: `set_banner` and its `banner_spans` find a Format line by `FORMAT_LINE_HEAD` only, so they don't yet see a `## SHCL format` stamp. The Format read gives the major only, so a newer minor needs the minor from it too.
-	- Note: split for its time cap. The newer-minor refusal is child 2026111708125354, which is done. The info block's `3.0` row and the banner calls seeing the stamp are child 2026111708125373, waiting on the release fuzz. The stamp on every save is child 2026111708130702, Queued.
+	- Note: split for its time cap. The newer-minor refusal is child 2026111708125354, which is done. The info block's `3.0` row and the banner calls seeing the stamp are child 2026111708125373, waiting on the release fuzz. The stamp on every save is child 2026111708130702, Started, with its Go, Python, C and C++ part in 2026111709431277.
 
 - Format versions: refuse a save of a file whose stamp names a newer minor
 	- ID: 2026111708125354
@@ -372,7 +372,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: write the stamp on every save and every text call that saves
 	- ID: 2026111708130702
 	- Type: Feature
-	- Status: Queued
+	- Status: Started
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261117-081307
@@ -383,7 +383,32 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: High
 	- Decisions:
 		- me, 20261117: the stamp goes in through `to_canonical` and `to_text_keep_lines` (each binding's spelling), which every save and every save through text go through. So `fmt` to stdout, `set`'s print and `fmt --check` match `--write`, and every corpus `expected.shcl` gains the stamp. Stamping only in the file saves and the CLI writes would leave those 3 to add it on their own.
+		- me, 20261117: a stamp naming a newer format is left as it is, so the next load still sees it, and a save of that document is refused anyway (`TooNew`). The text call's refusal is 2026111708542868.
+		- me, 20261117: beta1's `Format 3` and a pin such as `3.0-a37` are rewritten to name `3.0`, since the save writes by this format's rules. Only the line the format read picks is rewritten, and it keeps its head and indent.
+		- me, 20261117: a kept text that ends in a raw block left open goes without a stamp, as `migrate` does, rather than fall back to canonical. Appended, the line would be the block's content.
+		- me, 20261117: an added stamp line ends the way the save's new lines do, by the loaded text's majority.
+		- me, 20261117: a merge leaves a layer's `## SHCL format` lines at its top and end out, since they name the layer's file, and keeps the base's end stamp as its last line. Otherwise a merge over a saved file and over the same document differ, which `merge_never_panics_and_stays_fixpoint` and `edits_and_merges_match_a_reload` caught. A layer's stamp inside a node's own comments still rides with the node.
+		- me, 20261117: `upgrade` builds its text without the step, since its info block already carries the Format line.
+		- 20261117: asserts updated for the stamp, in Rust only so far: every one that compares a saved or canonical text gained `## SHCL format 3.0` at the end or a `with_stamp` wrap. `keeping_lines_without_edits_writes_the_input` (`dd3t8`) and the fuzz's no-edit property now allow only the stamp to differ. `a_format_line_at_the_top_goes_when_the_block_goes_on` (`ddy7s`) now expects `##    Format   3.0` after banner off, and `a_stamp_goes_where_a_format_line_goes` (`dfe3m`) expects the stamp back after banner off. The merge fixpoint compares with stamp numbers taken out, since a layer's canonical form rewrites its stamp. Nothing else they check changed.
 	- Note: a line-keeping save adds the stamp as a new last line, so an unedited file without one no longer comes back byte for byte. The fuzz gets a property that a saved file names this format and reloads the same (design doc, Testing).
+	- Progress log:
+		- 20261117: split for its time cap. The Rust step, the stamped corpus (`expected.shcl`, `-write`, `-keep`, `-merged`) and placement table, Rust's asserts and the new test are on `wip/nov17b-2026111708130702`. They can't merge alone, since the other 3 runners read the same corpus. Go, Python, C, the C++ interface, the cli-regress rows and the docs are child 2026111709431277.
+		- 20261117: on the wip branch, `cargo test`, clippy with `-D warnings` and rustfmt pass. Not run there: the other bindings, cli-regress, crosscheck, check-migrate and the 2M release fuzz.
+	- Test case: `a_save_names_this_format` (Rust `dfe62`; Go `dfe63`, Python `dfe64`, C `dfe65` and veneer `dfe66` with the child), plus the corpus files and the fuzz's no-edit save property in `keeping_lines_reloads_as_the_document`.
+	- Branch: `wip/nov17b-2026111708130702`
+
+- Format versions: write the stamp on every save in Go, Python, C and the C++ interface
+	- ID: 2026111709431277
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-094312
+	- Opened by: me
+	- Parent ID: 2026111708130702
+	- Requirements: the parent's stamp step, as Rust has it on `wip/nov17b-2026111708130702`, in Go, Python, C and the C++ interface, with their tests, the cli-regress rows, and spec.md, design.md, the format-versions doc and the changelog. Then the parent's work merges as one, since the corpus is shared.
+	- Estimated effort: High
+	- Note: start from `wip/nov17b-2026111708130702`. It has the Rust step (`stamped`, `canonical_text`, `keep_lines_text`, and the merge's stamp lines), the stamped corpus and placement table, Rust's updated asserts, and the new test `a_save_names_this_format` (`dfe62`). The fixture's other runners take `dfe63` (Go), `dfe64` (Python), `dfe65` (C) and `dfe66` (veneer smoke). `private/claude_simple/tools/stamp-expected.py` stamps saved-text fixtures by the same rule.
 
 - Format versions: find an unstamped file's format, and convert any older one
 	- ID: 2026111018212703
