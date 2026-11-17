@@ -1346,6 +1346,23 @@ def _trailing_to_leading(nd):
 	nd.blank_before = False
 
 
+def _restep_set_off(leads):
+	"""A field written after the footer's last kept line takes the lines up to
+	it, and the run a blank sets off from it starts again at that field's
+	level, as _refile_pair files it. A reload of the footer files it so too
+	(2026111111560900)."""
+	k = len(leads) - 1
+	while k >= 0 and leads[k].text.startswith("#"):
+		k -= 1
+	if k < 0:
+		return
+	cut = _set_off(k + 1, False, lambda i: (leads[i].text.startswith("#"), leads[i].blank_before))
+	if cut > 0:
+		tail = leads[cut:]
+		_restep(tail)
+		leads[cut:] = tail
+
+
 def _settle_first_blank(arena, orphans):
 	"""The emitter drops a blank before the first thing it prints, so a document
 	that kept one there would not survive its own canonical form, and a merge or
@@ -1366,6 +1383,7 @@ def _settle_first_blank(arena, orphans):
 		if at < len(lst):
 			orphans[:0] = lst[at:]
 			del lst[at:]
+	_restep_set_off(orphans)
 	rt = arena[_ROOT].trivia
 	if rt is not None and rt.head:
 		rt.head[0].blank_before = False
@@ -5469,23 +5487,9 @@ class _Parser:
 		# leaf) sits with its line. Stable, so two on one line keep the order
 		# they were found in. Before the cap entry, which ends the list.
 		self.diags.sort(key=lambda d: d.line)
-		# A new field goes after the last kept line here, and the run a blank
-		# sets off from it starts again at the top level, so the load starts
-		# it there too (2026111111560900).
-		pend = self.pending
-		cut = 0
-		for k in range(len(pend) - 1, -1, -1):
-			if not pend[k].text.startswith("#"):
-				cut = _set_off(k + 1, False, lambda i: (pend[i].text.startswith("#"), pend[i].blank_before))
-				break
 		chain: list[tuple[str, int]] = []
 		held: list[tuple[str, int]] = []
-		orphans = []
-		for i, p in enumerate(pend):
-			if i == cut:
-				chain.clear()
-				held.clear()
-			orphans.append(_Lead(p.text, p.blank_before, _comment_depth(chain, held, "", p.text, p.indent), p.line))
+		orphans = [_Lead(p.text, p.blank_before, _comment_depth(chain, held, "", p.text, p.indent), p.line) for p in self.pending]
 		self.pending = []
 		# The one entry past the cap: what was not listed, and whether any of
 		# it was an error, so a consumer scanning the list for errors still

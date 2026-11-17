@@ -1502,6 +1502,26 @@ func trailingToLeading(nd *nodeData) {
 	nd.blankBefore = false
 }
 
+// restepSetOff: a field written after the footer's last kept line takes the
+// lines up to it, and the run a blank sets off from it starts again at that
+// field's level, as refilePair files it. A reload of the footer files it so
+// too (2026111111560900).
+func restepSetOff(leads []lead) {
+	k := len(leads) - 1
+	for k >= 0 && strings.HasPrefix(leads[k].text, "#") {
+		k--
+	}
+	if k < 0 {
+		return
+	}
+	cut := setOff(k+1, false, func(i int) (bool, bool) {
+		return strings.HasPrefix(leads[i].text, "#"), leads[i].blankBefore
+	})
+	if cut > 0 {
+		restep(leads[cut:])
+	}
+}
+
 // settleFirstBlank: the emitter drops a blank before the first thing it
 // prints, so a document that kept one there would not survive its own
 // canonical form, and a merge or a new first line - where it is no longer
@@ -1530,6 +1550,7 @@ func settleFirstBlank(arena []nodeData, orphans *[]lead) {
 			*orphans = moved
 		}
 	}
+	restepSetOff(*orphans)
 	if t := arena[root].trivia; t != nil && len(t.head) > 0 {
 		t.head[0].blankBefore = false
 	} else if kids := arena[root].children; len(kids) > 0 {
@@ -6897,25 +6918,9 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 	// leaf) sits with its line. Stable, so two on one line keep the order
 	// they were found in. Before the cap entry, which ends the list.
 	sort.SliceStable(p.diags, func(i, j int) bool { return p.diags[i].Line < p.diags[j].Line })
-	// A new field goes after the last kept line here, and the run a blank
-	// sets off from it starts again at the top level, so the load starts it
-	// there too (2026111111560900).
-	cut := 0
-	for k := len(p.pending) - 1; k >= 0; k-- {
-		if !strings.HasPrefix(p.pending[k].text, "#") {
-			pend := p.pending
-			cut = setOff(k+1, false, func(i int) (bool, bool) {
-				return strings.HasPrefix(pend[i].text, "#"), pend[i].blankBefore
-			})
-			break
-		}
-	}
 	orphans := make([]lead, 0, len(p.pending))
 	var chain, held []depthEnt
-	for i, pn := range p.pending {
-		if i == cut {
-			chain, held = chain[:0], held[:0]
-		}
+	for _, pn := range p.pending {
 		orphans = append(orphans, lead{text: pn.text, blankBefore: pn.blankBefore, depth: commentDepth(&chain, &held, "", pn.text, pn.indent), line: pn.line})
 	}
 	p.pending = p.pending[:0]

@@ -435,7 +435,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026111111560900
 	- Type: Bug
 	- Status: Waiting on automated testing
-	- Needs local test suite run?: `dd3t9` and `dderx` at `SHCL_FUZZ_ITERS=2000000` in release. Both passed 1,000,000, which covers every iteration the placement property checks.
+	- Needs local test suite run?: all of `fuzz_smoke` at `SHCL_FUZZ_ITERS=2000000` in release. At 200,000 only `dd16k` fails, at 124446 (2026111623445822). `ddrnk`, `dd3t9` and `dderx` passed 1,000,000.
 	- Severity: Avg
 	- Target version: v3.0.0
 	- Opened: 20261111-115609
@@ -450,14 +450,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: the placement property in `dderx` and `dd3t9` excuses this class with a check keyed by this ID. It was found at iteration 759783 of `dderx`'s 2M release run. `df50j` has the case. The fix takes the excuse out.
 	- Decisions:
 		- me, 20261111: the kept line's column is the right form, per design.md's "A comment no deeper than the place it ends up is written at that place's level, as before, which also keeps a run's first comment there", and spec.md's "Then it belongs to the block it's in".
-		- me, 20261117: the load starts a new comment chain at the cut `set_off` gives for the top-level lines after the last binding, up to the last kept line. That is the cut a new field's settle makes, so only the last blank above the first kept line starts a run, as on an edit. design.md's comment-run bullet says so.
+		- me, 20261117: the footer is restepped from the cut `set_off` gives over its lines up to the last kept line, wherever the footer is settled, the load included. That is the cut and the restep a new field's settle makes, so only the last blank above the first kept line starts a run, as on an edit. design.md's comment-run bullet says so.
+		- me, 20261117, send-back: a first try reset the parse's comment chain at that cut instead. Setters and merges still wrote the old depth, so `dc26d`, `dab72`, `dd16k` and `ddrnk` failed in the release fuzz, and a fresh chain could also nest a later comment differently from the restep. It was replaced.
 	- Reproduced: 20261117, Rust at `f0584691` on nov17, the same output as before. The line movers' move onto adopt didn't change it.
 	- Actual cause: with no binding line after them, the parse gave the top-level lines one comment chain, so `# note 2` nested under `# note 0` across the blank. A new field takes those lines and splits them at the blank, and the restep puts `# note 2` back at column 0.
-	- Actual fix: in all 4 bindings, the end of the parse resets the comment chain at that cut. The excuse keyed by this ID is out of `placement_slips`, and `df50j` now expects column 0 on the load.
+	- Actual fix: in all 4 bindings, `settle_first_blank` resteps the footer from that cut (`restep_set_off`). It runs at the end of the load and after every edit and merge that settles the ends. The excuse keyed by this ID is out of `placement_slips`, and `df50j` now expects column 0 on the load.
 	- Swept: the parse's other sites that hand pending lines on. `give_set_off` already splits at the same cut when a binding line follows. A block's inside lines through `hang_deeper_pending` have the same bug, filed as child 2026111702420992. A comment after the last kept line still moves under the new field and goes to column 0 there, which is `new_child`'s by design.
-	- Branch: nov17-2026111111560900
+	- Branch: nov17-2026111111560900-fix
 	- Test case: placement rows `2026111111560900-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `df50j`, `dd3t9`, `dderx`.
 	- Verified: the 3 placement rows fail on the C library at `f0584691` (canonical text for -1 and -3, kept text for -2) and pass in all 4 now. `df50j`, all of `fuzz_smoke` and the conformance suites in debug, the C and Python conformance runners, Go `go test -count=1`, cli-regress (671 rows) and crosscheck over the corpus (23862 comparisons), `dd3t9` and `dderx` at 1,000,000 in release, `--backlog-run-quick rust go python c`, and lint-report.
+		- After the send-back fix: all of `fuzz_smoke` at 200,000 in release fails only `dd16k` at 124446, as on `f0584691`. `ddrnk`, `dd3t9` and `dderx` pass 1,000,000 in release. The 4 conformance suites, Go's cmd module, cli-regress (671 rows), crosscheck over the corpus and a 2000-iteration dump (55461 comparisons, `ddesf` included), `--backlog-run-quick rust go python c`, and lint-report.
 
 - A deeper comment a blank sets off above a kept line that ends a block is written one level in by `fmt` and at the block's level after an edit
 	- ID: 2026111702420992

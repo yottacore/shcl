@@ -1455,6 +1455,7 @@ fn settle_first_blank(arena: &mut [NodeData], orphans: &mut Vec<Lead>) {
 			*orphans = moved;
 		}
 	}
+	restep_set_off(orphans);
 	if let Some(c) = arena[ROOT].trivia.as_mut().and_then(|t| t.head.first_mut()) {
 		c.blank_before = false;
 	} else if let Some(&first) = arena[ROOT].children.first() {
@@ -1465,6 +1466,22 @@ fn settle_first_blank(arena: &mut [NodeData], orphans: &mut Vec<Lead>) {
 		}
 	} else if let Some(c) = orphans.first_mut() {
 		c.blank_before = false;
+	}
+}
+
+/// A field written after the footer's last kept line takes the lines up to
+/// it, and the run a blank sets off from it starts again at that field's
+/// level, as refile_pair() files it. A reload of the footer files it so too
+/// (2026111111560900).
+fn restep_set_off(leads: &mut [Lead]) {
+	let Some(k) = leads.iter().rposition(|l| !l.text.starts_with('#')) else {
+		return;
+	};
+	let cut = set_off(k + 1, false, |i| {
+		(leads[i].text.starts_with('#'), leads[i].blank_before)
+	});
+	if cut > 0 {
+		restep(&mut leads[cut..]);
 	}
 }
 
@@ -6805,31 +6822,12 @@ impl<'a> Parser<'a> {
 		// leaf) sits with its line. Stable, so two on one line keep the order
 		// they were found in. Before the cap entry, which ends the list.
 		self.diags.sort_by_key(|d| d.line);
-		// A new field goes after the last kept line here, and the run a blank
-		// sets off from it starts again at the top level, so the load starts
-		// it there too (2026111111560900).
-		let p = &self.pending;
-		let cut = p
-			.iter()
-			.rposition(|l| !l.text.starts_with('#'))
-			.map_or(0, |k| {
-				set_off(k + 1, false, |i| {
-					(p[i].text.starts_with('#'), p[i].blank_before)
-				})
-			});
 		let (mut chain, mut held) = (Vec::new(), Vec::new());
 		let orphans: Vec<Lead> = self
 			.pending
 			.drain(..)
-			.enumerate()
-			.map(|(i, p)| Lead {
-				depth: {
-					if i == cut {
-						chain.clear();
-						held.clear();
-					}
-					comment_depth(&mut chain, &mut held, "", &p.text, p.indent)
-				},
+			.map(|p| Lead {
+				depth: comment_depth(&mut chain, &mut held, "", &p.text, p.indent),
 				text: p.text,
 				blank_before: p.blank_before,
 				line: p.line,
