@@ -35,125 +35,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- Fuzz `dc26d` fails at iteration 1076243 at 2,000,000: a write on structural soup is not a fixpoint
-	- ID: 2026111703284678
-	- Type: Bug
-	- Status: Queued
-	- Severity: Avg
-	- Opened: 20261117-032846
-	- Opened by:
-	- Progress log:
-		- Fails at iteration 1076243 (op 0, path "c", a value with an emoji flag, a dollar sign, a quote and a tab) on dev at 813dfecf, so it predates round nov17. Passes at 200,000. Found by the nov17 gate step's 2M release fuzz.
-	- Test case: dc26d (writes_on_structural_soup_stay_fixpoint) at SHCL_FUZZ_ITERS=2000000 in release
-
-- A load's fold of a second instance moves the blank line above it among the comments, or above the wrong field
-	- ID: 2026111700365065
-	- Type: Bug
-	- Status: Waiting on automated testing
-	- Severity: Avg
-	- Target version: v3.0.0
-	- Opened: 20261117-003650
-	- Opened by: found while working 2026111623191935
-	- Related IDs: 2026111623192782, 2026111623191935
-	- Steps to reproduce: `printf 'q: 0\n\n# about x\nb: x\n\tp: 1\nc: 1\n\n# about y\nb: x\n\tq: 2\nd: 2\n' | shcl fmt -`, and `printf 'b: x\n\tk: 1\n\t\tm: 1\n\tc: 1\nb: x\n\td: 2\n\n\tk: 1\n\t\tn: 2\n\te: 3\n' | shcl fmt -`.
-	- Incorrect behavior: the first writes a blank between `# about x` and `# about y` above `b: x`, and none above `d: 2`. The second writes a blank above `k: 1` right under `b: x`, and none above `e: 3`. Same output in all 4 CLIs, at exit 0.
-	- Expected behavior: the blank above the instance that folds stays above the next line, `d: 2` and `e: 3` here, as a setter's fold now leaves it (2026111623191935).
-	- Reproduced: 20261117, all 4 CLIs on `nov17-2026111623191935`.
-	- Possible cause: the load's fold appends the second instance's leading lines to the first one's with their blank, and the instance's own blank is dropped. The setter's fold takes both off and hands them on through `adopt`. 2026111623192782 moves the load's fold onto `adopt` and may close this with it.
-	- Estimated effort: Avg
-	- Prereq IDs: 2026111623192782, 2026111623445822, 2026111703284678
-	- Test case: placement rows 2026111700365065-1 to -5 in project/conformance/placement.txt
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111623445822 (dd16k) and 2026111703284678 (dc26d) are fixed.
-	- Fixed by 2026111623192782's commit, whose new placement rows -1 and -2 are this Bug's 2 commands. They failed on 59074148 in all 4 runners and pass after.
-	- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
-
-- analyze-c fails on dev: clang-tidy on `set_off`, and the clang analyzer on `fs_property.c`
-	- ID: 2026111623502776
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261116-235027
-	- Opened by: found while working 2026111623191917
-	- Version and build: `nov17` at `813dfecf`
-	- Steps to reproduce: `cicd/utility/analyze-c.bash`.
-	- Incorrect behavior: `de2x4` fails on `bugprone-easily-swappable-parameters` for `set_off` in `shcl.h` (its `comment` and `above` arrays), from `1bbee68b` (2026-11-11). `de2x3` fails on `fs_slurp` in `source/c/tests/fs_property.c`, a read after end of file the analyzer assumes.
-	- Expected behavior: both pass, with a real fix or a suppression at the line with its reason, as the 3 bugprone checks are judged.
-	- Estimated effort: Low
-
-- Fuzz `dd16k` fails at iteration 124446 at 200,000: a `set_literal` then `clear_comments` gives a document and its reload different text
-	- ID: 2026111623445822
-	- Type: Bug
-	- Status: Queued
-	- Severity: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261116-234458
-	- Opened by: found while working 2026111623191917
-	- Version and build: `nov17` at `813dfecf`
-	- Steps to reproduce: `SHCL_FUZZ_ITERS=200000 cargo test --release --test fuzz_smoke edits_and_merges_match_a_reload`. The base is a mutated corpus input with BOM, fence and kept lines, then op 9 (`set_literal`) and op 10 (`clear_comments`) at `c`.
-	- Incorrect behavior: the step gives different canonical text on the document and on the reload of its canonical text.
-	- Expected behavior: the same text, as the property holds.
-	- Reproduced: 20261116, Rust, on `813dfecf` with its own library, so it is older than 2026111623191917. The other 3 bindings weren't tried. The gate fuzz at 200,000 fails on it.
-	- Estimated effort: Avg
-
-- Rust's file calls can't save to a path that isn't UTF-8
-	- ID: 2026111217560157
-	- Type: Enhancement
-	- Status: Queued
-	- Opened: 20261112-175601
-	- Opened by: shcl feedback (tukzmon round, 20261112)
-	- Problem description: Rust's file calls take `&str`, so `write_file_atomic` and `upgrade_file` can't save to a file name that isn't UTF-8, which Linux allows.
-	- Requirements: take `impl AsRef<Path>`, so `&str` callers still compile. Or design.md says file paths are text in every binding.
-	- Estimated effort: Low
-	- Priority: Low
-
-- `Document::merge` drops the base file's comments on every leaf the upper layer names
-	- ID: 2026111217560140
-	- Type: Enhancement
-	- Status: Queued
-	- Opened: 20261112-175601
-	- Opened by: shcl feedback (tukzmon round, 20261112)
-	- Related IDs: 2026110712372281
-	- Problem description: the base's comments go on every leaf the upper layer names, even when the value didn't change. So a program saving over a hand-edited file can't use the merge. tukzmon keeps the comments with about 45 lines of setters and a reparse check.
-	- Requirements: a merge option that keeps the base's comments.
-	- Estimated effort: Avg
-	- Priority: Avg
-
-- H001 on a case-only repeat gives the same hint as a real repeat
-	- ID: 2026111217560122
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261112-175601
-	- Opened by: shcl feedback (tukzmon round, 20261112)
-	- Related IDs: 2026111016205711
-	- Steps to reproduce: `Order: a`, then `order: b`.
-	- Incorrect behavior: H001 says "did you mean 'order: [a, b]'?", the same hint as for a real repeat, and nothing says names ignore case.
-	- Expected behavior: the hint names both spellings and says they're one name.
-	- Estimated effort: Low
-
-- Removes, folds, merges, and the banner toggle hand lines on through `adopt`
-	- ID: 2026110712372281
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261107-123722
-	- Opened by: split from 2026110616475902
-	- Parent ID: 2026110616475902
-	- Prereq IDs: 2026110616475903, 2026110712372276
-	- Related IDs: 2026110712372271, 2026110613470302, 2026110613470312, 2026110312163204, 2026110315051536
-	- Problem description: `adopt` is in, and a replaced item list goes through it (2026110712372271). The other edits still move the lines around what they take away in their own code: the remove's own path, `beside_kept` with `leave_above` and `leave_last` for a merged duplicate, `refile_folded` and `settle_first_blank` for a fold at load, and `drop_banners` for the info block.
-	- Requirements:
-		- Each of them calls `adopt`, with the same call sites in all 4 bindings, per design.md's "Lines an edit takes from their node". The heir is what takes the node's place, else the next sibling, else the parent's trailing lines.
-		- The old helpers go in the same commit, once the placement suite 2026110616475903 passes with both in place. A grep for them then finds only `adopt`.
-		- The kept-line rules stay as they are: design.md's table for kept lines under edits, a misplaced line keeping its space indent, `E001` and `E008` lines as built.
-		- design.md's "Where the code still differs" bullet loses its second half.
-		- A remove takes the node's comment lines, per spec.md's Remove, and hands its blank line to the heir. So `x`, a blank, `y`, `z`, minus `y`, gives `x`, a blank, `z`, and 2026110613470312's dotted pair keeps the blank above it (me, 20261109, from that item's `Check:`). spec.md's Remove sentence says so, and a corpus golden that changes is named on this item.
-	- Regression test: 2026110616475903's property and table run against both the old helpers and `adopt` before the old ones go, and a check-docs row greps the 4 bindings for the retired helper names. The table gets the `x`, blank, `y`, `z` remove row and 2026110613470312's dotted pair with a blank above it.
-	- Estimated effort: High
-	- Progress log:
-		- 20261116: split in 4. The remove's blank is child 2026111623191917. The remove and the setter folds through `adopt` are 2026111623191935, the load's fold 2026111623192782, and the banner toggle with the check-docs row and the design.md bullet 2026111623192800.
-
 - A remove drops the blank line above its target, so the gap between 2 groups closes
 	- ID: 2026111623191917
 	- Type: Enhancement
@@ -267,6 +148,82 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: `dfdpp` fails on an injected `_leave_above` and its grep finds the old names in all 4 files at `31714ad8`, and it passes on the change. A differential over 11,000 random files with info blocks, through `set_banner` on and off and `upgrade` with and without `from_v2`, gives the same results on the old and new Python library, and it catches a dropped blank. The 4 CLIs agree on `banner on`, `banner off` and `upgrade --from-2x` over 300 more. The 4 conformance suites, the Rust lib, upgrade and fuzz tests, the Go tests in both modules, `--backlog-run-quick rust go python c`, cli-regress (671 rows), crosscheck (23862 comparisons), check-docs, lint-report, the banner-touching fuzz properties at 200,000 in release apart from `dd16k` (2026111623445822, at the same iteration as before), rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, and gcc, gcc 15 and clang at `-Werror`. analyze-c's 2 reds are the older `set_off` and `fs_property.c` ones (2026111623502776).
 	- Branch: `nov17-2026111623192800`
 
+- A load's fold of a second instance moves the blank line above it among the comments, or above the wrong field
+	- ID: 2026111700365065
+	- Type: Bug
+	- Status: Waiting on automated testing
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261117-003650
+	- Opened by: found while working 2026111623191935
+	- Related IDs: 2026111623192782, 2026111623191935
+	- Steps to reproduce: `printf 'q: 0\n\n# about x\nb: x\n\tp: 1\nc: 1\n\n# about y\nb: x\n\tq: 2\nd: 2\n' | shcl fmt -`, and `printf 'b: x\n\tk: 1\n\t\tm: 1\n\tc: 1\nb: x\n\td: 2\n\n\tk: 1\n\t\tn: 2\n\te: 3\n' | shcl fmt -`.
+	- Incorrect behavior: the first writes a blank between `# about x` and `# about y` above `b: x`, and none above `d: 2`. The second writes a blank above `k: 1` right under `b: x`, and none above `e: 3`. Same output in all 4 CLIs, at exit 0.
+	- Expected behavior: the blank above the instance that folds stays above the next line, `d: 2` and `e: 3` here, as a setter's fold now leaves it (2026111623191935).
+	- Reproduced: 20261117, all 4 CLIs on `nov17-2026111623191935`.
+	- Possible cause: the load's fold appends the second instance's leading lines to the first one's with their blank, and the instance's own blank is dropped. The setter's fold takes both off and hands them on through `adopt`. 2026111623192782 moves the load's fold onto `adopt` and may close this with it.
+	- Estimated effort: Avg
+	- Prereq IDs: 2026111623192782, 2026111623445822, 2026111703284678
+	- Test case: placement rows 2026111700365065-1 to -5 in project/conformance/placement.txt
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111623445822 (dd16k) and 2026111703284678 (dc26d) are fixed.
+	- Fixed by 2026111623192782's commit, whose new placement rows -1 and -2 are this Bug's 2 commands. They failed on 59074148 in all 4 runners and pass after.
+	- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
+
+- A deeper comment above a top-level kept line is written one level in by `fmt` and at column 0 after any edit
+	- ID: 2026111111560900
+	- Type: Bug
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111623445822 (dd16k) and 2026111703284678 (dc26d) are fixed.
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261111-115609
+	- Opened by: me, found while working 2026111012160121 in run b2bits
+	- Related IDs: 2026111012160121, 2026111109371400, 2026110712372276
+	- Version and build: b2bits at `f19d4f80`, with run b2bits' changes
+	- Steps to reproduce: `printf '# note 0\n\n    # note 2\n        b: [3\n' > f.shcl`, then `shcl fmt f.shcl`, and `printf 'int\tz0\t7\n' | shcl set f.shcl`.
+	- Incorrect behavior: `fmt` writes `# note 0`, a blank, `\t# note 2`, `b: [3`. Any edit, even one far from the comment, writes `# note 2` at column 0. `int z0 7` and `comment z0 added` both do, in the canonical form and in the line-keeping save, which keeps `        b: [3` as written. So the file has one canonical form unedited and another after an edit.
+	- Expected behavior: `# note 2` is written at column 0 in both, which is the kept line's column. The blank breaks the run, so `# note 2` is its run's first comment, and design.md says a run's first comment is written at the level of the place it ends up. No block is open at its column, so by spec.md's comment rule it belongs to the root.
+	- Reproduced: 20261111, the Rust, Go, and C CLIs, all with the same output.
+	- Estimated effort: Low
+	- Note: the placement property in `dderx` and `dd3t9` excuses this class with a check keyed by this ID. It was found at iteration 759783 of `dderx`'s 2M release run. `df50j` has the case. The fix takes the excuse out.
+	- Decisions:
+		- me, 20261111: the kept line's column is the right form, per design.md's "A comment no deeper than the place it ends up is written at that place's level, as before, which also keeps a run's first comment there", and spec.md's "Then it belongs to the block it's in".
+		- me, 20261117: the footer is restepped from the cut `set_off` gives over its lines up to the last kept line, wherever the footer is settled, the load included. That is the cut and the restep a new field's settle makes, so only the last blank above the first kept line starts a run, as on an edit. design.md's comment-run bullet says so.
+		- me, 20261117, send-back: a first try reset the parse's comment chain at that cut instead. Setters and merges still wrote the old depth, so `dc26d`, `dab72`, `dd16k` and `ddrnk` failed in the release fuzz, and a fresh chain could also nest a later comment differently from the restep. It was replaced.
+	- Reproduced: 20261117, Rust at `f0584691` on nov17, the same output as before. The line movers' move onto adopt didn't change it.
+	- Actual cause: with no binding line after them, the parse gave the top-level lines one comment chain, so `# note 2` nested under `# note 0` across the blank. A new field takes those lines and splits them at the blank, and the restep puts `# note 2` back at column 0.
+	- Actual fix: in all 4 bindings, `settle_first_blank` resteps the footer from that cut (`restep_set_off`). It runs at the end of the load and after every edit and merge that settles the ends. The excuse keyed by this ID is out of `placement_slips`, and `df50j` now expects column 0 on the load.
+	- Swept: the parse's other sites that hand pending lines on. `give_set_off` already splits at the same cut when a binding line follows. A block's inside lines through `hang_deeper_pending` have the same bug, filed as child 2026111702420992. A comment after the last kept line still moves under the new field and goes to column 0 there, which is `new_child`'s by design.
+	- Branch: nov17-2026111111560900-fix
+	- Test case: placement rows `2026111111560900-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `df50j`, `dd3t9`, `dderx`.
+	- Verified: the 3 placement rows fail on the C library at `f0584691` (canonical text for -1 and -3, kept text for -2) and pass in all 4 now. `df50j`, all of `fuzz_smoke` and the conformance suites in debug, the C and Python conformance runners, Go `go test -count=1`, cli-regress (671 rows) and crosscheck over the corpus (23862 comparisons), `dd3t9` and `dderx` at 1,000,000 in release, `--backlog-run-quick rust go python c`, and lint-report.
+		- After the send-back fix: all of `fuzz_smoke` at 200,000 in release fails only `dd16k` at 124446, as on `f0584691`. `ddrnk`, `dd3t9` and `dderx` pass 1,000,000 in release. The 4 conformance suites, Go's cmd module, cli-regress (671 rows), crosscheck over the corpus and a 2000-iteration dump (55461 comparisons, `ddesf` included), `--backlog-run-quick rust go python c`, and lint-report.
+	- Prereq IDs: 2026111623445822, 2026111703284678
+	- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
+
+- Removes, folds, merges, and the banner toggle hand lines on through `adopt`
+	- ID: 2026110712372281
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261107-123722
+	- Opened by: split from 2026110616475902
+	- Parent ID: 2026110616475902
+	- Prereq IDs: 2026110616475903, 2026110712372276
+	- Related IDs: 2026110712372271, 2026110613470302, 2026110613470312, 2026110312163204, 2026110315051536
+	- Problem description: `adopt` is in, and a replaced item list goes through it (2026110712372271). The other edits still move the lines around what they take away in their own code: the remove's own path, `beside_kept` with `leave_above` and `leave_last` for a merged duplicate, `refile_folded` and `settle_first_blank` for a fold at load, and `drop_banners` for the info block.
+	- Requirements:
+		- Each of them calls `adopt`, with the same call sites in all 4 bindings, per design.md's "Lines an edit takes from their node". The heir is what takes the node's place, else the next sibling, else the parent's trailing lines.
+		- The old helpers go in the same commit, once the placement suite 2026110616475903 passes with both in place. A grep for them then finds only `adopt`.
+		- The kept-line rules stay as they are: design.md's table for kept lines under edits, a misplaced line keeping its space indent, `E001` and `E008` lines as built.
+		- design.md's "Where the code still differs" bullet loses its second half.
+		- A remove takes the node's comment lines, per spec.md's Remove, and hands its blank line to the heir. So `x`, a blank, `y`, `z`, minus `y`, gives `x`, a blank, `z`, and 2026110613470312's dotted pair keeps the blank above it (me, 20261109, from that item's `Check:`). spec.md's Remove sentence says so, and a corpus golden that changes is named on this item.
+	- Regression test: 2026110616475903's property and table run against both the old helpers and `adopt` before the old ones go, and a check-docs row greps the 4 bindings for the retired helper names. The table gets the `x`, blank, `y`, `z` remove row and 2026110613470312's dotted pair with a blank above it.
+	- Estimated effort: High
+	- Progress log:
+		- 20261116: split in 4. The remove's blank is child 2026111623191917. The remove and the setter folds through `adopt` are 2026111623191935, the load's fold 2026111623192782, and the banner toggle with the check-docs row and the design.md bullet 2026111623192800.
+
 - One helper reattaches the lines around a node an edit takes away
 	- ID: 2026110616475902
 	- Type: Enhancement
@@ -315,34 +272,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261110: part of the next release, beta2 (JC).
 	- Estimated effort: High
 
-- Format versions: the reading rules of each published format, and the pins
-	- ID: 2026111018212701
-	- Type: Task
-	- Status: Done
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261110-182127
-	- Opened by: JC
-	- Parent ID: 2026111018212700
-	- Requirements:
-		- Build the CLI at each of the 8 tags, and find where each one reads the corpus differently from the one before. That settles which releases start a format.
-		- List the dev snapshots that consumers pinned, from each one's lockfiles and vendored copies, with the shortest commit name for each.
-		- Write a table of tells per format for the content scan.
-	- Estimated effort: Avg
-	- Decisions:
-		- me, 20261117: v1.1.0 starts format 1.1, since it reads 4 documents differently from v1.0.0. It's one fold fix with no text tell. v1.2.0 reads like v1.1.0, so there's no 1.2.
-		- me, 20261117: pinned commits that read every document the same share one format, named after the earliest, as releases are. That gives 7 pin formats for the 15 pins, 3.0-1f8 to 3.0-a65.
-		- me, 20261117: a pin's name is its first 3 characters. 2 tell the 15 apart, but `3.0-b1` reads as beta1, and 3 matches the decisions' `3.0-a37`. Each pin's own name is accepted as another name for its format.
-		- me, 20261117: formats that differ only where a line has an error stay separate. Their steps have nothing to rewrite, and a clean file is stamped with the newest of the run.
-	- Progress log:
-		- 20261117: built the Rust CLI at the 8 tags and the 15 pins, and ran each over every tag's corpus files (787) and 800 fuzz-dumped documents through `fmt` and `check`. A probe set of 31 spellings gives the tells. Results are in the design doc's Format numbers, Pinned dev snapshots and Tells sections.
-		- 20261117: check-migrate's 2.x oracle is `7be348d0`, not the v2.0.0 tag, and the two read 519 documents differently. Noted in the design doc's Testing for 2026111018212703.
-	- Verified: documents read differently from the version before, corpus plus fuzz: beta2 329, rc1 1, v1.0.0 0, v1.1.0 4, v1.2.0 0, v2.0.0 933. Inside each pin format's group, 0.
-	- Test case: none, a research task. The tools are `private/claude_simple/tools/format-reads.py` and `format-tells.py` beside it, and 2026111018212703's round-trip gate tests the findings.
-	- Acceptance signoff: Self-closed: each table row comes from a run of the CLI at that tag or pin. The format list is also a Check: entry.
-	- Branch: `nov17-2026111018212701`
-	- Closed: 20261117-015854
-
 - Format versions: the stamp on every save, and the format constants
 	- ID: 2026111018212702
 	- Type: Feature
@@ -359,30 +288,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- beta1's `##    Format   3` and the new forms all read.
 	- Estimated effort: Avg
 	- Note: split for its time cap. The constants, name table and reading are child 2026111702033119, which is done. The stamp on every save is child 2026111702033137, Queued.
-
-- Format versions: add the format constants and name table, and read every stamp form
-	- ID: 2026111702033119
-	- Type: Feature
-	- Status: Done
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261117-020331
-	- Opened by: me
-	- Parent ID: 2026111018212702
-	- Requirements: add a format minor, the stamp's head and line, and the format name table beside `FORMAT_MAJOR`, in all 4 and the C++ interface. beta1's `##    Format   3`, `##    Format   3.0` and `## SHCL format 3.0` all read, as do the format and pin names.
-	- Estimated effort: Avg
-	- Actual effort: Low
-	- Decisions:
-		- me, 20261117: the name table is (name, format) rows, a format's own row first and its pins' names after it, so all 4 bindings and C share one plain shape.
-		- me, 20261117: the read takes any `MAJOR`, `MAJOR.MINOR` or `MAJOR.MINOR-pin`, with the pin in lowercase letters and digits, not only the table's names, so a newer file's minor or pin still reads as its major. The read gives the major only. Refusing a newer minor's save is in 2026111702033137.
-		- me, 20261117: `## SHCL format` naming an older major counts as an older Format line does, for `migrate` and `H007`, until 2026111018212703 adds the steps.
-	- Actual fix: `FORMAT_MINOR`, `FORMAT_NAMES`, `STAMP_HEAD` and `STAMP_LINE` in all 4 and the C++ interface, in each binding's spelling. The Format read takes the stamp's head and the new forms after either head. spec.md and the design doc say so.
-	- Swept: `format_line_read` in Rust and C, `formatLineRead` in Go, `_format_line_read` in Python. The H006 and H007 hints, `restamp` and `upgrade_file` all read through it. `set_banner` and `drop_banners` match `FORMAT_LINE_HEAD` only, which is for 2026111702033137.
-	- Verified: `format_names_read` and the new `stamp_reads_say_why` rows fail in Rust and Python with the minor's dot refused, and pass with the fix. `--backlog-run-quick rust python` and `--backlog-run-quick go c cli` passed, plus check-veneer, the veneer smoke test, cli-regress, the crosscheck over the corpus, `lint-report.bash --check --no-mark` and `test-ids.py check`.
-	- Test case: `format_names_read` (Rust `dfdqv`, Go `dfdqw`, Python `dfdqx`, C `dfdqy`), and the new rows of `stamp_reads_say_why` (`ddqh8`, `ddqh9`, `ddqha`, `ddqhb`).
-	- Acceptance signoff: Self-closed: each form reads in all 4, by test, and nothing that saves changed.
-	- Branch: `nov17-2026111018212702`
-	- Closed: 20261117-022040
 
 - Format versions: write the stamp on every save
 	- ID: 2026111702033137
@@ -449,37 +354,31 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: the standing rule that only `init` and a creating `set --write` add the info block isn't touched. This is opt-in, and the Format line alone isn't the block.
 	- Estimated effort: Avg
 
-- A deeper comment above a top-level kept line is written one level in by `fmt` and at column 0 after any edit
-	- ID: 2026111111560900
+- Fuzz `dc26d` fails at iteration 1076243 at 2,000,000: a write on structural soup is not a fixpoint
+	- ID: 2026111703284678
 	- Type: Bug
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111623445822 (dd16k) and 2026111703284678 (dc26d) are fixed.
+	- Status: Queued
 	- Severity: Avg
-	- Target version: v3.0.0
-	- Opened: 20261111-115609
-	- Opened by: me, found while working 2026111012160121 in run b2bits
-	- Related IDs: 2026111012160121, 2026111109371400, 2026110712372276
-	- Version and build: b2bits at `f19d4f80`, with run b2bits' changes
-	- Steps to reproduce: `printf '# note 0\n\n    # note 2\n        b: [3\n' > f.shcl`, then `shcl fmt f.shcl`, and `printf 'int\tz0\t7\n' | shcl set f.shcl`.
-	- Incorrect behavior: `fmt` writes `# note 0`, a blank, `\t# note 2`, `b: [3`. Any edit, even one far from the comment, writes `# note 2` at column 0. `int z0 7` and `comment z0 added` both do, in the canonical form and in the line-keeping save, which keeps `        b: [3` as written. So the file has one canonical form unedited and another after an edit.
-	- Expected behavior: `# note 2` is written at column 0 in both, which is the kept line's column. The blank breaks the run, so `# note 2` is its run's first comment, and design.md says a run's first comment is written at the level of the place it ends up. No block is open at its column, so by spec.md's comment rule it belongs to the root.
-	- Reproduced: 20261111, the Rust, Go, and C CLIs, all with the same output.
-	- Estimated effort: Low
-	- Note: the placement property in `dderx` and `dd3t9` excuses this class with a check keyed by this ID. It was found at iteration 759783 of `dderx`'s 2M release run. `df50j` has the case. The fix takes the excuse out.
-	- Decisions:
-		- me, 20261111: the kept line's column is the right form, per design.md's "A comment no deeper than the place it ends up is written at that place's level, as before, which also keeps a run's first comment there", and spec.md's "Then it belongs to the block it's in".
-		- me, 20261117: the footer is restepped from the cut `set_off` gives over its lines up to the last kept line, wherever the footer is settled, the load included. That is the cut and the restep a new field's settle makes, so only the last blank above the first kept line starts a run, as on an edit. design.md's comment-run bullet says so.
-		- me, 20261117, send-back: a first try reset the parse's comment chain at that cut instead. Setters and merges still wrote the old depth, so `dc26d`, `dab72`, `dd16k` and `ddrnk` failed in the release fuzz, and a fresh chain could also nest a later comment differently from the restep. It was replaced.
-	- Reproduced: 20261117, Rust at `f0584691` on nov17, the same output as before. The line movers' move onto adopt didn't change it.
-	- Actual cause: with no binding line after them, the parse gave the top-level lines one comment chain, so `# note 2` nested under `# note 0` across the blank. A new field takes those lines and splits them at the blank, and the restep puts `# note 2` back at column 0.
-	- Actual fix: in all 4 bindings, `settle_first_blank` resteps the footer from that cut (`restep_set_off`). It runs at the end of the load and after every edit and merge that settles the ends. The excuse keyed by this ID is out of `placement_slips`, and `df50j` now expects column 0 on the load.
-	- Swept: the parse's other sites that hand pending lines on. `give_set_off` already splits at the same cut when a binding line follows. A block's inside lines through `hang_deeper_pending` have the same bug, filed as child 2026111702420992. A comment after the last kept line still moves under the new field and goes to column 0 there, which is `new_child`'s by design.
-	- Branch: nov17-2026111111560900-fix
-	- Test case: placement rows `2026111111560900-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `df50j`, `dd3t9`, `dderx`.
-	- Verified: the 3 placement rows fail on the C library at `f0584691` (canonical text for -1 and -3, kept text for -2) and pass in all 4 now. `df50j`, all of `fuzz_smoke` and the conformance suites in debug, the C and Python conformance runners, Go `go test -count=1`, cli-regress (671 rows) and crosscheck over the corpus (23862 comparisons), `dd3t9` and `dderx` at 1,000,000 in release, `--backlog-run-quick rust go python c`, and lint-report.
-		- After the send-back fix: all of `fuzz_smoke` at 200,000 in release fails only `dd16k` at 124446, as on `f0584691`. `ddrnk`, `dd3t9` and `dderx` pass 1,000,000 in release. The 4 conformance suites, Go's cmd module, cli-regress (671 rows), crosscheck over the corpus and a 2000-iteration dump (55461 comparisons, `ddesf` included), `--backlog-run-quick rust go python c`, and lint-report.
-	- Prereq IDs: 2026111623445822, 2026111703284678
-	- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
+	- Opened: 20261117-032846
+	- Opened by:
+	- Progress log:
+		- Fails at iteration 1076243 (op 0, path "c", a value with an emoji flag, a dollar sign, a quote and a tab) on dev at 813dfecf, so it predates round nov17. Passes at 200,000. Found by the nov17 gate step's 2M release fuzz.
+	- Test case: dc26d (writes_on_structural_soup_stay_fixpoint) at SHCL_FUZZ_ITERS=2000000 in release
+
+- Fuzz `dd16k` fails at iteration 124446 at 200,000: a `set_literal` then `clear_comments` gives a document and its reload different text
+	- ID: 2026111623445822
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261116-234458
+	- Opened by: found while working 2026111623191917
+	- Version and build: `nov17` at `813dfecf`
+	- Steps to reproduce: `SHCL_FUZZ_ITERS=200000 cargo test --release --test fuzz_smoke edits_and_merges_match_a_reload`. The base is a mutated corpus input with BOM, fence and kept lines, then op 9 (`set_literal`) and op 10 (`clear_comments`) at `c`.
+	- Incorrect behavior: the step gives different canonical text on the document and on the reload of its canonical text.
+	- Expected behavior: the same text, as the property holds.
+	- Reproduced: 20261116, Rust, on `813dfecf` with its own library, so it is older than 2026111623191917. The other 3 bindings weren't tried. The gate fuzz at 200,000 fails on it.
+	- Estimated effort: Avg
 
 - A deeper comment a blank sets off above a kept line that ends a block is written one level in by `fmt` and at the block's level after an edit
 	- ID: 2026111702420992
@@ -612,6 +511,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Without a schema, a repeated block whose children repeat as bare leaves is a warning rather than a hint.
 	- Estimated effort: Avg
 
+- `Document::merge` drops the base file's comments on every leaf the upper layer names
+	- ID: 2026111217560140
+	- Type: Enhancement
+	- Status: Queued
+	- Opened: 20261112-175601
+	- Opened by: shcl feedback (tukzmon round, 20261112)
+	- Related IDs: 2026110712372281
+	- Problem description: the base's comments go on every leaf the upper layer names, even when the value didn't change. So a program saving over a hand-edited file can't use the merge. tukzmon keeps the comments with about 45 lines of setters and a reparse check.
+	- Requirements: a merge option that keeps the base's comments.
+	- Estimated effort: Avg
+	- Priority: Avg
+
 - vmFreeBSD: let bsdtest mount a tmpfs, so the box's fs suite gets one
 	- ID: 2026111019385135
 	- Type: Task
@@ -714,6 +625,32 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Add a read that gives every value across repeats and arrays, in file order.
 		- The `_or` doc says a repeat gives the default, and points to that read.
 	- Estimated effort: Avg
+
+- analyze-c fails on dev: clang-tidy on `set_off`, and the clang analyzer on `fs_property.c`
+	- ID: 2026111623502776
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261116-235027
+	- Opened by: found while working 2026111623191917
+	- Version and build: `nov17` at `813dfecf`
+	- Steps to reproduce: `cicd/utility/analyze-c.bash`.
+	- Incorrect behavior: `de2x4` fails on `bugprone-easily-swappable-parameters` for `set_off` in `shcl.h` (its `comment` and `above` arrays), from `1bbee68b` (2026-11-11). `de2x3` fails on `fs_slurp` in `source/c/tests/fs_property.c`, a read after end of file the analyzer assumes.
+	- Expected behavior: both pass, with a real fix or a suppression at the line with its reason, as the 3 bugprone checks are judged.
+	- Estimated effort: Low
+
+- H001 on a case-only repeat gives the same hint as a real repeat
+	- ID: 2026111217560122
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261112-175601
+	- Opened by: shcl feedback (tukzmon round, 20261112)
+	- Related IDs: 2026111016205711
+	- Steps to reproduce: `Order: a`, then `order: b`.
+	- Incorrect behavior: H001 says "did you mean 'order: [a, b]'?", the same hint as for a real repeat, and nothing says names ignore case.
+	- Expected behavior: the hint names both spellings and says they're one name.
+	- Estimated effort: Low
 
 - install.ps1 lists a drop-ins line in the plan for a release that has none
 	- ID: 2026110915493402
@@ -949,6 +886,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: each site is judged, a real one is fixed, and the rest are suppressed at the line with a reason.
 	- Reproduced: No. Read from the code on dev. Each `next.data` use in `resolve_from` is under a `next.len` bound, so that one looks false. The leaks are of blocks still on the arena list.
 	- Estimated effort: Low
+
+- Rust's file calls can't save to a path that isn't UTF-8
+	- ID: 2026111217560157
+	- Type: Enhancement
+	- Status: Queued
+	- Opened: 20261112-175601
+	- Opened by: shcl feedback (tukzmon round, 20261112)
+	- Problem description: Rust's file calls take `&str`, so `write_file_atomic` and `upgrade_file` can't save to a file name that isn't UTF-8, which Linux allows.
+	- Requirements: take `impl AsRef<Path>`, so `&str` callers still compile. Or design.md says file paths are text in every binding.
+	- Estimated effort: Low
+	- Priority: Low
 
 - Lift the placement property's iteration cap in the fuzz
 	- ID: 2026111109371400
@@ -1407,6 +1355,58 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- spec.md and the `upgrade` docs say 2.x includes 1.x, and that a 1.x file's backup is named `format-v2`.
 		- The next changelog's upgrading notes say C's `SHCL_SET_OK` is 0, so old code testing a setter `!= 0` reads every success as a failure, and that a string read of an array gives its bracket text. The released beta1 section stays as it is.
 	- Estimated effort: Low
+
+- Format versions: the reading rules of each published format, and the pins
+	- ID: 2026111018212701
+	- Type: Task
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261110-182127
+	- Opened by: JC
+	- Parent ID: 2026111018212700
+	- Requirements:
+		- Build the CLI at each of the 8 tags, and find where each one reads the corpus differently from the one before. That settles which releases start a format.
+		- List the dev snapshots that consumers pinned, from each one's lockfiles and vendored copies, with the shortest commit name for each.
+		- Write a table of tells per format for the content scan.
+	- Estimated effort: Avg
+	- Decisions:
+		- me, 20261117: v1.1.0 starts format 1.1, since it reads 4 documents differently from v1.0.0. It's one fold fix with no text tell. v1.2.0 reads like v1.1.0, so there's no 1.2.
+		- me, 20261117: pinned commits that read every document the same share one format, named after the earliest, as releases are. That gives 7 pin formats for the 15 pins, 3.0-1f8 to 3.0-a65.
+		- me, 20261117: a pin's name is its first 3 characters. 2 tell the 15 apart, but `3.0-b1` reads as beta1, and 3 matches the decisions' `3.0-a37`. Each pin's own name is accepted as another name for its format.
+		- me, 20261117: formats that differ only where a line has an error stay separate. Their steps have nothing to rewrite, and a clean file is stamped with the newest of the run.
+	- Progress log:
+		- 20261117: built the Rust CLI at the 8 tags and the 15 pins, and ran each over every tag's corpus files (787) and 800 fuzz-dumped documents through `fmt` and `check`. A probe set of 31 spellings gives the tells. Results are in the design doc's Format numbers, Pinned dev snapshots and Tells sections.
+		- 20261117: check-migrate's 2.x oracle is `7be348d0`, not the v2.0.0 tag, and the two read 519 documents differently. Noted in the design doc's Testing for 2026111018212703.
+	- Verified: documents read differently from the version before, corpus plus fuzz: beta2 329, rc1 1, v1.0.0 0, v1.1.0 4, v1.2.0 0, v2.0.0 933. Inside each pin format's group, 0.
+	- Test case: none, a research task. The tools are `private/claude_simple/tools/format-reads.py` and `format-tells.py` beside it, and 2026111018212703's round-trip gate tests the findings.
+	- Acceptance signoff: Self-closed: each table row comes from a run of the CLI at that tag or pin. The format list is also a Check: entry.
+	- Branch: `nov17-2026111018212701`
+	- Closed: 20261117-015854
+
+- Format versions: add the format constants and name table, and read every stamp form
+	- ID: 2026111702033119
+	- Type: Feature
+	- Status: Done
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-020331
+	- Opened by: me
+	- Parent ID: 2026111018212702
+	- Requirements: add a format minor, the stamp's head and line, and the format name table beside `FORMAT_MAJOR`, in all 4 and the C++ interface. beta1's `##    Format   3`, `##    Format   3.0` and `## SHCL format 3.0` all read, as do the format and pin names.
+	- Estimated effort: Avg
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261117: the name table is (name, format) rows, a format's own row first and its pins' names after it, so all 4 bindings and C share one plain shape.
+		- me, 20261117: the read takes any `MAJOR`, `MAJOR.MINOR` or `MAJOR.MINOR-pin`, with the pin in lowercase letters and digits, not only the table's names, so a newer file's minor or pin still reads as its major. The read gives the major only. Refusing a newer minor's save is in 2026111702033137.
+		- me, 20261117: `## SHCL format` naming an older major counts as an older Format line does, for `migrate` and `H007`, until 2026111018212703 adds the steps.
+	- Actual fix: `FORMAT_MINOR`, `FORMAT_NAMES`, `STAMP_HEAD` and `STAMP_LINE` in all 4 and the C++ interface, in each binding's spelling. The Format read takes the stamp's head and the new forms after either head. spec.md and the design doc say so.
+	- Swept: `format_line_read` in Rust and C, `formatLineRead` in Go, `_format_line_read` in Python. The H006 and H007 hints, `restamp` and `upgrade_file` all read through it. `set_banner` and `drop_banners` match `FORMAT_LINE_HEAD` only, which is for 2026111702033137.
+	- Verified: `format_names_read` and the new `stamp_reads_say_why` rows fail in Rust and Python with the minor's dot refused, and pass with the fix. `--backlog-run-quick rust python` and `--backlog-run-quick go c cli` passed, plus check-veneer, the veneer smoke test, cli-regress, the crosscheck over the corpus, `lint-report.bash --check --no-mark` and `test-ids.py check`.
+	- Test case: `format_names_read` (Rust `dfdqv`, Go `dfdqw`, Python `dfdqx`, C `dfdqy`), and the new rows of `stamp_reads_say_why` (`ddqh8`, `ddqh9`, `ddqha`, `ddqhb`).
+	- Acceptance signoff: Self-closed: each form reads in all 4, by test, and nothing that saves changed.
+	- Branch: `nov17-2026111018212702`
+	- Closed: 20261117-022040
 
 - A node's blank above its comments, from the parse on
 	- ID: 2026110712372276
