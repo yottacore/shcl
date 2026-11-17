@@ -434,7 +434,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A deeper comment above a top-level kept line is written one level in by `fmt` and at column 0 after any edit
 	- ID: 2026111111560900
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: `dd3t9` and `dderx` at `SHCL_FUZZ_ITERS=2000000` in release. Both passed 1,000,000, which covers every iteration the placement property checks.
 	- Severity: Avg
 	- Target version: v3.0.0
 	- Opened: 20261111-115609
@@ -449,6 +450,31 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: the placement property in `dderx` and `dd3t9` excuses this class with a check keyed by this ID. It was found at iteration 759783 of `dderx`'s 2M release run. `df50j` has the case. The fix takes the excuse out.
 	- Decisions:
 		- me, 20261111: the kept line's column is the right form, per design.md's "A comment no deeper than the place it ends up is written at that place's level, as before, which also keeps a run's first comment there", and spec.md's "Then it belongs to the block it's in".
+		- me, 20261117: the load starts a new comment chain at the cut `set_off` gives for the top-level lines after the last binding, up to the last kept line. That is the cut a new field's settle makes, so only the last blank above the first kept line starts a run, as on an edit. design.md's comment-run bullet says so.
+	- Reproduced: 20261117, Rust at `f0584691` on nov17, the same output as before. The line movers' move onto adopt didn't change it.
+	- Actual cause: with no binding line after them, the parse gave the top-level lines one comment chain, so `# note 2` nested under `# note 0` across the blank. A new field takes those lines and splits them at the blank, and the restep puts `# note 2` back at column 0.
+	- Actual fix: in all 4 bindings, the end of the parse resets the comment chain at that cut. The excuse keyed by this ID is out of `placement_slips`, and `df50j` now expects column 0 on the load.
+	- Swept: the parse's other sites that hand pending lines on. `give_set_off` already splits at the same cut when a binding line follows. A block's inside lines through `hang_deeper_pending` have the same bug, filed as child 2026111702420992. A comment after the last kept line still moves under the new field and goes to column 0 there, which is `new_child`'s by design.
+	- Branch: nov17-2026111111560900
+	- Test case: placement rows `2026111111560900-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `df50j`, `dd3t9`, `dderx`.
+	- Verified: the 3 placement rows fail on the C library at `f0584691` (canonical text for -1 and -3, kept text for -2) and pass in all 4 now. `df50j`, all of `fuzz_smoke` and the conformance suites in debug, the C and Python conformance runners, Go `go test -count=1`, cli-regress (671 rows) and crosscheck over the corpus (23862 comparisons), `dd3t9` and `dderx` at 1,000,000 in release, `--backlog-run-quick rust go python c`, and lint-report.
+
+- A deeper comment a blank sets off above a kept line that ends a block is written one level in by `fmt` and at the block's level after an edit
+	- ID: 2026111702420992
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261117-024209
+	- Opened by: me, the sweep of 2026111111560900
+	- Parent ID: 2026111111560900
+	- Related IDs: 2026110712372276
+	- Steps to reproduce: `printf 'a:\n\t# c0\n\n\t\t# c2\n\tb: [3\n' | shcl fmt -`, then the same through `printf 'int\ta.z\t7\n' | shcl set`.
+	- Incorrect behavior: `fmt` writes `\t\t# c2`. After the edit it is `\t# c2`, at the block's level, in the canonical form and the line-keeping save.
+	- Expected behavior: `\t# c2` in both, as 2026111111560900 does for the top level.
+	- Reproduced: 20261117, Rust CLI.
+	- Possible cause: the parse files a block's last pending lines through `hang_deeper_pending` with one comment chain, and the setter's `new_child` splits them at the blank through `set_off`. The top-level fix starts the chain again at that cut.
+	- Estimated effort: Low
 
 - A remove that takes a field opened from a kept line moves a kept line's comments down with a misplaced line
 	- ID: 2026111109022600

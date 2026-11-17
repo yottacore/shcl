@@ -6805,12 +6805,31 @@ impl<'a> Parser<'a> {
 		// leaf) sits with its line. Stable, so two on one line keep the order
 		// they were found in. Before the cap entry, which ends the list.
 		self.diags.sort_by_key(|d| d.line);
+		// A new field goes after the last kept line here, and the run a blank
+		// sets off from it starts again at the top level, so the load starts
+		// it there too (2026111111560900).
+		let p = &self.pending;
+		let cut = p
+			.iter()
+			.rposition(|l| !l.text.starts_with('#'))
+			.map_or(0, |k| {
+				set_off(k + 1, false, |i| {
+					(p[i].text.starts_with('#'), p[i].blank_before)
+				})
+			});
 		let (mut chain, mut held) = (Vec::new(), Vec::new());
 		let orphans: Vec<Lead> = self
 			.pending
 			.drain(..)
-			.map(|p| Lead {
-				depth: comment_depth(&mut chain, &mut held, "", &p.text, p.indent),
+			.enumerate()
+			.map(|(i, p)| Lead {
+				depth: {
+					if i == cut {
+						chain.clear();
+						held.clear();
+					}
+					comment_depth(&mut chain, &mut held, "", &p.text, p.indent)
+				},
 				text: p.text,
 				blank_before: p.blank_before,
 				line: p.line,

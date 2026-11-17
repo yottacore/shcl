@@ -680,3 +680,58 @@ b: 2
 # t
 
 k: [1
+
+:: row 2026111111560900-1 a comment a blank sets off above a top-level kept line loads at column 0
+:: before
+# note 0
+
+    # note 2
+        b: [3
+:: ops
+:: expected
+# note 0
+
+# note 2
+b: [3
+
+:: row 2026111111560900-2 and stays there after an edit
+:: before
+# note 0
+
+    # note 2
+        b: [3
+:: ops
+int	z0	7
+:: expected
+# note 0
+
+# note 2
+b: [3
+
+z0: 7
+:: keep
+# note 0
+
+    # note 2
+        b: [3
+
+z0: 7
+
+:: row 2026111111560900-3 only the last blank before the kept line starts a run
+:: before
+x: 1
+# a
+
+	# b
+
+		# c
+k: [1
+:: ops
+:: expected
+x: 1
+# a
+
+	# b
+
+# c
+k: [1

@@ -5469,9 +5469,23 @@ class _Parser:
 		# leaf) sits with its line. Stable, so two on one line keep the order
 		# they were found in. Before the cap entry, which ends the list.
 		self.diags.sort(key=lambda d: d.line)
+		# A new field goes after the last kept line here, and the run a blank
+		# sets off from it starts again at the top level, so the load starts
+		# it there too (2026111111560900).
+		pend = self.pending
+		cut = 0
+		for k in range(len(pend) - 1, -1, -1):
+			if not pend[k].text.startswith("#"):
+				cut = _set_off(k + 1, False, lambda i: (pend[i].text.startswith("#"), pend[i].blank_before))
+				break
 		chain: list[tuple[str, int]] = []
 		held: list[tuple[str, int]] = []
-		orphans = [_Lead(p.text, p.blank_before, _comment_depth(chain, held, "", p.text, p.indent), p.line) for p in self.pending]
+		orphans = []
+		for i, p in enumerate(pend):
+			if i == cut:
+				chain.clear()
+				held.clear()
+			orphans.append(_Lead(p.text, p.blank_before, _comment_depth(chain, held, "", p.text, p.indent), p.line))
 		self.pending = []
 		# The one entry past the cap: what was not listed, and whether any of
 		# it was an error, so a consumer scanning the list for errors still

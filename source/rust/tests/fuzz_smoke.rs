@@ -2792,22 +2792,6 @@ fn placement_slips(
 				.take_while(|m| kept.contains(&m.line))
 				.any(|m| m.key.starts_with('~') && below_it(m))
 	};
-	// 2026111111560900: a comment deeper than the kept line right below it is
-	// written one level in on a load and at that line's column after any edit.
-	let outdented = |a: &Anchor, b: &Anchor| {
-		let tabs = |l: &str| l.len() - l.trim_start_matches('\t').len();
-		let up = a.line.checked_sub(1).and_then(|k| before.lines().nth(k));
-		let now_up = b.line.checked_sub(1).and_then(|k| after.lines().nth(k));
-		kept.contains(&a.line)
-			&& a.lead.is_empty()
-			&& up.zip(now_up).is_some_and(|(u, n)| {
-				let t = u.trim_matches(BLANKS);
-				t.starts_with('#')
-					&& tabs(u) > a.depth
-					&& n.trim_matches(BLANKS) == t
-					&& tabs(n) == b.depth
-			})
-	};
 	let mut slips = Vec::new();
 	for a in &was {
 		if one_anchor(&was, &a.key).is_none() {
@@ -2820,7 +2804,6 @@ fn placement_slips(
 		if item(a)
 			|| edit == Placed::Comment && (target || under(&a.key) || past_kept(a))
 			|| sunk(a)
-			|| outdented(a, b)
 			|| edit == Placed::Merge && layered(&a.key)
 		{
 			continue;
@@ -3154,11 +3137,11 @@ fn the_placement_property_reads_a_list_replace() {
 	assert!(!info_block_inside(
 		"a: 1\n\n##\n## This config file format is SHCL.\n##\n"
 	));
-	// 2026111111560900 is excused, on a setter and a comment edit alike. The
-	// fix takes this out.
+	// A comment a blank sets off above a top-level kept line starts its run
+	// at column 0 on a load, as after an edit (2026111111560900).
 	let base = "# note 0\n\n    # note 2\n        b: [3\n";
 	let before = Document::parse(base).to_canonical();
-	assert_eq!(before, "# note 0\n\n\t# note 2\nb: [3\n");
+	assert_eq!(before, "# note 0\n\n# note 2\nb: [3\n");
 	let mut doc = Document::parse(base);
 	assert_eq!(doc.set_comment("z0", "added"), shcl::SetStatus::Ok);
 	let after = doc.to_canonical();

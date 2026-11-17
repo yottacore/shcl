@@ -6897,9 +6897,25 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 	// leaf) sits with its line. Stable, so two on one line keep the order
 	// they were found in. Before the cap entry, which ends the list.
 	sort.SliceStable(p.diags, func(i, j int) bool { return p.diags[i].Line < p.diags[j].Line })
+	// A new field goes after the last kept line here, and the run a blank
+	// sets off from it starts again at the top level, so the load starts it
+	// there too (2026111111560900).
+	cut := 0
+	for k := len(p.pending) - 1; k >= 0; k-- {
+		if !strings.HasPrefix(p.pending[k].text, "#") {
+			pend := p.pending
+			cut = setOff(k+1, false, func(i int) (bool, bool) {
+				return strings.HasPrefix(pend[i].text, "#"), pend[i].blankBefore
+			})
+			break
+		}
+	}
 	orphans := make([]lead, 0, len(p.pending))
 	var chain, held []depthEnt
-	for _, pn := range p.pending {
+	for i, pn := range p.pending {
+		if i == cut {
+			chain, held = chain[:0], held[:0]
+		}
 		orphans = append(orphans, lead{text: pn.text, blankBefore: pn.blankBefore, depth: commentDepth(&chain, &held, "", pn.text, pn.indent), line: pn.line})
 	}
 	p.pending = p.pending[:0]

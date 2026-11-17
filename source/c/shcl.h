@@ -7252,10 +7252,27 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 	/* Before the cap entry, which ends the list. */
 	arena_reset(P.hints);
 	diags_by_line(P.hints, &d->diags);
+	/* A new field goes after the last kept line here, and the run a blank
+	   sets off from it starts again at the top level, so the load starts it
+	   there too (2026111111560900). */
+	size_t cut = 0;
+	for (size_t k = P.pending.len; k-- > 0;) {
+		if (P.pending.data[k].text.n && P.pending.data[k].text.p[0] == '#') continue;
+		unsigned char *comment = (unsigned char *)arena_alloc(P.tmp, (k + 1) * 2);
+		unsigned char *above = comment + k + 1;
+		for (size_t j = 0; j <= k; j++) {
+			comment[j] = P.pending.data[j].text.n && P.pending.data[j].text.p[0] == '#';
+			above[j] = (unsigned char)P.pending.data[j].blank_before;
+		}
+		cut = set_off(k + 1, 0, comment, above);
+		break;
+	}
 	P.depth_chain.len = 0;
 	P.held_chain.len = 0;
-	for (size_t k = 0; k < P.pending.len; k++)
+	for (size_t k = 0; k < P.pending.len; k++) {
+		if (k == cut) P.depth_chain.len = P.held_chain.len = 0;
 		ShclVecLead_push(a, &d->orphans, lead_at(P.pending.data[k].text, P.pending.data[k].blank_before, comment_depth(&P, s_empty(), P.pending.data[k].text, P.pending.data[k].indent), P.pending.data[k].line));
+	}
 	/* The one entry past the cap: what was not listed, and whether any of it
 	   was an error, so a consumer scanning the list for errors still finds
 	   one and a strict load still fails. */

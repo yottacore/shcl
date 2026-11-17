@@ -421,7 +421,7 @@ The formatter is a structure-only canonicalizer. It writes block form, tabs, ins
 
 - A comment never goes ahead of the one before it. Once one stays for the next binding, every later one stays too, and one whose block is written out before the last one's goes there with it. Order is the one thing a reader of a commented-out block can't fix by eye.
 
-- A comment kept away from its own block keeps its depth under the comment or kept field line before it, one tab per level. A comment no deeper than the place it ends up is written at that place's level, as before, which also keeps a run's first comment there, so a reload files the run the same way.
+- A comment kept away from its own block keeps its depth under the comment or kept field line before it, one tab per level. A comment no deeper than the place it ends up is written at that place's level, as before, which also keeps a run's first comment there, so a reload files the run the same way. The blank that sets a run off from the line below it starts a new run, so the comment under it is written at that level too, on a load as after an edit, even when that line is a kept line at the end of the file.
 
 - A malformed line kept verbatim keeps the place's level. It stays at its level on a reload, so if it were written deeper it would move the lines after it. The exception is a line under a field line refused for its value alone, which a reload keeps open. It goes one level under that line, so it reads at the same path once its value is fixed.
 
