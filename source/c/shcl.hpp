@@ -306,8 +306,9 @@ struct Upgrade {
 	std::vector<std::size_t> errors_left;
 };
 // A config file written for an older format, made over for this one: migrated
-// without the stamp, saved keeping its lines, so each line stays where it was,
-// with the info block init writes at the end in place of an old one there.
+// without the stamp, saved keeping its lines, so each line stays where it was.
+// With banner, the info block init writes goes at the end in place of an old
+// one there. Without, an old one comes off and the text ends with the stamp.
 // Where the lines can't be kept, or keeping them keeps an error, it is written
 // the way fmt writes it. A whole block above the
 // first field stays, so a file with its block at the top comes out with 2, both
@@ -317,7 +318,7 @@ struct Upgrade {
 // change it, as it would `p: a,b`, and any file only when the fresh text loads
 // clean (errors_left). Pass from_v2 only for a file known to be old, never on
 // every start.
-Upgrade upgrade(std::string_view text, bool from_v2);
+Upgrade upgrade(std::string_view text, bool from_v2, bool banner);
 // The name a config file's backup gets:
 // NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local time, with N the format
 // the file was written for. SHCL_TEST_CLOCK stands in for the clock.
@@ -355,6 +356,7 @@ struct SaveOptions {
 	bool force{};      // write over whatever is at the path, even a file never read or one changed since
 	bool create{};     // only make a new file: Exists when one is there, even one another save makes at the same time
 	unsigned mode{};   // the permission bits (0777) a file this save makes gets, exactly, whatever the umask; 0 is an ordinary create's; a file already there keeps its own, and windows has no such bits
+	bool banner{};     // give the document the info block before the save, as set_banner(true), so the file ends with it and its Format line is the stamp; off adds no block, only the stamp
 };
 // How load_file_opts loads. The default is load_file_with.
 struct LoadOptions {
@@ -427,7 +429,7 @@ std::pair<std::string, std::optional<UpgradeError>> write_backup(const std::stri
 // the other. A current file is not written at all, and neither is one that
 // changed after it was read, that reads two ways, or that errors_left says
 // would still have an error.
-std::pair<Upgrade, std::optional<UpgradeError>> upgrade_file(const std::string &path, bool from_v2);
+std::pair<Upgrade, std::optional<UpgradeError>> upgrade_file(const std::string &path, bool from_v2, bool banner);
 #endif
 
 // A parsed document. Its const members may be called on one Document from
@@ -1165,9 +1167,9 @@ Read<std::string> read_schema_ref(std::string_view text) {
 	return {std::string(r.value.p, r.value.n), detail::st(r.status)};
 }
 
-Upgrade upgrade(std::string_view text, bool from_v2) {
+Upgrade upgrade(std::string_view text, bool from_v2, bool banner) {
 	detail::UpgradedOwn own;
-	own.c = shcl_upgrade(text.data(), text.size(), from_v2 ? 1 : 0);
+	own.c = shcl_upgrade(text.data(), text.size(), from_v2 ? 1 : 0, banner ? 1 : 0);
 	return detail::upgraded(own.c);
 }
 
@@ -1252,13 +1254,13 @@ std::pair<std::string, std::optional<UpgradeError>> write_backup(const std::stri
 	return {std::string(n.get()), std::nullopt};
 }
 
-std::pair<Upgrade, std::optional<UpgradeError>> upgrade_file(const std::string &path, bool from_v2) {
+std::pair<Upgrade, std::optional<UpgradeError>> upgrade_file(const std::string &path, bool from_v2, bool banner) {
 	if (detail::cut_short(path)) return {Upgrade{}, detail::nul_in(path)};
 	detail::UpgradedOwn own;
 	char *why = nullptr;
 	shcl_write_status st = SHCL_WRITE_OK;
 	// codeql[cpp/path-injection] opens the path its caller named, which is the job
-	shcl_upgrade_error e = shcl_upgrade_file(path.c_str(), from_v2 ? 1 : 0, &own.c, &why, &st);
+	shcl_upgrade_error e = shcl_upgrade_file(path.c_str(), from_v2 ? 1 : 0, banner ? 1 : 0, &own.c, &why, &st);
 	std::unique_ptr<char, void (*)(void *)> w(why, &std::free);
 	if (e != SHCL_UPGRADE_OK) {
 		std::vector<std::size_t> lines;
@@ -1349,7 +1351,7 @@ std::pair<SaveResult, bool> Document::save_file_with(const std::string &path, co
 	if (detail::cut_short(path)) return {detail::nul_save(why), false};
 	shcl_save_options o{};
 	o.lossy = opts.lossy; o.keep_lines = opts.keep_lines; o.force = opts.force;
-	o.create = opts.create; o.mode = opts.mode;
+	o.create = opts.create; o.mode = opts.mode; o.banner = opts.banner;
 	int k = 0;
 	shcl_write_status st = SHCL_WRITE_OK;
 	// codeql[cpp/path-injection] opens the path its caller named, which is the job

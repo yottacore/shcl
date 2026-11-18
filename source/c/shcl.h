@@ -359,6 +359,7 @@ typedef struct {
 	int force;      /* write over whatever is at the path, even a file this document never read or one changed since */
 	int create;     /* only make a new file: SHCL_SAVE_EXISTS when one is there, even one another save makes at the same time */
 	unsigned mode;  /* the permission bits (0777) a file this save makes gets, exactly, whatever the umask; 0 is an ordinary create's; a file already there keeps its own, and windows has no such bits */
+	int banner;     /* give the document the info block before the save, as shcl_set_banner(d, 1), so the file ends with it and its Format line is the stamp; 0 adds no block, only the stamp */
 } shcl_save_options;
 /* How shcl_load_file_opts loads. All zero, as {0} gives, is
    shcl_load_file_with. The level is its own argument, since it is the one
@@ -928,12 +929,14 @@ typedef struct {
 } shcl_upgraded;
 // A config file written for an older format, made over for this one: the
 // input run through shcl_migrate_unstamped, then saved keeping its lines, so
-// each line, blank ones included, stays where it was, with the info block
-// `init` writes at the end in place of an old one there. Where the lines can't
+// each line, blank ones included, stays where it was. With banner, the info
+// block `init` writes goes at the end in place of an old one there. Without,
+// an old one comes off as shcl_set_banner(d, 0) takes it, and the text ends
+// with the stamp every save writes. Where the lines can't
 // be kept, or keeping them keeps an error, it is written the way `fmt` writes
 // it. A whole block above the first field stays, so a file with its block
-// at the top comes out with 2, both naming this format. This is the one library
-// call that writes the block. A file that names this format comes back current
+// at the top comes out with 2, both naming this format. This and a save with
+// shcl_save_options' banner are the library calls that write the block. A file that names this format comes back current
 // and untouched, and so does one that loads with no error under these rules,
 // since a program calling this on every start must never rewrite a good file.
 // from_v2 is shcl_migrate's: the file can only have been written for 2.x. Then
@@ -946,7 +949,7 @@ typedef struct {
 // Pass from_v2 only for a file known to be old, never on every start: a file
 // this format wrote that picks up an error later would be read by 2.x rules
 // too.
-shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2);
+shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2, int banner);
 // Frees what an shcl_upgraded holds and zeroes it, so a second call is
 // harmless.
 void shcl_upgraded_free(shcl_upgraded *up);
@@ -992,7 +995,7 @@ shcl_upgrade_error shcl_write_backup(const char *file, const char *text, size_t 
 // SHCL_UPGRADE_AMBIGUOUS, and errors_left for SHCL_UPGRADE_ERRORS_LEFT, and
 // *message (when not NULL) gets why. Either way shcl_upgraded_free(out) is
 // safe, and the caller frees the message.
-shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgraded *out, char **message, shcl_write_status *why);
+shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, int banner, shcl_upgraded *out, char **message, shcl_write_status *why);
 #endif
 
 // --- Writer: typed emit, defaults, comments, structural edits ---------------
@@ -1059,8 +1062,8 @@ shcl_read_usize shcl_try_clear_comments(shcl_doc *d, const char *path, size_t pl
 // file writes as the first field's first child, so a block there is left alone
 // too, however it got there. A lone Format line or stamp there comes off with on, since
 // the new block names the format. A kept block's Format line or stamp is set to this format too, since it
-// reads first. The library save never adds the block by itself; this is for a
-// program that wants it in a file it writes. Returns how many old blocks came
+// reads first. A save adds the block only when shcl_save_options' banner asks;
+// this is for a program that wants it in a file it writes. Returns how many old blocks came
 // off.
 size_t shcl_set_banner(shcl_doc *d, int on);
 shcl_set_status shcl_set_empty(shcl_doc *d, const char *path, size_t plen);
@@ -4293,16 +4296,18 @@ static void keep_source_in(shcl_doc *k, ShclStr t);
 static ShclStr emit_canonical(shcl_doc *d);
 static ShclStr canonical_stamped(shcl_doc *d);
 static int keep_text(shcl_doc *d, ShclStr *out);
+static int keep_text_stamped(shcl_doc *d, ShclStr *out);
 
 /* The fresh file's text, saved the way `set` saves, so each line of the
    input is on the same line here, blank ones included (2026102620591101).
    Where the lines can't be kept, or keeping them keeps an error the canonical
-   form repairs, such as a missing colon, it is the canonical form. Both live
-   in the document's arena. */
-static shcl_str upgrade_text(shcl_doc *fresh, jmp_buf *panic) {
-	shcl_str canonical = s_dup(&fresh->reads, emit_canonical(fresh));
+   form repairs, such as a missing colon, it is the canonical form. Without the
+   info block, whose Format line names this format, both get the stamp a save
+   writes. Both live in the document's arena. */
+static shcl_str upgrade_text(shcl_doc *fresh, int banner, jmp_buf *panic) {
+	shcl_str canonical = s_dup(&fresh->reads, banner ? emit_canonical(fresh) : canonical_stamped(fresh));
 	ShclStr t;
-	int kept = keep_text(fresh, &t);
+	int kept = banner ? keep_text(fresh, &t) : keep_text_stamped(fresh, &t);
 	shcl_str lines = s_dup(&fresh->reads, t);
 	if (!kept) return canonical;
 	shcl_doc *d = shcl_parse(lines.p, lines.n);
@@ -4332,7 +4337,7 @@ static size_t error_lines(const shcl_doc *d, size_t **out, jmp_buf *panic) {
 	return u;
 }
 
-static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, size_t len, int from_v2, int64_t version, int newer, shcl_upgraded *up) {
+static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, size_t len, int from_v2, int banner, int64_t version, int newer, shcl_upgraded *up) {
 	if (!text) { text = ""; len = 0; }
 	up->current = 1;
 	up->format = version < 0 ? 2 : (uint32_t)version;
@@ -4378,8 +4383,8 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 			size_t nleft = error_lines(own->fresh, &own->left, panic);
 			ShclStr src; src.p = m.text; src.n = m.len;
 			keep_source_in(own->fresh, src);
-			swap_banner(own->fresh, 1, 1);
-			keep = upgrade_text(own->fresh, panic);
+			swap_banner(own->fresh, banner, 1);
+			keep = upgrade_text(own->fresh, banner, panic);
 			/* With from_v2 it goes only when that leaves it loading clean, or
 			   the next run with it would read the result by 2.x rules again
 			   (2026101515372401). Without, a Format 3 file with an error is
@@ -4407,7 +4412,7 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 	if (!up->current) { up->diagnostics = own->before; own->before = NULL; }
 }
 
-shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2) {
+shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2, int banner) {
 	int newer = 0;
 	shcl_read_i64 named = stamp_read(text, len, &newer);
 	int64_t version = named.status == SHCL_GOOD ? named.value : -1;
@@ -4423,7 +4428,7 @@ shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2) {
 		SHCL_OOM();
 		abort();
 	}
-	upgrade_into(own, &panic, text, len, from_v2, version, newer, &up);
+	upgrade_into(own, &panic, text, len, from_v2, banner, version, newer, &up);
 	ShclUpgradeOwn *done = own;
 	shcl_free(done->before); shcl_free(done->fresh); shcl_free(done->made); free(done->migrated); free(done->left); free(done);
 	return up;
@@ -16000,6 +16005,9 @@ shcl_save_result shcl_save_file_with(shcl_doc *d, const char *path, shcl_save_op
 	// First, and no option overrides it: whatever else is true, the save
 	// would write a newer format's lines by these rules.
 	if (d->newer) return SHCL_SAVE_TOO_NEW;
+	// The document keeps the block whether or not the write goes, so the next
+	// save, with the option or not, writes it again.
+	if (opts.banner) shcl_set_banner(d, 1);
 	ShclStr t;
 	int k = 0;
 	if (opts.keep_lines) k = keep_text_stamped(d, &t);
@@ -16190,7 +16198,7 @@ shcl_upgrade_error shcl_write_backup(const char *file, const char *text, size_t 
 	return SHCL_UPGRADE_OK;
 }
 
-shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgraded *out, char **message, shcl_write_status *why) {
+shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, int banner, shcl_upgraded *out, char **message, shcl_write_status *why) {
 	if (message) *message = NULL;
 	if (why) *why = SHCL_WRITE_OK;
 	memset(out, 0, sizeof *out);
@@ -16207,7 +16215,7 @@ shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgrade
 		if (rerr) return upgrade_why(why, s_write_status_of(rerr), upgrade_fail(message, SHCL_UPGRADE_IO, "%s: %s", path, strerror(rerr)));
 		return upgrade_why(why, SHCL_WRITE_UNREADABLE, upgrade_fail(message, SHCL_UPGRADE_IO, "%s: can't be read as UTF-8 text", path));
 	}
-	shcl_upgraded up = shcl_upgrade(text, len, from_v2);
+	shcl_upgraded up = shcl_upgrade(text, len, from_v2, banner);
 	shcl_upgrade_error r = SHCL_UPGRADE_OK;
 	if (up.current) { // NOLINT(bugprone-branch-clone): already current and just written both hand the result back
 		*out = up;

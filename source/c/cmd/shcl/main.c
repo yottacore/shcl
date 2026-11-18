@@ -1619,9 +1619,9 @@ static int do_upgrade(const Opts *o) {
 	shcl_upgraded up;
 	if (o->write) {
 		char *why = NULL;
-		shcl_upgrade_error e = shcl_upgrade_file(file, o->from_2x, &up, &why, NULL);
+		shcl_upgrade_error e = shcl_upgrade_file(file, o->from_2x, 1, &up, &why, NULL);
 		if (e != SHCL_UPGRADE_OK) {
-			shcl_upgraded found = shcl_upgrade(text, len, o->from_2x);
+			shcl_upgraded found = shcl_upgrade(text, len, o->from_2x, 1);
 			say_diagnostics_from("", found.diagnostics);
 			shcl_upgraded_free(&found);
 			if (e == SHCL_UPGRADE_AMBIGUOUS) fprintf(stderr, "%s (--from-2x rewrites them)\n", why);
@@ -1632,7 +1632,7 @@ static int do_upgrade(const Opts *o) {
 			return e == SHCL_UPGRADE_AMBIGUOUS || e == SHCL_UPGRADE_ERRORS_LEFT ? 7 : EXIT_IO;
 		}
 	} else {
-		up = shcl_upgrade(text, len, o->from_2x);
+		up = shcl_upgrade(text, len, o->from_2x, 1);
 	}
 	free(text);
 	if (up.current) {

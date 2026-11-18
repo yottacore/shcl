@@ -478,7 +478,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A save can't choose whether to add the info block
 	- ID: 2026111016205705
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: the cppcheck line from `LINT_EXTRA` and analyze-c.bash, for the `shcl.h` change.
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-162057
@@ -491,6 +492,42 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `upgrade` and `upgrade_file` take the same choice.
 	- Note: the standing rule that only `init` and a creating `set --write` add the info block isn't touched. This is opt-in, and the Format line alone isn't the block.
 	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Note: split for its time cap. The `upgrade` half is child 2026111814503025, done in the same job and waiting on the same checks.
+	- Decisions:
+		- me, 20261118: the choice is `banner` in `SaveOptions` (each binding's spelling), off by default, so the block stays opt-in.
+		- me, 20261118: with it, the save gives the document the block first, as `set_banner(true)` does, and the document keeps it, so a later save without the option writes it again. Adding the block to the written text only would let the next plain save take it off. A refused save still leaves the block on the document, so a retry with `force` writes the same text. The newer-format refusal comes first and leaves the document alone. Filed as a `Check:` in questions.md.
+	- Actual fix: `banner` in `SaveOptions`, and `save_file_with` (each binding's spelling) calls `set_banner(true)` first when it's set, in Rust, Go, Python, C and the C++ interface. `set_banner`'s doc comments name the option, and spec.md, design.md and the changelog say so.
+	- Swept: the 4 bindings' and the veneer's options and save calls. Each newer-format test that sets every option (Rust `all`, Go, Python `nall`, C `all`, veneer `all`) sets `banner` too. The CLIs' saves don't set it, so their output is unchanged.
+	- Test case: `a_save_can_add_the_info_block` (Rust `dffwt`, Go `dffwv`, Python `dffww`, C `dffwx`, veneer `dffwy`), and the child's.
+	- Verified: `dffwt` fails in Rust with the option's call stubbed out and passes with it. With both halves in, `--backlog-run-quick rust python` and `--backlog-run-quick go c`, cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), check-docs, check-veneer, `test-ids.py check`, rustfmt, gofmt and `lint-report.bash --check --no-mark` passed. analyze-c didn't finish inside 4 minutes, so it waits with cppcheck.
+	- Branch: `nov18-2026111016205705`
+	- Commit: `7f1d9f0f`
+
+- upgrade and upgrade_file always write the info block, with no choice to leave it off
+	- ID: 2026111814503025
+	- Type: Enhancement
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: the cppcheck line from `LINT_EXTRA` and analyze-c.bash, for the `shcl.h` change.
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261118-145030
+	- Opened by: me, split from 2026111016205705
+	- Parent ID: 2026111016205705
+	- Requirements: `upgrade` and `upgrade_file` take the info block choice `SaveOptions` has, in all 4 and the C++ interface, and the 4 CLIs pass it.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261118: a `banner` argument after `from_v2`, with no default, in all 4 and the C++ interface, so each caller says which it wants. An options struct is more than 2 flags need.
+		- me, 20261118: off, an old info block comes off as `set_banner(false)` takes it, 2.x's `#` one included, and the text ends with the stamp a save writes. The old block's Legal and Syntax lines name another release, which the parent's reporters didn't want in their files.
+		- me, 20261118: the 4 CLIs' `shcl upgrade` pass it on, so the command still writes the block. A flag for it waits for someone to ask.
+		- me, 20261118: every existing test passes it on, since each checks the block. Filed as a `Check:` in questions.md.
+	- Actual fix: `upgrade` and `upgrade_file` (each binding's spelling) take `banner`, hand it to the banner swap, and without it build the text through the stamped canonical and line-keeping calls, in Rust, Go, Python, C and the C++ interface. spec.md, design.md and the changelog say so.
+	- Swept: every call of `upgrade` and `upgrade_file` in the 4 bindings, their tests, the fuzz, the veneer and the 4 CLIs, 194 calls, each built or run after. Doc mentions in spec.md and design.md. The v4 design doc's API sketch is left as a sketch. `private/claude_simple/tools/banner-diff.py` passes the argument when the module takes it.
+	- Test case: `upgrade_can_leave_the_info_block_off` (Rust `dffxa`, Go `dffxb`, Python `dffxc`, C `dffxd`, veneer `dffxe`).
+	- Verified: `dffxa` fails in Rust with the choice ignored and passes with it. banner-diff.py found Python's `upgrade(text, v2, True)` the same as HEAD's `upgrade(text, v2)` over 300 inputs. The parent's gates passed on this tree.
+	- Branch: `nov18-2026111016205705`
+	- Commit: `c8bc0e9f`
 
 - Fuzz `dd16k` fails at iteration 571195 at 2,000,000: `set_banner` on a document and on its reload give different text after a clear, a merge and a literal
 	- ID: 2026111809400000

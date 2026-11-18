@@ -2612,12 +2612,12 @@ func TestWriteStatusNamesEachFailure(t *testing.T) {
 	check("under a file", WriteFileAtomic(at("ok.shcl/t.shcl"), "a: 1\n"), WriteNotFound)
 	check("over a directory", WriteFileAtomic(at("sub"), "a: 1\n"), WriteIsDirectory)
 	check("through a trailing separator", WriteFileAtomic(at("ok.shcl")+"/", "a: 1\n"), WriteIsDirectory)
-	_, err = UpgradeFile(at("sub"), false)
+	_, err = UpgradeFile(at("sub"), false, true)
 	check("upgrade of a directory", err, WriteIsDirectory)
 	if err := os.WriteFile(at("bin.shcl"), []byte("a: \xff\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err = UpgradeFile(at("bin.shcl"), false)
+	_, err = UpgradeFile(at("bin.shcl"), false, true)
 	check("upgrade of a file that is not UTF-8", err, WriteUnreadable)
 	if err == nil || !strings.Contains(err.Error(), "UTF-8") {
 		t.Errorf("upgrade of a file that is not UTF-8: %v", err)
@@ -2630,7 +2630,7 @@ func TestWriteStatusNamesEachFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	check("over a FIFO", WriteFileAtomic(fifo, "a: 1\n"), WriteNotRegular)
-	_, err = UpgradeFile(fifo, false)
+	_, err = UpgradeFile(fifo, false, true)
 	check("upgrade of a FIFO", err, WriteNotRegular)
 	// root writes anyway, so the rows wait for a probe that is refused.
 	shut := at("shut")
@@ -2651,7 +2651,7 @@ func TestWriteStatusNamesEachFailure(t *testing.T) {
 	check("into a shut folder", WriteFileAtomic(filepath.Join(shut, "t.shcl"), "a: 1\n"), WritePermissionDenied)
 	_, err = WriteBackup(v2, "x: a,b\n", 2)
 	check("backup into a shut folder", err, WritePermissionDenied)
-	_, err = UpgradeFile(v2, true)
+	_, err = UpgradeFile(v2, true, true)
 	check("upgrade in a shut folder", err, WritePermissionDenied)
 	// A file it may not read says so, not that it isn't UTF-8
 	// (2026101514324707).
@@ -2659,7 +2659,7 @@ func TestWriteStatusNamesEachFailure(t *testing.T) {
 	if err := os.WriteFile(locked, []byte("a: 1\nb 2\n"), 0o000); err != nil {
 		t.Fatal(err)
 	}
-	_, err = UpgradeFile(locked, false)
+	_, err = UpgradeFile(locked, false, true)
 	check("upgrade of a file it may not read", err, WritePermissionDenied)
 	if err == nil || strings.Contains(err.Error(), "UTF-8") || !errors.Is(err, fs.ErrPermission) {
 		t.Errorf("upgrade of a file it may not read: %v", err)
@@ -6301,11 +6301,11 @@ func TestMigrateWritesTheText2xRead(t *testing.T) {
 	// The call from the report. Without fromV2 the file could be a 3.0 one,
 	// so the two values are left and counted.
 	text = "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\n"
-	up := Upgrade(text, false)
+	up := Upgrade(text, false, true)
 	if up.Current || up.Ambiguous != 2 || up.Text != text {
 		t.Fatalf("%+v", up)
 	}
-	up = Upgrade(text, true)
+	up = Upgrade(text, true, true)
 	if up.Current || up.Ambiguous != 0 || up.Lost != 0 {
 		t.Fatalf("%+v", up)
 	}
@@ -6361,7 +6361,7 @@ func TestMigrateCountsAQuotedNameWithABackslashPairLost(t *testing.T) {
 	if want := "'k\\\\x': \"C:\u25C9TAB\u25C9emp\"\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n"; !strings.HasPrefix(m.Text, want) {
 		t.Fatalf("got %q\nwant %q", m.Text, want)
 	}
-	if up := Upgrade(text, true); up.Lost != 2 {
+	if up := Upgrade(text, true, true); up.Lost != 2 {
 		t.Fatalf("%+v", up)
 	}
 }
@@ -8064,6 +8064,81 @@ func TestACreateOnlySaveRefusesAFileAlreadyThere(t *testing.T) {
 	}
 }
 
+// TestASaveCanAddTheInfoBlock: a save adds the info block only when its options
+// ask, and the document keeps it, so the next save writes it too. Without, the
+// file gets only the stamp. The block's Format line is the stamp, so none goes
+// under it (2026111016205705).
+func TestASaveCanAddTheInfoBlock(t *testing.T) {
+	defer testID(t, "dffwv")
+	f := filepath.Join(t.TempDir(), "f.shcl")
+	read := func() string {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	save := func(doc *Document, opts SaveOptions, wantKept bool) {
+		t.Helper()
+		if k, err := doc.SaveFileWith(f, opts); err != nil || k != wantKept {
+			t.Fatalf("%+v: %v %v", opts, k, err)
+		}
+	}
+	force := SaveOptions{Force: true}
+	banner := SaveOptions{Force: true, Banner: true}
+	w := Parse("a: 1\n")
+	w.SetBanner(true)
+	want := w.ToCanonical()
+	if !strings.HasPrefix(want, "a: 1\n") || !strings.HasSuffix(want, GenBanner) || strings.Contains(want, StampHead) {
+		t.Fatalf("%q", want)
+	}
+
+	// Off, the file gets the stamp and no block.
+	doc := Parse("a: 1\n")
+	save(doc, force, false)
+	if got := read(); got != withStamp("a: 1\n") {
+		t.Fatalf("%q", got)
+	}
+	// On, it ends with the block, and the document keeps it. Asked again,
+	// the block already there stays the one block.
+	for _, opts := range []SaveOptions{banner, force, banner} {
+		save(doc, opts, false)
+		if got := read(); got != want {
+			t.Fatalf("%+v: %q", opts, got)
+		}
+	}
+
+	// Keeping lines, the file's own lines stay as they were.
+	own := "# note\na:   1\n"
+	if err := os.WriteFile(f, []byte(own), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	doc, _, err := LoadFileKeepLines(f, Standard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	save(doc, SaveOptions{KeepLines: true, Banner: true}, true)
+	got := read()
+	if !strings.HasPrefix(got, own) || !strings.HasSuffix(got, GenBanner) || strings.Contains(got, StampHead) {
+		t.Fatalf("%q", got)
+	}
+	again, _, err := LoadFileKeepLines(f, Standard)
+	if err != nil || again.ToCanonical() != doc.ToCanonical() {
+		t.Fatalf("%v %q", err, again.ToCanonical())
+	}
+
+	// A newer format's document is refused first, and gets no block.
+	doc = Parse("a: 1\n##    Format   4\n")
+	before := doc.ToCanonical()
+	var tooNew *SaveTooNew
+	if _, err := doc.SaveFileWith(f, banner); !errors.As(err, &tooNew) {
+		t.Fatalf("%v", err)
+	}
+	if doc.ToCanonical() != before {
+		t.Fatalf("%q", doc.ToCanonical())
+	}
+}
+
 // TestANewerFormatDocumentGivesNoText: the line-keeping text call refuses a
 // document from a newer format, as its save does, so a program that writes
 // the text itself can't write a newer format's lines back by these rules. A
@@ -8161,7 +8236,7 @@ func TestANewerFormatDocumentSavesNowhere(t *testing.T) {
 	_, err = doc.SaveFileKeepLines(f)
 	tooNew("keep lines", err, f)
 	// No option overrides it, and it comes before create's check.
-	_, err = doc.SaveFileWith(f, SaveOptions{Lossy: true, KeepLines: true, Force: true, Create: true, Mode: 0o600})
+	_, err = doc.SaveFileWith(f, SaveOptions{Lossy: true, KeepLines: true, Force: true, Create: true, Mode: 0o600, Banner: true})
 	tooNew("every option", err, f)
 	if got, _ := os.ReadFile(f); string(got) != newer {
 		t.Errorf("written: %q", got)
@@ -8227,7 +8302,7 @@ func TestANewerFormatDocumentSavesNowhere(t *testing.T) {
 			t.Errorf("%q: a file was made", text)
 		}
 		for _, fromV2 := range []bool{false, true} {
-			if up := Upgrade(text, fromV2); !up.Current || up.Text != text {
+			if up := Upgrade(text, fromV2, true); !up.Current || up.Text != text {
 				t.Errorf("%q: Upgrade(%v) gave %+v", text, fromV2, up)
 			}
 		}

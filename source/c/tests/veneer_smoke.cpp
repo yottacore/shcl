@@ -533,7 +533,7 @@ static int a_newer_format_document_saves_nowhere() {
 	CHECK(doc.save_file_lossy(f) == R::TooNew);
 	CHECK(doc.save_file_keep_lines(f) == std::make_pair(R::TooNew, false));
 	shcl::SaveOptions all;
-	all.lossy = all.keep_lines = all.force = all.create = true;
+	all.lossy = all.keep_lines = all.force = all.create = all.banner = true;
 	all.mode = 0600;
 	CHECK(doc.save_file_with(f, all).first == R::TooNew);
 	CHECK(shcl::read_file(f) == std::make_pair(newer, shcl::FileStatus::Clean));
@@ -548,6 +548,92 @@ static int a_newer_format_document_saves_nowhere() {
 	CHECK(base.newer_format() && base.save_file(other) == R::TooNew);
 	std::remove(f.c_str());
 	std::remove(other.c_str());
+	rmdir(dir.c_str());
+	return test_id_end(fails);
+}
+
+// A save adds the info block only when its options ask, and the document keeps
+// it, so the next save writes it too. Without, the file gets only the stamp
+// (2026111016205705). The C runner's fixture, through the veneer.
+static int a_save_can_add_the_info_block() {
+	test_id("dffwy", "a_save_can_add_the_info_block");
+	const char *tmp = std::getenv("TMPDIR");
+	if (!tmp || !*tmp) tmp = std::getenv("TEMP");
+	if (!tmp || !*tmp) tmp = std::getenv("TMP");
+	std::string dir = std::string(tmp && *tmp ? tmp : "/tmp") + "/shcl-veneer-banner-" + std::to_string((long)getpid());
+#ifdef _WIN32
+	CHECK(_mkdir(dir.c_str()) == 0);
+#else
+	CHECK(mkdir(dir.c_str(), 0700) == 0);
+#endif
+	using R = shcl::SaveResult;
+	const std::string f = dir + "/f.shcl";
+	const std::string banner_text(shcl::GEN_BANNER), stamp_head(shcl::STAMP_HEAD);
+	auto text = [&f]() { return shcl::read_file(f).first; };
+	auto shaped = [&](const std::string &t, const std::string &head) {
+		return t.compare(0, head.size(), head) == 0 && t.size() >= banner_text.size() && t.compare(t.size() - banner_text.size(), std::string::npos, banner_text) == 0 && t.find(stamp_head) == std::string::npos;
+	};
+	shcl::SaveOptions force;
+	force.force = true;
+	shcl::SaveOptions banner = force;
+	banner.banner = true;
+	auto w = shcl::Document::parse("a: 1\n");
+	w.set_banner(true);
+	const std::string want = w.to_canonical();
+	CHECK(shaped(want, "a: 1\n"));
+	// Off, the file gets the stamp and no block.
+	auto doc = shcl::Document::parse("a: 1\n");
+	CHECK(doc.save_file_with(f, force) == std::make_pair(R::Ok, false));
+	CHECK(text() == "a: 1\n" + std::string(shcl::STAMP_LINE) + "\n");
+	// On, it ends with the block, and the document keeps it. Asked again, the
+	// block already there stays the one block.
+	for (const auto &o : {banner, force, banner}) {
+		CHECK(doc.save_file_with(f, o) == std::make_pair(R::Ok, false));
+		CHECK(text() == want);
+	}
+	// Keeping lines, the file's own lines stay as they were.
+	const std::string own = "# note\na:   1\n";
+	CHECK(shcl::write_file_atomic(f, own) == shcl::WriteStatus::Ok);
+	auto kept = shcl::Document::load_file_keep_lines(f, shcl::Strictness::Standard).first;
+	shcl::SaveOptions keep;
+	keep.keep_lines = keep.banner = true;
+	CHECK(kept.save_file_with(f, keep) == std::make_pair(R::Ok, true));
+	CHECK(shaped(text(), own));
+	CHECK(shcl::Document::load_file_keep_lines(f, shcl::Strictness::Standard).first.to_canonical() == kept.to_canonical());
+	// A newer format's document is refused first, and gets no block.
+	auto newer = shcl::Document::parse("a: 1\n##    Format   4\n");
+	const std::string before = newer.to_canonical();
+	CHECK(newer.save_file_with(f, banner).first == R::TooNew);
+	CHECK(newer.to_canonical() == before);
+	std::remove(f.c_str());
+	rmdir(dir.c_str());
+	return test_id_end(fails);
+}
+
+// Without the info block, upgrade ends the text with the stamp, and the next
+// run finds it current (2026111814503025). The C runner's fixture, through the
+// veneer.
+static int upgrade_can_leave_the_info_block_off() {
+	test_id("dffxe", "upgrade_can_leave_the_info_block_off");
+	const auto up = shcl::upgrade("p: a,b\n", true, false);
+	CHECK(!up.current && up.text == "p: [a, b]\n" + std::string(shcl::STAMP_LINE) + "\n");
+	CHECK(shcl::upgrade(up.text, false, false).current && shcl::upgrade(up.text, true, false).current);
+	CHECK(shcl::upgrade("p: a,b\n", true, true).text.find("## This config file format is SHCL.") != std::string::npos);
+	const char *tmp = std::getenv("TMPDIR");
+	if (!tmp || !*tmp) tmp = std::getenv("TEMP");
+	if (!tmp || !*tmp) tmp = std::getenv("TMP");
+	std::string dir = std::string(tmp && *tmp ? tmp : "/tmp") + "/shcl-veneer-nobanner-" + std::to_string((long)getpid());
+#ifdef _WIN32
+	CHECK(_mkdir(dir.c_str()) == 0);
+#else
+	CHECK(mkdir(dir.c_str(), 0700) == 0);
+#endif
+	const std::string f = dir + "/f.shcl";
+	CHECK(shcl::write_file_atomic(f, "p: a,b\n") == shcl::WriteStatus::Ok);
+	auto [fu, err] = shcl::upgrade_file(f, true, false);
+	CHECK(!err && shcl::read_file(f).first == up.text && shcl::read_file(fu.backup).first == "p: a,b\n");
+	std::remove(f.c_str());
+	std::remove(fu.backup.c_str());
 	rmdir(dir.c_str());
 	return test_id_end(fails);
 }
@@ -663,7 +749,7 @@ static int a_path_holding_a_nul_is_refused() {
 		     shcl::Document::load_file_opts(cut, shcl::Strictness::Standard, shcl::LoadOptions{true, true, true})}) {
 		CHECK(loaded.second == F::Unreadable && loaded.first.read_int("b").status == shcl::Status::NotFound);
 	}
-	auto up = shcl::upgrade_file(cut, true).second;
+	auto up = shcl::upgrade_file(cut, true, true).second;
 	CHECK(up && up->kind == shcl::UpgradeErrorKind::Io && up->status == W::Other);
 	auto kept = shcl::write_backup(cut, "b: 2\n", 2).second;
 	CHECK(kept && kept->kind == shcl::UpgradeErrorKind::Io && kept->status == W::Other);
@@ -1030,14 +1116,14 @@ int main() {
 	CHECK(shcl::read_schema_ref("a: 1\n").status == shcl::Status::NotFound && !shcl::schema_ref("##    Schema\n"));
 	// upgrade makes over text that does not load clean, with the info block,
 	// and leaves the result alone the next time.
-	auto up = shcl::upgrade("tags: a, b\n", false);
+	auto up = shcl::upgrade("tags: a, b\n", false, true);
 	CHECK(!up.current && up.format == 2u && up.lost == 0 && up.backup.empty());
 	CHECK(up.text == "tags: [a, b]\n\n" + std::string(shcl::GEN_BANNER));
 	CHECK(up.diagnostics.size() == 1 && up.diagnostics[0].code == "E026");
-	CHECK(shcl::upgrade(up.text, false).current && shcl::upgrade(up.text, false).diagnostics.empty());
-	CHECK(shcl::upgrade("a: x,y\nb: \"q\n", false).ambiguous == 1);
+	CHECK(shcl::upgrade(up.text, false, true).current && shcl::upgrade(up.text, false, true).diagnostics.empty());
+	CHECK(shcl::upgrade("a: x,y\nb: \"q\n", false, true).ambiguous == 1);
 	// With from_v2, a fresh text that would keep an error is not made.
-	auto left = shcl::upgrade("a: 1\nb 2\n##    Format   3\n", true);
+	auto left = shcl::upgrade("a: 1\nb 2\n##    Format   3\n", true, true);
 	CHECK(!left.current && left.errors_left == std::vector<std::size_t>{2} && left.text == "a: 1\nb 2\n##    Format   3\n");
 	// Durations and sizes: the name's unit, the caller's, and base 10.
 	{
@@ -1336,16 +1422,16 @@ int main() {
 		CHECK(shcl::write_file_atomic(f, "not: a save\n") == shcl::WriteStatus::Ok && shcl::read_file(f).first == "not: a save\n");
 		CHECK(shcl::write_file_atomic(f, "") == shcl::WriteStatus::Ok && shcl::read_file(f) == std::make_pair(std::string(), shcl::FileStatus::Clean));
 		CHECK(shcl::write_file_atomic(dir + "/nope/t.shcl", "x") == shcl::WriteStatus::NotFound);
-		auto dirUp = shcl::upgrade_file(dir, false).second;
+		auto dirUp = shcl::upgrade_file(dir, false, true).second;
 		CHECK(dirUp && dirUp->kind == shcl::UpgradeErrorKind::Io && dirUp->status == shcl::WriteStatus::IsDirectory);
 		// upgrade_file keeps the original under the timestamped name and
 		// writes the fresh text; the name is never written over.
 		CHECK(shcl::write_file_atomic(f, "tags: a, b\n") == shcl::WriteStatus::Ok);
 		std::string bk = dir + "/t_backup_20261004-001500_format-v2.shcl";
 		CHECK(shcl::backup_file_name(f, 2) == bk);
-		auto [upf, upErr] = shcl::upgrade_file(f, false);
+		auto [upf, upErr] = shcl::upgrade_file(f, false, true);
 		CHECK(!upErr && upf.backup == bk && shcl::read_file(bk).first == "tags: a, b\n" && shcl::read_file(f).first == upf.text);
-		auto [upAgain, upAgainErr] = shcl::upgrade_file(f, false);
+		auto [upAgain, upAgainErr] = shcl::upgrade_file(f, false, true);
 		CHECK(!upAgainErr && upAgain.current && upAgain.backup.empty());
 		auto [taken, takenErr] = shcl::write_backup(f, "x\n", 2);
 		CHECK(taken.empty() && takenErr && takenErr->kind == shcl::UpgradeErrorKind::BackupTaken && takenErr->message.rfind(bk, 0) == 0);
@@ -1366,12 +1452,12 @@ int main() {
 		CHECK(swappedErr && swappedErr->kind == shcl::UpgradeErrorKind::NotFound);
 #endif
 		CHECK(rmdir(swapDir.c_str()) == 0);
-		CHECK(shcl::upgrade_file(dir + "/none.shcl", false).second->kind == shcl::UpgradeErrorKind::NotFound);
+		CHECK(shcl::upgrade_file(dir + "/none.shcl", false, true).second->kind == shcl::UpgradeErrorKind::NotFound);
 		CHECK(shcl::write_file_atomic(f, "a: x,y\nb: \"q\n") == shcl::WriteStatus::Ok);
-		auto [amb2, amb2Err] = shcl::upgrade_file(f, false);
+		auto [amb2, amb2Err] = shcl::upgrade_file(f, false, true);
 		CHECK(amb2Err && amb2Err->kind == shcl::UpgradeErrorKind::Ambiguous && amb2Err->count == 1 && amb2.text.empty());
 		CHECK(shcl::write_file_atomic(f, "a: 1\nb 2\n##    Format   3\n") == shcl::WriteStatus::Ok);
-		auto [left2, left2Err] = shcl::upgrade_file(f, true);
+		auto [left2, left2Err] = shcl::upgrade_file(f, true, true);
 		CHECK(left2Err && left2Err->kind == shcl::UpgradeErrorKind::ErrorsLeft && left2Err->lines == std::vector<std::size_t>{2} && left2.text.empty());
 		CHECK(left2Err && left2Err->message == f + ": line(s) 2 would still have an error once converted from 2.x; nothing written");
 		CHECK(shcl::read_file(f).first == "a: 1\nb 2\n##    Format   3\n");
@@ -1466,7 +1552,11 @@ int main() {
 	fails = 0;
 	const int migrating = a_load_that_migrates_saves_through_the_guards();
 	fails = 0;
-	return changed | spellings | created | newer | migrating | a_path_holding_a_nul_is_refused() | threads | stamped | no_text | smoke;
+	const int with_banner = a_save_can_add_the_info_block();
+	fails = 0;
+	const int no_banner = upgrade_can_leave_the_info_block_off();
+	fails = 0;
+	return changed | spellings | created | newer | migrating | with_banner | no_banner | a_path_holding_a_nul_is_refused() | threads | stamped | no_text | smoke;
 #else
 	return threads | stamped | no_text | smoke;
 #endif

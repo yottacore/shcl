@@ -1467,7 +1467,7 @@ fn upgrade_leaves_its_own_output_alone() {
 			&& at.is_some_and(|k| !raw_spans(&text).iter().any(|&(o, l)| o <= k && k < l));
 		let clean = Document::parse(&text).error_count() == 0;
 		for from_v2 in [false, true] {
-			let up = upgrade(&text, from_v2);
+			let up = upgrade(&text, from_v2, true);
 			let ctx = || format!("iteration {i}, from_v2 {from_v2}:\n{text}\n->\n{}", up.text);
 			if says_newer || named.is_some_and(|v| v > FORMAT_MAJOR) {
 				newer += 1;
@@ -1504,7 +1504,7 @@ fn upgrade_leaves_its_own_output_alone() {
 			if from_v2 || named == Some(FORMAT_MAJOR) {
 				assert!(loads, "the fresh text has an error, {}", ctx());
 			}
-			let again = upgrade(&up.text, false);
+			let again = upgrade(&up.text, false, true);
 			assert!(
 				again.current && again.text == up.text,
 				"a second run made it over again, {}\n->\n{}",
@@ -1513,7 +1513,7 @@ fn upgrade_leaves_its_own_output_alone() {
 			);
 			if loads {
 				assert!(
-					upgrade(&up.text, true).current,
+					upgrade(&up.text, true, true).current,
 					"a second run with from_v2 made it over again, {}",
 					ctx()
 				);

@@ -3227,12 +3227,12 @@ fn write_status_names_each_failure() {
 		why(write_file_atomic(&format!("{}/", at("ok.shcl")), "a: 1\n")),
 		Some(WriteStatus::IsDirectory)
 	);
-	match upgrade_file(&at("sub"), false) {
+	match upgrade_file(&at("sub"), false, true) {
 		Err(UpgradeError::Io(e)) => assert_eq!(e.status, WriteStatus::IsDirectory),
 		other => panic!("upgrade of a directory: {other:?}"),
 	}
 	std::fs::write(at("bin.shcl"), b"a: \xff\n").unwrap();
-	match upgrade_file(&at("bin.shcl"), false) {
+	match upgrade_file(&at("bin.shcl"), false, true) {
 		Err(UpgradeError::Io(e)) => {
 			assert_eq!(e.status, WriteStatus::Unreadable);
 			assert!(e.message.contains("UTF-8"), "{}", e.message);
@@ -3254,7 +3254,7 @@ fn write_status_names_each_failure() {
 			why(write_file_atomic(&fifo, "a: 1\n")),
 			Some(WriteStatus::NotRegular)
 		);
-		match upgrade_file(&fifo, false) {
+		match upgrade_file(&fifo, false, true) {
 			Err(UpgradeError::Io(e)) => assert_eq!(e.status, WriteStatus::NotRegular),
 			other => panic!("upgrade of a FIFO: {other:?}"),
 		}
@@ -3276,7 +3276,7 @@ fn write_status_names_each_failure() {
 				}
 				other => panic!("backup into a shut folder: {other:?}"),
 			}
-			match upgrade_file(v2.to_str().unwrap(), true) {
+			match upgrade_file(v2.to_str().unwrap(), true, true) {
 				Err(UpgradeError::Io(e)) => {
 					assert_eq!(e.status, WriteStatus::PermissionDenied)
 				}
@@ -3287,7 +3287,7 @@ fn write_status_names_each_failure() {
 			let locked = dir.join("locked.shcl");
 			std::fs::write(&locked, "a: 1\nb 2\n").unwrap();
 			std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
-			match upgrade_file(locked.to_str().unwrap(), false) {
+			match upgrade_file(locked.to_str().unwrap(), false, true) {
 				Err(UpgradeError::Io(e)) => {
 					assert_eq!(e.status, WriteStatus::PermissionDenied);
 					assert!(!e.message.contains("UTF-8"), "{}", e.message);
@@ -5730,12 +5730,12 @@ fn migrate_writes_the_text_2x_read() {
 	// The call from the report. Without from_v2 the file could be a 3.0 one,
 	// so the two values are left and counted.
 	let text = "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\n";
-	let up = shcl::upgrade(text, false);
+	let up = shcl::upgrade(text, false, true);
 	assert!(
 		!up.current && up.ambiguous == 2 && up.text == text,
 		"{up:?}"
 	);
-	let up = shcl::upgrade(text, true);
+	let up = shcl::upgrade(text, true, true);
 	assert!(!up.current && up.ambiguous == 0 && up.lost == 0, "{up:?}");
 	let back = Document::parse(&up.text);
 	assert_eq!(back.get_string("p").unwrap(), "C:\\new");
@@ -5787,7 +5787,7 @@ fn migrate_counts_a_quoted_name_with_a_backslash_pair_lost() {
 		"{:?}",
 		m.text
 	);
-	let up = shcl::upgrade(text, true);
+	let up = shcl::upgrade(text, true, true);
 	assert_eq!(up.lost, 2, "{up:?}");
 }
 
@@ -6760,6 +6760,7 @@ fn a_newer_format_document_saves_nowhere() {
 		force: true,
 		create: true,
 		mode: 0o600,
+		banner: true,
 	};
 	assert_eq!(doc.save_file_with(&f, &all), Err(too_new(&f)));
 	assert_eq!(read(&f), newer);
@@ -6808,7 +6809,7 @@ fn a_newer_format_document_saves_nowhere() {
 		assert_eq!(d.save_file(&other), Err(too_new(&other)), "{text:?}");
 		assert!(!Path::new(&other).exists());
 		for from_v2 in [false, true] {
-			let up = shcl::upgrade(text, from_v2);
+			let up = shcl::upgrade(text, from_v2, true);
 			assert!(up.current, "{text:?}");
 			assert_eq!(up.text, text);
 		}
@@ -6862,6 +6863,76 @@ fn a_newer_format_document_gives_no_text() {
 			Document::parse_keep_lines(text, Strictness::Standard).unwrap_or_else(|e| e.document);
 		assert!(doc.to_text_keep_lines().is_ok(), "{text:?}");
 	}
+}
+
+/// A save adds the info block only when its options ask, and the document
+/// keeps it, so the next save writes it too. Without, the file gets only the
+/// stamp. The block's Format line is the stamp, so none goes under it
+/// (2026111016205705).
+#[test]
+fn a_save_can_add_the_info_block() {
+	let _id = test_id("dffwt");
+	use shcl::{GEN_BANNER, SaveOptions};
+	let dir = std::env::temp_dir().join(format!("shcl-savebanner-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(&dir).unwrap();
+	let f = dir.join("f.shcl").to_str().unwrap().to_string();
+	let read = |p: &str| std::fs::read_to_string(p).unwrap();
+	let force = SaveOptions {
+		force: true,
+		..SaveOptions::default()
+	};
+	let banner = SaveOptions {
+		banner: true,
+		..force
+	};
+	let mut want = Document::parse("a: 1\n");
+	want.set_banner(true);
+	let want = want.to_canonical();
+	assert!(
+		want.starts_with("a: 1\n") && want.ends_with(GEN_BANNER),
+		"{want:?}"
+	);
+	assert!(!want.contains(STAMP_HEAD), "{want:?}");
+
+	// Off, the file gets the stamp and no block.
+	let mut doc = Document::parse("a: 1\n");
+	assert_eq!(doc.save_file_with(&f, &force), Ok(false));
+	assert_eq!(read(&f), with_stamp("a: 1\n"));
+	// On, it ends with the block, and the document keeps it.
+	assert_eq!(doc.save_file_with(&f, &banner), Ok(false));
+	assert_eq!(read(&f), want);
+	assert_eq!(doc.save_file_with(&f, &force), Ok(false));
+	assert_eq!(read(&f), want);
+	// Asked again, the block already there stays the one block.
+	assert_eq!(doc.save_file_with(&f, &banner), Ok(false));
+	assert_eq!(read(&f), want);
+
+	// Keeping lines, the file's own lines stay as they were.
+	let own = "# note\na:   1\n";
+	std::fs::write(&f, own).unwrap();
+	let (mut doc, _) = Document::load_file_keep_lines(&f, Strictness::Standard).unwrap();
+	let keep = SaveOptions {
+		keep_lines: true,
+		banner: true,
+		..SaveOptions::default()
+	};
+	assert_eq!(doc.save_file_with(&f, &keep), Ok(true));
+	let got = read(&f);
+	assert!(got.starts_with(own) && got.ends_with(GEN_BANNER), "{got:?}");
+	assert!(!got.contains(STAMP_HEAD), "{got:?}");
+	let (again, _) = Document::load_file_keep_lines(&f, Strictness::Standard).unwrap();
+	assert_eq!(again.to_canonical(), doc.to_canonical());
+
+	// A newer format's document is refused first, and gets no block.
+	let newer = Document::parse("a: 1\n##    Format   4\n");
+	let mut doc = newer.clone();
+	assert_eq!(
+		doc.save_file_with(&f, &banner),
+		Err(SaveError::TooNew { path: f.clone() })
+	);
+	assert_eq!(doc.to_canonical(), newer.to_canonical());
+	let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

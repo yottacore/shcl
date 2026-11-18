@@ -2784,10 +2784,10 @@ fn do_upgrade(o: &Opts) -> u8 {
 		}
 	};
 	let up = if o.write {
-		match upgrade_file(file, o.from_2x) {
+		match upgrade_file(file, o.from_2x, true) {
 			Ok(up) => up,
 			Err(e) => {
-				say_diagnostics_from("", &upgrade(&text, o.from_2x).diagnostics);
+				say_diagnostics_from("", &upgrade(&text, o.from_2x, true).diagnostics);
 				return match e {
 					UpgradeError::Ambiguous { .. } => {
 						errln!("{} (--from-2x rewrites them)", e);
@@ -2805,7 +2805,7 @@ fn do_upgrade(o: &Opts) -> u8 {
 			}
 		}
 	} else {
-		upgrade(&text, o.from_2x)
+		upgrade(&text, o.from_2x, true)
 	};
 	if up.current {
 		// `diagnostics` is empty when current, but the file is still loaded,

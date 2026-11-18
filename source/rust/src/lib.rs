@@ -224,6 +224,10 @@ pub struct SaveOptions {
 	/// whatever the umask. 0 is an ordinary create's. A file already there
 	/// keeps its own, and windows has no such bits.
 	pub mode: u32,
+	/// Give the document the info block before the save, as
+	/// `set_banner(true)` does, so the file ends with it and its Format line
+	/// is the stamp. Off, the save adds no block, only the stamp.
+	pub banner: bool,
 }
 
 /// How `load_file_opts` loads. The default is `load_file_with`. The level is
@@ -3609,12 +3613,14 @@ pub struct Upgrade {
 
 /// A config file written for an older format, made over for this one: the
 /// input run through `migrate_unstamped`, then saved keeping its lines, so
-/// each line, blank ones included, stays where it was, with the info block
-/// `init` writes at the end in place of an old one there. Where the lines
+/// each line, blank ones included, stays where it was. With `banner`, the info
+/// block `init` writes goes at the end in place of an old one there. Without,
+/// an old one comes off as `set_banner(false)` takes it, and the text ends
+/// with the stamp every save writes. Where the lines
 /// can't be kept, or keeping them keeps an error, it is written the way `fmt`
 /// writes it. A whole block above the first field stays, so a file with its
-/// block at the top comes out with 2, both naming this format. This is the one
-/// library call that writes the block. A file that names this format comes back
+/// block at the top comes out with 2, both naming this format. This and a save
+/// with `SaveOptions::banner` are the library calls that write the block. A file that names this format comes back
 /// `current` and untouched, and so does one that loads with no error under
 /// these rules, since a program calling this on every start must never rewrite
 /// a good file. `from_v2` is migrate's: the file can only have been written for
@@ -3628,7 +3634,7 @@ pub struct Upgrade {
 /// it wouldn't, `errors_left` names the lines still in error. Pass `from_v2`
 /// only for a file known to be old, never on every start: a file this format
 /// wrote that picks up an error later would be read by 2.x rules too.
-pub fn upgrade(text: &str, from_v2: bool) -> Upgrade {
+pub fn upgrade(text: &str, from_v2: bool, banner: bool) -> Upgrade {
 	let named = read_format_version(text);
 	let version = (named.status == Status::Good).then_some(named.value);
 	let mut up = Upgrade {
@@ -3675,8 +3681,8 @@ pub fn upgrade(text: &str, from_v2: bool) -> Upgrade {
 	let lost = m.lost + fresh.lost_count();
 	// migrate keeps every line where it was, so these are the input's.
 	let left = error_lines(&fresh.diags);
-	fresh.swap_banner(true, true);
-	let made = upgrade_text(&fresh);
+	fresh.swap_banner(banner, true);
+	let made = upgrade_text(&fresh, banner);
 	// With from_v2 it goes only when that leaves it loading clean, or the
 	// next run with it would read the result by 2.x rules again
 	// (2026101515372401). Without, a Format 3 file with an error is current.
@@ -3702,9 +3708,15 @@ pub fn upgrade(text: &str, from_v2: bool) -> Upgrade {
 /// input is on the same line here, blank ones included (2026102620591101).
 /// Where the lines can't be kept, or keeping them keeps an error the
 /// canonical form repairs, such as a missing colon, it is the canonical form.
-fn upgrade_text(fresh: &Document) -> String {
-	let canonical = fresh.canonical_text();
-	match fresh.keep_lines_text() {
+/// Without the info block, whose Format line names this format, both get the
+/// stamp a save writes.
+fn upgrade_text(fresh: &Document, banner: bool) -> String {
+	let (canonical, lines) = if banner {
+		(fresh.canonical_text(), fresh.keep_lines_text())
+	} else {
+		(fresh.to_canonical(), fresh.keep_lines_stamped())
+	};
+	match lines {
 		(kept, true)
 			if Document::parse(&kept).error_count()
 				<= Document::parse(&canonical).error_count() =>
@@ -7326,6 +7338,11 @@ impl Document {
 				path: path.to_string(),
 			});
 		}
+		// The document keeps the block whether or not the write goes, so the
+		// next save, with the option or not, writes it again.
+		if opts.banner {
+			self.set_banner(true);
+		}
 		let lost = self.lost_count();
 		let (text, kept) = if opts.keep_lines {
 			self.keep_lines_stamped()
@@ -10518,7 +10535,7 @@ fn create_backup(file: &str, name: &str) -> std::io::Result<std::fs::File> {
 /// have an error. Opt-in on purpose: a program that keeps its own backups
 /// has no need of it. On success `backup` names the copy when one was made,
 /// and `text` is what the path now holds.
-pub fn upgrade_file(path: &str, from_v2: bool) -> Result<Upgrade, UpgradeError> {
+pub fn upgrade_file(path: &str, from_v2: bool, banner: bool) -> Result<Upgrade, UpgradeError> {
 	check_kept_file(path)?;
 	// Not read_file, whose one status for every failure would hide the
 	// system's reason (2026101514324707).
@@ -10535,7 +10552,7 @@ pub fn upgrade_file(path: &str, from_v2: bool) -> Result<Upgrade, UpgradeError> 
 			format!("{}: can't be read as UTF-8 text", path),
 		)));
 	};
-	let mut up = upgrade(&text, from_v2);
+	let mut up = upgrade(&text, from_v2, banner);
 	if up.current {
 		return Ok(up);
 	}
@@ -13624,9 +13641,9 @@ impl Document {
 	/// writes as the first field's first child, so a block there is left
 	/// alone too, however it got there. A lone Format line or stamp there comes off with
 	/// `on`, since the new block names the format. A kept block's Format line or stamp
-	/// is set to this format too, since it reads first. The library save never
-	/// adds the block by itself; this is for a program that wants it in a file
-	/// it writes. Returns how many old blocks came off.
+	/// is set to this format too, since it reads first. A save adds the block only
+	/// when `SaveOptions::banner` asks; this is for a program that wants it in
+	/// a file it writes. Returns how many old blocks came off.
 	pub fn set_banner(&mut self, on: bool) -> usize {
 		self.swap_banner(on, false)
 	}

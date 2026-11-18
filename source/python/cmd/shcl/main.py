@@ -1948,16 +1948,16 @@ def do_upgrade(o):
 		return EXIT_IO
 	if o.write:
 		try:
-			up = shcl.upgrade_file(file, o.from_2x)
+			up = shcl.upgrade_file(file, o.from_2x, True)
 		except shcl.UpgradeError as e:
-			say_diagnostics_from("", shcl.upgrade(text, o.from_2x).diagnostics)
+			say_diagnostics_from("", shcl.upgrade(text, o.from_2x, True).diagnostics)
 			if isinstance(e, shcl.UpgradeAmbiguous):
 				sys.stderr.write(f"{e} (--from-2x rewrites them)\n")
 				return 7
 			sys.stderr.write(f"{e}\n")
 			return 7 if isinstance(e, shcl.UpgradeErrorsLeft) else EXIT_IO
 	else:
-		up = shcl.upgrade(text, o.from_2x)
+		up = shcl.upgrade(text, o.from_2x, True)
 	if up.current:
 		# diagnostics is empty when current, but the file is still loaded, and
 		# every loading subcommand says what its load found (2026101419280005).

@@ -418,16 +418,19 @@ class SaveOptions:
 	one another save makes at the same time. mode is the permission bits
 	(0o777) a file this save makes gets, exactly, whatever the umask; 0 is an
 	ordinary create's. A file already there keeps its own, and windows has no
-	such bits."""
-	__slots__ = ("lossy", "keep_lines", "force", "create", "mode")
+	such bits. banner gives the document the info block before the save, as
+	set_banner(True) does, so the file ends with it and its Format line is the
+	stamp. Off, the save adds no block, only the stamp."""
+	__slots__ = ("lossy", "keep_lines", "force", "create", "mode", "banner")
 
 	def __init__(self, lossy: bool = False, keep_lines: bool = False, force: bool = False,
-			create: bool = False, mode: int = 0) -> None:
+			create: bool = False, mode: int = 0, banner: bool = False) -> None:
 		self.lossy = lossy
 		self.keep_lines = keep_lines
 		self.force = force
 		self.create = create
 		self.mode = mode
+		self.banner = banner
 
 
 class LoadOptions:
@@ -3272,15 +3275,17 @@ class Upgrade:
 		self.errors_left: list[int] = []
 
 
-def upgrade(text: str, from_v2: bool) -> Upgrade:
+def upgrade(text: str, from_v2: bool, banner: bool) -> Upgrade:
 	"""A config file written for an older format, made over for this one: the
 	input run through migrate_unstamped(), then saved keeping its lines, so
-	each line, blank ones included, stays where it was, with the info block
-	`init` writes at the end in place of an old one there. Where the lines
+	each line, blank ones included, stays where it was. With banner, the info
+	block `init` writes goes at the end in place of an old one there. Without,
+	an old one comes off as set_banner(False) takes it, and the text ends with
+	the stamp every save writes. Where the lines
 	can't be kept, or keeping them keeps an error, it is written the way `fmt`
 	writes it. A whole block above the first field stays, so a file with its block
-	at the top comes out with 2, both naming this format. This is the one
-	library call that writes the block. A file that names this format comes back
+	at the top comes out with 2, both naming this format. This and a save with
+	SaveOptions.banner are the library calls that write the block. A file that names this format comes back
 	current and untouched, and so does one that loads with no error under these
 	rules, since a program calling this on every start must never rewrite a good
 	file. from_v2 is migrate's: the file can only have been written for 2.x.
@@ -3327,8 +3332,8 @@ def upgrade(text: str, from_v2: bool) -> Upgrade:
 	lost = m.lost + fresh.lost_count()
 	# migrate keeps every line where it was, so these are the input's.
 	left = _error_lines(fresh.diagnostics())
-	fresh._swap_banner(True, True)
-	made = _upgrade_text(fresh)
+	fresh._swap_banner(banner, True)
+	made = _upgrade_text(fresh, banner)
 	# With from_v2 it goes only when that leaves it loading clean, or the next
 	# run with it would read the result by 2.x rules again
 	# (2026101515372401). Without, a Format 3 file with an error is current.
@@ -3344,14 +3349,19 @@ def upgrade(text: str, from_v2: bool) -> Upgrade:
 	return up
 
 
-def _upgrade_text(fresh: Document) -> str:
+def _upgrade_text(fresh: Document, banner: bool) -> str:
 	"""The fresh file's text, saved the way `set` saves, so each line of the
 	input is on the same line here, blank ones included (2026102620591101).
 	Where the lines can't be kept, or keeping them keeps an error the
 	canonical form repairs, such as a missing colon, it is the canonical
-	form."""
-	canonical = fresh._canonical_text()
-	kept, ok = fresh._keep_lines_text()
+	form. Without the info block, whose Format line names this format, both
+	get the stamp a save writes."""
+	if banner:
+		canonical = fresh._canonical_text()
+		kept, ok = fresh._keep_lines_text()
+	else:
+		canonical = fresh.to_canonical()
+		kept, ok = fresh._keep_lines_stamped()
 	if ok and Document.parse(kept).error_count() <= Document.parse(canonical).error_count():
 		return kept
 	return canonical
@@ -7152,6 +7162,10 @@ class Document:
 		# would write a newer format's lines by these rules.
 		if self._newer:
 			raise SaveTooNew(path)
+		# The document keeps the block whether or not the write goes, so the
+		# next save, with the option or not, writes it again.
+		if opts.banner:
+			self.set_banner(True)
 		lost = self.lost_count()
 		if opts.keep_lines:
 			text, kept = self._keep_lines_stamped()
@@ -9206,9 +9220,9 @@ class Document:
 		which a saved file writes as the first field's first child, so a block
 		there is left alone too, however it got there. A lone Format line or stamp there
 		comes off with on, since the new block names the format. A kept block's Format line or stamp is set to
-		this format too, since it reads first. The library save never adds the
-		block by itself; this is for a program that wants it in a file it
-		writes. Returns how many old blocks came off."""
+		this format too, since it reads first. A save adds the block only when
+		SaveOptions.banner asks; this is for a program that wants it in a file
+		it writes. Returns how many old blocks came off."""
 		_want("set_banner", on, "bool")
 		return self._swap_banner(on, False)
 
@@ -11572,7 +11586,7 @@ def _create_backup(file, name):
 	return _create_like(file, name)
 
 
-def upgrade_file(path: str | os.PathLike[str], from_v2: bool) -> Upgrade:
+def upgrade_file(path: str | os.PathLike[str], from_v2: bool, banner: bool) -> Upgrade:
 	"""upgrade() on a file, for a program to call when it starts, before its
 	load. A file that needs it is kept under backup_file_name() by
 	write_backup(), then the fresh text replaces it through
@@ -11598,7 +11612,7 @@ def upgrade_file(path: str | os.PathLike[str], from_v2: bool) -> Upgrade:
 		text = data.decode("utf-8")
 	except UnicodeDecodeError:
 		raise UpgradeFailed(f"{path}: can't be read as UTF-8 text", WriteStatus.Unreadable) from None
-	up = upgrade(text, from_v2)
+	up = upgrade(text, from_v2, banner)
 	if up.current:
 		return up
 	if up.ambiguous != 0:

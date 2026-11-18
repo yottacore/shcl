@@ -3820,20 +3820,20 @@ def main():
 			("under a file", lambda: shcl.write_file_atomic(wat("ok.shcl/t.shcl"), "a: 1\n"), shcl.WriteStatus.NotFound),
 			("over a directory", lambda: shcl.write_file_atomic(wat("sub"), "a: 1\n"), shcl.WriteStatus.IsDirectory),
 			("through a trailing separator", lambda: shcl.write_file_atomic(wat("ok.shcl") + "/", "a: 1\n"), shcl.WriteStatus.IsDirectory),
-			("upgrade of a directory", lambda: shcl.upgrade_file(wat("sub"), False), shcl.WriteStatus.IsDirectory),
+			("upgrade of a directory", lambda: shcl.upgrade_file(wat("sub"), False, True), shcl.WriteStatus.IsDirectory),
 		]
 		with open(wat("bin.shcl"), "wb") as bfh:
 			bfh.write(b"a: \xff\n")
-		wrows.append(("upgrade of a file that is not UTF-8", lambda: shcl.upgrade_file(wat("bin.shcl"), False), shcl.WriteStatus.Unreadable))
+		wrows.append(("upgrade of a file that is not UTF-8", lambda: shcl.upgrade_file(wat("bin.shcl"), False, True), shcl.WriteStatus.Unreadable))
 		try:
-			shcl.upgrade_file(wat("bin.shcl"), False)
+			shcl.upgrade_file(wat("bin.shcl"), False, True)
 		except shcl.UpgradeFailed as bfail:
 			if "UTF-8" not in str(bfail):
 				raise SystemExit(f"upgrade of a file that is not UTF-8: {bfail}") from None
 		if os.name != "nt":
 			os.mkfifo(wat("p.shcl"))
 			wrows.append(("over a FIFO", lambda: shcl.write_file_atomic(wat("p.shcl"), "a: 1\n"), shcl.WriteStatus.NotRegular))
-			wrows.append(("upgrade of a FIFO", lambda: shcl.upgrade_file(wat("p.shcl"), False), shcl.WriteStatus.NotRegular))
+			wrows.append(("upgrade of a FIFO", lambda: shcl.upgrade_file(wat("p.shcl"), False, True), shcl.WriteStatus.NotRegular))
 		for what, call, want in wrows:
 			got = wstatus(call)
 			if got is not want:
@@ -3857,7 +3857,7 @@ def main():
 					for what, call in (
 						("into a shut folder", lambda: shcl.write_file_atomic(os.path.join(shut, "t.shcl"), "a: 1\n")),
 						("backup into a shut folder", lambda: shcl.write_backup(v2, "x: a,b\n", 2)),
-						("upgrade in a shut folder", lambda: shcl.upgrade_file(v2, True)),
+						("upgrade in a shut folder", lambda: shcl.upgrade_file(v2, True, True)),
 					):
 						got = wstatus(call)
 						if got is not shcl.WriteStatus.PermissionDenied:
@@ -3869,7 +3869,7 @@ def main():
 						fh.write("a: 1\nb 2\n")
 					os.chmod(locked, 0o000)
 					try:
-						shcl.upgrade_file(locked, False)
+						shcl.upgrade_file(locked, False, True)
 						raise SystemExit("upgrade of a file it may not read: no error")
 					except shcl.UpgradeFailed as lfail:
 						if lfail.status is not shcl.WriteStatus.PermissionDenied or "UTF-8" in str(lfail):
@@ -5387,10 +5387,10 @@ def main():
 	# The call from the report. Without from_v2 the file could be a 3.0 one,
 	# so the two values are left and counted.
 	mtext = "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\n"
-	mup = shcl.upgrade(mtext, False)
+	mup = shcl.upgrade(mtext, False, True)
 	if mup.current or mup.ambiguous != 2 or mup.text != mtext:
 		raise SystemExit(f"{mup.current} {mup.ambiguous} {mup.text!r}")
-	mup = shcl.upgrade(mtext, True)
+	mup = shcl.upgrade(mtext, True, True)
 	if mup.current or mup.ambiguous != 0 or mup.lost != 0:
 		raise SystemExit(f"{mup.current} {mup.ambiguous} {mup.lost}")
 	mback = shcl.Document.parse(mup.text)
@@ -5428,7 +5428,7 @@ def main():
 	mm = shcl.migrate(mtext, True)
 	if not mm.text.startswith("'k\\\\x': \"C:\u25c9TAB\u25c9emp\"\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n"):
 		raise SystemExit(repr(mm.text))
-	if shcl.upgrade(mtext, True).lost != 2:
+	if shcl.upgrade(mtext, True, True).lost != 2:
 		raise SystemExit("upgrade: lost not 2")
 
 	# upgrade and upgrade_file (2026100313461649): a file this version cannot
@@ -5441,10 +5441,10 @@ def main():
 	test_id("ddmkq", "upgrade_leaves_a_clean_or_stamped_file")
 	# a,b is one string now and an array under 2.x, but it loads clean, and
 	# nothing says the file is 2.x.
-	up = shcl.upgrade("a: 1\nb: x,y\n", False)
+	up = shcl.upgrade("a: 1\nb: x,y\n", False, True)
 	if not up.current or up.text != "a: 1\nb: x,y\n" or up.diagnostics:
 		raise SystemExit(f"clean: {up.current} {up.text!r} {up.diagnostics}")
-	if not shcl.upgrade(f"p: a,b\n\n{shcl.GEN_BANNER}", True).current:
+	if not shcl.upgrade(f"p: a,b\n\n{shcl.GEN_BANNER}", True, True).current:
 		raise SystemExit("stamped: not current")
 	# Old claim below, wrong since 2026101407100010: a beta Format 3 file that
 	# loads with an error now converts with from_v2, so it isn't always
@@ -5460,19 +5460,19 @@ def main():
 	# The caller says a 2.x build wrote it, as a beta of 3.0 could have
 	# (2026101407100010). The backup name keeps the format the line names.
 	up_beta = f"tags: a, b\n\n{shcl.GEN_BANNER}"
-	up = shcl.upgrade(up_beta, True)
+	up = shcl.upgrade(up_beta, True, True)
 	if up.current or up.format != 3 or up.lost != 0 or up.text != f"tags: [a, b]\n\n{shcl.GEN_BANNER}":
 		raise SystemExit(f"beta: {up.current} {up.format} {up.lost} {up.text!r}")
 	if not any(d.code == "E026" for d in up.diagnostics):
 		raise SystemExit(f"beta: no E026 in {up.diagnostics}")
 	# What it leaves loads clean, so the next start leaves it alone.
-	if not shcl.upgrade(up.text, True).current:
+	if not shcl.upgrade(up.text, True, True).current:
 		raise SystemExit("beta: the fresh text is not current")
 	# Without from_v2, or when it loads clean, nothing changes.
-	up = shcl.upgrade(up_beta, False)
+	up = shcl.upgrade(up_beta, False, True)
 	if not up.current or up.text != up_beta:
 		raise SystemExit(f"beta without from_v2: {up.current} {up.text!r}")
-	if not shcl.upgrade(f"p: a,b\n\n{shcl.GEN_BANNER}", True).current:
+	if not shcl.upgrade(f"p: a,b\n\n{shcl.GEN_BANNER}", True, True).current:
 		raise SystemExit("beta: a clean stamped file is not current")
 	# Old claim below, wrong since 2026101515372401: a fresh text that would
 	# keep an error is refused, not current, and names its lines. Don't
@@ -5485,7 +5485,7 @@ def main():
 	# if not up.current or up.text != up_stuck or up.diagnostics:
 	# 	raise SystemExit(f"beta stuck: {up.current} {up.text!r} {up.diagnostics}")
 	# A lone stamp at the top goes too.
-	up = shcl.upgrade("##    Format   3\nname: x\nrange: 0, 100\n", True)
+	up = shcl.upgrade("##    Format   3\nname: x\nrange: 0, 100\n", True, True)
 	if up.text != f"name: x\nrange: [0, 100]\n\n{shcl.GEN_BANNER}":
 		raise SystemExit(f"beta top stamp: {up.text!r}")
 	# migrate keeps leaving it alone: its text can keep a line with an error,
@@ -5499,24 +5499,24 @@ def main():
 	# and the 2.x escape on line 1 would grow each time (2026101515372401).
 	# So nothing is made, with a Format line or not.
 	up_left = "\"k\u25c9Q\u25c9\": 1\n'C:\\': ~~~\n\tx\n\t~~~\nport: 8\u3000080\n"
-	up = shcl.upgrade(up_left, True)
+	up = shcl.upgrade(up_left, True, True)
 	if up.current or up.text != up_left or up.lost != 0 or up.errors_left != [5]:
 		raise SystemExit(f"left: {up.current} {up.lost} {up.errors_left} {up.text!r}")
 	if not any(d.code == "E025" and d.line == 5 for d in up.diagnostics):
 		raise SystemExit(f"left: no E025 on line 5 in {up.diagnostics}")
 	up_stuck = "a: 1\nb 2\n##    Format   3\n"
-	up = shcl.upgrade(up_stuck, True)
+	up = shcl.upgrade(up_stuck, True, True)
 	if up.current or up.text != up_stuck or up.errors_left != [2] or not up.diagnostics:
 		raise SystemExit(f"left stuck: {up.current} {up.errors_left} {up.text!r}")
 	# Without from_v2 a stamped file is current, and nothing would read the
 	# fresh text as 2.x again.
-	if not shcl.upgrade(up_stuck, False).current:
+	if not shcl.upgrade(up_stuck, False, True).current:
 		raise SystemExit("left stuck without from_v2: not current")
 	# With the line fixed it converts, and the second run leaves it alone.
-	up = shcl.upgrade(up_left.replace("8\u3000080", "\"8\u3000080\""), True)
+	up = shcl.upgrade(up_left.replace("8\u3000080", "\"8\u3000080\""), True, True)
 	if up.current or up.errors_left or shcl.Document.parse(up.text).error_count() != 0:
 		raise SystemExit(f"left fixed: {up.current} {up.errors_left} {up.text!r}")
-	if not shcl.upgrade(up.text, True).current:
+	if not shcl.upgrade(up.text, True, True).current:
 		raise SystemExit("left fixed: the fresh text is not current")
 	# upgrade_file writes nothing, no backup either.
 	with tempfile.TemporaryDirectory() as ud:
@@ -5524,7 +5524,7 @@ def main():
 		with open(up_path, "wb") as uf:
 			uf.write(up_left.encode("utf-8"))
 		try:
-			shcl.upgrade_file(up_path, True)
+			shcl.upgrade_file(up_path, True, True)
 			raise SystemExit("left: wrote")
 		except shcl.UpgradeErrorsLeft as e:
 			if e.path != up_path or e.lines != [5] or not str(e).endswith(": line(s) 5 would still have an error once converted from 2.x; nothing written"):
@@ -5543,7 +5543,7 @@ def main():
 	up_top = "a: 1\n##    Format   3\n##\n## This config file format is SHCL.\n##    Format   4\n   b\n"
 	if shcl.format_version(up_top) != 4:
 		raise SystemExit(f"kept top: input names {shcl.format_version(up_top)}")
-	up = shcl.upgrade(up_top, True)
+	up = shcl.upgrade(up_top, True, True)
 	if not up.current or up.errors_left or up.ambiguous or up.text != up_top:
 		raise SystemExit(f"kept top: made over {up.current} {up.errors_left} {up.ambiguous}")
 	# set_banner takes the same path.
@@ -5558,23 +5558,23 @@ def main():
 	# (2026102620591101).
 	up_lines = "\n\nt:\n\taliases: a, b\n\n\n\nu: ~~~\nraw\n~~~\nw: 2\n"
 	for keep_v2 in (True, False):
-		up = shcl.upgrade(up_lines, keep_v2)
+		up = shcl.upgrade(up_lines, keep_v2, True)
 		if up.current or up.errors_left:
 			raise SystemExit(f"keeps lines {keep_v2}: {up.current} {up.errors_left}")
 		if not up.text.startswith("\n\nt:\n\taliases: [a, b]\n\n\n\nu: ~~~\nraw\n~~~\nw: 2\n"):
 			raise SystemExit(f"keeps lines {keep_v2}: lines moved: {up.text!r}")
-		if not shcl.upgrade(up.text, False).current:
+		if not shcl.upgrade(up.text, False, True).current:
 			raise SystemExit(f"keeps lines {keep_v2}: a second run made it over again: {up.text!r}")
 
 	test_id("ddmkr", "upgrade_from_v2_rewrites_a_clean_file_that_reads_differently")
 	# The caller says it is 2.x, where a,b was an array.
-	up = shcl.upgrade("p: a,b\n", True)
+	up = shcl.upgrade("p: a,b\n", True, True)
 	if up.current or up.lost != 0 or up.diagnostics:
 		raise SystemExit(f"a,b: {up.current} {up.lost} {up.diagnostics}")
 	if up.text != f"p: [a, b]\n\n{shcl.GEN_BANNER}":
 		raise SystemExit(repr(up.text))
 	# Nothing reads differently, so there is nothing to do.
-	up = shcl.upgrade("a: 1\nb: x\n", True)
+	up = shcl.upgrade("a: 1\nb: x\n", True, True)
 	if not up.current or up.text != "a: 1\nb: x\n":
 		raise SystemExit(f"same: {up.current} {up.text!r}")
 
@@ -5582,18 +5582,18 @@ def main():
 	# Nothing else changes, so only the stamp does, and only with from_v2
 	# (2026100717500017).
 	up_old = "port: 80\n##    Format   2\n"
-	up = shcl.upgrade(up_old, True)
+	up = shcl.upgrade(up_old, True, True)
 	if up.current or up.format != 2 or up.lost != 0 or up.text != "port: 80\n##    Format   3.0\n":
 		raise SystemExit(f"restamp: {up.current} {up.format} {up.lost} {up.text!r}")
 	if not any(d.code == "H007" for d in up.diagnostics):
 		raise SystemExit(f"no H007 in {up.diagnostics}")
-	if not shcl.upgrade(up.text, True).current:
+	if not shcl.upgrade(up.text, True, True).current:
 		raise SystemExit("the restamped text is not current")
-	up = shcl.upgrade(up_old, False)
+	up = shcl.upgrade(up_old, False, True)
 	if not up.current or up.text != up_old:
 		raise SystemExit(f"without from_v2: {up.current} {up.text!r}")
 	# Indent, trailing blanks, line end and BOM stay as they were.
-	up = shcl.upgrade("\ufeffp: 1\r\n\t##    Format   1  \r\nq: 2", True)
+	up = shcl.upgrade("\ufeffp: 1\r\n\t##    Format   1  \r\nq: 2", True, True)
 	if up.text != "\ufeffp: 1\r\n\t##    Format   3.0  \r\nq: 2":
 		raise SystemExit(f"layout: {up.text!r}")
 	# migrate writes its stamp there too, and adds one only to a file with
@@ -5608,7 +5608,7 @@ def main():
 
 	test_id("ddy7v", "a_format_line_at_the_top_goes_when_the_block_goes_on")
 	# The block names the format, so the file names one (2026101407100001).
-	up = shcl.upgrade("##    Format   2\nname: x\nq: a,b\n", True)
+	up = shcl.upgrade("##    Format   2\nname: x\nq: a,b\n", True, True)
 	if up.text != f"name: x\nq: [a, b]\n\n{shcl.GEN_BANNER}":
 		raise SystemExit(f"upgrade: {up.text!r}")
 	top_doc = shcl.Document.parse("##    Format   2\nname: x\n")
@@ -5665,7 +5665,7 @@ def main():
 				raise SystemExit(f"agree {agree_text!r} {agree_on}: {agree_n} {agree_d.to_canonical()!r}")
 
 	test_id("ddmks", "upgrade_writes_a_fresh_file_with_the_info_block")
-	up = shcl.upgrade(up_v2, False)
+	up = shcl.upgrade(up_v2, False, True)
 	if up.current or up.ambiguous != 0 or up.lost != 0 or up.format != 2:
 		raise SystemExit(f"{up.current} {up.ambiguous} {up.lost} {up.format}")
 	if not any(d.code == "E026" for d in up.diagnostics):
@@ -5678,15 +5678,15 @@ def main():
 	up_want = f"name: 'say \"hi\"'\ntags: [a, b]\n\n{shcl.GEN_BANNER}"
 	if up.text != up_want:
 		raise SystemExit(f"got {up.text!r}\nwant {up_want!r}")
-	if not shcl.upgrade(up.text, False).current:
+	if not shcl.upgrade(up.text, False, True).current:
 		raise SystemExit("the fresh text is not current")
 
 	test_id("ddmkt", "upgrade_refuses_text_that_reads_two_ways")
 	up_amb = "a: x,y\nb: \"q\n"
-	up = shcl.upgrade(up_amb, False)
+	up = shcl.upgrade(up_amb, False, True)
 	if up.current or up.ambiguous != 1 or up.text != up_amb:
 		raise SystemExit(f"{up.current} {up.ambiguous} {up.text!r}")
-	up = shcl.upgrade(up_amb, True)
+	up = shcl.upgrade(up_amb, True, True)
 	if up.ambiguous != 0 or not up.text.startswith("a: [x, y]\nb: '\"q'\n\n##\n"):
 		raise SystemExit(f"from_v2: {up.ambiguous} {up.text!r}")
 
@@ -5709,7 +5709,7 @@ def main():
 		if os.name == "posix":
 			# codeql[py/overly-permissive-file] a fixture mode the test reads back
 			os.chmod(up_path, 0o640)
-		up = shcl.upgrade_file(up_path, False)
+		up = shcl.upgrade_file(up_path, False, True)
 		up_backup = os.path.join(ud, f"f{up_tag}.shcl")
 		if up.backup != up_backup:
 			raise SystemExit(f"backup {up.backup!r}")
@@ -5722,7 +5722,7 @@ def main():
 		if os.name == "posix" and stat.S_IMODE(os.stat(up_backup).st_mode) != 0o640:
 			raise SystemExit(f"mode {stat.S_IMODE(os.stat(up_backup).st_mode):o}")
 		# The second start finds a current file and writes nothing.
-		up = shcl.upgrade_file(up_path, False)
+		up = shcl.upgrade_file(up_path, False, True)
 		if not up.current or up.backup != "" or len(os.listdir(ud)) != 2:
 			raise SystemExit(f"again: {up.current} {up.backup!r} {os.listdir(ud)}")
 
@@ -5735,7 +5735,7 @@ def main():
 		with open(up_backup, "wb") as uf:
 			uf.write(b"x\n")
 		try:
-			shcl.upgrade_file(up_path, False)
+			shcl.upgrade_file(up_path, False, True)
 			raise SystemExit("taken: wrote")
 		except shcl.UpgradeBackupTaken as e:
 			if e.name != up_backup:
@@ -5748,7 +5748,7 @@ def main():
 				raise SystemExit("taken: the backup changed")
 		# Nothing at the path, and text that reads two ways, write nothing.
 		try:
-			shcl.upgrade_file(os.path.join(ud, "none.shcl"), False)
+			shcl.upgrade_file(os.path.join(ud, "none.shcl"), False, True)
 			raise SystemExit("none: no error")
 		except shcl.UpgradeNotFound:
 			pass
@@ -5756,13 +5756,45 @@ def main():
 		with open(up_amb_path, "wb") as uf:
 			uf.write(b"a: x,y\nb: \"q\n")
 		try:
-			shcl.upgrade_file(up_amb_path, False)
+			shcl.upgrade_file(up_amb_path, False, True)
 			raise SystemExit("amb: no error")
 		except shcl.UpgradeAmbiguous as e:
 			if e.count != 1:
 				raise SystemExit(f"amb: count {e.count}") from None
 		if len(os.listdir(ud)) != 3:
 			raise SystemExit(f"left {os.listdir(ud)}")
+
+	test_id("dffxc", "upgrade_can_leave_the_info_block_off")
+	# Without the info block, upgrade ends the text with the stamp, and an old
+	# block comes off as set_banner(False) takes it. The text is current on
+	# the next run, with from_v2 or without (2026111814503025).
+	for ub_text, ub_v2, ub_want in (
+		(up_v2, False, "name: 'say \"hi\"'\ntags: [a, b]\n## SHCL format 3.0\n"),
+		("p: a,b\n", True, "p: [a, b]\n## SHCL format 3.0\n"),
+		("a: 1\r\nb: \"q\r\n", False, "a: 1\r\nb: '\"q'\r\n## SHCL format 3.0\r\n"),
+	):
+		up = shcl.upgrade(ub_text, ub_v2, False)
+		if up.current or up.text != ub_want:
+			raise SystemExit(f"no block {ub_text!r}: {up.current} {up.text!r}")
+		if not shcl.upgrade(up.text, False, False).current or not shcl.upgrade(up.text, True, False).current:
+			raise SystemExit(f"no block {ub_text!r}: not current on the next run")
+		# With the block, for the same file.
+		if "## This config file format is SHCL." not in shcl.upgrade(ub_text, ub_v2, True).text:
+			raise SystemExit(f"no block {ub_text!r}: none with it")
+	# upgrade_file writes the same text, and keeps the original.
+	with tempfile.TemporaryDirectory() as ud:
+		up_path = os.path.join(ud, "f.shcl")
+		with open(up_path, "wb") as uf:
+			uf.write(up_v2.encode("utf-8"))
+		up = shcl.upgrade_file(up_path, False, False)
+		with open(up_path, encoding="utf-8", newline="") as uf:
+			ub_got = uf.read()
+		with open(up.backup, encoding="utf-8", newline="") as uf:
+			ub_old = uf.read()
+		if ub_got != shcl.upgrade(up_v2, False, False).text or ub_old != up_v2:
+			raise SystemExit(f"no block file: {ub_got!r}, backup {ub_old!r}")
+		if not shcl.upgrade_file(up_path, False, False).current:
+			raise SystemExit("no block file: not current on the next run")
 
 	test_id("de4bc", "write_backup_refuses_a_swapped_file_and_text")
 	# The file and its text are both strings, and swapped they wrote a backup
@@ -6195,7 +6227,7 @@ def main():
 		nrefused("lossy", lambda: ndoc.save_file_lossy(nf), nf)
 		nrefused("keep", lambda: ndoc.save_file_keep_lines(nf), nf)
 		# No option overrides it, and it comes before create's check.
-		nall = shcl.SaveOptions(lossy=True, keep_lines=True, force=True, create=True, mode=0o600)
+		nall = shcl.SaveOptions(lossy=True, keep_lines=True, force=True, create=True, mode=0o600, banner=True)
 		nrefused("all", lambda: ndoc.save_file_with(nf, nall), nf)
 		nsame("left", nread(nf), newer)
 		# Anywhere else too, and nothing is made there.
@@ -6236,7 +6268,7 @@ def main():
 			nrefused(repr(text), lambda d=d: d.save_file(nother), nother)
 			nsame("none made " + repr(text), os.path.exists(nother), False)
 			for from_v2 in (False, True):
-				up = shcl.upgrade(text, from_v2)
+				up = shcl.upgrade(text, from_v2, True)
 				nsame("upgrade " + repr(text), (up.current, up.text), (True, text))
 
 	test_id("dffvz", "a_newer_format_document_gives_no_text")
@@ -6273,6 +6305,69 @@ def main():
 	# This format, an older one and none give their text.
 	for text in ("a: 1\n## SHCL format 3.0\n", "a: 1\n##    Format   3\n", "a: 1\n##    Format   2\n", "a: 1\n"):
 		shcl.Document.parse_keep_lines(text, shcl.Strictness.Standard).to_text_keep_lines()
+
+	test_id("dffww", "a_save_can_add_the_info_block")
+	# A save adds the info block only when its options ask, and the document
+	# keeps it, so the next save writes it too. Without, the file gets only
+	# the stamp. The block's Format line is the stamp, so none goes under it
+	# (2026111016205705).
+	with tempfile.TemporaryDirectory() as ibd:
+		ibf = os.path.join(ibd, "f.shcl")
+
+		def ibread():
+			with open(ibf, encoding="utf-8", newline="") as fh:
+				return fh.read()
+
+		def ibsave(doc, opts, want_kept):
+			got = doc.save_file_with(ibf, opts)
+			if got is not want_kept:
+				raise SystemExit(f"info block save: kept {got!r}")
+
+		def ibshape(what, text, head):
+			if not text.startswith(head) or not text.endswith(shcl.GEN_BANNER) or shcl.STAMP_HEAD in text:
+				raise SystemExit(f"info block {what}: {text!r}")
+
+		ib_force = shcl.SaveOptions(force=True)
+		ib_banner = shcl.SaveOptions(force=True, banner=True)
+		ibw = shcl.Document.parse("a: 1\n")
+		ibw.set_banner(True)
+		ib_want = ibw.to_canonical()
+		ibshape("want", ib_want, "a: 1\n")
+
+		# Off, the file gets the stamp and no block.
+		ibdoc = shcl.Document.parse("a: 1\n")
+		ibsave(ibdoc, ib_force, False)
+		if ibread() != with_stamp("a: 1\n"):
+			raise SystemExit(f"info block off: {ibread()!r}")
+		# On, it ends with the block, and the document keeps it. Asked again,
+		# the block already there stays the one block.
+		for ibo in (ib_banner, ib_force, ib_banner):
+			ibsave(ibdoc, ibo, False)
+			if ibread() != ib_want:
+				raise SystemExit(f"info block on: {ibread()!r}")
+
+		# Keeping lines, the file's own lines stay as they were.
+		ib_own = "# note\na:   1\n"
+		with open(ibf, "w", encoding="utf-8", newline="") as fh:
+			fh.write(ib_own)
+		ibdoc = shcl.Document.load_file_keep_lines(ibf, shcl.Strictness.Standard)[0]
+		ibsave(ibdoc, shcl.SaveOptions(keep_lines=True, banner=True), True)
+		ibshape("kept", ibread(), ib_own)
+		ibagain = shcl.Document.load_file_keep_lines(ibf, shcl.Strictness.Standard)[0]
+		if ibagain.to_canonical() != ibdoc.to_canonical():
+			raise SystemExit(f"info block reload: {ibagain.to_canonical()!r}")
+
+		# A newer format's document is refused first, and gets no block.
+		ibdoc = shcl.Document.parse("a: 1\n##    Format   4\n")
+		ib_before = ibdoc.to_canonical()
+		try:
+			ibdoc.save_file_with(ibf, ib_banner)
+		except shcl.SaveTooNew:
+			pass
+		else:
+			raise SystemExit("info block newer: written")
+		if ibdoc.to_canonical() != ib_before:
+			raise SystemExit(f"info block newer: {ibdoc.to_canonical()!r}")
 
 	test_id("dfe4s", "a_load_that_migrates_saves_through_the_guards")
 	# A load that migrates in memory writes nothing, and its save gets every

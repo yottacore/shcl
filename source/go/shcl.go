@@ -3883,12 +3883,14 @@ type Upgraded struct {
 
 // Upgrade is a config file written for an older format, made over for this
 // one: the input run through MigrateUnstamped, then saved keeping its lines,
-// so each line, blank ones included, stays where it was, with the info block
-// `init` writes at the end in place of an old one there. Where the lines can't
+// so each line, blank ones included, stays where it was. With banner, the info
+// block `init` writes goes at the end in place of an old one there. Without,
+// an old one comes off as SetBanner(false) takes it, and the text ends with
+// the stamp every save writes. Where the lines can't
 // be kept, or keeping them keeps an error, it is written the way `fmt` writes
 // it. A whole block above the first field stays, so a file with its
-// block at the top comes out with 2, both naming this format. This is the one
-// library call that writes the block. A file that names this format comes back
+// block at the top comes out with 2, both naming this format. This and a save
+// with SaveOptions.Banner are the library calls that write the block. A file that names this format comes back
 // Current and untouched, and so does one that loads with no error under these
 // rules, since a program calling this on every start must never rewrite a good
 // file. fromV2 is Migrate's: the file can only have been written for 2.x. Then
@@ -3902,7 +3904,7 @@ type Upgraded struct {
 // the lines still in error. Pass fromV2 only for a file known to be old, never
 // on every start: a file this format wrote that picks up an error later would
 // be read by 2.x rules too.
-func Upgrade(text string, fromV2 bool) Upgraded {
+func Upgrade(text string, fromV2, banner bool) Upgraded {
 	named := ReadFormatVersion(text)
 	version, hasVersion := named.Value, named.Status == Good
 	up := Upgraded{Text: text, Current: true, Format: 2}
@@ -3946,8 +3948,8 @@ func Upgrade(text string, fromV2 bool) Upgraded {
 	lost := m.Lost + fresh.LostCount()
 	// migrate keeps every line where it was, so these are the input's.
 	left := errorLines(fresh.diags)
-	fresh.swapBanner(true, true)
-	made := upgradeText(fresh)
+	fresh.swapBanner(banner, true)
+	made := upgradeText(fresh, banner)
 	// With fromV2 it goes only when that leaves it loading clean, or the next
 	// run with it would read the result by 2.x rules again
 	// (2026101515372401). Without, a Format 3 file with an error is current.
@@ -3971,10 +3973,16 @@ func Upgrade(text string, fromV2 bool) Upgraded {
 // line of the input is on the same line here, blank ones included
 // (2026102620591101). Where the lines can't be kept, or keeping them keeps an
 // error the canonical form repairs, such as a missing colon, it is the
-// canonical form.
-func upgradeText(fresh *Document) string {
+// canonical form. Without the info block, whose Format line names this format,
+// both get the stamp a save writes.
+func upgradeText(fresh *Document, banner bool) string {
 	canonical := fresh.canonicalText()
-	if kept, ok := fresh.keepLinesText(); ok && Parse(kept).ErrorCount() <= Parse(canonical).ErrorCount() {
+	kept, ok := fresh.keepLinesText()
+	if !banner {
+		canonical = fresh.ToCanonical()
+		kept, ok = fresh.keepLinesStamped()
+	}
+	if ok && Parse(kept).ErrorCount() <= Parse(canonical).ErrorCount() {
 		return kept
 	}
 	return canonical
@@ -10436,7 +10444,7 @@ func checkKeptFile(path string) error {
 // Opt-in on purpose: a program that keeps its own backups has no need of it.
 // On success Backup names the copy when one was made, and Text is what the
 // path now holds. A failure is an *UpgradeError.
-func UpgradeFile(path string, fromV2 bool) (Upgraded, error) {
+func UpgradeFile(path string, fromV2, banner bool) (Upgraded, error) {
 	if err := checkKeptFile(path); err != nil {
 		return Upgraded{}, err
 	}
@@ -10452,7 +10460,7 @@ func UpgradeFile(path string, fromV2 bool) (Upgraded, error) {
 		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: &WriteError{Status: WriteUnreadable, Err: fmt.Errorf("%s: can't be read as UTF-8 text", path)}}
 	}
 	text := string(data)
-	up := Upgrade(text, fromV2)
+	up := Upgrade(text, fromV2, banner)
 	if up.Current {
 		return up, nil
 	}
@@ -10868,6 +10876,10 @@ type SaveOptions struct {
 	// exactly, whatever the umask. 0 is an ordinary create's. A file already
 	// there keeps its own, and windows has no such bits.
 	Mode os.FileMode
+	// Banner gives the document the info block before the save, as
+	// SetBanner(true) does, so the file ends with it and its Format line is
+	// the stamp. Off, the save adds no block, only the stamp.
+	Banner bool
 }
 
 // seenBytes is what a save checks the bytes at its path against: what the
@@ -10956,6 +10968,11 @@ func (d *Document) SaveFileWith(path string, opts SaveOptions) (bool, error) {
 	// write a newer format's lines by these rules.
 	if d.newer {
 		return false, &SaveTooNew{Path: path}
+	}
+	// The document keeps the block whether or not the write goes, so the next
+	// save, with the option or not, writes it again.
+	if opts.Banner {
+		d.SetBanner(true)
 	}
 	lost := d.LostCount()
 	var text string
@@ -13533,8 +13550,9 @@ func (d *Document) TryClearComments(path string) Read[int] {
 // which a saved file writes as the first field's first child, so a block there
 // is left alone too, however it got there. A lone Format line or stamp there comes off
 // with on, since the new block names the format. A kept block's Format line or stamp is set to this format
-// too, since it reads first. The library save never adds the block by itself;
-// this is for a program that wants it in a file it writes. Returns how many old
+// too, since it reads first. A save adds the block only when
+// SaveOptions.Banner asks; this is for a program that wants it in a file it
+// writes. Returns how many old
 // blocks came off.
 func (d *Document) SetBanner(on bool) int {
 	d.ready()

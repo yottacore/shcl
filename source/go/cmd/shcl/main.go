@@ -2630,8 +2630,8 @@ func doUpgrade(o *opts) int {
 	}
 	var up shcl.Upgraded
 	if o.write {
-		if up, err = shcl.UpgradeFile(file, o.from2x); err != nil {
-			sayDiagnosticsFrom("", shcl.Upgrade(text, o.from2x).Diagnostics)
+		if up, err = shcl.UpgradeFile(file, o.from2x, true); err != nil {
+			sayDiagnosticsFrom("", shcl.Upgrade(text, o.from2x, true).Diagnostics)
 			var ue *shcl.UpgradeError
 			if errors.As(err, &ue) && ue.Kind == shcl.UpgradeAmbiguous {
 				fmt.Fprintf(os.Stderr, "%v (--from-2x rewrites them)\n", err)
@@ -2645,7 +2645,7 @@ func doUpgrade(o *opts) int {
 			return exitIO
 		}
 	} else {
-		up = shcl.Upgrade(text, o.from2x)
+		up = shcl.Upgrade(text, o.from2x, true)
 	}
 	if up.Current {
 		// Diagnostics is empty when current, but the file is still loaded, and
