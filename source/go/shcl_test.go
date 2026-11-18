@@ -4594,6 +4594,10 @@ func TestStampReadsSayWhy(t *testing.T) {
 		{"## SHCL format 4294967296.0\n", math.MaxUint32, Good, 1, "H006"},
 		{"a: 1\n## SHCL format\n", 0, Empty, 2, ""},
 		{"a: 1\n## SHCL format 3.\n", 0, BadType, 2, ""},
+		// A carriage return after the indent is a blank, as in the parser
+		// (2026111809400100).
+		{"a: 1\n\r##    Format   4\n", 4, Good, 2, "H006"},
+		{"a:\n\t\r## SHCL format 2.0\n\tb: 1\n", 2, Good, 2, "H007"},
 		{"a: 1\n##    Format   3.0-\n", 0, BadType, 2, ""},
 		{"a: 1\n## SHCL format 3.0-A37\n", 0, BadType, 2, ""},
 		{"a: 1\n## SHCL format .0\n", 0, BadType, 2, ""},
@@ -4644,6 +4648,7 @@ func TestStampReadsSayWhy(t *testing.T) {
 		{"x: ~~~\n##    Schema   a\n~~~\n", "", NotFound, 0},
 		{"`y: ```\n\t##    Schema   a\n\t```\n", "", NotFound, 0},
 		{"~x: ```\n\tb\n\t```\n##    Schema   a\n", "a", Good, 4},
+		{"a: 1\n \r##    Schema   a\n", "a", Good, 2},
 	}
 	for _, c := range schemas {
 		r := ReadSchemaRef(c.text)
@@ -8395,6 +8400,10 @@ func TestASaveNamesThisFormat(t *testing.T) {
 		{"a: 1\n##    Format   4\n", "a: 1\n##    Format   4\n", "a: 1\n##    Format   4\n"},
 		{"a: ~~~\n\tx\n", "a:\n\t~~~\n\t\tx\n\t~~~\n" + s + "\n", "a: ~~~\n\tx\n"},
 		{"a: ~~~\n\t##    Format   3\n\t~~~\n", "a:\n\t~~~\n\t##    Format   3\n\t~~~\n" + s + "\n", "a: ~~~\n\t##    Format   3\n\t~~~\n" + s + "\n"},
+		// The parser reads past a carriage return before a Format line, so the
+		// save does too, and keeps it (2026111809400100).
+		{"a: 1\n\r##    Format   4\n", "a: 1\n##    Format   4\n", "a: 1\n\r##    Format   4\n"},
+		{"a: 1\n\r##    Format   3\n", "a: 1\n" + f + "\n", "a: 1\n\r" + f + "\n"},
 	} {
 		doc, _ := ParseKeepLines(c.text, Standard)
 		if got := doc.ToCanonical(); got != c.canonical {

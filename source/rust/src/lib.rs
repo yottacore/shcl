@@ -3150,11 +3150,12 @@ fn restamp_as(text: &str, line: usize, stamp: &str) -> Option<String> {
 			out.push_str(l);
 			continue;
 		}
-		let indent = leading_ws(l);
-		let rest = trim_wsp_end(l[indent.len()..].trim_end_matches('\r'));
-		out.push_str(indent);
+		// The indent and any carriage return after it stay, as step() skips them.
+		let lead = &l[..l.len() - l.trim_start_matches(is_wsp).len()];
+		let rest = trim_wsp_end(l[lead.len()..].trim_end_matches('\r'));
+		out.push_str(lead);
 		out.push_str(stamp);
-		out.push_str(&l[indent.len() + rest.len()..]);
+		out.push_str(&l[lead.len() + rest.len()..]);
 	}
 	let now = format_line_read(&out[bom.len()..]);
 	(now.status == Status::Good && now.value == FORMAT_MAJOR && now.line == line).then_some(out)
@@ -3344,8 +3345,9 @@ impl RawLines {
 		}
 	}
 
-	/// The next line's text past its indent, or None when it is part of a
-	/// raw block, fences included.
+	/// The next line's text past its indent and the blanks after it, as the
+	/// parser reads a comment, or None when it is part of a raw block, fences
+	/// included.
 	fn step<'t>(&mut self, line: &'t str) -> Option<&'t str> {
 		let body = line.trim_end_matches('\r');
 		if let Some((ch, len)) = self.fence {
@@ -3365,7 +3367,10 @@ impl RawLines {
 				}
 			}
 		}
-		Some(rest)
+		// A carriage return is a blank but never indent, so the parser takes
+		// `\r##    Format   4` as the comment `##    Format   4`, and so does
+		// the canonical form.
+		Some(rest.trim_start_matches(is_wsp))
 	}
 }
 

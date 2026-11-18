@@ -4354,6 +4354,10 @@ def main():
 		("## SHCL format 4294967296.0\n", 0xFFFFFFFF, G, 1, "H006"),
 		("a: 1\n## SHCL format\n", 0, E, 2, ""),
 		("a: 1\n## SHCL format 3.\n", 0, BT, 2, ""),
+		# A carriage return after the indent is a blank, as in the parser
+		# (2026111809400100).
+		("a: 1\n\r##    Format   4\n", 4, G, 2, "H006"),
+		("a:\n\t\r## SHCL format 2.0\n\tb: 1\n", 2, G, 2, "H007"),
 		("a: 1\n##    Format   3.0-\n", 0, BT, 2, ""),
 		("a: 1\n## SHCL format 3.0-A37\n", 0, BT, 2, ""),
 		("a: 1\n## SHCL format .0\n", 0, BT, 2, ""),
@@ -4385,6 +4389,7 @@ def main():
 		("x: ~~~\n##    Schema   a\n~~~\n", "", NF, 0),
 		("`y: ```\n\t##    Schema   a\n\t```\n", "", NF, 0),
 		("~x: ```\n\tb\n\t```\n##    Schema   a\n", "a", G, 4),
+		("a: 1\n \r##    Schema   a\n", "a", G, 2),
 	):
 		rs = shcl.read_schema_ref(stext)
 		if (rs.value, rs.status, rs.line) != (sref, sstatus, sline):
@@ -6772,6 +6777,10 @@ def main():
 		("a: 1\n##    Format   4\n", "a: 1\n##    Format   4\n", "a: 1\n##    Format   4\n"),
 		("a: ~~~\n\tx\n", f"a:\n\t~~~\n\t\tx\n\t~~~\n{ns}\n", "a: ~~~\n\tx\n"),
 		("a: ~~~\n\t##    Format   3\n\t~~~\n", f"a:\n\t~~~\n\t##    Format   3\n\t~~~\n{ns}\n", f"a: ~~~\n\t##    Format   3\n\t~~~\n{ns}\n"),
+		# The parser reads past a carriage return before a Format line, so the
+		# save does too, and keeps it (2026111809400100).
+		("a: 1\n\r##    Format   4\n", "a: 1\n##    Format   4\n", "a: 1\n\r##    Format   4\n"),
+		("a: 1\n\r##    Format   3\n", f"a: 1\n{nf}\n", f"a: 1\n\r{nf}\n"),
 	):
 		ndoc = shcl.Document.parse_keep_lines(ntext, shcl.Strictness.Standard)
 		if ndoc.to_canonical() != ncanon:

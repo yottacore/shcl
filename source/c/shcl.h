@@ -3764,8 +3764,9 @@ static ShclFence opens_raw(ShclArena *ta, ShclStr rest, ShclTokens *tok) {
 	return line_fence(ta, tok, rest);
 }
 
-/* The next line's text past its indent in *rest, or 0 when the line is part of
-   a raw block, fences included. */
+/* The next line's text past its indent and the blanks after it in *rest, as the
+   parser reads a comment, or 0 when the line is part of a raw block, fences
+   included. */
 static int raw_lines_step(ShclArena *ta, ShclArena *sc, ShclRawLines *w, ShclStr line, ShclStr *rest) {
 	size_t bn = line.n;
 	while (bn > 0 && line.p[bn - 1] == '\r') bn--;
@@ -3790,6 +3791,10 @@ static int raw_lines_step(ShclArena *ta, ShclArena *sc, ShclRawLines *w, ShclStr
 			break;
 		}
 	}
+	/* A carriage return is a blank but never indent, so the parser takes
+	   `\r##    Format   4` as the comment `##    Format   4`, and so does the
+	   canonical form. */
+	*rest = trim_wsp_start(*rest);
 	return 1;
 }
 
@@ -3968,11 +3973,13 @@ static int restamp_as(ShclArena *a, ShclArena *sc, ShclStr text, size_t line, co
 		start = i + 1;
 		if (lineno++ > 0) sb_putc(a, sb, '\n');
 		if (lineno != line) { sb_putS(a, sb, l); continue; }
-		ShclStr indent = leading_ws(l);
-		ShclStr rest = trim_wsp_end(s_slice(l, indent.n, l.n));
-		sb_putS(a, sb, indent);
+		/* The indent and any carriage return after it stay, as raw_lines_step
+		   skips them. */
+		ShclStr lead = s_slice(l, 0, l.n - trim_wsp_start(l).n);
+		ShclStr rest = trim_wsp_end(s_slice(l, lead.n, l.n));
+		sb_putS(a, sb, lead);
 		sb_puts(a, sb, stamp);
-		sb_putS(a, sb, s_slice(l, indent.n + rest.n, l.n));
+		sb_putS(a, sb, s_slice(l, lead.n + rest.n, l.n));
 	}
 	ShclStr r = sb_S(sb);
 	ShclStamp now = format_line_read(a, sc, s_slice(r, bom.n, r.n));

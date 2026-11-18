@@ -2917,9 +2917,11 @@ def _restamp_as(text: str, line: int, stamp: str) -> str | None:
 	lines = text[len(bom):].split("\n")
 	if 0 < line <= len(lines):
 		was = lines[line - 1]
-		indent = _leading_ws(was)
-		rest = _trim_wsp_end(was[len(indent):].rstrip("\r"))
-		lines[line - 1] = indent + stamp + was[len(indent) + len(rest):]
+		# The indent and any carriage return after it stay, as step() skips
+		# them.
+		lead = was[:len(was) - len(was.lstrip(_WSP))]
+		rest = _trim_wsp_end(was[len(lead):].rstrip("\r"))
+		lines[line - 1] = lead + stamp + was[len(lead) + len(rest):]
 	body = "\n".join(lines)
 	now = _format_line_read(body)
 	if now.status is not Status.Good or now.value != FORMAT_MAJOR or now.line != line:
@@ -3058,8 +3060,9 @@ class _RawLines:
 		self.dry = _Migrating(True)
 
 	def step(self, line: str) -> str | None:
-		"""The next line's text past its indent, or None when it is part of a
-		raw block, fences included."""
+		"""The next line's text past its indent and the blanks after it, as
+		the parser reads a comment, or None when it is part of a raw block,
+		fences included."""
 		body = line.rstrip("\r")
 		if self.fence is not None:
 			if _is_fence_close(body, self.fence[0], self.fence[1]):
@@ -3073,7 +3076,10 @@ class _RawLines:
 				self.fence = _opens_raw(rest, self.tok)
 			else:
 				_, self.fence = _migrate_line(rest, self.tok, self.fence, self.dry)
-		return rest
+		# A carriage return is a blank but never indent, so the parser takes
+		# `\r##    Format   4` as the comment `##    Format   4`, and so does
+		# the canonical form.
+		return rest.lstrip(_WSP)
 
 
 def _opens_raw(rest: str, tok: Tokens) -> tuple[str, int] | None:

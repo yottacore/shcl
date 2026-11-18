@@ -3404,7 +3404,8 @@ func newRawLines(rules Rules) *rawLines {
 }
 
 // step reads the next line. ok is false when it is part of a raw block,
-// fences included; otherwise rest is its text past the indent.
+// fences included; otherwise rest is its text past the indent and the blanks
+// after it, as the parser reads a comment.
 func (w *rawLines) step(line string) (rest string, ok bool) {
 	body := strings.TrimRight(line, "\r")
 	if w.fence.open {
@@ -3423,7 +3424,10 @@ func (w *rawLines) step(line string) (rest string, ok bool) {
 			migrateLine(rest, &w.tok, &w.fence, &w.dry)
 		}
 	}
-	return rest, true
+	// A carriage return is a blank but never indent, so the parser takes
+	// `\r##    Format   4` as the comment `##    Format   4`, and so does the
+	// canonical form.
+	return strings.TrimLeftFunc(rest, isWsp), true
 }
 
 // opensRaw is the raw block a line opens under the current rules: a fence
@@ -3548,11 +3552,12 @@ func restampAs(text string, line int, stamp string) (string, bool) {
 			out.WriteString(l)
 			continue
 		}
-		indent := leadingWS(l)
-		rest := trimEndWS(strings.TrimRight(l[len(indent):], "\r"))
-		out.WriteString(indent)
+		// The indent and any carriage return after it stay, as step skips them.
+		lead := l[:len(l)-len(strings.TrimLeftFunc(l, isWsp))]
+		rest := trimEndWS(strings.TrimRight(l[len(lead):], "\r"))
+		out.WriteString(lead)
 		out.WriteString(stamp)
-		out.WriteString(l[len(indent)+len(rest):])
+		out.WriteString(l[len(lead)+len(rest):])
 	}
 	s := out.String()
 	now := formatLineRead(s[len(bom):])

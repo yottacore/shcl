@@ -5080,6 +5080,10 @@ int main(int argc, char **argv) {
 			{"## SHCL format 4294967296.0\n", (int64_t)UINT32_MAX, SHCL_GOOD, 1, "H006"},
 			{"a: 1\n## SHCL format\n", 0, SHCL_EMPTY, 2, ""},
 			{"a: 1\n## SHCL format 3.\n", 0, SHCL_BAD_TYPE, 2, ""},
+			/* A carriage return after the indent is a blank, as in the parser
+			   (2026111809400100). */
+			{"a: 1\n\r##    Format   4\n", 4, SHCL_GOOD, 2, "H006"},
+			{"a:\n\t\r## SHCL format 2.0\n\tb: 1\n", 2, SHCL_GOOD, 2, "H007"},
 			{"a: 1\n##    Format   3.0-\n", 0, SHCL_BAD_TYPE, 2, ""},
 			{"a: 1\n## SHCL format 3.0-A37\n", 0, SHCL_BAD_TYPE, 2, ""},
 			{"a: 1\n## SHCL format .0\n", 0, SHCL_BAD_TYPE, 2, ""},
@@ -5119,6 +5123,7 @@ int main(int argc, char **argv) {
 			{"x: ~~~\n##    Schema   a\n~~~\n", "", SHCL_NOT_FOUND},
 			{"`y: ```\n\t##    Schema   a\n\t```\n", "", SHCL_NOT_FOUND},
 			{"~x: ```\n\tb\n\t```\n##    Schema   a\n", "a", SHCL_GOOD},
+			{"a: 1\n \r##    Schema   a\n", "a", SHCL_GOOD},
 		};
 		for (size_t k = 0; k < sizeof st / sizeof st[0]; k++) {
 			size_t n = strlen(st[k].text), rn = 99;
@@ -8097,6 +8102,10 @@ int main(int argc, char **argv) {
 			{"a: 1\n##    Format   4\n", "a: 1\n##    Format   4\n", "a: 1\n##    Format   4\n"},
 			{"a: ~~~\n\tx\n", "a:\n\t~~~\n\t\tx\n\t~~~\n" SHCL_STAMP_LINE "\n", "a: ~~~\n\tx\n"},
 			{"a: ~~~\n\t##    Format   3\n\t~~~\n", "a:\n\t~~~\n\t##    Format   3\n\t~~~\n" SHCL_STAMP_LINE "\n", "a: ~~~\n\t##    Format   3\n\t~~~\n" SHCL_STAMP_LINE "\n"},
+			/* The parser reads past a carriage return before a Format line, so
+			   the save does too, and keeps it (2026111809400100). */
+			{"a: 1\n\r##    Format   4\n", "a: 1\n##    Format   4\n", "a: 1\n\r##    Format   4\n"},
+			{"a: 1\n\r##    Format   3\n", "a: 1\n" SHCL_FORMAT_LINE "\n", "a: 1\n\r" SHCL_FORMAT_LINE "\n"},
 		};
 		for (size_t i = 0; i < sizeof sc / sizeof sc[0]; i++) {
 			shcl_doc *sd = shcl_parse_keep_lines(sc[i].text, strlen(sc[i].text), SHCL_STANDARD);

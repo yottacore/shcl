@@ -36,6 +36,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- A Format line, stamp, or Schema line with a carriage return before it counts, in every binding, as it does in the canonical form, where the carriage return comes off. Such a line naming a newer format got no `H006`, so a save stamped the file `3.0`, and a Schema line there wasn't found until `fmt` rewrote the file. A save that rewrites the line keeps the carriage return.
+
 - `fmt` wrote a comment one level in when a blank line set it off from the comments above and the line under it was a top-level line kept for an error. Any edit put it back at column 0, so the file had 2 forms. It's written at column 0 now, and the save that keeps lines leaves it as written after an edit.
 
 - `set_literal`, `set_literal_default`, `--set-literal`, and the `literal` op refuse text with a `#` outside quotes as not one value, in every binding. They stored only the text before it and reported success, so `x#y` became `x` and `https://a.b/c#frag` lost its fragment. Quote the text, or use `set_string`, to keep a `#` in a value.

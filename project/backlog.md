@@ -502,7 +502,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Fuzz `dd3t9` fails at iteration 249474 at 2,000,000: the line-keeping save of a file whose info block names a newer format reloads as a stamped document
 	- ID: 2026111809400100
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Severity: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261118-094001
@@ -513,6 +513,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: the reload reads the same format as the document.
 	- Reproduced: 20261118, Rust, on dev with its own library, at the same iteration. Likely from nov17b's stamp work, since dd3t9 passed at 2M before it.
 	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Note: still failed the same way on nov18 with 2026111809400000's fix in.
+	- Actual cause: the footer's line is `\r##    Format   4`, with a carriage return before it. The parser takes a carriage return after the indent as a blank, so the comment, and the canonical form, read `##    Format   4`. The Format read took only spaces and tabs as indent, so it found no Format line in the file. So the canonical form named format 4 and went without a stamp, while the load saw no newer format and the line-keeping save added one. The read missed the line before the stamp work too; the stamp made the 2 disagree. A Schema line read the same way.
+	- Decisions:
+		- me, 20261118: the Format and Schema reads skip the blanks after the indent, as the parser does for a comment, rather than the canonical form keeping the carriage return, since spec.md says a carriage return is never indent and is trimmed at a comment's edge. A save that rewrites such a line keeps the carriage return, so only the format on it changes.
+	- Actual fix: the line walk the Format and Schema reads share (`RawLines::step`, each binding's spelling) gives a line's text past its indent and the blanks after it, and `restamp_as` keeps that whole run, in Rust, Go, Python and C. The C++ interface wraps C, so it follows. The changelog's Fixed says so.
+	- Swept: every caller of the line walk in all 4. The Format read and the Schema read take its text, and both are fixed. `migrate`'s check for runs read 2 ways uses only whether a line is in a block. Where blocks open is unchanged, since the fence step still sees the text it saw before. The tree-side Format line checks (`banner_own`, `restamp_leads`, the merge's `repeat_line`, `current_footer`) read comment text the parser already trimmed, and `stamped`'s head check trims too. `migrate` and `upgrade` rewrite the line through `restamp_as`, so they keep the carriage return too.
+	- Test case: new rows in `stamp_reads_say_why` (Rust `ddqh8`, Go `ddqh9`, Python `ddqha`, C `ddqhb`) and `a_save_names_this_format` (Rust `dfe62`, Go `dfe63`, Python `dfe64`, C `dfe65`), and fuzz `dd3t9`.
+	- Verified: the new rows fail in all 4 on the unfixed library and pass on the fix. The kept carriage return row fails in Python with only the line walk fixed. `dd3t9` passed at 600,000 iterations in release, past 249474. `--backlog-run-quick rust python` and `--backlog-run-quick go c`, cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), rustfmt, gofmt and `lint-report.bash --check --no-mark` passed. codeql-scan passed but `de5aj`, whose finding in the Python CLI is older than the round (2026111709183317).
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke. Also the cppcheck line from `LINT_EXTRA` and analyze-c.bash for the `shcl.h` change.
+	- Branch: `nov18-2026111809400100`
+	- Commit: `3eb195be`
 
 - A deeper comment a blank sets off above a kept line that ends a block is written one level in by `fmt` and at the block's level after an edit
 	- ID: 2026111702420992
