@@ -1408,6 +1408,7 @@ enum Spot {
 	Leading(usize),
 	After(usize),
 	Head(usize),
+	Inside(usize),
 	Footer,
 }
 
@@ -3157,6 +3158,19 @@ fn restamp_as(text: &str, line: usize, stamp: &str) -> Option<String> {
 	}
 	let now = format_line_read(&out[bom.len()..]);
 	(now.status == Status::Good && now.value == FORMAT_MAJOR && now.line == line).then_some(out)
+}
+
+/// The line a save writes for a Format line or stamp `t`, when that is
+/// another line.
+fn restamped_lead(t: &str) -> Option<&'static str> {
+	let line = if t.starts_with(FORMAT_LINE_HEAD) {
+		FORMAT_LINE
+	} else if t.starts_with(STAMP_HEAD) {
+		STAMP_LINE
+	} else {
+		return None;
+	};
+	(t != line).then_some(line)
 }
 
 /// A merge's line `line` repeats `here`: the same text, or a Format line or
@@ -13382,6 +13396,7 @@ impl Document {
 			Spot::Leading(n) => &mut self.arena[n].triv_mut().leading,
 			Spot::After(n) => &mut self.arena[n].triv_mut().after,
 			Spot::Head(n) => &mut self.arena[n].triv_mut().head,
+			Spot::Inside(n) => &mut self.arena[n].triv_mut().inside,
 			Spot::Footer => &mut self.orphans,
 		}
 	}
@@ -13575,7 +13590,8 @@ impl Document {
 	/// `migrate` stamped, or a stamp outside a block, comes off too, with the note under it. Both are
 	/// looked for in the footer and above every field but the first one and
 	/// its first child down, since a field added below one by hand takes it
-	/// as its comment. A line in an old block that the block does not write is
+	/// as its comment, and among the lines indented under a field that no
+	/// field below takes. A line in an old block that the block does not write is
 	/// the author's, such as a Schema line, and stays where the block was.
 	/// With `on`, a block that already ends the file as this release writes
 	/// it stays as it is, the author's lines in it too. A block at the top of
@@ -13591,12 +13607,60 @@ impl Document {
 		self.swap_banner(on, false)
 	}
 
+	/// The Format line or stamp the save rewrites to name this format, set to
+	/// name it in the document too, so `banner on` judges the line the save
+	/// writes, as it does on a reload of that save. A beta1 block at the end
+	/// that the save makes current is current here too. The line is found by
+	/// trying each Format line and stamp until the text is the saved one.
+	fn restamp_leads(&mut self) {
+		let mut spots = vec![Spot::Footer];
+		for n in 0..self.arena.len() {
+			if self.arena[n].trivia.is_some() {
+				spots.extend([
+					Spot::Leading(n),
+					Spot::After(n),
+					Spot::Head(n),
+					Spot::Inside(n),
+				]);
+			}
+		}
+		let mut tries = Vec::new();
+		for spot in spots {
+			for (i, l) in self.spot_mut(spot).iter().enumerate() {
+				if let Some(line) = restamped_lead(&l.text) {
+					tries.push((spot, i, line));
+				}
+			}
+		}
+		if tries.is_empty() {
+			return;
+		}
+		let text = self.canonical_text();
+		let Some(want) = stamped(&text) else {
+			return;
+		};
+		if want == text {
+			return;
+		}
+		for (spot, i, line) in tries {
+			let old = std::mem::replace(&mut self.spot_mut(spot)[i].text, line.to_string());
+			if self.canonical_text() == want {
+				self.spot_mut(spot)[i].line = 0;
+				return;
+			}
+			self.spot_mut(spot)[i].text = old;
+		}
+	}
+
 	/// set_banner(), and with `v2` the block 2.x's `init` wrote, in `#`
 	/// comments, comes off too. Only `upgrade` asks for that: under these
 	/// rules the old block is a comment of the file's own.
 	fn swap_banner(&mut self, on: bool, v2: bool) -> usize {
 		let marks: &[&str] = if v2 { &["##", "#"] } else { &["##"] };
 		let mut removed = 0;
+		if on {
+			self.restamp_leads();
+		}
 		// The first line's comments are the top of the file, on the first
 		// node down, as a dotted line puts them on its last name.
 		let mut top = vec![ROOT];
@@ -13618,6 +13682,8 @@ impl Document {
 				// a block. A blank it leaves is the next line's, which has one.
 				removed += self.take_banners(Spot::After(n), mark, true);
 				removed += self.take_banners(Spot::Head(n), mark, true);
+				// So is one under a field that no field below could take.
+				removed += self.take_banners(Spot::Inside(n), mark, true);
 				if at_top && !on {
 					continue;
 				}

@@ -471,7 +471,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Fuzz `dd16k` fails at iteration 571195 at 2,000,000: `set_banner` on a document and on its reload give different text after a clear, a merge and a literal
 	- ID: 2026111809400000
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, since every property that calls `set_banner` reaches the change. Also the cppcheck line from `LINT_EXTRA` and analyze-c.bash for the `shcl.h` change.
 	- Severity: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261118-094000
@@ -481,7 +482,22 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: the banner step gives different canonical text on the document and on the reload of its canonical text.
 	- Expected behavior: the same text.
 	- Reproduced: 20261118, Rust. It was hidden behind the failure at 124450 (2026111623445822), and the kept line refile from that fix never runs in this iteration.
+	- Note: the log's step at `e` is `set_empty`, not `set_literal`. `set_banner(true)` alone on the base gives the same difference.
+	- Actual cause: the save rewrites the Format line it reads to name `3.0`, but the document keeps the old line, and `banner on` judged the document's line, so it saw something other than a reload of the save. It showed 2 ways.
+		- An old block under a field, among lines indented below it that no field takes, was in a lead list `banner on` didn't look in. It stayed, with `Format 2` in the document and `3.0` on the reload, and once the new block named the format the save no longer rewrote it.
+		- A beta1 block at the end read as old in the document and as current on the reload, so one replaced it and the other kept it, with the author's line inside or above. The fuzz reached this at iteration 952411 once the first was fixed.
 	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261118: lines indented under a field are after the first field, so a block there comes off, as corpus `161-banner-moved` says of blocks after the first field. The banner calls look in each node's inside lines (`Spot::Inside`, each binding's spelling).
+		- me, 20261118: `banner on` first gives the document the one Format line or stamp the save would rewrite (`restamp_leads`, each binding's spelling). It finds the line by trying each Format line and stamp until the canonical text matches the stamped one, since nothing maps a canonical line back to its lead. It runs only for `banner on`, and only when the document holds a Format line or stamp that doesn't name `3.0`.
+		- me, 20261118: so a beta1 block at the end whose Format line the save rewrites stays with `banner on`, author's lines in it, and the count is 0. The changelog said `banner on` replaces such a block, and now says when it doesn't. Filed as a `Check:` in questions.md.
+	- Actual fix: `restamp_leads` and the inside lines in `swap_banner`, in Rust, Go, Python and C, with their `set_banner` doc comments, design.md and the changelog. The C++ interface wraps `shcl_set_banner`, so it follows.
+	- Swept: every `take_banners` call in `swap_banner` in all 4 now covers leading, trailing, opening and inside lines and the footer. `among` and `notes` hold only kept lines and item comments, which no Format line can be. The top rewrite and `current_footer` are the only readers of a Format line's text there. `upgrade` goes through `swap_banner`, so it gets both. No other setter reads the Format line.
+	- Test case: `banner_on_agrees_with_a_reload` (Rust `dffsw`, Go `dffsx`, Python `dffsy`, C `dffsz`), and fuzz `dd16k`.
+	- Verified: the new test fails in all 4 on the unfixed library and passes on the fix. Its beta1 row fails in Python with `restamp_leads` stubbed out. `dd16k` passed at 2,000,000 in release. `--backlog-run-quick rust go python c`, cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), `test-ids.py check` and `lint-report.bash --check --no-mark` passed.
+	- Branch: `nov18-2026111809400000`
+	- Commit: `96e18da5`
 
 - Fuzz `dd3t9` fails at iteration 249474 at 2,000,000: the line-keeping save of a file whose info block names a newer format reloads as a stamped document
 	- ID: 2026111809400100

@@ -1337,7 +1337,7 @@ _HEIR_TAKES, _HEIR_NEXT, _HEIR_LAST, _HEIR_AT = 0, 1, 2, 3
 
 # The lead lists something can be taken out of. The footer's node is the
 # root.
-_SPOT_LEADING, _SPOT_AFTER, _SPOT_HEAD, _SPOT_FOOTER = 0, 1, 2, 3
+_SPOT_LEADING, _SPOT_AFTER, _SPOT_HEAD, _SPOT_INSIDE, _SPOT_FOOTER = 0, 1, 2, 3, 4
 
 
 def _adopt_heir(nd, lines):
@@ -2925,6 +2925,18 @@ def _restamp_as(text: str, line: int, stamp: str) -> str | None:
 	if now.status is not Status.Good or now.value != FORMAT_MAJOR or now.line != line:
 		return None
 	return bom + body
+
+
+def _restamped_lead(t: str) -> str | None:
+	"""The line a save writes for a Format line or stamp `t`, when that is
+	another line."""
+	if t.startswith(FORMAT_LINE_HEAD):
+		line = FORMAT_LINE
+	elif t.startswith(STAMP_HEAD):
+		line = STAMP_LINE
+	else:
+		return None
+	return line if t != line else None
 
 
 def _repeat_line(here: str, line: str) -> bool:
@@ -9003,6 +9015,8 @@ class Document:
 			return t.after
 		if spot == _SPOT_HEAD:
 			return t.head
+		if spot == _SPOT_INSIDE:
+			return t.inside
 		return t.leading
 
 	def _take_banners(self, node: int, spot: int, mark: str, blocks: bool) -> int:
@@ -9166,7 +9180,8 @@ class Document:
 		migrate stamped, or a stamp outside a block, comes off too, with the note under it. Both are looked
 		for in the footer and above every field but the first one and its
 		first child down, since a field added below one by hand takes it as
-		its comment. A line in an old block that the block does not write is
+		its comment, and among the lines indented under a field that no
+		field below takes. A line in an old block that the block does not write is
 		the author's, such as a Schema line, and stays where the block was.
 		With on, a block that already ends the file as this release writes it
 		stays as it is, the author's lines in it too. A block at the top of
@@ -9180,12 +9195,45 @@ class Document:
 		_want("set_banner", on, "bool")
 		return self._swap_banner(on, False)
 
+	def _restamp_leads(self) -> None:
+		"""The Format line or stamp the save rewrites to name this format, set
+		to name it in the document too, so banner on judges the line the save
+		writes, as it does on a reload of that save. A beta1 block at the end
+		that the save makes current is current here too. The line is found by
+		trying each Format line and stamp until the text is the saved one."""
+		spots = [(_ROOT, _SPOT_FOOTER)]
+		for n, nd in enumerate(self.arena):
+			if nd.trivia is not None:
+				spots.extend((n, s) for s in (_SPOT_LEADING, _SPOT_AFTER, _SPOT_HEAD, _SPOT_INSIDE))
+		tries = []
+		for n, spot in spots:
+			for i, lead in enumerate(self._spot_list(n, spot)):
+				line = _restamped_lead(lead.text)
+				if line is not None:
+					tries.append((n, spot, i, line))
+		if not tries:
+			return
+		text = self._canonical_text()
+		want = _stamped(text)
+		if want is None or want == text:
+			return
+		for n, spot, i, line in tries:
+			lead = self._spot_list(n, spot)[i]
+			old = lead.text
+			lead.text = line
+			if self._canonical_text() == want:
+				lead.line = 0
+				return
+			lead.text = old
+
 	def _swap_banner(self, on, v2):
 		"""set_banner(), and with v2 the block 2.x's `init` wrote, in `#`
 		comments, comes off too. Only upgrade() asks for that: under these
 		rules the old block is a comment of the file's own."""
 		marks = ("##", "#") if v2 else ("##",)
 		removed = 0
+		if on:
+			self._restamp_leads()
 		# The first line's comments are the top of the file, on the first node
 		# down, as a dotted line puts them on its last name.
 		top = [_ROOT]
@@ -9207,6 +9255,8 @@ class Document:
 				# block. A blank it leaves is the next line's, which has one.
 				removed += self._take_banners(n, _SPOT_AFTER, mark, True)
 				removed += self._take_banners(n, _SPOT_HEAD, mark, True)
+				# So is one under a field that no field below could take.
+				removed += self._take_banners(n, _SPOT_INSIDE, mark, True)
 				if at_top and not on:
 					continue
 				removed += self._take_banners(n, _SPOT_LEADING, mark, not at_top)

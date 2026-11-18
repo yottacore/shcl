@@ -1041,7 +1041,8 @@ shcl_read_usize shcl_try_clear_comments(shcl_doc *d, const char *path, size_t pl
 // against it. A version line shcl_migrate stamped, or a stamp outside a block, comes off too, with the note
 // under it. Both are looked for in the footer and above every field but the
 // first one and its first child down, since a field added below one by hand
-// takes it as its comment. A line in an old block that the block does not
+// takes it as its comment, and among the lines indented under a field that
+// no field below takes. A line in an old block that the block does not
 // write is the author's, such as a Schema line, and stays where the block was.
 // With on, a block that already ends the file as this release writes it stays
 // as it is, the author's lines in it too. A block at the top of the file is
@@ -4274,6 +4275,7 @@ typedef struct { shcl_doc *before, *fresh, *made; char *migrated, *text; size_t 
 
 static void keep_source_in(shcl_doc *k, ShclStr t);
 static ShclStr emit_canonical(shcl_doc *d);
+static ShclStr canonical_stamped(shcl_doc *d);
 static int keep_text(shcl_doc *d, ShclStr *out);
 
 /* The fresh file's text, saved the way `set` saves, so each line of the
@@ -5392,7 +5394,7 @@ static int stacks(const ShclNode *nd) {
 typedef enum { HEIR_TAKES, HEIR_NEXT, HEIR_LAST, HEIR_AT } ShclHeirKind;
 /* The lead lists something can be taken out of. SPOT_FOOTER's node is the
    root. */
-typedef enum { SPOT_LEADING, SPOT_AFTER, SPOT_HEAD, SPOT_FOOTER } ShclSpot;
+typedef enum { SPOT_LEADING, SPOT_AFTER, SPOT_HEAD, SPOT_INSIDE, SPOT_FOOTER } ShclSpot;
 typedef struct { ShclHeirKind kind; size_t node; ShclSpot spot; size_t at; } ShclHeir;
 
 /* adopt for what takes the place of what went, which a list's settle needs
@@ -8998,6 +9000,7 @@ static ShclVecLead *spot_list(shcl_doc *d, size_t n, ShclSpot spot) {
 	ShclTrivia *t = triv_mut(&d->arena, &NODE(d, n));
 	if (spot == SPOT_AFTER) return &t->after;
 	if (spot == SPOT_HEAD) return &t->head;
+	if (spot == SPOT_INSIDE) return &t->inside;
 	return &t->leading;
 }
 
@@ -9379,12 +9382,64 @@ static size_t take_banners(shcl_doc *d, size_t n, ShclSpot spot, const char *mar
 
 size_t shcl_set_banner(shcl_doc *d, int on) { return swap_banner(d, on, 0); }
 
+/* The line a save writes for a Format line or stamp t, when that is another
+   line, else NULL. */
+static const char *restamped_lead(ShclStr t) {
+	const char *line = s_starts(t, SHCL_FORMAT_LINE_HEAD) ? SHCL_FORMAT_LINE : s_starts(t, SHCL_STAMP_HEAD) ? SHCL_STAMP_LINE : NULL;
+	return line && !s_eq(t, s_lit(line)) ? line : NULL;
+}
+
+/* Lead list k of the ones restamp_leads tries: the footer, then each node's
+   leading, trailing, opening and inside lines. NULL for a node with none. */
+static ShclVecLead *restamp_list(shcl_doc *d, size_t k) {
+	static const ShclSpot spots[] = { SPOT_LEADING, SPOT_AFTER, SPOT_HEAD, SPOT_INSIDE };
+	if (k == 0) return &d->orphans;
+	size_t n = (k - 1) / 4;
+	return NODE(d, n).trivia ? spot_list(d, n, spots[(k - 1) % 4]) : NULL;
+}
+
+/* The Format line or stamp the save rewrites to name this format, set to name
+   it in the document too, so banner on judges the line the save writes, as it
+   does on a reload of that save. A beta1 block at the end that the save makes
+   current is current here too. The line is found by trying each Format line
+   and stamp until the text is the saved one. */
+static void restamp_leads(shcl_doc *d) {
+	size_t slots = 1 + d->nodes.len * 4;
+	int any = 0;
+	for (size_t k = 0; k < slots && !any; k++) {
+		ShclVecLead *list = restamp_list(d, k);
+		for (size_t i = 0; list && i < list->len && !any; i++) any = restamped_lead(list->data[i].text) != NULL;
+	}
+	if (!any) return;
+	ShclMark m = arena_mark(&d->arena);
+	ShclStr text = s_dup(&d->arena, emit_canonical(d));
+	ShclStr want = s_dup(&d->arena, canonical_stamped(d));
+	for (size_t k = 0; k < slots && !s_eq(want, text); k++) {
+		ShclVecLead *list = restamp_list(d, k);
+		for (size_t i = 0; list && i < list->len; i++) {
+			ShclLead *l = &list->data[i];
+			const char *line = restamped_lead(l->text);
+			if (!line) continue;
+			ShclStr old = l->text;
+			l->text = s_lit(line);
+			if (s_eq(emit_canonical(d), want)) {
+				l->line = 0;
+				arena_release(&d->arena, m);
+				return;
+			}
+			l->text = old;
+		}
+	}
+	arena_release(&d->arena, m);
+}
+
 /* shcl_set_banner, and with v2 the block 2.x's `init` wrote, in `#`
    comments, comes off too. Only shcl_upgrade asks for that: under these rules
    the old block is a comment of the file's own. */
 static size_t swap_banner(shcl_doc *d, int on, int v2) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	static const char *const marks[] = { "##", "#" };
 	size_t nmarks = v2 ? 2 : 1;
+	if (on) restamp_leads(d);
 	ShclArena *t = &d->scratch;
 	arena_reset(t);
 	size_t removed = 0;
@@ -9410,6 +9465,8 @@ static size_t swap_banner(shcl_doc *d, int on, int v2) { // NOLINT(bugprone-easi
 			   blank it leaves is the next line's, which has one. */
 			removed += take_banners(d, n, SPOT_AFTER, marks[k], 1);
 			removed += take_banners(d, n, SPOT_HEAD, marks[k], 1);
+			/* So is one under a field that no field below could take. */
+			removed += take_banners(d, n, SPOT_INSIDE, marks[k], 1);
 			if (at_top && !on) continue;
 			removed += take_banners(d, n, SPOT_LEADING, marks[k], !at_top);
 		}

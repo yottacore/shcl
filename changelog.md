@@ -28,7 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A file whose stamp names a newer minor of this format, such as `## SHCL format 3.1`, is a newer format: the load hints `H006`, no save writes it, and `upgrade` leaves it alone, as for a newer major. `H006` and `H007` name this reader's format as `3.0`.
 
-- The info block's version row is `##    Format   3.0`, in `init`, a creating `set --write`, `banner on`, `upgrade`, and `GEN_BANNER` (each binding's spelling), and `migrate` stamps `##    Format   3.0` too. beta1's `##    Format   3` still reads as format 3.0. So `banner on` replaces a beta1 block at the end of a file rather than leaving it as it is. `banner on` and `banner off` take a `## SHCL format` stamp off where they take a Format line off, and a block kept at the top gets its stamp set to this format.
+- The info block's version row is `##    Format   3.0`, in `init`, a creating `set --write`, `banner on`, `upgrade`, and `GEN_BANNER` (each binding's spelling), and `migrate` stamps `##    Format   3.0` too. beta1's `##    Format   3` still reads as format 3.0. So `banner on` replaces a beta1 block at the end of a file rather than leaving it as it is, unless its Format line is the one a save rewrites to `3.0`. Then the block already reads as the one a save writes, so it stays, the author's lines in it too. `banner on` and `banner off` take a `## SHCL format` stamp off where they take a Format line off, and a block kept at the top gets its stamp set to this format. They also take off an old block under a field, among lines indented below it that no field takes, which they used to leave with its old Format line.
 
 ### New
 

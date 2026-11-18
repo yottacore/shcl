@@ -275,6 +275,55 @@ fn a_stamp_goes_where_a_format_line_goes() {
 }
 
 #[test]
+fn banner_on_agrees_with_a_reload() {
+	let _id = test_id("dffsw");
+	// The save names this format on a Format line the document holds as an
+	// older one, so banner on reads the line the save writes, as a reload
+	// does. A misplaced line under a field takes the block above it inside
+	// that field, and that block comes off as one above a field does. A
+	// beta1 block at the end that the save makes current stays.
+	let under =
+		"a: 1\nc: 1\n##\n## This config file format is SHCL.\n##    Format   2\n##\n a note\n";
+	let line = "##    Format   3.0\n";
+	let owner = "##    Owner    ops\n";
+	let beta1 = format!(
+		"a: 1\n\n{}",
+		GEN_BANNER.replace(line, &format!("##    Format   3\n{owner}"))
+	);
+	let cases = [
+		(
+			under,
+			true,
+			1,
+			format!("a: 1\nc: 1\n\ta note\n\n{GEN_BANNER}"),
+		),
+		(
+			under,
+			false,
+			1,
+			"a: 1\nc: 1\n\ta note\n## SHCL format 3.0\n".to_string(),
+		),
+		(
+			&beta1,
+			true,
+			0,
+			format!(
+				"a: 1\n\n{}",
+				GEN_BANNER.replace(line, &format!("{line}{owner}"))
+			),
+		),
+	];
+	for (text, on, gone, want) in cases {
+		let mut doc = Document::parse(text);
+		let mut back = Document::parse(&doc.to_canonical());
+		for d in [&mut doc, &mut back] {
+			assert_eq!(d.set_banner(on), gone, "{text:?} {on}");
+			assert_eq!(d.to_canonical(), want, "{text:?} {on}");
+		}
+	}
+}
+
+#[test]
 fn upgrade_writes_a_fresh_file_with_the_info_block() {
 	let _id = test_id("ddmhc");
 	let up = upgrade(V2_FILE, false);

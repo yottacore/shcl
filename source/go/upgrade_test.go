@@ -298,6 +298,37 @@ func TestAStampGoesWhereAFormatLineGoes(t *testing.T) {
 	}
 }
 
+func TestBannerOnAgreesWithAReload(t *testing.T) {
+	defer testID(t, "dffsx")
+	// The save names this format on a Format line the document holds as an
+	// older one, so banner on reads the line the save writes, as a reload
+	// does. A misplaced line under a field takes the block above it inside
+	// that field, and that block comes off as one above a field does. A
+	// beta1 block at the end that the save makes current stays.
+	under := "a: 1\nc: 1\n##\n## This config file format is SHCL.\n##    Format   2\n##\n a note\n"
+	line := "##    Format   3.0\n"
+	owner := "##    Owner    ops\n"
+	beta1 := "a: 1\n\n" + strings.Replace(GenBanner, line, "##    Format   3\n"+owner, 1)
+	for _, c := range []struct {
+		text string
+		on   bool
+		gone int
+		want string
+	}{
+		{under, true, 1, "a: 1\nc: 1\n\ta note\n\n" + GenBanner},
+		{under, false, 1, "a: 1\nc: 1\n\ta note\n## SHCL format 3.0\n"},
+		{beta1, true, 0, "a: 1\n\n" + strings.Replace(GenBanner, line, line+owner, 1)},
+	} {
+		doc := Parse(c.text)
+		back := Parse(doc.ToCanonical())
+		for _, d := range []*Document{doc, back} {
+			if n := d.SetBanner(c.on); n != c.gone || d.ToCanonical() != c.want {
+				t.Errorf("%q %v: %d %q", c.text, c.on, n, d.ToCanonical())
+			}
+		}
+	}
+}
+
 func TestUpgradeWritesAFreshFileWithTheInfoBlock(t *testing.T) {
 	defer testID(t, "ddmk9")
 	up := Upgrade(upgradeV2File, false)

@@ -1463,6 +1463,7 @@ const (
 	spotLeading spotKind = iota
 	spotAfter
 	spotHead
+	spotInside
 	spotFooter
 )
 
@@ -3559,6 +3560,21 @@ func restampAs(text string, line int, stamp string) (string, bool) {
 		return "", false
 	}
 	return s, true
+}
+
+// restampedLead is the line a save writes for a Format line or stamp t, when
+// that is another line.
+func restampedLead(t string) (string, bool) {
+	var line string
+	switch {
+	case strings.HasPrefix(t, FormatLineHead):
+		line = FormatLine
+	case strings.HasPrefix(t, StampHead):
+		line = StampLine
+	default:
+		return "", false
+	}
+	return line, t != line
 }
 
 // repeatLine says a merge's line repeats here: the same text, or a Format
@@ -13252,6 +13268,8 @@ func (d *Document) spotList(n int, spot spotKind) *[]lead {
 		return &t.after
 	case spotHead:
 		return &t.head
+	case spotInside:
+		return &t.inside
 	default:
 		return &t.leading
 	}
@@ -13485,7 +13503,8 @@ func (d *Document) TryClearComments(path string) Read[int] {
 // even written right against it. A version line Migrate stamped, or a stamp outside a block, comes off
 // too, with the note under it. Both are looked for in the footer and above
 // every field but the first one and its first child down, since a field added
-// below one by hand takes it as its comment. A line in an old block that the
+// below one by hand takes it as its comment, and among the lines indented
+// under a field that no field below takes. A line in an old block that the
 // block does not write is the author's, such as a Schema line, and stays where
 // the block was. With on, a block that already ends the file as this release
 // writes it stays as it is, the author's lines in it too. A block at the top
@@ -13501,6 +13520,54 @@ func (d *Document) SetBanner(on bool) int {
 	return d.swapBanner(on, false)
 }
 
+// restampLeads sets the Format line or stamp the save rewrites to name this
+// format to name it in the document too, so banner on judges the line the
+// save writes, as it does on a reload of that save. A beta1 block at the end
+// that the save makes current is current here too. The line is found by
+// trying each Format line and stamp until the text is the saved one.
+func (d *Document) restampLeads() {
+	type try struct {
+		n    int
+		spot spotKind
+		i    int
+		line string
+	}
+	var tries []try
+	look := func(n int, spot spotKind) {
+		for i, l := range *d.spotList(n, spot) {
+			if line, ok := restampedLead(l.text); ok {
+				tries = append(tries, try{n, spot, i, line})
+			}
+		}
+	}
+	look(root, spotFooter)
+	for n := range d.arena {
+		if d.arena[n].trivia != nil {
+			for _, spot := range []spotKind{spotLeading, spotAfter, spotHead, spotInside} {
+				look(n, spot)
+			}
+		}
+	}
+	if len(tries) == 0 {
+		return
+	}
+	text := d.canonicalText()
+	want, ok := stamped(text)
+	if !ok || want == text {
+		return
+	}
+	for _, t := range tries {
+		l := &(*d.spotList(t.n, t.spot))[t.i]
+		old := l.text
+		l.text = t.line
+		if d.canonicalText() == want {
+			l.line = 0
+			return
+		}
+		l.text = old
+	}
+}
+
 // swapBanner is SetBanner, and with v2 the block 2.x's `init` wrote, in `#`
 // comments, comes off too. Only Upgrade asks for that: under these rules the
 // old block is a comment of the file's own.
@@ -13510,6 +13577,9 @@ func (d *Document) swapBanner(on, v2 bool) int {
 		marks = append(marks, "#")
 	}
 	removed := 0
+	if on {
+		d.restampLeads()
+	}
 	// The first line's comments are the top of the file, on the first node
 	// down, as a dotted line puts them on its last name.
 	top := []int{root}
@@ -13534,6 +13604,8 @@ func (d *Document) swapBanner(on, v2 bool) int {
 			// block. A blank it leaves is the next line's, which has one.
 			removed += d.takeBanners(n, spotAfter, mark, true)
 			removed += d.takeBanners(n, spotHead, mark, true)
+			// So is one under a field that no field below could take.
+			removed += d.takeBanners(n, spotInside, mark, true)
 			if first && !on {
 				continue
 			}

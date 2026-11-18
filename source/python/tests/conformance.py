@@ -5618,6 +5618,28 @@ def main():
 		if stamp_n != stamp_gone or stamp_doc.to_canonical() != stamp_want:
 			raise SystemExit(f"stamp {stamp_in!r}: {stamp_n} {stamp_doc.to_canonical()!r}")
 
+	test_id("dffsy", "banner_on_agrees_with_a_reload")
+	# The save names this format on a Format line the document holds as an
+	# older one, so banner on reads the line the save writes, as a reload
+	# does. A misplaced line under a field takes the block above it inside
+	# that field, and that block comes off as one above a field does. A
+	# beta1 block at the end that the save makes current stays.
+	agree_under = "a: 1\nc: 1\n##\n## This config file format is SHCL.\n##    Format   2\n##\n a note\n"
+	agree_line = "##    Format   3.0\n"
+	agree_owner = "##    Owner    ops\n"
+	agree_beta1 = "a: 1\n\n" + shcl.GEN_BANNER.replace(agree_line, "##    Format   3\n" + agree_owner, 1)
+	for agree_text, agree_on, agree_gone, agree_want in (
+		(agree_under, True, 1, f"a: 1\nc: 1\n\ta note\n\n{shcl.GEN_BANNER}"),
+		(agree_under, False, 1, "a: 1\nc: 1\n\ta note\n## SHCL format 3.0\n"),
+		(agree_beta1, True, 0, "a: 1\n\n" + shcl.GEN_BANNER.replace(agree_line, agree_line + agree_owner, 1)),
+	):
+		agree_doc = shcl.Document.parse(agree_text)
+		agree_back = shcl.Document.parse(agree_doc.to_canonical())
+		for agree_d in (agree_doc, agree_back):
+			agree_n = agree_d.set_banner(agree_on)
+			if agree_n != agree_gone or agree_d.to_canonical() != agree_want:
+				raise SystemExit(f"agree {agree_text!r} {agree_on}: {agree_n} {agree_d.to_canonical()!r}")
+
 	test_id("ddmks", "upgrade_writes_a_fresh_file_with_the_info_block")
 	up = shcl.upgrade(up_v2, False)
 	if up.current or up.ambiguous != 0 or up.lost != 0 or up.format != 2:

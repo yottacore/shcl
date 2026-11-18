@@ -6501,6 +6501,42 @@ int main(int argc, char **argv) {
 			shcl_free(d);
 		}
 	}
+	test_id("dffsz", "banner_on_agrees_with_a_reload");
+	{
+		/* The save names this format on a Format line the document holds as
+		   an older one, so banner on reads the line the save writes, as a
+		   reload does. A misplaced line under a field takes the block above
+		   it inside that field, and that block comes off as one above a field
+		   does. A beta1 block at the end that the save makes current stays. */
+		const char *under = "a: 1\nc: 1\n##\n## This config file format is SHCL.\n##    Format   2\n##\n a note\n";
+		const char *line = "##    Format   3.0\n";
+		const char *at = strstr(SHCL_GEN_BANNER, line);
+		if (!at) fail("banner_agree", "no Format line in the banner");
+		int head = at ? (int)(at - SHCL_GEN_BANNER) : 0;
+		const char *rest = at ? at + strlen(line) : "";
+		char beta1[1024], beta1_want[1024];
+		int nb = snprintf(beta1, sizeof beta1, "a: 1\n\n%.*s##    Format   3\n##    Owner    ops\n%s", head, SHCL_GEN_BANNER, rest);
+		int nw = snprintf(beta1_want, sizeof beta1_want, "a: 1\n\n%.*s%s##    Owner    ops\n%s", head, SHCL_GEN_BANNER, line, rest);
+		if (nb < 0 || nw < 0 || (size_t)nb >= sizeof beta1 || (size_t)nw >= sizeof beta1_want) fail("banner_agree", "buffer");
+		const struct { const char *in; int on; size_t gone; const char *want; } bc[] = {
+			{under, 1, 1, "a: 1\nc: 1\n\ta note\n\n" SHCL_GEN_BANNER},
+			{under, 0, 1, "a: 1\nc: 1\n\ta note\n## SHCL format 3.0\n"},
+			{beta1, 1, 0, beta1_want},
+		};
+		for (size_t i = 0; i < sizeof bc / sizeof bc[0]; i++) {
+			shcl_doc *d = shcl_parse(bc[i].in, strlen(bc[i].in));
+			shcl_str first = shcl_to_canonical(d);
+			shcl_doc *back = shcl_parse(first.p, first.n);
+			shcl_doc *both[] = {d, back};
+			for (size_t k = 0; k < 2; k++) {
+				size_t gone = shcl_set_banner(both[k], bc[i].on);
+				shcl_str c = shcl_to_canonical(both[k]);
+				if (gone != bc[i].gone || c.n != strlen(bc[i].want) || memcmp(c.p, bc[i].want, c.n) != 0) fail("banner_agree", bc[i].in);
+			}
+			shcl_free(back);
+			shcl_free(d);
+		}
+	}
 	test_id("ddmmj", "upgrade_writes_a_fresh_file_with_the_info_block");
 	{
 		shcl_upgraded up = shcl_upgrade(UP_V2, strlen(UP_V2), 0);
