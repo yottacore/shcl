@@ -11215,7 +11215,7 @@ static size_t w_set_child(shcl_doc *d, size_t parent, ShclStr name, ShclStr name
 /* A kept line a setter wrote as a comment is filed as the comment a reload
    reads it as, so a run a blank sets off from the field below is the line
    above's, not the field's (2026111623445822). */
-static void refile_noted(shcl_doc *d, size_t parent, size_t owed) {
+static void refile_noted(shcl_doc *d, size_t parent, size_t owed) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	if (d->kept_owed != owed) settle_pairs(d, parent, 0);
 }
 
