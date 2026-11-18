@@ -35,6 +35,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- The C++ veneer smoke doesn't build with SHCL_NO_FILE_IO
+	- ID: 2026111814490325
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261118-144903
+	- Opened by:
+	- Progress log:
+		- veneer_smoke.cpp declares a_save_names_this_format inside the file I/O guard but calls it outside it, so a -DSHCL_NO_FILE_IO build fails to compile. No gate builds that combination. Found in round nov18 while working 2026111708542868.
+
 - A remove drops the blank line above its target, so the gap between 2 groups closes
 	- ID: 2026111623191917
 	- Type: Enhancement
