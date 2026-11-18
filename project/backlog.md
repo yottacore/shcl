@@ -590,7 +590,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A deeper comment a blank sets off above a kept line that ends a block is written one level in by `fmt` and at the block's level after an edit
 	- ID: 2026111702420992
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, as for the parent. Also the cppcheck line from `LINT_EXTRA` and analyze-c.bash for the `shcl.h` change.
 	- Severity: Avg
 	- Target version: v3.0.0
 	- Opened: 20261117-024209
@@ -603,6 +604,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261117, Rust CLI.
 	- Possible cause: the parse files a block's last pending lines through `hang_deeper_pending` with one comment chain, and the setter's `new_child` splits them at the blank through `set_off`. The top-level fix starts the chain again at that cut.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Reproduced: 20261118, Rust CLI on nov18 at `90864db9`, the same output. Through `set`, the line-keeping save wrote `\t# c2`.
+	- Actual cause: the footer is restepped from the `set_off` cut on every settle, but a block's last lines aren't. The parse gives them one comment chain across the blank, so `# c2` nests under `# c0` until a new child takes them and its settle resteps them.
+	- Actual fix: in all 4 bindings, `settle_block` ends with `settle_tail`, which resteps the block's lines after its last field from that cut through `restep_set_off`, as `settle_first_blank` does for the footer. Those are the block's inside lines with no child, else its last child's trailing lines from the first one at that child's level. design.md's comment-run bullet and the changelog say so.
+	- Decisions:
+		- me, 20261118: the save that keeps lines leaves `\t\t# c2` as written after the edit, since the edit no longer moves it. That is what row `2026111111560900-2` keeps at the top level. The canonical form writes `\t# c2` on a load and after the edit.
+		- me, 20261118: the restep goes in `settle_block`, which the load runs on every block and a merge, a new child and the writer's fold run where they change a child list, rather than in the parse. The parent's send-back found a parse-time reset of the chain left setters and merges on the old depth.
+	- Swept: the other list that ends a run with no binding line after it is the footer, already restepped in `settle_first_blank`. `give_set_off` splits at the same cut when a binding line follows. `settle_block` is the one settle in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`, and C's early return for a block with no children runs `settle_tail` too.
+	- Test case: placement rows `2026111702420992-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C).
+	- Verified: the 3 rows fail on the unfixed library in Rust (fix commented out), Go and Python (`placement-watch.py`), and pass in all 4 now. The whole Rust suite, Go in both modules, the C and Python conformance runners, all of fuzz_smoke at 200,000 in release (`dd16k`, `dd3t9`, `dderx`, `df50j` included), cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), `--backlog-run-quick rust go python c`, check-docs, clang and gcc-15 at `-Werror` on `main.c`, and `lint-report.bash --check --no-mark`. analyze-c.bash didn't finish within 4 minutes.
+	- Branch: `nov18-2026111702420992`
+	- Commit: `bde3f842`
 
 - A remove that takes a field opened from a kept line moves a kept line's comments down with a misplaced line
 	- ID: 2026111109022600

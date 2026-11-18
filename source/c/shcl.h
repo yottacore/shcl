@@ -5546,9 +5546,11 @@ static int settle_fence_trailing(shcl_doc *d, size_t n) {
    only a full pass looks for one. */
 static void settle_pairs(shcl_doc *d, size_t n, size_t from);
 static void settle_head(shcl_doc *d, size_t n);
+static void settle_tail(shcl_doc *d, size_t n);
 static int settle_block(shcl_doc *d, size_t n, size_t from) {
 	if (!NODE(d, n).children.len) {
 		settle_head(d, n);
+		settle_tail(d, n);
 		return 0;
 	}
 	int joined = from <= 1 && settle_fence_trailing(d, n);
@@ -5562,6 +5564,7 @@ static int settle_block(shcl_doc *d, size_t n, size_t from) {
 	/* After the join, which can take the last child. */
 	settle_head(d, n);
 	settle_inside(d, n);
+	settle_tail(d, n);
 	return joined;
 }
 
@@ -5665,8 +5668,7 @@ static void resettle_kept(shcl_doc *d);
    and the run a blank sets off from it starts again at that field's level,
    as refile_pair files it. A reload of the footer files it so too
    (2026111111560900). */
-static void restep_set_off(shcl_doc *d) {
-	ShclVecLead *v = &d->orphans;
+static void restep_set_off(shcl_doc *d, ShclVecLead *v) {
 	size_t k = v->len;
 	while (k > 0 && v->data[k - 1].text.n && v->data[k - 1].text.p[0] == '#') k--;
 	if (!k) return;
@@ -5682,6 +5684,29 @@ static void restep_set_off(shcl_doc *d) {
 	tail.data += cut;
 	tail.len -= cut;
 	restep(&tail);
+}
+
+/* A block's lines after its last field, up to the last kept line, are
+   restepped from the cut set_off gives, as settle_first_blank does for the
+   footer: that is the cut and the restep a new child's settle makes
+   (2026111702420992). */
+static void settle_tail(shcl_doc *d, size_t n) {
+	if (n == ROOT) return;
+	ShclVecSize kids = NODE(d, n).children;
+	size_t at = kids.len ? kids.data[kids.len - 1] : n;
+	ShclTrivia *t = NODE(d, at).trivia;
+	if (!t) return;
+	if (at == n) {
+		restep_set_off(d, &t->inside);
+		return;
+	}
+	size_t from = 0;
+	while (from < t->after.len && t->after.data[from].depth != 0) from++;
+	if (from == t->after.len) return;
+	ShclVecLead tail = t->after;
+	tail.data += from;
+	tail.len -= from;
+	restep_set_off(d, &tail);
 }
 
 static void settle_first_blank(shcl_doc *d) {
@@ -5704,7 +5729,7 @@ static void settle_first_blank(shcl_doc *d) {
 			list->len = at;
 		}
 	}
-	restep_set_off(d);
+	restep_set_off(d, &d->orphans);
 	ShclTrivia *rt = NODE(d, ROOT).trivia;
 	if (rt && rt->head.len) {
 		rt->head.data[0].blank_before = 0;

@@ -1170,7 +1170,27 @@ fn settle_block(arena: &mut [NodeData], n: usize, from: usize) -> bool {
 	// After the join, which can take the last child.
 	settle_head(arena, n);
 	settle_inside(arena, n);
+	settle_tail(arena, n);
 	joined
+}
+
+/// A block's lines after its last field, up to the last kept line, are
+/// restepped from the cut set_off() gives, as settle_first_blank() does for
+/// the footer: that is the cut and the restep a new child's settle makes
+/// (2026111702420992).
+fn settle_tail(arena: &mut [NodeData], n: usize) {
+	if n == ROOT {
+		return;
+	}
+	let at = arena[n].children.last().copied().unwrap_or(n);
+	let Some(t) = arena[at].trivia.as_deref_mut() else {
+		return;
+	};
+	if at == n {
+		restep_set_off(&mut t.inside);
+	} else if let Some(from) = t.after.iter().position(|c| c.depth == 0) {
+		restep_set_off(&mut t.after[from..]);
+	}
 }
 
 /// A block with no child left has no first child for its opening lines to

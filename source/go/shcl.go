@@ -1193,7 +1193,36 @@ func settleBlock(arena []nodeData, n, from int) bool {
 	// After the join, which can take the last child.
 	settleHead(arena, n)
 	settleInside(arena, n)
+	settleTail(arena, n)
 	return joined
+}
+
+// settleTail: a block's lines after its last field, up to the last kept
+// line, are restepped from the cut setOff gives, as settleFirstBlank does for
+// the footer: that is the cut and the restep a new child's settle makes
+// (2026111702420992).
+func settleTail(arena []nodeData, n int) {
+	if n == root {
+		return
+	}
+	at := n
+	if kids := arena[n].children; len(kids) > 0 {
+		at = kids[len(kids)-1]
+	}
+	t := arena[at].trivia
+	if t == nil {
+		return
+	}
+	if at == n {
+		restepSetOff(t.inside)
+		return
+	}
+	for from, c := range t.after {
+		if c.depth == 0 {
+			restepSetOff(t.after[from:])
+			return
+		}
+	}
 }
 
 // settleHead: a block with no child left has no first child for its opening

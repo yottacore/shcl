@@ -1148,7 +1148,30 @@ def _settle_block(arena, n, start):
 	# After the join, which can take the last child.
 	_settle_head(arena, n)
 	_settle_inside(arena, n)
+	_settle_tail(arena, n)
 	return joined
+
+
+def _settle_tail(arena, n):
+	"""A block's lines after its last field, up to the last kept line, are
+	restepped from the cut _set_off gives, as _settle_first_blank does for the
+	footer: that is the cut and the restep a new child's settle makes
+	(2026111702420992)."""
+	if n == _ROOT:
+		return
+	kids = arena[n].children
+	at = kids[-1] if kids else n
+	t = arena[at].trivia
+	if t is None:
+		return
+	if at == n:
+		_restep_set_off(t.inside)
+		return
+	start = next((k for k, c in enumerate(t.after) if c.depth == 0), None)
+	if start is not None:
+		tail = t.after[start:]
+		_restep_set_off(tail)
+		t.after[start:] = tail
 
 
 def _settle_head(arena, n):

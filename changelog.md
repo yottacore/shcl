@@ -46,6 +46,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `fmt` wrote a comment one level in when a blank line set it off from the comments above and the line under it was a top-level line kept for an error. Any edit put it back at column 0, so the file had 2 forms. It's written at column 0 now, and the save that keeps lines leaves it as written after an edit.
 
+- The same went for such a comment above a kept line that ends a block: `fmt` wrote it one level deeper than the block's lines, and an edit put it back. It's written at the block's level now, on a load as after an edit.
+
 - `set_literal`, `set_literal_default`, `--set-literal`, and the `literal` op refuse text with a `#` outside quotes as not one value, in every binding. They stored only the text before it and reported success, so `x#y` became `x` and `https://a.b/c#frag` lost its fragment. Quote the text, or use `set_string`, to keep a `#` in a value.
 
 - In Go, a zero-value `Document`, such as `var d shcl.Document`, is an empty document at Standard, the same as `New()`. Its first set, read, or merge used to panic. `Merge(nil)` adds nothing, where it used to panic too.
