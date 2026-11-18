@@ -8370,10 +8370,21 @@ class Document:
 		goes right under the first of them (design.md, Kept lines under
 		edits)."""
 		alone = not self._children_named(parent, name)
+		owed = self._kept_owed
 		at = self._comment_out_kept(parent, name, path, alone)
 		if at is not None:
-			return self._new_child_under(parent, name, name_src, value, at)
-		return self._new_child(parent, name, name_src, value)
+			node = self._new_child_under(parent, name, name_src, value, at)
+		else:
+			node = self._new_child(parent, name, name_src, value)
+		self._refile_noted(parent, owed)
+		return node
+
+	def _refile_noted(self, parent, owed):
+		"""A kept line a setter wrote as a comment is filed as the comment a
+		reload reads it as, so a run a blank sets off from the field below is
+		the line above's, not the field's (2026111623445822)."""
+		if self._kept_owed != owed:
+			_settle_pairs(self.arena, parent, 0)
 
 	def _set_value(self, path: str, value) -> SetStatus:
 		return self._set_value_as(path, value, True)
@@ -8429,7 +8440,9 @@ class Document:
 		# unstack, so a line of its name from among the items, now above it,
 		# is a comment too.
 		if idx < fresh and self._kept_owed > 0:
+			owed = self._kept_owed
 			self._comment_out_kept(self.arena[idx].parent, self.arena[idx].name, path, False)
+			self._refile_noted(self.arena[idx].parent, owed)
 		# An empty binding or a raw block can put a fence after an empty
 		# sibling of its name.
 		fence_side = value.kind == "raw" or value.is_empty()

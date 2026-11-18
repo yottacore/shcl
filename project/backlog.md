@@ -58,15 +58,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: the remove's rebuild is the one place a remove drops a node's lines in all 4: `try_remove` in Rust, `TryRemove` in Go, `try_remove` in Python, `shcl_try_remove` in C. The opened-by-kept path moves the field's lines whole, with its blank on its kept line. The keep-lines cut was in `keep_lines_as` in Rust, `keepLinesAs` in Go, `_keep_lines_as` in Python, and `keep_lines` in C. `collapse_dup` and `fold_dups_below` call `beside_kept` too, unchanged on purpose.
 	- Test case: placement rows `2026111623191917-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dd3t9`, `dderx`.
 	- Verified: the 3 rows fail on the library at `813dfecf` in all 4 (Rust and Go runners, C runner, `placement-watch.py` for Python) and pass on the change. The 4 conformance suites, the whole Rust suite, the Go tests in both modules, the 200,000-iteration release fuzz apart from `dd16k` (2026111623445822, which fails the same way at `813dfecf`), cli-regress (671 rows), crosscheck with a 2000-iteration dump (55461 comparisons), perf-gate, check-docs, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, gcc and clang at `-Werror`, and markdownlint. analyze-c found 2 things in C's `hand_blank`, a null dereference it couldn't rule out and swappable parameters, both fixed, and the pinned clang analyzer passes on `main.c`. Its other 2 reds are older (2026111623502776).
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111623445822 (dd16k) and 2026111703284678 (dc26d) are fixed.
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111809400000 (dd16k) and 2026111809400100 (dd3t9) are fixed.
 	- Branch: `nov17-2026110712372281`
-	- Prereq IDs: 2026111623445822, 2026111703284678
+	- Prereq IDs: 2026111809400000, 2026111809400100
 
 - The remove and the setter folds hand their lines on through `adopt`
 	- ID: 2026111623191935
 	- Type: Enhancement
 	- Status: Waiting on automated testing
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111623445822 (dd16k) and 2026111703284678 (dc26d) are fixed.
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111809400000 (dd16k) and 2026111809400100 (dd3t9) are fixed.
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261116-231919
@@ -88,19 +88,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: placement rows `2026111623191935-1` and `-2` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dd3t9`, `dderx`, `dd16k`.
 	- Verified: the 2 rows fail on the library at `87683db6` in Python and C, and row 1 through the Rust CLI, and pass on the change in all 4. The 4 conformance suites, the whole Rust suite, the Go tests in both modules, `--backlog-run-quick rust go python c`, cli-regress (671 rows), crosscheck with a 2000-iteration dump (55461 comparisons), the 200,000-iteration release fuzz apart from `dd16k` (2026111623445822, at the same iteration as before), rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, gcc, gcc 15 and clang at `-Werror`, lint-report, and markdownlint. analyze-c found swappable parameters on the new `heir_at` in C, now marked as the Rust twin's order. Its other reds are older: `set_off` from `1bbee68b`, and `fs_property.c` (2026111623502776).
 	- Branch: `nov17-2026111623191935`
-	- Prereq IDs: 2026111623445822, 2026111703284678
+	- Prereq IDs: 2026111809400000, 2026111809400100
 
 - The load's fold hands its lines on through `adopt`
 	- ID: 2026111623192782
 	- Type: Enhancement
 	- Status: Waiting on automated testing
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111623445822 (dd16k) and 2026111703284678 (dc26d) are fixed.
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111809400000 (dd16k) and 2026111809400100 (dd3t9) are fixed.
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261116-231927
 	- Opened by: split from 2026110712372281
 	- Parent ID: 2026110712372281
-	- Prereq IDs: 2026111623191935, 2026111623445822, 2026111703284678
+	- Prereq IDs: 2026111623191935, 2026111809400000, 2026111809400100
 	- Problem description: a fold at load moves the kept lines of the later instance with `refile_folded` and `folded_kept`, and fixes the first blank with `settle_first_blank`, rather than `adopt`.
 	- Requirements: the fold goes through `adopt` in all 4, with the same file-order placement `refile_folded` gives now. The old helpers go in the same commit, once the placement table and fuzz property pass with both in place. `settle_first_blank` also clears the blank at the top of the output for every edit, which moves no line, so this item decides whether that part stays under its own name.
 	- Estimated effort: High
@@ -126,13 +126,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026111623192800
 	- Type: Enhancement
 	- Status: Waiting on automated testing
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111623445822 (dd16k) and 2026111703284678 (dc26d) are fixed.
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111809400000 (dd16k) and 2026111809400100 (dd3t9) are fixed.
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261116-231928
 	- Opened by: split from 2026110712372281
 	- Parent ID: 2026110712372281
-	- Prereq IDs: 2026111623191935, 2026111623192782, 2026111623445822, 2026111703284678
+	- Prereq IDs: 2026111623191935, 2026111623192782, 2026111809400000, 2026111809400100
 	- Problem description: `drop_banners` moves the lines around the info block it takes off in its own code.
 	- Requirements: the lines it leaves go through `adopt` in all 4, with the author's lines kept where the block was (2026110613470302). Then a check-docs row greps the 4 bindings for the retired helper names, and design.md's "Where the code still differs" bullet loses its second half.
 	- Estimated effort: Avg
@@ -247,9 +247,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261117, all 4 CLIs on `nov17-2026111623191935`.
 	- Possible cause: the load's fold appends the second instance's leading lines to the first one's with their blank, and the instance's own blank is dropped. The setter's fold takes both off and hands them on through `adopt`. 2026111623192782 moves the load's fold onto `adopt` and may close this with it.
 	- Estimated effort: Avg
-	- Prereq IDs: 2026111623192782, 2026111623445822, 2026111703284678
+	- Prereq IDs: 2026111623192782, 2026111809400000, 2026111809400100
 	- Test case: placement rows 2026111700365065-1 to -5 in project/conformance/placement.txt
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111623445822 (dd16k) and 2026111703284678 (dc26d) are fixed.
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111809400000 (dd16k) and 2026111809400100 (dd3t9) are fixed.
 	- Fixed by 2026111623192782's commit, whose new placement rows -1 and -2 are this Bug's 2 commands. They failed on 59074148 in all 4 runners and pass after.
 	- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
 
@@ -257,7 +257,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026111111560900
 	- Type: Bug
 	- Status: Waiting on automated testing
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111623445822 (dd16k) and 2026111703284678 (dc26d) are fixed.
+	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111809400000 (dd16k) and 2026111809400100 (dd3t9) are fixed.
 	- Severity: Avg
 	- Target version: v3.0.0
 	- Opened: 20261111-115609
@@ -282,7 +282,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: placement rows `2026111111560900-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `df50j`, `dd3t9`, `dderx`.
 	- Verified: the 3 placement rows fail on the C library at `f0584691` (canonical text for -1 and -3, kept text for -2) and pass in all 4 now. `df50j`, all of `fuzz_smoke` and the conformance suites in debug, the C and Python conformance runners, Go `go test -count=1`, cli-regress (671 rows) and crosscheck over the corpus (23862 comparisons), `dd3t9` and `dderx` at 1,000,000 in release, `--backlog-run-quick rust go python c`, and lint-report.
 		- After the send-back fix: all of `fuzz_smoke` at 200,000 in release fails only `dd16k` at 124446, as on `f0584691`. `ddrnk`, `dd3t9` and `dderx` pass 1,000,000 in release. The 4 conformance suites, Go's cmd module, cli-regress (671 rows), crosscheck over the corpus and a 2000-iteration dump (55461 comparisons, `ddesf` included), `--backlog-run-quick rust go python c`, and lint-report.
-	- Prereq IDs: 2026111623445822, 2026111703284678
+	- Prereq IDs: 2026111809400000, 2026111809400100
 	- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
 
 - Format versions: the demo gif and its golden text show fmt output without the stamp
@@ -468,32 +468,34 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: the standing rule that only `init` and a creating `set --write` add the info block isn't touched. This is opt-in, and the Format line alone isn't the block.
 	- Estimated effort: Avg
 
-- Fuzz `dc26d` fails at iteration 1076243 at 2,000,000: a write on structural soup is not a fixpoint
-	- ID: 2026111703284678
+- Fuzz `dd16k` fails at iteration 571195 at 2,000,000: `set_banner` on a document and on its reload give different text after a clear, a merge and a literal
+	- ID: 2026111809400000
 	- Type: Bug
 	- Status: Queued
 	- Severity: Avg
 	- Target version: v3.0.0-beta.2
-	- Opened: 20261117-032846
-	- Opened by:
-	- Progress log:
-		- Fails at iteration 1076243 (op 0, path "c", a value with an emoji flag, a dollar sign, a quote and a tab) on dev at 813dfecf, so it predates round nov17. Passes at 200,000. Found by the nov17 gate step's 2M release fuzz.
-	- Test case: dc26d (writes_on_structural_soup_stay_fixpoint) at SHCL_FUZZ_ITERS=2000000 in release
+	- Opened: 20261118-094000
+	- Opened by: me, the 2M fuzz for 2026111623445822
+	- Version and build: `fz16k` at `e62c2fc2`
+	- Steps to reproduce: `SHCL_FUZZ_ITERS=2000000 cargo test --release --test fuzz_smoke edits_and_merges_match_a_reload`. The base is the info block corpus input with blocks after fields, then `clear_comments` at `a`, a merge, `set_literal` at `e`, and `set_banner(true)`.
+	- Incorrect behavior: the banner step gives different canonical text on the document and on the reload of its canonical text.
+	- Expected behavior: the same text.
+	- Reproduced: 20261118, Rust. It was hidden behind the failure at 124450 (2026111623445822), and the kept line refile from that fix never runs in this iteration.
+	- Estimated effort: Avg
 
-- Fuzz `dd16k` fails at iteration 124446 at 200,000: a `set_literal` then `clear_comments` gives a document and its reload different text
-	- ID: 2026111623445822
+- Fuzz `dd3t9` fails at iteration 249474 at 2,000,000: the line-keeping save of a file whose info block names a newer format reloads as a stamped document
+	- ID: 2026111809400100
 	- Type: Bug
 	- Status: Queued
 	- Severity: Avg
 	- Target version: v3.0.0-beta.2
-	- Opened: 20261116-234458
-	- Opened by: found while working 2026111623191917
-	- Version and build: `nov17` at `813dfecf`
-	- Steps to reproduce: `SHCL_FUZZ_ITERS=200000 cargo test --release --test fuzz_smoke edits_and_merges_match_a_reload`. The base is a mutated corpus input with BOM, fence and kept lines, then op 9 (`set_literal`) and op 10 (`clear_comments`) at `c`.
-	- Incorrect behavior: the step gives different canonical text on the document and on the reload of its canonical text.
-	- Expected behavior: the same text, as the property holds.
-	- Reproduced: 20261116, Rust, on `813dfecf` with its own library, so it is older than 2026111623191917. The other 3 bindings weren't tried. The gate fuzz at 200,000 fails on it.
-	- Seen 20261118 on dev `8d62699d`: JC's `--long` run stopped at Tests on it, now at iteration 124450, with the same ops 9 and 10 at `c`.
+	- Opened: 20261118-094001
+	- Opened by: me, the 2M fuzz for 2026111623445822
+	- Version and build: dev at `1d67552e`
+	- Steps to reproduce: `SHCL_FUZZ_ITERS=2000000 cargo test --release --test fuzz_smoke keeping_lines_reloads_as_the_document`. The base is a mutated corpus input with a raw body holding `##    Format   .2` and a footer block with `##    Format   4`.
+	- Incorrect behavior: the document reads as a newer format and writes no stamp, but a reload of its line-keeping save writes `## SHCL format 3.0`, so the reload doesn't see the newer format.
+	- Expected behavior: the reload reads the same format as the document.
+	- Reproduced: 20261118, Rust, on dev with its own library, at the same iteration. Likely from nov17b's stamp work, since dd3t9 passed at 2M before it.
 	- Estimated effort: Avg
 
 - A deeper comment a blank sets off above a kept line that ends a block is written one level in by `fmt` and at the block's level after an edit
@@ -1494,6 +1496,53 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- spec.md and the `upgrade` docs say 2.x includes 1.x, and that a 1.x file's backup is named `format-v2`.
 		- The next changelog's upgrading notes say C's `SHCL_SET_OK` is 0, so old code testing a setter `!= 0` reads every success as a failure, and that a string read of an array gives its bracket text. The released beta1 section stays as it is.
 	- Estimated effort: Low
+
+- Fuzz `dd16k` fails at iteration 124446 at 200,000: a `set_literal` then `clear_comments` gives a document and its reload different text
+	- ID: 2026111623445822
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261116-234458
+	- Opened by: found while working 2026111623191917
+	- Version and build: `nov17` at `813dfecf`
+	- Steps to reproduce: `SHCL_FUZZ_ITERS=200000 cargo test --release --test fuzz_smoke edits_and_merges_match_a_reload`. The base is a mutated corpus input with BOM, fence and kept lines, then op 9 (`set_literal`) and op 10 (`clear_comments`) at `c`.
+	- Incorrect behavior: the step gives different canonical text on the document and on the reload of its canonical text.
+	- Expected behavior: the same text, as the property holds.
+	- Reproduced: 20261116, Rust, on `813dfecf` with its own library, so it is older than 2026111623191917. The other 3 bindings weren't tried. The gate fuzz at 200,000 fails on it.
+	- Seen 20261118 on dev `8d62699d`: JC's `--long` run stopped at Tests on it, now at iteration 124450, with the same ops 9 and 10 at `c`.
+	- Actual cause: a setter writing a field turns each kept line of that name into a comment with a note, and leaves the line where it was. When a blank sets that comment off from the field below, a reload files it as the line above's, or the file's head, not the field's. So `clear_comments` took it on the document and not on the reload (dd16k), and a comment stepped in under the old kept line stayed stepped in until a reload (dc26d).
+	- Actual fix: in all 4 bindings, both setter paths that call `comment_out_kept` refile the block's lines as a reload files them once a kept line was written as a comment (`refile_noted`, Go `refileNoted`, Python `_refile_noted`). The settle's own two sites that write kept lines as comments already refiled.
+	- Swept: every site that writes a kept line as a comment in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`: `note_lead` (both callers fixed), `settle_kept_once` and `settle_array_run` (both refile already).
+	- Verified: placement rows 2026111623445822, 2026111623445822-2 and 2026111703284678 fail on dev in all 4 (Rust, Go and C runners, `placement-watch.py` for Python) and pass on the change. dd16k passes at 200,000 in release and dc26d at 2,000,000. `--backlog-run-quick rust go python c`, cli-regress (675 rows), crosscheck with a 2000-iteration dump (55461 comparisons) and analyze-c passed. The 2M fuzz found 2 older failures past these, now 2026111809400000 (dd16k) and 2026111809400100 (dd3t9). Both fail with the refile never running, and dd3t9 fails at the same iteration on dev.
+	- Test case: placement table (Rust `df4g0`, Go `df4g2`, Python `df4g3`, C `df4g4`), fuzz `dd16k` and `dc26d`.
+	- Acceptance signoff: Self-closed: each row failed before and passes now.
+	- Branch: `fz16k`
+	- Commit: `e62c2fc2`
+	- Closed: 20261118-094000
+	- Closed reason: Done
+
+- Fuzz `dc26d` fails at iteration 1076243 at 2,000,000: a write on structural soup is not a fixpoint
+	- ID: 2026111703284678
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-032846
+	- Opened by:
+	- Progress log:
+		- Fails at iteration 1076243 (op 0, path "c", a value with an emoji flag, a dollar sign, a quote and a tab) on dev at 813dfecf, so it predates round nov17. Passes at 200,000. Found by the nov17 gate step's 2M release fuzz.
+	- Note: the same cause as 2026111623445822.
+	- Actual cause: a setter writing a field turns each kept line of that name into a comment with a note, and leaves the line where it was. When a blank sets that comment off from the field below, a reload files it as the line above's, or the file's head, not the field's. So `clear_comments` took it on the document and not on the reload (dd16k), and a comment stepped in under the old kept line stayed stepped in until a reload (dc26d).
+	- Actual fix: in all 4 bindings, both setter paths that call `comment_out_kept` refile the block's lines as a reload files them once a kept line was written as a comment (`refile_noted`, Go `refileNoted`, Python `_refile_noted`). The settle's own two sites that write kept lines as comments already refiled.
+	- Swept: every site that writes a kept line as a comment in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`: `note_lead` (both callers fixed), `settle_kept_once` and `settle_array_run` (both refile already).
+	- Verified: placement rows 2026111623445822, 2026111623445822-2 and 2026111703284678 fail on dev in all 4 (Rust, Go and C runners, `placement-watch.py` for Python) and pass on the change. dd16k passes at 200,000 in release and dc26d at 2,000,000. `--backlog-run-quick rust go python c`, cli-regress (675 rows), crosscheck with a 2000-iteration dump (55461 comparisons) and analyze-c passed. The 2M fuzz found 2 older failures past these, now 2026111809400000 (dd16k) and 2026111809400100 (dd3t9). Both fail with the refile never running, and dd3t9 fails at the same iteration on dev.
+	- Test case: placement table (Rust `df4g0`, Go `df4g2`, Python `df4g3`, C `df4g4`), fuzz `dd16k` and `dc26d`.
+	- Acceptance signoff: Self-closed: each row failed before and passes now.
+	- Branch: `fz16k`
+	- Commit: `e62c2fc2`
+	- Closed: 20261118-094000
+	- Closed reason: Done
 
 - The stamp on save turns the quick run red: check-readme dcbc6 and Rust fuzz dderx and dab72
 	- ID: 2026111711103371

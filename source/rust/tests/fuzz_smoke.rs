@@ -2203,7 +2203,7 @@ fn edits_and_merges_match_a_reload() {
 			}
 			log.push_str(&match op {
 				0 | 1 => format!("merge:\n{layer}"),
-				_ => format!("op {op} at {path:?}\n"),
+				_ => format!("op {op} at {path:?} with {v:?}\n"),
 			});
 			let (a, b) = (live.to_canonical(), back.to_canonical());
 			assert!(

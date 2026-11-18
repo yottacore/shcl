@@ -12578,9 +12578,21 @@ impl Document {
 		path: &str,
 	) -> usize {
 		let alone = self.children_named(parent, name).is_empty();
-		match self.comment_out_kept(parent, name, path, alone) {
+		let owed = self.kept_owed;
+		let node = match self.comment_out_kept(parent, name, path, alone) {
 			Some(at) => self.new_child_under(parent, name, name_src, value, at),
 			None => self.new_child(parent, name, name_src, value),
+		};
+		self.refile_noted(parent, owed);
+		node
+	}
+
+	/// A kept line a setter wrote as a comment is filed as the comment a
+	/// reload reads it as, so a run a blank sets off from the field below is
+	/// the line above's, not the field's (2026111623445822).
+	fn refile_noted(&mut self, parent: usize, owed: usize) {
+		if self.kept_owed != owed {
+			settle_pairs(&mut self.arena, parent, 0);
 		}
 	}
 
@@ -12648,7 +12660,9 @@ impl Document {
 				// now above it, is a comment too.
 				if node < fresh && self.kept_owed > 0 {
 					let (parent, name) = (self.arena[node].parent, self.arena[node].name.clone());
+					let owed = self.kept_owed;
 					self.comment_out_kept(parent, &name, path, false);
+					self.refile_noted(parent, owed);
 				}
 				// An empty binding or a raw block can put a fence after an
 				// empty sibling of its name.
