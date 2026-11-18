@@ -169,7 +169,8 @@ pub enum SaveError {
 	Exists { path: String },
 	/// The document was read from a newer format than this one (see
 	/// `newer_format`), so a save would write its lines by these rules.
-	/// Nothing written, and no option overrides it.
+	/// Nothing written, and no option overrides it. From
+	/// `to_text_keep_lines` the path is empty.
 	TooNew { path: String },
 }
 
@@ -191,6 +192,10 @@ impl std::fmt::Display for SaveError {
 				f,
 				"{}: refusing to save: a file is already there, but create asks for a new one; nothing written",
 				path
+			),
+			// A text call refuses with no path, since it writes nothing itself.
+			SaveError::TooNew { path } if path.is_empty() => f.write_str(
+				"refusing to save: the document has lines from a newer format than this reader's; nothing written",
 			),
 			SaveError::TooNew { path } => write!(
 				f,
@@ -7323,7 +7328,7 @@ impl Document {
 		}
 		let lost = self.lost_count();
 		let (text, kept) = if opts.keep_lines {
-			self.to_text_keep_lines()
+			self.keep_lines_stamped()
 		} else {
 			(self.to_canonical(), false)
 		};
@@ -7421,7 +7426,21 @@ impl Document {
 	/// a kept file without one gets `STAMP_LINE` as a new last line. A kept
 	/// text that ends in a raw block left open has nowhere to put one, as in
 	/// `migrate`, so it goes without. The line ends the way new lines do.
-	pub fn to_text_keep_lines(&self) -> (String, bool) {
+	/// A document from a newer format (see `newer_format`) is
+	/// `SaveError::TooNew` with an empty path, as its save is, since a
+	/// program that writes this text would write its lines by these rules.
+	#[allow(clippy::result_large_err)]
+	pub fn to_text_keep_lines(&self) -> Result<(String, bool), SaveError> {
+		if self.newer {
+			return Err(SaveError::TooNew {
+				path: String::new(),
+			});
+		}
+		Ok(self.keep_lines_stamped())
+	}
+
+	/// to_text_keep_lines() past its newer-format refusal.
+	fn keep_lines_stamped(&self) -> (String, bool) {
 		match self.keep_lines_text() {
 			(t, true) => {
 				let src = self.source.as_deref().unwrap_or_default();
@@ -18318,7 +18337,7 @@ mod kept_gate {
 		let gone = doc.arena[y].triv_mut().leading.pop().unwrap();
 		assert!(gone.is_kept_line(), "{:?}", gone);
 		assert_eq!(doc.lost_count(), 1);
-		assert!(!doc.to_text_keep_lines().1);
+		assert!(!doc.to_text_keep_lines().unwrap().1);
 		let dir = std::env::temp_dir().join(format!("shcl-keptgate-{}", std::process::id()));
 		std::fs::create_dir_all(&dir).unwrap();
 		let path = dir.join("f.shcl");
@@ -18482,7 +18501,7 @@ mod kept_gate {
 			assert!(back.diagnostics().is_empty(), "{out:?}");
 			assert_eq!(back.count(path), 1, "{out:?}");
 			assert_eq!(back.to_canonical(), out);
-			assert_eq!(doc.to_text_keep_lines(), (out.clone(), true));
+			assert_eq!(doc.to_text_keep_lines(), Ok((out.clone(), true)));
 		}
 		// Only the field the kept line opened: a child of it, or a field
 		// beside a kept line, leaves the line as it was.
@@ -18572,7 +18591,7 @@ mod kept_gate {
 			let back = Document::parse(&out);
 			assert_eq!(back.count(path), count, "{out:?}");
 			assert_eq!(back.to_canonical(), out);
-			assert_eq!(doc.to_text_keep_lines(), (out.clone(), true));
+			assert_eq!(doc.to_text_keep_lines(), Ok((out.clone(), true)));
 		}
 		// Two valid lines stay as they are: the setter refuses the path.
 		let mut doc = Document::parse_keep_lines("a: 1\na: 2\n", Strictness::Standard)
@@ -18580,7 +18599,7 @@ mod kept_gate {
 		assert_ne!(doc.set_int("a", 5), SetStatus::Ok);
 		assert_eq!(
 			doc.to_text_keep_lines(),
-			("a: 1\na: 2\n## SHCL format 3.0\n".to_string(), true)
+			Ok(("a: 1\na: 2\n## SHCL format 3.0\n".to_string(), true))
 		);
 		// set_comment makes the field without touching the line.
 		let mut doc = Document::parse("a: [1\ny: 3\n");

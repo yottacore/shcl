@@ -1950,7 +1950,11 @@ func writeBack(doc *shcl.Document, file string, o *opts, read *string, keep bool
 	var text string
 	kept := false
 	if keep {
-		text, kept = doc.ToTextKeepLines()
+		var err error
+		if text, kept, err = doc.ToTextKeepLines(); err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %v\n", file, err)
+			return 7
+		}
 	} else {
 		text = doc.ToCanonical()
 	}
@@ -3438,7 +3442,11 @@ func doSet(o *opts) int {
 			"than this reader's (see H006)\n", file)
 		return 7
 	}
-	text, kept := doc.ToTextKeepLines()
+	text, kept, err := doc.ToTextKeepLines()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s: %v\n", file, err)
+		return 7
+	}
 	if !kept && !o.lossy && doc.LostCount() > 0 {
 		fmt.Fprintf(os.Stderr, "%s: refusing to print: this result would delete %d line(s) or value(s) "+
 			"from the file (--lossy overrides)\n", file, doc.LostCount())

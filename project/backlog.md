@@ -442,7 +442,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: the line-keeping text call gives a newer format's text with no refusal
 	- ID: 2026111708542868
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: the cppcheck line from `LINT_EXTRA` and analyze-c.bash for the `shcl.h` change, and codeql-scan.bash for the C, C++ and Python test code. analyze-c didn't finish in 4 minutes here.
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261117-085428
@@ -450,6 +451,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Parent ID: 2026111016205704
 	- Requirements: the parent's second requirement, in all 4 and the C++ interface. A text call on a document naming a newer format refuses, as the save does with TooNew.
 	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261118: the refusal is the save's own newer-format kind with an empty path, so a program that saves through the text catches it as it catches the save's. Rust gives `Result<(String, bool), SaveError>` and `Err(SaveError::TooNew { path: "" })`, Go adds an `error` (`*SaveTooNew`, empty `Path`), Python raises `SaveTooNew("")`, C returns `shcl_save_result` with the text in a new out-parameter, and C++ gives `std::tuple<SaveResult, std::string, bool>`. With no path, the message starts at "refusing to save".
+		- me, 20261118: only the line-keeping text call refuses. `to_canonical` still gives the text, since `fmt` to stdout prints a newer file and writes nothing.
+		- me, 20261118: C's signature changes, rather than signalling through `*kept` or a NULL text, since `kept` may be NULL, and a caller that missed a NULL text would write an empty file. `shcl_save_result` and C++ `SaveResult` move outside the `SHCL_NO_FILE_IO` guard for it.
+		- me, 20261118: the CLIs keep their own newer-format check first, with its wording. The text call's refusal behind it exits 7 too, and C's `set` print uses the refusal as that check.
+		- me, 20261118: split in 2 at first, then both halves fit the time cap, so the 2 children were dropped before commit.
+		- 20261118: asserts updated for the refusal. The rows of `a_save_names_this_format` (Rust `dfe62`, Go `dfe63`, Python `dfe64`, C `dfe65`, veneer `dfe66`) that name a newer format expected the kept text, and now expect the refusal. Their canonical asserts stay. The no-edit corpus checks (`dd3t8` and its twins) expect the refusal for `204-format-newer-hint`, and the fuzz properties check a newer document's refusal and skip it. Nothing else they check changed.
+	- Actual fix: `to_text_keep_lines` (each binding's spelling) refuses when the document's newer flag is set, before any text is built, in all 4. The save calls an internal `keep_lines_stamped` (Go `keepLinesStamped`, Python `_keep_lines_stamped`), since it refuses first anyway. C's `shcl_to_text_keep_lines(d, &text, &kept)` returns `SHCL_SAVE_OK` or `SHCL_SAVE_TOO_NEW`, and the C++ interface wraps it. The 4 CLIs map the refusal to exit 7. spec.md, design.md and the changelog say so.
+	- Swept: every caller in all 4 and the C++ interface: the libraries' saves, the 4 CLIs (`write_back` and `set`'s print), Rust's lib tests, conformance and fuzz_smoke, Go's module tests, Python's runner, C's runner, `oom_recover` and the veneer smoke. No other test program, cicd script or doc example calls it (`git grep`).
+	- Verified: the 4 conformance suites, the veneer smoke, `oom_recover`, cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), check-docs, check-veneer, `test-ids.py check`, clippy with `-D warnings`, rustfmt, gofmt, go vet, staticcheck, ruff, mypy, the C library built with `SHCL_NO_FILE_IO`, and `cicd.bash --backlog-run-quick rust go python c cli`. With the refusal taken out, the new test fails in Rust, Go and C, and Python's runner stops at its first newer-format check. The new tests in Rust, Go, C and C++ don't compile against the old signature.
+	- Test case: `a_newer_format_document_gives_no_text` in Rust (`dffvy`), Python (`dffvz`), Go `TestANewerFormatDocumentGivesNoText` (`dffw0`), the C runner (`dffw1`) and the veneer smoke (`dffw2`).
+	- Branch: `nov18-2026111708542868`
 
 - A save can't choose whether to add the info block
 	- ID: 2026111016205705

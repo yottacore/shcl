@@ -7506,9 +7506,20 @@ func LoadFileKeepLines(path string, level Strictness) (*Document, FileStatus, er
 // names this format, as ToCanonical()'s does, so a kept file without one gets
 // StampLine as a new last line. A kept text that ends in a raw block left
 // open has nowhere to put one, as in `migrate`, so it goes without. The line
-// ends the way new lines do.
-func (d *Document) ToTextKeepLines() (string, bool) {
+// ends the way new lines do. A document from a newer format (see
+// NewerFormat) is a *SaveTooNew with an empty Path, as its save is, since a
+// program that writes this text would write its lines by these rules.
+func (d *Document) ToTextKeepLines() (string, bool, error) {
 	d.ready()
+	if d.newer {
+		return "", false, &SaveTooNew{}
+	}
+	t, kept := d.keepLinesStamped()
+	return t, kept, nil
+}
+
+// keepLinesStamped is ToTextKeepLines() past its newer-format refusal.
+func (d *Document) keepLinesStamped() (string, bool) {
 	t, ok := d.keepLinesText()
 	if !ok {
 		return d.ToCanonical(), false
@@ -10830,9 +10841,14 @@ type SaveTooNew struct {
 	Path string
 }
 
-// Error names the file and the reason.
+// Error names the file and the reason. A text call refuses with no path,
+// since it writes nothing itself.
 func (e *SaveTooNew) Error() string {
-	return e.Path + ": refusing to save: the document has lines from a newer format than this reader's; nothing written"
+	head := ""
+	if e.Path != "" {
+		head = e.Path + ": "
+	}
+	return head + "refusing to save: the document has lines from a newer format than this reader's; nothing written"
 }
 
 // SaveOptions is how SaveFileWith saves. The zero value is SaveFile.
@@ -10945,7 +10961,7 @@ func (d *Document) SaveFileWith(path string, opts SaveOptions) (bool, error) {
 	var text string
 	kept := false
 	if opts.KeepLines {
-		text, kept = d.ToTextKeepLines()
+		text, kept = d.keepLinesStamped()
 	} else {
 		text = d.ToCanonical()
 	}

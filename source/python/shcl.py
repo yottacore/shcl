@@ -398,12 +398,14 @@ class SaveExists(SaveError):
 class SaveTooNew(SaveError):
 	"""The document was read from a newer format (see newer_format), so a save
 	would write its lines by these rules. Nothing was written, and no option
-	overrides it."""
+	overrides it. From to_text_keep_lines the path is empty."""
 	path: str | os.PathLike[str]
 
 	def __init__(self, path: str | os.PathLike[str]):
 		self.path = path
-		super().__init__(f"{path}: refusing to save: the document has lines from a newer format than this reader's; nothing written")
+		# A text call refuses with no path, since it writes nothing itself.
+		head = f"{path}: " if str(path) else ""
+		super().__init__(f"{head}refusing to save: the document has lines from a newer format than this reader's; nothing written")
 
 
 class SaveOptions:
@@ -7152,7 +7154,7 @@ class Document:
 			raise SaveTooNew(path)
 		lost = self.lost_count()
 		if opts.keep_lines:
-			text, kept = self.to_text_keep_lines()
+			text, kept = self._keep_lines_stamped()
 		else:
 			text, kept = self.to_canonical(), False
 		if not opts.lossy and not kept and lost > 0:
@@ -7331,7 +7333,16 @@ class Document:
 		and False. Its stamp names this format, as to_canonical()'s does, so
 		a kept file without one gets STAMP_LINE as a new last line. A kept
 		text that ends in a raw block left open has nowhere to put one, as in
-		`migrate`, so it goes without. The line ends the way new lines do."""
+		`migrate`, so it goes without. The line ends the way new lines do.
+		A document from a newer format (see newer_format) raises SaveTooNew
+		with an empty path, as its save does, since a program that writes this
+		text would write its lines by these rules."""
+		if self._newer:
+			raise SaveTooNew("")
+		return self._keep_lines_stamped()
+
+	def _keep_lines_stamped(self) -> tuple[str, bool]:
+		"""to_text_keep_lines() past its newer-format refusal."""
 		t, ok = self._keep_lines_text()
 		if not ok:
 			return self.to_canonical(), False

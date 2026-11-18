@@ -73,6 +73,19 @@ static void rmdir_long(const char *p) {
 static int nfail = 0;
 static void fail(const char *at, const char *msg) { fprintf(stderr, "FAIL %s: %s\n", at, msg); nfail++; }
 
+/* shcl_to_text_keep_lines: the text, or empty with *kept 0 for a document
+   from a newer format, whose text call refuses as its save does. Any other
+   answer fails. */
+static shcl_str text_kept(shcl_doc *d, int *kept) {
+	shcl_str t = {"", 0};
+	int k = 0;
+	shcl_save_result r = shcl_to_text_keep_lines(d, &t, &k);
+	if (r != (shcl_newer_format(d) ? SHCL_SAVE_TOO_NEW : SHCL_SAVE_OK)) fail("keep_text", "the text call's answer");
+	if (r != SHCL_SAVE_OK && (t.n || k)) fail("keep_text", "a refusal gave text");
+	if (kept) *kept = k;
+	return t;
+}
+
 /* One status line per test, with its test ID, for the pipeline's console. A
    fixture is open from its test_id() to the next one or to test_id_end(), and
    failed if anything was charged to nfail while it was open. */
@@ -750,7 +763,7 @@ static void placement_table(const char *corpus) {
 		}
 		if (keep && !merges) {
 			int kept = 0;
-			shcl_str kt = shcl_to_text_keep_lines(kd, &kept);
+			shcl_str kt = text_kept(kd, &kept);
 			if (!same_text(kt, keep, klen)) {
 				fail(name, "kept text");
 				fprintf(stderr, "got:\n%.*s", (int)kt.n, kt.p);
@@ -1238,7 +1251,7 @@ static int keeps_every_line(const char *base, size_t n) {
 	for (size_t i = 0; i < shcl_diag_count(d); i++)
 		if (shcl_diag_severity(d, i) == SHCL_SEV_ERROR) clean = 0;
 	if (clean && shcl_set_int(d, "zz_new", 6, 1) == SHCL_SET_OK) {
-		shcl_str t = shcl_to_text_keep_lines(d, &kept);
+		shcl_str t = text_kept(d, &kept);
 		size_t at = 0;
 		for (size_t p = 0; kept && ok && p < n;) {
 			size_t e = p;
@@ -1415,7 +1428,7 @@ static void edits_and_merges_match_a_reload(void) {
 				nfail++; bad = 1;
 			}
 			int kept = 0;
-			shcl_str kt = shcl_to_text_keep_lines(live, &kept);
+			shcl_str kt = text_kept(live, &kept);
 			if (kept) {
 				shcl_doc *kd = shcl_parse(kt.p, kt.n);
 				shcl_str kc = shcl_to_canonical(kd);
@@ -1947,8 +1960,10 @@ int main(int argc, char **argv) {
 		{
 			shcl_doc *kd = shcl_parse_keep_lines(input, ilen, SHCL_STANDARD);
 			int kept = 0;
-			shcl_str kt = shcl_to_text_keep_lines(kd, &kept);
-			if (!kept || !only_the_stamp_differs(input, ilen, kt)) fail(names[ci], "an unedited save changed more than the stamp");
+			shcl_str kt = text_kept(kd, &kept);
+			/* A newer format's text call refuses, as its save does. */
+			if (shcl_newer_format(kd)) { if (kt.n || kept) fail(names[ci], "a newer format's text call gave text"); }
+			else if (!kept || !only_the_stamp_differs(input, ilen, kt)) fail(names[ci], "an unedited save changed more than the stamp");
 			shcl_free(kd);
 		}
 
@@ -1979,7 +1994,7 @@ int main(int argc, char **argv) {
 			shcl_str wagain = shcl_to_canonical(wd2);
 			if (wagain.n != wgot.n || (wgot.n && memcmp(wagain.p, wgot.p, wgot.n) != 0)) fail(names[ci], "written output is not a fmt fixpoint");
 			int kept = 0;
-			shcl_str kt = shcl_to_text_keep_lines(kd, &kept);
+			shcl_str kt = text_kept(kd, &kept);
 			if (kt.n != klen || (klen && memcmp(kt.p, ek, klen) != 0)) fail(names[ci], "output differs from expected-keep.shcl");
 			if (!kept && (kt.n != wgot.n || (wgot.n && memcmp(kt.p, wgot.p, wgot.n) != 0))) fail(names[ci], "a save that kept no lines is not canonical");
 			shcl_doc *kd2 = shcl_parse(kt.p, kt.n);
@@ -3163,7 +3178,7 @@ int main(int argc, char **argv) {
 		else yt->leading.len--;
 		if (shcl_lost_count(kd) != 1) fail("kept_gate", "lost_count not 1");
 		int kk = 1;
-		shcl_to_text_keep_lines(kd, &kk);
+		text_kept(kd, &kk);
 		if (kk) fail("kept_gate", "the keep save kept lines with one gone");
 		char kdir[256], kfile[288];
 		snprintf(kdir, sizeof kdir, "%s/shcl-keptgate-%ld", tmp_root(), (long)getpid());
@@ -3273,7 +3288,7 @@ int main(int argc, char **argv) {
 					fail("kept_gate", "a setter wrote text that reloads otherwise");
 				shcl_free(back);
 				int kept = 0;
-				shcl_str keep = shcl_to_text_keep_lines(sd, &kept);
+				shcl_str keep = text_kept(sd, &kept);
 				if (!kept || keep.n != out.n || memcmp(keep.p, out.p, out.n) != 0) fail("kept_gate", "a setter's keep save differs from canonical");
 			}
 			shcl_free(sd);
@@ -3333,7 +3348,7 @@ int main(int argc, char **argv) {
 					fail("kept_gate", "a setter's comments reload otherwise");
 				shcl_free(back);
 				int kept = 0;
-				shcl_str keep = shcl_to_text_keep_lines(ed, &kept);
+				shcl_str keep = text_kept(ed, &kept);
 				if (!kept || keep.n != out.n || memcmp(keep.p, out.p, out.n) != 0) fail("kept_gate", "a setter's keep save differs from canonical");
 			}
 			shcl_free(ed);
@@ -3344,7 +3359,7 @@ int main(int argc, char **argv) {
 			shcl_doc *td = shcl_parse_keep_lines(tv, strlen(tv), SHCL_STANDARD);
 			int tkept = 0;
 			int ttook = shcl_set_int(td, "a", 1, 5) == SHCL_SET_OK;
-			shcl_str tk = shcl_to_text_keep_lines(td, &tkept);
+			shcl_str tk = text_kept(td, &tkept);
 			if (ttook || !tkept || !stamped_is(tk, tv)) fail("kept_gate", "two valid lines");
 			shcl_free(td);
 		}
@@ -5528,7 +5543,7 @@ int main(int argc, char **argv) {
 		shcl_free(lb);
 		if (shcl_lost_count(ld) != 2) fail("list_no_text", "lost");
 		int kept = 1;
-		(void)shcl_to_text_keep_lines(ld, &kept);
+		(void)text_kept(ld, &kept);
 		if (kept) fail("list_no_text", "the source was canonical, and still no lines are kept");
 		char ldir[256], lfile[288];
 		snprintf(ldir, sizeof ldir, "%s/shcl-listsave-%ld", tmp_root(), (long)getpid());
@@ -5596,7 +5611,7 @@ int main(int argc, char **argv) {
 		shcl_doc *kd = shcl_parse_keep_lines(ksrc, strlen(ksrc), SHCL_STANDARD);
 		if (shcl_lost_count(kd) != 2) fail("list_source", "the wildcard line and the item");
 		int kept = 0;
-		shcl_str kt = shcl_to_text_keep_lines(kd, &kept);
+		shcl_str kt = text_kept(kd, &kept);
 		if (!kept || !str_is(kt, ksrc)) fail("list_source", "keep");
 		char kdir[256], kfile[288];
 		snprintf(kdir, sizeof kdir, "%s/shcl-listsrc-%ld", tmp_root(), (long)getpid());
@@ -6011,7 +6026,7 @@ int main(int argc, char **argv) {
 		if (mx.n != my.n || memcmp(mx.p, my.p, mx.n) != 0) fail("misplaced_move", "the remove differs from a reload of the cut text");
 		if (shcl_remove(md, "window", 6) != 1 || shcl_set_int(md, "font.face.family.kid2", 21, 3) != SHCL_SET_OK) fail("misplaced_move", "remove window or set kid2");
 		int mk = 0;
-		shcl_str mt = shcl_to_text_keep_lines(md, &mk);
+		shcl_str mt = text_kept(md, &mk);
 		if (!mk || !stamped_is(mt, mwant)) { fail("misplaced_move", mwant); fprintf(stderr, "  got %.*s\n", (int)mt.n, mt.p); }
 		shcl_doc *mr = shcl_parse(mt.p, mt.n);
 		shcl_doc *mo = shcl_parse(mb, strlen(mb));
@@ -7025,7 +7040,7 @@ int main(int argc, char **argv) {
 		shcl_doc *rd = shcl_parse_keep_lines(rtext, sizeof rtext - 1, SHCL_STANDARD);
 		for (size_t i = 0; i < 3; i++) { snprintf(line, sizeof line, "%s", rops[i]); apply_op_c(rd, line); }
 		int kept = 0;
-		shcl_str saved = shcl_to_text_keep_lines(rd, &kept);
+		shcl_str saved = text_kept(rd, &kept);
 		if (!kept || saved.n != sizeof rwant - 1 || memcmp(saved.p, rwant, saved.n) != 0) { fprintf(stderr, "FAIL default_round_trip: kept %d:\n%.*s", kept, (int)saved.n, saved.p); nfail++; }
 		shcl_str canon = shcl_to_canonical(rd);
 		shcl_doc *r1 = shcl_parse(saved.p, saved.n), *r2 = shcl_parse(canon.p, canon.n);
@@ -7034,7 +7049,7 @@ int main(int argc, char **argv) {
 		shcl_doc *rb = shcl_parse_keep_lines(saved.p, saved.n, SHCL_STANDARD);
 		for (size_t i = 0; i < 3; i++) { snprintf(line, sizeof line, "%s", rops[i]); apply_op_c(rb, line); }
 		int kept2 = 0;
-		shcl_str again = shcl_to_text_keep_lines(rb, &kept2);
+		shcl_str again = text_kept(rb, &kept2);
 		if (!kept2 || again.n != saved.n || memcmp(again.p, saved.p, saved.n) != 0) fail("default_round_trip", "a second run wrote");
 		shcl_str *cs; size_t nc = shcl_comments(rb, "srv.port", 8, &cs);
 		if (nc != 1 || cs[0].n < 20 || memcmp(cs[0].p, "# port: abc  ## replaced", 24) != 0) fail("default_round_trip", "the note is not the field's comment");
@@ -7907,6 +7922,49 @@ int main(int argc, char **argv) {
 		shcl_free(doc);
 		dir_clear(xdir);
 	}
+	test_id("dffw1", "a_newer_format_document_gives_no_text");
+	{
+		/* The line-keeping text call refuses a document from a newer format,
+		   as its save does, so a program that writes the text itself can't
+		   write a newer format's lines back by these rules. A current one
+		   gives its text (2026111708542868). */
+		const char *at = "newer_text";
+		const char *newer[] = {"a: 1\n##    Format   4\n", "a: 1\n## SHCL format 3.1\n", "a: 1\n## SHCL format 4.0\n"};
+		for (size_t i = 0; i < sizeof newer / sizeof newer[0]; i++) {
+			shcl_doc *d = shcl_parse_keep_lines(newer[i], strlen(newer[i]), SHCL_STANDARD);
+			shcl_str t = {"x", 1};
+			int k = 1;
+			if (!shcl_newer_format(d)) fail(at, newer[i]);
+			if (shcl_to_text_keep_lines(d, &t, &k) != SHCL_SAVE_TOO_NEW || t.n || k) fail(at, newer[i]);
+			if (shcl_set_int(d, "a", 1, 2) != SHCL_SET_OK) fail(at, "set");
+			t.n = 1; k = 1;
+			if (shcl_to_text_keep_lines(d, &t, &k) != SHCL_SAVE_TOO_NEW || t.n || k) fail(at, newer[i]);
+			/* kept may be NULL, as before. */
+			if (shcl_to_text_keep_lines(d, &t, NULL) != SHCL_SAVE_TOO_NEW) fail(at, newer[i]);
+			shcl_free(d);
+			/* Without the kept text too, where it would give the canonical form. */
+			d = shcl_parse(newer[i], strlen(newer[i]));
+			if (shcl_to_text_keep_lines(d, &t, &k) != SHCL_SAVE_TOO_NEW) fail(at, newer[i]);
+			shcl_free(d);
+		}
+		/* A merge takes a newer layer's reading, and the text call with it. */
+		shcl_doc *d = shcl_parse_keep_lines("a: 1\n", 5, SHCL_STANDARD);
+		const char *ltext = "b: 2\n##    Format   4\n";
+		shcl_doc *layer = shcl_parse(ltext, strlen(ltext));
+		shcl_merge(d, layer);
+		shcl_str t;
+		if (shcl_to_text_keep_lines(d, &t, NULL) != SHCL_SAVE_TOO_NEW) fail(at, "merged");
+		shcl_free(layer);
+		shcl_free(d);
+		/* This format, an older one and none give their text. */
+		const char *cur[] = {"a: 1\n## SHCL format 3.0\n", "a: 1\n##    Format   3\n", "a: 1\n##    Format   2\n", "a: 1\n"};
+		for (size_t i = 0; i < sizeof cur / sizeof cur[0]; i++) {
+			d = shcl_parse_keep_lines(cur[i], strlen(cur[i]), SHCL_STANDARD);
+			int k = 0;
+			if (shcl_to_text_keep_lines(d, &t, &k) != SHCL_SAVE_OK || t.n == 0) fail(at, cur[i]);
+			shcl_free(d);
+		}
+	}
 	test_id("dekvx", "a_newer_format_document_saves_nowhere");
 	{
 		/* A document from a newer format reads and edits as usual, and every
@@ -8027,7 +8085,7 @@ int main(int argc, char **argv) {
 		shcl_doc *doc = shcl_load_file_opts(f, SHCL_STANDARD, opts, &st);
 		if (st != SHCL_FILE_CLEAN) fail(at, "status");
 		int k = 0;
-		shcl_str kt = shcl_to_text_keep_lines(doc, &k);
+		shcl_str kt = text_kept(doc, &k);
 		if (!k || kt.n != mig.len + sizeof SHCL_STAMP_LINE || memcmp(kt.p, mig.text, mig.len) != 0 || memcmp(kt.p + mig.len, SHCL_STAMP_LINE "\n", sizeof SHCL_STAMP_LINE) != 0) fail(at, "kept text");
 		if (!file_is(f, old)) fail(at, "the load wrote the file");
 		/* A save over the file it read is no change, and keeps its lines. */
@@ -8111,12 +8169,19 @@ int main(int argc, char **argv) {
 			shcl_doc *sd = shcl_parse_keep_lines(sc[i].text, strlen(sc[i].text), SHCL_STANDARD);
 			int k = 0;
 			if (!str_is(shcl_to_canonical(sd), sc[i].canonical)) fail("save_stamp canonical", sc[i].text);
-			if (!str_is(shcl_to_text_keep_lines(sd, &k), sc[i].kept) || !k) fail("save_stamp kept", sc[i].text);
-			shcl_free(sd);
-			/* Saved again, nothing changes. */
-			sd = shcl_parse_keep_lines(sc[i].kept, strlen(sc[i].kept), SHCL_STANDARD);
-			if (!str_is(shcl_to_text_keep_lines(sd, &k), sc[i].kept)) fail("save_stamp again", sc[i].text);
-			shcl_free(sd);
+			/* A newer format's text call refuses, as its save does
+			   (2026111708542868); its canonical form still leaves the stamp. */
+			if (shcl_newer_format(sd)) {
+				if (text_kept(sd, &k).n || k) fail("save_stamp kept gave text", sc[i].text);
+				shcl_free(sd);
+			} else {
+				if (!str_is(text_kept(sd, &k), sc[i].kept) || !k) fail("save_stamp kept", sc[i].text);
+				shcl_free(sd);
+				/* Saved again, nothing changes. */
+				sd = shcl_parse_keep_lines(sc[i].kept, strlen(sc[i].kept), SHCL_STANDARD);
+				if (!str_is(text_kept(sd, &k), sc[i].kept)) fail("save_stamp again", sc[i].text);
+				shcl_free(sd);
+			}
 			sd = shcl_parse(sc[i].canonical, strlen(sc[i].canonical));
 			if (!str_is(shcl_to_canonical(sd), sc[i].canonical)) fail("save_stamp again", sc[i].text);
 			shcl_free(sd);

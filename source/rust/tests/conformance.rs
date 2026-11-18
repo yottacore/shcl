@@ -10,7 +10,7 @@ mod common;
 use common::test_id;
 use shcl::{
 	Document, DurationUnit, FORMAT_LINE, FORMAT_LINE_HEAD, FORMAT_MAJOR, FORMAT_MINOR,
-	FORMAT_NAMES, Field, MIGRATED_LINE, Rules, STAMP_HEAD, STAMP_LINE, SizeUnit, Status,
+	FORMAT_NAMES, Field, MIGRATED_LINE, Rules, STAMP_HEAD, STAMP_LINE, SaveError, SizeUnit, Status,
 	Strictness, Tokens, format_version, generate, migrate, migrate_unstamped, parse_datetime,
 	quote_segment, read_format_version, read_schema_ref, schema_ref, tokenize,
 };
@@ -858,7 +858,7 @@ fn write_ops_match_expected() {
 			apply_op(&mut kept, line, &at);
 		}
 		let got = doc.to_canonical();
-		let (text, lines) = kept.to_text_keep_lines();
+		let (text, lines) = kept.to_text_keep_lines().unwrap();
 		assert_eq!(
 			&text, keep,
 			"{}: output differs from expected-keep.shcl",
@@ -998,7 +998,7 @@ fn placement_table_rows_match() {
 			);
 			if let Some(want) = &row.keep {
 				assert_eq!(
-					&kept.to_text_keep_lines().0,
+					&kept.to_text_keep_lines().unwrap().0,
 					want,
 					"{}: kept text",
 					row.name
@@ -1029,7 +1029,19 @@ fn keeping_lines_without_edits_writes_the_input() {
 	each_case(|case| {
 		let doc = Document::parse_keep_lines(&case.input, Strictness::Standard)
 			.unwrap_or_else(|e| e.document);
-		let (kept, all) = doc.to_text_keep_lines();
+		// A newer format's text call refuses, as its save does.
+		if doc.newer_format() {
+			assert_eq!(
+				doc.to_text_keep_lines(),
+				Err(SaveError::TooNew {
+					path: String::new()
+				}),
+				"{}: a newer format's text call gave text",
+				case.name
+			);
+			return;
+		}
+		let (kept, all) = doc.to_text_keep_lines().unwrap();
 		assert!(
 			all && only_the_stamp_differs(&case.input, &kept),
 			"{}: an unedited save changed more than the stamp: {:?}",
@@ -5935,7 +5947,7 @@ fn default_replace_round_trips() {
 	for op in ops {
 		apply_op(&mut doc, op, op);
 	}
-	let (saved, kept) = doc.to_text_keep_lines();
+	let (saved, kept) = doc.to_text_keep_lines().unwrap();
 	assert!(kept, "fell back to canonical:\n{saved}");
 	assert_eq!(saved, want);
 	let canon = doc.to_canonical();
@@ -5949,7 +5961,7 @@ fn default_replace_round_trips() {
 	for op in ops {
 		apply_op(&mut back, op, op);
 	}
-	assert_eq!(back.to_text_keep_lines(), (saved.clone(), true));
+	assert_eq!(back.to_text_keep_lines(), Ok((saved.clone(), true)));
 	let notes = back.comments("srv.port");
 	assert_eq!(notes.len(), 1, "{notes:?}");
 	assert!(saved.contains(&notes[0]));
@@ -6804,6 +6816,54 @@ fn a_newer_format_document_saves_nowhere() {
 	let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The line-keeping text call refuses a document from a newer format, as its
+/// save does, so a program that writes the text itself can't write a newer
+/// format's lines back by these rules. A current one gives its text
+/// (2026111708542868).
+#[test]
+fn a_newer_format_document_gives_no_text() {
+	let _id = test_id("dffvy");
+	let too_new = Err(SaveError::TooNew {
+		path: String::new(),
+	});
+	for text in [
+		"a: 1\n##    Format   4\n",
+		"a: 1\n## SHCL format 3.1\n",
+		"a: 1\n## SHCL format 4.0\n",
+	] {
+		let mut doc =
+			Document::parse_keep_lines(text, Strictness::Standard).unwrap_or_else(|e| e.document);
+		assert!(doc.newer_format(), "{text:?}");
+		assert_eq!(doc.to_text_keep_lines(), too_new, "{text:?}");
+		assert_eq!(doc.set_int("a", 2), shcl::SetStatus::Ok);
+		assert_eq!(doc.to_text_keep_lines(), too_new, "{text:?}");
+		// Without the kept text too, where it would give the canonical form.
+		assert_eq!(Document::parse(text).to_text_keep_lines(), too_new);
+	}
+	assert_eq!(
+		SaveError::TooNew {
+			path: String::new()
+		}
+		.to_string(),
+		"refusing to save: the document has lines from a newer format than this reader's; nothing written"
+	);
+	// A merge takes a newer layer's reading, and the text call with it.
+	let mut doc = Document::parse_keep_lines("a: 1\n", Strictness::Standard).unwrap();
+	doc.merge(&Document::parse("b: 2\n##    Format   4\n"));
+	assert_eq!(doc.to_text_keep_lines(), too_new);
+	// This format, an older one and none give their text.
+	for text in [
+		"a: 1\n## SHCL format 3.0\n",
+		"a: 1\n##    Format   3\n",
+		"a: 1\n##    Format   2\n",
+		"a: 1\n",
+	] {
+		let doc =
+			Document::parse_keep_lines(text, Strictness::Standard).unwrap_or_else(|e| e.document);
+		assert!(doc.to_text_keep_lines().is_ok(), "{text:?}");
+	}
+}
+
 #[test]
 fn a_load_that_migrates_saves_through_the_guards() {
 	let _id = test_id("dfe4q");
@@ -6826,7 +6886,7 @@ fn a_load_that_migrates_saves_through_the_guards() {
 	std::fs::write(&f, old).unwrap();
 	let (mut doc, st) = Document::load_file_opts(&f, Strictness::Standard, &opts).unwrap();
 	assert_eq!(st, FileStatus::Clean);
-	assert_eq!(doc.to_text_keep_lines(), (with_stamp(&migrated), true));
+	assert_eq!(doc.to_text_keep_lines(), Ok((with_stamp(&migrated), true)));
 	assert_eq!(read(&f), old);
 	// A save over the file it read is no change, and keeps its lines.
 	assert_eq!(doc.set_int("q", 2), shcl::SetStatus::Ok);
@@ -6962,15 +7022,27 @@ fn a_save_names_this_format() {
 		let doc =
 			Document::parse_keep_lines(text, Strictness::Standard).unwrap_or_else(|e| e.document);
 		assert_eq!(doc.to_canonical(), canonical, "canonical {text:?}");
-		assert_eq!(
-			doc.to_text_keep_lines(),
-			(kept.clone(), true),
-			"kept {text:?}"
-		);
-		// Saved again, nothing changes.
-		let back =
-			Document::parse_keep_lines(&kept, Strictness::Standard).unwrap_or_else(|e| e.document);
-		assert_eq!(back.to_text_keep_lines().0, kept, "again {text:?}");
+		// A newer format's text call refuses, as its save does
+		// (2026111708542868); its canonical form still leaves the stamp.
+		if doc.newer_format() {
+			assert_eq!(
+				doc.to_text_keep_lines(),
+				Err(SaveError::TooNew {
+					path: String::new()
+				}),
+				"kept {text:?}"
+			);
+		} else {
+			assert_eq!(
+				doc.to_text_keep_lines(),
+				Ok((kept.clone(), true)),
+				"kept {text:?}"
+			);
+			// Saved again, nothing changes.
+			let back = Document::parse_keep_lines(&kept, Strictness::Standard)
+				.unwrap_or_else(|e| e.document);
+			assert_eq!(back.to_text_keep_lines().unwrap().0, kept, "again {text:?}");
+		}
 		assert_eq!(
 			Document::parse(&canonical).to_canonical(),
 			canonical,

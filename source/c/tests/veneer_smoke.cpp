@@ -16,6 +16,7 @@
 #include <limits>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <utility>
 #include <vector>
 #ifndef SHCL_NO_FILE_IO
@@ -49,8 +50,8 @@ static void put(std::string &o, shcl::Status s) { put(o, shcl::to_string(s)); }
 static void put(std::string &o, shcl::SetStatus s) { put(o, shcl::to_string(s)); }
 static void put(std::string &o, shcl::ValueKind k) { put(o, shcl::to_string(k)); }
 static void put(std::string &o, shcl::Strictness s) { put(o, static_cast<std::int64_t>(s)); }
-#ifndef SHCL_NO_FILE_IO
 static void put(std::string &o, shcl::SaveResult r) { put(o, static_cast<std::int64_t>(r)); }
+#ifndef SHCL_NO_FILE_IO
 static void put(std::string &o, shcl::WriteStatus w) { put(o, shcl::to_string(w)); }
 static void put(std::string &o, shcl::FileStatus f) { put(o, shcl::to_string(f)); }
 #endif
@@ -60,6 +61,7 @@ static void put(std::string &o, const shcl::Field &f) { put(o, f.path); put(o, f
 template <class T> static void put(std::string &o, const std::vector<T> &v);
 template <class T> static void put(std::string &o, const shcl::Read<T> &r);
 template <class A, class B> static void put(std::string &o, const std::pair<A, B> &p);
+template <class... Ts> static void put(std::string &o, const std::tuple<Ts...> &t);
 template <class T> static void put(std::string &o, const std::vector<T> &v) {
 	o += "[ ";
 	for (const auto &x : v) put(o, x);
@@ -67,6 +69,9 @@ template <class T> static void put(std::string &o, const std::vector<T> &v) {
 }
 template <class T> static void put(std::string &o, const shcl::Read<T> &r) { put(o, r.value); put(o, r.status); put(o, r.slots); }
 template <class A, class B> static void put(std::string &o, const std::pair<A, B> &p) { put(o, p.first); put(o, p.second); }
+template <class... Ts> static void put(std::string &o, const std::tuple<Ts...> &t) {
+	std::apply([&o](const auto &...x) { (put(o, x), ...); }, t);
+}
 template <class... Ts> static std::string show(const Ts &...vs) {
 	std::string o;
 	(put(o, vs), ...);
@@ -255,7 +260,10 @@ static int a_save_names_this_format() {
 	for (const auto &r : rows) {
 		auto d = shcl::Document::parse_keep_lines(r.text, shcl::Strictness::Standard);
 		CHECK(d.to_canonical() == r.canonical);
-		CHECK(d.to_text_keep_lines() == std::make_pair(r.kept, true));
+		// A newer format's text call refuses, as its save does
+		// (2026111708542868); its canonical form still leaves the stamp.
+		if (d.newer_format()) CHECK(d.to_text_keep_lines() == std::make_tuple(shcl::SaveResult::TooNew, std::string(), false));
+		else CHECK(d.to_text_keep_lines() == std::make_tuple(shcl::SaveResult::Ok, r.kept, true));
 	}
 	auto m = shcl::Document::parse("a: 1\n" + s + "\n");
 	m.merge(shcl::Document::parse("b: 2\n# end\n" + s + "\n"));
@@ -462,6 +470,35 @@ static int a_create_only_save_refuses_a_file_already_there() {
 }
 #endif
 
+// The line-keeping text call refuses a document from a newer format, as its
+// save does, so a program that writes the text itself can't write a newer
+// format's lines back by these rules. A current one gives its text
+// (2026111708542868). The C runner's fixture, through the veneer.
+static int a_newer_format_document_gives_no_text() {
+	test_id("dffw2", "a_newer_format_document_gives_no_text");
+	using R = shcl::SaveResult;
+	const auto refused = std::make_tuple(R::TooNew, std::string(), false);
+	for (const char *text : {"a: 1\n##    Format   4\n", "a: 1\n## SHCL format 3.1\n", "a: 1\n## SHCL format 4.0\n"}) {
+		auto d = shcl::Document::parse_keep_lines(text, shcl::Strictness::Standard);
+		CHECK(d.newer_format());
+		CHECK(d.to_text_keep_lines() == refused);
+		CHECK(d.set_int("a", 2) == shcl::SetStatus::Ok);
+		CHECK(d.to_text_keep_lines() == refused);
+		// Without the kept text too, where it would give the canonical form.
+		CHECK(shcl::Document::parse(text).to_text_keep_lines() == refused);
+	}
+	// A merge takes a newer layer's reading, and the text call with it.
+	auto m = shcl::Document::parse_keep_lines("a: 1\n", shcl::Strictness::Standard);
+	m.merge(shcl::Document::parse("b: 2\n##    Format   4\n"));
+	CHECK(m.to_text_keep_lines() == refused);
+	// This format, an older one and none give their text.
+	for (const char *text : {"a: 1\n## SHCL format 3.0\n", "a: 1\n##    Format   3\n", "a: 1\n##    Format   2\n", "a: 1\n"}) {
+		auto d = shcl::Document::parse_keep_lines(text, shcl::Strictness::Standard);
+		CHECK(std::get<0>(d.to_text_keep_lines()) == R::Ok);
+	}
+	return test_id_end(fails);
+}
+
 #ifndef SHCL_NO_FILE_IO
 // A document from a newer format reads and edits as usual, and every save of
 // it is refused with nothing written, whatever the options. The same reading
@@ -543,7 +580,7 @@ static int a_load_that_migrates_saves_through_the_guards() {
 		auto loaded = shcl::Document::load_file_opts(f, std_, opts);
 		auto &doc = loaded.first;
 		CHECK(loaded.second == F::Clean);
-		CHECK(doc.to_text_keep_lines() == std::make_pair(migrated + std::string(shcl::STAMP_LINE) + "\n", true));
+		CHECK(doc.to_text_keep_lines() == std::make_tuple(shcl::SaveResult::Ok, migrated + std::string(shcl::STAMP_LINE) + "\n", true));
 		CHECK(shcl::read_file(f).first == old);
 		// A save over the file it read is no change, and keeps its lines.
 		CHECK(doc.set_int("q", 2) == shcl::SetStatus::Ok);
@@ -1128,10 +1165,10 @@ int main() {
 		// The save that keeps lines: an edit touches its own line only, a
 		// document not loaded for it writes the canonical form.
 		auto kept = shcl::Document::parse_keep_lines("Name:   \"x\"   # c\nblock:\n    a: 1\n", shcl::Strictness::Standard);
-		CHECK(kept.to_text_keep_lines() == std::make_pair(std::string("Name:   \"x\"   # c\nblock:\n    a: 1\n## SHCL format 3.0\n"), true));
+		CHECK(kept.to_text_keep_lines() == std::make_tuple(shcl::SaveResult::Ok, std::string("Name:   \"x\"   # c\nblock:\n    a: 1\n## SHCL format 3.0\n"), true));
 		CHECK(kept.set_int("block.a", 2) == S::Ok && kept.set_int("block.b", 3) == S::Ok);
-		CHECK(kept.to_text_keep_lines() == std::make_pair(std::string("Name:   \"x\"   # c\nblock:\n    a: 2\n    b: 3\n## SHCL format 3.0\n"), true));
-		CHECK(w.to_text_keep_lines() == std::make_pair(w.to_canonical(), false));
+		CHECK(kept.to_text_keep_lines() == std::make_tuple(shcl::SaveResult::Ok, std::string("Name:   \"x\"   # c\nblock:\n    a: 2\n    b: 3\n## SHCL format 3.0\n"), true));
+		CHECK(w.to_text_keep_lines() == std::make_tuple(shcl::SaveResult::Ok, w.to_canonical(), false));
 		CHECK(w.set_int("a(*)", 1) == S::Wildcard && w.check_set_path("a(*)") == S::Wildcard);
 		CHECK(w.set_int("a[x]", 1) == S::BadPath && w.check_set_path("a[x]") == S::BadPath);
 		// A repeated path is refused; an index picks one.
@@ -1416,6 +1453,8 @@ int main() {
 	fails = 0;
 	const int stamped = a_save_names_this_format();
 	fails = 0;
+	const int no_text = a_newer_format_document_gives_no_text();
+	fails = 0;
 #ifndef SHCL_NO_FILE_IO
 	const int changed = a_save_over_a_file_changed_since_the_load_is_refused();
 	fails = 0;
@@ -1427,8 +1466,8 @@ int main() {
 	fails = 0;
 	const int migrating = a_load_that_migrates_saves_through_the_guards();
 	fails = 0;
-	return changed | spellings | created | newer | migrating | a_path_holding_a_nul_is_refused() | threads | stamped | smoke;
+	return changed | spellings | created | newer | migrating | a_path_holding_a_nul_is_refused() | threads | stamped | no_text | smoke;
 #else
-	return threads | stamped | smoke;
+	return threads | stamped | no_text | smoke;
 #endif
 }

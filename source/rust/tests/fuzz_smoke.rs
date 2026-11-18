@@ -11,8 +11,8 @@ mod common;
 use common::test_id;
 use shcl::{
 	Document, FORMAT_LINE, FORMAT_LINE_HEAD, FORMAT_MAJOR, Piece, Quote, Rules, STAMP_HEAD,
-	STAMP_LINE, SegTok, Severity, Strictness, Tokens, format_array, format_value, format_version,
-	migrate, quote_segment, schema_ref, tokenize, tokenize_value, upgrade,
+	STAMP_LINE, SaveError, SegTok, Severity, Strictness, Tokens, format_array, format_value,
+	format_version, migrate, quote_segment, schema_ref, tokenize, tokenize_value, upgrade,
 };
 
 /// Small deterministic PRNG (xorshift64*); no external crates, stable across runs.
@@ -75,6 +75,30 @@ fn same_stamps(t: &str) -> String {
 			}
 		})
 		.collect()
+}
+
+/// to_text_keep_lines(), or None for a document from a newer format, whose
+/// text call refuses as its save does.
+fn keep_text(doc: &Document) -> Option<(String, bool)> {
+	match doc.to_text_keep_lines() {
+		Ok(t) => {
+			assert!(!doc.newer_format(), "a newer format's text call gave text");
+			Some(t)
+		}
+		Err(e) => {
+			assert!(
+				doc.newer_format(),
+				"a current document's text call refused: {e}"
+			);
+			assert_eq!(
+				e,
+				SaveError::TooNew {
+					path: String::new()
+				}
+			);
+			None
+		}
+	}
 }
 
 /// `saved` is `text` with the stamp a save writes: the same text, when it
@@ -2380,7 +2404,7 @@ fn a_remove_that_moves_a_misplaced_line_adds_no_error() {
 	assert_eq!(doc.to_canonical(), cut.to_canonical());
 	assert_eq!(doc.remove("window"), 1);
 	assert_eq!(doc.set_int("font.face.family.kid2", 3), shcl::SetStatus::Ok);
-	let (text, kept) = doc.to_text_keep_lines();
+	let (text, kept) = doc.to_text_keep_lines().unwrap();
 	assert_eq!((text.as_str(), kept), (want, true));
 	let back = Document::parse(&text);
 	assert_eq!(back.to_canonical(), doc.to_canonical());
@@ -3327,7 +3351,9 @@ fn keeping_lines_reloads_as_the_document() {
 		let mut doc =
 			Document::parse_keep_lines(&base, Strictness::Standard).unwrap_or_else(|e| e.document);
 		// A save names this format and reads back as the same document.
-		let (saved, all) = doc.to_text_keep_lines();
+		let Some((saved, all)) = keep_text(&doc) else {
+			continue;
+		};
 		assert!(
 			all && only_the_stamp_differs(&base, &saved),
 			"iteration {i}: no edits, more than the stamp changed:\n{base}\n--- wrote {saved:?}"
@@ -3357,7 +3383,7 @@ fn keeping_lines_reloads_as_the_document() {
 		let set = (clean || shape >= 2) && added.set_int("zz_new", 1) == shcl::SetStatus::Ok;
 		assert!(set || shape < 2, "iteration {i}: no new field:\n{base}");
 		if set {
-			let (text, kept) = added.to_text_keep_lines();
+			let (text, kept) = added.to_text_keep_lines().unwrap();
 			// A stamp line the save rewrote to name this format is the same line.
 			let bare = |l: &str| same_stamps(l.trim_end_matches(['\r', '\n']));
 			let no_bom = |t: &str| t.strip_prefix('\u{feff}').unwrap_or(t).to_string();
@@ -3484,7 +3510,9 @@ fn keeping_lines_reloads_as_the_document() {
 			dumped += 1;
 		}
 		let want = doc.to_canonical();
-		let (text, kept) = doc.to_text_keep_lines();
+		let Some((text, kept)) = keep_text(&doc) else {
+			continue;
+		};
 		if kept {
 			let back = Document::parse(&text);
 			assert_eq!(
@@ -3709,7 +3737,9 @@ fn kept_lines_keep_their_path() {
 		if doc.set_int("zz_new", 1) != shcl::SetStatus::Ok {
 			continue;
 		}
-		let (text, _) = doc.to_text_keep_lines();
+		let Some((text, _)) = keep_text(&doc) else {
+			continue;
+		};
 		let got = kept_paths(&text, &mut texts).unwrap_or_default();
 		assert_eq!(
 			common(&got, &want),
@@ -5035,7 +5065,9 @@ fn kept_lines_survive_edits() {
 		}
 		// (a) Every kept line no target took is written, or the save refuses.
 		let canon = doc.to_canonical();
-		let (keep, kept) = doc.to_text_keep_lines();
+		let Some((keep, kept)) = keep_text(&doc) else {
+			continue;
+		};
 		let saves = [
 			("canonical", canon, doc.lost_count() > 0),
 			("keep", keep, !kept && doc.lost_count() > 0),
@@ -5257,7 +5289,9 @@ fn keeping_lines_ends_each_line_by_the_rule() {
 			}
 			log.push_str(&format!("op {op} at {path:?}\n"));
 		}
-		let (text, kept) = doc.to_text_keep_lines();
+		let Some((text, kept)) = keep_text(&doc) else {
+			continue;
+		};
 		if !kept || text == base {
 			continue;
 		}

@@ -62,7 +62,8 @@ static char *spaced(const char *text, size_t len, size_t *out) {
 // A finished keep-lines load gives its own text back on a save with no edit.
 static void check_kept(shcl_doc *d, const char *text, size_t len, const char *what) {
 	int kept = 0;
-	shcl_str t = shcl_to_text_keep_lines(d, &kept);
+	shcl_str t;
+	if (shcl_to_text_keep_lines(d, &t, &kept) != SHCL_SAVE_OK) fail(what);
 	// The text again, with the stamp a save adds as its last line.
 	size_t sn = sizeof SHCL_STAMP_LINE;
 	if (!kept || t.n != len + sn || memcmp(t.p, text, len) != 0 || memcmp(t.p + len, SHCL_STAMP_LINE "\n", sn) != 0) fail(what);

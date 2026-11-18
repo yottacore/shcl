@@ -325,7 +325,9 @@ typedef enum {
 	SHCL_FILE_NOT_FOUND,  /* no file at the path */
 	SHCL_FILE_UNREADABLE  /* exists but could not be read (permissions, a directory, bad encoding, past a shcl_read_file cap) */
 } shcl_file_status;
-/* Save refuses when the write would delete content from the file
+#endif
+/* Outside the file calls, since shcl_to_text_keep_lines answers with it too.
+   Save refuses when the write would delete content from the file
    (shcl_lost_count); shcl_save_file_lossy is the override, and is the only way
    to write then. It also refuses when something is at the path and its bytes
    are neither what the load read nor what this document's last save wrote,
@@ -349,6 +351,7 @@ typedef enum {
 	SHCL_SAVE_EXISTS,  /* create found a file there, or another save made it first; nothing written */
 	SHCL_SAVE_TOO_NEW  /* the document is from a newer format (shcl_newer_format); nothing written, and nothing overrides it */
 } shcl_save_result;
+#ifndef SHCL_NO_FILE_IO
 /* How shcl_save_file_with saves. All zero, as {0} gives, is shcl_save_file. */
 typedef struct {
 	int lossy;      /* write even when the save deletes content, as shcl_save_file_lossy */
@@ -520,7 +523,13 @@ shcl_doc *shcl_parse_keep_lines(const char *text, size_t len, shcl_strictness s)
 // document. When it does not, or the document was not loaded with
 // shcl_parse_keep_lines or shcl_load_file_keep_lines, or it took a merge, this
 // is shcl_to_canonical and *kept is 0. Same lifetime as shcl_to_canonical.
-shcl_str shcl_to_text_keep_lines(shcl_doc *d, int *kept);
+// The text goes in *text, and the answer is SHCL_SAVE_OK. A document from a
+// newer format (shcl_newer_format) is SHCL_SAVE_TOO_NEW, as its save is, with
+// *text empty and *kept 0, since a program that writes this text would write
+// its lines by these rules. The message is the other bindings' "refusing to
+// save: the document has lines from a newer format than this reader's;
+// nothing written", with no path.
+shcl_save_result shcl_to_text_keep_lines(shcl_doc *d, shcl_str *text, int *kept);
 
 // Instance count at a path (0 when nothing matches).
 size_t shcl_count(shcl_doc *d, const char *path, size_t plen);
@@ -12682,11 +12691,17 @@ static int keep_text_stamped(shcl_doc *d, ShclStr *out) {
 	return 1;
 }
 
-shcl_str shcl_to_text_keep_lines(shcl_doc *d, int *kept) {
+shcl_save_result shcl_to_text_keep_lines(shcl_doc *d, shcl_str *text, int *kept) {
+	if (kept) *kept = 0;
+	if (d->newer) {
+		*text = s_empty();
+		return SHCL_SAVE_TOO_NEW;
+	}
 	ShclStr t;
 	int k = keep_text_stamped(d, &t);
 	if (kept) *kept = k;
-	return s_dup(&d->reads, t);
+	*text = s_dup(&d->reads, t);
+	return SHCL_SAVE_OK;
 }
 
 /* Keep a copy of the loaded text on the document, or nothing when the text is

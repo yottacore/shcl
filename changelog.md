@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- `to_text_keep_lines()` refuses a document from a newer format, as its save does, so a program that saves through that text can't write a newer format's file back by this reader's rules. Its return type changes in every binding: Rust gives `Result<(String, bool), SaveError>`, Go adds an `error`, Python raises `SaveTooNew`, C returns `shcl_save_result` with the text in an out-parameter, and C++ gives a `SaveResult` first in a tuple.
+
 - Every save names the format it was written by. A file with a Format line or stamp gets it rewritten where it is to name `3.0`, and a file without one gets `## SHCL format 3.0` as its last line. `fmt`, `set`'s print and `fmt --check` see the same text, so a canonical file without the stamp is one `fmt --check` reports. A file naming a newer format keeps its line. A save that keeps lines adds only that line to an unedited file. A merge writes one Format line where a layer's and the base's differ only in the format they name.
 
 - `children` and `instances` exit 3 on a path that matches nothing, as `get` does, with `cannot list PATH: no field at that path (in FILE)` on stderr. They used to exit 0 with no output, the same as for an empty section. A node with no children still lists nothing at exit 0, and `count` still prints 0 at exit 0.

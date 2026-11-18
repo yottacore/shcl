@@ -46,6 +46,20 @@ def tidy_stamp(t: str) -> str:
 	return t.replace("\n\n" + shcl.STAMP_LINE + "\n", "\n" + shcl.STAMP_LINE + "\n")
 
 
+def keep_text(doc):
+	"""to_text_keep_lines(), or None for a document from a newer format, whose
+	text call refuses as its save does."""
+	try:
+		t = doc.to_text_keep_lines()
+	except shcl.SaveTooNew as e:
+		if not doc.newer_format() or str(e.path) != "":
+			raise
+		return None
+	if doc.newer_format():
+		raise SystemExit("a newer format's text call gave text")
+	return t
+
+
 def only_the_stamp_differs(text: str, saved: str) -> bool:
 	"""`saved` is `text` with the stamp a save writes: the same text, when it
 	names this format, a newer one, or ends in a raw block left open, or one
@@ -1287,7 +1301,7 @@ def edits_and_merges_match_a_reload():
 			a, b = live.to_canonical(), back.to_canonical()
 			if a != b and not (op in (4, 9) and reload_took_only_comments(a, b)):
 				raise SystemExit(f"a step on the document and on its reload differ at iteration {i}:\n{log}--- live\n{a}--- reload\n{b}")
-			t, kept = live.to_text_keep_lines()
+			t, kept = keep_text(live) or ("", False)
 			if kept and tidy_stamp(shcl.Document.parse(t).to_canonical()) != a:
 				raise SystemExit(f"kept lines reload as another document at iteration {i}:\n{log}--- wrote\n{t}")
 			if kept and not no_new_errors(t, base):
@@ -1398,6 +1412,11 @@ def main():
 	# text again, byte for byte, but for the stamp a save writes.
 	for case in cases:
 		kdoc = shcl.Document.parse_keep_lines(case["input"], shcl.Strictness.Standard)
+		# A newer format's text call refuses, as its save does.
+		if kdoc.newer_format():
+			if keep_text(kdoc) is not None:
+				fails.append(f"{case['name']}: a newer format's text call gave text")
+			continue
 		ktext, kall = kdoc.to_text_keep_lines()
 		if not kall or not only_the_stamp_differs(case["input"], ktext):
 			fails.append(f"{case['name']}: an unedited save changed more than the stamp: {ktext!r}")
@@ -6220,6 +6239,41 @@ def main():
 				up = shcl.upgrade(text, from_v2)
 				nsame("upgrade " + repr(text), (up.current, up.text), (True, text))
 
+	test_id("dffvz", "a_newer_format_document_gives_no_text")
+	# The line-keeping text call refuses a document from a newer format, as
+	# its save does, so a program that writes the text itself can't write a
+	# newer format's lines back by these rules. A current one gives its text
+	# (2026111708542868).
+	def tn_text(what, doc):
+		try:
+			got = doc.to_text_keep_lines()
+		except shcl.SaveTooNew as e:
+			if str(e.path) != "":
+				raise SystemExit(f"text call {what}: path {e.path!r}") from None
+			return
+		raise SystemExit(f"text call {what}: gave {got!r}")
+
+	for text in ("a: 1\n##    Format   4\n", "a: 1\n## SHCL format 3.1\n", "a: 1\n## SHCL format 4.0\n"):
+		d = shcl.Document.parse_keep_lines(text, shcl.Strictness.Standard)
+		if not d.newer_format():
+			raise SystemExit(f"text call {text!r}: not newer")
+		tn_text(repr(text), d)
+		if d.set_int("a", 2) != shcl.SetStatus.Ok:
+			raise SystemExit(f"text call {text!r}: set refused")
+		tn_text("edited " + repr(text), d)
+		# Without the kept text too, where it would give the canonical form.
+		tn_text("parsed " + repr(text), shcl.Document.parse(text))
+	tn_want = "refusing to save: the document has lines from a newer format than this reader's; nothing written"
+	if str(shcl.SaveTooNew("")) != tn_want:
+		raise SystemExit(f"text call message: {str(shcl.SaveTooNew(''))!r}")
+	# A merge takes a newer layer's reading, and the text call with it.
+	d = shcl.Document.parse_keep_lines("a: 1\n", shcl.Strictness.Standard)
+	d.merge(shcl.Document.parse("b: 2\n##    Format   4\n"))
+	tn_text("merged", d)
+	# This format, an older one and none give their text.
+	for text in ("a: 1\n## SHCL format 3.0\n", "a: 1\n##    Format   3\n", "a: 1\n##    Format   2\n", "a: 1\n"):
+		shcl.Document.parse_keep_lines(text, shcl.Strictness.Standard).to_text_keep_lines()
+
 	test_id("dfe4s", "a_load_that_migrates_saves_through_the_guards")
 	# A load that migrates in memory writes nothing, and its save gets every
 	# check a plain load's does, over the file it read (2026111708542849).
@@ -6635,7 +6689,7 @@ def main():
 			lambda d: d.to_canonical(),
 			lambda d: (d.paths(), d.instance_paths(), d.fields()),
 			lambda d: (d.diagnostics(), d.lost_count(), d.error_count()),
-			lambda d: d.to_text_keep_lines(),
+			keep_text,
 		]
 		if rt_case["schema"] is not None:
 			rt_schema = shcl.Document.parse(rt_case["schema"])
@@ -6785,6 +6839,12 @@ def main():
 		ndoc = shcl.Document.parse_keep_lines(ntext, shcl.Strictness.Standard)
 		if ndoc.to_canonical() != ncanon:
 			fails.append(f"stamp: canonical {ntext!r}: {ndoc.to_canonical()!r}, want {ncanon!r}")
+		# A newer format's text call refuses, as its save does
+		# (2026111708542868); its canonical form still leaves the stamp.
+		if ndoc.newer_format():
+			if keep_text(ndoc) is not None:
+				fails.append(f"stamp: kept {ntext!r} gave text")
+			continue
 		if ndoc.to_text_keep_lines() != (nkept, True):
 			fails.append(f"stamp: kept {ntext!r}: {ndoc.to_text_keep_lines()!r}, want {nkept!r}")
 		# Saved again, nothing changes.

@@ -1184,7 +1184,11 @@ def write_back(doc, file, o, read=None, keep=False):
 	# in a read-only directory failed. The refusal comes first: a load that
 	# dropped content refuses the write whatever the bytes say, unless the
 	# lines were kept, which writes the dropped lines back as they were.
-	text, kept = doc.to_text_keep_lines() if keep else (doc.to_canonical(), False)
+	try:
+		text, kept = doc.to_text_keep_lines() if keep else (doc.to_canonical(), False)
+	except shcl.SaveTooNew as e:
+		sys.stderr.write(f"{file}: {e}\n")
+		return 7
 	if read is not None and (o.lossy or kept or doc.lost_count() == 0) and text == read:
 		return 0
 	# The text is already built, so the line-keeping save writes it rather than
@@ -2473,7 +2477,11 @@ def do_set(o):
 	if doc.newer_format():
 		sys.stderr.write(f"{file}: refusing to print: the document has lines from a newer format than this reader's (see H006)\n")
 		return 7
-	text, kept = doc.to_text_keep_lines()
+	try:
+		text, kept = doc.to_text_keep_lines()
+	except shcl.SaveTooNew as e:
+		sys.stderr.write(f"{file}: {e}\n")
+		return 7
 	if not kept and not o.lossy and doc.lost_count() > 0:
 		sys.stderr.write(f"{file}: refusing to print: this result would delete {doc.lost_count()} line(s) or value(s) from the file (--lossy overrides)\n")
 		return 7

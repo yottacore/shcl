@@ -30,6 +30,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -333,6 +334,8 @@ std::string_view spelling(SizeUnit u);
 // account: the document is always usable, and empty when the file could not
 // be read.
 enum class FileStatus { Clean, HadErrors, NotFound, Unreadable };
+#endif
+// Outside the file calls, since to_text_keep_lines() answers with it too.
 // Not a bool: Refused is the lost-content gate, which save_file_lossy
 // overrides, and folding it into a failed write leaves the caller with an
 // override they cannot tell they need. Changed is what is at the path now
@@ -344,6 +347,7 @@ enum class FileStatus { Clean, HadErrors, NotFound, Unreadable };
 // from a newer format (newer_format); nothing was written, and nothing
 // overrides it.
 enum class SaveResult { Ok, Refused, Failed, Changed, Exists, TooNew };
+#ifndef SHCL_NO_FILE_IO
 // How save_file_with saves. The default is save_file.
 struct SaveOptions {
 	bool lossy{};      // write even when the save deletes content, as save_file_lossy
@@ -517,8 +521,11 @@ public:
 	// The text a save that keeps lines writes, and whether it kept them: each
 	// line the edits did not touch comes back byte for byte, and the canonical
 	// form stands in when the result would not reload as this document, or
-	// the document was not loaded to keep its lines, or it took a merge.
-	std::pair<std::string, bool> to_text_keep_lines() const;
+	// the document was not loaded to keep its lines, or it took a merge. The
+	// answer is SaveResult::Ok. A document from a newer format (newer_format)
+	// is SaveResult::TooNew, as its save is, with no text, since a program
+	// that writes this text would write its lines by these rules.
+	std::tuple<SaveResult, std::string, bool> to_text_keep_lines() const;
 
 	// Diagnostics in emission order: parse-time ones, then repeated-leaf hints.
 	std::vector<Diagnostic> diagnostics() const;
@@ -1357,10 +1364,11 @@ Strictness Document::strictness() const { return static_cast<Strictness>(shcl_st
 // The canonical text lives in the read arena like every other result, so a
 // save loop that did not release first would hold every copy.
 std::string Document::to_canonical() const { return detail::str(shcl_to_canonical(detail::fresh(*this))); }
-std::pair<std::string, bool> Document::to_text_keep_lines() const {
+std::tuple<SaveResult, std::string, bool> Document::to_text_keep_lines() const {
 	int k = 0;
-	std::string t = detail::str(shcl_to_text_keep_lines(detail::fresh(*this), &k));
-	return {std::move(t), k != 0};
+	shcl_str t;
+	auto r = static_cast<SaveResult>(shcl_to_text_keep_lines(detail::fresh(*this), &t, &k));
+	return {r, detail::str(t), k != 0};
 }
 
 std::vector<Diagnostic> Document::diagnostics() const {
