@@ -8537,6 +8537,7 @@ static size_t w_same_instance(shcl_doc *d, ShclStr path, const ShclValue *v) {
 /* Where a lead sits: its list, the node that list is on, and its place in it. */
 typedef struct { ShclSite site; size_t owner, k; } ShclKeptAt;
 static int comment_out_kept(shcl_doc *d, size_t parent, ShclStr name, ShclStr path, int anchor, ShclKeptAt *first);
+static void refile_noted(shcl_doc *d, size_t parent, size_t owed);
 /* An overwrite keeps the quote kind the old value was written in, when the
    new text can be written that way (value-syntax.md, Canonical output). The
    kind is the one a save writes, so the answer is the same after a reload.
@@ -8609,7 +8610,11 @@ static shcl_set_status w_set_marked_as(shcl_doc *d, ShclStr path, ShclValue v, S
 	/* w_place has already done it for a field it created. After the unstack,
 	   so a line of its name from among the items, now above it, is a comment
 	   too. */
-	if (idx < fresh && d->kept_owed > 0) comment_out_kept(d, NODE(d, idx).parent, NODE(d, idx).name, path, 0, NULL);
+	if (idx < fresh && d->kept_owed > 0) {
+		size_t owed = d->kept_owed;
+		comment_out_kept(d, NODE(d, idx).parent, NODE(d, idx).name, path, 0, NULL);
+		refile_noted(d, NODE(d, idx).parent, owed);
+	}
 	/* An empty binding or a raw block can put a fence after an empty sibling
 	   of its name. */
 	int fence_side = v.kind == V_EMPTY || v.kind == V_RAW;
@@ -11201,8 +11206,17 @@ static size_t w_set_child(shcl_doc *d, size_t parent, ShclStr name, ShclStr name
 	ShclVecSize same = {0};
 	children_named(d, &d->scratch, parent, name, &same);
 	ShclKeptAt at;
-	if (comment_out_kept(d, parent, name, path, same.len == 0, &at)) return w_new_child_under(d, parent, name, name_src, value, at);
-	return w_new_child(d, parent, name, name_src, value);
+	size_t owed = d->kept_owed;
+	size_t node = comment_out_kept(d, parent, name, path, same.len == 0, &at) ? w_new_child_under(d, parent, name, name_src, value, at) : w_new_child(d, parent, name, name_src, value);
+	refile_noted(d, parent, owed);
+	return node;
+}
+
+/* A kept line a setter wrote as a comment is filed as the comment a reload
+   reads it as, so a run a blank sets off from the field below is the line
+   above's, not the field's (2026111623445822). */
+static void refile_noted(shcl_doc *d, size_t parent, size_t owed) {
+	if (d->kept_owed != owed) settle_pairs(d, parent, 0);
 }
 
 /* A kept line, and the raw body and fence it took, if any, which go one level

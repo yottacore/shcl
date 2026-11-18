@@ -792,3 +792,71 @@ x: 1
 # c
 k: [1
 ## SHCL format 3.0
+
+:: row 2026111623445822 a kept line a set writes as a comment stays off the field when a blank sets it off
+:: before
+c: 1, , 2
+
+c: x
+:: ops
+literal	c	v2
+clear-comments	c
+:: expected
+# c: 1, , 2  ## commented out by shcl when setting c, 2026-10-04 00:15:00 PDT: E026 a comma then a space or the end in a bare value
+
+c: v2
+## SHCL format 3.0
+:: keep
+# c: 1, , 2  ## commented out by shcl when setting c, 2026-10-04 00:15:00 PDT: E026 a comma then a space or the end in a bare value
+
+c: v2
+## SHCL format 3.0
+
+:: row 2026111623445822-2 the same in a block, after a sibling
+:: before
+p:
+	a: 1
+	c: 1, , 2
+
+	c: x
+:: ops
+literal	p.c	v2
+clear-comments	p.c
+:: expected
+p:
+	a: 1
+	# c: 1, , 2  ## commented out by shcl when setting p.c, 2026-10-04 00:15:00 PDT: E026 a comma then a space or the end in a bare value
+
+	c: v2
+## SHCL format 3.0
+:: keep
+p:
+	a: 1
+	# c: 1, , 2  ## commented out by shcl when setting p.c, 2026-10-04 00:15:00 PDT: E026 a comma then a space or the end in a bare value
+
+	c: v2
+## SHCL format 3.0
+
+:: row 2026111703284678 a comment under a kept line a set writes as a comment steps back with it
+:: before
+c: [7, 7] x
+
+	# n
+srv:
+c: 1
+:: ops
+int	c	7
+:: expected
+# c: [7, 7] x  ## commented out by shcl when setting c, 2026-10-04 00:15:00 PDT: E019 malformed array, text after ']'
+
+# n
+srv:
+c: 7
+## SHCL format 3.0
+:: keep
+# c: [7, 7] x  ## commented out by shcl when setting c, 2026-10-04 00:15:00 PDT: E019 malformed array, text after ']'
+
+# n
+srv:
+c: 7
+## SHCL format 3.0

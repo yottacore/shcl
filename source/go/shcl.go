@@ -12367,10 +12367,24 @@ func (d *Document) place(path string, setter bool) (int, SetStatus) {
 // goes right under the first of them (design.md, Kept lines under edits).
 func (d *Document) setChild(parent int, name, nameSrc string, v value, path string) int {
 	alone := len(d.childrenNamed(parent, name)) == 0
+	owed := d.keptOwed
+	var node int
 	if at, ok := d.commentOutKept(parent, name, path, alone); ok {
-		return d.newChildUnder(parent, name, nameSrc, v, at)
+		node = d.newChildUnder(parent, name, nameSrc, v, at)
+	} else {
+		node = d.newChild(parent, name, nameSrc, v)
 	}
-	return d.newChild(parent, name, nameSrc, v)
+	d.refileNoted(parent, owed)
+	return node
+}
+
+// refileNoted: a kept line a setter wrote as a comment is filed as the
+// comment a reload reads it as, so a run a blank sets off from the field
+// below is the line above's, not the field's (2026111623445822).
+func (d *Document) refileNoted(parent, owed int) {
+	if d.keptOwed != owed {
+		settlePairs(d.arena, parent, 0)
+	}
 }
 
 func (d *Document) setValue(path string, v value) SetStatus {
@@ -12439,7 +12453,9 @@ func (d *Document) setValueAs(path string, v value, keepQuotes bool) SetStatus {
 	// so a line of its name from among the items, now above it, is a
 	// comment too.
 	if idx < fresh && d.keptOwed > 0 {
+		owed := d.keptOwed
 		d.commentOutKept(d.arena[idx].parent, d.arena[idx].name, path, false)
+		d.refileNoted(d.arena[idx].parent, owed)
 	}
 	// An empty binding or a raw block can put a fence after an empty sibling
 	// of its name.
