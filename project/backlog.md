@@ -493,6 +493,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: the step gives different canonical text on the document and on the reload of its canonical text.
 	- Expected behavior: the same text, as the property holds.
 	- Reproduced: 20261116, Rust, on `813dfecf` with its own library, so it is older than 2026111623191917. The other 3 bindings weren't tried. The gate fuzz at 200,000 fails on it.
+	- Seen 20261118 on dev `8d62699d`: JC's `--long` run stopped at Tests on it, now at iteration 124450, with the same ops 9 and 10 at `c`.
 	- Estimated effort: Avg
 
 - A deeper comment a blank sets off above a kept line that ends a block is written one level in by `fmt` and at the block's level after an edit
