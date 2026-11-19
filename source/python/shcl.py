@@ -9445,7 +9445,8 @@ class Document:
 		lines. With none of those it goes, since nothing under it is left to
 		set off. A misplaced line has no level at the end of a block, so it
 		goes to the next binding line, as a reload files it, with the
-		comments after it."""
+		comments after it that come before another misplaced line or the
+		end."""
 		kind, node = to[0], to[1]
 		if blank and kind in (_HEIR_TAKES, _HEIR_NEXT):
 			# Above the node's comments, else above its line.
@@ -9492,9 +9493,20 @@ class Document:
 		below: list[_Lead] = []
 		at = next((k for k, c in enumerate(lines) if c.text.startswith((" ", "\t"))), None)
 		if at is not None:
+			# A comment goes with the line after it, as a reload files it: it
+			# stays above a kept field line, and goes down before a misplaced
+			# line or past the last line (2026111109022600).
 			rest = lines[at:]
-			lines = lines[:at] + [c for c in rest if _is_field(c.text)]
-			below = [c for c in rest if not _is_field(c.text)]
+			lines = lines[:at]
+			nxt = 0
+			for k, c in enumerate(rest):
+				nxt = max(nxt, k)
+				while nxt < len(rest) and rest[nxt].text.startswith("#"):
+					nxt += 1
+				if nxt < len(rest) and _is_field(rest[nxt].text):
+					lines.append(c)
+				else:
+					below.append(c)
 		if lines:
 			# Stacked with no kept line among the elements is gone on a reload,
 			# so it may not decide how these lines are written.

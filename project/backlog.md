@@ -360,7 +360,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A remove that takes a field opened from a kept line moves a kept line's comments down with a misplaced line
 	- ID: 2026111109022600
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Severity: Avg
 	- Target version: v3.0.0
 	- Opened: 20261111-090226
@@ -374,6 +374,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: when `c` goes with its last child, the misplaced line among the kept lines under `c` goes down "with the comments after it", and that takes every comment in those lines, not only the ones right after it.
 	- Estimated effort: Low
 	- Note: the placement property in `dd3t9` excuses this class with a check keyed by this ID. The case was found at iteration 804362 of the 2M release run. `df50j` has the case, and checks that the excuse applies only to a remove. The fix takes the excuse out, and that `df50j` check with it.
+	- Actual cause [Bug]: `adopt` hands the lines a node left past the last child of a block, and from the first misplaced line on, it sent every line that wasn't a kept field line down to the next binding line. So a comment above a kept field line went down with the misplaced line. A reload files a comment with the line after it: above a kept field line it stays, and before a misplaced line or past the last line it goes down.
+	- Actual fix [Bug]: `adopt` sends a comment there down only when the next line that isn't a comment is a misplaced line or there isn't one, in all 4 bindings (`adopt` in `lib.rs`, `shcl.go`, `shcl.h`, `_adopt` in `shcl.py`). design.md's "Kept lines under edits" bullet says so, and the changelog. The excuse in `placement_slips` is out, and `df50j`'s check of it now checks the case has no slip.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261119: a comment goes with the line after it, as `fmt` of the file with the target cut by hand files it, rather than only a comment right after a misplaced line going down. 8 shapes with comments, misplaced lines and kept field lines in different orders give the same text as the cut file through all 4 CLIs.
+	- Swept: the parser's own split of pending lines before a fence (`partition` in the parser's fence branch) keeps comments with the kept field line after them already. `adopt`'s Last branch is the only place an edit splits misplaced lines from kept field lines, in all 4.
+	- Test case: placement rows `2026111109022600-1` and `-2` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `df50j`, `dd3t9`, `dderx`.
+	- Verified: both placement rows and `df50j` fail on the library at `8bc8ced1` (Rust) and pass on the change. The C CLI at `8bc8ced1` gives the cut file's text in 1 of the 8 shapes, and every CLI gives it in all 8 now. `--backlog-run-quick rust go python c` (with `dd3t9`, `dderx`, `df50j` and the 4 placement runners), lint-report, cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), rustfmt, gofmt, ruff, and markdownlint.
+	- Needs local test suite run?: the 2,000,000 release fuzz of `dd3t9` and `dderx` (`SHCL_FUZZ_ITERS=2000000 cargo test --release --test fuzz_smoke -- keeping_lines_reloads_as_the_document kept_lines_survive_edits`), since the fix changes where a remove puts comments and takes out the property's excuse.
+	- Branch: `nov19b-2026111109022600`
 
 - A default form's replaced-value comment puts the field's blank above a kept line's comments
 	- ID: 2026111022100191

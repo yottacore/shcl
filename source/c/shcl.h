@@ -9416,7 +9416,8 @@ static void adopt_folded(shcl_doc *d, ShclVecFoldRec *folded) {
    the first of the parent's trailing lines. With none of those it goes,
    since nothing under it is left to set off. A misplaced line has no level
    at the end of a block, so it goes to the next binding line, as a reload
-   files it, with the comments after it. Takes lines. */
+   files it, with the comments after it that come before another misplaced
+   line or the end. Takes lines. */
 static void adopt(shcl_doc *d, ShclHeir to, ShclVecLead *lines, int blank) {
 	if (blank && (to.kind == HEIR_TAKES || to.kind == HEIR_NEXT)) {
 		/* Above the node's comments, else above its line. */
@@ -9473,9 +9474,14 @@ static void adopt(shcl_doc *d, ShclHeir to, ShclVecLead *lines, int blank) {
 		ShclStr x = lines->data[k].text;
 		if (x.n && (x.p[0] == ' ' || x.p[0] == '\t')) { at = k; break; }
 	}
-	size_t w = at;
+	/* A comment goes with the line after it, as a reload files it: it stays
+	   above a kept field line, and goes down before a misplaced line or past
+	   the last line (2026111109022600). */
+	size_t w = at, next = at;
 	for (size_t k = at; k < lines->len; k++) {
-		if (is_field(lines->data[k].text)) lines->data[w++] = lines->data[k];
+		if (next < k) next = k;
+		while (next < lines->len && lines->data[next].text.n && lines->data[next].text.p[0] == '#') next++;
+		if (next < lines->len && is_field(lines->data[next].text)) lines->data[w++] = lines->data[k];
 		else ShclVecLead_push(&d->arena, &below, lines->data[k]);
 	}
 	lines->len = w;

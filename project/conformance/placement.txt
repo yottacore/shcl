@@ -922,3 +922,65 @@ c: 7
 srv:
 c: 7
 ## SHCL format 3.0
+
+:: row 2026111109022600-1 a remove that takes a field opened from a kept line leaves the comments of the kept line below a misplaced line
+:: before
+a:
+	x: 1
+ - 2
+	b: 3, , 4
+	# note
+	c: 1, , 2
+		q: 1
+:: ops
+remove	a.c.q
+:: expected
+a:
+	x: 1
+	b: 3, , 4
+	# note
+	c: 1, , 2
+ - 2
+## SHCL format 3.0
+:: keep
+a:
+	x: 1
+	b: 3, , 4
+	# note
+	c: 1, , 2
+ - 2
+## SHCL format 3.0
+
+:: row 2026111109022600-2 a comment between 2 misplaced lines goes down with them, and one above a kept line stays
+:: before
+a:
+	x: 1
+ - 2
+	# m
+ - 5
+	# n
+	c: 1, , 2
+		q: 1
+z: 1
+:: ops
+remove	a.c.q
+:: expected
+a:
+	x: 1
+	# n
+	c: 1, , 2
+ - 2
+# m
+ - 5
+z: 1
+## SHCL format 3.0
+:: keep
+a:
+	x: 1
+	# n
+	c: 1, , 2
+ - 2
+# m
+ - 5
+z: 1
+## SHCL format 3.0

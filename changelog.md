@@ -50,6 +50,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- A remove that took the last field under a field opened by a line kept for an error, with a misplaced line among the kept lines above it, moved every comment among those lines down with the misplaced line. A comment above a kept field line now stays above it, as when the removed line is cut by hand and the file is formatted.
+
 - A Format line, stamp, or Schema line with a carriage return before it counts, in every binding, as it does in the canonical form, where the carriage return comes off. Such a line naming a newer format got no `H006`, so a save stamped the file `3.0`, and a Schema line there wasn't found until `fmt` rewrote the file. A save that rewrites the line keeps the carriage return.
 
 - `fmt` wrote a comment one level in when a blank line set it off from the comments above and the line under it was a top-level line kept for an error. Any edit put it back at column 0, so the file had 2 forms. It's written at column 0 now, and the save that keeps lines leaves it as written after an edit.

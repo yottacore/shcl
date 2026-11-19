@@ -13850,7 +13850,8 @@ func (d *Document) adoptFolded(folded []foldRec) {
 // goes to the first of the parent's trailing lines. With none of those it
 // goes, since nothing under it is left to set off. A misplaced line has no
 // level at the end of a block, so it goes to the next binding line, as a
-// reload files it, with the comments after it.
+// reload files it, with the comments after it that come before another
+// misplaced line or the end.
 func (d *Document) adopt(to heir, lines []lead, blank bool) {
 	// Above the node's comments, else above its line.
 	if blank && (to.kind == heirTakes || to.kind == heirNext) {
@@ -13903,10 +13904,20 @@ func (d *Document) adopt(to heir, lines []lead, blank bool) {
 		var below []lead
 		for at := range lines {
 			if strings.HasPrefix(lines[at].text, " ") || strings.HasPrefix(lines[at].text, "\t") {
+				// A comment goes with the line after it, as a reload files
+				// it: it stays above a kept field line, and goes down before
+				// a misplaced line or past the last line (2026111109022600).
 				rest := append([]lead(nil), lines[at:]...)
 				lines = lines[:at:at]
-				for _, l := range rest {
-					if isField(l.text) {
+				next := 0
+				for k, l := range rest {
+					if next < k {
+						next = k
+					}
+					for next < len(rest) && strings.HasPrefix(rest[next].text, "#") {
+						next++
+					}
+					if next < len(rest) && isField(rest[next].text) {
 						lines = append(lines, l)
 					} else {
 						below = append(below, l)

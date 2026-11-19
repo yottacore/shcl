@@ -2882,24 +2882,6 @@ fn placement_slips(
 				.find(|w| !kept.contains(&w.line))
 				.is_some_and(|w| w.key == path)
 	};
-	// 2026111109022600: a remove that takes a field opened from a kept line
-	// moves a misplaced line in the kept lines above that line down past them,
-	// and the comments of a kept line below it go along.
-	let sunk = |a: &Anchor| {
-		let below_it = |m: &Anchor| {
-			one_anchor(&now, &m.key)
-				.zip(one_anchor(&now, &a.key))
-				.is_some_and(|(n, b)| n.line > b.line)
-		};
-		edit == Placed::Remove
-			&& kept.contains(&a.line)
-			&& was
-				.iter()
-				.rev()
-				.skip_while(|m| m.line >= a.line)
-				.take_while(|m| kept.contains(&m.line))
-				.any(|m| m.key.starts_with('~') && below_it(m))
-	};
 	let mut slips = Vec::new();
 	for a in &was {
 		if one_anchor(&was, &a.key).is_none() {
@@ -2911,7 +2893,6 @@ fn placement_slips(
 		let target = a.key == path;
 		if item(a)
 			|| edit == Placed::Comment && (target || under(&a.key) || past_kept(a))
-			|| sunk(a)
 			|| edit == Placed::Merge && layered(&a.key)
 		{
 			continue;
@@ -3264,15 +3245,16 @@ fn the_placement_property_reads_a_list_replace() {
 	);
 	let slips = placement_slips(&before, &after, "z0", Placed::Set, "");
 	assert!(slips.is_empty(), "{slips:?}\n{after}");
-	// 2026111109022600 is excused, and only on a remove. The fix takes this
-	// out.
+	// A remove that takes a field opened from a kept line leaves the comments
+	// of the kept lines after a misplaced line where they were
+	// (2026111109022600).
 	let base = "a:\n\tx: 1\n - 2\n\tb: 3, , 4\n\t# note\n\tc: 1, , 2\n\t\tq: 1\n";
 	let before = Document::parse(base).to_canonical();
 	let mut doc = Document::parse(base);
 	assert_eq!(doc.remove("a.c.q"), 1);
 	let after = doc.to_canonical();
-	assert!(placement_slips(&before, &after, "a.c.q", Placed::Remove, "").is_empty());
-	assert!(!placement_slips(&before, &after, "a.c.q", Placed::Merge, "").is_empty());
+	let slips = placement_slips(&before, &after, "a.c.q", Placed::Remove, "");
+	assert!(slips.is_empty(), "{slips:?}\n{after}");
 	// The banner drops an info block's stamp lines with a blank under them.
 	let before =
 		"a: 1\n\n# my notes\n\n##    Format   3\n##    Migrated from SHCL 2.x.\n\n# kept\nb: 2\n";

@@ -13919,7 +13919,8 @@ impl Document {
 	/// top, and the blank goes to the first of the parent's trailing lines.
 	/// With none of those it goes, since nothing under it is left to set off.
 	/// A misplaced line has no level at the end of a block, so it goes to the
-	/// next binding line, as a reload files it, with the comments after it.
+	/// next binding line, as a reload files it, with the comments after it
+	/// that come before another misplaced line or the end.
 	fn adopt(&mut self, to: Heir, mut lines: Vec<Lead>, blank: bool) {
 		// Above the node's comments, else above its line.
 		if blank && let Heir::Takes(n) | Heir::Next(n) = to {
@@ -13980,10 +13981,28 @@ impl Document {
 				}
 				let mut below = Vec::new();
 				if let Some(at) = lines.iter().position(|l| l.text.starts_with([' ', '\t'])) {
-					let mut rest = lines.split_off(at);
-					let fields: Vec<Lead>;
-					(fields, below) = rest.drain(..).partition(|l| is_field(&l.text));
-					lines.extend(fields);
+					// A comment goes with the line after it, as a reload files
+					// it: it stays above a kept field line, and goes down
+					// before a misplaced line or past the last line
+					// (2026111109022600).
+					let rest = lines.split_off(at);
+					let mut next = 0;
+					let stays: Vec<bool> = (0..rest.len())
+						.map(|k| {
+							next = next.max(k);
+							while rest.get(next).is_some_and(|l| l.text.starts_with('#')) {
+								next += 1;
+							}
+							rest.get(next).is_some_and(|l| is_field(&l.text))
+						})
+						.collect();
+					for (l, s) in rest.into_iter().zip(stays) {
+						if s {
+							lines.push(l);
+						} else {
+							below.push(l);
+						}
+					}
 				}
 				if !lines.is_empty() {
 					// Stacked with no kept line among the elements is gone on a
