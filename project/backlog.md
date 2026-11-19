@@ -276,7 +276,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: port the steps out of 3.0-1f8 to 3.0-a37 to C
 	- ID: 2026111912004831
 	- Type: Feature
-	- Status: Queued
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261119-120048
@@ -286,6 +286,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: mirror 2026111912004261's step kinds, rules and test in C, with the C++ interface where it wraps a changed call, by parity over idiom.
 	- Estimated effort: Avg
 	- Note: the docs, the changelog, cli-regress and check-migrate already say what the ports build. Each binding's twins of `de60f` (`migrate_writes_the_text_2x_read`) and `ddmhc` (`upgrade_writes_a_fresh_file_with_the_info_block`) need the 2026-09-01 mtime the Rust ones got, and its `dfgyc` twin keeps its `[1, 2]` row, which is still found to be 2.0. `pin-step-oracle.py` in the private tools folder checks a CLI's `upgrade` against the pins' own CLIs.
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261119: the pin rules are a private `ShclLex` enum beside the public `shcl_rules`. The static `tokenize` and `tokenize_value` convert by `lex_of` and call the new `lex_line` and `lex_value`, so the public API doesn't change.
+		- me, 20261119: Rust's `Step::Pin(Pin)` is a `ShclStep` struct of a `ShclStepKind` and a `ShclPin`, as Go's `step` is, and `s_first_rewrite` returns one of kind `SHCL_STEP_SAME` for Rust's `None`. Rust's `Option<Pin>` to `migrate_text` is a `const ShclPin *`, NULL for none. The `quoted` closure in Rust's `old_refused` is the static `pin_refused_piece`, since C has no closures.
+		- me, 20261119: `dffxd` (`upgrade_can_leave_the_info_block_off`) compared the file `shcl_upgrade_file` wrote with the 2.0 row's text, where its Rust, Go and Python twins compare it with `upgrade(V2, false, false)`. A file dated today reads as 3.0-a37 now, so the C one takes the twins' form.
+	- 20261119: `dffxd`'s file text check now compares with `shcl_upgrade(UP_V2, ..., 0, 0)` rather than the 2.0 row's text, as in its twins. Every other assert in it is as it was.
+	- Verified: `dfh7e` fails with the pin rows set back to `SHCL_STEP_V2`, and no other test does, and passes with them. The C runner, `--backlog-run-quick c`, `--backlog-run-quick rust go python c cli` through its tests step (its release step was cut off by the call's time limit after the C cross checks passed), cli-regress for the 4 CLIs and again for Rust and C after rebuilding the C CLI, crosscheck over the corpus with the 4 CLIs, check-veneer, `test-ids.py check`, `lint-report.bash --check --no-mark`, the markdown check and markdownlint passed. The C CLI's `upgrade` printed the same bytes and exit code as the Rust CLI's on every corpus document with its stamp taken off, dated into 3.0-30d, 3.0-b10, 3.0-a37, 1.1 and the current format (3430 runs, `pin-port-diff.bash`), and stdout, stderr and exit code matched on 25 hand-written escape, name, selector and item lines in the 3 pins.
+	- Note: one `--backlog-run-quick c` run failed only the C++ `de1a5`, with the signature of 2026111912330703. It passed in the other 2 gate runs and in 6 runs of the veneer smoke alone. check-migrate didn't finish in 210 seconds. cppcheck, analyze-c and codeql-scan are left to the round's gate step.
+	- Swept: every Rust function the step touched has its C twin changed: `blank_len`, `skip_blank`, `quote_close`, `scan_piece`, `scan_value`, `lex_line` and `lex_value` under `tokenize` and `tokenize_value`, `ShclRawLines` and `raw_lines_init`, `format_line_read`, `most_legal`, `shcl_read_schema_ref`, `s_convert`, `s_first_rewrite`, `migrate` and `migrate_text`, `upgrade_into`, `value_edits`, `v2_array_text`, `v2_element_text`, `v2_bracket_array` and `migrate_line`, with `old_text`, `pin_escapes`, `pin_codepoint`, `pin_bad_quoted`, `pin_refused_piece` and `old_refused` new. The doc comments on `shcl_upgrade` and the C++ `upgrade` say so, and the C++ calls wrap the C ones with nothing else to change. The C twins of `de60f` (`de61g`) and `ddmhc` (`ddmmj`) pin 2026-09-01, each assert as it was. `dfgyf` keeps its `[1, 2]` row. design.md and the format-versions design doc say all 4 bindings.
+	- Test case: `a_load_converts_from_a_pinned_dev_format` (C `dfh7e`, twin of Rust `dfh4s`).
+	- Branch: `nov19b-2026111912004831`
+	- Commit: `00076674`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the steps, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261119-135739
 
 - Format versions: conversion steps for 1.0 to 2.0, and from 2.0 to 3.0-1f8
 	- ID: 2026111908444534

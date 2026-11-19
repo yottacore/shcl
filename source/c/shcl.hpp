@@ -324,7 +324,9 @@ struct Upgrade {
 // change it, as it would `p: a,b`, and any file only when the fresh text loads
 // clean (errors_left). Pass from_v2 only for a file known to be old, never on
 // every start. Without from_v2, the file's format is find_format's, and one
-// from 3.0-9ef on is current, its errors kept as typed.
+// from 3.0-9ef on is current, its errors kept as typed. One from 3.0-1f8 to
+// 3.0-a37 goes through that format's step, and is made over even when it
+// loads clean, since `"x\ty"` loads clean now and held a tab then.
 Upgrade upgrade(std::string_view text, bool from_v2, bool banner);
 // upgrade(), with mtime for find_format: the file's, in Unix seconds, or
 // std::nullopt for text from no file. upgrade_file() passes the file's.
