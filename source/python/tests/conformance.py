@@ -5485,9 +5485,10 @@ def main():
 	if mback.get_string_array("list") != ["C:\new"]:
 		raise SystemExit(f"list: {mback.get_string_array('list')!r}")
 	# The call from the report. Without from_v2 the file could be a 3.0 one,
-	# so the two values are left and counted.
+	# so the two values are left and counted. Dated 2026-09-01, so it's found
+	# to be 2.0 rather than 3.0-a37, which reads the comma list too.
 	mtext = "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\n"
-	mup = shcl.upgrade(mtext, False, True)
+	mup = shcl.upgrade_dated(mtext, 1788220800, False, True)
 	if mup.current or mup.ambiguous != 2 or mup.text != mtext:
 		raise SystemExit(f"{mup.current} {mup.ambiguous} {mup.text!r}")
 	mup = shcl.upgrade(mtext, True, True)
@@ -5765,7 +5766,9 @@ def main():
 				raise SystemExit(f"agree {agree_text!r} {agree_on}: {agree_n} {agree_d.to_canonical()!r}")
 
 	test_id("ddmks", "upgrade_writes_a_fresh_file_with_the_info_block")
-	up = shcl.upgrade(up_v2, False, True)
+	# Dated 2026-09-01, so it's found to be 2.0 rather than 3.0-a37, which
+	# reads the comma list too and wrote no `#` block.
+	up = shcl.upgrade_dated(up_v2, 1788220800, False, True)
 	if up.current or up.ambiguous != 0 or up.lost != 0 or up.format != 2:
 		raise SystemExit(f"{up.current} {up.ambiguous} {up.lost} {up.format}")
 	if not any(d.code == "E026" for d in up.diagnostics):
@@ -6592,6 +6595,56 @@ def main():
 			with open(cf, encoding="utf-8", newline="") as fh:
 				if fh.read() != ctext:
 					raise SystemExit(f"{ctext!r}: the load wrote the file")
+
+	test_id("dfh6n", "a_load_converts_from_a_pinned_dev_format")
+	# A file from a pin of 3.0-1f8 to 3.0-a37 is rewritten into the format 3
+	# value syntax on load. A backslash outside double quotes was text and
+	# stays, an escape in double quotes becomes its `◉` name, and a line the
+	# pin refused stays as typed. Which escapes it read and refused goes by
+	# the pin: `\u` from 3.0-b10, and a Windows path from 3.0-f8e
+	# (2026111912004261). upgrade_dated makes over the same text. Same rows
+	# in every runner.
+	with tempfile.TemporaryDirectory() as pd:
+		pf = os.path.join(pd, "f.shcl")
+		sep26 = 1790380800  # 2026-09-26, to 3.0-30d
+		oct1 = 1790812800  # 2026-10-01, to 3.0-b10
+		oct10 = 1791590400  # 2026-10-10, to 3.0-a37
+		ptext = (
+			'a: "x\\ty"\n'
+			"b: 'C:\\new'\n"
+			"c: C:\\temp\n"
+			"d: 1, 2\n"
+			'e: "\\u00e9"\n'
+			"f:\n"
+			"\t* one\n"
+			'\t* "t\\"wo"\n'
+			"s: p\n"
+			's["p"].h: 1\n'
+			'"q\\"r": 5\n'
+			'p: "C:\\temp"\n'
+			'u: "\\q"\n'
+			'o: "open\n'
+		)
+		pcommon = 'a: "x\u25c9TAB\u25c9y"\n' "b: 'C:\\new'\n" "c: C:\\temp\n" "d: [1, 2]\n"
+		ptail = "f:\n" "\t- one\n" "\t- 't\"wo'\n" "s: p\n" 's("p").h: 1\n' "'q\"r': 5\n"
+		# 3.0-30d read `\u` and `\q` as text. 3.0-b10 read `\u00e9` as a
+		# character and refused `\q`, and 3.0-a37 refused the path too.
+		for pmtime, pe, pend in (
+			(sep26, 'e: "\\u00e9"\n', 'p: "C:\u25c9TAB\u25c9emp"\nu: "\\q"\n'),
+			(oct1, 'e: "\u00e9"\n', 'p: "C:\u25c9TAB\u25c9emp"\nu: "\\q"\n'),
+			(oct10, 'e: "\u00e9"\n', 'p: "C:\\temp"\nu: "\\q"\n'),
+		):
+			with open(pf, "w", encoding="utf-8", newline="") as fh:
+				fh.write(ptext)
+			os.utime(pf, (pmtime, pmtime))
+			pdoc, _ = shcl.Document.load_file_opts(pf, shcl.Strictness.Standard, shcl.LoadOptions(keep_lines=True, migrate=True, from_v2=False))
+			pwant = with_stamp(f'{pcommon}{pe}{ptail}{pend}o: "open\n')
+			pgot = (pdoc.to_text_keep_lines()[0], pdoc.lost_count())
+			if pgot != (pwant, 0):
+				raise SystemExit(f"at {pmtime}: {pgot!r}, want {(pwant, 0)!r}")
+			up = shcl.upgrade_dated(ptext, pmtime, False, False)
+			if up.current or up.text != pwant:
+				raise SystemExit(f"upgrade at {pmtime}: {up.current} {up.text!r}, want {pwant!r}")
 
 	test_id("dfh0g", "an_upgrade_converts_from_the_format_its_mtime_gives")
 	# upgrade and upgrade_file find the format as the load does, with the

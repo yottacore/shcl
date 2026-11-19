@@ -37,8 +37,8 @@ import types
 from collections.abc import Callable
 from datetime import timedelta
 from decimal import Decimal
-from enum import Enum
-from typing import Any, Generic, TypeVar
+from enum import Enum, IntEnum
+from typing import Any, Generic, NamedTuple, TypeVar
 
 # The public surface, stated rather than inferred: without this `from shcl
 # import *` hands out this module's own imports (math, os, stat, Decimal, Enum)
@@ -1504,7 +1504,10 @@ _TMP_NAME_BYTES = 64
 # every comma splits, a backslash shields the next character in bare and
 # single-quoted value text, a bare selector body still runs to its first `]`,
 # a separator followed by `[` is the selector sugar, and an open quote
-# swallows the rest of the line.
+# swallows the rest of the line. Under the private _Lex.Pin it reads the
+# spellings of the pins from 3.0-1f8 to 3.0-a37, for their conversion step:
+# every comma splits, a backslash escapes in double quotes only, a selector is
+# in brackets, and a `[` after the separator is plain text.
 #
 # The scan runs over the UTF-8 bytes of the text, so every offset it records
 # is a byte offset - the offsets the other bindings record, and what the
@@ -1652,6 +1655,20 @@ class Rules(Enum):
 	V2 = 1
 
 
+class _Lex(Enum):
+	"""Rules, and the rules the pins from 3.0-1f8 to 3.0-a37 read by, which
+	only their conversion step asks for, so they aren't public. Pin: every
+	comma splits, a backslash escapes in double quotes and nowhere else, a
+	selector is in brackets, and a `[` after the separator is bracket text,
+	which they refused."""
+	Current = 0
+	V2 = 1
+	Pin = 2
+
+
+_LEX_OF = {Rules.Current: _Lex.Current, Rules.V2: _Lex.V2}
+
+
 class Tokens:
 	"""The spans of one line, or of one lookup path. Nothing is copied: every
 	field is a byte offset into `src`, the UTF-8 bytes of the text that was
@@ -1779,7 +1796,7 @@ def _blank_len(s, i, rules):
 	b = s[i]
 	if b in (_B_SPACE, _B_TAB, _B_CR):
 		return 1
-	if rules is not Rules.V2 or b < 0x0B or 0x0C < b < 0x80:
+	if rules is not _Lex.V2 or b < 0x0B or 0x0C < b < 0x80:
 		return 0
 	n = _utf8_len(b) if b >= 0x80 else 1
 	try:
@@ -1822,7 +1839,7 @@ def _quote_close(s, pos, rules):
 	"""Offset of the quote that closes the one at pos, or None. 2.x read a
 	backslash as an escape inside quotes; now it is text."""
 	q = s[pos]
-	escapes = rules is Rules.V2
+	escapes = rules is _Lex.V2 or (rules is _Lex.Pin and q == _B_DQUOTE)
 	i = pos + 1
 	n = len(s)
 	while i < n:
@@ -1873,15 +1890,15 @@ def _scan_piece(s, pos, term, rules, comments, array=False):
 	n = len(s)
 	# 2.x's wider trim is taken for a value piece only. The selector arm of
 	# migrate cuts a body by its own offsets.
-	edges = rules if term == _B_COMMA else Rules.Current
+	edges = rules if term == _B_COMMA else _Lex.Current
 	pos = _skip_blank(s, pos, edges)
 	start = pos
 	quote = Quote.None_
-	every_comma = term != _B_COMMA or array or rules is Rules.V2
-	v2 = edges is Rules.V2
+	every_comma = term != _B_COMMA or array or rules is not _Lex.Current
+	v2 = edges is _Lex.V2
 	# A backtick quotes a raw value element. 2.x had none, a selector body
 	# takes none, and a run of three opens a raw block instead.
-	tick = rules is Rules.Current and term == _B_COMMA and not s.startswith(b"```", min(pos, n))
+	tick = rules is _Lex.Current and term == _B_COMMA and not s.startswith(b"```", min(pos, n))
 	if pos < n and (s[pos] == _B_DQUOTE or s[pos] == _B_SQUOTE or (tick and s[pos] == _B_BACKTICK)):
 		close = _quote_close(s, pos, rules)
 		if close is not None:
@@ -1907,11 +1924,11 @@ def _scan_piece(s, pos, term, rules, comments, array=False):
 			# all, and the scan restarts at it. 2.x went on from the close
 			# with the quotes read as a pair.
 			quote = Quote.Open
-			if rules is Rules.V2:
+			if rules is _Lex.V2:
 				pos = close + 1
 		else:
 			quote = Quote.Open
-			if rules is Rules.V2:
+			if rules is _Lex.V2:
 				# 2.x: an open quote swallowed the rest of the line.
 				end = start
 				i = start
@@ -1926,7 +1943,7 @@ def _scan_piece(s, pos, term, rules, comments, array=False):
 	# 2.x shielded a backslash in value text only. A bare selector body ran to
 	# its first `]`, the same as now, so shielding one here would hide the `]`.
 	# Now a backslash is text.
-	shield = rules is Rules.V2 and term == _B_COMMA
+	shield = rules is _Lex.V2 and term == _B_COMMA
 	content_end = start
 	# The text came off str.encode, so it is valid UTF-8 and a whole-character
 	# step never passes the end: pos stays at most n without a clamp per byte.
@@ -1958,7 +1975,7 @@ def _scan_piece(s, pos, term, rules, comments, array=False):
 	# 2.x judged a value piece quoted by its shape after the scan: a quote at
 	# both ends, the last one not escaped, however many closes sat between. A
 	# selector body had to close right before its `]`, or the line was E014.
-	if rules is Rules.V2 and term == _B_COMMA and quote is Quote.Open and content_end - start >= 2 and s[content_end - 1] == s[start]:
+	if rules is _Lex.V2 and term == _B_COMMA and quote is Quote.Open and content_end - start >= 2 and s[content_end - 1] == s[start]:
 		run = 0
 		k = content_end - 2
 		while k >= start and s[k] == _B_BACKSLASH:
@@ -1975,6 +1992,10 @@ def tokenize_value(text: str, from_: int, rules: Rules, out: Tokens) -> None:
 	pieces, with the comment found on the way. A negative offset reads as 0:
 	the reference's offset is unsigned, so there is nothing else one can mean,
 	and Python read it as an offset from the end (20260918b item 31)."""
+	_lex_value(text, from_, _LEX_OF[rules], out)
+
+
+def _lex_value(text: str, from_: int, rules: _Lex, out: Tokens) -> None:
 	out._clear()
 	if from_ < 0:
 		from_ = 0
@@ -1990,7 +2011,7 @@ def tokenize_value(text: str, from_: int, rules: Rules, out: Tokens) -> None:
 
 def _scan_value(s, from_, rules, out):
 	n = len(s)
-	if rules is Rules.Current:
+	if rules is _Lex.Current:
 		pos = _skip_wsp(s, from_)
 		if pos < n and s[pos] == _B_LBRACKET:
 			_scan_array(s, from_, pos, out)
@@ -1999,7 +2020,7 @@ def _scan_value(s, from_, rules, out):
 	# would ever stop: it strides whole characters, so a comma inside a stride
 	# never splits there, while bytes.find would split on it. No in-tree caller
 	# does that, but tokenize_value is public, so fall through to the loop.
-	if rules is Rules.Current and (from_ >= n or s[from_] & 0xC0 != 0x80) and not _VALUE_SLOW.search(s, from_):
+	if rules is _Lex.Current and (from_ >= n or s[from_] & 0xC0 != 0x80) and not _VALUE_SLOW.search(s, from_):
 		# Fast path: with no quote, no backtick and no `#` after the
 		# separator, every piece is bare and a comma splits when a blank or
 		# the end follows it, so the scan would only ever trim. bytes.find
@@ -2077,7 +2098,7 @@ def _scan_array(s, from_, open_at, out):
 	count = 0
 	close = None
 	while True:
-		piece, stop = _scan_piece(s, pos, _B_COMMA, Rules.Current, True, True)
+		piece, stop = _scan_piece(s, pos, _B_COMMA, _Lex.Current, True, True)
 		out.elements.append(piece)
 		if piece.quote is Quote.None_ and piece.end == piece.start:
 			# `[]`, blanks or not, is the empty array; any other empty piece
@@ -2113,7 +2134,7 @@ def _scan_array(s, from_, open_at, out):
 				out.array_fault = (after, "text after ']'")
 			# The comment past the stray text, found the way a value finds it.
 			while True:
-				piece, stop = _scan_piece(s, after, _B_COMMA, Rules.Current, True)
+				piece, stop = _scan_piece(s, after, _B_COMMA, _Lex.Current, True)
 				if stop < n and s[stop] == _B_COMMA:
 					after = stop + 1
 					continue
@@ -2140,6 +2161,10 @@ def tokenize(text: str, sep: str, path: bool, rules: Rules, out: Tokens) -> None
 	the CLI's --set passes "=". out is cleared and
 	reused, so a parse allocates once per document rather than once per line.
 	text is the line after its indent, or the path."""
+	_lex_line(text, sep, path, _LEX_OF[rules], out)
+
+
+def _lex_line(text: str, sep: str, path: bool, rules: _Lex, out: Tokens) -> None:
 	out._clear()
 	s = text.encode("utf-8", "surrogatepass")
 	out.src = s
@@ -2177,7 +2202,7 @@ def tokenize(text: str, sep: str, path: bool, rules: Rules, out: Tokens) -> None
 			# a byte order mark does not read: at the start of a file the
 			# load strips the mark, so the line would bind as something else.
 			# One led by a `*` is a list item's line, which never gets here.
-			if not path and rules is Rules.Current and s[start] != _B_STAR and not s.startswith(_BOM_BYTES, start):
+			if not path and rules is _Lex.Current and s[start] != _B_STAR and not s.startswith(_BOM_BYTES, start):
 				run = pos
 				end = pos
 				while pos < n and not _name_stop(s[pos], sep_b):
@@ -2199,13 +2224,13 @@ def tokenize(text: str, sep: str, path: bool, rules: Rules, out: Tokens) -> None
 		open_at = None
 		close_b = _B_RBRACKET
 		if pos < n:
-			if s[pos] == _B_LPAREN and rules is Rules.Current:
+			if s[pos] == _B_LPAREN and rules is _Lex.Current:
 				open_at, close_b = pos, _B_RPAREN
 			elif s[pos] == _B_LBRACKET:
-				if rules is Rules.Current and out.bracket_selector is None:
+				if rules is _Lex.Current and out.bracket_selector is None:
 					out.bracket_selector = pos
 				open_at = pos
-		if open_at is None and rules is Rules.V2 and pos < n and s[pos] == sep_b:
+		if open_at is None and rules is _Lex.V2 and pos < n and s[pos] == sep_b:
 			q = _skip_wsp(s, pos + 1)
 			if q < n and s[q] == _B_LBRACKET:
 				open_at = q
@@ -2222,7 +2247,7 @@ def tokenize(text: str, sep: str, path: bool, rules: Rules, out: Tokens) -> None
 			if piece.end == piece.start and piece.quote is Quote.None_:
 				out.fault = (open_at, "empty selector")
 				return
-			if piece.quote is Quote.Open and rules is Rules.V2:
+			if piece.quote is Quote.Open and rules is _Lex.V2:
 				out.fault = (open_at, "unterminated quote in a selector")
 				return
 			selector = piece
@@ -2726,7 +2751,7 @@ def _line_fence(tok):
 			return None
 		value = Tokens()
 		value.src = s
-		_scan_value(s, sep + 1, Rules.Current, value)
+		_scan_value(s, sep + 1, _Lex.Current, value)
 		return _fence_open(s[value.value[0]:value.value[1]].decode("utf-8", "surrogatepass"))
 	if tok.sep is None:
 		return None
@@ -2793,9 +2818,13 @@ class Migration:
 class _Migrating:
 	"""The counters a line rewrite reports back, and the one thing it asks."""
 
-	__slots__ = ("from_v2", "ambiguous", "lost", "bracketed", "refused_now")
+	__slots__ = ("rules", "pin", "from_v2", "ambiguous", "lost", "bracketed", "refused_now")
 
-	def __init__(self, from_v2):
+	def __init__(self, from_v2: bool, rules: _Lex = _Lex.V2, pin: _Pin | None = None) -> None:
+		# The old rules the text is read by, V2 or Pin.
+		self.rules = rules
+		# Under Pin, which pinned rules, so which escapes they read and refused.
+		self.pin = _Pin.FROM_A37 if pin is None else pin
 		self.from_v2 = from_v2
 		self.ambiguous = 0
 		self.lost = 0
@@ -2999,7 +3028,7 @@ def _most_legal(text: str, left: int) -> int:
 			refused.setdefault(d.line, []).append(d.code)
 	against = [0] * len(_FORMAT_DAYS)
 	footers = 0
-	raw = _RawLines(Rules.Current)
+	raw = _RawLines(_Lex.Current)
 	tok = Tokens()
 	for i, line in enumerate(text.split("\n")):
 		rest = raw.step(line)
@@ -3064,32 +3093,54 @@ def _line_tells(rest: str, codes: list[str], tok: Tokens) -> int:
 	return run
 
 
-class _Step(Enum):
+class _StepKind(Enum):
+	"""SAME: the 2 formats read every line the same, but for lines the older
+	one refuses, which stay as typed. Nothing changes. V2: migrate's rewrite
+	from the 2.x rules, which lands on the current format. It stands in for
+	the steps from 1.0 to 2.0 until they're built (2026111908444534). PIN: the
+	rewrite from the rules of a pin from 3.0-1f8 to 3.0-a37 into the format 3
+	value syntax, where a backslash is text. It ends at the current format. A
+	line those rules refused stays as typed."""
+	SAME = 0
+	V2 = 1
+	PIN = 2
+
+
+class _Pin(IntEnum):
+	r"""Which escapes a pin from 3.0-1f8 to 3.0-a37 read in double quotes, the
+	only place it read any, and which it refused. Later ones refuse more, so
+	the order counts. FROM_30D: 3.0-1f8 and 3.0-30d: `\t`, `\n`, `\\`,
+	`\"` and `\'`. Any other backslash is text. FROM_B10: 3.0-b10: also `\u`
+	with 4 hex digits and `\U` with 8. Any other pair is refused (E023).
+	FROM_A37: 3.0-f8e and 3.0-a37: also refused is a value that starts like a
+	Windows path, a drive or a share, and holds `\t` or `\n` (E024)."""
+	FROM_30D = 0
+	FROM_B10 = 1
+	FROM_A37 = 2
+
+
+class _Step(NamedTuple):
 	"""What turns a text in one format of _FORMAT_DAYS into the next one's, as
 	the design doc's Reading and converting says. A new format adds a row to
 	_FORMAT_STEPS, and a kind here only when no step yet does what it needs.
-	SAME: the 2 formats read every line the same, but for lines the older one
-	refuses, which stay as typed. Nothing changes. V2: migrate's rewrite from
-	the 2.x rules, which lands on the current format. It stands in for the
-	steps from 1.0 to 3.0-a37 until they're built (2026111908444515,
-	2026111908444534)."""
-	SAME = 0
-	V2 = 1
+	pin is set for PIN only."""
+	kind: _StepKind
+	pin: _Pin | None = None
 
 
 # The step out of each format of _FORMAT_DAYS but the current one, in the
 # same order.
 _FORMAT_STEPS: tuple[_Step, ...] = (
-	_Step.V2,  # 1.0
-	_Step.V2,  # 1.1
-	_Step.V2,  # 2.0
-	_Step.V2,  # 3.0-1f8
-	_Step.V2,  # 3.0-30d
-	_Step.V2,  # 3.0-b10
-	_Step.V2,  # 3.0-f8e
-	_Step.V2,  # 3.0-a37
-	_Step.SAME,  # 3.0-9ef, which refused an apostrophe inside a bare word
-	_Step.SAME,  # 3.0-a65
+	_Step(_StepKind.V2),  # 1.0
+	_Step(_StepKind.V2),  # 1.1
+	_Step(_StepKind.V2),  # 2.0
+	_Step(_StepKind.PIN, _Pin.FROM_30D),  # 3.0-1f8, read as 3.0-30d but where a line has an error
+	_Step(_StepKind.PIN, _Pin.FROM_30D),  # 3.0-30d
+	_Step(_StepKind.PIN, _Pin.FROM_B10),  # 3.0-b10
+	_Step(_StepKind.SAME),  # 3.0-f8e, read as 3.0-a37 but where a line has an error
+	_Step(_StepKind.PIN, _Pin.FROM_A37),  # 3.0-a37
+	_Step(_StepKind.SAME),  # 3.0-9ef, which refused an apostrophe inside a bare word
+	_Step(_StepKind.SAME),  # 3.0-a65
 )
 
 
@@ -3098,15 +3149,18 @@ def _first_rewrite(fmt: str | None) -> _Step | None:
 	anything. None when every step from there is SAME, as from the current
 	format, or for None, a newer format's."""
 	at = next((i for i, (f, _) in enumerate(_FORMAT_DAYS) if f == fmt), len(_FORMAT_STEPS))
-	return next((s for s in _FORMAT_STEPS[at:] if s is not _Step.SAME), None)
+	return next((s for s in _FORMAT_STEPS[at:] if s.kind is not _StepKind.SAME), None)
 
 
 def _convert(text: str, fmt: str | None, from_v2: bool) -> Migration:
 	"""The text, written in fmt, as the current format reads it, one step per
 	format in order, in memory. None, a newer format's, comes back as it is.
 	from_v2 is migrate's."""
-	if _first_rewrite(fmt) is _Step.V2:
+	step = _first_rewrite(fmt)
+	if step is not None and step.kind is _StepKind.V2:
 		return migrate_unstamped(text, from_v2)
+	if step is not None and step.kind is _StepKind.PIN:
+		return _migrate_text(text, from_v2, False, False, step.pin)
 	return Migration(text, True, 0, 0)
 
 
@@ -3128,8 +3182,8 @@ def _format_line_read(text: str) -> Read[int]:
 	# Most documents have no Format line, and every load asks.
 	if _FORMAT_WORD not in text and _STAMP_WORD not in text:
 		return Read(0, Status.NotFound, None)
-	now = _RawLines(Rules.Current)
-	then = _RawLines(Rules.V2)
+	now = _RawLines(_Lex.Current)
+	then = _RawLines(_Lex.V2)
 	found: tuple[tuple[int, int], Read[int]] | None = None
 	newest: tuple[tuple[int, int], Read[int]] | None = None
 	unread: Read[int] | None = None
@@ -3290,7 +3344,7 @@ def read_schema_ref(text: str) -> Read[str]:
 	if word not in text:
 		return Read("", Status.NotFound, None)
 	# The Schema line is new in this format, so the blocks are the parser's.
-	lines = _RawLines(Rules.Current)
+	lines = _RawLines(_Lex.Current)
 	empty = 0
 	for i, line in enumerate(text.split("\n")):
 		rest = lines.step(line)
@@ -3315,12 +3369,12 @@ class _RawLines:
 	way one rule set reads the file: the current rules find a block where the
 	parser does, and the 2.x rules where the rewrite does."""
 
-	def __init__(self, rules: Rules) -> None:
+	def __init__(self, rules: _Lex) -> None:
 		self.rules = rules
 		self.tok = Tokens()
 		self.fence: tuple[str, int] | None = None
 		# Only the blocks a line opens are wanted, not what the rewrite counts.
-		self.dry = _Migrating(True)
+		self.dry = _Migrating(True, rules)
 
 	def step(self, line: str) -> str | None:
 		"""The next line's text past its indent and the blanks after it, as
@@ -3335,7 +3389,7 @@ class _RawLines:
 		# Only a line with a run of three backticks or tildes can open a
 		# block, so the rest skip the tokenizer.
 		if "```" in rest or "~~~" in rest:
-			if self.rules == Rules.Current:
+			if self.rules == _Lex.Current:
 				self.fence = _opens_raw(rest, self.tok)
 			else:
 				_, self.fence = _migrate_line(rest, self.tok, self.fence, self.dry)
@@ -3391,14 +3445,14 @@ def migrate(text: str, from_v2: bool) -> Migration:
 	refuse over. A rewritten file is stamped with the version line, so the
 	second run has an answer the first one did not. An older Format line
 	becomes that line where it is; a file with none gets it at the end."""
-	return _migrate_text(text, from_v2, True, False)
+	return _migrate_text(text, from_v2, True, False, None)
 
 
 def migrate_unstamped(text: str, from_v2: bool) -> Migration:
 	"""migrate() without the version line or the migrated note, for a program
 	that writes GEN_BANNER itself, which includes the version line. The next
 	run can tell the result is current only once that is written."""
-	return _migrate_text(text, from_v2, False, False)
+	return _migrate_text(text, from_v2, False, False, None)
 
 
 def _majority_eol(text):
@@ -3408,9 +3462,11 @@ def _majority_eol(text):
 	return "\r\n" if crlf > lf else "\n"
 
 
-def _migrate_text(text, from_v2, stamp, beta):
+def _migrate_text(text, from_v2, stamp, beta, pin):
 	"""beta takes a file naming this format as 2.x too, which only upgrade()
-	asks for, once the caller has said so."""
+	asks for, once the caller has said so. pin reads the text by that pin's
+	rules rather than 2.x, for a file found to be in one of those formats,
+	whatever its Format line says."""
 	whole = text
 	bom = ""
 	if text.startswith("\ufeff"):
@@ -3418,9 +3474,9 @@ def _migrate_text(text, from_v2, stamp, beta):
 		text = text[1:]
 	named = _format_line_read(text)
 	version = named.value if named.status is Status.Good else None
-	if version is not None and (version > FORMAT_MAJOR or (version == FORMAT_MAJOR and not beta)):
+	if pin is None and version is not None and (version > FORMAT_MAJOR or (version == FORMAT_MAJOR and not beta)):
 		return Migration(whole, current=True)
-	st = _Migrating(from_v2 or version is not None)
+	st = _Migrating(from_v2 or version is not None or pin is not None, _Lex.V2 if pin is None else _Lex.Pin, pin)
 	bracketed = []
 	# Where a file that does not say it is 2.x might be a 3.0 one, the lines
 	# these rules already refuse are safe to rewrite.
@@ -3432,7 +3488,7 @@ def _migrate_text(text, from_v2, stamp, beta):
 	fence = None
 	changed = False
 	# The output as the parser will read it, for where its raw blocks are.
-	now = _RawLines(Rules.Current)
+	now = _RawLines(_Lex.Current)
 	split = False
 	for i, line in enumerate(text.split("\n")):
 		if i > 0:
@@ -3561,7 +3617,10 @@ def upgrade(text: str, from_v2: bool, banner: bool) -> Upgrade:
 	Without from_v2, the file's format is find_format()'s, from the text alone,
 	and only a format whose steps to this one rewrite anything gets made over:
 	one from 3.0-9ef on is current, its errors kept as typed, as a load with
-	migrate keeps them. upgrade_dated() takes the file's mtime too."""
+	migrate keeps them. One from 3.0-1f8 to 3.0-a37 goes through that format's
+	step rather than migrate_unstamped(), and is made over even when it loads
+	clean, since `"x\\ty"` loads clean now and held a tab then.
+	upgrade_dated() takes the file's mtime too."""
 	return upgrade_dated(text, None, from_v2, banner)
 
 
@@ -3573,19 +3632,23 @@ def upgrade_dated(text: str, mtime: float | None, from_v2: bool, banner: bool) -
 	up = Upgrade(text, True, version if version is not None else 2)
 	if _names_newer(named) or (version == FORMAT_MAJOR and not from_v2):
 		return up
-	# The load's step table. Only V2 rewrites yet, and this is its upgrade
-	# form, so a format whose run is all SAME has nothing to do.
+	# The load's step table, in its upgrade form, so a format whose run is
+	# all SAME has nothing to do.
 	fmt = "2.0" if from_v2 else find_format(text, mtime)
-	if _first_rewrite(fmt) is not _Step.V2:
+	step = _first_rewrite(fmt)
+	if step is None or step.kind is _StepKind.SAME:
 		return up
+	pin = step.pin if step.kind is _StepKind.PIN else None
 	before = Document.parse(text)
 	clean = before.error_count() == 0
 	# A beta of 3.0 wrote this format's line too, so only the caller can say
 	# a 2.x build wrote the file. One that loads clean is what an upgrade
-	# leaves, so a second run over its output leaves it alone.
-	if clean and (not from_v2 or version == FORMAT_MAJOR):
+	# leaves, so a second run over its output leaves it alone. A file found
+	# to be from 3.0-1f8 to 3.0-a37 can load clean and still read otherwise,
+	# as `"x\ty"` does, so it is made over as the load makes it over.
+	if clean and pin is None and (not from_v2 or version == FORMAT_MAJOR):
 		return up
-	m = _migrate_text(text, from_v2, False, True)
+	m = _migrate_text(text, from_v2, False, True, pin)
 	# A 2.x file can load clean and still read differently now, as `a,b`
 	# does. One migrate leaves as it was has nothing to do, but an older
 	# Format line, which would keep the load's H007 hint, becomes this one.
@@ -3606,7 +3669,8 @@ def upgrade_dated(text: str, mtime: float | None, from_v2: bool, banner: bool) -
 	lost = m.lost + fresh.lost_count()
 	# migrate keeps every line where it was, so these are the input's.
 	left = _error_lines(fresh.diagnostics())
-	fresh._swap_banner(banner, True)
+	# Only 2.x's block is in `#` comments.
+	fresh._swap_banner(banner, pin is None)
 	made = _upgrade_text(fresh, banner)
 	# With from_v2 it goes only when that leaves it loading clean, or the next
 	# run with it would read the result by 2.x rules again
@@ -3706,16 +3770,131 @@ def _v2_text(raw):
 	return "".join(out)
 
 
-def _v2_bracket_array(body):
-	"""True when 2.x read this bare `[...]` body as the JSON-habit array rather
-	than a discriminator: more than one element, where a comma behind a
-	backslash was not one."""
+def _old_text(raw, quote, st):
+	"""The text the old rules read for a piece as written, quoted as quote
+	says: _v2_text under 2.x, and under the rules of 3.0-1f8 to 3.0-a37 the
+	escapes in double quotes only."""
+	if st.rules is _Lex.Pin:
+		if quote is Quote.Double:
+			return _pin_escapes(raw, st.pin >= _Pin.FROM_B10)
+		return raw
+	return _v2_text(raw)
+
+
+def _pin_escapes(raw, codepoints):
+	r"""What 3.0-1f8 to 3.0-a37 read in double quotes: `\t`, `\n`, `\\`, `\"`
+	and `\'` resolved, and with codepoints, from 3.0-b10, `\u` with 4 hex
+	digits and `\U` with 8. Any other backslash stays."""
+	out = []
+	i = 0
+	n = len(raw)
+	while i < n:
+		c = raw[i]
+		i += 1
+		if c != "\\":
+			out.append(c)
+			continue
+		if i >= n:
+			out.append("\\")
+			break
+		nxt = raw[i]
+		i += 1
+		if nxt == "t":
+			out.append("\t")
+		elif nxt == "n":
+			out.append("\n")
+		elif nxt in ("\\", '"', "'"):
+			out.append(nxt)
+		elif nxt in ("u", "U") and codepoints and (cp := _pin_codepoint(nxt, raw[i:])) is not None:
+			out.append(cp[0])
+			i += cp[1]
+		else:
+			out.append("\\" + nxt)
+	return "".join(out)
+
+
+_HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
+
+
+def _pin_codepoint(kind, after):
+	r"""The character a `\u` or `\U` escape names under 3.0-b10 to 3.0-a37, and
+	how many hex digits it takes: 4 after `u`, 8 after `U`. None for a short
+	run, a surrogate or a value past U+10FFFF."""
+	n = 4 if kind == "u" else 8
+	digits = after[:n]
+	if len(digits) != n or any(c not in _HEX_DIGITS for c in digits):
+		return None
+	v = int(digits, 16)
+	if v > 0x10FFFF or 0xD800 <= v <= 0xDFFF:
+		return None
+	return chr(v), n
+
+
+def _pin_bad_quoted(raw, value, pin):
+	r"""True when the pin refused this double-quoted text: from 3.0-b10 a
+	backslash pair it didn't know (E023), and from 3.0-f8e, in a value, `\t`
+	or `\n` in text that starts like a Windows path, a drive or a share
+	(E024)."""
+	if pin is _Pin.FROM_30D:
+		return False
+	tab = False
+	i = 0
+	n = len(raw)
+	while i < n:
+		c = raw[i]
+		i += 1
+		if c != "\\":
+			continue
+		nxt = raw[i] if i < n else None
+		i += 1
+		if nxt in ("t", "n"):
+			tab = True
+		elif nxt in ("u", "U"):
+			cp = _pin_codepoint(nxt, raw[i:])
+			if cp is None:
+				return True
+			i += cp[1]
+		elif nxt not in ("\\", '"', "'"):
+			return True
+	drive = len(raw) >= 3 and ("a" <= raw[0] <= "z" or "A" <= raw[0] <= "Z") and raw[1] == ":" and raw[2] == "\\"
+	return pin >= _Pin.FROM_A37 and value and tab and (drive or raw.startswith("\\\\"))
+
+
+def _old_refused(s, tok, item, st):
+	"""True when the old rules refused a line, as tokenized by them, so it has
+	no reading to keep and stays as typed. Only the rules of 3.0-1f8 to 3.0-a37
+	are asked: a quote that never closes as a piece's last character (E017), a
+	`[` first after the separator (E019), and from 3.0-b10 a bad escape in
+	double quotes. The 2.x rewrite judges its lines itself."""
+	if st.rules is not _Lex.Pin:
+		return False
+
+	def quoted(p, value):
+		if p.quote is Quote.Open:
+			return True
+		return p.quote is Quote.Double and _pin_bad_quoted(s[p.start:p.end].decode("utf-8", "surrogatepass"), value, st.pin)
+
+	if any(quoted(seg.name, False) or (seg.selector is not None and quoted(seg.selector, False)) for seg in tok.segments):
+		return True
+	if tok.sep is None and not item:
+		return False
+	# A raw block's info string is not escape text.
+	fenced = not item and _fence_open(s[tok.value[0]:].decode("utf-8", "surrogatepass")) is not None
+	first = tok.elements[0] if tok.elements else None
+	bracket = not item and first is not None and first.quote is Quote.None_ and first.end > first.start and s[first.start] == _B_LBRACKET
+	return bracket or (not fenced and any(quoted(p, True) for p in tok.elements))
+
+
+def _v2_bracket_array(body, rules):
+	"""True when the old rules read this bare `[...]` body as the JSON-habit
+	array rather than a discriminator: more than one element, where under 2.x
+	a comma behind a backslash was not one."""
 	tok = Tokens()
-	tokenize_value(body, 0, Rules.V2, tok)
+	_lex_value(body, 0, rules, tok)
 	return len(tok.elements) > 1
 
 
-def _value_edits(s, tok, edits):
+def _value_edits(s, tok, edits, st):
 	r"""The re-spellings a value's pieces need. Each piece is cut the 2.x way
 	(a backslash shields the next character, an open quote is kept whole, a
 	quote at both ends makes it quoted) and rewritten only where the current
@@ -3729,7 +3908,8 @@ def _value_edits(s, tok, edits):
 			a, b = p.start - 1, p.end + 1
 		else:
 			a, b = p.start, p.end
-		_v2_edge_edits(s, a, b, edits)
+		if st.rules is _Lex.V2:
+			_v2_edge_edits(s, a, b, edits)
 		# A comma or a `#` in a bare piece sat inside a quote 2.0 paired.
 		if (
 			p.quote is Quote.None_
@@ -3741,7 +3921,7 @@ def _value_edits(s, tok, edits):
 			and _bare_trouble(raw, _BARE_VALUE) is None
 		):
 			continue
-		logical = _v2_text(raw)
+		logical = _old_text(raw, p.quote, st)
 		if _reads_same(s[a:b].decode("utf-8", "surrogatepass"), quoted, logical):
 			continue
 		spelling = _migrate_spelling(logical, not (quoted or p.quote is Quote.Open))
@@ -3769,7 +3949,7 @@ def _v2_edge_edits(s, a, b, edits):
 		edits.append((b, b + len(run.encode("utf-8", "surrogatepass")), b"" if j == len(after) else b" "))
 
 
-def _v2_array_text(s, tok):
+def _v2_array_text(s, tok, st):
 	"""A 2.x value with a comma in brackets, since 2.x read every comma as an
 	array. Its empty elements go, as 2.x dropped them. Each element is written
 	the way the writer writes one inside `[]`, unless its quoted spelling
@@ -3780,15 +3960,15 @@ def _v2_array_text(s, tok):
 			continue
 		if len(out) > 1:
 			out.append(", ")
-		out.append(_v2_element_text(s, p))
+		out.append(_v2_element_text(s, p, st))
 	out.append("]")
 	return "".join(out)
 
 
-def _v2_element_text(s, p):
+def _v2_element_text(s, p, st):
 	"""One 2.x element, as the text 2.x read, the way the writer writes it,
 	unless its quoted spelling already reads the same."""
-	logical = _v2_text(s[p.start:p.end].decode("utf-8", "surrogatepass"))
+	logical = _old_text(s[p.start:p.end].decode("utf-8", "surrogatepass"), p.quote, st)
 	quoted = p.quote is Quote.Single or p.quote is Quote.Double
 	if quoted and _reads_same(s[p.start - 1:p.end + 1].decode("utf-8", "surrogatepass"), True, logical):
 		return s[p.start - 1:p.end + 1].decode("utf-8", "surrogatepass")
@@ -3832,16 +4012,18 @@ def _migrate_line(rest, tok, fence, st):
 	edits: list = []
 	s = rest.encode("utf-8", "surrogatepass")
 	if rest.startswith("*") and len(s) > 1 and _is_wsp_byte(s[1]):
+		_lex_value(rest, 1, st.rules, tok)
+		if _old_refused(s, tok, True, st):
+			return rest, fence
 		edits.append((0, 1, b"-"))
-		tokenize_value(rest, 1, Rules.V2, tok)
 		# A bare comma was refused (E010), so there is nothing to convert.
 		# A value's rules are an item's, and stricter about a colon, so
 		# what reads clean as one reads clean as the other.
 		if len(tok.elements) == 1:
-			_value_edits(s, tok, edits)
+			_value_edits(s, tok, edits, st)
 	else:
-		tokenize(rest, ":", False, Rules.V2, tok)
-		if tok.fault is not None:
+		_lex_line(rest, ":", False, st.rules, tok)
+		if tok.fault is not None or _old_refused(s, tok, False, st):
 			return rest, fence
 		last = len(tok.segments) - 1
 		# A selector in brackets is E029 now, so its line never reads clean
@@ -3859,8 +4041,18 @@ def _migrate_line(rest, tok, fence, st):
 			# `-` then a blank would start a list item now.
 			# A file that does not say it is 2.x could be a 3.0 one. Where it
 			# reads clean under these rules as well, it is left and counted.
+			# Under the rules of 3.0-1f8 to 3.0-a37 a double-quoted name
+			# resolved its escapes, and 2 spellings of one name were one, so
+			# it gets the spelling of the name it read.
+			logical = name
 			respell = clean_now = False
-			if seg.name.quote is Quote.Single or seg.name.quote is Quote.Double:
+			if st.rules is _Lex.Pin and seg.name.quote is not Quote.None_:
+				if "\\" in name or _ESCAPE_MARK in name:
+					logical = _old_text(name, seg.name.quote, st)
+					now = _quoted_name_now(s[seg.name.start - 1:seg.name.end + 1].decode("utf-8", "surrogatepass"))
+					respell = now != logical
+					clean_now = now is not None
+			elif seg.name.quote is Quote.Single or seg.name.quote is Quote.Double:
 				pair = _v2_text(name) != name
 				if pair:
 					st.lost += 1
@@ -3880,7 +4072,7 @@ def _migrate_line(rest, tok, fence, st):
 					a, b = seg.name.start, seg.name.end
 				else:
 					a, b = seg.name.start - 1, seg.name.end + 1
-				edits.append((a, b, _escape_name(name).encode("utf-8", "surrogatepass")))
+				edits.append((a, b, _escape_name(logical).encode("utf-8", "surrogatepass")))
 			sel = seg.selector
 			if sel is None:
 				continue
@@ -3903,7 +4095,7 @@ def _migrate_line(rest, tok, fence, st):
 			spelled = s[sel.start - 1:sel.end + 1].decode("utf-8", "surrogatepass") if quoted else body
 			# 2.x matched a selector by its text with the backslash pairs
 			# resolved, as it read a value.
-			logical = _v2_text(body)
+			logical = _old_text(body, sel.quote, st)
 			if i == last and tok.sep is None:
 				if colon is not None:
 					# `name:[disc]` with nothing after it: 2.x read it as
@@ -3919,7 +4111,7 @@ def _migrate_line(rest, tok, fence, st):
 					# is no spelling to move that to - in brackets it is an
 					# array of several now - so the binding goes, and the
 					# caller hears about it rather than reading exit 0.
-					if not quoted and _v2_bracket_array(body):
+					if not quoted and _v2_bracket_array(body, st.rules):
 						st.lost += 1
 						return rest, fence
 					# `[a]` is a one-element array now.
@@ -3945,7 +4137,7 @@ def _migrate_line(rest, tok, fence, st):
 			index = not quoted and (_index_shape(body) or body == "*")
 			# 2.x matched an array value by its display form, and a selector
 			# matches one plain value now, so nothing spells this.
-			if not index and not quoted and _v2_bracket_array(body):
+			if not index and not quoted and _v2_bracket_array(body, st.rules):
 				st.lost += 1
 				return rest, fence
 			edits.append((open_at, open_at + 1, b"("))
@@ -3983,15 +4175,15 @@ def _migrate_line(rest, tok, fence, st):
 						# is `s`, and joins a `k: s` beside it, which `[s]`
 						# would not.
 						p = next(p for p in tok.elements if p.quote is not Quote.None_ or p.end > p.start)
-						edits.append((tok.value[0], tok.value[1], _v2_element_text(s, p).encode("utf-8", "surrogatepass")))
+						edits.append((tok.value[0], tok.value[1], _v2_element_text(s, p, st).encode("utf-8", "surrogatepass")))
 					else:
 						st.bracketed = True
-						edits.append((tok.value[0], tok.value[1], _v2_array_text(s, tok).encode("utf-8", "surrogatepass")))
+						edits.append((tok.value[0], tok.value[1], _v2_array_text(s, tok, st).encode("utf-8", "surrogatepass")))
 				else:
 					st.ambiguous += 1
 			else:
 				before = len(edits)
-				_value_edits(s, tok, edits)
+				_value_edits(s, tok, edits, st)
 				if not st.from_v2 and not st.refused_now and len(edits) > before and _reads_clean_now(rest, sep + 1):
 					del edits[before:]
 					st.ambiguous += 1

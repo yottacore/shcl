@@ -250,7 +250,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: port the steps out of 3.0-1f8 to 3.0-a37 to Python
 	- ID: 2026111912004810
 	- Type: Feature
-	- Status: Queued
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261119-120048
@@ -260,6 +260,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: mirror 2026111912004261's step kinds, rules and test in Python, by parity over idiom.
 	- Estimated effort: Avg
 	- Note: the docs, the changelog, cli-regress and check-migrate already say what the ports build. Each binding's twins of `de60f` (`migrate_writes_the_text_2x_read`) and `ddmhc` (`upgrade_writes_a_fresh_file_with_the_info_block`) need the 2026-09-01 mtime the Rust ones got, and its `dfgyc` twin keeps its `[1, 2]` row, which is still found to be 2.0. `pin-step-oracle.py` in the private tools folder checks a CLI's `upgrade` against the pins' own CLIs.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261119: the pin rules are a private `_Lex` enum beside the public `Rules`, with `_LEX_OF` mapping each `Rules` member to its `_Lex` twin, so `tokenize` and `tokenize_value` convert and call `_lex_line` and `_lex_value`, and the public API doesn't change.
+		- me, 20261119: Rust's `Step::Pin(Pin)` is a `_Step` named tuple of a `_StepKind` and a `_Pin`, set only for `PIN`. `_Pin` is an `IntEnum`, since the rules compare by order. Rust's `Option<Pin>` to `migrate_text` is `_Pin | None`.
+	- Verified: `dfh6n` fails with the pin rows set back to `V2` and passes with them. The Python conformance suite, `--backlog-run-quick rust go python c cli` (ruff and mypy included; all 5 steps passed), cli-regress for Python and Rust, crosscheck over the corpus with the 4 CLIs, perf-gate for Python, `lint-report.bash --check --no-mark` and `test-ids.py check` passed. The Python CLI's `upgrade` printed the same bytes and exit code as the Rust CLI's on every corpus document with its stamp taken off, dated into 3.0-30d, 3.0-b10, 3.0-a37, 1.1 and the current format (3430 runs, `pin-port-diff.bash`), and stdout and stderr matched on 24 hand-written escape, name and selector lines in the 3 pins.
+	- Swept: every Rust function the step touched has its Python twin changed: `_blank_len`, `_quote_close`, `_scan_piece`, `_lex_value`, `_scan_value`, `_scan_array`, `_lex_line`, `_Migrating`, `_most_legal`, `_format_line_read`, `read_schema_ref` and `_RawLines`, `_convert`, `_first_rewrite`, `_migrate_text`, `upgrade_dated`, `_value_edits`, `_v2_array_text`, `_v2_element_text`, `_v2_bracket_array` and `_migrate_line`, with `_old_text`, `_pin_escapes`, `_pin_codepoint`, `_pin_bad_quoted` and `_old_refused` new. `upgrade`'s docstring says so. The Python twins of `de60f` (`de61d`) and `ddmhc` (`ddmks`) pin 2026-09-01, each assert as it was. `dfgye` keeps its `[1, 2]` row.
+	- Test case: `a_load_converts_from_a_pinned_dev_format` (Python `dfh6n`, twin of Rust `dfh4s`).
+	- Branch: `nov19b-2026111912004810`
+	- Commit: `bb67f8e2`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the steps, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261119-132716
 
 - Format versions: port the steps out of 3.0-1f8 to 3.0-a37 to C
 	- ID: 2026111912004831
