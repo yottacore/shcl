@@ -4337,7 +4337,7 @@ static size_t error_lines(const shcl_doc *d, size_t **out, jmp_buf *panic) {
 	return u;
 }
 
-static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, size_t len, int from_v2, int banner, int64_t version, int newer, shcl_upgraded *up) {
+static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, size_t len, int from_v2, int banner, int64_t version, int newer, shcl_upgraded *up) { // NOLINT(bugprone-easily-swappable-parameters): shcl_upgrade's order, as in the Rust twin
 	if (!text) { text = ""; len = 0; }
 	up->current = 1;
 	up->format = version < 0 ? 2 : (uint32_t)version;
