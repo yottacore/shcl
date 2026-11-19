@@ -360,7 +360,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A remove that takes a field opened from a kept line moves a kept line's comments down with a misplaced line
 	- ID: 2026111109022600
 	- Type: Bug
-	- Status: Waiting on automated testing
+	- Status: Closed
 	- Severity: Avg
 	- Target version: v3.0.0
 	- Opened: 20261111-090226
@@ -382,13 +382,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: the parser's own split of pending lines before a fence (`partition` in the parser's fence branch) keeps comments with the kept field line after them already. `adopt`'s Last branch is the only place an edit splits misplaced lines from kept field lines, in all 4.
 	- Test case: placement rows `2026111109022600-1` and `-2` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `df50j`, `dd3t9`, `dderx`.
 	- Verified: both placement rows and `df50j` fail on the library at `8bc8ced1` (Rust) and pass on the change. The C CLI at `8bc8ced1` gives the cut file's text in 1 of the 8 shapes, and every CLI gives it in all 8 now. `--backlog-run-quick rust go python c` (with `dd3t9`, `dderx`, `df50j` and the 4 placement runners), lint-report, cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), rustfmt, gofmt, ruff, and markdownlint.
-	- Needs local test suite run?: the 2,000,000 release fuzz of `dd3t9` and `dderx` (`SHCL_FUZZ_ITERS=2000000 cargo test --release --test fuzz_smoke -- keeping_lines_reloads_as_the_document kept_lines_survive_edits`), since the fix changes where a remove puts comments and takes out the property's excuse.
+	- Verified: 20261119, the 2,000,000 release fuzz of all fuzz_smoke on nov19b at 9d6d9d7e passed, `dd3t9` and `dderx` included (34 passed).
+	- Needs local test suite run?: No. The 2M release fuzz passed on 20261119.
 	- Branch: `nov19b-2026111109022600`
+	- Acceptance signoff: me, 20261119. Tests cover the fix, each new test was seen to fail without it, and the 2M fuzz passed.
+	- Closed: 20261119-155137
+	- Closed reason: Done
 
 - A default form's replaced-value comment puts the field's blank above a kept line's comments
 	- ID: 2026111022100191
 	- Type: Bug
-	- Status: Waiting on automated testing
+	- Status: Closed
 	- Severity: Avg
 	- Target version: v3.0.0
 	- Opened: 20261110-221001
@@ -412,8 +416,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: the 2 callers of `push_comment` in each binding, `set_comment` and `replace_default`. `adopt_heir` already puts the blank on the first line it adds. `adopt`'s handover of a removed node's blank goes above the heir's comments on purpose, as cutting the line by hand does (2026111623191917). The banner's blank is its own rule.
 	- Test case: placement rows `2026111022100191-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dd3t9`, `dderx`.
 	- Verified: the 3 rows fail on the library at `6a983d87` (Rust runner, C runner) and pass on the change in all 4 runners. The issue's commands give the expected text through all 4 CLIs. `--backlog-run-quick rust go python c` (with `dd3t9`, `dderx`, `df50j`), `dd3t9` and `dderx` at 200,000 in release, cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), check-docs, lint-report, rustfmt, and markdownlint.
-	- Needs local test suite run?: the 2,000,000 release fuzz of `dd3t9` and `dderx` (`SHCL_FUZZ_ITERS=2000000 cargo test --release --test fuzz_smoke -- keeping_lines_reloads_as_the_document kept_lines_survive_edits`), since the fix changes where a comment edit puts a blank and takes out the property's excuse.
+	- Verified: 20261119, the 2,000,000 release fuzz of all fuzz_smoke on nov19b at 9d6d9d7e passed, `dd3t9` and `dderx` included (34 passed).
+	- Needs local test suite run?: No. The 2M release fuzz passed on 20261119.
 	- Branch: `nov19b-2026111022100191`
+	- Acceptance signoff: me, 20261119. Tests cover the fix, each new test was seen to fail without it, and the 2M fuzz passed.
+	- Closed: 20261119-155137
+	- Closed reason: Done
 
 - `set_comment` making a field after a kept last line puts its blank above the kept line's comments
 	- ID: 2026111021153725
@@ -432,6 +440,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Note: the placement property in `dd3t9` excuses this class with a check keyed by this ID. The fix takes it out.
 	- 20261111: the property that excuses this is now in dev's `fuzz_smoke.rs`, on b2bits. The CLI reproduction stands.
+	- 20261119: the fix for 2026111022100191 (`push_comment` puts the blank on the new comment) gives this item's expected output through all 4 CLIs. What's left: take the `made` excuse out of `placement_slips`, add a placement row, and close against that fix.
 
 - `clear_comments` takes a comment on the far side of a kept line above its target
 	- ID: 2026111021095858
@@ -1491,7 +1500,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: `upgrade` leaves a file stamped beta1's `Format 3` alone, where the load converts it from the format its mtime and tells give
 	- ID: 2026111912330681
 	- Type: Feature
-	- Status: Waiting on automated testing
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261119-123306
@@ -1510,11 +1519,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 20261119: when the fresh text's Format line read is beta1's `Format 3` or a pin, such as one inside a field's lines above the new block, it's rewritten to `3.0`, as a save without the block rewrites it. Without that, the next run read it by `find_format` again and made the file over again (`de116` at 200,000).
 		- me, 20261119: cli-regress `ddy87` (`upgrade-beta-unsaid`) gave `tags: a, b` under `Format 3` back as it was. The comma list is a tell of 3.0-a37 and older, so it's made over now, to `tags: [a, b]` with the block, and the load's `E026` printed.
 	- Verified: `dfh89` to `dfh8c` fail in all 4 runners with the early return on the Format line put back, and pass without. `dfh89` fails with the restamp of an unchanged pin file allowed. `de116` fails its new guard with the early return put back, and passes at 300, and at 200,000 and 1,000,000 in release. The 4 conformance suites, the C runner under ASan and UBSan, `--backlog-run-quick rust go python c cli`, cli-regress over the 4 CLIs, crosscheck over the corpus, shell-regress `dej8g`, `dc7gs`, `dcmcq` and `dd86w`, `test-ids.py check` and `lint-report.bash --check --no-mark` passed.
+	- Verified: 20261119, the 2,000,000 release fuzz of all fuzz_smoke on nov19b at 9d6d9d7e passed, `de116` included (34 passed).
 	- Swept: `upgrade_dated` in Rust, Go, Python and C, with the C++ interface over C's. The load already reads a stamped file by `find_format`. `migrate` doesn't find a format, by design. The CLIs call `upgrade_dated`. Docs: spec.md's `UpgradeFile` bullet and the Format line paragraph, design.md's `upgrade_file` bullet, the design doc, the changelog, and the `Upgrade` and `upgrade` doc comments in all 4 and `shcl.hpp`.
 	- Test case: `an_upgrade_reads_a_beta1_stamp_as_the_load_does` (Rust `dfh89`, Go `dfh8a`, Python `dfh8b`, C `dfh8c`), fuzz `de116`, and check-migrate `ddmp8`.
 	- Branch: `nov19b-2026111912330681`, fix on `nov19b-2026111912330681-fix`
-	- Needs local test suite run?: the 2,000,000 release fuzz of `de116` (`SHCL_FUZZ_ITERS=2000000 cargo test --release --test fuzz_smoke upgrade_leaves_its_own_output_alone`), since this item changed that property.
+	- Needs local test suite run?: No. The 2M release fuzz passed on 20261119.
 	- Commit: `bec14386`
+	- Acceptance signoff: me, 20261119. Tests cover the fix, each new test was seen to fail without it, and the 2M fuzz passed.
+	- Closed: 20261119-155137
+	- Closed reason: Done
 	- 20261119: cli-regress `ddy87` expected `tags: a, b\n##    Format   3\n` and `nothing to upgrade`; it now expects `tags: [a, b]` with the block, and `E026`.
 	- 20261119: check-migrate `ddmp8` expected its 2 beta files (`tags: a, b` under `Format 3`, bare and under the info block) left alone without `--from-2x`. It now expects them made over without the flag too, backed up as `format-v3` and the same fresh file `--from-2x` writes. A corpus input naming format 3 with no pin's tell is still left alone. Verified: check-migrate passed.
 
