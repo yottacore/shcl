@@ -626,13 +626,16 @@ fUpConverts3(){
 ##	names (2026101407100010). One with an error whose fresh file would keep
 ##	one is refused at 7 and left (2026101515372401). Anything else is left
 ##	alone. The fresh file loads clean, so a second run, with the flag or not,
-##	leaves it.
+##	leaves it. Given `pin`, the file is beta1's `Format 3` over a tell of
+##	3.0-a37 or older, which upgrade makes over without the flag too, to the
+##	same fresh file (2026111912330681).
 fUpFormat3(){
-	local upBackup="cfg_backup_20261004-001500_format-v3.shcl"
+	local upBackup="cfg_backup_20261004-001500_format-v3.shcl" pin="${1:-}"
 	fUpgradeRun "${upSrc}" --from-2x
 	if fUpConverts3 "${upSrc}"; then
 		nUpFormat3+=1
 		fUpRewritten "format 3 with an error, with --from-2x"
+		cp "${upDir}/cfg.shcl" "${tmpDir}/fresh3.shcl"
 	elif [[ "$(fErrors "${upSrc}")" != 0 ]] && grep -qE '^##[[:space:]]+Format[[:space:]]+3[[:space:]]*$' "${upSrc}"; then
 		nUpFormat3Left+=1
 		((upRc == 7)) || fUpBad "format 3 whose fresh file keeps an error, with --from-2x: exit ${upRc}, not 7"
@@ -641,7 +644,12 @@ fUpFormat3(){
 		fUpUntouched "format 3, with --from-2x"
 	fi
 	fUpgradeRun "${upSrc}"
-	fUpUntouched "format 3, without --from-2x"
+	if [[ "${pin}" == pin ]]; then
+		fUpRewritten "format 3 with a pin's tell, without --from-2x"
+		cmp -s "${tmpDir}/fresh3.shcl" "${upDir}/cfg.shcl" || fUpBad "format 3 with a pin's tell, without --from-2x: a fresh file other than the --from-2x one"
+	else
+		fUpUntouched "format 3, without --from-2x"
+	fi
 }
 
 ##	With --from-2x a file is rewritten when it loads with an error, or when
@@ -785,7 +793,10 @@ fi
 ##	error, which --from-2x takes as 2.x when the fresh file loads clean
 ##	(2026101407100010). The first file here would keep `b 2`, so it is
 ##	refused at 7 and stays (2026101515372401); the other 2 are a beta's comma
-##	list, bare and under the info block the betas wrote.
+##	list, bare and under the info block the betas wrote. The comma list is a
+##	pin's tell, so those 2 are made over without --from-2x as well
+##	(2026111912330681), and a corpus input naming format 3 with no such tell
+##	is still left alone.
 fTest ddmp8 a file naming format 3 is upgraded only when --from-2x vouches for it
 printf 'a: 1\n  bad\nb 2\n\n##    Format   3\n' > "${tmpDir}/format3-bad.shcl"
 printf 'tags: a, b\n##    Format   3\n' > "${tmpDir}/format3-beta.shcl"
@@ -797,7 +808,14 @@ for f in "${corpus}"/*/input.shcl "${tmpDir}/format3-bad.shcl" "${tmpDir}/format
 	## Wrong since 2026101407100010, as in the loop above. Don't uncomment.
 	# fUpgradeRun "${f}" --from-2x; fUpUntouched "format 3, with --from-2x"
 	# fUpgradeRun "${f}";           fUpUntouched "format 3, without --from-2x"
-	fUpFormat3
+	## Wrong since 2026111912330681: a comma list is a tell of 3.0-a37 or
+	## older, so the beta files are made over without --from-2x too. Kept as
+	## a record; don't uncomment.
+	# fUpFormat3
+	case "${f}" in
+		*/format3-beta.shcl | */format3-beta-block.shcl) fUpFormat3 pin ;;
+		*) fUpFormat3 ;;
+	esac
 done
 nBad+=nUpBad
 ((nFormat3 > 1)) || { echo "check-migrate: no corpus input names format 3" >&2; nBad+=1; }

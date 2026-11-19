@@ -1511,11 +1511,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 20261119: cli-regress `ddy87` (`upgrade-beta-unsaid`) gave `tags: a, b` under `Format 3` back as it was. The comma list is a tell of 3.0-a37 and older, so it's made over now, to `tags: [a, b]` with the block, and the load's `E026` printed.
 	- Verified: `dfh89` to `dfh8c` fail in all 4 runners with the early return on the Format line put back, and pass without. `dfh89` fails with the restamp of an unchanged pin file allowed. `de116` fails its new guard with the early return put back, and passes at 300, and at 200,000 and 1,000,000 in release. The 4 conformance suites, the C runner under ASan and UBSan, `--backlog-run-quick rust go python c cli`, cli-regress over the 4 CLIs, crosscheck over the corpus, shell-regress `dej8g`, `dc7gs`, `dcmcq` and `dd86w`, `test-ids.py check` and `lint-report.bash --check --no-mark` passed.
 	- Swept: `upgrade_dated` in Rust, Go, Python and C, with the C++ interface over C's. The load already reads a stamped file by `find_format`. `migrate` doesn't find a format, by design. The CLIs call `upgrade_dated`. Docs: spec.md's `UpgradeFile` bullet and the Format line paragraph, design.md's `upgrade_file` bullet, the design doc, the changelog, and the `Upgrade` and `upgrade` doc comments in all 4 and `shcl.hpp`.
-	- Test case: `an_upgrade_reads_a_beta1_stamp_as_the_load_does` (Rust `dfh89`, Go `dfh8a`, Python `dfh8b`, C `dfh8c`), and fuzz `de116`.
-	- Branch: `nov19b-2026111912330681`
+	- Test case: `an_upgrade_reads_a_beta1_stamp_as_the_load_does` (Rust `dfh89`, Go `dfh8a`, Python `dfh8b`, C `dfh8c`), fuzz `de116`, and check-migrate `ddmp8`.
+	- Branch: `nov19b-2026111912330681`, fix on `nov19b-2026111912330681-fix`
 	- Needs local test suite run?: the 2,000,000 release fuzz of `de116` (`SHCL_FUZZ_ITERS=2000000 cargo test --release --test fuzz_smoke upgrade_leaves_its_own_output_alone`), since this item changed that property.
 	- Commit: `bec14386`
 	- 20261119: cli-regress `ddy87` expected `tags: a, b\n##    Format   3\n` and `nothing to upgrade`; it now expects `tags: [a, b]` with the block, and `E026`.
+	- 20261119: check-migrate `ddmp8` expected its 2 beta files (`tags: a, b` under `Format 3`, bare and under the info block) left alone without `--from-2x`. It now expects them made over without the flag too, backed up as `format-v3` and the same fresh file `--from-2x` writes. A corpus input naming format 3 with no pin's tell is still left alone. Verified: check-migrate passed.
 
 - A remove drops the blank line above its target, so the gap between 2 groups closes
 	- ID: 2026111623191917
