@@ -119,7 +119,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: narrow a file's format by its tells and the most legal reading
 	- ID: 2026111907080400
 	- Type: Feature
-	- Status: Queued
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261119-070804
@@ -128,7 +128,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Prereq IDs: 2026111907075423
 	- Requirements: steps 3 and 4 of the design doc's Finding a file's format, from its Tells table, in the same read and in all 4 bindings. Pin each case with `touch -d` mtimes where a file is read.
 	- Estimated effort: High
+	- Actual effort: Avg
 	- Note: the 2 steps give the same answer as one count. Each format `find_format` would choose from, after the stamp and the mtime, counts the lines with a tell that it refuses or reads as binding nothing, plus the footer when its `init` didn't write it. The lowest count wins, and a tie goes to the newest. A format the tells take off has a count above 0, so it loses to any format they leave.
+	- Decisions:
+		- me, 20261119: a line the current rules refuse is told by its error code: `E013` for `*` items, `E026` for a comma list, `E029` for a bracket selector, `E014` on a name led by a digit, and `E025` on a line with a CR. A line they read clean is told by its tokens: a bracketed value, a `-` item, a paren selector, or an apostrophe inside a bare word. A line they refuse for any other reason has no tell, since the other formats refuse it too.
+		- me, 20261119: a footer is told by its Syntax line, once per file: `#` for 1.1 to 2.0, `##` linking `v3.0.0` for 3.0-1f8, and `##` linking `v3.0.0-beta1` for 3.0-30d on. Only the current rules' raw blocks are skipped.
+		- me, 20261119: `name:[disc]` with children isn't counted, since every format refuses it. Spellings that read clean both ways aren't counted, per the design doc.
+		- me, 20261119: departs from the wording. No call reads a file yet, so the cases pass the mtime as a number, as 2026111907075423's do. The `touch -d` cases go with the load, which passes the file's mtime (2026111907080423).
+	- Verified: the new test fails in the Rust, Go and Python runners with the tells step turned off, and passes in all 4 with it. `--backlog-run-quick` over every area, check-veneer, `test-ids.py check`, `lint-report.bash --check --no-mark` and the markdown check passed. The C runner passed under ASan and UBSan with `SHCL_ARENA_MALLOC`. analyze-c and the cppcheck line from `LINT_EXTRA` passed. codeql-scan found nothing in the C, C++, Go and Rust code. Its one Python finding, `de5aj`, is in `cmd/shcl/main.py` from 2026-11-11, which this item didn't touch.
+	- Swept: the read and its tell table in Rust, Go, Python and C, with the C++ interface's comment over C's. spec.md, the changelog and the design doc say so. No CLI calls it yet.
+	- Test case: `a_file_format_comes_from_its_tells` (Rust `dfgwc`, Go `dfgwd`, Python `dfgwe`, C `dfgwf`).
+	- Branch: `nov19-2026111907080400`
+	- Commit: `e8efdca9`, `1f0309a8`
+	- Acceptance signoff: Self-closed: each tell row is pinned in all 4 runners, by the memory.md close policy.
+	- Closed: 20261119-084012
+	- Closed reason: Done
 
 - Format versions: one table-driven conversion step per format, run in order on load
 	- ID: 2026111907080423

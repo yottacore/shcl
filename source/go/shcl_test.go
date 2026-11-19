@@ -4642,6 +4642,69 @@ func TestAFileFormatComesFromItsStampAndMtime(t *testing.T) {
 	}
 }
 
+// TestAFileFormatComesFromItsTells: of the formats a text's stamp and mtime
+// leave, the one whose rules refuse the fewest of its tells is its format,
+// and a tie goes to the newest. Rust's a_file_format_comes_from_its_tells has
+// the same rows. The mtimes are Unix seconds at UTC.
+func TestAFileFormatComesFromItsTells(t *testing.T) {
+	defer testID(t, "dfgwd")
+	at := func(n int64) *int64 { return &n }
+	sep1 := at(1788220800)  // 2026-09-01, 1.0 to 2.0
+	sep28 := at(1790553600) // 2026-09-28, to 3.0-30d
+	oct10 := at(1791590400) // 2026-10-10, to 3.0-a37
+	oct20 := at(1792454400) // 2026-10-20, to 3.0-9ef
+	nov10 := at(1794268800) // 2026-11-10, every format
+	f3 := "a: 1\n##    Format   3\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0/project/spec.md\n"
+	f3b1 := "a: 1\n##    Format   3\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n"
+	f2 := "a: 1\n#    Home     https://example.com/shcl\n#    Syntax   https://example.com/shcl/blob/main/project/spec.md\n"
+	cases := []struct {
+		text  string
+		mtime *int64
+		want  string
+	}{
+		{"a: [1, 2]\n", oct10, "2.0"},
+		{"a: [1, 2]\n", nov10, "3.0"},
+		{"a: 1, 2\n", nov10, "3.0-a37"},
+		{"a: 1, 2\n", nil, "3.0-a37"},
+		{"a: x,\n", nil, "3.0-a37"},
+		{"a:\n\t* x\n\t* y\n", nov10, "3.0-a37"},
+		{"s[\"p\"].h: 1\n", nil, "3.0-a37"},
+		{"1a: x\n", nil, "3.0-a37"},
+		{"h: x\r y\n", nil, "3.0-a37"},
+		{"a: it's ok\n", oct20, "3.0-a37"},
+		{"a: it's ok\n", nov10, "3.0"},
+		{"a: \"it's\" ok\n", oct20, "3.0-9ef"},
+		// Content newer than the mtime: every format left refuses it alike.
+		{"a:\n\t- x\n", oct10, "3.0-a37"},
+		{"s(p).h: 1\n", sep1, "2.0"},
+		{"a: [1, 2]\nb:\n\t- x\n", oct10, "2.0"},
+		{"a: 1, 2\nb: [3]\n", nil, "2.0"},
+		{"a: 1, 2\nb:\n\t- x\n\t- y\n", nil, "3.0"},
+		// The footers.
+		{f3, nil, "3.0-1f8"},
+		{f3, nov10, "3.0-1f8"},
+		{f3b1, nov10, "3.0"},
+		{f3b1, sep28, "3.0-30d"},
+		{f2, nov10, "2.0"},
+		{f2, at(1784505600), "1.0"}, // 2026-07-20
+		// Not tells: read clean both ways, refused by every format, or in a
+		// raw body.
+		{"a: 'C:\\temp'\nb: \"x\\ty\"\nc: `q`\nd: 1,2\ne: 0o17\n", nil, "3.0"},
+		{"a: 'C:\\temp'\n", sep1, "2.0"},
+		{"b b: 1\ns[#0].h: 1\n- x\n", nil, "3.0"},
+		{"c: [1, 2]\n\tx: 1\n", nil, "3.0"},
+		{"a: ~~~\nb: 1, 2\n~~~\n", nil, "3.0"},
+		// A whole stamp settles it.
+		{"a: 1, 2\n## SHCL format 3.0\n", nil, "3.0"},
+		{"\ufeffa: 1, 2\n", nov10, "3.0-a37"},
+	}
+	for _, c := range cases {
+		if got, ok := FindFormat(c.text, c.mtime); !ok || got != c.want {
+			t.Errorf("%q at %v: %q, want %q", c.text, c.mtime, got, c.want)
+		}
+	}
+}
+
 // TestStampReadsSayWhy: the Format and Schema lines read with a status, so an
 // unstamped file and a damaged stamp read apart, and the load's H006 and H007
 // hints say the same as the Format read on every row. Rust's

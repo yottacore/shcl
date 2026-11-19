@@ -880,8 +880,8 @@ int64_t shcl_format_version(const char *text, size_t len);
 // value is 0 unless SHCL_GOOD. The load's H006 and H007 hints come from this
 // same reading, and quote the number as written.
 shcl_read_i64 shcl_read_format_version(const char *text, size_t len);
-// The format a text was written in, by its stamp and *mtime, in Unix
-// seconds, as the first 2 steps of the format versions design doc's Finding a
+// The format a text was written in, by its stamp, *mtime in Unix seconds,
+// and its tells, as the 4 steps of the format versions design doc's Finding a
 // file's format give it: a name from shcl_format_names, or NULL for a stamp
 // naming a newer format than this reader's. A stamp naming a whole format, or
 // a pin's own name, settles it. beta1's `Format 3` names only a major, and
@@ -891,8 +891,9 @@ shcl_read_i64 shcl_read_format_version(const char *text, size_t len);
 // doesn't matter. It doesn't take off an older format, since a program pinned
 // to an old shcl still writes one. An mtime that would take off every format
 // is ignored, which covers one before any format existed and one older than
-// the stamp. The newest format left is the answer, which it is for a text
-// without any of the design doc's tells. Text from no file passes NULL.
+// the stamp. Of the formats left, the one whose rules refuse the fewest of the
+// text's tells is the answer, and a tie goes to the newest, so a text without
+// tells reads as the newest format left. Text from no file passes NULL.
 const char *shcl_find_format(const char *text, size_t len, const int64_t *mtime);
 // The schema a document's `##    Schema   REF` line names: a path, or a URL
 // for an editor to fetch, as a pointer into text with its length in *ref_len.
@@ -4513,6 +4514,153 @@ static const struct { const char *name; int64_t day; } shcl_format_days[11] = {
 	{"3.0", 20762},     /* 2026-11-05 */
 };
 
+/* The runs of shcl_format_days the design doc's Tells table counts each tell
+   against, by their first and last format. A footer's run is the formats
+   whose `init` wrote it, and it counts against the rest. A spelling 2 formats
+   both read clean, such as an escape, isn't a tell here. */
+static const char *const shcl_tell_runs[7][2] = {
+	/* Refused from the format 3 value syntax on: a comma list, `*` items, a
+	   bracket selector, a bare name led by a digit, a CR in a bare value. */
+	{"3.0-9ef", "3.0"},
+	/* A bracketed value, which binds nothing. */
+	{"3.0-1f8", "3.0-a37"},
+	/* `-` items and a paren selector. */
+	{"1.0", "3.0-a37"},
+	/* An apostrophe inside a bare word. */
+	{"3.0-9ef", "3.0-9ef"},
+	/* The footers, by their Syntax line. */
+	{"1.1", "2.0"},
+	{"3.0-1f8", "3.0-1f8"},
+	{"3.0-30d", "3.0"},
+};
+
+enum { TELL_REFUSED_NOW, TELL_BRACKETS, TELL_NEW_SPELLING, TELL_APOSTROPHE, TELL_FOOTER_2, TELL_FOOTER_1F8, TELL_FOOTER_3 };
+
+/* The Syntax line of each footer, and the tell it is. */
+static const struct { const char *head, *tag; int tell; } shcl_tell_footers[3] = {
+	{"#    Syntax   ", "", TELL_FOOTER_2},
+	{"##    Syntax   ", "/v3.0.0/", TELL_FOOTER_1F8},
+	{"##    Syntax   ", "/v3.0.0-beta1/", TELL_FOOTER_3},
+};
+
+/* A tell's run as bits of shcl_format_days. */
+static uint32_t tell_run(int tell) {
+	size_t count = sizeof shcl_format_days / sizeof shcl_format_days[0], a = 0, b = 0;
+	for (size_t k = 0; k < count; k++) {
+		if (strcmp(shcl_format_days[k].name, shcl_tell_runs[tell][0]) == 0) a = k;
+		if (strcmp(shcl_format_days[k].name, shcl_tell_runs[tell][1]) == 0) b = k;
+	}
+	return ((((uint32_t)1) << (b + 1)) - 1) & ~((((uint32_t)1) << a) - 1);
+}
+
+/* The errors these rules give a line, as bits, for line_tells. */
+enum { TELL_ERR_ANY = 1, TELL_ERR_E013 = 2, TELL_ERR_E014 = 4, TELL_ERR_E025 = 8, TELL_ERR_E026 = 16, TELL_ERR_E029 = 32 };
+
+/* The formats a line's tells count against, as bits of shcl_format_days.
+   errs are the errors these rules give the line. What these rules refuse is
+   told by its code, and what they read clean by its tokens. A line these rules
+   refuse for another reason has no tell, since the other formats refuse it
+   too. */
+static uint32_t line_tells(ShclArena *ta, ShclStr rest, unsigned errs, ShclTokens *tok) {
+	if (rest.p[0] == '*') return (errs & TELL_ERR_E013) ? tell_run(TELL_REFUSED_NOW) : 0;
+	if (is_item(rest)) return errs ? 0 : tell_run(TELL_NEW_SPELLING);
+	tokenize(ta, rest, ':', 0, SHCL_RULES_CURRENT, tok);
+	int led_by_digit = tok->has_misspelled && tok->misspelled < rest.n && rest.p[tok->misspelled] >= '0' && rest.p[tok->misspelled] <= '9';
+	if ((errs & (TELL_ERR_E026 | TELL_ERR_E029)) || ((errs & TELL_ERR_E025) && memchr(rest.p, '\r', rest.n)) || ((errs & TELL_ERR_E014) && led_by_digit))
+		return tell_run(TELL_REFUSED_NOW);
+	if (errs) return 0;
+	uint32_t run = 0;
+	if (tok->has_array) run |= tell_run(TELL_BRACKETS);
+	for (size_t k = 0; k < tok->nseg; k++) {
+		if (tok->segments[k].has_selector) { run |= tell_run(TELL_NEW_SPELLING); break; }
+	}
+	for (size_t e = 0; e < tok->nelem; e++) {
+		const shcl_piece *p = &tok->elements[e];
+		if (p->quote != SHCL_QUOTE_NONE) continue;
+		int found = 0;
+		for (size_t k = p->start + 1; k + 1 < p->end; k++) {
+			if (rest.p[k] == '\'' && !is_wsp((unsigned char)rest.p[k - 1]) && !is_wsp((unsigned char)rest.p[k + 1])) { found = 1; break; }
+		}
+		if (found) { run |= tell_run(TELL_APOSTROPHE); break; }
+	}
+	return run;
+}
+
+/* The one format of left that reads the text most legally, as the last 2
+   steps of the design doc's Finding a file's format give it. Each counts the
+   lines with a tell it refuses or reads as binding nothing, plus each footer
+   its `init` didn't write. The lowest count wins, and a tie goes to the
+   newest, so a format the tells take off loses to any they leave. */
+static uint32_t most_legal(ShclStr in, uint32_t left) {
+	SHCL_VOLATILE_OWNER_BEGIN
+	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
+	if (!own) { SHCL_OOM(); abort(); }
+	SHCL_VOLATILE_OWNER_END
+	jmp_buf panic;
+	if (SHCL_SETJMP(panic)) {
+		ShclMigrateOwn *bad = own;
+		if (bad->doc) shcl_free(bad->doc);
+		arena_free(&bad->a); arena_free(&bad->sc); free(bad);
+		SHCL_OOM();
+		abort();
+	}
+	arena_guard(&own->a, &panic); arena_guard(&own->sc, &panic);
+	if (in.n >= 3 && (unsigned char)in.p[0] == 0xEF && (unsigned char)in.p[1] == 0xBB && (unsigned char)in.p[2] == 0xBF) in = s_slice(in, 3, in.n);
+	size_t nlines = 1;
+	for (size_t i = 0; i < in.n; i++) nlines += in.p[i] == '\n';
+	unsigned char *errs = (unsigned char *)arena_alloc(&own->a, nlines + 1);
+	memset(errs, 0, nlines + 1);
+	const ShclVecDiag *diags = migrate_load(own, in);
+	for (size_t k = 0; k < diags->len; k++) {
+		const ShclDiag *dg = &diags->data[k];
+		if (dg->sev != SHCL_SEV_ERROR || dg->line < 1 || dg->line > nlines) continue;
+		unsigned bit = TELL_ERR_ANY;
+		if (strcmp(dg->code, "E013") == 0) bit |= TELL_ERR_E013;
+		else if (strcmp(dg->code, "E014") == 0) bit |= TELL_ERR_E014;
+		else if (strcmp(dg->code, "E025") == 0) bit |= TELL_ERR_E025;
+		else if (strcmp(dg->code, "E026") == 0) bit |= TELL_ERR_E026;
+		else if (strcmp(dg->code, "E029") == 0) bit |= TELL_ERR_E029;
+		errs[dg->line] |= (unsigned char)bit;
+	}
+	migrate_unload(own);
+	size_t count = sizeof shcl_format_days / sizeof shcl_format_days[0];
+	size_t against[sizeof shcl_format_days / sizeof shcl_format_days[0]] = {0};
+	uint32_t footers = 0;
+	ShclRawLines lines;
+	raw_lines_init(&lines, SHCL_RULES_CURRENT);
+	ShclTokens tok; memset(&tok, 0, sizeof tok);
+	size_t start = 0, ln = 0;
+	for (size_t i = 0; i <= in.n; i++) {
+		if (i < in.n && in.p[i] != '\n') continue;
+		ShclStr raw = s_slice(in, start, i);
+		start = i + 1;
+		ln++;
+		ShclStr rest = s_empty();
+		if (!raw_lines_step(&own->a, &own->sc, &lines, raw, &rest) || rest.n == 0) continue;
+		if (rest.p[0] == '#') {
+			for (size_t f = 0; f < 3; f++) {
+				if (s_starts(rest, shcl_tell_footers[f].head) && s_has(rest, s_lit(shcl_tell_footers[f].tag))) footers |= (uint32_t)1 << shcl_tell_footers[f].tell;
+			}
+			continue;
+		}
+		uint32_t run = line_tells(&own->a, rest, errs[ln], &tok);
+		for (size_t f = 0; f < count; f++) against[f] += (run >> f) & 1;
+	}
+	static const int footer_tells[3] = {TELL_FOOTER_2, TELL_FOOTER_1F8, TELL_FOOTER_3};
+	for (size_t t = 0; t < 3; t++) {
+		if (!((footers >> footer_tells[t]) & 1)) continue;
+		uint32_t wrote = tell_run(footer_tells[t]);
+		for (size_t f = 0; f < count; f++) against[f] += ((wrote >> f) & 1) ^ 1;
+	}
+	ShclMigrateOwn *done = own;
+	arena_free(&done->a); arena_free(&done->sc); free(done);
+	size_t best = count;
+	for (size_t f = 0; f < count; f++) {
+		if (((left >> f) & 1) && (best == count || against[f] <= against[best])) best = f;
+	}
+	return best == count ? left : (uint32_t)1 << best;
+}
+
 const char *shcl_find_format(const char *text, size_t len, const int64_t *mtime) {
 	ShclStamp st = stamp_of(text, len);
 	if (names_newer(st)) return NULL;
@@ -4538,6 +4686,10 @@ const char *shcl_find_format(const char *text, size_t len, const int64_t *mtime)
 			if (*mtime >= (shcl_format_days[k].day - 1) * 86400) by_mtime |= (uint32_t)1 << k;
 		}
 		if (left & by_mtime) left &= by_mtime;
+	}
+	if (left & (left - 1)) {
+		ShclStr in; in.p = text ? text : ""; in.n = len;
+		left = most_legal(in, left);
 	}
 	size_t newest = 0;
 	for (size_t k = 0; k < count; k++) if (left & ((uint32_t)1 << k)) newest = k;

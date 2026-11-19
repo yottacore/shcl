@@ -4379,6 +4379,59 @@ def main():
 	if ffseen != ffown:
 		raise SystemExit(f"find_format by day: {ffseen}, want {ffown}")
 
+	test_id("dfgwe", "a_file_format_comes_from_its_tells")
+	# Of the formats a text's stamp and mtime leave, the one whose rules
+	# refuse the fewest of its tells is its format, and a tie goes to the
+	# newest. Rust's a_file_format_comes_from_its_tells has the same rows. The
+	# mtimes are Unix seconds at UTC.
+	ftsep1 = 1788220800  # 2026-09-01, 1.0 to 2.0
+	ftsep28 = 1790553600  # 2026-09-28, to 3.0-30d
+	ftoct10 = 1791590400  # 2026-10-10, to 3.0-a37
+	ftoct20 = 1792454400  # 2026-10-20, to 3.0-9ef
+	ftnov10 = 1794268800  # 2026-11-10, every format
+	ftf3 = "a: 1\n##    Format   3\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0/project/spec.md\n"
+	ftf3b1 = "a: 1\n##    Format   3\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n"
+	ftf2 = "a: 1\n#    Home     https://example.com/shcl\n#    Syntax   https://example.com/shcl/blob/main/project/spec.md\n"
+	for fttext, ftmtime, ftwant in (
+		("a: [1, 2]\n", ftoct10, "2.0"),
+		("a: [1, 2]\n", ftnov10, "3.0"),
+		("a: 1, 2\n", ftnov10, "3.0-a37"),
+		("a: 1, 2\n", None, "3.0-a37"),
+		("a: x,\n", None, "3.0-a37"),
+		("a:\n\t* x\n\t* y\n", ftnov10, "3.0-a37"),
+		("s[\"p\"].h: 1\n", None, "3.0-a37"),
+		("1a: x\n", None, "3.0-a37"),
+		("h: x\r y\n", None, "3.0-a37"),
+		("a: it's ok\n", ftoct20, "3.0-a37"),
+		("a: it's ok\n", ftnov10, "3.0"),
+		("a: \"it's\" ok\n", ftoct20, "3.0-9ef"),
+		# Content newer than the mtime: every format left refuses it alike.
+		("a:\n\t- x\n", ftoct10, "3.0-a37"),
+		("s(p).h: 1\n", ftsep1, "2.0"),
+		("a: [1, 2]\nb:\n\t- x\n", ftoct10, "2.0"),
+		("a: 1, 2\nb: [3]\n", None, "2.0"),
+		("a: 1, 2\nb:\n\t- x\n\t- y\n", None, "3.0"),
+		# The footers.
+		(ftf3, None, "3.0-1f8"),
+		(ftf3, ftnov10, "3.0-1f8"),
+		(ftf3b1, ftnov10, "3.0"),
+		(ftf3b1, ftsep28, "3.0-30d"),
+		(ftf2, ftnov10, "2.0"),
+		(ftf2, 1784505600, "1.0"),  # 2026-07-20
+		# Not tells: read clean both ways, refused by every format, or in a
+		# raw body.
+		("a: 'C:\\temp'\nb: \"x\\ty\"\nc: `q`\nd: 1,2\ne: 0o17\n", None, "3.0"),
+		("a: 'C:\\temp'\n", ftsep1, "2.0"),
+		("b b: 1\ns[#0].h: 1\n- x\n", None, "3.0"),
+		("c: [1, 2]\n\tx: 1\n", None, "3.0"),
+		("a: ~~~\nb: 1, 2\n~~~\n", None, "3.0"),
+		# A whole stamp settles it.
+		("a: 1, 2\n## SHCL format 3.0\n", None, "3.0"),
+		("\ufeffa: 1, 2\n", ftnov10, "3.0-a37"),
+	):
+		if shcl.find_format(fttext, ftmtime) != ftwant:
+			raise SystemExit(f"find_format {fttext!r} at {ftmtime}: {shcl.find_format(fttext, ftmtime)!r}, want {ftwant!r}")
+
 	test_id("ddqha", "stamp_reads_say_why")
 	# The Format and Schema lines read with a status, so an unstamped file and
 	# a damaged stamp read apart, and the load's H006 and H007 hints say the

@@ -3390,8 +3390,8 @@ var formatDays = [11]formatDay{
 	{"3.0", 20762},     // 2026-11-05
 }
 
-// FindFormat is the format a text was written in, by its stamp and mtime, in
-// Unix seconds, as the first 2 steps of the format versions design doc's
+// FindFormat is the format a text was written in, by its stamp, mtime in Unix
+// seconds, and its tells, as the 4 steps of the format versions design doc's
 // Finding a file's format give it. ok is false for a stamp naming a newer
 // format than this reader's.
 //
@@ -3402,9 +3402,10 @@ var formatDays = [11]formatDay{
 // before, so the writer's time zone doesn't matter. It doesn't take off an
 // older format, since a program pinned to an old shcl still writes one. An
 // mtime that would take off every format is ignored, which covers one before
-// any format existed and one older than the stamp. The newest format left is
-// the answer, which it is for a text without any of the design doc's tells.
-// Text from no file passes nil.
+// any format existed and one older than the stamp. Of the formats left, the
+// one whose rules refuse the fewest of the text's tells is the answer, and a
+// tie goes to the newest, so a text without tells reads as the newest format
+// left. Text from no file passes nil.
 func FindFormat(text string, mtime *int64) (string, bool) {
 	stamp := ReadFormatVersion(text)
 	if namesNewer(stamp) {
@@ -3442,7 +3443,182 @@ func FindFormat(text string, mtime *int64) (string, bool) {
 			left &= byMtime
 		}
 	}
+	if left&(left-1) != 0 {
+		left = mostLegal(strings.TrimPrefix(text, "\ufeff"), left)
+	}
 	return formatDays[bits.Len32(left)-1].name, true
+}
+
+// tellRuns are the runs of formatDays the design doc's Tells table counts
+// each tell against, by their first and last format. A footer's run is the
+// formats whose `init` wrote it, and it counts against the rest. A spelling 2
+// formats both read clean, such as an escape, isn't a tell here.
+var tellRuns = [...][2]string{
+	// Refused from the format 3 value syntax on: a comma list, `*` items, a
+	// bracket selector, a bare name led by a digit, a CR in a bare value.
+	{"3.0-9ef", "3.0"},
+	// A bracketed value, which binds nothing.
+	{"3.0-1f8", "3.0-a37"},
+	// `-` items and a paren selector.
+	{"1.0", "3.0-a37"},
+	// An apostrophe inside a bare word.
+	{"3.0-9ef", "3.0-9ef"},
+	// The footers, by their Syntax line.
+	{"1.1", "2.0"},
+	{"3.0-1f8", "3.0-1f8"},
+	{"3.0-30d", "3.0"},
+}
+
+const (
+	tellRefusedNow = iota
+	tellBrackets
+	tellNewSpelling
+	tellApostrophe
+	tellFooter2
+	tellFooter1f8
+	tellFooter3
+)
+
+// tellFooters are the Syntax line of each footer, and the tell it is.
+var tellFooters = [...]struct {
+	head, tag string
+	tell      int
+}{
+	{"#    Syntax   ", "", tellFooter2},
+	{"##    Syntax   ", "/v3.0.0/", tellFooter1f8},
+	{"##    Syntax   ", "/v3.0.0-beta1/", tellFooter3},
+}
+
+// tellRun is a tell's run as bits of formatDays.
+func tellRun(tell int) uint32 {
+	at := func(n string) int {
+		for i, f := range formatDays {
+			if f.name == n {
+				return i
+			}
+		}
+		return 0
+	}
+	a, b := at(tellRuns[tell][0]), at(tellRuns[tell][1])
+	return (uint32(1)<<(b+1) - 1) &^ (uint32(1)<<a - 1)
+}
+
+// mostLegal is the one format of left that reads the text most legally, as
+// the last 2 steps of the design doc's Finding a file's format give it. Each
+// counts the lines with a tell it refuses or reads as binding nothing, plus
+// each footer its `init` didn't write. The lowest count wins, and a tie goes
+// to the newest, so a format the tells take off loses to any they leave.
+func mostLegal(text string, left uint32) uint32 {
+	refused := map[int][]string{}
+	for _, d := range Parse(text).Diagnostics() {
+		if d.Severity == SeverityError {
+			refused[d.Line] = append(refused[d.Line], d.Code)
+		}
+	}
+	var against [len(formatDays)]int
+	footers := uint32(0)
+	raw := newRawLines(RulesCurrent)
+	var tok Tokens
+	for i, line := range strings.Split(text, "\n") {
+		rest, ok := raw.step(line)
+		if !ok {
+			continue
+		}
+		if strings.HasPrefix(rest, "#") {
+			for _, ft := range tellFooters {
+				if strings.HasPrefix(rest, ft.head) && strings.Contains(rest, ft.tag) {
+					footers |= 1 << ft.tell
+				}
+			}
+			continue
+		}
+		run := lineTells(rest, refused[i+1], &tok)
+		for f := range against {
+			against[f] += int(run >> f & 1)
+		}
+	}
+	for _, tell := range [...]int{tellFooter2, tellFooter1f8, tellFooter3} {
+		if footers>>tell&1 == 1 {
+			wrote := tellRun(tell)
+			for f := range against {
+				against[f] += int(wrote>>f&1 ^ 1)
+			}
+		}
+	}
+	best := -1
+	for f, n := range against {
+		if left>>f&1 == 1 && (best < 0 || n <= against[best]) {
+			best = f
+		}
+	}
+	if best < 0 {
+		return left
+	}
+	return 1 << best
+}
+
+// lineTells is the formats a line's tells count against, as bits of
+// formatDays. codes are the errors these rules give the line. What these
+// rules refuse is told by its code, and what they read clean by its tokens. A
+// line these rules refuse for another reason has no tell, since the other
+// formats refuse it too.
+func lineTells(rest string, codes []string, tok *Tokens) uint32 {
+	has := func(c string) bool {
+		for _, x := range codes {
+			if x == c {
+				return true
+			}
+		}
+		return false
+	}
+	if strings.HasPrefix(rest, "*") {
+		if has("E013") {
+			return tellRun(tellRefusedNow)
+		}
+		return 0
+	}
+	if isItem(rest) {
+		if len(codes) == 0 {
+			return tellRun(tellNewSpelling)
+		}
+		return 0
+	}
+	Tokenize(rest, ':', false, RulesCurrent, tok)
+	ledByDigit := tok.Misspelled >= 0 && tok.Misspelled < len(rest) && rest[tok.Misspelled] >= '0' && rest[tok.Misspelled] <= '9'
+	if has("E026") || has("E029") || (has("E025") && strings.Contains(rest, "\r")) || (has("E014") && ledByDigit) {
+		return tellRun(tellRefusedNow)
+	}
+	if len(codes) > 0 {
+		return 0
+	}
+	run := uint32(0)
+	if tok.Array >= 0 {
+		run |= tellRun(tellBrackets)
+	}
+	for _, seg := range tok.Segments {
+		if seg.Selector != nil {
+			run |= tellRun(tellNewSpelling)
+			break
+		}
+	}
+	for _, p := range tok.Elements {
+		b := rest[p.Start:p.End]
+		if p.Quote != QuoteNone {
+			continue
+		}
+		found := false
+		for k := 1; k+1 < len(b); k++ {
+			if b[k] == '\'' && !isWspByte(b[k-1]) && !isWspByte(b[k+1]) {
+				found = true
+				break
+			}
+		}
+		if found {
+			run |= tellRun(tellApostrophe)
+			break
+		}
+	}
+	return run
 }
 
 // SchemaRef is the schema a document's `##    Schema   REF` line names: a

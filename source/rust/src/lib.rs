@@ -3106,8 +3106,8 @@ const FORMAT_DAYS: [(&str, i64); 11] = [
 	("3.0", 20762),     // 2026-11-05
 ];
 
-/// The format a text was written in, by its stamp and `mtime`, in Unix
-/// seconds, as the first 2 steps of the format versions design doc's Finding
+/// The format a text was written in, by its stamp, `mtime` in Unix seconds,
+/// and its tells, as the 4 steps of the format versions design doc's Finding
 /// a file's format give it. None for a stamp naming a newer format than this
 /// reader's.
 ///
@@ -3118,9 +3118,10 @@ const FORMAT_DAYS: [(&str, i64); 11] = [
 /// before, so the writer's time zone doesn't matter. It doesn't take off an
 /// older format, since a program pinned to an old shcl still writes one. An
 /// mtime that would take off every format is ignored, which covers one before
-/// any format existed and one older than the stamp. The newest format left
-/// is the answer, which it is for a text without any of the design doc's
-/// tells. Text from no file passes None.
+/// any format existed and one older than the stamp. Of the formats left,
+/// the one whose rules refuse the fewest of the text's tells is the answer,
+/// and a tie goes to the newest, so a text without tells reads as the newest
+/// format left. Text from no file passes None.
 #[must_use]
 pub fn find_format(text: &str, mtime: Option<i64>) -> Option<&'static str> {
 	let stamp = read_format_version(text);
@@ -3157,8 +3158,161 @@ pub fn find_format(text: &str, mtime: Option<i64>) -> Option<&'static str> {
 			left &= by_mtime;
 		}
 	}
+	if left & (left - 1) != 0 {
+		left = most_legal(text.strip_prefix('\u{feff}').unwrap_or(text), left);
+	}
 	let newest = 31 - left.leading_zeros();
 	Some(FORMAT_DAYS[newest as usize].0)
+}
+
+/// The runs of `FORMAT_DAYS` the design doc's Tells table counts each tell
+/// against, by their first and last format. A footer's run is the formats
+/// whose `init` wrote it, and it counts against the rest. A spelling 2
+/// formats both read clean, such as an escape, isn't a tell here.
+const TELL_RUNS: [(&str, &str); 7] = [
+	// Refused from the format 3 value syntax on: a comma list, `*` items, a
+	// bracket selector, a bare name led by a digit, a CR in a bare value.
+	("3.0-9ef", "3.0"),
+	// A bracketed value, which binds nothing.
+	("3.0-1f8", "3.0-a37"),
+	// `-` items and a paren selector.
+	("1.0", "3.0-a37"),
+	// An apostrophe inside a bare word.
+	("3.0-9ef", "3.0-9ef"),
+	// The footers, by their Syntax line.
+	("1.1", "2.0"),
+	("3.0-1f8", "3.0-1f8"),
+	("3.0-30d", "3.0"),
+];
+
+const TELL_REFUSED_NOW: usize = 0;
+const TELL_BRACKETS: usize = 1;
+const TELL_NEW_SPELLING: usize = 2;
+const TELL_APOSTROPHE: usize = 3;
+const TELL_FOOTER_2: usize = 4;
+const TELL_FOOTER_1F8: usize = 5;
+const TELL_FOOTER_3: usize = 6;
+
+/// The Syntax line of each footer, and the tell it is.
+const TELL_FOOTERS: [(&str, &str, usize); 3] = [
+	("#    Syntax   ", "", TELL_FOOTER_2),
+	("##    Syntax   ", "/v3.0.0/", TELL_FOOTER_1F8),
+	("##    Syntax   ", "/v3.0.0-beta1/", TELL_FOOTER_3),
+];
+
+/// A tell's run as bits of `FORMAT_DAYS`.
+fn tell_run(tell: usize) -> u32 {
+	let (first, last) = TELL_RUNS[tell];
+	let at = |n: &str| FORMAT_DAYS.iter().position(|(f, _)| *f == n).unwrap_or(0);
+	let (a, b) = (at(first), at(last));
+	((1 << (b + 1)) - 1) & !((1 << a) - 1)
+}
+
+/// The one format of `left` that reads the text most legally, as the last 2
+/// steps of the design doc's Finding a file's format give it. Each counts the
+/// lines with a tell it refuses or reads as binding nothing, plus each footer
+/// its `init` didn't write. The lowest count wins, and a tie goes to the
+/// newest, so a format the tells take off loses to any they leave.
+fn most_legal(text: &str, left: u32) -> u32 {
+	let mut refused: Vec<(usize, &str)> = Document::parse(text)
+		.diagnostics()
+		.iter()
+		.filter(|d| d.severity == Severity::Error)
+		.map(|d| (d.line, d.code))
+		.collect();
+	refused.sort_unstable();
+	let mut against = [0usize; FORMAT_DAYS.len()];
+	let mut footers = 0u32;
+	let mut raw = RawLines::new(Rules::Current);
+	let mut tok = Tokens::default();
+	for (i, line) in text.split('\n').enumerate() {
+		let Some(rest) = raw.step(line) else {
+			continue;
+		};
+		if rest.starts_with('#') {
+			for (head, tag, tell) in TELL_FOOTERS {
+				if rest.starts_with(head) && rest.contains(tag) {
+					footers |= 1 << tell;
+				}
+			}
+			continue;
+		}
+		let lo = refused.partition_point(|r| r.0 <= i);
+		let hi = refused.partition_point(|r| r.0 <= i + 1);
+		let run = line_tells(rest, &refused[lo..hi], &mut tok);
+		for (f, n) in against.iter_mut().enumerate() {
+			*n += (run >> f & 1) as usize;
+		}
+	}
+	for tell in [TELL_FOOTER_2, TELL_FOOTER_1F8, TELL_FOOTER_3] {
+		if footers >> tell & 1 == 1 {
+			let wrote = tell_run(tell);
+			for (f, n) in against.iter_mut().enumerate() {
+				*n += (wrote >> f & 1 ^ 1) as usize;
+			}
+		}
+	}
+	let mut best: Option<usize> = None;
+	for (f, n) in against.iter().enumerate() {
+		if left >> f & 1 == 1 && best.is_none_or(|b| *n <= against[b]) {
+			best = Some(f);
+		}
+	}
+	best.map_or(left, |f| 1 << f)
+}
+
+/// The formats a line's tells count against, as bits of `FORMAT_DAYS`.
+/// `codes` are the errors these rules give the line. What these rules refuse
+/// is told by its code, and what they read clean by its tokens. A line these
+/// rules refuse for another reason has no tell, since the other formats
+/// refuse it too.
+fn line_tells(rest: &str, codes: &[(usize, &str)], tok: &mut Tokens) -> u32 {
+	let has = |c: &str| codes.iter().any(|r| r.1 == c);
+	if rest.starts_with('*') {
+		return if has("E013") {
+			tell_run(TELL_REFUSED_NOW)
+		} else {
+			0
+		};
+	}
+	if is_item(rest) {
+		return if codes.is_empty() {
+			tell_run(TELL_NEW_SPELLING)
+		} else {
+			0
+		};
+	}
+	tokenize(rest, b':', false, Rules::Current, tok);
+	let led_by_digit = tok
+		.misspelled
+		.is_some_and(|at| rest.as_bytes().get(at).is_some_and(u8::is_ascii_digit));
+	if has("E026")
+		|| has("E029")
+		|| (has("E025") && rest.contains('\r'))
+		|| (has("E014") && led_by_digit)
+	{
+		return tell_run(TELL_REFUSED_NOW);
+	}
+	if !codes.is_empty() {
+		return 0;
+	}
+	let mut run = 0;
+	if tok.array.is_some() {
+		run |= tell_run(TELL_BRACKETS);
+	}
+	if tok.segments.iter().any(|s| s.selector.is_some()) {
+		run |= tell_run(TELL_NEW_SPELLING);
+	}
+	let inner = |p: &Piece| {
+		let b = &rest.as_bytes()[p.start..p.end];
+		p.quote == Quote::None
+			&& (1..b.len().saturating_sub(1))
+				.any(|k| b[k] == b'\'' && !is_wsp_byte(b[k - 1]) && !is_wsp_byte(b[k + 1]))
+	};
+	if tok.elements.iter().any(inner) {
+		run |= tell_run(TELL_APOSTROPHE);
+	}
+	run
 }
 
 /// read_format_version() on text with the BOM already off. Digits that do

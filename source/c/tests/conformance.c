@@ -5114,6 +5114,62 @@ int main(int argc, char **argv) {
 		}
 		if (own != SHCL_FORMAT_NAME_COUNT) fail("a_file_format_comes_from_its_stamp_and_mtime", "a format never came by day");
 	}
+	test_id("dfgwf", "a_file_format_comes_from_its_tells");
+	/* Of the formats a text's stamp and mtime leave, the one whose rules refuse
+	   the fewest of its tells is its format, and a tie goes to the newest.
+	   Rust's a_file_format_comes_from_its_tells has the same rows. The mtimes
+	   are Unix seconds at UTC, and has_mtime 0 passes none. */
+	{
+		const int64_t sep1 = 1788220800;  /* 2026-09-01, 1.0 to 2.0 */
+		const int64_t sep28 = 1790553600; /* 2026-09-28, to 3.0-30d */
+		const int64_t oct10 = 1791590400; /* 2026-10-10, to 3.0-a37 */
+		const int64_t oct20 = 1792454400; /* 2026-10-20, to 3.0-9ef */
+		const int64_t nov10 = 1794268800; /* 2026-11-10, every format */
+		const char *f3 = "a: 1\n##    Format   3\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0/project/spec.md\n";
+		const char *f3b1 = "a: 1\n##    Format   3\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n";
+		const char *f2 = "a: 1\n#    Home     https://example.com/shcl\n#    Syntax   https://example.com/shcl/blob/main/project/spec.md\n";
+		const struct { const char *text; int has_mtime; int64_t mtime; const char *want; } ft[] = {
+			{"a: [1, 2]\n", 1, oct10, "2.0"},
+			{"a: [1, 2]\n", 1, nov10, "3.0"},
+			{"a: 1, 2\n", 1, nov10, "3.0-a37"},
+			{"a: 1, 2\n", 0, 0, "3.0-a37"},
+			{"a: x,\n", 0, 0, "3.0-a37"},
+			{"a:\n\t* x\n\t* y\n", 1, nov10, "3.0-a37"},
+			{"s[\"p\"].h: 1\n", 0, 0, "3.0-a37"},
+			{"1a: x\n", 0, 0, "3.0-a37"},
+			{"h: x\r y\n", 0, 0, "3.0-a37"},
+			{"a: it's ok\n", 1, oct20, "3.0-a37"},
+			{"a: it's ok\n", 1, nov10, "3.0"},
+			{"a: \"it's\" ok\n", 1, oct20, "3.0-9ef"},
+			/* Content newer than the mtime: every format left refuses it alike. */
+			{"a:\n\t- x\n", 1, oct10, "3.0-a37"},
+			{"s(p).h: 1\n", 1, sep1, "2.0"},
+			{"a: [1, 2]\nb:\n\t- x\n", 1, oct10, "2.0"},
+			{"a: 1, 2\nb: [3]\n", 0, 0, "2.0"},
+			{"a: 1, 2\nb:\n\t- x\n\t- y\n", 0, 0, "3.0"},
+			/* The footers. */
+			{f3, 0, 0, "3.0-1f8"},
+			{f3, 1, nov10, "3.0-1f8"},
+			{f3b1, 1, nov10, "3.0"},
+			{f3b1, 1, sep28, "3.0-30d"},
+			{f2, 1, nov10, "2.0"},
+			{f2, 1, 1784505600, "1.0"}, /* 2026-07-20 */
+			/* Not tells: read clean both ways, refused by every format, or in a
+			   raw body. */
+			{"a: 'C:\\temp'\nb: \"x\\ty\"\nc: `q`\nd: 1,2\ne: 0o17\n", 0, 0, "3.0"},
+			{"a: 'C:\\temp'\n", 1, sep1, "2.0"},
+			{"b b: 1\ns[#0].h: 1\n- x\n", 0, 0, "3.0"},
+			{"c: [1, 2]\n\tx: 1\n", 0, 0, "3.0"},
+			{"a: ~~~\nb: 1, 2\n~~~\n", 0, 0, "3.0"},
+			/* A whole stamp settles it. */
+			{"a: 1, 2\n## SHCL format 3.0\n", 0, 0, "3.0"},
+			{"\xEF\xBB\xBF" "a: 1, 2\n", 1, nov10, "3.0-a37"},
+		};
+		for (size_t k = 0; k < sizeof ft / sizeof ft[0]; k++) {
+			const char *got = shcl_find_format(ft[k].text, strlen(ft[k].text), ft[k].has_mtime ? &ft[k].mtime : NULL);
+			if (!got || strcmp(got, ft[k].want)) fail("a_file_format_comes_from_its_tells", ft[k].text);
+		}
+	}
 	test_id("ddqhb", "stamp_reads_say_why");
 	/* The Format and Schema lines read with a status, so an unstamped file and
 	   a damaged stamp read apart, and the load's H006 and H007 hints say the

@@ -273,9 +273,9 @@ std::optional<std::uint32_t> format_version(std::string_view text);
 // BadType for one whose number does not read, such as `##    Format   3x`.
 // value is 0 unless Good.
 Read<std::uint32_t> read_format_version(std::string_view text);
-// The format a text was written in, by its stamp and mtime, in Unix seconds,
-// as the first 2 steps of the format versions design doc's Finding a file's
-// format give it: a name from FORMAT_NAMES, or none for a stamp naming a newer
+// The format a text was written in, by its stamp, mtime in Unix seconds, and
+// its tells, as the 4 steps of the format versions design doc's Finding a
+// file's format give it: a name from FORMAT_NAMES, or none for a stamp naming a newer
 // format than this reader's. shcl_find_format has the rules. Text from no file
 // passes no mtime.
 std::optional<std::string_view> find_format(std::string_view text, std::optional<std::int64_t> mtime);

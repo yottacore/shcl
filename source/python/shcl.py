@@ -2895,8 +2895,8 @@ _FORMAT_DAYS: tuple[tuple[str, int], ...] = (
 
 
 def find_format(text: str, mtime: float | None = None) -> str | None:
-	"""The format a text was written in, by its stamp and mtime, in Unix
-	seconds, as the first 2 steps of the format versions design doc's Finding
+	"""The format a text was written in, by its stamp, mtime in Unix seconds,
+	and its tells, as the 4 steps of the format versions design doc's Finding
 	a file's format give it. None for a stamp naming a newer format than this
 	reader's.
 
@@ -2907,9 +2907,10 @@ def find_format(text: str, mtime: float | None = None) -> str | None:
 	before, so the writer's time zone doesn't matter. It doesn't take off an
 	older format, since a program pinned to an old shcl still writes one. An
 	mtime that would take off every format is ignored, which covers one before
-	any format existed and one older than the stamp. The newest format left is
-	the answer, which it is for a text without any of the design doc's tells.
-	Text from no file passes None."""
+	any format existed and one older than the stamp. Of the formats left, the
+	one whose rules refuse the fewest of the text's tells is the answer, and a
+	tie goes to the newest, so a text without tells reads as the newest format
+	left. Text from no file passes None."""
 	stamp = read_format_version(text)
 	if _names_newer(stamp):
 		return None
@@ -2935,7 +2936,130 @@ def find_format(text: str, mtime: float | None = None) -> str | None:
 				by_mtime |= 1 << i
 		if left & by_mtime:
 			left &= by_mtime
+	if left & (left - 1):
+		left = _most_legal(text[1:] if text.startswith("\ufeff") else text, left)
 	return _FORMAT_DAYS[left.bit_length() - 1][0]
+
+
+# The runs of _FORMAT_DAYS the design doc's Tells table counts each tell
+# against, by their first and last format. A footer's run is the formats
+# whose `init` wrote it, and it counts against the rest. A spelling 2 formats
+# both read clean, such as an escape, isn't a tell here.
+_TELL_RUNS = (
+	# Refused from the format 3 value syntax on: a comma list, `*` items, a
+	# bracket selector, a bare name led by a digit, a CR in a bare value.
+	("3.0-9ef", "3.0"),
+	# A bracketed value, which binds nothing.
+	("3.0-1f8", "3.0-a37"),
+	# `-` items and a paren selector.
+	("1.0", "3.0-a37"),
+	# An apostrophe inside a bare word.
+	("3.0-9ef", "3.0-9ef"),
+	# The footers, by their Syntax line.
+	("1.1", "2.0"),
+	("3.0-1f8", "3.0-1f8"),
+	("3.0-30d", "3.0"),
+)
+
+_TELL_REFUSED_NOW = 0
+_TELL_BRACKETS = 1
+_TELL_NEW_SPELLING = 2
+_TELL_APOSTROPHE = 3
+_TELL_FOOTER_2 = 4
+_TELL_FOOTER_1F8 = 5
+_TELL_FOOTER_3 = 6
+
+# The Syntax line of each footer, and the tell it is.
+_TELL_FOOTERS = (
+	("#    Syntax   ", "", _TELL_FOOTER_2),
+	("##    Syntax   ", "/v3.0.0/", _TELL_FOOTER_1F8),
+	("##    Syntax   ", "/v3.0.0-beta1/", _TELL_FOOTER_3),
+)
+
+
+def _tell_run(tell: int) -> int:
+	"""A tell's run as bits of _FORMAT_DAYS."""
+	first, last = _TELL_RUNS[tell]
+	names = [f for f, _ in _FORMAT_DAYS]
+	a, b = names.index(first), names.index(last)
+	return ((1 << (b + 1)) - 1) & ~((1 << a) - 1)
+
+
+def _most_legal(text: str, left: int) -> int:
+	"""The one format of `left` that reads the text most legally, as the last
+	2 steps of the design doc's Finding a file's format give it. Each counts
+	the lines with a tell it refuses or reads as binding nothing, plus each
+	footer its `init` didn't write. The lowest count wins, and a tie goes to
+	the newest, so a format the tells take off loses to any they leave."""
+	refused: dict[int, list[str]] = {}
+	for d in Document.parse(text).diagnostics():
+		if d.severity is Severity.Error:
+			refused.setdefault(d.line, []).append(d.code)
+	against = [0] * len(_FORMAT_DAYS)
+	footers = 0
+	raw = _RawLines(Rules.Current)
+	tok = Tokens()
+	for i, line in enumerate(text.split("\n")):
+		rest = raw.step(line)
+		if rest is None:
+			continue
+		if rest.startswith("#"):
+			for head, tag, tell in _TELL_FOOTERS:
+				if rest.startswith(head) and tag in rest:
+					footers |= 1 << tell
+			continue
+		run = _line_tells(rest, refused.get(i + 1, []), tok)
+		for f in range(len(against)):
+			against[f] += run >> f & 1
+	for tell in (_TELL_FOOTER_2, _TELL_FOOTER_1F8, _TELL_FOOTER_3):
+		if footers >> tell & 1:
+			wrote = _tell_run(tell)
+			for f in range(len(against)):
+				against[f] += (wrote >> f & 1) ^ 1
+	best = None
+	for f, n in enumerate(against):
+		if left >> f & 1 and (best is None or n <= against[best]):
+			best = f
+	return left if best is None else 1 << best
+
+
+def _line_tells(rest: str, codes: list[str], tok: Tokens) -> int:
+	"""The formats a line's tells count against, as bits of _FORMAT_DAYS.
+	`codes` are the errors these rules give the line. What these rules refuse
+	is told by its code, and what they read clean by its tokens. A line these
+	rules refuse for another reason has no tell, since the other formats
+	refuse it too."""
+	if rest.startswith("*"):
+		return _tell_run(_TELL_REFUSED_NOW) if "E013" in codes else 0
+	if _is_item(rest):
+		return 0 if codes else _tell_run(_TELL_NEW_SPELLING)
+	tokenize(rest, ":", False, Rules.Current, tok)
+	src = tok.src
+	led_by_digit = tok.misspelled is not None and tok.misspelled < len(src) and 0x30 <= src[tok.misspelled] <= 0x39
+	if (
+		"E026" in codes
+		or "E029" in codes
+		or ("E025" in codes and "\r" in rest)
+		or ("E014" in codes and led_by_digit)
+	):
+		return _tell_run(_TELL_REFUSED_NOW)
+	if codes:
+		return 0
+	run = 0
+	if tok.array is not None:
+		run |= _tell_run(_TELL_BRACKETS)
+	if any(s.selector is not None for s in tok.segments):
+		run |= _tell_run(_TELL_NEW_SPELLING)
+
+	def inner(p: Piece) -> bool:
+		b = src[p.start:p.end]
+		return p.quote is Quote.None_ and any(
+			b[k] == 0x27 and not _is_wsp_byte(b[k - 1]) and not _is_wsp_byte(b[k + 1]) for k in range(1, len(b) - 1)
+		)
+
+	if any(inner(p) for p in tok.elements):
+		run |= _tell_run(_TELL_APOSTROPHE)
+	return run
 
 
 def _format_line_read(text: str) -> Read[int]:
