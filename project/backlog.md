@@ -163,7 +163,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: the load finds a file's format with its mtime, and converts it by a table of steps
 	- ID: 2026111908443663
 	- Type: Feature
-	- Status: Closed
+	- Status: Waiting on automated testing
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261119-084436
@@ -184,9 +184,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `a_load_converts_from_the_format_its_mtime_gives` (Rust `dfgyc`, Go `dfgyd`, Python `dfgye`, C `dfgyf`).
 	- Branch: `nov19-2026111907080423`
 	- Commit: `1d8535d4`
-	- Acceptance signoff: Self-closed: each new step row and the mtime pass are pinned in all 4 runners, each seen to fail without its part, by the memory.md close policy.
-	- Closed: 20261119-094259
-	- Closed reason: Done
+	- Needs external testing: b29w with a short-name TEMP: dfgyc, dfgyd, dfgye, dfgyf (the Windows _wstat64 mtime read never ran)
+	- 20261119 (me): reopened from Done. Only the Linux mtime branch ran, and Windows path code doesn't close on a stand-in.
 
 - Format versions: conversion steps for 3.0-1f8 to 3.0-a37, and from 3.0-a37 to 3.0-9ef
 	- ID: 2026111908444515
