@@ -35,6 +35,25 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Windows-only save tests expect a save without the format stamp, and fail on b29w
+	- ID: 2026111910545268
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-105452
+	- Opened by: me
+	- Target OS: Windows
+	- Test environment: b29w with a short-name TEMP, test binaries built here for Windows (Rust and C static)
+	- Steps to reproduce: run the C runner, the Rust conformance tests or the Go tests on b29w.
+	- Incorrect behavior: C `dbxm2` (file not rewritten), `dc475` (the long path did not read back) and `dc476` (the save did not reach the link's target) fail. So do Rust `save_rewrites_a_read_only_file` and Go `dbxkc` and `dc3vv`.
+	- Expected behavior: they pass, as they did on b29w on 20261107.
+	- Reproduced: 20261119, b29w, the C runner from dev (`a1ea3b4a`) and from nov19 (`477aaac2`), 2 runs each, same 3 failures every run. Rust and Go once, at nov19.
+	- Possible cause: the C and Rust fixtures compare the saved file with `a: 2` or `a: 1` alone, with no stamp line, which every save writes since `ff279feb` (stamp on save). These tests run only on Windows, so no Linux run saw it. Go `dc3vv` saves a parse over an existing file without `force`. Read only, not confirmed.
+	- Estimated effort: Low
+	- Origin: `ff279feb`, round nov17b. Plausible.
+	- Sweep: every `_WIN32`, `cfg(windows)` and `shcl_windows_test.go` fixture that compares saved bytes or saves a parse over a file. Python's whole suite passed on b29w.
+
 - Format versions: find_format doesn't count a quote in a bare value as a tell
 	- ID: 2026111910270033
 	- Type: Bug
@@ -175,7 +194,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: the load finds a file's format with its mtime, and converts it by a table of steps
 	- ID: 2026111908443663
 	- Type: Feature
-	- Status: Waiting on automated testing
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261119-084436
@@ -196,8 +215,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `a_load_converts_from_the_format_its_mtime_gives` (Rust `dfgyc`, Go `dfgyd`, Python `dfgye`, C `dfgyf`).
 	- Branch: `nov19-2026111907080423`
 	- Commit: `1d8535d4`
-	- Needs external testing: b29w with a short-name TEMP: dfgyc, dfgyd, dfgye, dfgyf (the Windows _wstat64 mtime read never ran)
 	- 20261119 (me): reopened from Done. Only the Linux mtime branch ran, and Windows path code doesn't close on a stand-in.
+	- Verified: on b29w with a short-name TEMP, at `477aaac2`, `dfgyc`, `dfgyd`, `dfgye` and `dfgyf` passed, built for Windows here (Rust and C static).
+	- Acceptance signoff: Self-closed: the 4 runners' rows passed on b29w.
+	- Closed reason: Done
+	- Closed: 20261119-105500
 
 - Format versions: conversion steps for 3.0-1f8 to 3.0-a37, and from 3.0-a37 to 3.0-9ef
 	- ID: 2026111908444515
@@ -229,8 +251,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026111908444554
 	- Type: Feature
 	- Status: Waiting on automated testing
-	- Needs local test suite run?: analyze-c.bash and the cppcheck line from `LINT_EXTRA`, for the `shcl.h` change; codeql-scan.bash for the C and Python test code; check-push-gate.bash, which ran past 4 minutes with no failure, for the cli-regress change.
-	- Needs external testing: b29w with a short-name TEMP: dfh0e, dfh0f, dfh0g, dfh0h, and the C CLI's `shcl upgrade` (its Windows `_wstat64` mtime read never ran).
+	- Needs local test suite run?: analyze-c.bash and the cppcheck line from `LINT_EXTRA`, for the `shcl.h` change; codeql-scan.bash for the C and Python test code.
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261119-084445
@@ -252,6 +273,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `an_upgrade_converts_from_the_format_its_mtime_gives` (Rust `dfh0e`, Go `dfh0f`, Python `dfh0g`, C `dfh0h`, veneer `dfh0j`).
 	- Branch: `nov19-2026111908444554`
 	- Commit: `b514a272`
+	- Verified: check-push-gate passed on nov19 at `477aaac2`, 89 PASS and no FAIL (`private/claude_simple/cpg.log`).
+	- Verified: on b29w with a short-name TEMP, at `477aaac2`, `dfh0e`, `dfh0f`, `dfh0g` and `dfh0h` passed, built for Windows here (Rust and C static). The C CLI's `shcl upgrade` on a file dated 2026-08-06 printed the 2.x conversion and left the file alone, and with `--write` wrote that text and a backup. Dated 2026-11-10 it printed the file as it was and said nothing to upgrade, with and without `--write`. Every output matched the Linux build's byte for byte.
 
 - Format versions: `from` and `--from=FORMAT` replace `from_v2` and `--from-2x`
 	- ID: 2026111907080445
