@@ -1588,7 +1588,10 @@ const TMP_NAME_BYTES: usize = 64;
 // `migrate`: every comma splits, a backslash shields the next character in
 // bare and single-quoted value text, a bare selector body still runs to its
 // first `]`, a separator followed by `[` is the selector sugar, and an open
-// quote swallows the rest of the line.
+// quote swallows the rest of the line. Under the private `Lex::Pin` it reads
+// the spellings of the pins from 3.0-1f8 to 3.0-a37, for their conversion
+// step: every comma splits, a backslash escapes in double quotes only, a
+// selector is in brackets, and a `[` after the separator is plain text.
 
 /// How a piece was quoted. `Open` is a piece that began with a quote and
 /// never closed with the matching quote as its last character: the whole
@@ -1695,6 +1698,27 @@ pub enum Rules {
 	V2,
 }
 
+/// `Rules`, and the rules the pins from 3.0-1f8 to 3.0-a37 read by, which
+/// only their conversion step asks for, so they aren't public.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Lex {
+	Current,
+	V2,
+	/// Every comma splits, a backslash escapes in double quotes and nowhere
+	/// else, a selector is in brackets, and a `[` after the separator is
+	/// bracket text, which they refused.
+	Pin,
+}
+
+impl From<Rules> for Lex {
+	fn from(r: Rules) -> Self {
+		match r {
+			Rules::Current => Lex::Current,
+			Rules::V2 => Lex::V2,
+		}
+	}
+}
+
 /// A blank: space, tab, or a carriage return, which is trimmed wherever a
 /// blank is and content in the middle of a piece.
 fn is_wsp_byte(b: u8) -> bool {
@@ -1714,11 +1738,11 @@ fn skip_wsp(s: &[u8], pos: &mut usize) {
 /// Byte length of the blank at `i`, or 0. 2.x trimmed every Unicode
 /// `White_Space` character at a piece's edges, a no-break space and a
 /// vertical tab included, so its rules count those as blanks too.
-fn blank_len(s: &[u8], i: usize, rules: Rules) -> usize {
+fn blank_len(s: &[u8], i: usize, rules: Lex) -> usize {
 	if is_wsp_byte(s[i]) {
 		return 1;
 	}
-	if rules != Rules::V2 || s[i] < 0x0B || (s[i] > 0x0C && s[i] < 0x80) {
+	if rules != Lex::V2 || s[i] < 0x0B || (s[i] > 0x0C && s[i] < 0x80) {
 		return 0;
 	}
 	let n = utf8_len(s[i]).min(s.len() - i);
@@ -1731,7 +1755,7 @@ fn blank_len(s: &[u8], i: usize, rules: Rules) -> usize {
 	}
 }
 
-fn skip_blank(s: &[u8], pos: &mut usize, rules: Rules) {
+fn skip_blank(s: &[u8], pos: &mut usize, rules: Lex) {
 	while *pos < s.len() {
 		match blank_len(s, *pos, rules) {
 			0 => break,
@@ -1764,9 +1788,9 @@ fn name_stop(b: u8, sep: u8) -> bool {
 
 /// Offset of the quote that closes the one at `pos`, or None. 2.x read a
 /// backslash as an escape inside quotes; now it is text.
-fn quote_close(s: &[u8], pos: usize, rules: Rules) -> Option<usize> {
+fn quote_close(s: &[u8], pos: usize, rules: Lex) -> Option<usize> {
 	let q = s[pos];
-	let escapes = rules == Rules::V2;
+	let escapes = rules == Lex::V2 || (rules == Lex::Pin && q == b'"');
 	let mut i = pos + 1;
 	while i < s.len() {
 		if escapes && s[i] == b'\\' && i + 1 < s.len() {
@@ -1821,22 +1845,21 @@ fn scan_piece(
 	s: &[u8],
 	mut pos: usize,
 	term: u8,
-	rules: Rules,
+	rules: Lex,
 	comments: bool,
 	array: bool,
 ) -> (Piece, usize) {
 	// 2.x's wider trim is taken for a value piece only. The selector arm
 	// of `migrate` cuts a body by its own offsets.
-	let edges = if term == b',' { rules } else { Rules::Current };
+	let edges = if term == b',' { rules } else { Lex::Current };
 	skip_blank(s, &mut pos, edges);
 	let start = pos;
 	let mut quote = Quote::None;
-	let every_comma = term != b',' || array || rules == Rules::V2;
+	let every_comma = term != b',' || array || rules != Lex::Current;
 	let ends_at = |s: &[u8], i: usize| s[i] == term && (every_comma || loose_comma(s, i));
 	// A backtick quotes a raw value element. 2.x had none, a selector body
 	// takes none, and a run of three opens a raw block instead.
-	let tick =
-		rules == Rules::Current && term == b',' && !s[pos.min(s.len())..].starts_with(b"```");
+	let tick = rules == Lex::Current && term == b',' && !s[pos.min(s.len())..].starts_with(b"```");
 	if pos < s.len() && (s[pos] == b'"' || s[pos] == b'\'' || (tick && s[pos] == b'`')) {
 		match quote_close(s, pos, rules) {
 			Some(close) => {
@@ -1868,13 +1891,13 @@ fn scan_piece(
 				// after all, and the scan restarts at it. 2.x went on from
 				// the close with the quotes read as a pair.
 				quote = Quote::Open;
-				if rules == Rules::V2 {
+				if rules == Lex::V2 {
 					pos = close + 1;
 				}
 			}
 			None => {
 				quote = Quote::Open;
-				if rules == Rules::V2 {
+				if rules == Lex::V2 {
 					// 2.x: an open quote swallowed the rest of the line.
 					let mut end = start;
 					let mut i = start;
@@ -1895,7 +1918,7 @@ fn scan_piece(
 	// 2.x shielded a backslash in value text only. A bare selector body ran to
 	// its first `]`, the same as now, so shielding one here would hide the `]`.
 	// Now a backslash is text.
-	let shield = rules == Rules::V2 && term == b',';
+	let shield = rules == Lex::V2 && term == b',';
 	let mut content_end = start;
 	while pos < s.len() {
 		let b = s[pos];
@@ -1927,7 +1950,7 @@ fn scan_piece(
 	// 2.x judged a value piece quoted by its shape after the scan: a quote at
 	// both ends, the last one not escaped, however many closes sat between. A
 	// selector body had to close right before its `]`, or the line was E014.
-	if rules == Rules::V2
+	if rules == Lex::V2
 		&& term == b','
 		&& quote == Quote::Open
 		&& content_end - start >= 2
@@ -1966,15 +1989,19 @@ fn scan_piece(
 /// The value half: everything from `from` on, split into pieces, with the
 /// comment found on the way.
 pub fn tokenize_value(text: &str, from: usize, rules: Rules, out: &mut Tokens) {
+	lex_value(text, from, rules.into(), out);
+}
+
+fn lex_value(text: &str, from: usize, rules: Lex, out: &mut Tokens) {
 	out.clear();
 	scan_value(text, from, rules, out);
 }
 
-fn scan_value(text: &str, from: usize, rules: Rules, out: &mut Tokens) {
+fn scan_value(text: &str, from: usize, rules: Lex, out: &mut Tokens) {
 	let s = text.as_bytes();
 	let mut pos = from;
 	skip_wsp(s, &mut pos);
-	if rules == Rules::Current && pos < s.len() && s[pos] == b'[' {
+	if rules == Lex::Current && pos < s.len() && s[pos] == b'[' {
 		scan_array(text, from, pos, out);
 		return;
 	}
@@ -2032,7 +2059,7 @@ fn scan_array(text: &str, from: usize, open: usize, out: &mut Tokens) {
 	let mut count = 0usize;
 	let mut close = None;
 	let stop_at = loop {
-		let (piece, stop) = scan_piece(s, pos, b',', Rules::Current, true, true);
+		let (piece, stop) = scan_piece(s, pos, b',', Lex::Current, true, true);
 		out.elements.push(piece);
 		if piece.quote == Quote::None && piece.end == piece.start {
 			// `[]`, blanks or not, is the empty array; any other empty piece
@@ -2077,7 +2104,7 @@ fn scan_array(text: &str, from: usize, open: usize, out: &mut Tokens) {
 				out.array_fault.get_or_insert((after, "text after ']'"));
 				// The comment past the stray text, found the way a value finds it.
 				loop {
-					let (piece, stop) = scan_piece(s, after, b',', Rules::Current, true, false);
+					let (piece, stop) = scan_piece(s, after, b',', Lex::Current, true, false);
 					if stop < s.len() && s[stop] == b',' {
 						after = stop + 1;
 						continue;
@@ -2115,6 +2142,10 @@ fn scan_array(text: &str, from: usize, open: usize, out: &mut Tokens) {
 /// cleared and reused, so a parse allocates once per document rather than
 /// once per line. `text` is the line after its indent, or the path.
 pub fn tokenize(text: &str, sep: u8, path: bool, rules: Rules, out: &mut Tokens) {
+	lex_line(text, sep, path, rules.into(), out);
+}
+
+fn lex_line(text: &str, sep: u8, path: bool, rules: Lex, out: &mut Tokens) {
 	out.clear();
 	let s = text.as_bytes();
 	let mut pos = 0usize;
@@ -2162,7 +2193,7 @@ pub fn tokenize(text: &str, sep: u8, path: bool, rules: Rules, out: &mut Tokens)
 			// load strips the mark, so the line would bind as something else.
 			// One led by a `*` is a list item's line, which never gets here.
 			if !path
-				&& rules == Rules::Current
+				&& rules == Lex::Current
 				&& !s[start..].starts_with("\u{feff}".as_bytes())
 				&& s[start] != b'*'
 			{
@@ -2197,16 +2228,16 @@ pub fn tokenize(text: &str, sep: u8, path: bool, rules: Rules, out: &mut Tokens)
 		// 2.x wrote a selector in brackets only. Now it is parens, and a
 		// bracket one still reads, to its `]`, so the parser can say why.
 		let mut open = match s.get(pos) {
-			Some(b'(') if rules == Rules::Current => Some((pos, b')')),
+			Some(b'(') if rules == Lex::Current => Some((pos, b')')),
 			Some(b'[') => {
-				if rules == Rules::Current {
+				if rules == Lex::Current {
 					out.bracket_selector.get_or_insert(pos);
 				}
 				Some((pos, b']'))
 			}
 			_ => None,
 		};
-		if open.is_none() && rules == Rules::V2 && pos < s.len() && s[pos] == sep {
+		if open.is_none() && rules == Lex::V2 && pos < s.len() && s[pos] == sep {
 			let mut q = pos + 1;
 			skip_wsp(s, &mut q);
 			if q < s.len() && s[q] == b'[' {
@@ -2230,7 +2261,7 @@ pub fn tokenize(text: &str, sep: u8, path: bool, rules: Rules, out: &mut Tokens)
 				out.fault = Some((at, "empty selector"));
 				return;
 			}
-			if piece.quote == Quote::Open && rules == Rules::V2 {
+			if piece.quote == Quote::Open && rules == Lex::V2 {
 				out.fault = Some((at, "unterminated quote in a selector"));
 				return;
 			}
@@ -3014,6 +3045,10 @@ pub struct Migration {
 
 /// The counters a line rewrite reports back, and the one thing it asks.
 struct Migrating {
+	// The old rules the text is read by, `V2` or `Pin`.
+	rules: Lex,
+	// Under `Pin`, which pinned rules, so which escapes they read and refused.
+	pin: Pin,
 	from_v2: bool,
 	ambiguous: usize,
 	lost: usize,
@@ -3223,7 +3258,7 @@ fn most_legal(text: &str, left: u32) -> u32 {
 	refused.sort_unstable();
 	let mut against = [0usize; FORMAT_DAYS.len()];
 	let mut footers = 0u32;
-	let mut raw = RawLines::new(Rules::Current);
+	let mut raw = RawLines::new(Lex::Current);
 	let mut tok = Tokens::default();
 	for (i, line) in text.split('\n').enumerate() {
 		let Some(rest) = raw.step(line) else {
@@ -3324,24 +3359,43 @@ enum Step {
 	/// refuses, which stay as typed. Nothing changes.
 	Same,
 	/// migrate's rewrite from the 2.x rules, which lands on the current
-	/// format. It stands in for the steps from 1.0 to 3.0-a37 until they're
-	/// built (2026111908444515, 2026111908444534).
+	/// format. It stands in for the steps from 1.0 to 2.0 until they're built
+	/// (2026111908444534).
 	V2,
+	/// The rewrite from the rules of a pin from 3.0-1f8 to 3.0-a37 into the
+	/// format 3 value syntax, where a backslash is text. It ends at the
+	/// current format. A line those rules refused stays as typed.
+	Pin(Pin),
+}
+
+/// Which escapes a pin from 3.0-1f8 to 3.0-a37 read in double quotes, the
+/// only place it read any, and which it refused. Later ones refuse more.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Pin {
+	/// 3.0-1f8 and 3.0-30d: `\t`, `\n`, `\\`, `\"` and `\'`. Any other
+	/// backslash is text.
+	From30d,
+	/// 3.0-b10: also `\u` with 4 hex digits and `\U` with 8. Any other pair is
+	/// refused (`E023`).
+	FromB10,
+	/// 3.0-f8e and 3.0-a37: also refused is a value that starts like a
+	/// Windows path, a drive or a share, and holds `\t` or `\n` (`E024`).
+	FromA37,
 }
 
 /// The step out of each format of `FORMAT_DAYS` but the current one, in the
 /// same order.
 const FORMAT_STEPS: [Step; FORMAT_DAYS.len() - 1] = [
-	Step::V2,   // 1.0
-	Step::V2,   // 1.1
-	Step::V2,   // 2.0
-	Step::V2,   // 3.0-1f8
-	Step::V2,   // 3.0-30d
-	Step::V2,   // 3.0-b10
-	Step::V2,   // 3.0-f8e
-	Step::V2,   // 3.0-a37
-	Step::Same, // 3.0-9ef, which refused an apostrophe inside a bare word
-	Step::Same, // 3.0-a65
+	Step::V2,                // 1.0
+	Step::V2,                // 1.1
+	Step::V2,                // 2.0
+	Step::Pin(Pin::From30d), // 3.0-1f8, read as 3.0-30d but where a line has an error
+	Step::Pin(Pin::From30d), // 3.0-30d
+	Step::Pin(Pin::FromB10), // 3.0-b10
+	Step::Same,              // 3.0-f8e, read as 3.0-a37 but where a line has an error
+	Step::Pin(Pin::FromA37), // 3.0-a37
+	Step::Same,              // 3.0-9ef, which refused an apostrophe inside a bare word
+	Step::Same,              // 3.0-a65
 ];
 
 /// The first step of the run from `format` to the current one that changes
@@ -3363,6 +3417,7 @@ fn first_rewrite(format: Option<&str>) -> Option<Step> {
 fn convert(text: &str, format: Option<&str>, from_v2: bool) -> Migration {
 	match first_rewrite(format) {
 		Some(Step::V2) => migrate_unstamped(text, from_v2),
+		Some(Step::Pin(pin)) => migrate_text(text, from_v2, false, false, Some(pin)),
 		Some(Step::Same) | None => Migration {
 			text: text.to_string(),
 			current: true,
@@ -3412,8 +3467,8 @@ fn format_line_read(text: &str) -> Read<u32> {
 	if !text.contains(FORMAT_WORD) && !text.contains(STAMP_WORD) {
 		return Read::new(0, Status::NotFound, None);
 	}
-	let mut now = RawLines::new(Rules::Current);
-	let mut then = RawLines::new(Rules::V2);
+	let mut now = RawLines::new(Lex::Current);
+	let mut then = RawLines::new(Lex::V2);
 	let mut found: Option<((u32, u32), usize, &str)> = None;
 	let mut newest: Option<((u32, u32), usize, &str)> = None;
 	let mut unread: Option<(Status, usize, &str)> = None;
@@ -3626,7 +3681,7 @@ pub fn read_schema_ref(text: &str) -> Read<String> {
 		return Read::new(String::new(), Status::NotFound, None);
 	}
 	// The Schema line is new in this format, so the blocks are the parser's.
-	let mut lines = RawLines::new(Rules::Current);
+	let mut lines = RawLines::new(Lex::Current);
 	let mut empty = 0;
 	for (i, line) in text.split('\n').enumerate() {
 		let Some(rest) = lines.step(line) else {
@@ -3655,7 +3710,7 @@ pub fn read_schema_ref(text: &str) -> Read<String> {
 /// way one rule set reads the file: the current rules find a block where the
 /// parser does, and the 2.x rules where the rewrite does.
 struct RawLines {
-	rules: Rules,
+	rules: Lex,
 	tok: Tokens,
 	fence: Option<(u8, usize)>,
 	// Only the blocks a line opens are wanted, not what the rewrite counts.
@@ -3663,12 +3718,14 @@ struct RawLines {
 }
 
 impl RawLines {
-	fn new(rules: Rules) -> Self {
+	fn new(rules: Lex) -> Self {
 		RawLines {
 			rules,
 			tok: Tokens::default(),
 			fence: None,
 			dry: Migrating {
+				rules,
+				pin: Pin::FromA37,
 				from_v2: true,
 				ambiguous: 0,
 				lost: 0,
@@ -3694,8 +3751,8 @@ impl RawLines {
 		// block, so the rest skip the tokenizer.
 		if rest.contains("```") || rest.contains("~~~") {
 			match self.rules {
-				Rules::Current => self.fence = opens_raw(rest, &mut self.tok),
-				Rules::V2 => {
+				Lex::Current => self.fence = opens_raw(rest, &mut self.tok),
+				Lex::V2 | Lex::Pin => {
 					migrate_line(rest, &mut self.tok, &mut self.fence, &mut self.dry);
 				}
 			}
@@ -3755,14 +3812,14 @@ fn opens_raw(rest: &str, tok: &mut Tokens) -> Option<(u8, usize)> {
 /// so the second run has an answer the first one did not. An older Format
 /// line becomes that line where it is; a file with none gets it at the end.
 pub fn migrate(text: &str, from_v2: bool) -> Migration {
-	migrate_text(text, from_v2, true, false)
+	migrate_text(text, from_v2, true, false, None)
 }
 
 /// migrate() without the version line or the migrated note, for a program
 /// that writes `GEN_BANNER` itself, which includes the version line. The
 /// next run can tell the result is current only once that is written.
 pub fn migrate_unstamped(text: &str, from_v2: bool) -> Migration {
-	migrate_text(text, from_v2, false, false)
+	migrate_text(text, from_v2, false, false, None)
 }
 
 /// The line ending most of the text's lines end with. A tie goes to LF.
@@ -3773,15 +3830,17 @@ fn majority_eol(text: &str) -> &'static str {
 }
 
 /// `beta` takes a file naming this format as 2.x too, which only `upgrade`
-/// asks for, once the caller has said so.
-fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool) -> Migration {
+/// asks for, once the caller has said so. `pin` reads the text by that pin's
+/// rules rather than 2.x, for a file found to be in one of those formats,
+/// whatever its Format line says.
+fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool, pin: Option<Pin>) -> Migration {
 	let (bom, body_text) = match text.strip_prefix('\u{feff}') {
 		Some(t) => ("\u{feff}", t),
 		None => ("", text),
 	};
 	let named = format_line_read(body_text);
 	let version = (named.status == Status::Good).then_some(named.value);
-	if version.is_some_and(|n| n > FORMAT_MAJOR || (n == FORMAT_MAJOR && !beta)) {
+	if pin.is_none() && version.is_some_and(|n| n > FORMAT_MAJOR || (n == FORMAT_MAJOR && !beta)) {
 		return Migration {
 			text: text.to_string(),
 			current: true,
@@ -3790,7 +3849,9 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool) -> Migration
 		};
 	}
 	let mut st = Migrating {
-		from_v2: from_v2 || version.is_some(),
+		rules: if pin.is_some() { Lex::Pin } else { Lex::V2 },
+		pin: pin.unwrap_or(Pin::FromA37),
+		from_v2: from_v2 || version.is_some() || pin.is_some(),
 		ambiguous: 0,
 		lost: 0,
 		bracketed: false,
@@ -3815,7 +3876,7 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool) -> Migration
 	let mut fence: Option<(u8, usize)> = None;
 	let mut changed = false;
 	// The output as the parser will read it, for where its raw blocks are.
-	let mut now = RawLines::new(Rules::Current);
+	let mut now = RawLines::new(Lex::Current);
 	let mut split = false;
 	for (i, line) in body_text.split('\n').enumerate() {
 		if i > 0 {
@@ -3962,8 +4023,10 @@ pub struct Upgrade {
 /// Without `from_v2`, the file's format is `find_format`'s, from the text
 /// alone, and only a format whose steps to this one rewrite anything gets
 /// made over: one from 3.0-9ef on is `current`, its errors kept as typed, as
-/// a load with `migrate` keeps them. `upgrade_dated` takes the file's mtime
-/// too.
+/// a load with `migrate` keeps them. One from 3.0-1f8 to 3.0-a37 goes through
+/// that format's step rather than `migrate_unstamped`, and is made over even
+/// when it loads clean, since `"x\ty"` loads clean now and held a tab then.
+/// `upgrade_dated` takes the file's mtime too.
 pub fn upgrade(text: &str, from_v2: bool, banner: bool) -> Upgrade {
 	upgrade_dated(text, None, from_v2, banner)
 }
@@ -3986,26 +4049,29 @@ pub fn upgrade_dated(text: &str, mtime: Option<i64>, from_v2: bool, banner: bool
 	if names_newer(&named) || (version == Some(FORMAT_MAJOR) && !from_v2) {
 		return up;
 	}
-	// The load's step table. Only V2 rewrites yet, and this is its upgrade
-	// form, so a format whose run is all Same has nothing to do.
+	// The load's step table, in its upgrade form, so a format whose run is
+	// all Same has nothing to do.
 	let format = if from_v2 {
 		Some("2.0")
 	} else {
 		find_format(text, mtime)
 	};
-	match first_rewrite(format) {
-		Some(Step::V2) => {}
+	let pin = match first_rewrite(format) {
+		Some(Step::V2) => None,
+		Some(Step::Pin(pin)) => Some(pin),
 		Some(Step::Same) | None => return up,
-	}
+	};
 	let before = Document::parse(text);
 	let clean = before.error_count() == 0;
 	// A beta of 3.0 wrote this format's line too, so only the caller can say
 	// a 2.x build wrote the file. One that loads clean is what an upgrade
-	// leaves, so a second run over its output leaves it alone.
-	if clean && (!from_v2 || version == Some(FORMAT_MAJOR)) {
+	// leaves, so a second run over its output leaves it alone. A file found
+	// to be from 3.0-1f8 to 3.0-a37 can load clean and still read otherwise,
+	// as `"x\ty"` does, so it is made over as the load makes it over.
+	if clean && pin.is_none() && (!from_v2 || version == Some(FORMAT_MAJOR)) {
 		return up;
 	}
-	let m = migrate_text(text, from_v2, false, true);
+	let m = migrate_text(text, from_v2, false, true, pin);
 	// A 2.x file can load clean and still read differently now, as `a,b`
 	// does. One migrate leaves as it was has nothing to do, but an older
 	// Format line, which would keep the load's H007 hint, becomes this one.
@@ -4028,7 +4094,8 @@ pub fn upgrade_dated(text: &str, mtime: Option<i64>, from_v2: bool, banner: bool
 	let lost = m.lost + fresh.lost_count();
 	// migrate keeps every line where it was, so these are the input's.
 	let left = error_lines(&fresh.diags);
-	fresh.swap_banner(banner, true);
+	// Only 2.x's block is in `#` comments.
+	fresh.swap_banner(banner, pin.is_none());
 	let made = upgrade_text(&fresh, banner);
 	// With from_v2 it goes only when that leaves it loading clean, or the
 	// next run with it would read the result by 2.x rules again
@@ -4149,12 +4216,127 @@ fn v2_text(raw: &str) -> String {
 	out
 }
 
-/// True when 2.x read this bare `[...]` body as the JSON-habit array rather
-/// than a discriminator: more than one element, where a comma behind a
-/// backslash was not one.
-fn v2_bracket_array(body: &str) -> bool {
+/// The text the old rules read for a piece as written, quoted as `quote`
+/// says: `v2_text` under 2.x, and under the rules of 3.0-1f8 to 3.0-a37 the
+/// escapes in double quotes only.
+fn old_text(raw: &str, quote: Quote, st: &Migrating) -> String {
+	match st.rules {
+		Lex::Pin if quote == Quote::Double => pin_escapes(raw, st.pin >= Pin::FromB10),
+		Lex::Pin => raw.to_string(),
+		_ => v2_text(raw),
+	}
+}
+
+/// What 3.0-1f8 to 3.0-a37 read in double quotes: `\t`, `\n`, `\\`, `\"`
+/// and `\'` resolved, and with `codepoints`, from 3.0-b10, `\u` with 4 hex
+/// digits and `\U` with 8. Any other backslash stays.
+fn pin_escapes(raw: &str, codepoints: bool) -> String {
+	let mut out = String::with_capacity(raw.len());
+	let mut it = raw.chars();
+	while let Some(c) = it.next() {
+		if c != '\\' {
+			out.push(c);
+			continue;
+		}
+		match it.next() {
+			Some('t') => out.push('\t'),
+			Some('n') => out.push('\n'),
+			Some(q @ ('\\' | '"' | '\'')) => out.push(q),
+			Some(k @ ('u' | 'U')) if codepoints && pin_codepoint(k, it.as_str()).is_some() => {
+				let (ch, len) = pin_codepoint(k, it.as_str()).unwrap_or_default();
+				out.push(ch);
+				it = it.as_str()[len..].chars();
+			}
+			Some(other) => {
+				out.push('\\');
+				out.push(other);
+			}
+			None => out.push('\\'),
+		}
+	}
+	out
+}
+
+/// The character a `\u` or `\U` escape names under 3.0-b10 to 3.0-a37, and
+/// how many hex digits it takes: 4 after `u`, 8 after `U`. None for a short
+/// run, a surrogate or a value past U+10FFFF.
+fn pin_codepoint(kind: char, after: &str) -> Option<(char, usize)> {
+	let len = if kind == 'u' { 4 } else { 8 };
+	let digits = after.get(..len)?;
+	if !digits.bytes().all(|b| b.is_ascii_hexdigit()) {
+		return None;
+	}
+	let ch = char::from_u32(u32::from_str_radix(digits, 16).ok()?)?;
+	Some((ch, len))
+}
+
+/// True when the pin refused this double-quoted text: from 3.0-b10 a
+/// backslash pair it didn't know (`E023`), and from 3.0-f8e, in a value,
+/// `\t` or `\n` in text that starts like a Windows path, a drive or a share
+/// (`E024`).
+fn pin_bad_quoted(raw: &str, value: bool, pin: Pin) -> bool {
+	if pin == Pin::From30d {
+		return false;
+	}
+	let mut it = raw.chars();
+	let mut tab = false;
+	while let Some(c) = it.next() {
+		if c != '\\' {
+			continue;
+		}
+		match it.next() {
+			Some('t' | 'n') => tab = true,
+			Some('\\' | '"' | '\'') => {}
+			Some(k @ ('u' | 'U')) => match pin_codepoint(k, it.as_str()) {
+				Some((_, len)) => it = it.as_str()[len..].chars(),
+				None => return true,
+			},
+			_ => return true,
+		}
+	}
+	let b = raw.as_bytes();
+	let drive = b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && b[2] == b'\\';
+	pin >= Pin::FromA37 && value && tab && (drive || raw.starts_with("\\\\"))
+}
+
+/// True when the old rules refused a line, as tokenized by them, so it has no
+/// reading to keep and stays as typed. Only the rules of 3.0-1f8 to 3.0-a37
+/// are asked: a quote that never closes as a piece's last character
+/// (`E017`), a `[` first after the separator (`E019`), and from 3.0-b10 a
+/// bad escape in double quotes. The 2.x rewrite judges its lines itself.
+fn old_refused(rest: &str, tok: &Tokens, item: bool, st: &Migrating) -> bool {
+	if st.rules != Lex::Pin {
+		return false;
+	}
+	let quoted = |p: &Piece, value: bool| {
+		p.quote == Quote::Open
+			|| (p.quote == Quote::Double && pin_bad_quoted(&rest[p.start..p.end], value, st.pin))
+	};
+	if tok
+		.segments
+		.iter()
+		.any(|seg| quoted(&seg.name, false) || seg.selector.is_some_and(|p| quoted(&p, false)))
+	{
+		return true;
+	}
+	if tok.sep.is_none() && !item {
+		return false;
+	}
+	// A raw block's info string is not escape text.
+	let fenced = !item && fence_open(&rest[tok.value.0..]).is_some();
+	let bracket = !item
+		&& tok.elements.first().is_some_and(|p| {
+			p.quote == Quote::None && p.end > p.start && rest.as_bytes()[p.start] == b'['
+		});
+	bracket || (!fenced && tok.elements.iter().any(|p| quoted(p, true)))
+}
+
+/// True when the old rules read this bare `[...]` body as the JSON-habit
+/// array rather than a discriminator: more than one element, where under 2.x
+/// a comma behind a backslash was not one.
+fn v2_bracket_array(body: &str, rules: Lex) -> bool {
 	let mut tok = Tokens::default();
-	tokenize_value(body, 0, Rules::V2, &mut tok);
+	lex_value(body, 0, rules, &mut tok);
 	tok.elements.len() > 1
 }
 
@@ -4163,7 +4345,7 @@ fn v2_bracket_array(body: &str) -> bool {
 /// at both ends makes it quoted) and rewritten only where the current rules
 /// would read it as other text than 2.x did. 2.x resolved a backslash pair,
 /// so `"C:\\new"` is written `"C:\new"` and `C:\temp` gets the tab escape.
-fn value_edits(text: &str, tok: &Tokens, edits: &mut Vec<Edit>) {
+fn value_edits(text: &str, tok: &Tokens, edits: &mut Vec<Edit>, st: &Migrating) {
 	for p in &tok.elements {
 		let raw = &text[p.start..p.end];
 		let quoted = matches!(p.quote, Quote::Single | Quote::Double);
@@ -4172,7 +4354,9 @@ fn value_edits(text: &str, tok: &Tokens, edits: &mut Vec<Edit>) {
 		} else {
 			(p.start, p.end)
 		};
-		v2_edge_edits(text, a, b, edits);
+		if st.rules == Lex::V2 {
+			v2_edge_edits(text, a, b, edits);
+		}
 		// A comma or a `#` in a bare piece sat inside a quote 2.0 paired.
 		if p.quote == Quote::None
 			&& !raw.contains(['\\', ',', '#'])
@@ -4182,7 +4366,7 @@ fn value_edits(text: &str, tok: &Tokens, edits: &mut Vec<Edit>) {
 		{
 			continue;
 		}
-		let logical = v2_text(raw);
+		let logical = old_text(raw, p.quote, st);
 		if reads_same(&text[a..b], quoted, &logical) {
 			continue;
 		}
@@ -4219,7 +4403,7 @@ fn v2_edge_edits(text: &str, a: usize, b: usize, edits: &mut Vec<Edit>) {
 /// array. Its empty elements go, as 2.x dropped them. Each element is
 /// written the way the writer writes one inside `[]`, unless its quoted
 /// spelling already reads the same.
-fn v2_array_text(text: &str, tok: &Tokens) -> String {
+fn v2_array_text(text: &str, tok: &Tokens, st: &Migrating) -> String {
 	let mut out = String::from("[");
 	for p in tok
 		.elements
@@ -4229,7 +4413,7 @@ fn v2_array_text(text: &str, tok: &Tokens) -> String {
 		if out.len() > 1 {
 			out.push_str(", ");
 		}
-		out.push_str(&v2_element_text(text, p));
+		out.push_str(&v2_element_text(text, p, st));
 	}
 	out.push(']');
 	out
@@ -4237,8 +4421,8 @@ fn v2_array_text(text: &str, tok: &Tokens) -> String {
 
 /// One 2.x element, as the text 2.x read, the way the writer writes it,
 /// unless its quoted spelling already reads the same.
-fn v2_element_text(text: &str, p: &Piece) -> String {
-	let logical = v2_text(&text[p.start..p.end]);
+fn v2_element_text(text: &str, p: &Piece, st: &Migrating) -> String {
+	let logical = old_text(&text[p.start..p.end], p.quote, st);
 	let quoted = matches!(p.quote, Quote::Single | Quote::Double);
 	if quoted && reads_same(&text[p.start - 1..p.end + 1], true, &logical) {
 		text[p.start - 1..p.end + 1].to_string()
@@ -4294,17 +4478,20 @@ fn migrate_line(
 	let s = rest.as_bytes();
 	let mut edits: Vec<Edit> = Vec::new();
 	if rest.starts_with('*') && s.get(1).is_some_and(|&b| is_wsp_byte(b)) {
+		lex_value(rest, 1, st.rules, tok);
+		if old_refused(rest, tok, true, st) {
+			return rest.to_string();
+		}
 		edits.push((0, 1, "-".to_string()));
-		tokenize_value(rest, 1, Rules::V2, tok);
 		// A bare comma was refused (E010), so there is nothing to convert.
 		// A value's rules are an item's, and stricter about a colon, so
 		// what reads clean as one reads clean as the other.
 		if tok.elements.len() == 1 {
-			value_edits(rest, tok, &mut edits);
+			value_edits(rest, tok, &mut edits, st);
 		}
 	} else {
-		tokenize(rest, b':', false, Rules::V2, tok);
-		if tok.fault.is_some() {
+		lex_line(rest, b':', false, st.rules, tok);
+		if tok.fault.is_some() || old_refused(rest, tok, false, st) {
 			return rest.to_string();
 		}
 		let last = tok.segments.len() - 1;
@@ -4327,7 +4514,19 @@ fn migrate_line(
 			let spelled = || &rest[seg.name.start - 1..seg.name.end + 1];
 			// A file that does not say it is 2.x could be a 3.0 one. Where it
 			// reads clean under these rules as well, it is left and counted.
-			let (respell, clean_now) = if matches!(seg.name.quote, Quote::Single | Quote::Double) {
+			// Under the rules of 3.0-1f8 to 3.0-a37 a double-quoted name
+			// resolved its escapes, and 2 spellings of one name were one, so
+			// it gets the spelling of the name it read.
+			let mut logical = std::borrow::Cow::Borrowed(name);
+			let (respell, clean_now) = if st.rules == Lex::Pin && seg.name.quote != Quote::None {
+				if name.contains('\\') || name.contains(ESCAPE_MARK) {
+					logical = old_text(name, seg.name.quote, st).into();
+					let now = quoted_name_now(spelled());
+					(now.as_deref() != Some(&*logical), now.is_some())
+				} else {
+					(false, true)
+				}
+			} else if matches!(seg.name.quote, Quote::Single | Quote::Double) {
 				let pair = v2_text(name) != name;
 				if pair {
 					st.lost += 1;
@@ -4351,7 +4550,7 @@ fn migrate_line(
 				} else {
 					(seg.name.start - 1, seg.name.end + 1)
 				};
-				edits.push((a, b, escape_name(name).into_owned()));
+				edits.push((a, b, escape_name(&logical).into_owned()));
 			}
 			let Some(sel) = seg.selector else {
 				continue;
@@ -4383,7 +4582,7 @@ fn migrate_line(
 			};
 			// 2.x matched a selector by its text with the backslash pairs
 			// resolved, as it read a value.
-			let logical = v2_text(body);
+			let logical = old_text(body, sel.quote, st);
 			if i == last && tok.sep.is_none() {
 				if let Some(c) = colon {
 					// `name:[disc]` with nothing after it: 2.x read it as
@@ -4400,7 +4599,7 @@ fn migrate_line(
 					// is no spelling to move that to - in brackets it is an
 					// array of several now - so the binding goes, and the
 					// caller hears about it rather than reading exit 0.
-					if !quoted && v2_bracket_array(body) {
+					if !quoted && v2_bracket_array(body, st.rules) {
 						st.lost += 1;
 						return rest.to_string();
 					}
@@ -4435,7 +4634,7 @@ fn migrate_line(
 			let index = !quoted && (index_shape(body) || body == "*");
 			// 2.x matched an array value by its display form, and a selector
 			// matches one plain value now, so nothing spells this.
-			if !index && !quoted && v2_bracket_array(body) {
+			if !index && !quoted && v2_bracket_array(body, st.rules) {
 				st.lost += 1;
 				return rest.to_string();
 			}
@@ -4483,11 +4682,15 @@ fn migrate_line(
 								.iter()
 								.find(|p| p.quote != Quote::None || p.end > p.start)
 							{
-								edits.push((tok.value.0, tok.value.1, v2_element_text(rest, p)));
+								edits.push((
+									tok.value.0,
+									tok.value.1,
+									v2_element_text(rest, p, st),
+								));
 							}
 						} else {
 							st.bracketed = true;
-							edits.push((tok.value.0, tok.value.1, v2_array_text(rest, tok)));
+							edits.push((tok.value.0, tok.value.1, v2_array_text(rest, tok, st)));
 						}
 					} else {
 						st.ambiguous += 1;
@@ -4495,7 +4698,7 @@ fn migrate_line(
 				}
 				Some(sep) => {
 					let before = edits.len();
-					value_edits(rest, tok, &mut edits);
+					value_edits(rest, tok, &mut edits, st);
 					if !st.from_v2
 						&& !st.refused_now && edits.len() > before
 						&& reads_clean_now(rest, sep + 1)

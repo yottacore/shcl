@@ -560,10 +560,15 @@ fMigrateChanged(){
 }
 
 ##	A fresh dir holding only the document as cfg.shcl, run through `upgrade
-##	--write` and any options given. The exit code is left in upRc.
+##	--write` and any options given. The exit code is left in upRc. upgrade
+##	reads a file's format off its mtime too, and these are 2.x documents, so
+##	the copy is dated when 2.0 was the newest format. Dated today, one with
+##	a tell of a later format reads as that one (2026111908444554,
+##	2026111912004261).
 fUpgradeRun(){
 	local src="$1"; shift
 	fSafeRmUnder_IfThere "${tmpDir}" "${upDir}"; mkdir -p "${upDir}"; cp "${src}" "${upDir}/cfg.shcl"
+	touch -d 2026-09-01T00:00:00 "${upDir}/cfg.shcl"
 	fUpgradeAgain "$@"
 }
 fUpgradeAgain(){

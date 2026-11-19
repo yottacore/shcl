@@ -35,6 +35,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- The C++ veneer's `de1a5` failed once under the quick gate, and passed 3 runs alone
+	- ID: 2026111912330703
+	- Type: Bug
+	- Status: Queued
+	- Priority: Low
+	- Target version: v3.0.0
+	- Opened: 20261119-123307
+	- Opened by: me
+	- Version and build: nov19b at `33313a39` plus Rust-only changes
+	- Steps to reproduce: `cicd/cicd.bash --backlog-run-quick rust go python c cli` on a loaded box. Seen once, 20261119.
+	- Incorrect behavior: `veneer FAIL: round 2, thread 7, call 0`, where got and want print the same up to a line end, then `FAIL de1a5 c++ reads_from_several_threads`.
+	- Expected behavior: the threads test passes every run.
+	- Note: control: the same source built with g++ and run 3 times alone passed every time. No C or C++ code changed in that tree.
+
 - Format versions: the demo gif and its golden text show fmt output without the stamp
 	- ID: 2026111710564808
 	- Type: Feature
@@ -176,6 +190,78 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Prereq IDs: 2026111908443663
 	- Requirements: rows and steps in the load's step table for the run 3.0-1f8 to 3.0-a37, per the design doc's Pinned dev snapshots, and the step into the format 3 value syntax, with a backslash outside double quotes read as plain text. In all 4 bindings. A line a step isn't sure of stays as typed and is reported.
 	- Estimated effort: High
+	- Note: split for its time cap into 2026111912004261 (the Rust reference), then the ports 2026111912004789 (Go), 2026111912004810 (Python) and 2026111912004831 (C).
+
+- Format versions: the Rust steps out of 3.0-1f8 to 3.0-a37
+	- ID: 2026111912004261
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-120042
+	- Opened by: me
+	- Parent ID: 2026111908444515
+	- Requirements: in the Rust reference, the step table's rows for 3.0-1f8, 3.0-30d, 3.0-b10, 3.0-f8e and 3.0-a37, and the step that rewrites text those formats wrote into the format 3 value syntax, with a backslash outside double quotes read as plain text. A line the old format refused stays as typed. The ports follow it.
+	- Estimated effort: High
+	- Actual effort: Avg
+	- Decisions:
+	- Verified: `dfh4s` fails with the pin rows set back to `V2` and passes with them. cargo test, clippy and rustfmt, `--backlog-run-quick rust go python c cli`, cli-regress over the 4 CLIs, crosscheck over the corpus, check-migrate, `lint-report.bash --check --no-mark`, shellcheck, the markdown check and markdownlint passed. shell-regress failed only `dcvej`, `de1a8` and `dc0b5`, which fail on dev already. An earlier quick run failed the C++ `de1a5` once, filed as 2026111912330703. On every corpus document each pin's own CLI loads clean, unstamped and dated to that pin, the converted text read the same as under that CLI (built from `30d36727`, `b10c2009` and `a37aa2ce`). The only mismatches were values holding a control character, which each CLI prints in its own escapes.
+	- Swept: `convert` and `upgrade_dated` are the only users of `first_rewrite`. Every 2.x read in `migrate_line` takes the step's rules now: the item and field tokenize, `value_edits`, `v2_array_text`, `v2_element_text`, `v2_bracket_array`, quoted names and selector bodies. `RawLines` takes them for its dry run. Docs: spec.md's `UpgradeFile` and `LoadFileOpts` bullets, design.md's `upgrade_file` and `load_file_opts` bullets, the design doc's Reading and converting, the changelog, and `upgrade`'s doc comment.
+	- Test case: `a_load_converts_from_a_pinned_dev_format` (Rust `dfh4s`).
+	- Branch: `nov19b-2026111908444515`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the steps, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261119-124650
+	- Commit: `f5530062`
+	- 20261119: tests whose 2.x text has a comma list and no mtime now pin 2026-09-01, so the text is still found to be 2.0, with each assert as it was: `de60f` (`migrate_writes_the_text_2x_read`) and `ddmhc` (`upgrade_writes_a_fresh_file_with_the_info_block`), cli-regress `de60p` (stdin moved to a dated file, `%U2R%`), `ddmhh` and `ddmhj` (`upgv2.shcl` dated), and check-migrate's upgrade runs.
+	- me, 20261119: each pin step rewrites into the format 3 value syntax and ends at the current format, as `V2` does. The table is `Pin(From30d)` for 3.0-1f8 and 3.0-30d, `Pin(FromB10)` for 3.0-b10, `Same` for 3.0-f8e and `Pin(FromA37)` for 3.0-a37. 3.0-b10 has its own step since 3.0-f8e added `E024`, so 3.0-b10 read `"C:\temp"` with a tab, which 3.0-a37 refused. A chain of pin-to-pin rewrites would need spellings such as `\u0009` on the way.
+	- me, 20261119: the pin rules are a private `Lex::Pin` beside the public `Rules`, so no binding's public API changes. Adding a `Rules` member failed check-docs `ddydt` until Python had it too.
+	- me, 20261119: a line the pin refused stays as typed, with no count, as with the step out of 3.0-9ef: an open quote (`E017`), a `[` after the colon (`E019`), and from 3.0-b10 a refused escape (`E023`, `E024`). So `a: [1, 2]` found to be 3.0-a37 binds the array now. The load reports such a line only where the current rules refuse it, and line numbers for kept lines are 2026111016205703's.
+	- me, 20261119: a quoted thousands number and an octal int are the same text in every pin, and only a typed read of them differs, which no rewrite can keep, so they stay.
+	- me, 20261119: `upgrade` makes over a file found to be a pin even when it loads clean, since `"x\ty"` loads clean now and held a tab then. A `#` comment block stays, since only 2.x's `init` wrote one. A file stamped beta1's `Format 3` is still current in `upgrade`, which 2026111912330681 takes up.
+	- me, 20261119: text with no mtime whose tells leave 3.0-a37 and older now reads as 3.0-a37, so `upgrade` converts it by that pin's rules rather than refusing it at 7 as reading 2 ways under 2.x. Logged as a `Check:` in questions.md.
+
+- Format versions: port the steps out of 3.0-1f8 to 3.0-a37 to Go
+	- ID: 2026111912004789
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-120047
+	- Opened by: me
+	- Parent ID: 2026111908444515
+	- Prereq IDs: 2026111912004261
+	- Requirements: mirror 2026111912004261's step kinds, rules and test in Go, by parity over idiom.
+	- Estimated effort: Avg
+	- Note: the docs, the changelog, cli-regress and check-migrate already say what the ports build. Each binding's twins of `de60f` (`migrate_writes_the_text_2x_read`) and `ddmhc` (`upgrade_writes_a_fresh_file_with_the_info_block`) need the 2026-09-01 mtime the Rust ones got, and its `dfgyc` twin keeps its `[1, 2]` row, which is still found to be 2.0. `pin-step-oracle.py` in the private tools folder checks a CLI's `upgrade` against the pins' own CLIs.
+
+- Format versions: port the steps out of 3.0-1f8 to 3.0-a37 to Python
+	- ID: 2026111912004810
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-120048
+	- Opened by: me
+	- Parent ID: 2026111908444515
+	- Prereq IDs: 2026111912004261
+	- Requirements: mirror 2026111912004261's step kinds, rules and test in Python, by parity over idiom.
+	- Estimated effort: Avg
+	- Note: the docs, the changelog, cli-regress and check-migrate already say what the ports build. Each binding's twins of `de60f` (`migrate_writes_the_text_2x_read`) and `ddmhc` (`upgrade_writes_a_fresh_file_with_the_info_block`) need the 2026-09-01 mtime the Rust ones got, and its `dfgyc` twin keeps its `[1, 2]` row, which is still found to be 2.0. `pin-step-oracle.py` in the private tools folder checks a CLI's `upgrade` against the pins' own CLIs.
+
+- Format versions: port the steps out of 3.0-1f8 to 3.0-a37 to C
+	- ID: 2026111912004831
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-120048
+	- Opened by: me
+	- Parent ID: 2026111908444515
+	- Prereq IDs: 2026111912004261
+	- Requirements: mirror 2026111912004261's step kinds, rules and test in C, with the C++ interface where it wraps a changed call, by parity over idiom.
+	- Estimated effort: Avg
+	- Note: the docs, the changelog, cli-regress and check-migrate already say what the ports build. Each binding's twins of `de60f` (`migrate_writes_the_text_2x_read`) and `ddmhc` (`upgrade_writes_a_fresh_file_with_the_info_block`) need the 2026-09-01 mtime the Rust ones got, and its `dfgyc` twin keeps its `[1, 2]` row, which is still found to be 2.0. `pin-step-oracle.py` in the private tools folder checks a CLI's `upgrade` against the pins' own CLIs.
 
 - Format versions: conversion steps for 1.0 to 2.0, and from 2.0 to 3.0-1f8
 	- ID: 2026111908444534
@@ -1337,6 +1423,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Closed: 20261119-110734
 	- Acceptance signoff: Self-closed (me): every Needs row ran and passed, by the memory.md close policy.
 	- Verified: 20261119 on nov19 at 53196692: analyze-c passed (de2wz-de2x4), the cppcheck line from LINT_EXTRA exited 0, and codeql-scan passed every row but de5aj, the Python CLI finding already filed as 2026111709183317.
+
+- Format versions: `upgrade` leaves a file stamped beta1's `Format 3` alone, where the load converts it from the format its mtime and tells give
+	- ID: 2026111912330681
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-123306
+	- Opened by: me
+	- Parent ID: 2026111907080423
+	- Prereq IDs: 2026111912004261
+	- Requirements: `upgrade` and `upgrade_file` find the format of a file stamped `Format 3` with `find_format` and convert it by the load's steps, as the load does, in all 4. The rules for `from_v2` on such a file, and the fuzz property `de116` that pins them, are 2026111907080445's to replace with `from`, so this likely goes with it.
+	- Estimated effort: Avg
+	- Note: 20261119, removing the early return on the Format line broke `de116`: with no mtime, a stamped file with an error was found to be a pin and made over with the error kept.
 
 - A remove drops the blank line above its target, so the gap between 2 groups closes
 	- ID: 2026111623191917
