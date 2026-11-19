@@ -8418,6 +8418,54 @@ int main(int argc, char **argv) {
 		}
 		dir_clear(udir);
 	}
+	test_id("dfh8c", "an_upgrade_reads_a_beta1_stamp_as_the_load_does");
+	{
+		/* A file stamped beta1's `Format 3` names only a major, so
+		   shcl_upgrade finds its format as the load does, with the mtime and
+		   the tells, and makes it over by that format's steps. A pin's own
+		   stamp settles it, and so does `3.0`. from_v2 still takes the file as
+		   2.x (2026111912330681). Same rows in every runner. */
+		const char *at = "upgrade beta1 stamp";
+		const int64_t oct10 = 1791590400; /* 2026-10-10, to 3.0-a37 */
+		const int64_t nov10 = 1794268800; /* 2026-11-10, every format */
+		const char *beta = "a: \"x\\ty\"\n##    Format   3\n";
+		const char *made = "a: \"x\xe2\x97\x89TAB\xe2\x97\x89y\"\n## SHCL format 3.0\n";
+		/* The text, the mtime, from_v2, and the text shcl_upgrade gives, which
+		   is the input when it's current. */
+		const struct { const char *text; const int64_t *mtime; int from_v2; const char *want; } cases[] = {
+			{beta, NULL, 0, beta},
+			{beta, &nov10, 0, beta},
+			{beta, &oct10, 0, made},
+			{beta, &oct10, 1, beta},
+			{"a: \"x\\ty\"\n## SHCL format 3.0-a37\n", NULL, 0, made},
+			{"a: \"x\\ty\"\n## SHCL format 3.0\n", &oct10, 0, "a: \"x\\ty\"\n## SHCL format 3.0\n"},
+			{"a: \"x\\ty\"\n##    Format   3.0\n", &oct10, 0, "a: \"x\\ty\"\n##    Format   3.0\n"},
+			/* A pin that rewrites nothing leaves the file as it was. */
+			{"a: 1\n##    Format   3\n", &oct10, 0, "a: 1\n##    Format   3\n"},
+			/* A line the pin refused stays as typed, as on load. */
+			{"o: \"open\n##    Format   3\n", &oct10, 0, "o: \"open\n## SHCL format 3.0\n"},
+		};
+		for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+			shcl_upgraded up = shcl_upgrade_dated(cases[i].text, strlen(cases[i].text), cases[i].mtime, cases[i].from_v2, 0);
+			if (up.current != (strcmp(cases[i].want, cases[i].text) == 0) || !up_is(&up, cases[i].want)) fail(at, up.text ? up.text : "no text");
+			shcl_upgraded_free(&up);
+		}
+		char udir[256], f[320];
+		up_dir(udir, sizeof udir, "upbeta");
+		snprintf(f, sizeof f, "%s/f.shcl", udir);
+		const struct { int64_t mtime; const char *want; } files[] = {{nov10, beta}, {oct10, made}};
+		for (size_t i = 0; i < sizeof files / sizeof files[0]; i++) {
+			shcl_upgraded up;
+			put_file(f, beta);
+			pin_mtime(f, files[i].mtime);
+			int is_beta = files[i].want == beta;
+			if (shcl_upgrade_file(f, 0, 0, &up, NULL, NULL) != SHCL_UPGRADE_OK || up.current != is_beta) fail(at, "upgrade_file");
+			if (!file_is(f, files[i].want)) fail(at, "file text");
+			if (!up.current && up.backup) remove(up.backup);
+			shcl_upgraded_free(&up);
+		}
+		dir_clear(udir);
+	}
 	test_id("dfgyf", "a_load_converts_from_the_format_its_mtime_gives");
 	{
 		/* A load that migrates converts from the format shcl_find_format gives

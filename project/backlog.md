@@ -1470,7 +1470,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: `upgrade` leaves a file stamped beta1's `Format 3` alone, where the load converts it from the format its mtime and tells give
 	- ID: 2026111912330681
 	- Type: Feature
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261119-123306
@@ -1480,6 +1480,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: `upgrade` and `upgrade_file` find the format of a file stamped `Format 3` with `find_format` and convert it by the load's steps, as the load does, in all 4. The rules for `from_v2` on such a file, and the fuzz property `de116` that pins them, are 2026111907080445's to replace with `from`, so this likely goes with it.
 	- Estimated effort: Avg
 	- Note: 20261119, removing the early return on the Format line broke `de116`: with no mtime, a stamped file with an error was found to be a pin and made over with the error kept.
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261119: `upgrade` leaves a file alone up front only when its stamp names a newer format. Any other stamp goes to `find_format`, which settles `3.0` and a pin's own name, and reads beta1's `Format 3` by the mtime and the tells, as the load does. So a pin stamp such as `## SHCL format 3.0-a37` is made over too.
+		- me, 20261119: `from_v2` still takes a stamped file as 2.0, as before and as the load does, so 2026111907080445's `from` can replace it in one place.
+		- me, 20261119: a stamped file found to be a pin keeps the lines the pin refused as typed, as the load and an unstamped file do, so its fresh text can still have an error. `de116` now asks a made-over file to load clean only under `from_v2`, and a clean file naming this format to be current only when `find_format` doesn't give a pin from 3.0-a37 back. A new guard asks for files naming this format found to be a pin.
+		- me, 20261119: a pin whose rewrite changes nothing leaves a `Format 3` file current, stamp and all, since that line gives no hint and nothing needs writing. Only an older major's Format line gets the restamp.
+		- me, 20261119: when the fresh text's Format line read is beta1's `Format 3` or a pin, such as one inside a field's lines above the new block, it's rewritten to `3.0`, as a save without the block rewrites it. Without that, the next run read it by `find_format` again and made the file over again (`de116` at 200,000).
+		- me, 20261119: cli-regress `ddy87` (`upgrade-beta-unsaid`) gave `tags: a, b` under `Format 3` back as it was. The comma list is a tell of 3.0-a37 and older, so it's made over now, to `tags: [a, b]` with the block, and the load's `E026` printed.
+	- Verified: `dfh89` to `dfh8c` fail in all 4 runners with the early return on the Format line put back, and pass without. `dfh89` fails with the restamp of an unchanged pin file allowed. `de116` fails its new guard with the early return put back, and passes at 300, and at 200,000 and 1,000,000 in release. The 4 conformance suites, the C runner under ASan and UBSan, `--backlog-run-quick rust go python c cli`, cli-regress over the 4 CLIs, crosscheck over the corpus, shell-regress `dej8g`, `dc7gs`, `dcmcq` and `dd86w`, `test-ids.py check` and `lint-report.bash --check --no-mark` passed.
+	- Swept: `upgrade_dated` in Rust, Go, Python and C, with the C++ interface over C's. The load already reads a stamped file by `find_format`. `migrate` doesn't find a format, by design. The CLIs call `upgrade_dated`. Docs: spec.md's `UpgradeFile` bullet and the Format line paragraph, design.md's `upgrade_file` bullet, the design doc, the changelog, and the `Upgrade` and `upgrade` doc comments in all 4 and `shcl.hpp`.
+	- Test case: `an_upgrade_reads_a_beta1_stamp_as_the_load_does` (Rust `dfh89`, Go `dfh8a`, Python `dfh8b`, C `dfh8c`), and fuzz `de116`.
+	- Branch: `nov19b-2026111912330681`
+	- Needs local test suite run?: the 2,000,000 release fuzz of `de116` (`SHCL_FUZZ_ITERS=2000000 cargo test --release --test fuzz_smoke upgrade_leaves_its_own_output_alone`), since this item changed that property.
+	- Commit: `bec14386`
+	- 20261119: cli-regress `ddy87` expected `tags: a, b\n##    Format   3\n` and `nothing to upgrade`; it now expects `tags: [a, b]` with the block, and `E026`.
 
 - A remove drops the blank line above its target, so the gap between 2 groups closes
 	- ID: 2026111623191917

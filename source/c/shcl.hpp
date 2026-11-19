@@ -291,10 +291,11 @@ Read<std::string> read_schema_ref(std::string_view text);
 // What upgrade() made of a document, and upgrade_file() of a file. text is
 // the fresh file's text, or the input when current, ambiguous or errors_left.
 // current: the input loads with no error under these rules and, with
-// from_v2, migrates to the same text, or it names this format, so it is left
-// as it is; a beta build of 3.0 stamped the same Format line as a release, so
-// a beta file is current here too, unless from_v2 says it is 2.x and it loads
-// with an error. format: the format the input was written for, which goes in
+// from_v2, migrates to the same text, or its stamp names this format whole, so
+// it is left as it is; a file stamped beta1's `Format 3` is current when
+// find_format() finds it to be 3.0-9ef or later, unless from_v2 says it is 2.x
+// and it loads with an error. format: the format the input was written for,
+// which goes in
 // the backup's name. ambiguous as Migration's: nonzero means nothing is
 // written. lost: lines and values the fresh text does not carry over, which
 // the backup still has. diagnostics: what loading the input found, empty when

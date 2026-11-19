@@ -1067,8 +1067,10 @@ rows=(
 	## 2026101407100010: a file naming this format is taken as 2.x only by an
 	## upgrade told --from-2x, and only when it loads with an error. migrate
 	## leaves it, since its text can keep such a line and a second run would
-	## convert it again.
-	'ddy87|upgrade-beta-unsaid|upgrade -|tags: a, b\n##    Format   3\n|0|tags: a, b\n##    Format   3\n|nothing to upgrade'
+	## convert it again. 2026111912330681: upgrade reads beta1's `Format 3` by
+	## the mtime and the tells, as the load does, so the comma list, a tell of
+	## 3.0-a37 and older, makes it over without --from-2x.
+	'ddy87|upgrade-beta-unsaid|upgrade -|tags: a, b\n##    Format   3\n|0|tags: [a, b]\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3.0\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n|E026'
 	'ddy88|migrate-beta-left|migrate --from-2x -|tags: a, b\n##    Format   3\n|0|tags: a, b\n##    Format   3\n|nothing to migrate'
 	## 2026101419280005: a file upgrade leaves alone was still loaded, so its
 	## diagnostics are printed once, with or without --from-2x, and for a file

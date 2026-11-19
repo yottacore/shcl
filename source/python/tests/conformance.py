@@ -6686,6 +6686,51 @@ def main():
 			if umade:
 				os.remove(up.backup)
 
+	test_id("dfh8b", "an_upgrade_reads_a_beta1_stamp_as_the_load_does")
+	# A file stamped beta1's `Format 3` names only a major, so upgrade finds
+	# its format as the load does, with the mtime and the tells, and makes it
+	# over by that format's steps. A pin's own stamp settles it, and so does
+	# `3.0`. from_v2 still takes the file as 2.x (2026111912330681). Same rows
+	# in every runner.
+	boct10 = 1791590400  # 2026-10-10, to 3.0-a37
+	bnov10 = 1794268800  # 2026-11-10, every format
+	btab = 'a: "x\\ty"\n'
+	bbeta = btab + "##    Format   3\n"
+	bmade = with_stamp('a: "x\u25c9TAB\u25c9y"\n')
+	# The text, the mtime, from_v2, and the text upgrade gives, which is the
+	# input when it's current.
+	for btext, bmtime, bv2, bwant in (
+		(bbeta, None, False, bbeta),
+		(bbeta, bnov10, False, bbeta),
+		(bbeta, boct10, False, bmade),
+		(bbeta, boct10, True, bbeta),
+		(btab + "## SHCL format 3.0-a37\n", None, False, bmade),
+		(with_stamp(btab), boct10, False, with_stamp(btab)),
+		(btab + "##    Format   3.0\n", boct10, False, btab + "##    Format   3.0\n"),
+		# A pin that rewrites nothing leaves the file as it was.
+		("a: 1\n##    Format   3\n", boct10, False, "a: 1\n##    Format   3\n"),
+		# A line the pin refused stays as typed, as on load.
+		('o: "open\n##    Format   3\n', boct10, False, with_stamp('o: "open\n')),
+	):
+		up = shcl.upgrade_dated(btext, bmtime, bv2, False)
+		if (up.current, up.text) != (bwant == btext, bwant):
+			raise SystemExit(f"{btext!r} at {bmtime}, from_v2 {bv2}: {(up.current, up.text)!r}, want {bwant!r}")
+	with tempfile.TemporaryDirectory() as bd:
+		bf = os.path.join(bd, "f.shcl")
+		for bmtime, bwant in ((bnov10, bbeta), (boct10, bmade)):
+			with open(bf, "w", encoding="utf-8", newline="") as fh:
+				fh.write(bbeta)
+			os.utime(bf, (bmtime, bmtime))
+			up = shcl.upgrade_file(bf, False, False)
+			if up.current != (bwant == bbeta):
+				raise SystemExit(f"file at {bmtime}: current {up.current}")
+			with open(bf, encoding="utf-8", newline="") as fh:
+				bgot = fh.read()
+			if bgot != bwant:
+				raise SystemExit(f"file at {bmtime}: holds {bgot!r}, want {bwant!r}")
+			if not up.current:
+				os.remove(up.backup)
+
 	test_id("ddrnd", "default_fills_what_does_not_read")
 	# A default form writes where the field is missing, empty or does not read
 	# as its type, and keeps a value it replaces above the field as a comment

@@ -3559,9 +3559,10 @@ class Upgrade:
 	text: the fresh file's text, or the input when current, ambiguous or
 	errors_left. current: the input loads with no error under these rules
 	and, with from_v2, migrates to the same text and names no older format,
-	or it names this format, so it is left as it is. A beta build of 3.0
-	stamped the same Format line as a release, so a beta file is current here
-	too, unless from_v2 says a 2.x build wrote it and it loads with an error.
+	or its stamp names this format whole, so it is left as it is. A file
+	stamped beta1's `Format 3` is current when find_format() finds it to be
+	3.0-9ef or later, unless from_v2 says a 2.x build wrote it and it loads
+	with an error.
 	format: the format the input was written for, which goes
 	in the backup's name: what its Format line names,
 	else 2. ambiguous: as Migration.ambiguous; nonzero means the text reads
@@ -3599,16 +3600,17 @@ def upgrade(text: str, from_v2: bool, banner: bool) -> Upgrade:
 	can't be kept, or keeping them keeps an error, it is written the way `fmt`
 	writes it. A whole block above the first field stays, so a file with its block
 	at the top comes out with 2, both naming this format. This and a save with
-	SaveOptions.banner are the library calls that write the block. A file that names this format comes back
+	SaveOptions.banner are the library calls that write the block. A file whose
+	stamp names this format whole comes back
 	current and untouched, and so does one that loads with no error under these
 	rules, since a program calling this on every start must never rewrite a good
 	file. from_v2 is migrate's: the file can only have been written for 2.x.
 	Then a file that loads clean is still made over when migrate would change
 	it, as it would `p: a,b`, an array under 2.x and one string now. One it
 	would not change that names an older format gets this format on that Format
-	line, and nothing else. The one file naming this format that is made over is
-	one that loads with an error when from_v2 says a 2.x build wrote it, as with
-	a beta of 3.0 that wrote 2.x lines. It is taken as 2.x. With from_v2, any
+	line, and nothing else. A file naming this format that loads with an error
+	is taken as 2.x when from_v2 says a 2.x build wrote it, as with a beta of
+	3.0 that wrote 2.x lines. With from_v2, any
 	file is made over only when the fresh text loads clean; when it wouldn't,
 	errors_left names the lines still in error. Pass from_v2 only for a file
 	known to be old, never on every start: a file this format wrote that picks
@@ -3619,7 +3621,9 @@ def upgrade(text: str, from_v2: bool, banner: bool) -> Upgrade:
 	one from 3.0-9ef on is current, its errors kept as typed, as a load with
 	migrate keeps them. One from 3.0-1f8 to 3.0-a37 goes through that format's
 	step rather than migrate_unstamped(), and is made over even when it loads
-	clean, since `"x\\ty"` loads clean now and held a tab then.
+	clean, since `"x\\ty"` loads clean now and held a tab then. A file stamped
+	beta1's `Format 3` or a pin is read the same way, and the made-over file's
+	Format line names this format whole.
 	upgrade_dated() takes the file's mtime too."""
 	return upgrade_dated(text, None, from_v2, banner)
 
@@ -3630,10 +3634,11 @@ def upgrade_dated(text: str, mtime: float | None, from_v2: bool, banner: bool) -
 	named = read_format_version(text)
 	version = named.value if named.status is Status.Good else None
 	up = Upgrade(text, True, version if version is not None else 2)
-	if _names_newer(named) or (version == FORMAT_MAJOR and not from_v2):
+	if _names_newer(named):
 		return up
 	# The load's step table, in its upgrade form, so a format whose run is
-	# all SAME has nothing to do.
+	# all SAME has nothing to do. beta1's `Format 3` names only a major, so
+	# find_format reads it as the load does, with the mtime and the tells.
 	fmt = "2.0" if from_v2 else find_format(text, mtime)
 	step = _first_rewrite(fmt)
 	if step is None or step.kind is _StepKind.SAME:
@@ -3653,7 +3658,9 @@ def upgrade_dated(text: str, mtime: float | None, from_v2: bool, banner: bool) -
 	# does. One migrate leaves as it was has nothing to do, but an older
 	# Format line, which would keep the load's H007 hint, becomes this one.
 	if clean and m.text == text:
-		restamped = _restamp(text, named.line) if version is not None else None
+		restamped = (
+			_restamp(text, named.line) if version is not None and version < FORMAT_MAJOR else None
+		)
 		if restamped is not None:
 			up.current = False
 			up.diagnostics = before.diagnostics()
@@ -3672,9 +3679,15 @@ def upgrade_dated(text: str, mtime: float | None, from_v2: bool, banner: bool) -
 	# Only 2.x's block is in `#` comments.
 	fresh._swap_banner(banner, pin is None)
 	made = _upgrade_text(fresh, banner)
+	# The block names this format, but a beta1 `Format 3` line above it is
+	# the one read, and would send the next run to find_format again, so it
+	# names this format too, as the stamp a save without the block writes.
+	read = read_format_version(made)
+	if read.status is Status.Good and not _names_this(read) and not _names_newer(read):
+		made = _restamp(made, read.line) or made
 	# With from_v2 it goes only when that leaves it loading clean, or the next
 	# run with it would read the result by 2.x rules again
-	# (2026101515372401). Without, a Format 3 file with an error is current.
+	# (2026101515372401). Without, a line in error stays as typed, as on load.
 	if from_v2:
 		check = Document.parse(made)
 		if check.error_count() != 0:

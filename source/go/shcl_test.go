@@ -8634,6 +8634,72 @@ func TestAnUpgradeConvertsFromTheFormatItsMtimeGives(t *testing.T) {
 	}
 }
 
+// TestAnUpgradeReadsABeta1StampAsTheLoadDoes: a file stamped beta1's
+// `Format 3` names only a major, so Upgrade finds its format as the load
+// does, with the mtime and the tells, and makes it over by that format's
+// steps. A pin's own stamp settles it, and so does `3.0`. fromV2 still takes
+// the file as 2.x (2026111912330681). Same rows in every runner.
+func TestAnUpgradeReadsABeta1StampAsTheLoadDoes(t *testing.T) {
+	defer testID(t, "dfh8a")
+	const (
+		oct10 = int64(1791590400) // 2026-10-10, to 3.0-a37
+		nov10 = int64(1794268800) // 2026-11-10, every format
+	)
+	tab := "a: \"x\\ty\"\n"
+	beta := tab + "##    Format   3\n"
+	made := "a: \"x\u25c9TAB\u25c9y\"\n" + StampLine + "\n"
+	at := func(m int64) *int64 { return &m }
+	// The text, the mtime, fromV2, and the text Upgrade gives, which is the
+	// input when it's current.
+	cases := []struct {
+		text   string
+		mtime  *int64
+		fromV2 bool
+		want   string
+	}{
+		{beta, nil, false, beta},
+		{beta, at(nov10), false, beta},
+		{beta, at(oct10), false, made},
+		{beta, at(oct10), true, beta},
+		{tab + "## SHCL format 3.0-a37\n", nil, false, made},
+		{tab + StampLine + "\n", at(oct10), false, tab + StampLine + "\n"},
+		{tab + "##    Format   3.0\n", at(oct10), false, tab + "##    Format   3.0\n"},
+		// A pin that rewrites nothing leaves the file as it was.
+		{"a: 1\n##    Format   3\n", at(oct10), false, "a: 1\n##    Format   3\n"},
+		// A line the pin refused stays as typed, as on load.
+		{"o: \"open\n##    Format   3\n", at(oct10), false, "o: \"open\n" + StampLine + "\n"},
+	}
+	for _, c := range cases {
+		up := UpgradeDated(c.text, c.mtime, c.fromV2, false)
+		if up.Current != (c.want == c.text) || up.Text != c.want {
+			t.Errorf("%q at %v, fromV2 %v: gave %v, %q; want %q", c.text, c.mtime, c.fromV2, up.Current, up.Text, c.want)
+		}
+	}
+	f := filepath.Join(t.TempDir(), "f.shcl")
+	for _, c := range []struct {
+		mtime int64
+		want  string
+	}{{nov10, beta}, {oct10, made}} {
+		if err := os.WriteFile(f, []byte(beta), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		tm := time.Unix(c.mtime, 0)
+		if err := os.Chtimes(f, tm, tm); err != nil {
+			t.Fatal(err)
+		}
+		up, err := UpgradeFile(f, false, false)
+		if err != nil || up.Current != (c.want == beta) {
+			t.Errorf("file at %d: current %v, %v", c.mtime, up.Current, err)
+		}
+		if b, err := os.ReadFile(f); err != nil || string(b) != c.want {
+			t.Errorf("file at %d: holds %q, %v; want %q", c.mtime, b, err, c.want)
+		}
+		if !up.Current {
+			_ = os.Remove(up.Backup)
+		}
+	}
+}
+
 func TestALoadThatMigratesSavesThroughTheGuards(t *testing.T) {
 	defer testID(t, "dfe4r")
 	dir := t.TempDir()

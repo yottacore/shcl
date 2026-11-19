@@ -4260,10 +4260,11 @@ type Upgraded struct {
 	// ErrorsLeft.
 	Text string
 	// Current: the input loads with no error under these rules and, with
-	// fromV2, migrates to the same text and names no older format, or it
-	// names this format, so it is left as it is. A beta build of 3.0 stamped
-	// the same Format line as a release, so a beta file is current here too,
-	// unless fromV2 says a 2.x build wrote it and it loads with an error.
+	// fromV2, migrates to the same text and names no older format, or its
+	// stamp names this format whole, so it is left as it is. A file stamped
+	// beta1's `Format 3` is current when FindFormat finds it to be 3.0-9ef or
+	// later, unless fromV2 says a 2.x build wrote it and it loads with an
+	// error.
 	Current bool
 	// Format is the format the input was written for, which goes in the
 	// backup's name: what its Format line names, else 2.
@@ -4297,16 +4298,17 @@ type Upgraded struct {
 // be kept, or keeping them keeps an error, it is written the way `fmt` writes
 // it. A whole block above the first field stays, so a file with its
 // block at the top comes out with 2, both naming this format. This and a save
-// with SaveOptions.Banner are the library calls that write the block. A file that names this format comes back
+// with SaveOptions.Banner are the library calls that write the block. A file
+// whose stamp names this format whole comes back
 // Current and untouched, and so does one that loads with no error under these
 // rules, since a program calling this on every start must never rewrite a good
 // file. fromV2 is Migrate's: the file can only have been written for 2.x. Then
 // a file that loads clean is still made over when Migrate would change it, as
 // it would `p: a,b`, an array under 2.x and one string now. One it would not
 // change that names an older format gets this format on that Format line, and
-// nothing else. The one file naming this format that is made over is one that
-// loads with an error when fromV2 says a 2.x build wrote it, as with a beta of
-// 3.0 that wrote 2.x lines. It is taken as 2.x. With fromV2, any file is made
+// nothing else. A file naming this format that loads with an error is taken as
+// 2.x when fromV2 says a 2.x build wrote it, as with a beta of 3.0 that wrote
+// 2.x lines. With fromV2, any file is made
 // over only when the fresh text loads clean; when it wouldn't, ErrorsLeft names
 // the lines still in error. Pass fromV2 only for a file known to be old, never
 // on every start: a file this format wrote that picks up an error later would
@@ -4317,7 +4319,9 @@ type Upgraded struct {
 // from 3.0-9ef on is Current, its errors kept as typed, as a load with Migrate
 // keeps them. One from 3.0-1f8 to 3.0-a37 goes through that format's step
 // rather than MigrateUnstamped, and is made over even when it loads clean,
-// since `"x\ty"` loads clean now and held a tab then. UpgradeDated takes the
+// since `"x\ty"` loads clean now and held a tab then. A file stamped beta1's
+// `Format 3` or a pin is read the same way, and the made-over file's Format
+// line names this format whole. UpgradeDated takes the
 // file's mtime too.
 func Upgrade(text string, fromV2, banner bool) Upgraded {
 	return UpgradeDated(text, nil, fromV2, banner)
@@ -4332,11 +4336,12 @@ func UpgradeDated(text string, mtime *int64, fromV2, banner bool) Upgraded {
 	if hasVersion {
 		up.Format = version
 	}
-	if namesNewer(named) || (hasVersion && version == FormatMajor && !fromV2) {
+	if namesNewer(named) {
 		return up
 	}
 	// The load's step table, in its upgrade form, so a format whose run is
-	// all stepSame has nothing to do.
+	// all stepSame has nothing to do. beta1's `Format 3` names only a major,
+	// so FindFormat reads it as the load does, with the mtime and the tells.
 	format, ok := "2.0", true
 	if !fromV2 {
 		format, ok = FindFormat(text, mtime)
@@ -4363,7 +4368,7 @@ func UpgradeDated(text string, mtime *int64, fromV2, banner bool) Upgraded {
 	// does. One migrate leaves as it was has nothing to do, but an older
 	// Format line, which would keep the load's H007 hint, becomes this one.
 	if clean && m.Text == text {
-		if !hasVersion {
+		if !hasVersion || version >= FormatMajor {
 			return up
 		}
 		if t, ok := restamp(text, named.Line); ok {
@@ -4387,9 +4392,17 @@ func UpgradeDated(text string, mtime *int64, fromV2, banner bool) Upgraded {
 	// Only 2.x's block is in `#` comments.
 	fresh.swapBanner(banner, pin == nil)
 	made := upgradeText(fresh, banner)
+	// The block names this format, but a beta1 `Format 3` line above it is
+	// the one read, and would send the next run to FindFormat again, so it
+	// names this format too, as the stamp a save without the block writes.
+	if read := ReadFormatVersion(made); read.Status == Good && !namesThis(read) && !namesNewer(read) {
+		if t, ok := restamp(made, read.Line); ok {
+			made = t
+		}
+	}
 	// With fromV2 it goes only when that leaves it loading clean, or the next
 	// run with it would read the result by 2.x rules again
-	// (2026101515372401). Without, a Format 3 file with an error is current.
+	// (2026101515372401). Without, a line in error stays as typed, as on load.
 	if fromV2 {
 		if check := Parse(made); check.ErrorCount() != 0 {
 			// Empty only if a clean text formats to one with an error, and then
