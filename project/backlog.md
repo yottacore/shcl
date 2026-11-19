@@ -48,7 +48,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A remove drops the blank line above its target, so the gap between 2 groups closes
 	- ID: 2026111623191917
 	- Type: Enhancement
-	- Status: Waiting on automated testing
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261116-231919
@@ -68,15 +68,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: the remove's rebuild is the one place a remove drops a node's lines in all 4: `try_remove` in Rust, `TryRemove` in Go, `try_remove` in Python, `shcl_try_remove` in C. The opened-by-kept path moves the field's lines whole, with its blank on its kept line. The keep-lines cut was in `keep_lines_as` in Rust, `keepLinesAs` in Go, `_keep_lines_as` in Python, and `keep_lines` in C. `collapse_dup` and `fold_dups_below` call `beside_kept` too, unchanged on purpose.
 	- Test case: placement rows `2026111623191917-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dd3t9`, `dderx`.
 	- Verified: the 3 rows fail on the library at `813dfecf` in all 4 (Rust and Go runners, C runner, `placement-watch.py` for Python) and pass on the change. The 4 conformance suites, the whole Rust suite, the Go tests in both modules, the 200,000-iteration release fuzz apart from `dd16k` (2026111623445822, which fails the same way at `813dfecf`), cli-regress (671 rows), crosscheck with a 2000-iteration dump (55461 comparisons), perf-gate, check-docs, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, gcc and clang at `-Werror`, and markdownlint. analyze-c found 2 things in C's `hand_blank`, a null dereference it couldn't rule out and swappable parameters, both fixed, and the pinned clang analyzer passes on `main.c`. Its other 2 reds are older (2026111623502776).
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111809400000 (dd16k) and 2026111809400100 (dd3t9) are fixed.
+	- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
 	- Branch: `nov17-2026110712372281`
 	- Prereq IDs: 2026111809400000, 2026111809400100
+	- Acceptance signoff: Self-closed: its Needs row, the 2M release fuzz, passed.
+	- Closed: 20261118-163127
+	- Closed reason: Done
 
 - The remove and the setter folds hand their lines on through `adopt`
 	- ID: 2026111623191935
 	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111809400000 (dd16k) and 2026111809400100 (dd3t9) are fixed.
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261116-231919
@@ -90,6 +92,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261117, all 4 bindings: `adopt` takes who gets the lines, as what takes the node's place, the next sibling, or the parent, and the blank owed, and does the placement each old helper did. The remove's rebuild and its opened-by-kept path, `collapse_dup`, `fold_dups_below`, and `refile_folded`'s 2 placement calls go through it. A setter's fold now hands the blank above the instance that folds to the next line, as a remove does. design.md's fold bullet and "Where the code still differs", spec.md's fold sentence, and the changelog say so.
 		- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
+		- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
 	- Decisions:
 		- me, 20261117: the 3 kinds of heir are an enum in Rust (`Heir`), a struct with a kind in Go (`heir`), a tuple in Python, and `ShclHeir` in C. A list's settle runs outside a document, so the heir branch is `adopt_heir`, which `unstack` calls and `adopt` calls for that kind.
 		- me, 20261117: `hand_blank` joined `beside_kept`, since the blank a node owes comes off it with the lines it leaves. `set_blank`, `blank_below`, `leave_above`, `leave_last`, `leave_below`, and C's `leave_orphans` became `adopt`'s branches. `refile_folded` calls `adopt` too, so none of those names is left, and 2026111623192782 still has `refile_folded`, `folded_kept`, and `settle_first_blank`.
@@ -99,12 +102,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the 2 rows fail on the library at `87683db6` in Python and C, and row 1 through the Rust CLI, and pass on the change in all 4. The 4 conformance suites, the whole Rust suite, the Go tests in both modules, `--backlog-run-quick rust go python c`, cli-regress (671 rows), crosscheck with a 2000-iteration dump (55461 comparisons), the 200,000-iteration release fuzz apart from `dd16k` (2026111623445822, at the same iteration as before), rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, gcc, gcc 15 and clang at `-Werror`, lint-report, and markdownlint. analyze-c found swappable parameters on the new `heir_at` in C, now marked as the Rust twin's order. Its other reds are older: `set_off` from `1bbee68b`, and `fs_property.c` (2026111623502776).
 	- Branch: `nov17-2026111623191935`
 	- Prereq IDs: 2026111809400000, 2026111809400100
+	- Acceptance signoff: Self-closed: its Needs row, the 2M release fuzz, passed.
+	- Closed: 20261118-163127
+	- Closed reason: Done
 
 - The load's fold hands its lines on through `adopt`
 	- ID: 2026111623192782
 	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111809400000 (dd16k) and 2026111809400100 (dd3t9) are fixed.
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261116-231927
@@ -122,6 +127,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Golden changed: corpus `001-messy-cities` (`d9s1g`) and `013-comments` (`da4hk`), `expected.shcl`. Each loses the blank between the first instance's comments and the second's. In 001 no line comes after the second Chicago block, so the blank goes. In 013 it goes to `items:`, which has one. The conformance README's notes for both say so.
 		- This fixes Bug 2026111700365065: placement rows `2026111700365065-1` and `-2` are its 2 commands.
 		- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
+		- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
 	- Decisions:
 		- me, 20261117: `settle_first_blank` stays under its own name. It files the lines at the ends as a reload does and clears the blank where output starts, and it moves no line off a node that goes, so it isn't `adopt`'s work. The load runs it once, after the fold rather than before. The fold can hand a blank to the first field, and a kept line it hands to the end of the file has to go after the footer lines read before it.
 		- me, 20261117: the lines that move are the old span, from a node's first later line to the last kept line among them, so placement is as before. The blank of each fold goes to the heir of its own line.
@@ -131,12 +137,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: placement rows `2026111700365065-1` to `-5` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), corpus `001-messy-cities` (`d9s1g`), `013-comments` (`da4hk`), `213-load-fold-keeps-kept-lines` (`devra`), perf-gate `reopens` (`df014`), `dd3t9`, `dderx`.
 	- Verified: the 5 rows fail on the library at `59074148` in all 4 runners and pass on the change, and the rest of the placement table passes on both. The 4 conformance suites, the whole Rust suite, the Go tests in both modules, `--backlog-run-quick rust go python c`, cli-regress (671 rows), crosscheck with a 2000-iteration dump (55461 comparisons), perf-gate, check-docs, the 200,000-iteration release fuzz apart from `dd16k` (2026111623445822, at the same iteration as before), rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, and gcc, gcc 15 and clang at `-Werror`. analyze-c's 2 reds are the older `set_off` and `fs_property.c` ones (2026111623502776).
 	- Branch: `nov17-2026111623192782`
+	- Acceptance signoff: Self-closed: its Needs row, the 2M release fuzz, passed.
+	- Closed: 20261118-163127
+	- Closed reason: Done
 
 - The banner toggle hands the author's lines on through `adopt`
 	- ID: 2026111623192800
 	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111809400000 (dd16k) and 2026111809400100 (dd3t9) are fixed.
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261116-231928
@@ -150,6 +158,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261117, all 4 bindings: `banner_spans` finds the blocks in a lead list and moves nothing. `take_banners` takes each one out, from the end, and hands the author's lines and the blank to `adopt` with a new heir kind, `At`, for something that sat in a lead list. It puts them back where the block was, with the blank on the first of them, else on the line after, else on the node the list is above, as before. `drop_banners` is gone. check-docs `dfdpp` greps the 4 bindings for every retired mover. design.md's banner sub-bullet says so, and "Where the code still differs" is gone, since nothing differs now. No output changed, so no changelog entry.
 		- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
+		- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
 	- Decisions:
 		- me, 20261117: the info block isn't a node, so none of the 3 heir kinds puts its lines where the block was. `adopt` takes a fourth, the place in a lead list, named by a `Spot` (leading, trailing, opening lines, or the footer) and an index. It's `Heir::At` in Rust, `heirAt` with `spot` and `at` fields in Go, `(_HEIR_AT, node, spot, at)` in Python, and `HEIR_AT` with `spot` and `at` fields in C. Go's and C's other heir literals name their fields now.
 		- me, 20261117: the list is stepped (`restep`) once after all its blocks are off, not in each `adopt` call. A step with an earlier block still in the list could lower a line further than the old single pass did.
@@ -158,12 +167,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-docs `dfdpp`, corpus `149-banner`, `161-banner-moved`, `180-banner-first-child`, `190-banner-own-comments`, `217-banner-author-line` (`dez6b`), `218-banner-off-author-line` (`dez6c`), cli-regress `dez6e`, fuzz `de116`.
 	- Verified: `dfdpp` fails on an injected `_leave_above` and its grep finds the old names in all 4 files at `31714ad8`, and it passes on the change. A differential over 11,000 random files with info blocks, through `set_banner` on and off and `upgrade` with and without `from_v2`, gives the same results on the old and new Python library, and it catches a dropped blank. The 4 CLIs agree on `banner on`, `banner off` and `upgrade --from-2x` over 300 more. The 4 conformance suites, the Rust lib, upgrade and fuzz tests, the Go tests in both modules, `--backlog-run-quick rust go python c`, cli-regress (671 rows), crosscheck (23862 comparisons), check-docs, lint-report, the banner-touching fuzz properties at 200,000 in release apart from `dd16k` (2026111623445822, at the same iteration as before), rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, and gcc, gcc 15 and clang at `-Werror`. analyze-c's 2 reds are the older `set_off` and `fs_property.c` ones (2026111623502776).
 	- Branch: `nov17-2026111623192800`
+	- Acceptance signoff: Self-closed: its Needs row, the 2M release fuzz, passed.
+	- Closed: 20261118-163127
+	- Closed reason: Done
 
 - Format versions: write `##    Format   3.0` in the info block, and let the banner calls see a `## SHCL format` stamp
 	- ID: 2026111708125373
 	- Type: Feature
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, since corpus `217-banner-author-line`'s input changed. It already fails on dev at dd16k (2026111623445822) and dc26d (2026111703284678), so only a new failure counts.
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261117-081253
@@ -183,12 +194,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the new test fails in all 4 with the stamp checks taken out and passes with them. `--backlog-run-quick rust python` and `--backlog-run-quick go c cli` passed, as did cli-regress (675 rows), the crosscheck over the corpus (23862 comparisons), check-migrate, check-docs, check-doc-examples, check-veneer, veneer_smoke, `test-ids.py check` and `lint-report.bash --check --no-mark`.
 	- Test case: `a_stamp_goes_where_a_format_line_goes` (Rust `dfe3m`, Go `dfe3n`, Python `dfe3p`, C `dfe3q`), and the corpus `expected-*` files and cli-regress rows above.
 	- Branch: `nov17b-2026111708125373`
+	- Acceptance signoff: Self-closed: its Needs row, the 2M release fuzz, passed.
+	- Closed: 20261118-163127
+	- Closed reason: Done
+	- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
 
 - Format versions: write the stamp on every save and every text call that saves
 	- ID: 2026111708130702
 	- Type: Feature
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz, as child 2026111709431277 says.
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261117-081307
@@ -213,14 +227,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261117: split for its time cap. The Rust step, the stamped corpus (`expected.shcl`, `-write`, `-keep`, `-merged`) and placement table, Rust's asserts and the new test are on `wip/nov17b-2026111708130702`. They can't merge alone, since the other 3 runners read the same corpus. Go, Python, C, the C++ interface, the cli-regress rows and the docs are child 2026111709431277.
 		- 20261117: on the wip branch, `cargo test`, clippy with `-D warnings` and rustfmt pass. Not run there: the other bindings, cli-regress, crosscheck, check-migrate and the 2M release fuzz.
 		- 20261117: child 2026111709431277 brought the Rust half onto `nov17b-2026111709431277` with the other bindings, cli-regress and the docs. It waits on the release fuzz, and so does this one. The demo gif rerender is child 2026111710564808, Stalled for the gif stage.
+		- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
 	- Test case: `a_save_names_this_format` (Rust `dfe62`; Go `dfe63`, Python `dfe64`, C `dfe65` and veneer `dfe66` with the child), plus the corpus files and the fuzz's no-edit save property in `keeping_lines_reloads_as_the_document`.
 	- Branch: `nov17b-2026111709431277` (the Rust half was `wip/nov17b-2026111708130702`)
+	- Acceptance signoff: Self-closed: its Needs row, the 2M release fuzz, passed.
+	- Closed: 20261118-163127
+	- Closed reason: Done
 
 - Format versions: write the stamp on every save in Go, Python, C and the C++ interface
 	- ID: 2026111709431277
 	- Type: Feature
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, since the no-edit save property in `keeping_lines_reloads_as_the_document` changed. It already fails on dev at dd16k (2026111623445822) and dc26d (2026111703284678), so only a new failure counts. Also the cppcheck line from `LINT_EXTRA` and analyze-c.bash for the `shcl.h` change, and codeql-scan.bash for the C and Python test code.
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261117-094312
@@ -241,11 +258,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: `a_save_names_this_format` (Go `dfe63`, Python `dfe64`, C `dfe65`, veneer `dfe66`), plus the corpus files the 4 runners read and the cli-regress rows above.
 	- Branch: `nov17b-2026111709431277`
 	- Commit: `2109dde5` (the Rust half, picked from `ccbbe057`), `a495d6df`, `db105dcb`, `a3885051`, `10a1729a`
+	- Acceptance signoff: Self-closed: the 2M release fuzz, cppcheck and analyze-c passed, and codeql-scan's one red is older.
+	- Closed: 20261118-163127
+	- Closed reason: Done
+	- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
+	- Verified 20261118 on nov18: the cppcheck line from `LINT_EXTRA` gave no findings, and analyze-c.bash passed, `de2wz` to `de2x4`, with `2b0d2957`'s suppression in.
+	- Verified 20261118 on nov18: codeql-scan.bash passed every check but `de5aj`, whose finding in the Python CLI is older than the round (2026111709183317).
 
 - A load's fold of a second instance moves the blank line above it among the comments, or above the wrong field
 	- ID: 2026111700365065
 	- Type: Bug
-	- Status: Waiting on automated testing
+	- Status: Closed
 	- Severity: Avg
 	- Target version: v3.0.0
 	- Opened: 20261117-003650
@@ -258,16 +281,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: the load's fold appends the second instance's leading lines to the first one's with their blank, and the instance's own blank is dropped. The setter's fold takes both off and hands them on through `adopt`. 2026111623192782 moves the load's fold onto `adopt` and may close this with it.
 	- Estimated effort: Avg
 	- Prereq IDs: 2026111623192782, 2026111809400000, 2026111809400100
-	- Test case: placement rows 2026111700365065-1 to -5 in project/conformance/placement.txt
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111809400000 (dd16k) and 2026111809400100 (dd3t9) are fixed.
+	- Test case: placement rows `2026111700365065-1` to `-5` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C).
 	- Fixed by 2026111623192782's commit, whose new placement rows -1 and -2 are this Bug's 2 commands. They failed on 59074148 in all 4 runners and pass after.
 	- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
+	- Acceptance signoff: Self-closed: its Needs row, the 2M release fuzz, passed.
+	- Closed: 20261118-163127
+	- Closed reason: Done
+	- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
 
 - A deeper comment above a top-level kept line is written one level in by `fmt` and at column 0 after any edit
 	- ID: 2026111111560900
 	- Type: Bug
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, once 2026111809400000 (dd16k) and 2026111809400100 (dd3t9) are fixed.
+	- Status: Closed
 	- Severity: Avg
 	- Target version: v3.0.0
 	- Opened: 20261111-115609
@@ -294,6 +319,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- After the send-back fix: all of `fuzz_smoke` at 200,000 in release fails only `dd16k` at 124446, as on `f0584691`. `ddrnk`, `dd3t9` and `dderx` pass 1,000,000 in release. The 4 conformance suites, Go's cmd module, cli-regress (671 rows), crosscheck over the corpus and a 2000-iteration dump (55461 comparisons, `ddesf` included), `--backlog-run-quick rust go python c`, and lint-report.
 	- Prereq IDs: 2026111809400000, 2026111809400100
 	- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
+	- Acceptance signoff: Self-closed: its Needs row, the 2M release fuzz, passed.
+	- Closed: 20261118-163127
+	- Closed reason: Done
+	- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
 
 - Format versions: the demo gif and its golden text show fmt output without the stamp
 	- ID: 2026111710564808
@@ -411,7 +440,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: every save and every text call that saves writes `## SHCL format 3.0`, or rewrites the stamp there, in all 4 and the C++ interface. The info block's row becomes `##    Format   3.0`. A stamp naming a newer minor of this major is refused for saves, as `TooNew` is.
 	- Estimated effort: Avg
 	- Note: `set_banner` and its `banner_spans` find a Format line by `FORMAT_LINE_HEAD` only, so they don't yet see a `## SHCL format` stamp. The Format read gives the major only, so a newer minor needs the minor from it too.
-	- Note: split for its time cap. The newer-minor refusal is child 2026111708125354, which is done. The info block's `3.0` row and the banner calls seeing the stamp are child 2026111708125373, waiting on the release fuzz. The stamp on every save is child 2026111708130702, Started, with its Go, Python, C and C++ part in 2026111709431277.
+	- Note: split for its time cap. The newer-minor refusal is child 2026111708125354, which is done. The info block's `3.0` row and the banner calls seeing the stamp are child 2026111708125373, which is done. The stamp on every save is child 2026111708130702, with its Go, Python, C and C++ part in 2026111709431277, both done.
 
 - Format versions: find an unstamped file's format, and convert any older one
 	- ID: 2026111018212703
@@ -452,8 +481,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: the line-keeping text call gives a newer format's text with no refusal
 	- ID: 2026111708542868
 	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: the cppcheck line from `LINT_EXTRA` and analyze-c.bash for the `shcl.h` change, and codeql-scan.bash for the C, C++ and Python test code. analyze-c didn't finish in 4 minutes here.
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261117-085428
@@ -474,12 +502,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the 4 conformance suites, the veneer smoke, `oom_recover`, cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), check-docs, check-veneer, `test-ids.py check`, clippy with `-D warnings`, rustfmt, gofmt, go vet, staticcheck, ruff, mypy, the C library built with `SHCL_NO_FILE_IO`, and `cicd.bash --backlog-run-quick rust go python c cli`. With the refusal taken out, the new test fails in Rust, Go and C, and Python's runner stops at its first newer-format check. The new tests in Rust, Go, C and C++ don't compile against the old signature.
 	- Test case: `a_newer_format_document_gives_no_text` in Rust (`dffvy`), Python (`dffvz`), Go `TestANewerFormatDocumentGivesNoText` (`dffw0`), the C runner (`dffw1`) and the veneer smoke (`dffw2`).
 	- Branch: `nov18-2026111708542868`
+	- Acceptance signoff: Self-closed: cppcheck and analyze-c passed, and codeql-scan's one red is older.
+	- Closed: 20261118-163127
+	- Closed reason: Done
+	- Verified 20261118 on nov18: the cppcheck line from `LINT_EXTRA` gave no findings, and analyze-c.bash passed, `de2wz` to `de2x4`, with `2b0d2957`'s suppression in.
+	- Verified 20261118 on nov18: codeql-scan.bash passed every check but `de5aj`, whose finding in the Python CLI is older than the round (2026111709183317).
 
 - A save can't choose whether to add the info block
 	- ID: 2026111016205705
 	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: the cppcheck line from `LINT_EXTRA` and analyze-c.bash, for the `shcl.h` change.
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-162057
@@ -503,12 +535,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: `dffwt` fails in Rust with the option's call stubbed out and passes with it. With both halves in, `--backlog-run-quick rust python` and `--backlog-run-quick go c`, cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), check-docs, check-veneer, `test-ids.py check`, rustfmt, gofmt and `lint-report.bash --check --no-mark` passed. analyze-c didn't finish inside 4 minutes, so it waits with cppcheck.
 	- Branch: `nov18-2026111016205705`
 	- Commit: `7f1d9f0f`
+	- Acceptance signoff: Self-closed: cppcheck and analyze-c passed.
+	- Closed: 20261118-163127
+	- Closed reason: Done
+	- Verified 20261118 on nov18: the cppcheck line from `LINT_EXTRA` gave no findings, and analyze-c.bash passed, `de2wz` to `de2x4`, with `2b0d2957`'s suppression in.
 
 - upgrade and upgrade_file always write the info block, with no choice to leave it off
 	- ID: 2026111814503025
 	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: the cppcheck line from `LINT_EXTRA` and analyze-c.bash, for the `shcl.h` change.
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261118-145030
@@ -528,12 +563,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: `dffxa` fails in Rust with the choice ignored and passes with it. banner-diff.py found Python's `upgrade(text, v2, True)` the same as HEAD's `upgrade(text, v2)` over 300 inputs. The parent's gates passed on this tree.
 	- Branch: `nov18-2026111016205705`
 	- Commit: `c8bc0e9f`
+	- Acceptance signoff: Self-closed: cppcheck and analyze-c passed.
+	- Closed: 20261118-163127
+	- Closed reason: Done
+	- Verified 20261118 on nov18: the cppcheck line from `LINT_EXTRA` gave no findings, and analyze-c.bash passed, `de2wz` to `de2x4`, with `2b0d2957`'s suppression in.
 
 - Fuzz `dd16k` fails at iteration 571195 at 2,000,000: `set_banner` on a document and on its reload give different text after a clear, a merge and a literal
 	- ID: 2026111809400000
 	- Type: Bug
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, since every property that calls `set_banner` reaches the change. Also the cppcheck line from `LINT_EXTRA` and analyze-c.bash for the `shcl.h` change.
+	- Status: Closed
 	- Severity: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261118-094000
@@ -559,11 +597,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the new test fails in all 4 on the unfixed library and passes on the fix. Its beta1 row fails in Python with `restamp_leads` stubbed out. `dd16k` passed at 2,000,000 in release. `--backlog-run-quick rust go python c`, cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), `test-ids.py check` and `lint-report.bash --check --no-mark` passed.
 	- Branch: `nov18-2026111809400000`
 	- Commit: `96e18da5`
+	- Acceptance signoff: Self-closed: the 2M release fuzz, cppcheck and analyze-c passed.
+	- Closed: 20261118-163127
+	- Closed reason: Done
+	- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
+	- Verified 20261118 on nov18: the cppcheck line from `LINT_EXTRA` gave no findings, and analyze-c.bash passed, `de2wz` to `de2x4`, with `2b0d2957`'s suppression in.
 
 - Fuzz `dd3t9` fails at iteration 249474 at 2,000,000: the line-keeping save of a file whose info block names a newer format reloads as a stamped document
 	- ID: 2026111809400100
 	- Type: Bug
-	- Status: Waiting on automated testing
+	- Status: Closed
 	- Severity: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261118-094001
@@ -583,15 +626,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: every caller of the line walk in all 4. The Format read and the Schema read take its text, and both are fixed. `migrate`'s check for runs read 2 ways uses only whether a line is in a block. Where blocks open is unchanged, since the fence step still sees the text it saw before. The tree-side Format line checks (`banner_own`, `restamp_leads`, the merge's `repeat_line`, `current_footer`) read comment text the parser already trimmed, and `stamped`'s head check trims too. `migrate` and `upgrade` rewrite the line through `restamp_as`, so they keep the carriage return too.
 	- Test case: new rows in `stamp_reads_say_why` (Rust `ddqh8`, Go `ddqh9`, Python `ddqha`, C `ddqhb`) and `a_save_names_this_format` (Rust `dfe62`, Go `dfe63`, Python `dfe64`, C `dfe65`), and fuzz `dd3t9`.
 	- Verified: the new rows fail in all 4 on the unfixed library and pass on the fix. The kept carriage return row fails in Python with only the line walk fixed. `dd3t9` passed at 600,000 iterations in release, past 249474. `--backlog-run-quick rust python` and `--backlog-run-quick go c`, cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), rustfmt, gofmt and `lint-report.bash --check --no-mark` passed. codeql-scan passed but `de5aj`, whose finding in the Python CLI is older than the round (2026111709183317).
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke. Also the cppcheck line from `LINT_EXTRA` and analyze-c.bash for the `shcl.h` change.
 	- Branch: `nov18-2026111809400100`
 	- Commit: `3eb195be`
+	- Acceptance signoff: Self-closed: the 2M release fuzz, cppcheck and analyze-c passed.
+	- Closed: 20261118-163127
+	- Closed reason: Done
+	- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
+	- Verified 20261118 on nov18: the cppcheck line from `LINT_EXTRA` gave no findings, and analyze-c.bash passed, `de2wz` to `de2x4`, with `2b0d2957`'s suppression in.
 
 - A deeper comment a blank sets off above a kept line that ends a block is written one level in by `fmt` and at the block's level after an edit
 	- ID: 2026111702420992
 	- Type: Bug
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: the 2,000,000-iteration release fuzz, all of fuzz_smoke, as for the parent. Also the cppcheck line from `LINT_EXTRA` and analyze-c.bash for the `shcl.h` change.
+	- Status: Closed
 	- Severity: Avg
 	- Target version: v3.0.0
 	- Opened: 20261117-024209
@@ -616,6 +662,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the 3 rows fail on the unfixed library in Rust (fix commented out), Go and Python (`placement-watch.py`), and pass in all 4 now. The whole Rust suite, Go in both modules, the C and Python conformance runners, all of fuzz_smoke at 200,000 in release (`dd16k`, `dd3t9`, `dderx`, `df50j` included), cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), `--backlog-run-quick rust go python c`, check-docs, clang and gcc-15 at `-Werror` on `main.c`, and `lint-report.bash --check --no-mark`. analyze-c.bash didn't finish within 4 minutes.
 	- Branch: `nov18-2026111702420992`
 	- Commit: `bde3f842`
+	- Acceptance signoff: Self-closed: the 2M release fuzz, cppcheck and analyze-c passed.
+	- Closed: 20261118-163127
+	- Closed reason: Done
+	- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
+	- Verified 20261118 on nov18: the cppcheck line from `LINT_EXTRA` gave no findings, and analyze-c.bash passed, `de2wz` to `de2x4`, with `2b0d2957`'s suppression in.
 
 - A remove that takes a field opened from a kept line moves a kept line's comments down with a misplaced line
 	- ID: 2026111109022600
