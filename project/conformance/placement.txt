@@ -793,6 +793,68 @@ x: 1
 k: [1
 ## SHCL format 3.0
 
+:: row 2026111702420992-1 a deeper comment a blank sets off above a kept line that ends a block loads at the block's level
+:: before
+a:
+	# c0
+
+		# c2
+	b: [3
+:: ops
+:: expected
+a:
+	# c0
+
+	# c2
+	b: [3
+## SHCL format 3.0
+
+:: row 2026111702420992-2 and stays there after an edit
+:: before
+a:
+	# c0
+
+		# c2
+	b: [3
+:: ops
+int	a.z	7
+:: expected
+a:
+	# c0
+
+	# c2
+	b: [3
+	z: 7
+## SHCL format 3.0
+:: keep
+a:
+	# c0
+
+		# c2
+	b: [3
+	z: 7
+## SHCL format 3.0
+
+:: row 2026111702420992-3 the same after a block's last child, with a field after the block
+:: before
+a:
+	x: 1
+	# c0
+
+		# c2
+	b: [3
+c: 1
+:: ops
+:: expected
+a:
+	x: 1
+	# c0
+
+	# c2
+	b: [3
+c: 1
+## SHCL format 3.0
+
 :: row 2026111623445822 a kept line a set writes as a comment stays off the field when a blank sets it off
 :: before
 c: 1, , 2

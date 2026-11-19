@@ -10,7 +10,7 @@ mod common;
 use common::test_id;
 use shcl::{
 	Document, DurationUnit, FORMAT_LINE, FORMAT_LINE_HEAD, FORMAT_MAJOR, FORMAT_MINOR,
-	FORMAT_NAMES, Field, MIGRATED_LINE, Rules, STAMP_HEAD, STAMP_LINE, SizeUnit, Status,
+	FORMAT_NAMES, Field, MIGRATED_LINE, Rules, STAMP_HEAD, STAMP_LINE, SaveError, SizeUnit, Status,
 	Strictness, Tokens, format_version, generate, migrate, migrate_unstamped, parse_datetime,
 	quote_segment, read_format_version, read_schema_ref, schema_ref, tokenize,
 };
@@ -858,7 +858,7 @@ fn write_ops_match_expected() {
 			apply_op(&mut kept, line, &at);
 		}
 		let got = doc.to_canonical();
-		let (text, lines) = kept.to_text_keep_lines();
+		let (text, lines) = kept.to_text_keep_lines().unwrap();
 		assert_eq!(
 			&text, keep,
 			"{}: output differs from expected-keep.shcl",
@@ -998,7 +998,7 @@ fn placement_table_rows_match() {
 			);
 			if let Some(want) = &row.keep {
 				assert_eq!(
-					&kept.to_text_keep_lines().0,
+					&kept.to_text_keep_lines().unwrap().0,
 					want,
 					"{}: kept text",
 					row.name
@@ -1029,7 +1029,19 @@ fn keeping_lines_without_edits_writes_the_input() {
 	each_case(|case| {
 		let doc = Document::parse_keep_lines(&case.input, Strictness::Standard)
 			.unwrap_or_else(|e| e.document);
-		let (kept, all) = doc.to_text_keep_lines();
+		// A newer format's text call refuses, as its save does.
+		if doc.newer_format() {
+			assert_eq!(
+				doc.to_text_keep_lines(),
+				Err(SaveError::TooNew {
+					path: String::new()
+				}),
+				"{}: a newer format's text call gave text",
+				case.name
+			);
+			return;
+		}
+		let (kept, all) = doc.to_text_keep_lines().unwrap();
 		assert!(
 			all && only_the_stamp_differs(&case.input, &kept),
 			"{}: an unedited save changed more than the stamp: {:?}",
@@ -3215,12 +3227,12 @@ fn write_status_names_each_failure() {
 		why(write_file_atomic(&format!("{}/", at("ok.shcl")), "a: 1\n")),
 		Some(WriteStatus::IsDirectory)
 	);
-	match upgrade_file(&at("sub"), false) {
+	match upgrade_file(&at("sub"), false, true) {
 		Err(UpgradeError::Io(e)) => assert_eq!(e.status, WriteStatus::IsDirectory),
 		other => panic!("upgrade of a directory: {other:?}"),
 	}
 	std::fs::write(at("bin.shcl"), b"a: \xff\n").unwrap();
-	match upgrade_file(&at("bin.shcl"), false) {
+	match upgrade_file(&at("bin.shcl"), false, true) {
 		Err(UpgradeError::Io(e)) => {
 			assert_eq!(e.status, WriteStatus::Unreadable);
 			assert!(e.message.contains("UTF-8"), "{}", e.message);
@@ -3242,7 +3254,7 @@ fn write_status_names_each_failure() {
 			why(write_file_atomic(&fifo, "a: 1\n")),
 			Some(WriteStatus::NotRegular)
 		);
-		match upgrade_file(&fifo, false) {
+		match upgrade_file(&fifo, false, true) {
 			Err(UpgradeError::Io(e)) => assert_eq!(e.status, WriteStatus::NotRegular),
 			other => panic!("upgrade of a FIFO: {other:?}"),
 		}
@@ -3264,7 +3276,7 @@ fn write_status_names_each_failure() {
 				}
 				other => panic!("backup into a shut folder: {other:?}"),
 			}
-			match upgrade_file(v2.to_str().unwrap(), true) {
+			match upgrade_file(v2.to_str().unwrap(), true, true) {
 				Err(UpgradeError::Io(e)) => {
 					assert_eq!(e.status, WriteStatus::PermissionDenied)
 				}
@@ -3275,7 +3287,7 @@ fn write_status_names_each_failure() {
 			let locked = dir.join("locked.shcl");
 			std::fs::write(&locked, "a: 1\nb 2\n").unwrap();
 			std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
-			match upgrade_file(locked.to_str().unwrap(), false) {
+			match upgrade_file(locked.to_str().unwrap(), false, true) {
 				Err(UpgradeError::Io(e)) => {
 					assert_eq!(e.status, WriteStatus::PermissionDenied);
 					assert!(!e.message.contains("UTF-8"), "{}", e.message);
@@ -4766,6 +4778,10 @@ fn stamp_reads_say_why() {
 		("## SHCL format 4294967296.0\n", u32::MAX, Good, 1, "H006"),
 		("a: 1\n## SHCL format\n", 0, Empty, 2, ""),
 		("a: 1\n## SHCL format 3.\n", 0, BadType, 2, ""),
+		// A carriage return after the indent is a blank, as in the parser
+		// (2026111809400100).
+		("a: 1\n\r##    Format   4\n", 4, Good, 2, "H006"),
+		("a:\n\t\r## SHCL format 2.0\n\tb: 1\n", 2, Good, 2, "H007"),
 		("a: 1\n##    Format   3.0-\n", 0, BadType, 2, ""),
 		("a: 1\n## SHCL format 3.0-A37\n", 0, BadType, 2, ""),
 		("a: 1\n## SHCL format .0\n", 0, BadType, 2, ""),
@@ -4827,6 +4843,7 @@ fn stamp_reads_say_why() {
 		("x: ~~~\n##    Schema   a\n~~~\n", "", NotFound, 0),
 		("`y: ```\n\t##    Schema   a\n\t```\n", "", NotFound, 0),
 		("~x: ```\n\tb\n\t```\n##    Schema   a\n", "a", Good, 4),
+		("a: 1\n \r##    Schema   a\n", "a", Good, 2),
 	];
 	for (text, value, status, line) in schemas {
 		let r = read_schema_ref(text);
@@ -5713,12 +5730,12 @@ fn migrate_writes_the_text_2x_read() {
 	// The call from the report. Without from_v2 the file could be a 3.0 one,
 	// so the two values are left and counted.
 	let text = "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\n";
-	let up = shcl::upgrade(text, false);
+	let up = shcl::upgrade(text, false, true);
 	assert!(
 		!up.current && up.ambiguous == 2 && up.text == text,
 		"{up:?}"
 	);
-	let up = shcl::upgrade(text, true);
+	let up = shcl::upgrade(text, true, true);
 	assert!(!up.current && up.ambiguous == 0 && up.lost == 0, "{up:?}");
 	let back = Document::parse(&up.text);
 	assert_eq!(back.get_string("p").unwrap(), "C:\\new");
@@ -5770,7 +5787,7 @@ fn migrate_counts_a_quoted_name_with_a_backslash_pair_lost() {
 		"{:?}",
 		m.text
 	);
-	let up = shcl::upgrade(text, true);
+	let up = shcl::upgrade(text, true, true);
 	assert_eq!(up.lost, 2, "{up:?}");
 }
 
@@ -5930,7 +5947,7 @@ fn default_replace_round_trips() {
 	for op in ops {
 		apply_op(&mut doc, op, op);
 	}
-	let (saved, kept) = doc.to_text_keep_lines();
+	let (saved, kept) = doc.to_text_keep_lines().unwrap();
 	assert!(kept, "fell back to canonical:\n{saved}");
 	assert_eq!(saved, want);
 	let canon = doc.to_canonical();
@@ -5944,7 +5961,7 @@ fn default_replace_round_trips() {
 	for op in ops {
 		apply_op(&mut back, op, op);
 	}
-	assert_eq!(back.to_text_keep_lines(), (saved.clone(), true));
+	assert_eq!(back.to_text_keep_lines(), Ok((saved.clone(), true)));
 	let notes = back.comments("srv.port");
 	assert_eq!(notes.len(), 1, "{notes:?}");
 	assert!(saved.contains(&notes[0]));
@@ -6743,6 +6760,7 @@ fn a_newer_format_document_saves_nowhere() {
 		force: true,
 		create: true,
 		mode: 0o600,
+		banner: true,
 	};
 	assert_eq!(doc.save_file_with(&f, &all), Err(too_new(&f)));
 	assert_eq!(read(&f), newer);
@@ -6791,11 +6809,129 @@ fn a_newer_format_document_saves_nowhere() {
 		assert_eq!(d.save_file(&other), Err(too_new(&other)), "{text:?}");
 		assert!(!Path::new(&other).exists());
 		for from_v2 in [false, true] {
-			let up = shcl::upgrade(text, from_v2);
+			let up = shcl::upgrade(text, from_v2, true);
 			assert!(up.current, "{text:?}");
 			assert_eq!(up.text, text);
 		}
 	}
+	let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The line-keeping text call refuses a document from a newer format, as its
+/// save does, so a program that writes the text itself can't write a newer
+/// format's lines back by these rules. A current one gives its text
+/// (2026111708542868).
+#[test]
+fn a_newer_format_document_gives_no_text() {
+	let _id = test_id("dffvy");
+	let too_new = Err(SaveError::TooNew {
+		path: String::new(),
+	});
+	for text in [
+		"a: 1\n##    Format   4\n",
+		"a: 1\n## SHCL format 3.1\n",
+		"a: 1\n## SHCL format 4.0\n",
+	] {
+		let mut doc =
+			Document::parse_keep_lines(text, Strictness::Standard).unwrap_or_else(|e| e.document);
+		assert!(doc.newer_format(), "{text:?}");
+		assert_eq!(doc.to_text_keep_lines(), too_new, "{text:?}");
+		assert_eq!(doc.set_int("a", 2), shcl::SetStatus::Ok);
+		assert_eq!(doc.to_text_keep_lines(), too_new, "{text:?}");
+		// Without the kept text too, where it would give the canonical form.
+		assert_eq!(Document::parse(text).to_text_keep_lines(), too_new);
+	}
+	assert_eq!(
+		SaveError::TooNew {
+			path: String::new()
+		}
+		.to_string(),
+		"refusing to save: the document has lines from a newer format than this reader's; nothing written"
+	);
+	// A merge takes a newer layer's reading, and the text call with it.
+	let mut doc = Document::parse_keep_lines("a: 1\n", Strictness::Standard).unwrap();
+	doc.merge(&Document::parse("b: 2\n##    Format   4\n"));
+	assert_eq!(doc.to_text_keep_lines(), too_new);
+	// This format, an older one and none give their text.
+	for text in [
+		"a: 1\n## SHCL format 3.0\n",
+		"a: 1\n##    Format   3\n",
+		"a: 1\n##    Format   2\n",
+		"a: 1\n",
+	] {
+		let doc =
+			Document::parse_keep_lines(text, Strictness::Standard).unwrap_or_else(|e| e.document);
+		assert!(doc.to_text_keep_lines().is_ok(), "{text:?}");
+	}
+}
+
+/// A save adds the info block only when its options ask, and the document
+/// keeps it, so the next save writes it too. Without, the file gets only the
+/// stamp. The block's Format line is the stamp, so none goes under it
+/// (2026111016205705).
+#[test]
+fn a_save_can_add_the_info_block() {
+	let _id = test_id("dffwt");
+	use shcl::{GEN_BANNER, SaveOptions};
+	let dir = std::env::temp_dir().join(format!("shcl-savebanner-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(&dir).unwrap();
+	let f = dir.join("f.shcl").to_str().unwrap().to_string();
+	let read = |p: &str| std::fs::read_to_string(p).unwrap();
+	let force = SaveOptions {
+		force: true,
+		..SaveOptions::default()
+	};
+	let banner = SaveOptions {
+		banner: true,
+		..force
+	};
+	let mut want = Document::parse("a: 1\n");
+	want.set_banner(true);
+	let want = want.to_canonical();
+	assert!(
+		want.starts_with("a: 1\n") && want.ends_with(GEN_BANNER),
+		"{want:?}"
+	);
+	assert!(!want.contains(STAMP_HEAD), "{want:?}");
+
+	// Off, the file gets the stamp and no block.
+	let mut doc = Document::parse("a: 1\n");
+	assert_eq!(doc.save_file_with(&f, &force), Ok(false));
+	assert_eq!(read(&f), with_stamp("a: 1\n"));
+	// On, it ends with the block, and the document keeps it.
+	assert_eq!(doc.save_file_with(&f, &banner), Ok(false));
+	assert_eq!(read(&f), want);
+	assert_eq!(doc.save_file_with(&f, &force), Ok(false));
+	assert_eq!(read(&f), want);
+	// Asked again, the block already there stays the one block.
+	assert_eq!(doc.save_file_with(&f, &banner), Ok(false));
+	assert_eq!(read(&f), want);
+
+	// Keeping lines, the file's own lines stay as they were.
+	let own = "# note\na:   1\n";
+	std::fs::write(&f, own).unwrap();
+	let (mut doc, _) = Document::load_file_keep_lines(&f, Strictness::Standard).unwrap();
+	let keep = SaveOptions {
+		keep_lines: true,
+		banner: true,
+		..SaveOptions::default()
+	};
+	assert_eq!(doc.save_file_with(&f, &keep), Ok(true));
+	let got = read(&f);
+	assert!(got.starts_with(own) && got.ends_with(GEN_BANNER), "{got:?}");
+	assert!(!got.contains(STAMP_HEAD), "{got:?}");
+	let (again, _) = Document::load_file_keep_lines(&f, Strictness::Standard).unwrap();
+	assert_eq!(again.to_canonical(), doc.to_canonical());
+
+	// A newer format's document is refused first, and gets no block.
+	let newer = Document::parse("a: 1\n##    Format   4\n");
+	let mut doc = newer.clone();
+	assert_eq!(
+		doc.save_file_with(&f, &banner),
+		Err(SaveError::TooNew { path: f.clone() })
+	);
+	assert_eq!(doc.to_canonical(), newer.to_canonical());
 	let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -6821,7 +6957,7 @@ fn a_load_that_migrates_saves_through_the_guards() {
 	std::fs::write(&f, old).unwrap();
 	let (mut doc, st) = Document::load_file_opts(&f, Strictness::Standard, &opts).unwrap();
 	assert_eq!(st, FileStatus::Clean);
-	assert_eq!(doc.to_text_keep_lines(), (with_stamp(&migrated), true));
+	assert_eq!(doc.to_text_keep_lines(), Ok((with_stamp(&migrated), true)));
 	assert_eq!(read(&f), old);
 	// A save over the file it read is no change, and keeps its lines.
 	assert_eq!(doc.set_int("q", 2), shcl::SetStatus::Ok);
@@ -6941,19 +7077,43 @@ fn a_save_names_this_format() {
 			format!("a:\n\t~~~\n\t##    Format   3\n\t~~~\n{s}\n"),
 			format!("a: ~~~\n\t##    Format   3\n\t~~~\n{s}\n"),
 		),
+		// The parser reads past a carriage return before a Format line, so the
+		// save does too, and keeps it (2026111809400100).
+		(
+			"a: 1\n\r##    Format   4\n",
+			"a: 1\n##    Format   4\n".into(),
+			"a: 1\n\r##    Format   4\n".into(),
+		),
+		(
+			"a: 1\n\r##    Format   3\n",
+			format!("a: 1\n{f}\n"),
+			format!("a: 1\n\r{f}\n"),
+		),
 	] {
 		let doc =
 			Document::parse_keep_lines(text, Strictness::Standard).unwrap_or_else(|e| e.document);
 		assert_eq!(doc.to_canonical(), canonical, "canonical {text:?}");
-		assert_eq!(
-			doc.to_text_keep_lines(),
-			(kept.clone(), true),
-			"kept {text:?}"
-		);
-		// Saved again, nothing changes.
-		let back =
-			Document::parse_keep_lines(&kept, Strictness::Standard).unwrap_or_else(|e| e.document);
-		assert_eq!(back.to_text_keep_lines().0, kept, "again {text:?}");
+		// A newer format's text call refuses, as its save does
+		// (2026111708542868); its canonical form still leaves the stamp.
+		if doc.newer_format() {
+			assert_eq!(
+				doc.to_text_keep_lines(),
+				Err(SaveError::TooNew {
+					path: String::new()
+				}),
+				"kept {text:?}"
+			);
+		} else {
+			assert_eq!(
+				doc.to_text_keep_lines(),
+				Ok((kept.clone(), true)),
+				"kept {text:?}"
+			);
+			// Saved again, nothing changes.
+			let back = Document::parse_keep_lines(&kept, Strictness::Standard)
+				.unwrap_or_else(|e| e.document);
+			assert_eq!(back.to_text_keep_lines().unwrap().0, kept, "again {text:?}");
+		}
 		assert_eq!(
 			Document::parse(&canonical).to_canonical(),
 			canonical,

@@ -32,10 +32,10 @@ func TestUpgradeLeavesACleanOrStampedFile(t *testing.T) {
 	// a,b is one string now and an array under 2.x, but it loads clean, and
 	// nothing says the file is 2.x.
 	clean := "a: 1\nb: x,y\n"
-	if up := Upgrade(clean, false); !up.Current || up.Text != clean || len(up.Diagnostics) != 0 {
+	if up := Upgrade(clean, false, true); !up.Current || up.Text != clean || len(up.Diagnostics) != 0 {
 		t.Fatalf("clean file: %+v", up)
 	}
-	if up := Upgrade("p: a,b\n\n"+GenBanner, true); !up.Current {
+	if up := Upgrade("p: a,b\n\n"+GenBanner, true, true); !up.Current {
 		t.Fatalf("stamped file: %+v", up)
 	}
 	// Old claim below, wrong since 2026101407100010: a beta Format 3 file that
@@ -54,7 +54,7 @@ func TestWithFromV2AStampedFileWithAnErrorIsTakenAs2x(t *testing.T) {
 	// The caller says a 2.x build wrote it, as a beta of 3.0 could have
 	// (2026101407100010). The backup name keeps the format the line names.
 	beta := "tags: a, b\n\n" + GenBanner
-	up := Upgrade(beta, true)
+	up := Upgrade(beta, true, true)
 	if up.Current || up.Format != 3 || up.Lost != 0 || up.Text != "tags: [a, b]\n\n"+GenBanner {
 		t.Fatalf("beta file: %+v", up)
 	}
@@ -66,14 +66,14 @@ func TestWithFromV2AStampedFileWithAnErrorIsTakenAs2x(t *testing.T) {
 		t.Fatalf("no E026 in %+v", up.Diagnostics)
 	}
 	// What it leaves loads clean, so the next start leaves it alone.
-	if !Upgrade(up.Text, true).Current {
+	if !Upgrade(up.Text, true, true).Current {
 		t.Fatal("the fresh text is not current")
 	}
 	// Without fromV2, or when it loads clean, nothing changes.
-	if up := Upgrade(beta, false); !up.Current || up.Text != beta {
+	if up := Upgrade(beta, false, true); !up.Current || up.Text != beta {
 		t.Fatalf("without fromV2: %+v", up)
 	}
-	if !Upgrade("p: a,b\n\n"+GenBanner, true).Current {
+	if !Upgrade("p: a,b\n\n"+GenBanner, true, true).Current {
 		t.Fatal("a clean stamped file is not current")
 	}
 	// Old claim below, wrong since 2026101515372401: a fresh text that would
@@ -87,7 +87,7 @@ func TestWithFromV2AStampedFileWithAnErrorIsTakenAs2x(t *testing.T) {
 	// 	t.Fatalf("stuck: %+v", up)
 	// }
 	// A lone stamp at the top goes too.
-	if got, want := Upgrade("##    Format   3\nname: x\nrange: 0, 100\n", true).Text, "name: x\nrange: [0, 100]\n\n"+GenBanner; got != want {
+	if got, want := Upgrade("##    Format   3\nname: x\nrange: 0, 100\n", true, true).Text, "name: x\nrange: [0, 100]\n\n"+GenBanner; got != want {
 		t.Fatalf("top stamp: got %q, want %q", got, want)
 	}
 	// Migrate keeps leaving it alone: its text can keep a line with an error,
@@ -103,7 +103,7 @@ func TestFromV2RefusesAConversionThatKeepsAnError(t *testing.T) {
 	// and the 2.x escape on line 1 would grow each time (2026101515372401).
 	// So nothing is made, with a Format line or not.
 	v2 := "\"k\u25c9Q\u25c9\": 1\n'C:\\': ~~~\n\tx\n\t~~~\nport: 8\u3000080\n"
-	up := Upgrade(v2, true)
+	up := Upgrade(v2, true, true)
 	if up.Current || up.Text != v2 || up.Lost != 0 || len(up.ErrorsLeft) != 1 || up.ErrorsLeft[0] != 5 {
 		t.Fatalf("2.x file: %+v", up)
 	}
@@ -115,21 +115,21 @@ func TestFromV2RefusesAConversionThatKeepsAnError(t *testing.T) {
 		t.Fatalf("no E025 on line 5 in %+v", up.Diagnostics)
 	}
 	stuck := "a: 1\nb 2\n##    Format   3\n"
-	if up := Upgrade(stuck, true); up.Current || up.Text != stuck || len(up.ErrorsLeft) != 1 || up.ErrorsLeft[0] != 2 || len(up.Diagnostics) == 0 {
+	if up := Upgrade(stuck, true, true); up.Current || up.Text != stuck || len(up.ErrorsLeft) != 1 || up.ErrorsLeft[0] != 2 || len(up.Diagnostics) == 0 {
 		t.Fatalf("stuck: %+v", up)
 	}
 	// Without fromV2 a stamped file is current, and nothing would read the
 	// fresh text as 2.x again.
-	if !Upgrade(stuck, false).Current {
+	if !Upgrade(stuck, false, true).Current {
 		t.Fatal("stuck without fromV2 is not current")
 	}
 	// With the line fixed it converts, and the second run leaves it alone.
 	fixed := strings.Replace(v2, "8\u3000080", "\"8\u3000080\"", 1)
-	up = Upgrade(fixed, true)
+	up = Upgrade(fixed, true, true)
 	if up.Current || len(up.ErrorsLeft) != 0 || Parse(up.Text).ErrorCount() != 0 {
 		t.Fatalf("fixed: %+v", up)
 	}
-	if !Upgrade(up.Text, true).Current {
+	if !Upgrade(up.Text, true, true).Current {
 		t.Fatal("fixed: the fresh text is not current")
 	}
 	// UpgradeFile writes nothing, no backup either.
@@ -138,7 +138,7 @@ func TestFromV2RefusesAConversionThatKeepsAnError(t *testing.T) {
 	if err := os.WriteFile(path, []byte(v2), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := UpgradeFile(path, true)
+	_, err := UpgradeFile(path, true, true)
 	var ue *UpgradeError
 	if !errors.As(err, &ue) || ue.Kind != UpgradeErrorsLeft || ue.Path != path || len(ue.Lines) != 1 || ue.Lines[0] != 5 {
 		t.Fatalf("UpgradeFile: %v", err)
@@ -164,7 +164,7 @@ func TestABlockKeptAtTheTopNamesThisFormatToo(t *testing.T) {
 	if v, ok := FormatVersion(text); !ok || v != 4 {
 		t.Fatalf("input names %d, %v", v, ok)
 	}
-	up := Upgrade(text, true)
+	up := Upgrade(text, true, true)
 	if !up.Current || len(up.ErrorsLeft) != 0 || up.Ambiguous != 0 || up.Text != text {
 		t.Fatalf("made over: %+v", up)
 	}
@@ -183,14 +183,14 @@ func TestUpgradeKeepsEachLineWhereItWas(t *testing.T) {
 	// (2026102620591101).
 	text := "\n\nt:\n\taliases: a, b\n\n\n\nu: ~~~\nraw\n~~~\nw: 2\n"
 	for _, fromV2 := range []bool{true, false} {
-		up := Upgrade(text, fromV2)
+		up := Upgrade(text, fromV2, true)
 		if up.Current || len(up.ErrorsLeft) != 0 {
 			t.Fatalf("%v: not made over: %+v", fromV2, up)
 		}
 		if !strings.HasPrefix(up.Text, "\n\nt:\n\taliases: [a, b]\n\n\n\nu: ~~~\nraw\n~~~\nw: 2\n") {
 			t.Fatalf("%v: lines moved: %q", fromV2, up.Text)
 		}
-		if !Upgrade(up.Text, false).Current {
+		if !Upgrade(up.Text, false, true).Current {
 			t.Fatalf("%v: a second run made it over again: %q", fromV2, up.Text)
 		}
 	}
@@ -199,7 +199,7 @@ func TestUpgradeKeepsEachLineWhereItWas(t *testing.T) {
 func TestUpgradeFromV2RewritesACleanFileThatReadsDifferently(t *testing.T) {
 	defer testID(t, "ddmk8")
 	// The caller says it is 2.x, where a,b was an array.
-	up := Upgrade("p: a,b\n", true)
+	up := Upgrade("p: a,b\n", true, true)
 	if up.Current || up.Lost != 0 || len(up.Diagnostics) != 0 {
 		t.Fatalf("from 2.x: %+v", up)
 	}
@@ -208,7 +208,7 @@ func TestUpgradeFromV2RewritesACleanFileThatReadsDifferently(t *testing.T) {
 	}
 	// Nothing reads differently, so there is nothing to do.
 	same := "a: 1\nb: x\n"
-	if up := Upgrade(same, true); !up.Current || up.Text != same {
+	if up := Upgrade(same, true, true); !up.Current || up.Text != same {
 		t.Fatalf("same text: %+v", up)
 	}
 }
@@ -218,7 +218,7 @@ func TestAnOlderFormatLineBecomesThisOneInPlace(t *testing.T) {
 	// Nothing else changes, so only the stamp does, and only with fromV2
 	// (2026100717500017).
 	old := "port: 80\n##    Format   2\n"
-	up := Upgrade(old, true)
+	up := Upgrade(old, true, true)
 	if up.Current || up.Format != 2 || up.Lost != 0 || up.Text != "port: 80\n##    Format   3.0\n" {
 		t.Fatalf("restamp: %+v", up)
 	}
@@ -229,14 +229,14 @@ func TestAnOlderFormatLineBecomesThisOneInPlace(t *testing.T) {
 	if !h007 {
 		t.Fatalf("no H007 in %+v", up.Diagnostics)
 	}
-	if !Upgrade(up.Text, true).Current {
+	if !Upgrade(up.Text, true, true).Current {
 		t.Fatal("the restamped text is not current")
 	}
-	if up := Upgrade(old, false); !up.Current || up.Text != old {
+	if up := Upgrade(old, false, true); !up.Current || up.Text != old {
 		t.Fatalf("without fromV2: %+v", up)
 	}
 	// Indent, trailing blanks, line end and BOM stay as they were.
-	if got, want := Upgrade("\ufeffp: 1\r\n\t##    Format   1  \r\nq: 2", true).Text, "\ufeffp: 1\r\n\t##    Format   3.0  \r\nq: 2"; got != want {
+	if got, want := Upgrade("\ufeffp: 1\r\n\t##    Format   1  \r\nq: 2", true, true).Text, "\ufeffp: 1\r\n\t##    Format   3.0  \r\nq: 2"; got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 	// Migrate writes its stamp there too, and adds one only to a file with
@@ -255,7 +255,7 @@ func TestAnOlderFormatLineBecomesThisOneInPlace(t *testing.T) {
 func TestAFormatLineAtTheTopGoesWhenTheBlockGoesOn(t *testing.T) {
 	defer testID(t, "ddy7t")
 	// The block names the format, so the file names one (2026101407100001).
-	if got, want := Upgrade("##    Format   2\nname: x\nq: a,b\n", true).Text, "name: x\nq: [a, b]\n\n"+GenBanner; got != want {
+	if got, want := Upgrade("##    Format   2\nname: x\nq: a,b\n", true, true).Text, "name: x\nq: [a, b]\n\n"+GenBanner; got != want {
 		t.Fatalf("upgrade: got %q, want %q", got, want)
 	}
 	doc := Parse("##    Format   2\nname: x\n")
@@ -298,9 +298,40 @@ func TestAStampGoesWhereAFormatLineGoes(t *testing.T) {
 	}
 }
 
+func TestBannerOnAgreesWithAReload(t *testing.T) {
+	defer testID(t, "dffsx")
+	// The save names this format on a Format line the document holds as an
+	// older one, so banner on reads the line the save writes, as a reload
+	// does. A misplaced line under a field takes the block above it inside
+	// that field, and that block comes off as one above a field does. A
+	// beta1 block at the end that the save makes current stays.
+	under := "a: 1\nc: 1\n##\n## This config file format is SHCL.\n##    Format   2\n##\n a note\n"
+	line := "##    Format   3.0\n"
+	owner := "##    Owner    ops\n"
+	beta1 := "a: 1\n\n" + strings.Replace(GenBanner, line, "##    Format   3\n"+owner, 1)
+	for _, c := range []struct {
+		text string
+		on   bool
+		gone int
+		want string
+	}{
+		{under, true, 1, "a: 1\nc: 1\n\ta note\n\n" + GenBanner},
+		{under, false, 1, "a: 1\nc: 1\n\ta note\n## SHCL format 3.0\n"},
+		{beta1, true, 0, "a: 1\n\n" + strings.Replace(GenBanner, line, line+owner, 1)},
+	} {
+		doc := Parse(c.text)
+		back := Parse(doc.ToCanonical())
+		for _, d := range []*Document{doc, back} {
+			if n := d.SetBanner(c.on); n != c.gone || d.ToCanonical() != c.want {
+				t.Errorf("%q %v: %d %q", c.text, c.on, n, d.ToCanonical())
+			}
+		}
+	}
+}
+
 func TestUpgradeWritesAFreshFileWithTheInfoBlock(t *testing.T) {
 	defer testID(t, "ddmk9")
-	up := Upgrade(upgradeV2File, false)
+	up := Upgrade(upgradeV2File, false, true)
 	if up.Current || up.Ambiguous != 0 || up.Lost != 0 || up.Format != 2 {
 		t.Fatalf("2.x file: %+v", up)
 	}
@@ -319,7 +350,7 @@ func TestUpgradeWritesAFreshFileWithTheInfoBlock(t *testing.T) {
 	if want := "name: 'say \"hi\"'\ntags: [a, b]\n\n" + GenBanner; up.Text != want {
 		t.Fatalf("got %q, want %q", up.Text, want)
 	}
-	if !Upgrade(up.Text, false).Current {
+	if !Upgrade(up.Text, false, true).Current {
 		t.Fatal("the fresh text is not current")
 	}
 }
@@ -327,10 +358,10 @@ func TestUpgradeWritesAFreshFileWithTheInfoBlock(t *testing.T) {
 func TestUpgradeRefusesTextThatReadsTwoWays(t *testing.T) {
 	defer testID(t, "ddmka")
 	text := "a: x,y\nb: \"q\n"
-	if up := Upgrade(text, false); up.Current || up.Ambiguous != 1 || up.Text != text {
+	if up := Upgrade(text, false, true); up.Current || up.Ambiguous != 1 || up.Text != text {
 		t.Fatalf("unsaid: %+v", up)
 	}
-	if up := Upgrade(text, true); up.Ambiguous != 0 || !strings.HasPrefix(up.Text, "a: [x, y]\nb: '\"q'\n\n##\n") {
+	if up := Upgrade(text, true, true); up.Ambiguous != 0 || !strings.HasPrefix(up.Text, "a: [x, y]\nb: '\"q'\n\n##\n") {
 		t.Fatalf("from 2.x: %+v", up)
 	}
 }
@@ -355,6 +386,52 @@ func TestBackupNamePutsTheTagBeforeTheExtension(t *testing.T) {
 	}
 }
 
+// TestUpgradeCanLeaveTheInfoBlockOff: without the info block, Upgrade ends the
+// text with the stamp, and an old block comes off as SetBanner(false) takes
+// it. The text is current on the next run, with fromV2 or without
+// (2026111814503025).
+func TestUpgradeCanLeaveTheInfoBlockOff(t *testing.T) {
+	defer testID(t, "dffxb")
+	for _, c := range []struct {
+		text   string
+		fromV2 bool
+		want   string
+	}{
+		{upgradeV2File, false, "name: 'say \"hi\"'\ntags: [a, b]\n## SHCL format 3.0\n"},
+		{"p: a,b\n", true, "p: [a, b]\n## SHCL format 3.0\n"},
+		{"a: 1\r\nb: \"q\r\n", false, "a: 1\r\nb: '\"q'\r\n## SHCL format 3.0\r\n"},
+	} {
+		up := Upgrade(c.text, c.fromV2, false)
+		if up.Current || up.Text != c.want {
+			t.Fatalf("%q: %v %q", c.text, up.Current, up.Text)
+		}
+		if !Upgrade(up.Text, false, false).Current || !Upgrade(up.Text, true, false).Current {
+			t.Fatalf("%q: not current on the next run", c.text)
+		}
+		// With the block, for the same file.
+		if with := Upgrade(c.text, c.fromV2, true).Text; !strings.Contains(with, "## This config file format is SHCL.") {
+			t.Fatalf("%q: %q", c.text, with)
+		}
+	}
+	// UpgradeFile writes the same text, and keeps the original.
+	file := filepath.Join(t.TempDir(), "f.shcl")
+	if err := os.WriteFile(file, []byte(upgradeV2File), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	up, err := UpgradeFile(file, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(file)
+	old, _ := os.ReadFile(up.Backup)
+	if string(got) != Upgrade(upgradeV2File, false, false).Text || string(old) != upgradeV2File {
+		t.Fatalf("%q, backup %q", got, old)
+	}
+	if again, err := UpgradeFile(file, false, false); err != nil || !again.Current {
+		t.Fatalf("again: %+v %v", again, err)
+	}
+}
+
 func TestUpgradeFileBacksUpThenRewrites(t *testing.T) {
 	defer testID(t, "ddmkc")
 	dir := t.TempDir()
@@ -367,7 +444,7 @@ func TestUpgradeFileBacksUpThenRewrites(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	up, err := UpgradeFile(file, false)
+	up, err := UpgradeFile(file, false, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -391,7 +468,7 @@ func TestUpgradeFileBacksUpThenRewrites(t *testing.T) {
 		}
 	}
 	// The second start finds a current file and writes nothing.
-	again, err := UpgradeFile(file, false)
+	again, err := UpgradeFile(file, false, true)
 	if err != nil || !again.Current || again.Backup != "" {
 		t.Fatalf("second run: %+v, %v", again, err)
 	}
@@ -411,7 +488,7 @@ func TestUpgradeFileNeverWritesOverABackup(t *testing.T) {
 	if err := os.WriteFile(backup, []byte("x\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := UpgradeFile(file, false)
+	_, err := UpgradeFile(file, false, true)
 	var ue *UpgradeError
 	if !errors.As(err, &ue) || ue.Kind != UpgradeBackupTaken || ue.Path != backup {
 		t.Fatalf("taken: %v", err)
@@ -423,7 +500,7 @@ func TestUpgradeFileNeverWritesOverABackup(t *testing.T) {
 		t.Fatalf("backup holds %q", got)
 	}
 	// Nothing at the path, and text that reads two ways, write nothing.
-	_, err = UpgradeFile(filepath.Join(dir, "none.shcl"), false)
+	_, err = UpgradeFile(filepath.Join(dir, "none.shcl"), false, true)
 	if !errors.As(err, &ue) || ue.Kind != UpgradeNotFound {
 		t.Fatalf("missing: %v", err)
 	}
@@ -431,7 +508,7 @@ func TestUpgradeFileNeverWritesOverABackup(t *testing.T) {
 	if err := os.WriteFile(amb, []byte("a: x,y\nb: \"q\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err = UpgradeFile(amb, false)
+	_, err = UpgradeFile(amb, false, true)
 	if !errors.As(err, &ue) || ue.Kind != UpgradeAmbiguous || ue.Count != 1 {
 		t.Fatalf("ambiguous: %v", err)
 	}

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- `upgrade()` and `upgrade_file()` take a `banner` argument after `from_v2` (each binding's spelling). With it they write the info block as before. Without it, an old block comes off and the fresh text ends with the stamp a save writes. `shcl upgrade` still writes the block.
+
+- `to_text_keep_lines()` refuses a document from a newer format, as its save does, so a program that saves through that text can't write a newer format's file back by this reader's rules. Its return type changes in every binding: Rust gives `Result<(String, bool), SaveError>`, Go adds an `error`, Python raises `SaveTooNew`, C returns `shcl_save_result` with the text in an out-parameter, and C++ gives a `SaveResult` first in a tuple.
+
 - Every save names the format it was written by. A file with a Format line or stamp gets it rewritten where it is to name `3.0`, and a file without one gets `## SHCL format 3.0` as its last line. `fmt`, `set`'s print and `fmt --check` see the same text, so a canonical file without the stamp is one `fmt --check` reports. A file naming a newer format keeps its line. A save that keeps lines adds only that line to an unedited file. A merge writes one Format line where a layer's and the base's differ only in the format they name.
 
 - `children` and `instances` exit 3 on a path that matches nothing, as `get` does, with `cannot list PATH: no field at that path (in FILE)` on stderr. They used to exit 0 with no output, the same as for an empty section. A node with no children still lists nothing at exit 0, and `count` still prints 0 at exit 0.
@@ -28,15 +32,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A file whose stamp names a newer minor of this format, such as `## SHCL format 3.1`, is a newer format: the load hints `H006`, no save writes it, and `upgrade` leaves it alone, as for a newer major. `H006` and `H007` name this reader's format as `3.0`.
 
-- The info block's version row is `##    Format   3.0`, in `init`, a creating `set --write`, `banner on`, `upgrade`, and `GEN_BANNER` (each binding's spelling), and `migrate` stamps `##    Format   3.0` too. beta1's `##    Format   3` still reads as format 3.0. So `banner on` replaces a beta1 block at the end of a file rather than leaving it as it is. `banner on` and `banner off` take a `## SHCL format` stamp off where they take a Format line off, and a block kept at the top gets its stamp set to this format.
+- The info block's version row is `##    Format   3.0`, in `init`, a creating `set --write`, `banner on`, `upgrade`, and `GEN_BANNER` (each binding's spelling), and `migrate` stamps `##    Format   3.0` too. beta1's `##    Format   3` still reads as format 3.0. So `banner on` replaces a beta1 block at the end of a file rather than leaving it as it is, unless its Format line is the one a save rewrites to `3.0`. Then the block already reads as the one a save writes, so it stays, the author's lines in it too. `banner on` and `banner off` take a `## SHCL format` stamp off where they take a Format line off, and a block kept at the top gets its stamp set to this format. They also take off an old block under a field, among lines indented below it that no field takes, which they used to leave with its old Format line.
 
 ### New
+
+- A save can add the info block: the `banner` save option (each binding's spelling) gives the document the block `set_banner(true)` adds, then saves, so the file ends with it and its Format line is the stamp. Without it, a save adds only the stamp.
 
 - `load_file_opts()` with `migrate` loads a file that may be older than this format by migrating it in memory. A save of that document over the file gets every check a save does, a newer format's refusal included.
 
 ### Fixed
 
+- A Format line, stamp, or Schema line with a carriage return before it counts, in every binding, as it does in the canonical form, where the carriage return comes off. Such a line naming a newer format got no `H006`, so a save stamped the file `3.0`, and a Schema line there wasn't found until `fmt` rewrote the file. A save that rewrites the line keeps the carriage return.
+
 - `fmt` wrote a comment one level in when a blank line set it off from the comments above and the line under it was a top-level line kept for an error. Any edit put it back at column 0, so the file had 2 forms. It's written at column 0 now, and the save that keeps lines leaves it as written after an edit.
+
+- The same went for such a comment above a kept line that ends a block: `fmt` wrote it one level deeper than the block's lines, and an edit put it back. It's written at the block's level now, on a load as after an edit.
 
 - `set_literal`, `set_literal_default`, `--set-literal`, and the `literal` op refuse text with a `#` outside quotes as not one value, in every binding. They stored only the text before it and reported success, so `x#y` became `x` and `https://a.b/c#frag` lost its fragment. Quote the text, or use `set_string`, to keep a `#` in a value.
 

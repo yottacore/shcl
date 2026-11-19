@@ -325,7 +325,9 @@ typedef enum {
 	SHCL_FILE_NOT_FOUND,  /* no file at the path */
 	SHCL_FILE_UNREADABLE  /* exists but could not be read (permissions, a directory, bad encoding, past a shcl_read_file cap) */
 } shcl_file_status;
-/* Save refuses when the write would delete content from the file
+#endif
+/* Outside the file calls, since shcl_to_text_keep_lines answers with it too.
+   Save refuses when the write would delete content from the file
    (shcl_lost_count); shcl_save_file_lossy is the override, and is the only way
    to write then. It also refuses when something is at the path and its bytes
    are neither what the load read nor what this document's last save wrote,
@@ -349,6 +351,7 @@ typedef enum {
 	SHCL_SAVE_EXISTS,  /* create found a file there, or another save made it first; nothing written */
 	SHCL_SAVE_TOO_NEW  /* the document is from a newer format (shcl_newer_format); nothing written, and nothing overrides it */
 } shcl_save_result;
+#ifndef SHCL_NO_FILE_IO
 /* How shcl_save_file_with saves. All zero, as {0} gives, is shcl_save_file. */
 typedef struct {
 	int lossy;      /* write even when the save deletes content, as shcl_save_file_lossy */
@@ -356,6 +359,7 @@ typedef struct {
 	int force;      /* write over whatever is at the path, even a file this document never read or one changed since */
 	int create;     /* only make a new file: SHCL_SAVE_EXISTS when one is there, even one another save makes at the same time */
 	unsigned mode;  /* the permission bits (0777) a file this save makes gets, exactly, whatever the umask; 0 is an ordinary create's; a file already there keeps its own, and windows has no such bits */
+	int banner;     /* give the document the info block before the save, as shcl_set_banner(d, 1), so the file ends with it and its Format line is the stamp; 0 adds no block, only the stamp */
 } shcl_save_options;
 /* How shcl_load_file_opts loads. All zero, as {0} gives, is
    shcl_load_file_with. The level is its own argument, since it is the one
@@ -520,7 +524,13 @@ shcl_doc *shcl_parse_keep_lines(const char *text, size_t len, shcl_strictness s)
 // document. When it does not, or the document was not loaded with
 // shcl_parse_keep_lines or shcl_load_file_keep_lines, or it took a merge, this
 // is shcl_to_canonical and *kept is 0. Same lifetime as shcl_to_canonical.
-shcl_str shcl_to_text_keep_lines(shcl_doc *d, int *kept);
+// The text goes in *text, and the answer is SHCL_SAVE_OK. A document from a
+// newer format (shcl_newer_format) is SHCL_SAVE_TOO_NEW, as its save is, with
+// *text empty and *kept 0, since a program that writes this text would write
+// its lines by these rules. The message is the other bindings' "refusing to
+// save: the document has lines from a newer format than this reader's;
+// nothing written", with no path.
+shcl_save_result shcl_to_text_keep_lines(shcl_doc *d, shcl_str *text, int *kept);
 
 // Instance count at a path (0 when nothing matches).
 size_t shcl_count(shcl_doc *d, const char *path, size_t plen);
@@ -919,12 +929,14 @@ typedef struct {
 } shcl_upgraded;
 // A config file written for an older format, made over for this one: the
 // input run through shcl_migrate_unstamped, then saved keeping its lines, so
-// each line, blank ones included, stays where it was, with the info block
-// `init` writes at the end in place of an old one there. Where the lines can't
+// each line, blank ones included, stays where it was. With banner, the info
+// block `init` writes goes at the end in place of an old one there. Without,
+// an old one comes off as shcl_set_banner(d, 0) takes it, and the text ends
+// with the stamp every save writes. Where the lines can't
 // be kept, or keeping them keeps an error, it is written the way `fmt` writes
 // it. A whole block above the first field stays, so a file with its block
-// at the top comes out with 2, both naming this format. This is the one library
-// call that writes the block. A file that names this format comes back current
+// at the top comes out with 2, both naming this format. This and a save with
+// shcl_save_options' banner are the library calls that write the block. A file that names this format comes back current
 // and untouched, and so does one that loads with no error under these rules,
 // since a program calling this on every start must never rewrite a good file.
 // from_v2 is shcl_migrate's: the file can only have been written for 2.x. Then
@@ -937,7 +949,7 @@ typedef struct {
 // Pass from_v2 only for a file known to be old, never on every start: a file
 // this format wrote that picks up an error later would be read by 2.x rules
 // too.
-shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2);
+shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2, int banner);
 // Frees what an shcl_upgraded holds and zeroes it, so a second call is
 // harmless.
 void shcl_upgraded_free(shcl_upgraded *up);
@@ -983,7 +995,7 @@ shcl_upgrade_error shcl_write_backup(const char *file, const char *text, size_t 
 // SHCL_UPGRADE_AMBIGUOUS, and errors_left for SHCL_UPGRADE_ERRORS_LEFT, and
 // *message (when not NULL) gets why. Either way shcl_upgraded_free(out) is
 // safe, and the caller frees the message.
-shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgraded *out, char **message, shcl_write_status *why);
+shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, int banner, shcl_upgraded *out, char **message, shcl_write_status *why);
 #endif
 
 // --- Writer: typed emit, defaults, comments, structural edits ---------------
@@ -1041,7 +1053,8 @@ shcl_read_usize shcl_try_clear_comments(shcl_doc *d, const char *path, size_t pl
 // against it. A version line shcl_migrate stamped, or a stamp outside a block, comes off too, with the note
 // under it. Both are looked for in the footer and above every field but the
 // first one and its first child down, since a field added below one by hand
-// takes it as its comment. A line in an old block that the block does not
+// takes it as its comment, and among the lines indented under a field that
+// no field below takes. A line in an old block that the block does not
 // write is the author's, such as a Schema line, and stays where the block was.
 // With on, a block that already ends the file as this release writes it stays
 // as it is, the author's lines in it too. A block at the top of the file is
@@ -1049,8 +1062,8 @@ shcl_read_usize shcl_try_clear_comments(shcl_doc *d, const char *path, size_t pl
 // file writes as the first field's first child, so a block there is left alone
 // too, however it got there. A lone Format line or stamp there comes off with on, since
 // the new block names the format. A kept block's Format line or stamp is set to this format too, since it
-// reads first. The library save never adds the block by itself; this is for a
-// program that wants it in a file it writes. Returns how many old blocks came
+// reads first. A save adds the block only when shcl_save_options' banner asks;
+// this is for a program that wants it in a file it writes. Returns how many old blocks came
 // off.
 size_t shcl_set_banner(shcl_doc *d, int on);
 shcl_set_status shcl_set_empty(shcl_doc *d, const char *path, size_t plen);
@@ -3763,8 +3776,9 @@ static ShclFence opens_raw(ShclArena *ta, ShclStr rest, ShclTokens *tok) {
 	return line_fence(ta, tok, rest);
 }
 
-/* The next line's text past its indent in *rest, or 0 when the line is part of
-   a raw block, fences included. */
+/* The next line's text past its indent and the blanks after it in *rest, as the
+   parser reads a comment, or 0 when the line is part of a raw block, fences
+   included. */
 static int raw_lines_step(ShclArena *ta, ShclArena *sc, ShclRawLines *w, ShclStr line, ShclStr *rest) {
 	size_t bn = line.n;
 	while (bn > 0 && line.p[bn - 1] == '\r') bn--;
@@ -3789,6 +3803,10 @@ static int raw_lines_step(ShclArena *ta, ShclArena *sc, ShclRawLines *w, ShclStr
 			break;
 		}
 	}
+	/* A carriage return is a blank but never indent, so the parser takes
+	   `\r##    Format   4` as the comment `##    Format   4`, and so does the
+	   canonical form. */
+	*rest = trim_wsp_start(*rest);
 	return 1;
 }
 
@@ -3967,11 +3985,13 @@ static int restamp_as(ShclArena *a, ShclArena *sc, ShclStr text, size_t line, co
 		start = i + 1;
 		if (lineno++ > 0) sb_putc(a, sb, '\n');
 		if (lineno != line) { sb_putS(a, sb, l); continue; }
-		ShclStr indent = leading_ws(l);
-		ShclStr rest = trim_wsp_end(s_slice(l, indent.n, l.n));
-		sb_putS(a, sb, indent);
+		/* The indent and any carriage return after it stay, as raw_lines_step
+		   skips them. */
+		ShclStr lead = s_slice(l, 0, l.n - trim_wsp_start(l).n);
+		ShclStr rest = trim_wsp_end(s_slice(l, lead.n, l.n));
+		sb_putS(a, sb, lead);
 		sb_puts(a, sb, stamp);
-		sb_putS(a, sb, s_slice(l, indent.n + rest.n, l.n));
+		sb_putS(a, sb, s_slice(l, lead.n + rest.n, l.n));
 	}
 	ShclStr r = sb_S(sb);
 	ShclStamp now = format_line_read(a, sc, s_slice(r, bom.n, r.n));
@@ -4274,17 +4294,20 @@ typedef struct { shcl_doc *before, *fresh, *made; char *migrated, *text; size_t 
 
 static void keep_source_in(shcl_doc *k, ShclStr t);
 static ShclStr emit_canonical(shcl_doc *d);
+static ShclStr canonical_stamped(shcl_doc *d);
 static int keep_text(shcl_doc *d, ShclStr *out);
+static int keep_text_stamped(shcl_doc *d, ShclStr *out);
 
 /* The fresh file's text, saved the way `set` saves, so each line of the
    input is on the same line here, blank ones included (2026102620591101).
    Where the lines can't be kept, or keeping them keeps an error the canonical
-   form repairs, such as a missing colon, it is the canonical form. Both live
-   in the document's arena. */
-static shcl_str upgrade_text(shcl_doc *fresh, jmp_buf *panic) {
-	shcl_str canonical = s_dup(&fresh->reads, emit_canonical(fresh));
+   form repairs, such as a missing colon, it is the canonical form. Without the
+   info block, whose Format line names this format, both get the stamp a save
+   writes. Both live in the document's arena. */
+static shcl_str upgrade_text(shcl_doc *fresh, int banner, jmp_buf *panic) {
+	shcl_str canonical = s_dup(&fresh->reads, banner ? emit_canonical(fresh) : canonical_stamped(fresh));
 	ShclStr t;
-	int kept = keep_text(fresh, &t);
+	int kept = banner ? keep_text(fresh, &t) : keep_text_stamped(fresh, &t);
 	shcl_str lines = s_dup(&fresh->reads, t);
 	if (!kept) return canonical;
 	shcl_doc *d = shcl_parse(lines.p, lines.n);
@@ -4314,7 +4337,7 @@ static size_t error_lines(const shcl_doc *d, size_t **out, jmp_buf *panic) {
 	return u;
 }
 
-static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, size_t len, int from_v2, int64_t version, int newer, shcl_upgraded *up) {
+static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, size_t len, int from_v2, int banner, int64_t version, int newer, shcl_upgraded *up) { // NOLINT(bugprone-easily-swappable-parameters): shcl_upgrade's order, as in the Rust twin
 	if (!text) { text = ""; len = 0; }
 	up->current = 1;
 	up->format = version < 0 ? 2 : (uint32_t)version;
@@ -4360,8 +4383,8 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 			size_t nleft = error_lines(own->fresh, &own->left, panic);
 			ShclStr src; src.p = m.text; src.n = m.len;
 			keep_source_in(own->fresh, src);
-			swap_banner(own->fresh, 1, 1);
-			keep = upgrade_text(own->fresh, panic);
+			swap_banner(own->fresh, banner, 1);
+			keep = upgrade_text(own->fresh, banner, panic);
 			/* With from_v2 it goes only when that leaves it loading clean, or
 			   the next run with it would read the result by 2.x rules again
 			   (2026101515372401). Without, a Format 3 file with an error is
@@ -4389,7 +4412,7 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 	if (!up->current) { up->diagnostics = own->before; own->before = NULL; }
 }
 
-shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2) {
+shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2, int banner) {
 	int newer = 0;
 	shcl_read_i64 named = stamp_read(text, len, &newer);
 	int64_t version = named.status == SHCL_GOOD ? named.value : -1;
@@ -4405,7 +4428,7 @@ shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2) {
 		SHCL_OOM();
 		abort();
 	}
-	upgrade_into(own, &panic, text, len, from_v2, version, newer, &up);
+	upgrade_into(own, &panic, text, len, from_v2, banner, version, newer, &up);
 	ShclUpgradeOwn *done = own;
 	shcl_free(done->before); shcl_free(done->fresh); shcl_free(done->made); free(done->migrated); free(done->left); free(done);
 	return up;
@@ -5392,7 +5415,7 @@ static int stacks(const ShclNode *nd) {
 typedef enum { HEIR_TAKES, HEIR_NEXT, HEIR_LAST, HEIR_AT } ShclHeirKind;
 /* The lead lists something can be taken out of. SPOT_FOOTER's node is the
    root. */
-typedef enum { SPOT_LEADING, SPOT_AFTER, SPOT_HEAD, SPOT_FOOTER } ShclSpot;
+typedef enum { SPOT_LEADING, SPOT_AFTER, SPOT_HEAD, SPOT_INSIDE, SPOT_FOOTER } ShclSpot;
 typedef struct { ShclHeirKind kind; size_t node; ShclSpot spot; size_t at; } ShclHeir;
 
 /* adopt for what takes the place of what went, which a list's settle needs
@@ -5523,9 +5546,11 @@ static int settle_fence_trailing(shcl_doc *d, size_t n) {
    only a full pass looks for one. */
 static void settle_pairs(shcl_doc *d, size_t n, size_t from);
 static void settle_head(shcl_doc *d, size_t n);
+static void settle_tail(shcl_doc *d, size_t n);
 static int settle_block(shcl_doc *d, size_t n, size_t from) {
 	if (!NODE(d, n).children.len) {
 		settle_head(d, n);
+		settle_tail(d, n);
 		return 0;
 	}
 	int joined = from <= 1 && settle_fence_trailing(d, n);
@@ -5539,6 +5564,7 @@ static int settle_block(shcl_doc *d, size_t n, size_t from) {
 	/* After the join, which can take the last child. */
 	settle_head(d, n);
 	settle_inside(d, n);
+	settle_tail(d, n);
 	return joined;
 }
 
@@ -5642,8 +5668,7 @@ static void resettle_kept(shcl_doc *d);
    and the run a blank sets off from it starts again at that field's level,
    as refile_pair files it. A reload of the footer files it so too
    (2026111111560900). */
-static void restep_set_off(shcl_doc *d) {
-	ShclVecLead *v = &d->orphans;
+static void restep_set_off(shcl_doc *d, ShclVecLead *v) {
 	size_t k = v->len;
 	while (k > 0 && v->data[k - 1].text.n && v->data[k - 1].text.p[0] == '#') k--;
 	if (!k) return;
@@ -5659,6 +5684,29 @@ static void restep_set_off(shcl_doc *d) {
 	tail.data += cut;
 	tail.len -= cut;
 	restep(&tail);
+}
+
+/* A block's lines after its last field, up to the last kept line, are
+   restepped from the cut set_off gives, as settle_first_blank does for the
+   footer: that is the cut and the restep a new child's settle makes
+   (2026111702420992). */
+static void settle_tail(shcl_doc *d, size_t n) {
+	if (n == ROOT) return;
+	ShclVecSize kids = NODE(d, n).children;
+	size_t at = kids.len ? kids.data[kids.len - 1] : n;
+	ShclTrivia *t = NODE(d, at).trivia;
+	if (!t) return;
+	if (at == n) {
+		restep_set_off(d, &t->inside);
+		return;
+	}
+	size_t from = 0;
+	while (from < t->after.len && t->after.data[from].depth != 0) from++;
+	if (from == t->after.len) return;
+	ShclVecLead tail = t->after;
+	tail.data += from;
+	tail.len -= from;
+	restep_set_off(d, &tail);
 }
 
 static void settle_first_blank(shcl_doc *d) {
@@ -5681,7 +5729,7 @@ static void settle_first_blank(shcl_doc *d) {
 			list->len = at;
 		}
 	}
-	restep_set_off(d);
+	restep_set_off(d, &d->orphans);
 	ShclTrivia *rt = NODE(d, ROOT).trivia;
 	if (rt && rt->head.len) {
 		rt->head.data[0].blank_before = 0;
@@ -8998,6 +9046,7 @@ static ShclVecLead *spot_list(shcl_doc *d, size_t n, ShclSpot spot) {
 	ShclTrivia *t = triv_mut(&d->arena, &NODE(d, n));
 	if (spot == SPOT_AFTER) return &t->after;
 	if (spot == SPOT_HEAD) return &t->head;
+	if (spot == SPOT_INSIDE) return &t->inside;
 	return &t->leading;
 }
 
@@ -9379,12 +9428,64 @@ static size_t take_banners(shcl_doc *d, size_t n, ShclSpot spot, const char *mar
 
 size_t shcl_set_banner(shcl_doc *d, int on) { return swap_banner(d, on, 0); }
 
+/* The line a save writes for a Format line or stamp t, when that is another
+   line, else NULL. */
+static const char *restamped_lead(ShclStr t) {
+	const char *line = s_starts(t, SHCL_FORMAT_LINE_HEAD) ? SHCL_FORMAT_LINE : s_starts(t, SHCL_STAMP_HEAD) ? SHCL_STAMP_LINE : NULL;
+	return line && !s_eq(t, s_lit(line)) ? line : NULL;
+}
+
+/* Lead list k of the ones restamp_leads tries: the footer, then each node's
+   leading, trailing, opening and inside lines. NULL for a node with none. */
+static ShclVecLead *restamp_list(shcl_doc *d, size_t k) {
+	static const ShclSpot spots[] = { SPOT_LEADING, SPOT_AFTER, SPOT_HEAD, SPOT_INSIDE };
+	if (k == 0) return &d->orphans;
+	size_t n = (k - 1) / 4;
+	return NODE(d, n).trivia ? spot_list(d, n, spots[(k - 1) % 4]) : NULL;
+}
+
+/* The Format line or stamp the save rewrites to name this format, set to name
+   it in the document too, so banner on judges the line the save writes, as it
+   does on a reload of that save. A beta1 block at the end that the save makes
+   current is current here too. The line is found by trying each Format line
+   and stamp until the text is the saved one. */
+static void restamp_leads(shcl_doc *d) {
+	size_t slots = 1 + d->nodes.len * 4;
+	int any = 0;
+	for (size_t k = 0; k < slots && !any; k++) {
+		ShclVecLead *list = restamp_list(d, k);
+		for (size_t i = 0; list && i < list->len && !any; i++) any = restamped_lead(list->data[i].text) != NULL;
+	}
+	if (!any) return;
+	ShclMark m = arena_mark(&d->arena);
+	ShclStr text = s_dup(&d->arena, emit_canonical(d));
+	ShclStr want = s_dup(&d->arena, canonical_stamped(d));
+	for (size_t k = 0; k < slots && !s_eq(want, text); k++) {
+		ShclVecLead *list = restamp_list(d, k);
+		for (size_t i = 0; list && i < list->len; i++) {
+			ShclLead *l = &list->data[i];
+			const char *line = restamped_lead(l->text);
+			if (!line) continue;
+			ShclStr old = l->text;
+			l->text = s_lit(line);
+			if (s_eq(emit_canonical(d), want)) {
+				l->line = 0;
+				arena_release(&d->arena, m);
+				return;
+			}
+			l->text = old;
+		}
+	}
+	arena_release(&d->arena, m);
+}
+
 /* shcl_set_banner, and with v2 the block 2.x's `init` wrote, in `#`
    comments, comes off too. Only shcl_upgrade asks for that: under these rules
    the old block is a comment of the file's own. */
 static size_t swap_banner(shcl_doc *d, int on, int v2) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order
 	static const char *const marks[] = { "##", "#" };
 	size_t nmarks = v2 ? 2 : 1;
+	if (on) restamp_leads(d);
 	ShclArena *t = &d->scratch;
 	arena_reset(t);
 	size_t removed = 0;
@@ -9410,6 +9511,8 @@ static size_t swap_banner(shcl_doc *d, int on, int v2) { // NOLINT(bugprone-easi
 			   blank it leaves is the next line's, which has one. */
 			removed += take_banners(d, n, SPOT_AFTER, marks[k], 1);
 			removed += take_banners(d, n, SPOT_HEAD, marks[k], 1);
+			/* So is one under a field that no field below could take. */
+			removed += take_banners(d, n, SPOT_INSIDE, marks[k], 1);
 			if (at_top && !on) continue;
 			removed += take_banners(d, n, SPOT_LEADING, marks[k], !at_top);
 		}
@@ -12618,11 +12721,17 @@ static int keep_text_stamped(shcl_doc *d, ShclStr *out) {
 	return 1;
 }
 
-shcl_str shcl_to_text_keep_lines(shcl_doc *d, int *kept) {
+shcl_save_result shcl_to_text_keep_lines(shcl_doc *d, shcl_str *text, int *kept) {
+	if (kept) *kept = 0;
+	if (d->newer) {
+		*text = s_empty();
+		return SHCL_SAVE_TOO_NEW;
+	}
 	ShclStr t;
 	int k = keep_text_stamped(d, &t);
 	if (kept) *kept = k;
-	return s_dup(&d->reads, t);
+	*text = s_dup(&d->reads, t);
+	return SHCL_SAVE_OK;
 }
 
 /* Keep a copy of the loaded text on the document, or nothing when the text is
@@ -15921,6 +16030,9 @@ shcl_save_result shcl_save_file_with(shcl_doc *d, const char *path, shcl_save_op
 	// First, and no option overrides it: whatever else is true, the save
 	// would write a newer format's lines by these rules.
 	if (d->newer) return SHCL_SAVE_TOO_NEW;
+	// The document keeps the block whether or not the write goes, so the next
+	// save, with the option or not, writes it again.
+	if (opts.banner) shcl_set_banner(d, 1);
 	ShclStr t;
 	int k = 0;
 	if (opts.keep_lines) k = keep_text_stamped(d, &t);
@@ -16111,7 +16223,7 @@ shcl_upgrade_error shcl_write_backup(const char *file, const char *text, size_t 
 	return SHCL_UPGRADE_OK;
 }
 
-shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgraded *out, char **message, shcl_write_status *why) {
+shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, int banner, shcl_upgraded *out, char **message, shcl_write_status *why) {
 	if (message) *message = NULL;
 	if (why) *why = SHCL_WRITE_OK;
 	memset(out, 0, sizeof *out);
@@ -16128,7 +16240,7 @@ shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgrade
 		if (rerr) return upgrade_why(why, s_write_status_of(rerr), upgrade_fail(message, SHCL_UPGRADE_IO, "%s: %s", path, strerror(rerr)));
 		return upgrade_why(why, SHCL_WRITE_UNREADABLE, upgrade_fail(message, SHCL_UPGRADE_IO, "%s: can't be read as UTF-8 text", path));
 	}
-	shcl_upgraded up = shcl_upgrade(text, len, from_v2);
+	shcl_upgraded up = shcl_upgrade(text, len, from_v2, banner);
 	shcl_upgrade_error r = SHCL_UPGRADE_OK;
 	if (up.current) { // NOLINT(bugprone-branch-clone): already current and just written both hand the result back
 		*out = up;

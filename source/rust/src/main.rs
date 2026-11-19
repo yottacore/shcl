@@ -1902,7 +1902,13 @@ fn write_back(doc: &mut Document, file: &str, o: &Opts, read: Option<&str>, keep
 	// dropped content refuses the write whatever the bytes say, unless the
 	// lines were kept, which writes the dropped lines back as they were.
 	let (text, kept) = if keep {
-		doc.to_text_keep_lines()
+		match doc.to_text_keep_lines() {
+			Ok(t) => t,
+			Err(e) => {
+				errln!("{}: {}", file, e);
+				return 7;
+			}
+		}
 	} else {
 		(doc.to_canonical(), false)
 	};
@@ -2778,10 +2784,10 @@ fn do_upgrade(o: &Opts) -> u8 {
 		}
 	};
 	let up = if o.write {
-		match upgrade_file(file, o.from_2x) {
+		match upgrade_file(file, o.from_2x, true) {
 			Ok(up) => up,
 			Err(e) => {
-				say_diagnostics_from("", &upgrade(&text, o.from_2x).diagnostics);
+				say_diagnostics_from("", &upgrade(&text, o.from_2x, true).diagnostics);
 				return match e {
 					UpgradeError::Ambiguous { .. } => {
 						errln!("{} (--from-2x rewrites them)", e);
@@ -2799,7 +2805,7 @@ fn do_upgrade(o: &Opts) -> u8 {
 			}
 		}
 	} else {
-		upgrade(&text, o.from_2x)
+		upgrade(&text, o.from_2x, true)
 	};
 	if up.current {
 		// `diagnostics` is empty when current, but the file is still loaded,
@@ -3377,7 +3383,13 @@ fn do_set(o: &Opts) -> u8 {
 		);
 		return 7;
 	}
-	let (text, kept) = doc.to_text_keep_lines();
+	let (text, kept) = match doc.to_text_keep_lines() {
+		Ok(t) => t,
+		Err(e) => {
+			errln!("{}: {}", file, e);
+			return 7;
+		}
+	};
 	if !kept && !o.lossy && doc.lost_count() > 0 {
 		errln!(
 			"{}: refusing to print: this result would delete {} line(s) or value(s) from the file (--lossy overrides)",

@@ -1359,7 +1359,12 @@ static int write_back(shcl_doc *d, const char *file, Opts *o, const char *read, 
 	// dropped content refuses the write whatever the bytes say, unless the
 	// lines were kept, which writes the dropped lines back as they were.
 	int kept = 0;
-	shcl_str c = keep ? shcl_to_text_keep_lines(d, &kept) : shcl_to_canonical(d);
+	shcl_str c;
+	if (!keep) c = shcl_to_canonical(d);
+	else if (shcl_to_text_keep_lines(d, &c, &kept) != SHCL_SAVE_OK) {
+		fprintf(stderr, "%s: refusing to save: the document has lines from a newer format than this reader's; nothing written\n", file);
+		return 7;
+	}
 	if (read && (o->lossy || kept || shcl_lost_count(d) == 0)
 		&& c.n == read_len && (c.n == 0 || memcmp(c.p, read, c.n) == 0)) return 0;
 	// The text is already built, so the line-keeping save writes it rather
@@ -1614,9 +1619,9 @@ static int do_upgrade(const Opts *o) {
 	shcl_upgraded up;
 	if (o->write) {
 		char *why = NULL;
-		shcl_upgrade_error e = shcl_upgrade_file(file, o->from_2x, &up, &why, NULL);
+		shcl_upgrade_error e = shcl_upgrade_file(file, o->from_2x, 1, &up, &why, NULL);
 		if (e != SHCL_UPGRADE_OK) {
-			shcl_upgraded found = shcl_upgrade(text, len, o->from_2x);
+			shcl_upgraded found = shcl_upgrade(text, len, o->from_2x, 1);
 			say_diagnostics_from("", found.diagnostics);
 			shcl_upgraded_free(&found);
 			if (e == SHCL_UPGRADE_AMBIGUOUS) fprintf(stderr, "%s (--from-2x rewrites them)\n", why);
@@ -1627,7 +1632,7 @@ static int do_upgrade(const Opts *o) {
 			return e == SHCL_UPGRADE_AMBIGUOUS || e == SHCL_UPGRADE_ERRORS_LEFT ? 7 : EXIT_IO;
 		}
 	} else {
-		up = shcl_upgrade(text, len, o->from_2x);
+		up = shcl_upgrade(text, len, o->from_2x, 1);
 	}
 	free(text);
 	if (up.current) {
@@ -2092,8 +2097,8 @@ static int do_set(Opts *o) {
 			// same word when the lines could not be kept. Only a print with no
 			// layers tried to keep them (2026100717500003).
 			int kept = 0;
-			shcl_str c = shcl_to_text_keep_lines(d, &kept);
-			if (shcl_newer_format(d)) {
+			shcl_str c;
+			if (shcl_to_text_keep_lines(d, &c, &kept) == SHCL_SAVE_TOO_NEW) {
 				fprintf(stderr, "%s: refusing to print: the document has lines from a newer format than this reader's (see H006)\n", file);
 				rc = 7;
 			} else if (!kept && !o->lossy && shcl_lost_count(d) > 0) {

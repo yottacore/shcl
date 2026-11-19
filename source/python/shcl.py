@@ -398,12 +398,14 @@ class SaveExists(SaveError):
 class SaveTooNew(SaveError):
 	"""The document was read from a newer format (see newer_format), so a save
 	would write its lines by these rules. Nothing was written, and no option
-	overrides it."""
+	overrides it. From to_text_keep_lines the path is empty."""
 	path: str | os.PathLike[str]
 
 	def __init__(self, path: str | os.PathLike[str]):
 		self.path = path
-		super().__init__(f"{path}: refusing to save: the document has lines from a newer format than this reader's; nothing written")
+		# A text call refuses with no path, since it writes nothing itself.
+		head = f"{path}: " if str(path) else ""
+		super().__init__(f"{head}refusing to save: the document has lines from a newer format than this reader's; nothing written")
 
 
 class SaveOptions:
@@ -416,16 +418,19 @@ class SaveOptions:
 	one another save makes at the same time. mode is the permission bits
 	(0o777) a file this save makes gets, exactly, whatever the umask; 0 is an
 	ordinary create's. A file already there keeps its own, and windows has no
-	such bits."""
-	__slots__ = ("lossy", "keep_lines", "force", "create", "mode")
+	such bits. banner gives the document the info block before the save, as
+	set_banner(True) does, so the file ends with it and its Format line is the
+	stamp. Off, the save adds no block, only the stamp."""
+	__slots__ = ("lossy", "keep_lines", "force", "create", "mode", "banner")
 
 	def __init__(self, lossy: bool = False, keep_lines: bool = False, force: bool = False,
-			create: bool = False, mode: int = 0) -> None:
+			create: bool = False, mode: int = 0, banner: bool = False) -> None:
 		self.lossy = lossy
 		self.keep_lines = keep_lines
 		self.force = force
 		self.create = create
 		self.mode = mode
+		self.banner = banner
 
 
 class LoadOptions:
@@ -1143,7 +1148,30 @@ def _settle_block(arena, n, start):
 	# After the join, which can take the last child.
 	_settle_head(arena, n)
 	_settle_inside(arena, n)
+	_settle_tail(arena, n)
 	return joined
+
+
+def _settle_tail(arena, n):
+	"""A block's lines after its last field, up to the last kept line, are
+	restepped from the cut _set_off gives, as _settle_first_blank does for the
+	footer: that is the cut and the restep a new child's settle makes
+	(2026111702420992)."""
+	if n == _ROOT:
+		return
+	kids = arena[n].children
+	at = kids[-1] if kids else n
+	t = arena[at].trivia
+	if t is None:
+		return
+	if at == n:
+		_restep_set_off(t.inside)
+		return
+	start = next((k for k, c in enumerate(t.after) if c.depth == 0), None)
+	if start is not None:
+		tail = t.after[start:]
+		_restep_set_off(tail)
+		t.after[start:] = tail
 
 
 def _settle_head(arena, n):
@@ -1337,7 +1365,7 @@ _HEIR_TAKES, _HEIR_NEXT, _HEIR_LAST, _HEIR_AT = 0, 1, 2, 3
 
 # The lead lists something can be taken out of. The footer's node is the
 # root.
-_SPOT_LEADING, _SPOT_AFTER, _SPOT_HEAD, _SPOT_FOOTER = 0, 1, 2, 3
+_SPOT_LEADING, _SPOT_AFTER, _SPOT_HEAD, _SPOT_INSIDE, _SPOT_FOOTER = 0, 1, 2, 3, 4
 
 
 def _adopt_heir(nd, lines):
@@ -2917,14 +2945,28 @@ def _restamp_as(text: str, line: int, stamp: str) -> str | None:
 	lines = text[len(bom):].split("\n")
 	if 0 < line <= len(lines):
 		was = lines[line - 1]
-		indent = _leading_ws(was)
-		rest = _trim_wsp_end(was[len(indent):].rstrip("\r"))
-		lines[line - 1] = indent + stamp + was[len(indent) + len(rest):]
+		# The indent and any carriage return after it stay, as step() skips
+		# them.
+		lead = was[:len(was) - len(was.lstrip(_WSP))]
+		rest = _trim_wsp_end(was[len(lead):].rstrip("\r"))
+		lines[line - 1] = lead + stamp + was[len(lead) + len(rest):]
 	body = "\n".join(lines)
 	now = _format_line_read(body)
 	if now.status is not Status.Good or now.value != FORMAT_MAJOR or now.line != line:
 		return None
 	return bom + body
+
+
+def _restamped_lead(t: str) -> str | None:
+	"""The line a save writes for a Format line or stamp `t`, when that is
+	another line."""
+	if t.startswith(FORMAT_LINE_HEAD):
+		line = FORMAT_LINE
+	elif t.startswith(STAMP_HEAD):
+		line = STAMP_LINE
+	else:
+		return None
+	return line if t != line else None
 
 
 def _repeat_line(here: str, line: str) -> bool:
@@ -3046,8 +3088,9 @@ class _RawLines:
 		self.dry = _Migrating(True)
 
 	def step(self, line: str) -> str | None:
-		"""The next line's text past its indent, or None when it is part of a
-		raw block, fences included."""
+		"""The next line's text past its indent and the blanks after it, as
+		the parser reads a comment, or None when it is part of a raw block,
+		fences included."""
 		body = line.rstrip("\r")
 		if self.fence is not None:
 			if _is_fence_close(body, self.fence[0], self.fence[1]):
@@ -3061,7 +3104,10 @@ class _RawLines:
 				self.fence = _opens_raw(rest, self.tok)
 			else:
 				_, self.fence = _migrate_line(rest, self.tok, self.fence, self.dry)
-		return rest
+		# A carriage return is a blank but never indent, so the parser takes
+		# `\r##    Format   4` as the comment `##    Format   4`, and so does
+		# the canonical form.
+		return rest.lstrip(_WSP)
 
 
 def _opens_raw(rest: str, tok: Tokens) -> tuple[str, int] | None:
@@ -3252,15 +3298,17 @@ class Upgrade:
 		self.errors_left: list[int] = []
 
 
-def upgrade(text: str, from_v2: bool) -> Upgrade:
+def upgrade(text: str, from_v2: bool, banner: bool) -> Upgrade:
 	"""A config file written for an older format, made over for this one: the
 	input run through migrate_unstamped(), then saved keeping its lines, so
-	each line, blank ones included, stays where it was, with the info block
-	`init` writes at the end in place of an old one there. Where the lines
+	each line, blank ones included, stays where it was. With banner, the info
+	block `init` writes goes at the end in place of an old one there. Without,
+	an old one comes off as set_banner(False) takes it, and the text ends with
+	the stamp every save writes. Where the lines
 	can't be kept, or keeping them keeps an error, it is written the way `fmt`
 	writes it. A whole block above the first field stays, so a file with its block
-	at the top comes out with 2, both naming this format. This is the one
-	library call that writes the block. A file that names this format comes back
+	at the top comes out with 2, both naming this format. This and a save with
+	SaveOptions.banner are the library calls that write the block. A file that names this format comes back
 	current and untouched, and so does one that loads with no error under these
 	rules, since a program calling this on every start must never rewrite a good
 	file. from_v2 is migrate's: the file can only have been written for 2.x.
@@ -3307,8 +3355,8 @@ def upgrade(text: str, from_v2: bool) -> Upgrade:
 	lost = m.lost + fresh.lost_count()
 	# migrate keeps every line where it was, so these are the input's.
 	left = _error_lines(fresh.diagnostics())
-	fresh._swap_banner(True, True)
-	made = _upgrade_text(fresh)
+	fresh._swap_banner(banner, True)
+	made = _upgrade_text(fresh, banner)
 	# With from_v2 it goes only when that leaves it loading clean, or the next
 	# run with it would read the result by 2.x rules again
 	# (2026101515372401). Without, a Format 3 file with an error is current.
@@ -3324,14 +3372,19 @@ def upgrade(text: str, from_v2: bool) -> Upgrade:
 	return up
 
 
-def _upgrade_text(fresh: Document) -> str:
+def _upgrade_text(fresh: Document, banner: bool) -> str:
 	"""The fresh file's text, saved the way `set` saves, so each line of the
 	input is on the same line here, blank ones included (2026102620591101).
 	Where the lines can't be kept, or keeping them keeps an error the
 	canonical form repairs, such as a missing colon, it is the canonical
-	form."""
-	canonical = fresh._canonical_text()
-	kept, ok = fresh._keep_lines_text()
+	form. Without the info block, whose Format line names this format, both
+	get the stamp a save writes."""
+	if banner:
+		canonical = fresh._canonical_text()
+		kept, ok = fresh._keep_lines_text()
+	else:
+		canonical = fresh.to_canonical()
+		kept, ok = fresh._keep_lines_stamped()
 	if ok and Document.parse(kept).error_count() <= Document.parse(canonical).error_count():
 		return kept
 	return canonical
@@ -7132,9 +7185,13 @@ class Document:
 		# would write a newer format's lines by these rules.
 		if self._newer:
 			raise SaveTooNew(path)
+		# The document keeps the block whether or not the write goes, so the
+		# next save, with the option or not, writes it again.
+		if opts.banner:
+			self.set_banner(True)
 		lost = self.lost_count()
 		if opts.keep_lines:
-			text, kept = self.to_text_keep_lines()
+			text, kept = self._keep_lines_stamped()
 		else:
 			text, kept = self.to_canonical(), False
 		if not opts.lossy and not kept and lost > 0:
@@ -7313,7 +7370,16 @@ class Document:
 		and False. Its stamp names this format, as to_canonical()'s does, so
 		a kept file without one gets STAMP_LINE as a new last line. A kept
 		text that ends in a raw block left open has nowhere to put one, as in
-		`migrate`, so it goes without. The line ends the way new lines do."""
+		`migrate`, so it goes without. The line ends the way new lines do.
+		A document from a newer format (see newer_format) raises SaveTooNew
+		with an empty path, as its save does, since a program that writes this
+		text would write its lines by these rules."""
+		if self._newer:
+			raise SaveTooNew("")
+		return self._keep_lines_stamped()
+
+	def _keep_lines_stamped(self) -> tuple[str, bool]:
+		"""to_text_keep_lines() past its newer-format refusal."""
 		t, ok = self._keep_lines_text()
 		if not ok:
 			return self.to_canonical(), False
@@ -9003,6 +9069,8 @@ class Document:
 			return t.after
 		if spot == _SPOT_HEAD:
 			return t.head
+		if spot == _SPOT_INSIDE:
+			return t.inside
 		return t.leading
 
 	def _take_banners(self, node: int, spot: int, mark: str, blocks: bool) -> int:
@@ -9166,7 +9234,8 @@ class Document:
 		migrate stamped, or a stamp outside a block, comes off too, with the note under it. Both are looked
 		for in the footer and above every field but the first one and its
 		first child down, since a field added below one by hand takes it as
-		its comment. A line in an old block that the block does not write is
+		its comment, and among the lines indented under a field that no
+		field below takes. A line in an old block that the block does not write is
 		the author's, such as a Schema line, and stays where the block was.
 		With on, a block that already ends the file as this release writes it
 		stays as it is, the author's lines in it too. A block at the top of
@@ -9174,11 +9243,42 @@ class Document:
 		which a saved file writes as the first field's first child, so a block
 		there is left alone too, however it got there. A lone Format line or stamp there
 		comes off with on, since the new block names the format. A kept block's Format line or stamp is set to
-		this format too, since it reads first. The library save never adds the
-		block by itself; this is for a program that wants it in a file it
-		writes. Returns how many old blocks came off."""
+		this format too, since it reads first. A save adds the block only when
+		SaveOptions.banner asks; this is for a program that wants it in a file
+		it writes. Returns how many old blocks came off."""
 		_want("set_banner", on, "bool")
 		return self._swap_banner(on, False)
+
+	def _restamp_leads(self) -> None:
+		"""The Format line or stamp the save rewrites to name this format, set
+		to name it in the document too, so banner on judges the line the save
+		writes, as it does on a reload of that save. A beta1 block at the end
+		that the save makes current is current here too. The line is found by
+		trying each Format line and stamp until the text is the saved one."""
+		spots = [(_ROOT, _SPOT_FOOTER)]
+		for n, nd in enumerate(self.arena):
+			if nd.trivia is not None:
+				spots.extend((n, s) for s in (_SPOT_LEADING, _SPOT_AFTER, _SPOT_HEAD, _SPOT_INSIDE))
+		tries = []
+		for n, spot in spots:
+			for i, lead in enumerate(self._spot_list(n, spot)):
+				line = _restamped_lead(lead.text)
+				if line is not None:
+					tries.append((n, spot, i, line))
+		if not tries:
+			return
+		text = self._canonical_text()
+		want = _stamped(text)
+		if want is None or want == text:
+			return
+		for n, spot, i, line in tries:
+			lead = self._spot_list(n, spot)[i]
+			old = lead.text
+			lead.text = line
+			if self._canonical_text() == want:
+				lead.line = 0
+				return
+			lead.text = old
 
 	def _swap_banner(self, on, v2):
 		"""set_banner(), and with v2 the block 2.x's `init` wrote, in `#`
@@ -9186,6 +9286,8 @@ class Document:
 		rules the old block is a comment of the file's own."""
 		marks = ("##", "#") if v2 else ("##",)
 		removed = 0
+		if on:
+			self._restamp_leads()
 		# The first line's comments are the top of the file, on the first node
 		# down, as a dotted line puts them on its last name.
 		top = [_ROOT]
@@ -9207,6 +9309,8 @@ class Document:
 				# block. A blank it leaves is the next line's, which has one.
 				removed += self._take_banners(n, _SPOT_AFTER, mark, True)
 				removed += self._take_banners(n, _SPOT_HEAD, mark, True)
+				# So is one under a field that no field below could take.
+				removed += self._take_banners(n, _SPOT_INSIDE, mark, True)
 				if at_top and not on:
 					continue
 				removed += self._take_banners(n, _SPOT_LEADING, mark, not at_top)
@@ -11505,7 +11609,7 @@ def _create_backup(file, name):
 	return _create_like(file, name)
 
 
-def upgrade_file(path: str | os.PathLike[str], from_v2: bool) -> Upgrade:
+def upgrade_file(path: str | os.PathLike[str], from_v2: bool, banner: bool) -> Upgrade:
 	"""upgrade() on a file, for a program to call when it starts, before its
 	load. A file that needs it is kept under backup_file_name() by
 	write_backup(), then the fresh text replaces it through
@@ -11531,7 +11635,7 @@ def upgrade_file(path: str | os.PathLike[str], from_v2: bool) -> Upgrade:
 		text = data.decode("utf-8")
 	except UnicodeDecodeError:
 		raise UpgradeFailed(f"{path}: can't be read as UTF-8 text", WriteStatus.Unreadable) from None
-	up = upgrade(text, from_v2)
+	up = upgrade(text, from_v2, banner)
 	if up.current:
 		return up
 	if up.ambiguous != 0:

@@ -38,6 +38,25 @@ func tidyStamp(t string) string {
 	return strings.ReplaceAll(t, "\n\n"+StampLine+"\n", "\n"+StampLine+"\n")
 }
 
+// keepText is ToTextKeepLines() on a current document, failing the test on
+// a refusal.
+func keepText(t *testing.T, d *Document) (string, bool) {
+	t.Helper()
+	s, kept, err := d.ToTextKeepLines()
+	if err != nil {
+		t.Fatalf("a current document's text call refused: %v", err)
+	}
+	return s, kept
+}
+
+// refusesText says whether the text call refuses as a newer format's should:
+// a *SaveTooNew with no path, and no text.
+func refusesText(d *Document) bool {
+	s, kept, err := d.ToTextKeepLines()
+	var tn *SaveTooNew
+	return errors.As(err, &tn) && tn.Path == "" && s == "" && !kept
+}
+
 // onlyTheStampDiffers says saved is text with the stamp a save writes: the
 // same text, when it names this format, a newer one, or ends in a raw block
 // left open, or one stamp line rewritten in place, or StampLine added as the
@@ -993,7 +1012,7 @@ func TestWriteOpsMatchExpected(t *testing.T) {
 			applyOpTest(t, kept, line, at)
 		}
 		got := doc.ToCanonical()
-		text, lines := kept.ToTextKeepLines()
+		text, lines := keepText(t, kept)
 		if text != c.expectedKeep {
 			t.Errorf("%s: output differs from expected-keep.shcl\ngot:\n%s\nwant:\n%s", c.name, text, c.expectedKeep)
 		}
@@ -1127,7 +1146,7 @@ func TestPlacementTableRowsMatch(t *testing.T) {
 		if Parse(got).ToCanonical() != got {
 			t.Errorf("%s: expected text is not a fmt fixpoint", row.name)
 		}
-		if text, _ := kept.ToTextKeepLines(); row.hasKeep && text != row.keep {
+		if text, _ := keepText(t, kept); row.hasKeep && text != row.keep {
 			t.Errorf("%s: kept text\ngot:\n%s\nwant:\n%s", row.name, text, row.keep)
 		}
 	}
@@ -1140,7 +1159,14 @@ func TestKeepingLinesWithoutEditsWritesTheInput(t *testing.T) {
 	defer testID(t, "dd3w7")
 	eachCase(t, func(t *testing.T, c corpusCase) {
 		doc, _ := ParseKeepLines(c.input, Standard)
-		if text, kept := doc.ToTextKeepLines(); !onlyTheStampDiffers(c.input, text) || !kept {
+		// A newer format's text call refuses, as its save does.
+		if doc.NewerFormat() {
+			if !refusesText(doc) {
+				t.Errorf("%s: a newer format's text call gave text", c.name)
+			}
+			return
+		}
+		if text, kept := keepText(t, doc); !onlyTheStampDiffers(c.input, text) || !kept {
 			t.Errorf("%s: an unedited save changed more than the stamp: %q", c.name, text)
 		}
 	})
@@ -2586,12 +2612,12 @@ func TestWriteStatusNamesEachFailure(t *testing.T) {
 	check("under a file", WriteFileAtomic(at("ok.shcl/t.shcl"), "a: 1\n"), WriteNotFound)
 	check("over a directory", WriteFileAtomic(at("sub"), "a: 1\n"), WriteIsDirectory)
 	check("through a trailing separator", WriteFileAtomic(at("ok.shcl")+"/", "a: 1\n"), WriteIsDirectory)
-	_, err = UpgradeFile(at("sub"), false)
+	_, err = UpgradeFile(at("sub"), false, true)
 	check("upgrade of a directory", err, WriteIsDirectory)
 	if err := os.WriteFile(at("bin.shcl"), []byte("a: \xff\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err = UpgradeFile(at("bin.shcl"), false)
+	_, err = UpgradeFile(at("bin.shcl"), false, true)
 	check("upgrade of a file that is not UTF-8", err, WriteUnreadable)
 	if err == nil || !strings.Contains(err.Error(), "UTF-8") {
 		t.Errorf("upgrade of a file that is not UTF-8: %v", err)
@@ -2604,7 +2630,7 @@ func TestWriteStatusNamesEachFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	check("over a FIFO", WriteFileAtomic(fifo, "a: 1\n"), WriteNotRegular)
-	_, err = UpgradeFile(fifo, false)
+	_, err = UpgradeFile(fifo, false, true)
 	check("upgrade of a FIFO", err, WriteNotRegular)
 	// root writes anyway, so the rows wait for a probe that is refused.
 	shut := at("shut")
@@ -2625,7 +2651,7 @@ func TestWriteStatusNamesEachFailure(t *testing.T) {
 	check("into a shut folder", WriteFileAtomic(filepath.Join(shut, "t.shcl"), "a: 1\n"), WritePermissionDenied)
 	_, err = WriteBackup(v2, "x: a,b\n", 2)
 	check("backup into a shut folder", err, WritePermissionDenied)
-	_, err = UpgradeFile(v2, true)
+	_, err = UpgradeFile(v2, true, true)
 	check("upgrade in a shut folder", err, WritePermissionDenied)
 	// A file it may not read says so, not that it isn't UTF-8
 	// (2026101514324707).
@@ -2633,7 +2659,7 @@ func TestWriteStatusNamesEachFailure(t *testing.T) {
 	if err := os.WriteFile(locked, []byte("a: 1\nb 2\n"), 0o000); err != nil {
 		t.Fatal(err)
 	}
-	_, err = UpgradeFile(locked, false)
+	_, err = UpgradeFile(locked, false, true)
 	check("upgrade of a file it may not read", err, WritePermissionDenied)
 	if err == nil || strings.Contains(err.Error(), "UTF-8") || !errors.Is(err, fs.ErrPermission) {
 		t.Errorf("upgrade of a file it may not read: %v", err)
@@ -4382,7 +4408,7 @@ func TestReadsFromSeveralGoroutines(t *testing.T) {
 			func(d *Document) string { return show(d.ToCanonical()) },
 			func(d *Document) string { return show(d.Paths(), d.InstancePaths(), d.Fields()) },
 			func(d *Document) string { return show(d.Diagnostics(), d.LostCount(), d.ErrorCount()) },
-			func(d *Document) string { s, ok := d.ToTextKeepLines(); return show(s, ok) },
+			func(d *Document) string { s, ok, err := d.ToTextKeepLines(); return show(s, ok, err) },
 		}
 		if schema != nil {
 			calls = append(calls, func(d *Document) string { return show(d.Validate(schema)) })
@@ -4594,6 +4620,10 @@ func TestStampReadsSayWhy(t *testing.T) {
 		{"## SHCL format 4294967296.0\n", math.MaxUint32, Good, 1, "H006"},
 		{"a: 1\n## SHCL format\n", 0, Empty, 2, ""},
 		{"a: 1\n## SHCL format 3.\n", 0, BadType, 2, ""},
+		// A carriage return after the indent is a blank, as in the parser
+		// (2026111809400100).
+		{"a: 1\n\r##    Format   4\n", 4, Good, 2, "H006"},
+		{"a:\n\t\r## SHCL format 2.0\n\tb: 1\n", 2, Good, 2, "H007"},
 		{"a: 1\n##    Format   3.0-\n", 0, BadType, 2, ""},
 		{"a: 1\n## SHCL format 3.0-A37\n", 0, BadType, 2, ""},
 		{"a: 1\n## SHCL format .0\n", 0, BadType, 2, ""},
@@ -4644,6 +4674,7 @@ func TestStampReadsSayWhy(t *testing.T) {
 		{"x: ~~~\n##    Schema   a\n~~~\n", "", NotFound, 0},
 		{"`y: ```\n\t##    Schema   a\n\t```\n", "", NotFound, 0},
 		{"~x: ```\n\tb\n\t```\n##    Schema   a\n", "a", Good, 4},
+		{"a: 1\n \r##    Schema   a\n", "a", Good, 2},
 	}
 	for _, c := range schemas {
 		r := ReadSchemaRef(c.text)
@@ -5033,7 +5064,7 @@ func TestARemoveThatMovesAMisplacedLineAddsNoError(t *testing.T) {
 	if doc.Remove("window") != 1 || doc.SetInt("font.face.family.kid2", 3) != SetOk {
 		t.Fatal("remove window or set kid2")
 	}
-	text, kept := doc.ToTextKeepLines()
+	text, kept := keepText(t, doc)
 	if text != want || !kept {
 		t.Fatalf("kept %v %q, want %q", kept, text, want)
 	}
@@ -5060,7 +5091,7 @@ func keepsEveryLine(base string) bool {
 	if doc.SetInt("zz_new", 1) != SetOk {
 		return true
 	}
-	text, kept := doc.ToTextKeepLines()
+	text, kept, _ := doc.ToTextKeepLines()
 	if !kept {
 		return true
 	}
@@ -5145,7 +5176,7 @@ func TestEditsAndMergesMatchAReload(t *testing.T) {
 			}
 			// The save that keeps lines reloads as the document with no error
 			// the base did not have, or is its canonical form.
-			if text, kept := live.ToTextKeepLines(); kept && tidyStamp(Parse(text).ToCanonical()) != live.ToCanonical() {
+			if text, kept, _ := live.ToTextKeepLines(); kept && tidyStamp(Parse(text).ToCanonical()) != live.ToCanonical() {
 				t.Fatalf("kept lines reload as another document at iteration %d:\n%s--- wrote\n%s", i, log, text)
 			} else if kept && !noNewErrors(text, base) {
 				t.Fatalf("kept lines load with a new error at iteration %d:\n%s--- wrote\n%s", i, log, text)
@@ -5278,7 +5309,7 @@ func TestAKeptLineGoneFromTheTreeRefusesTheSave(t *testing.T) {
 	if n := doc.LostCount(); n != 1 {
 		t.Fatalf("LostCount %d, want 1", n)
 	}
-	if _, kept := doc.ToTextKeepLines(); kept {
+	if _, kept := keepText(t, doc); kept {
 		t.Fatal("the keep save kept lines with one gone")
 	}
 	path := filepath.Join(t.TempDir(), "f.shcl")
@@ -5396,7 +5427,7 @@ func TestASetterCommentsOutTheKeptLineHeadingItsTarget(t *testing.T) {
 		if len(back.Diagnostics()) != 0 || back.Count(c.path) != 1 || back.ToCanonical() != out {
 			t.Fatalf("%q: reload of %q differs", c.text, out)
 		}
-		if keep, kept := doc.ToTextKeepLines(); keep != out || !kept {
+		if keep, kept := keepText(t, doc); keep != out || !kept {
 			t.Fatalf("%q: keep save %q %v", c.text, keep, kept)
 		}
 	}
@@ -5460,7 +5491,7 @@ func TestASetterCommentsOutEveryKeptLineOfItsName(t *testing.T) {
 		if back.Count(c.path) != c.count || back.ToCanonical() != out {
 			t.Fatalf("%q: reload of %q differs", c.text, out)
 		}
-		if keep, kept := doc.ToTextKeepLines(); keep != out || !kept {
+		if keep, kept := keepText(t, doc); keep != out || !kept {
 			t.Fatalf("%q: keep save %q %v", c.text, keep, kept)
 		}
 	}
@@ -5469,7 +5500,7 @@ func TestASetterCommentsOutEveryKeptLineOfItsName(t *testing.T) {
 	if two.SetInt("a", 5) == SetOk {
 		t.Fatalf("SetInt took a repeated path")
 	}
-	if keep, kept := two.ToTextKeepLines(); keep != withStamp("a: 1\na: 2\n") || !kept {
+	if keep, kept := keepText(t, two); keep != withStamp("a: 1\na: 2\n") || !kept {
 		t.Fatalf("two valid lines: keep save %q %v", keep, kept)
 	}
 	// SetComment makes the field without touching the line.
@@ -6270,11 +6301,11 @@ func TestMigrateWritesTheText2xRead(t *testing.T) {
 	// The call from the report. Without fromV2 the file could be a 3.0 one,
 	// so the two values are left and counted.
 	text = "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\n"
-	up := Upgrade(text, false)
+	up := Upgrade(text, false, true)
 	if up.Current || up.Ambiguous != 2 || up.Text != text {
 		t.Fatalf("%+v", up)
 	}
-	up = Upgrade(text, true)
+	up = Upgrade(text, true, true)
 	if up.Current || up.Ambiguous != 0 || up.Lost != 0 {
 		t.Fatalf("%+v", up)
 	}
@@ -6330,7 +6361,7 @@ func TestMigrateCountsAQuotedNameWithABackslashPairLost(t *testing.T) {
 	if want := "'k\\\\x': \"C:\u25C9TAB\u25C9emp\"\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n"; !strings.HasPrefix(m.Text, want) {
 		t.Fatalf("got %q\nwant %q", m.Text, want)
 	}
-	if up := Upgrade(text, true); up.Lost != 2 {
+	if up := Upgrade(text, true, true); up.Lost != 2 {
 		t.Fatalf("%+v", up)
 	}
 }
@@ -7077,7 +7108,7 @@ func TestDefaultReplaceRoundTrips(t *testing.T) {
 	for _, op := range ops {
 		applyOpTest(t, doc, op, op)
 	}
-	saved, kept := doc.ToTextKeepLines()
+	saved, kept := keepText(t, doc)
 	if !kept || saved != want {
 		t.Fatalf("kept %v:\n%s", kept, saved)
 	}
@@ -7092,7 +7123,7 @@ func TestDefaultReplaceRoundTrips(t *testing.T) {
 	for _, op := range ops {
 		applyOpTest(t, back, op, op)
 	}
-	if again, kept := back.ToTextKeepLines(); again != saved || !kept {
+	if again, kept := keepText(t, back); again != saved || !kept {
 		t.Fatalf("a second run wrote:\n%s", again)
 	}
 	if notes := back.Comments("srv.port"); len(notes) != 1 || !strings.Contains(saved, notes[0]) {
@@ -8033,6 +8064,129 @@ func TestACreateOnlySaveRefusesAFileAlreadyThere(t *testing.T) {
 	}
 }
 
+// TestASaveCanAddTheInfoBlock: a save adds the info block only when its options
+// ask, and the document keeps it, so the next save writes it too. Without, the
+// file gets only the stamp. The block's Format line is the stamp, so none goes
+// under it (2026111016205705).
+func TestASaveCanAddTheInfoBlock(t *testing.T) {
+	defer testID(t, "dffwv")
+	f := filepath.Join(t.TempDir(), "f.shcl")
+	read := func() string {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	save := func(doc *Document, opts SaveOptions, wantKept bool) {
+		t.Helper()
+		if k, err := doc.SaveFileWith(f, opts); err != nil || k != wantKept {
+			t.Fatalf("%+v: %v %v", opts, k, err)
+		}
+	}
+	force := SaveOptions{Force: true}
+	banner := SaveOptions{Force: true, Banner: true}
+	w := Parse("a: 1\n")
+	w.SetBanner(true)
+	want := w.ToCanonical()
+	if !strings.HasPrefix(want, "a: 1\n") || !strings.HasSuffix(want, GenBanner) || strings.Contains(want, StampHead) {
+		t.Fatalf("%q", want)
+	}
+
+	// Off, the file gets the stamp and no block.
+	doc := Parse("a: 1\n")
+	save(doc, force, false)
+	if got := read(); got != withStamp("a: 1\n") {
+		t.Fatalf("%q", got)
+	}
+	// On, it ends with the block, and the document keeps it. Asked again,
+	// the block already there stays the one block.
+	for _, opts := range []SaveOptions{banner, force, banner} {
+		save(doc, opts, false)
+		if got := read(); got != want {
+			t.Fatalf("%+v: %q", opts, got)
+		}
+	}
+
+	// Keeping lines, the file's own lines stay as they were.
+	own := "# note\na:   1\n"
+	if err := os.WriteFile(f, []byte(own), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	doc, _, err := LoadFileKeepLines(f, Standard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	save(doc, SaveOptions{KeepLines: true, Banner: true}, true)
+	got := read()
+	if !strings.HasPrefix(got, own) || !strings.HasSuffix(got, GenBanner) || strings.Contains(got, StampHead) {
+		t.Fatalf("%q", got)
+	}
+	again, _, err := LoadFileKeepLines(f, Standard)
+	if err != nil || again.ToCanonical() != doc.ToCanonical() {
+		t.Fatalf("%v %q", err, again.ToCanonical())
+	}
+
+	// A newer format's document is refused first, and gets no block.
+	doc = Parse("a: 1\n##    Format   4\n")
+	before := doc.ToCanonical()
+	var tooNew *SaveTooNew
+	if _, err := doc.SaveFileWith(f, banner); !errors.As(err, &tooNew) {
+		t.Fatalf("%v", err)
+	}
+	if doc.ToCanonical() != before {
+		t.Fatalf("%q", doc.ToCanonical())
+	}
+}
+
+// TestANewerFormatDocumentGivesNoText: the line-keeping text call refuses a
+// document from a newer format, as its save does, so a program that writes
+// the text itself can't write a newer format's lines back by these rules. A
+// current one gives its text (2026111708542868).
+func TestANewerFormatDocumentGivesNoText(t *testing.T) {
+	defer testID(t, "dffw0")
+	for _, text := range []string{
+		"a: 1\n##    Format   4\n",
+		"a: 1\n## SHCL format 3.1\n",
+		"a: 1\n## SHCL format 4.0\n",
+	} {
+		doc, _ := ParseKeepLines(text, Standard)
+		if !doc.NewerFormat() {
+			t.Fatalf("%q: not newer", text)
+		}
+		if !refusesText(doc) {
+			t.Errorf("%q: the text call gave text", text)
+		}
+		if st := doc.SetInt("a", 2); st != SetOk {
+			t.Fatalf("%q: set %v", text, st)
+		}
+		if !refusesText(doc) {
+			t.Errorf("edited %q: the text call gave text", text)
+		}
+		// Without the kept text too, where it would give the canonical form.
+		if !refusesText(Parse(text)) {
+			t.Errorf("parsed %q: the text call gave text", text)
+		}
+	}
+	want := "refusing to save: the document has lines from a newer format than this reader's; nothing written"
+	if got := (&SaveTooNew{}).Error(); got != want {
+		t.Errorf("message %q", got)
+	}
+	// A merge takes a newer layer's reading, and the text call with it.
+	doc, _ := ParseKeepLines("a: 1\n", Standard)
+	doc.Merge(Parse("b: 2\n##    Format   4\n"))
+	if !refusesText(doc) {
+		t.Errorf("merged: the text call gave text")
+	}
+	// This format, an older one and none give their text.
+	for _, text := range []string{"a: 1\n## SHCL format 3.0\n", "a: 1\n##    Format   3\n", "a: 1\n##    Format   2\n", "a: 1\n"} {
+		doc, _ := ParseKeepLines(text, Standard)
+		if _, _, err := doc.ToTextKeepLines(); err != nil {
+			t.Errorf("%q: %v", text, err)
+		}
+	}
+}
+
 // A document from a newer format reads and edits as usual, and every save of
 // it is refused with nothing written, whatever the options, before any other
 // check. The same reading as H006 decides, and a merge takes a newer layer's
@@ -8082,7 +8236,7 @@ func TestANewerFormatDocumentSavesNowhere(t *testing.T) {
 	_, err = doc.SaveFileKeepLines(f)
 	tooNew("keep lines", err, f)
 	// No option overrides it, and it comes before create's check.
-	_, err = doc.SaveFileWith(f, SaveOptions{Lossy: true, KeepLines: true, Force: true, Create: true, Mode: 0o600})
+	_, err = doc.SaveFileWith(f, SaveOptions{Lossy: true, KeepLines: true, Force: true, Create: true, Mode: 0o600, Banner: true})
 	tooNew("every option", err, f)
 	if got, _ := os.ReadFile(f); string(got) != newer {
 		t.Errorf("written: %q", got)
@@ -8148,7 +8302,7 @@ func TestANewerFormatDocumentSavesNowhere(t *testing.T) {
 			t.Errorf("%q: a file was made", text)
 		}
 		for _, fromV2 := range []bool{false, true} {
-			if up := Upgrade(text, fromV2); !up.Current || up.Text != text {
+			if up := Upgrade(text, fromV2, true); !up.Current || up.Text != text {
 				t.Errorf("%q: Upgrade(%v) gave %+v", text, fromV2, up)
 			}
 		}
@@ -8194,7 +8348,7 @@ func TestALoadThatMigratesSavesThroughTheGuards(t *testing.T) {
 	if st != FileClean {
 		t.Errorf("status %v", st)
 	}
-	if got, kept := doc.ToTextKeepLines(); got != withStamp(migrated) || !kept {
+	if got, kept := keepText(t, doc); got != withStamp(migrated) || !kept {
 		t.Errorf("kept text %q %v, want %q", got, kept, migrated)
 	}
 	if read() != old {
@@ -8395,18 +8549,30 @@ func TestASaveNamesThisFormat(t *testing.T) {
 		{"a: 1\n##    Format   4\n", "a: 1\n##    Format   4\n", "a: 1\n##    Format   4\n"},
 		{"a: ~~~\n\tx\n", "a:\n\t~~~\n\t\tx\n\t~~~\n" + s + "\n", "a: ~~~\n\tx\n"},
 		{"a: ~~~\n\t##    Format   3\n\t~~~\n", "a:\n\t~~~\n\t##    Format   3\n\t~~~\n" + s + "\n", "a: ~~~\n\t##    Format   3\n\t~~~\n" + s + "\n"},
+		// The parser reads past a carriage return before a Format line, so the
+		// save does too, and keeps it (2026111809400100).
+		{"a: 1\n\r##    Format   4\n", "a: 1\n##    Format   4\n", "a: 1\n\r##    Format   4\n"},
+		{"a: 1\n\r##    Format   3\n", "a: 1\n" + f + "\n", "a: 1\n\r" + f + "\n"},
 	} {
 		doc, _ := ParseKeepLines(c.text, Standard)
 		if got := doc.ToCanonical(); got != c.canonical {
 			t.Errorf("canonical %q: %q, want %q", c.text, got, c.canonical)
 		}
-		if got, kept := doc.ToTextKeepLines(); got != c.kept || !kept {
-			t.Errorf("kept %q: %q %v, want %q", c.text, got, kept, c.kept)
-		}
-		// Saved again, nothing changes.
-		back, _ := ParseKeepLines(c.kept, Standard)
-		if got, _ := back.ToTextKeepLines(); got != c.kept {
-			t.Errorf("again %q: %q", c.text, got)
+		// A newer format's text call refuses, as its save does
+		// (2026111708542868); its canonical form still leaves the stamp.
+		if doc.NewerFormat() {
+			if !refusesText(doc) {
+				t.Errorf("kept %q gave text", c.text)
+			}
+		} else {
+			if got, kept := keepText(t, doc); got != c.kept || !kept {
+				t.Errorf("kept %q: %q %v, want %q", c.text, got, kept, c.kept)
+			}
+			// Saved again, nothing changes.
+			back, _ := ParseKeepLines(c.kept, Standard)
+			if got, _ := keepText(t, back); got != c.kept {
+				t.Errorf("again %q: %q", c.text, got)
+			}
 		}
 		if got := Parse(c.canonical).ToCanonical(); got != c.canonical {
 			t.Errorf("again %q: %q", c.text, got)

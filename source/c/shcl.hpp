@@ -30,6 +30,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -305,8 +306,9 @@ struct Upgrade {
 	std::vector<std::size_t> errors_left;
 };
 // A config file written for an older format, made over for this one: migrated
-// without the stamp, saved keeping its lines, so each line stays where it was,
-// with the info block init writes at the end in place of an old one there.
+// without the stamp, saved keeping its lines, so each line stays where it was.
+// With banner, the info block init writes goes at the end in place of an old
+// one there. Without, an old one comes off and the text ends with the stamp.
 // Where the lines can't be kept, or keeping them keeps an error, it is written
 // the way fmt writes it. A whole block above the
 // first field stays, so a file with its block at the top comes out with 2, both
@@ -316,7 +318,7 @@ struct Upgrade {
 // change it, as it would `p: a,b`, and any file only when the fresh text loads
 // clean (errors_left). Pass from_v2 only for a file known to be old, never on
 // every start.
-Upgrade upgrade(std::string_view text, bool from_v2);
+Upgrade upgrade(std::string_view text, bool from_v2, bool banner);
 // The name a config file's backup gets:
 // NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local time, with N the format
 // the file was written for. SHCL_TEST_CLOCK stands in for the clock.
@@ -333,6 +335,8 @@ std::string_view spelling(SizeUnit u);
 // account: the document is always usable, and empty when the file could not
 // be read.
 enum class FileStatus { Clean, HadErrors, NotFound, Unreadable };
+#endif
+// Outside the file calls, since to_text_keep_lines() answers with it too.
 // Not a bool: Refused is the lost-content gate, which save_file_lossy
 // overrides, and folding it into a failed write leaves the caller with an
 // override they cannot tell they need. Changed is what is at the path now
@@ -344,6 +348,7 @@ enum class FileStatus { Clean, HadErrors, NotFound, Unreadable };
 // from a newer format (newer_format); nothing was written, and nothing
 // overrides it.
 enum class SaveResult { Ok, Refused, Failed, Changed, Exists, TooNew };
+#ifndef SHCL_NO_FILE_IO
 // How save_file_with saves. The default is save_file.
 struct SaveOptions {
 	bool lossy{};      // write even when the save deletes content, as save_file_lossy
@@ -351,6 +356,7 @@ struct SaveOptions {
 	bool force{};      // write over whatever is at the path, even a file never read or one changed since
 	bool create{};     // only make a new file: Exists when one is there, even one another save makes at the same time
 	unsigned mode{};   // the permission bits (0777) a file this save makes gets, exactly, whatever the umask; 0 is an ordinary create's; a file already there keeps its own, and windows has no such bits
+	bool banner{};     // give the document the info block before the save, as set_banner(true), so the file ends with it and its Format line is the stamp; off adds no block, only the stamp
 };
 // How load_file_opts loads. The default is load_file_with.
 struct LoadOptions {
@@ -423,7 +429,7 @@ std::pair<std::string, std::optional<UpgradeError>> write_backup(const std::stri
 // the other. A current file is not written at all, and neither is one that
 // changed after it was read, that reads two ways, or that errors_left says
 // would still have an error.
-std::pair<Upgrade, std::optional<UpgradeError>> upgrade_file(const std::string &path, bool from_v2);
+std::pair<Upgrade, std::optional<UpgradeError>> upgrade_file(const std::string &path, bool from_v2, bool banner);
 #endif
 
 // A parsed document. Its const members may be called on one Document from
@@ -517,8 +523,11 @@ public:
 	// The text a save that keeps lines writes, and whether it kept them: each
 	// line the edits did not touch comes back byte for byte, and the canonical
 	// form stands in when the result would not reload as this document, or
-	// the document was not loaded to keep its lines, or it took a merge.
-	std::pair<std::string, bool> to_text_keep_lines() const;
+	// the document was not loaded to keep its lines, or it took a merge. The
+	// answer is SaveResult::Ok. A document from a newer format (newer_format)
+	// is SaveResult::TooNew, as its save is, with no text, since a program
+	// that writes this text would write its lines by these rules.
+	std::tuple<SaveResult, std::string, bool> to_text_keep_lines() const;
 
 	// Diagnostics in emission order: parse-time ones, then repeated-leaf hints.
 	std::vector<Diagnostic> diagnostics() const;
@@ -1158,9 +1167,9 @@ Read<std::string> read_schema_ref(std::string_view text) {
 	return {std::string(r.value.p, r.value.n), detail::st(r.status)};
 }
 
-Upgrade upgrade(std::string_view text, bool from_v2) {
+Upgrade upgrade(std::string_view text, bool from_v2, bool banner) {
 	detail::UpgradedOwn own;
-	own.c = shcl_upgrade(text.data(), text.size(), from_v2 ? 1 : 0);
+	own.c = shcl_upgrade(text.data(), text.size(), from_v2 ? 1 : 0, banner ? 1 : 0);
 	return detail::upgraded(own.c);
 }
 
@@ -1245,13 +1254,13 @@ std::pair<std::string, std::optional<UpgradeError>> write_backup(const std::stri
 	return {std::string(n.get()), std::nullopt};
 }
 
-std::pair<Upgrade, std::optional<UpgradeError>> upgrade_file(const std::string &path, bool from_v2) {
+std::pair<Upgrade, std::optional<UpgradeError>> upgrade_file(const std::string &path, bool from_v2, bool banner) {
 	if (detail::cut_short(path)) return {Upgrade{}, detail::nul_in(path)};
 	detail::UpgradedOwn own;
 	char *why = nullptr;
 	shcl_write_status st = SHCL_WRITE_OK;
 	// codeql[cpp/path-injection] opens the path its caller named, which is the job
-	shcl_upgrade_error e = shcl_upgrade_file(path.c_str(), from_v2 ? 1 : 0, &own.c, &why, &st);
+	shcl_upgrade_error e = shcl_upgrade_file(path.c_str(), from_v2 ? 1 : 0, banner ? 1 : 0, &own.c, &why, &st);
 	std::unique_ptr<char, void (*)(void *)> w(why, &std::free);
 	if (e != SHCL_UPGRADE_OK) {
 		std::vector<std::size_t> lines;
@@ -1342,7 +1351,7 @@ std::pair<SaveResult, bool> Document::save_file_with(const std::string &path, co
 	if (detail::cut_short(path)) return {detail::nul_save(why), false};
 	shcl_save_options o{};
 	o.lossy = opts.lossy; o.keep_lines = opts.keep_lines; o.force = opts.force;
-	o.create = opts.create; o.mode = opts.mode;
+	o.create = opts.create; o.mode = opts.mode; o.banner = opts.banner;
 	int k = 0;
 	shcl_write_status st = SHCL_WRITE_OK;
 	// codeql[cpp/path-injection] opens the path its caller named, which is the job
@@ -1357,10 +1366,11 @@ Strictness Document::strictness() const { return static_cast<Strictness>(shcl_st
 // The canonical text lives in the read arena like every other result, so a
 // save loop that did not release first would hold every copy.
 std::string Document::to_canonical() const { return detail::str(shcl_to_canonical(detail::fresh(*this))); }
-std::pair<std::string, bool> Document::to_text_keep_lines() const {
+std::tuple<SaveResult, std::string, bool> Document::to_text_keep_lines() const {
 	int k = 0;
-	std::string t = detail::str(shcl_to_text_keep_lines(detail::fresh(*this), &k));
-	return {std::move(t), k != 0};
+	shcl_str t;
+	auto r = static_cast<SaveResult>(shcl_to_text_keep_lines(detail::fresh(*this), &t, &k));
+	return {r, detail::str(t), k != 0};
 }
 
 std::vector<Diagnostic> Document::diagnostics() const {

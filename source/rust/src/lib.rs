@@ -169,7 +169,8 @@ pub enum SaveError {
 	Exists { path: String },
 	/// The document was read from a newer format than this one (see
 	/// `newer_format`), so a save would write its lines by these rules.
-	/// Nothing written, and no option overrides it.
+	/// Nothing written, and no option overrides it. From
+	/// `to_text_keep_lines` the path is empty.
 	TooNew { path: String },
 }
 
@@ -191,6 +192,10 @@ impl std::fmt::Display for SaveError {
 				f,
 				"{}: refusing to save: a file is already there, but create asks for a new one; nothing written",
 				path
+			),
+			// A text call refuses with no path, since it writes nothing itself.
+			SaveError::TooNew { path } if path.is_empty() => f.write_str(
+				"refusing to save: the document has lines from a newer format than this reader's; nothing written",
 			),
 			SaveError::TooNew { path } => write!(
 				f,
@@ -219,6 +224,10 @@ pub struct SaveOptions {
 	/// whatever the umask. 0 is an ordinary create's. A file already there
 	/// keeps its own, and windows has no such bits.
 	pub mode: u32,
+	/// Give the document the info block before the save, as
+	/// `set_banner(true)` does, so the file ends with it and its Format line
+	/// is the stamp. Off, the save adds no block, only the stamp.
+	pub banner: bool,
 }
 
 /// How `load_file_opts` loads. The default is `load_file_with`. The level is
@@ -1161,7 +1170,27 @@ fn settle_block(arena: &mut [NodeData], n: usize, from: usize) -> bool {
 	// After the join, which can take the last child.
 	settle_head(arena, n);
 	settle_inside(arena, n);
+	settle_tail(arena, n);
 	joined
+}
+
+/// A block's lines after its last field, up to the last kept line, are
+/// restepped from the cut set_off() gives, as settle_first_blank() does for
+/// the footer: that is the cut and the restep a new child's settle makes
+/// (2026111702420992).
+fn settle_tail(arena: &mut [NodeData], n: usize) {
+	if n == ROOT {
+		return;
+	}
+	let at = arena[n].children.last().copied().unwrap_or(n);
+	let Some(t) = arena[at].trivia.as_deref_mut() else {
+		return;
+	};
+	if at == n {
+		restep_set_off(&mut t.inside);
+	} else if let Some(from) = t.after.iter().position(|c| c.depth == 0) {
+		restep_set_off(&mut t.after[from..]);
+	}
 }
 
 /// A block with no child left has no first child for its opening lines to
@@ -1408,6 +1437,7 @@ enum Spot {
 	Leading(usize),
 	After(usize),
 	Head(usize),
+	Inside(usize),
 	Footer,
 }
 
@@ -3149,14 +3179,28 @@ fn restamp_as(text: &str, line: usize, stamp: &str) -> Option<String> {
 			out.push_str(l);
 			continue;
 		}
-		let indent = leading_ws(l);
-		let rest = trim_wsp_end(l[indent.len()..].trim_end_matches('\r'));
-		out.push_str(indent);
+		// The indent and any carriage return after it stay, as step() skips them.
+		let lead = &l[..l.len() - l.trim_start_matches(is_wsp).len()];
+		let rest = trim_wsp_end(l[lead.len()..].trim_end_matches('\r'));
+		out.push_str(lead);
 		out.push_str(stamp);
-		out.push_str(&l[indent.len() + rest.len()..]);
+		out.push_str(&l[lead.len() + rest.len()..]);
 	}
 	let now = format_line_read(&out[bom.len()..]);
 	(now.status == Status::Good && now.value == FORMAT_MAJOR && now.line == line).then_some(out)
+}
+
+/// The line a save writes for a Format line or stamp `t`, when that is
+/// another line.
+fn restamped_lead(t: &str) -> Option<&'static str> {
+	let line = if t.starts_with(FORMAT_LINE_HEAD) {
+		FORMAT_LINE
+	} else if t.starts_with(STAMP_HEAD) {
+		STAMP_LINE
+	} else {
+		return None;
+	};
+	(t != line).then_some(line)
 }
 
 /// A merge's line `line` repeats `here`: the same text, or a Format line or
@@ -3330,8 +3374,9 @@ impl RawLines {
 		}
 	}
 
-	/// The next line's text past its indent, or None when it is part of a
-	/// raw block, fences included.
+	/// The next line's text past its indent and the blanks after it, as the
+	/// parser reads a comment, or None when it is part of a raw block, fences
+	/// included.
 	fn step<'t>(&mut self, line: &'t str) -> Option<&'t str> {
 		let body = line.trim_end_matches('\r');
 		if let Some((ch, len)) = self.fence {
@@ -3351,7 +3396,10 @@ impl RawLines {
 				}
 			}
 		}
-		Some(rest)
+		// A carriage return is a blank but never indent, so the parser takes
+		// `\r##    Format   4` as the comment `##    Format   4`, and so does
+		// the canonical form.
+		Some(rest.trim_start_matches(is_wsp))
 	}
 }
 
@@ -3585,12 +3633,14 @@ pub struct Upgrade {
 
 /// A config file written for an older format, made over for this one: the
 /// input run through `migrate_unstamped`, then saved keeping its lines, so
-/// each line, blank ones included, stays where it was, with the info block
-/// `init` writes at the end in place of an old one there. Where the lines
+/// each line, blank ones included, stays where it was. With `banner`, the info
+/// block `init` writes goes at the end in place of an old one there. Without,
+/// an old one comes off as `set_banner(false)` takes it, and the text ends
+/// with the stamp every save writes. Where the lines
 /// can't be kept, or keeping them keeps an error, it is written the way `fmt`
 /// writes it. A whole block above the first field stays, so a file with its
-/// block at the top comes out with 2, both naming this format. This is the one
-/// library call that writes the block. A file that names this format comes back
+/// block at the top comes out with 2, both naming this format. This and a save
+/// with `SaveOptions::banner` are the library calls that write the block. A file that names this format comes back
 /// `current` and untouched, and so does one that loads with no error under
 /// these rules, since a program calling this on every start must never rewrite
 /// a good file. `from_v2` is migrate's: the file can only have been written for
@@ -3604,7 +3654,7 @@ pub struct Upgrade {
 /// it wouldn't, `errors_left` names the lines still in error. Pass `from_v2`
 /// only for a file known to be old, never on every start: a file this format
 /// wrote that picks up an error later would be read by 2.x rules too.
-pub fn upgrade(text: &str, from_v2: bool) -> Upgrade {
+pub fn upgrade(text: &str, from_v2: bool, banner: bool) -> Upgrade {
 	let named = read_format_version(text);
 	let version = (named.status == Status::Good).then_some(named.value);
 	let mut up = Upgrade {
@@ -3651,8 +3701,8 @@ pub fn upgrade(text: &str, from_v2: bool) -> Upgrade {
 	let lost = m.lost + fresh.lost_count();
 	// migrate keeps every line where it was, so these are the input's.
 	let left = error_lines(&fresh.diags);
-	fresh.swap_banner(true, true);
-	let made = upgrade_text(&fresh);
+	fresh.swap_banner(banner, true);
+	let made = upgrade_text(&fresh, banner);
 	// With from_v2 it goes only when that leaves it loading clean, or the
 	// next run with it would read the result by 2.x rules again
 	// (2026101515372401). Without, a Format 3 file with an error is current.
@@ -3678,9 +3728,15 @@ pub fn upgrade(text: &str, from_v2: bool) -> Upgrade {
 /// input is on the same line here, blank ones included (2026102620591101).
 /// Where the lines can't be kept, or keeping them keeps an error the
 /// canonical form repairs, such as a missing colon, it is the canonical form.
-fn upgrade_text(fresh: &Document) -> String {
-	let canonical = fresh.canonical_text();
-	match fresh.keep_lines_text() {
+/// Without the info block, whose Format line names this format, both get the
+/// stamp a save writes.
+fn upgrade_text(fresh: &Document, banner: bool) -> String {
+	let (canonical, lines) = if banner {
+		(fresh.canonical_text(), fresh.keep_lines_text())
+	} else {
+		(fresh.to_canonical(), fresh.keep_lines_stamped())
+	};
+	match lines {
 		(kept, true)
 			if Document::parse(&kept).error_count()
 				<= Document::parse(&canonical).error_count() =>
@@ -7302,9 +7358,14 @@ impl Document {
 				path: path.to_string(),
 			});
 		}
+		// The document keeps the block whether or not the write goes, so the
+		// next save, with the option or not, writes it again.
+		if opts.banner {
+			self.set_banner(true);
+		}
 		let lost = self.lost_count();
 		let (text, kept) = if opts.keep_lines {
-			self.to_text_keep_lines()
+			self.keep_lines_stamped()
 		} else {
 			(self.to_canonical(), false)
 		};
@@ -7402,7 +7463,21 @@ impl Document {
 	/// a kept file without one gets `STAMP_LINE` as a new last line. A kept
 	/// text that ends in a raw block left open has nowhere to put one, as in
 	/// `migrate`, so it goes without. The line ends the way new lines do.
-	pub fn to_text_keep_lines(&self) -> (String, bool) {
+	/// A document from a newer format (see `newer_format`) is
+	/// `SaveError::TooNew` with an empty path, as its save is, since a
+	/// program that writes this text would write its lines by these rules.
+	#[allow(clippy::result_large_err)]
+	pub fn to_text_keep_lines(&self) -> Result<(String, bool), SaveError> {
+		if self.newer {
+			return Err(SaveError::TooNew {
+				path: String::new(),
+			});
+		}
+		Ok(self.keep_lines_stamped())
+	}
+
+	/// to_text_keep_lines() past its newer-format refusal.
+	fn keep_lines_stamped(&self) -> (String, bool) {
 		match self.keep_lines_text() {
 			(t, true) => {
 				let src = self.source.as_deref().unwrap_or_default();
@@ -10480,7 +10555,7 @@ fn create_backup(file: &str, name: &str) -> std::io::Result<std::fs::File> {
 /// have an error. Opt-in on purpose: a program that keeps its own backups
 /// has no need of it. On success `backup` names the copy when one was made,
 /// and `text` is what the path now holds.
-pub fn upgrade_file(path: &str, from_v2: bool) -> Result<Upgrade, UpgradeError> {
+pub fn upgrade_file(path: &str, from_v2: bool, banner: bool) -> Result<Upgrade, UpgradeError> {
 	check_kept_file(path)?;
 	// Not read_file, whose one status for every failure would hide the
 	// system's reason (2026101514324707).
@@ -10497,7 +10572,7 @@ pub fn upgrade_file(path: &str, from_v2: bool) -> Result<Upgrade, UpgradeError> 
 			format!("{}: can't be read as UTF-8 text", path),
 		)));
 	};
-	let mut up = upgrade(&text, from_v2);
+	let mut up = upgrade(&text, from_v2, banner);
 	if up.current {
 		return Ok(up);
 	}
@@ -13382,6 +13457,7 @@ impl Document {
 			Spot::Leading(n) => &mut self.arena[n].triv_mut().leading,
 			Spot::After(n) => &mut self.arena[n].triv_mut().after,
 			Spot::Head(n) => &mut self.arena[n].triv_mut().head,
+			Spot::Inside(n) => &mut self.arena[n].triv_mut().inside,
 			Spot::Footer => &mut self.orphans,
 		}
 	}
@@ -13575,7 +13651,8 @@ impl Document {
 	/// `migrate` stamped, or a stamp outside a block, comes off too, with the note under it. Both are
 	/// looked for in the footer and above every field but the first one and
 	/// its first child down, since a field added below one by hand takes it
-	/// as its comment. A line in an old block that the block does not write is
+	/// as its comment, and among the lines indented under a field that no
+	/// field below takes. A line in an old block that the block does not write is
 	/// the author's, such as a Schema line, and stays where the block was.
 	/// With `on`, a block that already ends the file as this release writes
 	/// it stays as it is, the author's lines in it too. A block at the top of
@@ -13584,11 +13661,56 @@ impl Document {
 	/// writes as the first field's first child, so a block there is left
 	/// alone too, however it got there. A lone Format line or stamp there comes off with
 	/// `on`, since the new block names the format. A kept block's Format line or stamp
-	/// is set to this format too, since it reads first. The library save never
-	/// adds the block by itself; this is for a program that wants it in a file
-	/// it writes. Returns how many old blocks came off.
+	/// is set to this format too, since it reads first. A save adds the block only
+	/// when `SaveOptions::banner` asks; this is for a program that wants it in
+	/// a file it writes. Returns how many old blocks came off.
 	pub fn set_banner(&mut self, on: bool) -> usize {
 		self.swap_banner(on, false)
+	}
+
+	/// The Format line or stamp the save rewrites to name this format, set to
+	/// name it in the document too, so `banner on` judges the line the save
+	/// writes, as it does on a reload of that save. A beta1 block at the end
+	/// that the save makes current is current here too. The line is found by
+	/// trying each Format line and stamp until the text is the saved one.
+	fn restamp_leads(&mut self) {
+		let mut spots = vec![Spot::Footer];
+		for n in 0..self.arena.len() {
+			if self.arena[n].trivia.is_some() {
+				spots.extend([
+					Spot::Leading(n),
+					Spot::After(n),
+					Spot::Head(n),
+					Spot::Inside(n),
+				]);
+			}
+		}
+		let mut tries = Vec::new();
+		for spot in spots {
+			for (i, l) in self.spot_mut(spot).iter().enumerate() {
+				if let Some(line) = restamped_lead(&l.text) {
+					tries.push((spot, i, line));
+				}
+			}
+		}
+		if tries.is_empty() {
+			return;
+		}
+		let text = self.canonical_text();
+		let Some(want) = stamped(&text) else {
+			return;
+		};
+		if want == text {
+			return;
+		}
+		for (spot, i, line) in tries {
+			let old = std::mem::replace(&mut self.spot_mut(spot)[i].text, line.to_string());
+			if self.canonical_text() == want {
+				self.spot_mut(spot)[i].line = 0;
+				return;
+			}
+			self.spot_mut(spot)[i].text = old;
+		}
 	}
 
 	/// set_banner(), and with `v2` the block 2.x's `init` wrote, in `#`
@@ -13597,6 +13719,9 @@ impl Document {
 	fn swap_banner(&mut self, on: bool, v2: bool) -> usize {
 		let marks: &[&str] = if v2 { &["##", "#"] } else { &["##"] };
 		let mut removed = 0;
+		if on {
+			self.restamp_leads();
+		}
 		// The first line's comments are the top of the file, on the first
 		// node down, as a dotted line puts them on its last name.
 		let mut top = vec![ROOT];
@@ -13618,6 +13743,8 @@ impl Document {
 				// a block. A blank it leaves is the next line's, which has one.
 				removed += self.take_banners(Spot::After(n), mark, true);
 				removed += self.take_banners(Spot::Head(n), mark, true);
+				// So is one under a field that no field below could take.
+				removed += self.take_banners(Spot::Inside(n), mark, true);
 				if at_top && !on {
 					continue;
 				}
@@ -18247,7 +18374,7 @@ mod kept_gate {
 		let gone = doc.arena[y].triv_mut().leading.pop().unwrap();
 		assert!(gone.is_kept_line(), "{:?}", gone);
 		assert_eq!(doc.lost_count(), 1);
-		assert!(!doc.to_text_keep_lines().1);
+		assert!(!doc.to_text_keep_lines().unwrap().1);
 		let dir = std::env::temp_dir().join(format!("shcl-keptgate-{}", std::process::id()));
 		std::fs::create_dir_all(&dir).unwrap();
 		let path = dir.join("f.shcl");
@@ -18411,7 +18538,7 @@ mod kept_gate {
 			assert!(back.diagnostics().is_empty(), "{out:?}");
 			assert_eq!(back.count(path), 1, "{out:?}");
 			assert_eq!(back.to_canonical(), out);
-			assert_eq!(doc.to_text_keep_lines(), (out.clone(), true));
+			assert_eq!(doc.to_text_keep_lines(), Ok((out.clone(), true)));
 		}
 		// Only the field the kept line opened: a child of it, or a field
 		// beside a kept line, leaves the line as it was.
@@ -18501,7 +18628,7 @@ mod kept_gate {
 			let back = Document::parse(&out);
 			assert_eq!(back.count(path), count, "{out:?}");
 			assert_eq!(back.to_canonical(), out);
-			assert_eq!(doc.to_text_keep_lines(), (out.clone(), true));
+			assert_eq!(doc.to_text_keep_lines(), Ok((out.clone(), true)));
 		}
 		// Two valid lines stay as they are: the setter refuses the path.
 		let mut doc = Document::parse_keep_lines("a: 1\na: 2\n", Strictness::Standard)
@@ -18509,7 +18636,7 @@ mod kept_gate {
 		assert_ne!(doc.set_int("a", 5), SetStatus::Ok);
 		assert_eq!(
 			doc.to_text_keep_lines(),
-			("a: 1\na: 2\n## SHCL format 3.0\n".to_string(), true)
+			Ok(("a: 1\na: 2\n## SHCL format 3.0\n".to_string(), true))
 		);
 		// set_comment makes the field without touching the line.
 		let mut doc = Document::parse("a: [1\ny: 3\n");

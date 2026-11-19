@@ -1193,7 +1193,36 @@ func settleBlock(arena []nodeData, n, from int) bool {
 	// After the join, which can take the last child.
 	settleHead(arena, n)
 	settleInside(arena, n)
+	settleTail(arena, n)
 	return joined
+}
+
+// settleTail: a block's lines after its last field, up to the last kept
+// line, are restepped from the cut setOff gives, as settleFirstBlank does for
+// the footer: that is the cut and the restep a new child's settle makes
+// (2026111702420992).
+func settleTail(arena []nodeData, n int) {
+	if n == root {
+		return
+	}
+	at := n
+	if kids := arena[n].children; len(kids) > 0 {
+		at = kids[len(kids)-1]
+	}
+	t := arena[at].trivia
+	if t == nil {
+		return
+	}
+	if at == n {
+		restepSetOff(t.inside)
+		return
+	}
+	for from, c := range t.after {
+		if c.depth == 0 {
+			restepSetOff(t.after[from:])
+			return
+		}
+	}
 }
 
 // settleHead: a block with no child left has no first child for its opening
@@ -1463,6 +1492,7 @@ const (
 	spotLeading spotKind = iota
 	spotAfter
 	spotHead
+	spotInside
 	spotFooter
 )
 
@@ -3403,7 +3433,8 @@ func newRawLines(rules Rules) *rawLines {
 }
 
 // step reads the next line. ok is false when it is part of a raw block,
-// fences included; otherwise rest is its text past the indent.
+// fences included; otherwise rest is its text past the indent and the blanks
+// after it, as the parser reads a comment.
 func (w *rawLines) step(line string) (rest string, ok bool) {
 	body := strings.TrimRight(line, "\r")
 	if w.fence.open {
@@ -3422,7 +3453,10 @@ func (w *rawLines) step(line string) (rest string, ok bool) {
 			migrateLine(rest, &w.tok, &w.fence, &w.dry)
 		}
 	}
-	return rest, true
+	// A carriage return is a blank but never indent, so the parser takes
+	// `\r##    Format   4` as the comment `##    Format   4`, and so does the
+	// canonical form.
+	return strings.TrimLeftFunc(rest, isWsp), true
 }
 
 // opensRaw is the raw block a line opens under the current rules: a fence
@@ -3547,11 +3581,12 @@ func restampAs(text string, line int, stamp string) (string, bool) {
 			out.WriteString(l)
 			continue
 		}
-		indent := leadingWS(l)
-		rest := trimEndWS(strings.TrimRight(l[len(indent):], "\r"))
-		out.WriteString(indent)
+		// The indent and any carriage return after it stay, as step skips them.
+		lead := l[:len(l)-len(strings.TrimLeftFunc(l, isWsp))]
+		rest := trimEndWS(strings.TrimRight(l[len(lead):], "\r"))
+		out.WriteString(lead)
 		out.WriteString(stamp)
-		out.WriteString(l[len(indent)+len(rest):])
+		out.WriteString(l[len(lead)+len(rest):])
 	}
 	s := out.String()
 	now := formatLineRead(s[len(bom):])
@@ -3559,6 +3594,21 @@ func restampAs(text string, line int, stamp string) (string, bool) {
 		return "", false
 	}
 	return s, true
+}
+
+// restampedLead is the line a save writes for a Format line or stamp t, when
+// that is another line.
+func restampedLead(t string) (string, bool) {
+	var line string
+	switch {
+	case strings.HasPrefix(t, FormatLineHead):
+		line = FormatLine
+	case strings.HasPrefix(t, StampHead):
+		line = StampLine
+	default:
+		return "", false
+	}
+	return line, t != line
 }
 
 // repeatLine says a merge's line repeats here: the same text, or a Format
@@ -3862,12 +3912,14 @@ type Upgraded struct {
 
 // Upgrade is a config file written for an older format, made over for this
 // one: the input run through MigrateUnstamped, then saved keeping its lines,
-// so each line, blank ones included, stays where it was, with the info block
-// `init` writes at the end in place of an old one there. Where the lines can't
+// so each line, blank ones included, stays where it was. With banner, the info
+// block `init` writes goes at the end in place of an old one there. Without,
+// an old one comes off as SetBanner(false) takes it, and the text ends with
+// the stamp every save writes. Where the lines can't
 // be kept, or keeping them keeps an error, it is written the way `fmt` writes
 // it. A whole block above the first field stays, so a file with its
-// block at the top comes out with 2, both naming this format. This is the one
-// library call that writes the block. A file that names this format comes back
+// block at the top comes out with 2, both naming this format. This and a save
+// with SaveOptions.Banner are the library calls that write the block. A file that names this format comes back
 // Current and untouched, and so does one that loads with no error under these
 // rules, since a program calling this on every start must never rewrite a good
 // file. fromV2 is Migrate's: the file can only have been written for 2.x. Then
@@ -3881,7 +3933,7 @@ type Upgraded struct {
 // the lines still in error. Pass fromV2 only for a file known to be old, never
 // on every start: a file this format wrote that picks up an error later would
 // be read by 2.x rules too.
-func Upgrade(text string, fromV2 bool) Upgraded {
+func Upgrade(text string, fromV2, banner bool) Upgraded {
 	named := ReadFormatVersion(text)
 	version, hasVersion := named.Value, named.Status == Good
 	up := Upgraded{Text: text, Current: true, Format: 2}
@@ -3925,8 +3977,8 @@ func Upgrade(text string, fromV2 bool) Upgraded {
 	lost := m.Lost + fresh.LostCount()
 	// migrate keeps every line where it was, so these are the input's.
 	left := errorLines(fresh.diags)
-	fresh.swapBanner(true, true)
-	made := upgradeText(fresh)
+	fresh.swapBanner(banner, true)
+	made := upgradeText(fresh, banner)
 	// With fromV2 it goes only when that leaves it loading clean, or the next
 	// run with it would read the result by 2.x rules again
 	// (2026101515372401). Without, a Format 3 file with an error is current.
@@ -3950,10 +4002,16 @@ func Upgrade(text string, fromV2 bool) Upgraded {
 // line of the input is on the same line here, blank ones included
 // (2026102620591101). Where the lines can't be kept, or keeping them keeps an
 // error the canonical form repairs, such as a missing colon, it is the
-// canonical form.
-func upgradeText(fresh *Document) string {
+// canonical form. Without the info block, whose Format line names this format,
+// both get the stamp a save writes.
+func upgradeText(fresh *Document, banner bool) string {
 	canonical := fresh.canonicalText()
-	if kept, ok := fresh.keepLinesText(); ok && Parse(kept).ErrorCount() <= Parse(canonical).ErrorCount() {
+	kept, ok := fresh.keepLinesText()
+	if !banner {
+		canonical = fresh.ToCanonical()
+		kept, ok = fresh.keepLinesStamped()
+	}
+	if ok && Parse(kept).ErrorCount() <= Parse(canonical).ErrorCount() {
 		return kept
 	}
 	return canonical
@@ -7485,9 +7543,20 @@ func LoadFileKeepLines(path string, level Strictness) (*Document, FileStatus, er
 // names this format, as ToCanonical()'s does, so a kept file without one gets
 // StampLine as a new last line. A kept text that ends in a raw block left
 // open has nowhere to put one, as in `migrate`, so it goes without. The line
-// ends the way new lines do.
-func (d *Document) ToTextKeepLines() (string, bool) {
+// ends the way new lines do. A document from a newer format (see
+// NewerFormat) is a *SaveTooNew with an empty Path, as its save is, since a
+// program that writes this text would write its lines by these rules.
+func (d *Document) ToTextKeepLines() (string, bool, error) {
 	d.ready()
+	if d.newer {
+		return "", false, &SaveTooNew{}
+	}
+	t, kept := d.keepLinesStamped()
+	return t, kept, nil
+}
+
+// keepLinesStamped is ToTextKeepLines() past its newer-format refusal.
+func (d *Document) keepLinesStamped() (string, bool) {
 	t, ok := d.keepLinesText()
 	if !ok {
 		return d.ToCanonical(), false
@@ -10404,7 +10473,7 @@ func checkKeptFile(path string) error {
 // Opt-in on purpose: a program that keeps its own backups has no need of it.
 // On success Backup names the copy when one was made, and Text is what the
 // path now holds. A failure is an *UpgradeError.
-func UpgradeFile(path string, fromV2 bool) (Upgraded, error) {
+func UpgradeFile(path string, fromV2, banner bool) (Upgraded, error) {
 	if err := checkKeptFile(path); err != nil {
 		return Upgraded{}, err
 	}
@@ -10420,7 +10489,7 @@ func UpgradeFile(path string, fromV2 bool) (Upgraded, error) {
 		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: &WriteError{Status: WriteUnreadable, Err: fmt.Errorf("%s: can't be read as UTF-8 text", path)}}
 	}
 	text := string(data)
-	up := Upgrade(text, fromV2)
+	up := Upgrade(text, fromV2, banner)
 	if up.Current {
 		return up, nil
 	}
@@ -10809,9 +10878,14 @@ type SaveTooNew struct {
 	Path string
 }
 
-// Error names the file and the reason.
+// Error names the file and the reason. A text call refuses with no path,
+// since it writes nothing itself.
 func (e *SaveTooNew) Error() string {
-	return e.Path + ": refusing to save: the document has lines from a newer format than this reader's; nothing written"
+	head := ""
+	if e.Path != "" {
+		head = e.Path + ": "
+	}
+	return head + "refusing to save: the document has lines from a newer format than this reader's; nothing written"
 }
 
 // SaveOptions is how SaveFileWith saves. The zero value is SaveFile.
@@ -10831,6 +10905,10 @@ type SaveOptions struct {
 	// exactly, whatever the umask. 0 is an ordinary create's. A file already
 	// there keeps its own, and windows has no such bits.
 	Mode os.FileMode
+	// Banner gives the document the info block before the save, as
+	// SetBanner(true) does, so the file ends with it and its Format line is
+	// the stamp. Off, the save adds no block, only the stamp.
+	Banner bool
 }
 
 // seenBytes is what a save checks the bytes at its path against: what the
@@ -10920,11 +10998,16 @@ func (d *Document) SaveFileWith(path string, opts SaveOptions) (bool, error) {
 	if d.newer {
 		return false, &SaveTooNew{Path: path}
 	}
+	// The document keeps the block whether or not the write goes, so the next
+	// save, with the option or not, writes it again.
+	if opts.Banner {
+		d.SetBanner(true)
+	}
 	lost := d.LostCount()
 	var text string
 	kept := false
 	if opts.KeepLines {
-		text, kept = d.ToTextKeepLines()
+		text, kept = d.keepLinesStamped()
 	} else {
 		text = d.ToCanonical()
 	}
@@ -13252,6 +13335,8 @@ func (d *Document) spotList(n int, spot spotKind) *[]lead {
 		return &t.after
 	case spotHead:
 		return &t.head
+	case spotInside:
+		return &t.inside
 	default:
 		return &t.leading
 	}
@@ -13485,7 +13570,8 @@ func (d *Document) TryClearComments(path string) Read[int] {
 // even written right against it. A version line Migrate stamped, or a stamp outside a block, comes off
 // too, with the note under it. Both are looked for in the footer and above
 // every field but the first one and its first child down, since a field added
-// below one by hand takes it as its comment. A line in an old block that the
+// below one by hand takes it as its comment, and among the lines indented
+// under a field that no field below takes. A line in an old block that the
 // block does not write is the author's, such as a Schema line, and stays where
 // the block was. With on, a block that already ends the file as this release
 // writes it stays as it is, the author's lines in it too. A block at the top
@@ -13493,12 +13579,61 @@ func (d *Document) TryClearComments(path string) Read[int] {
 // which a saved file writes as the first field's first child, so a block there
 // is left alone too, however it got there. A lone Format line or stamp there comes off
 // with on, since the new block names the format. A kept block's Format line or stamp is set to this format
-// too, since it reads first. The library save never adds the block by itself;
-// this is for a program that wants it in a file it writes. Returns how many old
+// too, since it reads first. A save adds the block only when
+// SaveOptions.Banner asks; this is for a program that wants it in a file it
+// writes. Returns how many old
 // blocks came off.
 func (d *Document) SetBanner(on bool) int {
 	d.ready()
 	return d.swapBanner(on, false)
+}
+
+// restampLeads sets the Format line or stamp the save rewrites to name this
+// format to name it in the document too, so banner on judges the line the
+// save writes, as it does on a reload of that save. A beta1 block at the end
+// that the save makes current is current here too. The line is found by
+// trying each Format line and stamp until the text is the saved one.
+func (d *Document) restampLeads() {
+	type try struct {
+		n    int
+		spot spotKind
+		i    int
+		line string
+	}
+	var tries []try
+	look := func(n int, spot spotKind) {
+		for i, l := range *d.spotList(n, spot) {
+			if line, ok := restampedLead(l.text); ok {
+				tries = append(tries, try{n, spot, i, line})
+			}
+		}
+	}
+	look(root, spotFooter)
+	for n := range d.arena {
+		if d.arena[n].trivia != nil {
+			for _, spot := range []spotKind{spotLeading, spotAfter, spotHead, spotInside} {
+				look(n, spot)
+			}
+		}
+	}
+	if len(tries) == 0 {
+		return
+	}
+	text := d.canonicalText()
+	want, ok := stamped(text)
+	if !ok || want == text {
+		return
+	}
+	for _, t := range tries {
+		l := &(*d.spotList(t.n, t.spot))[t.i]
+		old := l.text
+		l.text = t.line
+		if d.canonicalText() == want {
+			l.line = 0
+			return
+		}
+		l.text = old
+	}
 }
 
 // swapBanner is SetBanner, and with v2 the block 2.x's `init` wrote, in `#`
@@ -13510,6 +13645,9 @@ func (d *Document) swapBanner(on, v2 bool) int {
 		marks = append(marks, "#")
 	}
 	removed := 0
+	if on {
+		d.restampLeads()
+	}
 	// The first line's comments are the top of the file, on the first node
 	// down, as a dotted line puts them on its last name.
 	top := []int{root}
@@ -13534,6 +13672,8 @@ func (d *Document) swapBanner(on, v2 bool) int {
 			// block. A blank it leaves is the next line's, which has one.
 			removed += d.takeBanners(n, spotAfter, mark, true)
 			removed += d.takeBanners(n, spotHead, mark, true)
+			// So is one under a field that no field below could take.
+			removed += d.takeBanners(n, spotInside, mark, true)
 			if first && !on {
 				continue
 			}

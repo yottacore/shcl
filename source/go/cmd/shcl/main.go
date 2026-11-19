@@ -1950,7 +1950,11 @@ func writeBack(doc *shcl.Document, file string, o *opts, read *string, keep bool
 	var text string
 	kept := false
 	if keep {
-		text, kept = doc.ToTextKeepLines()
+		var err error
+		if text, kept, err = doc.ToTextKeepLines(); err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %v\n", file, err)
+			return 7
+		}
 	} else {
 		text = doc.ToCanonical()
 	}
@@ -2626,8 +2630,8 @@ func doUpgrade(o *opts) int {
 	}
 	var up shcl.Upgraded
 	if o.write {
-		if up, err = shcl.UpgradeFile(file, o.from2x); err != nil {
-			sayDiagnosticsFrom("", shcl.Upgrade(text, o.from2x).Diagnostics)
+		if up, err = shcl.UpgradeFile(file, o.from2x, true); err != nil {
+			sayDiagnosticsFrom("", shcl.Upgrade(text, o.from2x, true).Diagnostics)
 			var ue *shcl.UpgradeError
 			if errors.As(err, &ue) && ue.Kind == shcl.UpgradeAmbiguous {
 				fmt.Fprintf(os.Stderr, "%v (--from-2x rewrites them)\n", err)
@@ -2641,7 +2645,7 @@ func doUpgrade(o *opts) int {
 			return exitIO
 		}
 	} else {
-		up = shcl.Upgrade(text, o.from2x)
+		up = shcl.Upgrade(text, o.from2x, true)
 	}
 	if up.Current {
 		// Diagnostics is empty when current, but the file is still loaded, and
@@ -3438,7 +3442,11 @@ func doSet(o *opts) int {
 			"than this reader's (see H006)\n", file)
 		return 7
 	}
-	text, kept := doc.ToTextKeepLines()
+	text, kept, err := doc.ToTextKeepLines()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s: %v\n", file, err)
+		return 7
+	}
 	if !kept && !o.lossy && doc.LostCount() > 0 {
 		fmt.Fprintf(os.Stderr, "%s: refusing to print: this result would delete %d line(s) or value(s) "+
 			"from the file (--lossy overrides)\n", file, doc.LostCount())
