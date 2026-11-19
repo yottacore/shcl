@@ -10,8 +10,21 @@ mod common;
 use common::test_id;
 use shcl::{
 	Document, GEN_BANNER, UpgradeError, WriteStatus, backup_file_name, migrate, upgrade,
-	upgrade_file, write_backup,
+	upgrade_dated, upgrade_file, write_backup,
 };
+
+/// 2026-09-01, an mtime that leaves 2.0 the newest format. Without it, a text
+/// with no tells reads as this format, which leaves its errors as typed
+/// (2026111908444554).
+const SEP1: i64 = 1788220800;
+
+fn pin_mtime(file: &std::path::Path, secs: i64) {
+	let f = std::fs::File::options().write(true).open(file).unwrap();
+	f.set_modified(
+		std::time::UNIX_EPOCH + std::time::Duration::from_secs(u64::try_from(secs).unwrap()),
+	)
+	.unwrap();
+}
 
 fn scratch(tag: &str) -> std::path::PathBuf {
 	let dir = std::env::temp_dir().join(format!("shcl-upgrade-{}-{}", tag, std::process::id()));
@@ -344,7 +357,7 @@ fn upgrade_writes_a_fresh_file_with_the_info_block() {
 fn upgrade_refuses_text_that_reads_two_ways() {
 	let _id = test_id("ddmhd");
 	let text = "a: x,y\nb: \"q\n";
-	let up = upgrade(text, false, true);
+	let up = upgrade_dated(text, Some(SEP1), false, true);
 	assert!(!up.current && up.ambiguous == 1 && up.text == text);
 	let up = upgrade(text, true, true);
 	assert!(up.ambiguous == 0 && up.text.starts_with("a: [x, y]\nb: '\"q'\n\n##\n"));
@@ -420,13 +433,13 @@ fn upgrade_can_leave_the_info_block_off() {
 			"a: 1\r\nb: '\"q'\r\n## SHCL format 3.0\r\n",
 		),
 	] {
-		let up = upgrade(text, from_v2, false);
+		let up = upgrade_dated(text, Some(SEP1), from_v2, false);
 		assert!(!up.current, "{text:?}");
 		assert_eq!(up.text, want, "{text:?}");
 		assert!(upgrade(&up.text, false, false).current, "{text:?}");
 		assert!(upgrade(&up.text, true, false).current, "{text:?}");
 		// With the block, for the same file.
-		let with = upgrade(text, from_v2, true).text;
+		let with = upgrade_dated(text, Some(SEP1), from_v2, true).text;
 		assert!(
 			with.contains("## This config file format is SHCL."),
 			"{with:?}"
@@ -471,6 +484,7 @@ fn upgrade_file_never_writes_over_a_backup() {
 	));
 	let amb = dir.join("amb.shcl");
 	std::fs::write(&amb, "a: x,y\nb: \"q\n").unwrap();
+	pin_mtime(&amb, SEP1);
 	assert!(matches!(
 		upgrade_file(amb.to_str().unwrap(), false, true),
 		Err(UpgradeError::Ambiguous { count: 1, .. })

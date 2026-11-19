@@ -3344,24 +3344,31 @@ const FORMAT_STEPS: [Step; FORMAT_DAYS.len() - 1] = [
 	Step::Same, // 3.0-a65
 ];
 
+/// The first step of the run from `format` to the current one that changes
+/// anything. None when every step from there is `Same`, as from the current
+/// format, or for None, a newer format's.
+fn first_rewrite(format: Option<&str>) -> Option<Step> {
+	let at = format
+		.and_then(|n| FORMAT_DAYS.iter().position(|(f, _)| *f == n))
+		.unwrap_or(FORMAT_STEPS.len());
+	FORMAT_STEPS[at..]
+		.iter()
+		.copied()
+		.find(|s| *s != Step::Same)
+}
+
 /// The text, written in `format`, as the current format reads it, one step
 /// per format in order, in memory. None, a newer format's, comes back as it
 /// is. `from_v2` is migrate's.
 fn convert(text: &str, format: Option<&str>, from_v2: bool) -> Migration {
-	let mut at = format
-		.and_then(|n| FORMAT_DAYS.iter().position(|(f, _)| *f == n))
-		.unwrap_or(FORMAT_STEPS.len());
-	while at < FORMAT_STEPS.len() {
-		match FORMAT_STEPS[at] {
-			Step::Same => at += 1,
-			Step::V2 => return migrate_unstamped(text, from_v2),
-		}
-	}
-	Migration {
-		text: text.to_string(),
-		current: true,
-		ambiguous: 0,
-		lost: 0,
+	match first_rewrite(format) {
+		Some(Step::V2) => migrate_unstamped(text, from_v2),
+		Some(Step::Same) | None => Migration {
+			text: text.to_string(),
+			current: true,
+			ambiguous: 0,
+			lost: 0,
+		},
 	}
 }
 
@@ -3930,7 +3937,19 @@ pub struct Upgrade {
 /// it wouldn't, `errors_left` names the lines still in error. Pass `from_v2`
 /// only for a file known to be old, never on every start: a file this format
 /// wrote that picks up an error later would be read by 2.x rules too.
+///
+/// Without `from_v2`, the file's format is `find_format`'s, from the text
+/// alone, and only a format whose steps to this one rewrite anything gets
+/// made over: one from 3.0-9ef on is `current`, its errors kept as typed, as
+/// a load with `migrate` keeps them. `upgrade_dated` takes the file's mtime
+/// too.
 pub fn upgrade(text: &str, from_v2: bool, banner: bool) -> Upgrade {
+	upgrade_dated(text, None, from_v2, banner)
+}
+
+/// `upgrade`, with `mtime` for `find_format`: the file's, in Unix seconds, or
+/// None for text from no file. `upgrade_file` passes the file's.
+pub fn upgrade_dated(text: &str, mtime: Option<i64>, from_v2: bool, banner: bool) -> Upgrade {
 	let named = read_format_version(text);
 	let version = (named.status == Status::Good).then_some(named.value);
 	let mut up = Upgrade {
@@ -3945,6 +3964,17 @@ pub fn upgrade(text: &str, from_v2: bool, banner: bool) -> Upgrade {
 	};
 	if names_newer(&named) || (version == Some(FORMAT_MAJOR) && !from_v2) {
 		return up;
+	}
+	// The load's step table. Only V2 rewrites yet, and this is its upgrade
+	// form, so a format whose run is all Same has nothing to do.
+	let format = if from_v2 {
+		Some("2.0")
+	} else {
+		find_format(text, mtime)
+	};
+	match first_rewrite(format) {
+		Some(Step::V2) => {}
+		Some(Step::Same) | None => return up,
 	}
 	let before = Document::parse(text);
 	let clean = before.error_count() == 0;
@@ -10865,7 +10895,7 @@ pub fn upgrade_file(path: &str, from_v2: bool, banner: bool) -> Result<Upgrade, 
 			format!("{}: can't be read as UTF-8 text", path),
 		)));
 	};
-	let mut up = upgrade(&text, from_v2, banner);
+	let mut up = upgrade_dated(&text, file_mtime(path), from_v2, banner);
 	if up.current {
 		return Ok(up);
 	}

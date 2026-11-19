@@ -13,6 +13,7 @@ use shcl::{
 	FORMAT_NAMES, Field, MIGRATED_LINE, Rules, STAMP_HEAD, STAMP_LINE, SaveError, SizeUnit, Status,
 	Strictness, Tokens, find_format, format_version, generate, migrate, migrate_unstamped,
 	parse_datetime, quote_segment, read_format_version, read_schema_ref, schema_ref, tokenize,
+	upgrade, upgrade_dated, upgrade_file,
 };
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -7220,6 +7221,57 @@ fn a_load_converts_from_the_format_its_mtime_gives() {
 			"{text:?} at {mtime}, from_v2 {from_v2}"
 		);
 		assert_eq!(std::fs::read_to_string(&f).unwrap(), text);
+	}
+	let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `upgrade` and `upgrade_file` find the format as the load does, with the
+/// file's mtime, and make over only a file whose steps to this format rewrite
+/// anything. One from 3.0-9ef on is current, its error kept as typed
+/// (2026111908444554). Same rows in every runner.
+#[test]
+fn an_upgrade_converts_from_the_format_its_mtime_gives() {
+	let _id = test_id("dfh0e");
+	use std::time::{Duration, UNIX_EPOCH};
+	let dir = std::env::temp_dir().join(format!("shcl-upconv-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(&dir).unwrap();
+	let f = dir.join("f.shcl").to_str().unwrap().to_string();
+	let aug6 = 1785974400; // 2026-08-06, to 1.1
+	let oct20 = 1792454400; // 2026-10-20, to 3.0-9ef
+	let nov10 = 1794268800; // 2026-11-10, every format
+	let y2020 = 1577836800; // before any format, so ignored
+	let quote = "a: x\"y\n";
+	let fresh = "a: 'x\"y'\n## SHCL format 3.0\n";
+	// Text from no file reads as the newest format its tells leave.
+	assert!(upgrade(quote, false, false).current);
+	// The mtime, from_v2, and whether it's made over.
+	let cases: [(u64, bool, bool); 5] = [
+		(nov10, false, false),
+		(oct20, false, false),
+		(y2020, false, false),
+		(aug6, false, true),
+		(nov10, true, true),
+	];
+	for (mtime, from_v2, made) in cases {
+		let up = upgrade_dated(quote, Some(i64::try_from(mtime).unwrap()), from_v2, false);
+		let want = if made { fresh } else { quote };
+		assert_eq!(
+			(up.current, up.text.as_str()),
+			(!made, want),
+			"{mtime}, from_v2 {from_v2}"
+		);
+		std::fs::write(&f, quote).unwrap();
+		let file = std::fs::File::options().write(true).open(&f).unwrap();
+		file.set_modified(UNIX_EPOCH + Duration::from_secs(mtime))
+			.unwrap();
+		drop(file);
+		let up = upgrade_file(&f, from_v2, false).unwrap();
+		assert_eq!(up.current, !made, "file at {mtime}, from_v2 {from_v2}");
+		assert_eq!(std::fs::read_to_string(&f).unwrap(), want);
+		if made {
+			let _ = std::fs::remove_file(&up.backup);
+		}
 	}
 	let _ = std::fs::remove_dir_all(&dir);
 }

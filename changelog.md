@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- `upgrade()` and `upgrade_file()` work out a file's format with `find_format()`, and `upgrade_file()` and `shcl upgrade` pass it the file's mtime. A file found to be 3.0-9ef or later is left as it is, its errors kept as typed, as a load with `migrate` keeps them. A file with no stamp and a broken line used to go through the 2.x migration whatever its date. `upgrade_dated()` is `upgrade()` with an mtime (each binding's spelling).
+
 - `upgrade()` and `upgrade_file()` take a `banner` argument after `from_v2` (each binding's spelling). With it they write the info block as before. Without it, an old block comes off and the fresh text ends with the stamp a save writes. `shcl upgrade` still writes the block.
 
 - `to_text_keep_lines()` refuses a document from a newer format, as its save does, so a program that saves through that text can't write a newer format's file back by this reader's rules. Its return type changes in every binding: Rust gives `Result<(String, bool), SaveError>`, Go adds an `error`, Python raises `SaveTooNew`, C returns `shcl_save_result` with the text in an out-parameter, and C++ gives a `SaveResult` first in a tuple.

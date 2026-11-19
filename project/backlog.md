@@ -35,6 +35,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Format versions: find_format doesn't count a quote in a bare value as a tell
+	- ID: 2026111910270033
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-102700
+	- Opened by: me
+	- Related IDs: 2026111907080400, 2026111908444554
+	- Problem description: `a: x"y` and `b: "q` are E025 or an open quote under the current rules, and the 2.x migration quotes them, so 2.0 read them as text. find_format counts E025 only on a CR, so a file with only such a line and a recent mtime reads as 3.0, and neither a load with migrate nor upgrade converts it.
+	- Origin: Plausible, read only (2026111908444554). Which formats from 3.0-1f8 to 3.0-a37 read these lines clean isn't checked against their CLIs.
+
 - Format versions: the demo gif and its golden text show fmt output without the stamp
 	- ID: 2026111710564808
 	- Type: Feature
@@ -216,7 +228,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: upgrade and upgrade_file convert by the load's steps
 	- ID: 2026111908444554
 	- Type: Feature
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: analyze-c.bash and the cppcheck line from `LINT_EXTRA`, for the `shcl.h` change; codeql-scan.bash for the C and Python test code; check-push-gate.bash, which ran past 4 minutes with no failure, for the cli-regress change.
+	- Needs external testing: b29w with a short-name TEMP: dfh0e, dfh0f, dfh0g, dfh0h, and the C CLI's `shcl upgrade` (its Windows `_wstat64` mtime read never ran).
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261119-084445
@@ -225,6 +239,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Prereq IDs: 2026111908443663
 	- Requirements: upgrade finds the format with find_format, and upgrade_file passes the file's mtime, then both convert by the load's step table rather than the 2.x migration alone. In all 4 bindings and the 4 CLIs' upgrade.
 	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261119: `upgrade` reads the text alone, with no mtime, and `upgrade_dated(text, mtime, from_v2, banner)` (Go `UpgradeDated`, C `shcl_upgrade_dated`, C++ `upgrade_dated`) takes one. `upgrade_file` passes the file's. A new call rather than a new argument to `upgrade`, so no caller of `upgrade` has to change.
+		- me, 20261119: the 4 CLIs stat the file themselves and pass its mtime to `upgrade_dated`, so `shcl upgrade FILE` prints what `--write` would write. Stdin has none.
+		- me, 20261119: a format whose run of steps is all `Same` has nothing to convert, so the file is current, as one stamped 3.0 is. A run that reaches `V2` goes through upgrade's 2.x path as before. So a file with no stamp and a broken line that no format reads clean, such as an open quote or `base:[Boston]` with children, written today, is now left as it is unless `from_v2`. Logged as a `Check:` in questions.md.
+		- me, 20261119: the walk is one helper, `first_rewrite` (Go `firstRewrite`, Python `_first_rewrite`, C `s_first_rewrite`), which the load's convert uses too. C's step table moved out of the file tier, since `shcl_upgrade` is outside it.
+		- me, 20261119: `Upgrade::format`, which names the backup, is still the Format line's major or 2, not the found format.
+	- 20261119: tests whose 2.x text has no tells now pin an mtime of 2026-09-01, so the text is still found to be 2.0, with each assert as it was: `upgrade_refuses_text_that_reads_two_ways` (`ddmhd`, `ddmka`, `ddmkt`, `ddmmk`), `upgrade_can_leave_the_info_block_off` (`dffxa` to `dffxd`), `upgrade_file_never_writes_over_a_backup` (`ddmhg`, `ddmkd`, `ddmkx`, `ddmmp`), the veneer smoke's 2 ambiguous rows (`d9v59`), and cli-regress `ddmhk`, `ddmhr`, `ddmhs`, `ddmht`, `ddmhw`, `ddmhx`, `de11w`, `de11x`, `de120`, `de121`.
+	- Verified: the new test fails in all 4 runners with the mtime left out of `upgrade_file`, and with a format whose run is all `Same` sent down the 2.x path, and passes without. `--backlog-run-quick rust go python c cli`, the veneer smoke, check-veneer, check-docs, `test-ids.py check`, cli-regress, crosscheck over the corpus, the 4 shell-regress rows that read cli-regress, `lint-report.bash --check --no-mark` and the markdown check passed. The C runner passed under ASan and UBSan. All 4 CLIs print the 2.x conversion for a file dated 2026-08-06 and leave it as is dated 2026-11-10.
+	- Swept: `upgrade` and `upgrade_file` in all 4 and the C++ interface, the CLIs' `do_upgrade` with and without `--write`, and the error path that prints the load's diagnostics. `migrate` and `migrate_unstamped` don't find a format, by design. spec.md's `UpgradeFile` bullet, design.md's `upgrade_file` bullet, the design doc and the changelog say so. Python's `__all__` names `upgrade_dated`.
+	- Test case: `an_upgrade_converts_from_the_format_its_mtime_gives` (Rust `dfh0e`, Go `dfh0f`, Python `dfh0g`, C `dfh0h`, veneer `dfh0j`).
+	- Branch: `nov19-2026111908444554`
+	- Commit: `b514a272`
 
 - Format versions: `from` and `--from=FORMAT` replace `from_v2` and `--from-2x`
 	- ID: 2026111907080445

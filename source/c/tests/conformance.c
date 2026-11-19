@@ -1611,6 +1611,19 @@ static void put_file(const char *path, const char *text) {
 	fwrite(text, 1, strlen(text), f);
 	fclose(f);
 }
+static void pin_mtime(const char *path, int64_t secs) {
+#ifdef _WIN32
+	struct _utimbuf times = {(time_t)secs, (time_t)secs};
+	if (_utime(path, &times) != 0) fail("pin_mtime", path);
+#else
+	struct utimbuf times = {(time_t)secs, (time_t)secs};
+	if (utime(path, &times) != 0) fail("pin_mtime", path);
+#endif
+}
+/* 2026-09-01, an mtime that leaves 2.0 the newest format. Without it, a text
+   with no tells reads as this format, which leaves its errors as typed
+   (2026111908444554). */
+static const int64_t up_sep1 = 1788220800;
 static int file_is(const char *path, const char *text) {
 	size_t n = 0; shcl_file_status st;
 	char *t = shcl_read_file(path, 0, &n, &st);
@@ -6696,7 +6709,7 @@ int main(int argc, char **argv) {
 	test_id("ddmmk", "upgrade_refuses_text_that_reads_two_ways");
 	{
 		const char *amb = "a: x,y\nb: \"q\n";
-		shcl_upgraded up = shcl_upgrade(amb, strlen(amb), 0, 1);
+		shcl_upgraded up = shcl_upgrade_dated(amb, strlen(amb), &up_sep1, 0, 1);
 		if (up.current || up.ambiguous != 1 || !up_is(&up, amb)) fail("upgrade_ambiguous", "without from_v2");
 		shcl_upgraded_free(&up);
 		up = shcl_upgrade(amb, strlen(amb), 1, 1);
@@ -6761,7 +6774,7 @@ int main(int argc, char **argv) {
 			{"a: 1\r\nb: \"q\r\n", 0, "a: 1\r\nb: '\"q'\r\n## SHCL format 3.0\r\n"},
 		};
 		for (size_t i = 0; i < sizeof rows / sizeof rows[0]; i++) {
-			shcl_upgraded up = shcl_upgrade(rows[i].text, strlen(rows[i].text), rows[i].v2, 0);
+			shcl_upgraded up = shcl_upgrade_dated(rows[i].text, strlen(rows[i].text), &up_sep1, rows[i].v2, 0);
 			if (up.current || up.len != strlen(rows[i].want) || memcmp(up.text, rows[i].want, up.len) != 0) fail(at, rows[i].text);
 			for (int v2 = 0; v2 < 2; v2++) {
 				shcl_upgraded again = shcl_upgrade(up.text, up.len, v2, 0);
@@ -6770,7 +6783,7 @@ int main(int argc, char **argv) {
 			}
 			shcl_upgraded_free(&up);
 			/* With the block, for the same file. */
-			up = shcl_upgrade(rows[i].text, strlen(rows[i].text), rows[i].v2, 1);
+			up = shcl_upgrade_dated(rows[i].text, strlen(rows[i].text), &up_sep1, rows[i].v2, 1);
 			if (!up.text || !strstr(up.text, "## This config file format is SHCL.")) fail(at, "none with it");
 			shcl_upgraded_free(&up);
 		}
@@ -6808,6 +6821,7 @@ int main(int argc, char **argv) {
 		shcl_upgraded_free(&up);
 		snprintf(amb, sizeof amb, "%s/amb.shcl", udir);
 		put_file(amb, "a: x,y\nb: \"q\n");
+		pin_mtime(amb, up_sep1);
 		if (shcl_upgrade_file(amb, 0, 1, &up, NULL, NULL) != SHCL_UPGRADE_AMBIGUOUS || up.ambiguous != 1) fail("upgrade_taken", "amb");
 		shcl_upgraded_free(&up);
 		if (dir_entries(udir) != 3) fail("upgrade_taken", "entries");
@@ -8356,6 +8370,47 @@ int main(int argc, char **argv) {
 		if (st != SHCL_FILE_NOT_FOUND) fail(at, "missing");
 		shcl_free(doc);
 		dir_clear(mdir);
+	}
+	test_id("dfh0h", "an_upgrade_converts_from_the_format_its_mtime_gives");
+	{
+		/* shcl_upgrade and shcl_upgrade_file find the format as the load does,
+		   with the file's mtime, and make over only a file whose steps to this
+		   format rewrite anything. One from 3.0-9ef on is current, its error
+		   kept as typed (2026111908444554). Same rows in every runner. */
+		const char *at = "upgrade convert";
+		const int64_t aug6 = 1785974400;  /* 2026-08-06, to 1.1 */
+		const int64_t oct20 = 1792454400; /* 2026-10-20, to 3.0-9ef */
+		const int64_t nov10 = 1794268800; /* 2026-11-10, every format */
+		const int64_t y2020 = 1577836800; /* before any format, so ignored */
+		const char *quote = "a: x\"y\n", *fresh = "a: 'x\"y'\n## SHCL format 3.0\n";
+		/* Text from no file reads as the newest format its tells leave. */
+		shcl_upgraded up = shcl_upgrade(quote, strlen(quote), 0, 0);
+		if (!up.current) fail(at, "no mtime made it over");
+		shcl_upgraded_free(&up);
+		/* The mtime, from_v2, and whether it's made over. */
+		const struct { int64_t mtime; int from_v2, made; } cases[] = {
+			{nov10, 0, 0},
+			{oct20, 0, 0},
+			{y2020, 0, 0},
+			{aug6, 0, 1},
+			{nov10, 1, 1},
+		};
+		char udir[256], f[320];
+		up_dir(udir, sizeof udir, "upconv");
+		snprintf(f, sizeof f, "%s/f.shcl", udir);
+		for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+			const char *want = cases[i].made ? fresh : quote;
+			up = shcl_upgrade_dated(quote, strlen(quote), &cases[i].mtime, cases[i].from_v2, 0);
+			if (up.current == cases[i].made || !up_is(&up, want)) fail(at, up.text ? up.text : "no text");
+			shcl_upgraded_free(&up);
+			put_file(f, quote);
+			pin_mtime(f, cases[i].mtime);
+			if (shcl_upgrade_file(f, cases[i].from_v2, 0, &up, NULL, NULL) != SHCL_UPGRADE_OK || up.current == cases[i].made) fail(at, "upgrade_file");
+			if (!file_is(f, want)) fail(at, "file text");
+			if (cases[i].made && up.backup) remove(up.backup);
+			shcl_upgraded_free(&up);
+		}
+		dir_clear(udir);
 	}
 	test_id("dfgyf", "a_load_converts_from_the_format_its_mtime_gives");
 	{

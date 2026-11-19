@@ -5781,9 +5781,14 @@ def main():
 	if not shcl.upgrade(up.text, False, True).current:
 		raise SystemExit("the fresh text is not current")
 
+	# 2026-09-01, an mtime that leaves 2.0 the newest format. Without it, a
+	# text with no tells reads as this format, which leaves its errors as
+	# typed (2026111908444554).
+	up_sep1 = 1788220800
+
 	test_id("ddmkt", "upgrade_refuses_text_that_reads_two_ways")
 	up_amb = "a: x,y\nb: \"q\n"
-	up = shcl.upgrade(up_amb, False, True)
+	up = shcl.upgrade_dated(up_amb, up_sep1, False, True)
 	if up.current or up.ambiguous != 1 or up.text != up_amb:
 		raise SystemExit(f"{up.current} {up.ambiguous} {up.text!r}")
 	up = shcl.upgrade(up_amb, True, True)
@@ -5855,6 +5860,7 @@ def main():
 		up_amb_path = os.path.join(ud, "amb.shcl")
 		with open(up_amb_path, "wb") as uf:
 			uf.write(b"a: x,y\nb: \"q\n")
+		os.utime(up_amb_path, (up_sep1, up_sep1))
 		try:
 			shcl.upgrade_file(up_amb_path, False, True)
 			raise SystemExit("amb: no error")
@@ -5873,13 +5879,13 @@ def main():
 		("p: a,b\n", True, "p: [a, b]\n## SHCL format 3.0\n"),
 		("a: 1\r\nb: \"q\r\n", False, "a: 1\r\nb: '\"q'\r\n## SHCL format 3.0\r\n"),
 	):
-		up = shcl.upgrade(ub_text, ub_v2, False)
+		up = shcl.upgrade_dated(ub_text, up_sep1, ub_v2, False)
 		if up.current or up.text != ub_want:
 			raise SystemExit(f"no block {ub_text!r}: {up.current} {up.text!r}")
 		if not shcl.upgrade(up.text, False, False).current or not shcl.upgrade(up.text, True, False).current:
 			raise SystemExit(f"no block {ub_text!r}: not current on the next run")
 		# With the block, for the same file.
-		if "## This config file format is SHCL." not in shcl.upgrade(ub_text, ub_v2, True).text:
+		if "## This config file format is SHCL." not in shcl.upgrade_dated(ub_text, up_sep1, ub_v2, True).text:
 			raise SystemExit(f"no block {ub_text!r}: none with it")
 	# upgrade_file writes the same text, and keeps the original.
 	with tempfile.TemporaryDirectory() as ud:
@@ -6586,6 +6592,46 @@ def main():
 			with open(cf, encoding="utf-8", newline="") as fh:
 				if fh.read() != ctext:
 					raise SystemExit(f"{ctext!r}: the load wrote the file")
+
+	test_id("dfh0g", "an_upgrade_converts_from_the_format_its_mtime_gives")
+	# upgrade and upgrade_file find the format as the load does, with the
+	# file's mtime, and make over only a file whose steps to this format
+	# rewrite anything. One from 3.0-9ef on is current, its error kept as
+	# typed (2026111908444554). Same rows in every runner.
+	with tempfile.TemporaryDirectory() as ud:
+		uf = os.path.join(ud, "f.shcl")
+		aug6 = 1785974400  # 2026-08-06, to 1.1
+		oct20 = 1792454400  # 2026-10-20, to 3.0-9ef
+		nov10 = 1794268800  # 2026-11-10, every format
+		y2020 = 1577836800  # before any format, so ignored
+		uquote, ufresh = 'a: x"y\n', "a: 'x\"y'\n## SHCL format 3.0\n"
+		# Text from no file reads as the newest format its tells leave.
+		if not shcl.upgrade(uquote, False, False).current:
+			raise SystemExit("upgrade with no mtime made it over")
+		# The mtime, from_v2, and whether it's made over.
+		for umtime, uv2, umade in (
+			(nov10, False, False),
+			(oct20, False, False),
+			(y2020, False, False),
+			(aug6, False, True),
+			(nov10, True, True),
+		):
+			uwant = ufresh if umade else uquote
+			up = shcl.upgrade_dated(uquote, umtime, uv2, False)
+			if (up.current, up.text) != (not umade, uwant):
+				raise SystemExit(f"{umtime}, from_v2 {uv2}: {(up.current, up.text)!r}, want {uwant!r}")
+			with open(uf, "w", encoding="utf-8", newline="") as fh:
+				fh.write(uquote)
+			os.utime(uf, (umtime, umtime))
+			up = shcl.upgrade_file(uf, uv2, False)
+			if up.current == umade:
+				raise SystemExit(f"file at {umtime}, from_v2 {uv2}: current {up.current}")
+			with open(uf, encoding="utf-8", newline="") as fh:
+				ugot = fh.read()
+			if ugot != uwant:
+				raise SystemExit(f"file at {umtime}, from_v2 {uv2}: holds {ugot!r}, want {uwant!r}")
+			if umade:
+				os.remove(up.backup)
 
 	test_id("ddrnd", "default_fills_what_does_not_read")
 	# A default form writes where the field is missing, empty or does not read

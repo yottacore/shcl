@@ -323,8 +323,12 @@ struct Upgrade {
 // the file can only be 2.x, a clean file is still made over when migrate would
 // change it, as it would `p: a,b`, and any file only when the fresh text loads
 // clean (errors_left). Pass from_v2 only for a file known to be old, never on
-// every start.
+// every start. Without from_v2, the file's format is find_format's, and one
+// from 3.0-9ef on is current, its errors kept as typed.
 Upgrade upgrade(std::string_view text, bool from_v2, bool banner);
+// upgrade(), with mtime for find_format: the file's, in Unix seconds, or
+// std::nullopt for text from no file. upgrade_file() passes the file's.
+Upgrade upgrade_dated(std::string_view text, std::optional<std::int64_t> mtime, bool from_v2, bool banner);
 // The name a config file's backup gets:
 // NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local time, with N the format
 // the file was written for. SHCL_TEST_CLOCK stands in for the clock.
@@ -1183,6 +1187,12 @@ Read<std::string> read_schema_ref(std::string_view text) {
 Upgrade upgrade(std::string_view text, bool from_v2, bool banner) {
 	detail::UpgradedOwn own;
 	own.c = shcl_upgrade(text.data(), text.size(), from_v2 ? 1 : 0, banner ? 1 : 0);
+	return detail::upgraded(own.c);
+}
+
+Upgrade upgrade_dated(std::string_view text, std::optional<std::int64_t> mtime, bool from_v2, bool banner) {
+	detail::UpgradedOwn own;
+	own.c = shcl_upgrade_dated(text.data(), text.size(), mtime ? &*mtime : nullptr, from_v2 ? 1 : 0, banner ? 1 : 0);
 	return detail::upgraded(own.c);
 }
 

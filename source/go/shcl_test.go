@@ -8498,6 +8498,66 @@ func TestALoadConvertsFromTheFormatItsMtimeGives(t *testing.T) {
 	}
 }
 
+// TestAnUpgradeConvertsFromTheFormatItsMtimeGives: Upgrade and UpgradeFile
+// find the format as the load does, with the file's mtime, and make over only
+// a file whose steps to this format rewrite anything. One from 3.0-9ef on is
+// current, its error kept as typed (2026111908444554). Same rows in every
+// runner.
+func TestAnUpgradeConvertsFromTheFormatItsMtimeGives(t *testing.T) {
+	defer testID(t, "dfh0f")
+	f := filepath.Join(t.TempDir(), "f.shcl")
+	const (
+		aug6  = 1785974400 // 2026-08-06, to 1.1
+		oct20 = 1792454400 // 2026-10-20, to 3.0-9ef
+		nov10 = 1794268800 // 2026-11-10, every format
+		y2020 = 1577836800 // before any format, so ignored
+	)
+	quote, fresh := "a: x\"y\n", "a: 'x\"y'\n## SHCL format 3.0\n"
+	// Text from no file reads as the newest format its tells leave.
+	if !Upgrade(quote, false, false).Current {
+		t.Errorf("Upgrade with no mtime made over %q", quote)
+	}
+	cases := []struct {
+		mtime  int64
+		fromV2 bool
+		made   bool
+	}{
+		{nov10, false, false},
+		{oct20, false, false},
+		{y2020, false, false},
+		{aug6, false, true},
+		{nov10, true, true},
+	}
+	for _, c := range cases {
+		want := quote
+		if c.made {
+			want = fresh
+		}
+		mtime := c.mtime
+		up := UpgradeDated(quote, &mtime, c.fromV2, false)
+		if up.Current == c.made || up.Text != want {
+			t.Errorf("%d, fromV2 %v: gave %v, %q; want %q", c.mtime, c.fromV2, up.Current, up.Text, want)
+		}
+		if err := os.WriteFile(f, []byte(quote), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		at := time.Unix(c.mtime, 0)
+		if err := os.Chtimes(f, at, at); err != nil {
+			t.Fatal(err)
+		}
+		up, err := UpgradeFile(f, c.fromV2, false)
+		if err != nil || up.Current == c.made {
+			t.Errorf("file at %d, fromV2 %v: current %v, %v", c.mtime, c.fromV2, up.Current, err)
+		}
+		if b, err := os.ReadFile(f); err != nil || string(b) != want {
+			t.Errorf("file at %d, fromV2 %v: holds %q, %v; want %q", c.mtime, c.fromV2, b, err, want)
+		}
+		if c.made {
+			_ = os.Remove(up.Backup)
+		}
+	}
+}
+
 func TestALoadThatMigratesSavesThroughTheGuards(t *testing.T) {
 	defer testID(t, "dfe4r")
 	dir := t.TempDir()

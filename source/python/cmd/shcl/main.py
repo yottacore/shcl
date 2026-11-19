@@ -1925,6 +1925,18 @@ def migrate_would_refuse(file, doc, misplaced, o):
 	return 0
 
 
+def file_mtime(file):
+	# file's mtime in Unix seconds, as the library's upgrade_file reads it.
+	# None for stdin, and when it can't be read or is before 1970.
+	if file == "-":
+		return None
+	try:
+		t = os.stat(file).st_mtime_ns // 1_000_000_000
+	except (OSError, ValueError):
+		return None
+	return t if t >= 0 else None
+
+
 def do_upgrade(o):
 	# A file this shcl cannot load clean, backed up and written fresh: the
 	# library's upgrade_file with --write, and its text half without, which
@@ -1946,18 +1958,20 @@ def do_upgrade(o):
 	except (OSError, ValueError) as e:
 		sys.stderr.write(str(e) + "\n")
 		return EXIT_IO
+	# The mtime upgrade_file reads, so the text half finds the same format.
+	mtime = file_mtime(file)
 	if o.write:
 		try:
 			up = shcl.upgrade_file(file, o.from_2x, True)
 		except shcl.UpgradeError as e:
-			say_diagnostics_from("", shcl.upgrade(text, o.from_2x, True).diagnostics)
+			say_diagnostics_from("", shcl.upgrade_dated(text, mtime, o.from_2x, True).diagnostics)
 			if isinstance(e, shcl.UpgradeAmbiguous):
 				sys.stderr.write(f"{e} (--from-2x rewrites them)\n")
 				return 7
 			sys.stderr.write(f"{e}\n")
 			return 7 if isinstance(e, shcl.UpgradeErrorsLeft) else EXIT_IO
 	else:
-		up = shcl.upgrade(text, o.from_2x, True)
+		up = shcl.upgrade_dated(text, mtime, o.from_2x, True)
 	if up.current:
 		# diagnostics is empty when current, but the file is still loaded, and
 		# every loading subcommand says what its load found (2026101419280005).

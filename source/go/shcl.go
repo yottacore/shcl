@@ -3763,10 +3763,10 @@ var formatSteps = [len(formatDays) - 1]step{
 	stepSame, // 3.0-a65
 }
 
-// convert is the text, written in format, as the current format reads it, one
-// step per format in order, in memory. ok false, a newer format's, comes back
-// as it is. fromV2 is Migrate's.
-func convert(text, format string, ok, fromV2 bool) Migration {
+// firstRewrite is the first step of the run from format to the current one
+// that changes anything. found is false when every step from there is
+// stepSame, as from the current format, or for ok false, a newer format's.
+func firstRewrite(format string, ok bool) (step, bool) {
 	at := len(formatSteps)
 	for i, row := range formatDays {
 		if ok && row.name == format {
@@ -3774,13 +3774,20 @@ func convert(text, format string, ok, fromV2 bool) Migration {
 			break
 		}
 	}
-	for at < len(formatSteps) {
-		switch formatSteps[at] {
-		case stepSame:
-			at++
-		case stepV2:
-			return MigrateUnstamped(text, fromV2)
+	for _, s := range formatSteps[at:] {
+		if s != stepSame {
+			return s, true
 		}
+	}
+	return stepSame, false
+}
+
+// convert is the text, written in format, as the current format reads it, one
+// step per format in order, in memory. ok false, a newer format's, comes back
+// as it is. fromV2 is Migrate's.
+func convert(text, format string, ok, fromV2 bool) Migration {
+	if s, found := firstRewrite(format, ok); found && s == stepV2 {
+		return MigrateUnstamped(text, fromV2)
 	}
 	return Migration{Text: text, Current: true}
 }
@@ -4239,7 +4246,18 @@ type Upgraded struct {
 // the lines still in error. Pass fromV2 only for a file known to be old, never
 // on every start: a file this format wrote that picks up an error later would
 // be read by 2.x rules too.
+//
+// Without fromV2, the file's format is FindFormat's, from the text alone, and
+// only a format whose steps to this one rewrite anything gets made over: one
+// from 3.0-9ef on is Current, its errors kept as typed, as a load with Migrate
+// keeps them. UpgradeDated takes the file's mtime too.
 func Upgrade(text string, fromV2, banner bool) Upgraded {
+	return UpgradeDated(text, nil, fromV2, banner)
+}
+
+// UpgradeDated is Upgrade, with mtime for FindFormat: the file's, in Unix
+// seconds, or nil for text from no file. UpgradeFile passes the file's.
+func UpgradeDated(text string, mtime *int64, fromV2, banner bool) Upgraded {
 	named := ReadFormatVersion(text)
 	version, hasVersion := named.Value, named.Status == Good
 	up := Upgraded{Text: text, Current: true, Format: 2}
@@ -4247,6 +4265,15 @@ func Upgrade(text string, fromV2, banner bool) Upgraded {
 		up.Format = version
 	}
 	if namesNewer(named) || (hasVersion && version == FormatMajor && !fromV2) {
+		return up
+	}
+	// The load's step table. Only stepV2 rewrites yet, and this is its
+	// upgrade form, so a format whose run is all stepSame has nothing to do.
+	format, ok := "2.0", true
+	if !fromV2 {
+		format, ok = FindFormat(text, mtime)
+	}
+	if s, found := firstRewrite(format, ok); !found || s != stepV2 {
 		return up
 	}
 	before := Parse(text)
@@ -10809,7 +10836,7 @@ func UpgradeFile(path string, fromV2, banner bool) (Upgraded, error) {
 		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: &WriteError{Status: WriteUnreadable, Err: fmt.Errorf("%s: can't be read as UTF-8 text", path)}}
 	}
 	text := string(data)
-	up := Upgrade(text, fromV2, banner)
+	up := UpgradeDated(text, fileMtime(path), fromV2, banner)
 	if up.Current {
 		return up, nil
 	}

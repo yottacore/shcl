@@ -367,6 +367,12 @@ printf '%s\n' 'p: "C:\\a\nb", "D:\\c\nd"' 'q: [1, 2]' > "${tmpDir}/miglost2.shcl
 ## clean either.
 printf 'tags: a, b\nport: 80\n\n#\n# This config file format is SHCL.\n# "Simple Hierarchical Config Language"\n#    Legal    SHCL is Copyright \302\251 2026 Jim Collier. License: MIT. No warranty.\n#\n' > "${tmpDir}/upgv2.shcl"
 printf 'a: x,y\nb: "q\n' > "${tmpDir}/upgamb.shcl"
+## upgrade reads a file's format off its mtime too, and one with no tells
+## written today reads as this format, which keeps its errors as typed. This
+## date leaves 2.0 the newest format, for the rows that need a 2.x file
+## (2026111908444554).
+fPin2x(){ touch -d 2026-09-01T00:00:00 "$@"; }
+fPin2x "${tmpDir}/upgamb.shcl"
 ## Clean under these rules, and an array under 2.x.
 printf 'p: a,b\n' > "${tmpDir}/upgclean.shcl"
 ## A schema key nothing knows, on schema line 2.
@@ -2110,6 +2116,7 @@ for row in "${rows[@]}"; do
 		((freshKeepTailLf)) && cp "${tmpDir}/keeptaillf.shcl" "${tmpDir}/created.shcl"
 		((freshMigCrlf)) && cp "${tmpDir}/migcrlf.shcl" "${tmpDir}/created.shcl"
 		[[ -n "${freshMigSrc}" ]] && cp "${tmpDir}/${freshMigSrc}.shcl" "${tmpDir}/created.shcl"
+		[[ "${freshMigSrc}" == upgamb ]] && fPin2x "${tmpDir}/created.shcl"
 		if [[ -n "${runIn}" ]]; then cli="$(realpath -- "${cli}")"; cd -- "${runIn}"; fi
 		rc=0
 		case "${stdinSpec}" in
@@ -2708,10 +2715,10 @@ fSaveSetup() {
 		## file whose group the caller is not in.
 		migrate-setid) printf 'base:[Boston]\n\tlat: 42\n' > f.shcl; chgrp "$(id -gn)" f.shcl; chmod 6755 f.shcl ;;
 		migrate-rodir) mkdir ro; printf 'base:[Boston]\n\tlat: 42\n' > ro/g.shcl; chmod 0555 ro ;;
-		upgrade)  printf 'base:[Boston]\n\tlat: 42\n' > f.shcl; chmod 0640 f.shcl ;;
-		upgrade-taken) printf 'base:[Boston]\n\tlat: 42\n' > f.shcl; printf 'x\n' > f_backup_20261004-001500_format-v2.shcl ;;
-		upgrade-link) mkdir real; printf 'base:[Boston]\n\tlat: 42\n' > real/c.shcl; ln -s real/c.shcl f.shcl ;;
-		upgrade-rodir) mkdir ro; printf 'base:[Boston]\n\tlat: 42\n' > ro/g.shcl; chmod 0555 ro ;;
+		upgrade)  printf 'base:[Boston]\n\tlat: 42\n' > f.shcl; chmod 0640 f.shcl; fPin2x f.shcl ;;
+		upgrade-taken) printf 'base:[Boston]\n\tlat: 42\n' > f.shcl; fPin2x f.shcl; printf 'x\n' > f_backup_20261004-001500_format-v2.shcl ;;
+		upgrade-link) mkdir real; printf 'base:[Boston]\n\tlat: 42\n' > real/c.shcl; fPin2x real/c.shcl; ln -s real/c.shcl f.shcl ;;
+		upgrade-rodir) mkdir ro; printf 'base:[Boston]\n\tlat: 42\n' > ro/g.shcl; fPin2x ro/g.shcl; chmod 0555 ro ;;
 		upgrade-restamp) printf 'p: 1\n##    Format   2\n' > f.shcl ;;
 		migrate-restamp) printf 'port: 80\n##    Format   2\n' > f.shcl ;;
 		upgrade-top-format) printf '##    Format   2\nname: x\nq: a,b\n' > f.shcl ;;
@@ -2917,6 +2924,9 @@ for de in "${diagExits[@]}"; do
 			taken) printf '%b' "${diagText}" > "${diagDir}/f.shcl"; printf 'x\n' > "${diagDir}/f_backup_20261004-001500_format-v2.shcl" ;;
 			*)     printf '%b' "${diagText}" > "${diagDir}/f.shcl" ;;
 		esac
+		if [[ "${argv}" == upgrade* ]]; then
+			if [[ "${setup}" == ro ]]; then fPin2x "${diagDir}/ro/f.shcl"; else fPin2x "${diagDir}/f.shcl"; fi
+		fi
 		rc=0
 		(cd "${diagDir}" && timeout 20 "${cli}" "${args[@]}" >/dev/null 2>"${tmpDir}/err" </dev/null) || rc=$?
 		nRun+=1
@@ -3030,6 +3040,7 @@ else
 		name="${b%%|*}"; cli="${b#*|}"
 		fSafeRmUnder_IfThere "${tmpDir}" "${failDir}"; mkdir -p "${failDir}"
 		cp "${tmpDir}/migfail.src" "${failDir}/f.shcl"
+		fPin2x "${failDir}/f.shcl"
 		rc=0
 		(trap '' XFSZ; ulimit -f 1; exec "${cli}" upgrade --write "${failDir}/f.shcl" >/dev/null 2>"${tmpDir}/err" </dev/null) || rc=$?
 		nRun+=1

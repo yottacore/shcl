@@ -119,6 +119,7 @@ __all__ = [
 	"tokenize",
 	"tokenize_value",
 	"upgrade",
+	"upgrade_dated",
 	"upgrade_file",
 	"write_backup",
 	"write_file_atomic",
@@ -3092,15 +3093,20 @@ _FORMAT_STEPS: tuple[_Step, ...] = (
 )
 
 
+def _first_rewrite(fmt: str | None) -> _Step | None:
+	"""The first step of the run from fmt to the current one that changes
+	anything. None when every step from there is SAME, as from the current
+	format, or for None, a newer format's."""
+	at = next((i for i, (f, _) in enumerate(_FORMAT_DAYS) if f == fmt), len(_FORMAT_STEPS))
+	return next((s for s in _FORMAT_STEPS[at:] if s is not _Step.SAME), None)
+
+
 def _convert(text: str, fmt: str | None, from_v2: bool) -> Migration:
 	"""The text, written in fmt, as the current format reads it, one step per
 	format in order, in memory. None, a newer format's, comes back as it is.
 	from_v2 is migrate's."""
-	at = next((i for i, (f, _) in enumerate(_FORMAT_DAYS) if f == fmt), len(_FORMAT_STEPS))
-	while at < len(_FORMAT_STEPS):
-		if _FORMAT_STEPS[at] is _Step.V2:
-			return migrate_unstamped(text, from_v2)
-		at += 1
+	if _first_rewrite(fmt) is _Step.V2:
+		return migrate_unstamped(text, from_v2)
 	return Migration(text, True, 0, 0)
 
 
@@ -3550,11 +3556,27 @@ def upgrade(text: str, from_v2: bool, banner: bool) -> Upgrade:
 	file is made over only when the fresh text loads clean; when it wouldn't,
 	errors_left names the lines still in error. Pass from_v2 only for a file
 	known to be old, never on every start: a file this format wrote that picks
-	up an error later would be read by 2.x rules too."""
+	up an error later would be read by 2.x rules too.
+
+	Without from_v2, the file's format is find_format()'s, from the text alone,
+	and only a format whose steps to this one rewrite anything gets made over:
+	one from 3.0-9ef on is current, its errors kept as typed, as a load with
+	migrate keeps them. upgrade_dated() takes the file's mtime too."""
+	return upgrade_dated(text, None, from_v2, banner)
+
+
+def upgrade_dated(text: str, mtime: float | None, from_v2: bool, banner: bool) -> Upgrade:
+	"""upgrade(), with mtime for find_format(): the file's, in Unix seconds, or
+	None for text from no file. upgrade_file() passes the file's."""
 	named = read_format_version(text)
 	version = named.value if named.status is Status.Good else None
 	up = Upgrade(text, True, version if version is not None else 2)
 	if _names_newer(named) or (version == FORMAT_MAJOR and not from_v2):
+		return up
+	# The load's step table. Only V2 rewrites yet, and this is its upgrade
+	# form, so a format whose run is all SAME has nothing to do.
+	fmt = "2.0" if from_v2 else find_format(text, mtime)
+	if _first_rewrite(fmt) is not _Step.V2:
 		return up
 	before = Document.parse(text)
 	clean = before.error_count() == 0
@@ -11878,7 +11900,7 @@ def upgrade_file(path: str | os.PathLike[str], from_v2: bool, banner: bool) -> U
 		text = data.decode("utf-8")
 	except UnicodeDecodeError:
 		raise UpgradeFailed(f"{path}: can't be read as UTF-8 text", WriteStatus.Unreadable) from None
-	up = upgrade(text, from_v2, banner)
+	up = upgrade_dated(text, _file_mtime(path), from_v2, banner)
 	if up.current:
 		return up
 	if up.ambiguous != 0:

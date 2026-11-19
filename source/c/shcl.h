@@ -966,7 +966,15 @@ typedef struct {
 // Pass from_v2 only for a file known to be old, never on every start: a file
 // this format wrote that picks up an error later would be read by 2.x rules
 // too.
+//
+// Without from_v2, the file's format is shcl_find_format's, from the text
+// alone, and only a format whose steps to this one rewrite anything gets made
+// over: one from 3.0-9ef on is current, its errors kept as typed, as a load
+// with migrate keeps them. shcl_upgrade_dated takes the file's mtime too.
 shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2, int banner);
+// shcl_upgrade, with mtime for shcl_find_format: the file's, in Unix seconds,
+// or NULL for text from no file. shcl_upgrade_file passes the file's.
+shcl_upgraded shcl_upgrade_dated(const char *text, size_t len, const int64_t *mtime, int from_v2, int banner);
 // Frees what an shcl_upgraded holds and zeroes it, so a second call is
 // harmless.
 void shcl_upgraded_free(shcl_upgraded *up);
@@ -4339,6 +4347,19 @@ static shcl_str upgrade_text(shcl_doc *fresh, int banner, jmp_buf *panic) {
 	return better ? lines : canonical;
 }
 
+/* What turns a text in one format of shcl_format_days into the next one's, as
+   the design doc's Reading and converting says. A new format adds a row to
+   shcl_format_steps, and a kind here only when no step yet does what it
+   needs. SAME: the 2 formats read every line the same, but for lines the
+   older one refuses, which stay as typed. Nothing changes. V2: migrate's
+   rewrite from the 2.x rules, which lands on the current format. It stands in
+   for the steps from 1.0 to 3.0-a37 until they're built (2026111908444515,
+   2026111908444534). */
+typedef enum { SHCL_STEP_SAME, SHCL_STEP_V2 } ShclStep;
+
+/* Defined beside shcl_format_days. */
+static int s_first_rewrite(const char *format);
+
 /* The lines with an error on them, in order, each once, into *out (malloc'd).
    Returns how many. */
 static size_t error_lines(const shcl_doc *d, size_t **out, jmp_buf *panic) {
@@ -4355,13 +4376,21 @@ static size_t error_lines(const shcl_doc *d, size_t **out, jmp_buf *panic) {
 	return u;
 }
 
-static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, size_t len, int from_v2, int banner, int64_t version, int newer, shcl_upgraded *up) { // NOLINT(bugprone-easily-swappable-parameters): shcl_upgrade's order, as in the Rust twin
+static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, size_t len, const int64_t *mtime, int from_v2, int banner, shcl_upgraded *up) { // NOLINT(bugprone-easily-swappable-parameters): shcl_upgrade_dated's order, as in the Rust twin
 	if (!text) { text = ""; len = 0; }
+	/* Read here rather than before the setjmp, where -Wclobbered guesses
+	   they could be lost. */
+	int newer = 0;
+	shcl_read_i64 named = stamp_read(text, len, &newer);
+	int64_t version = named.status == SHCL_GOOD ? named.value : -1;
 	up->current = 1;
 	up->format = version < 0 ? 2 : (uint32_t)version;
 	shcl_str keep; keep.p = text; keep.n = len;
 	int restamped = 0;
-	if (!newer && (version < SHCL_FORMAT_MAJOR || (version == SHCL_FORMAT_MAJOR && from_v2))) {
+	/* The load's step table. Only V2 rewrites yet, and this is its upgrade
+	   form, so a format whose run is all SAME has nothing to do. */
+	if (!newer && (version < SHCL_FORMAT_MAJOR || (version == SHCL_FORMAT_MAJOR && from_v2))
+		&& s_first_rewrite(from_v2 ? "2.0" : shcl_find_format(text, len, mtime)) == SHCL_STEP_V2) {
 		own->before = shcl_parse(text, len);
 		if (!own->before) longjmp(*panic, 1);
 		int clean = shcl_error_count(own->before) == 0;
@@ -4431,9 +4460,10 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 }
 
 shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2, int banner) {
-	int newer = 0;
-	shcl_read_i64 named = stamp_read(text, len, &newer);
-	int64_t version = named.status == SHCL_GOOD ? named.value : -1;
+	return shcl_upgrade_dated(text, len, NULL, from_v2, banner);
+}
+
+shcl_upgraded shcl_upgrade_dated(const char *text, size_t len, const int64_t *mtime, int from_v2, int banner) {
 	shcl_upgraded up; memset(&up, 0, sizeof up);
 	SHCL_VOLATILE_OWNER_BEGIN
 	ShclUpgradeOwn *volatile own = (ShclUpgradeOwn *)calloc(1, sizeof *own);
@@ -4446,7 +4476,7 @@ shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2, int banner
 		SHCL_OOM();
 		abort();
 	}
-	upgrade_into(own, &panic, text, len, from_v2, banner, version, newer, &up);
+	upgrade_into(own, &panic, text, len, mtime, from_v2, banner, &up);
 	ShclUpgradeOwn *done = own;
 	shcl_free(done->before); shcl_free(done->fresh); shcl_free(done->made); free(done->migrated); free(done->left); free(done);
 	return up;
@@ -4515,6 +4545,35 @@ static const struct { const char *name; int64_t day; } shcl_format_days[11] = {
 	{"3.0-a65", 20751}, /* 2026-10-25 */
 	{"3.0", 20762},     /* 2026-11-05 */
 };
+
+/* The step out of each format of shcl_format_days but the current one, in the
+   same order. */
+static const ShclStep shcl_format_steps[sizeof shcl_format_days / sizeof shcl_format_days[0] - 1] = {
+	SHCL_STEP_V2,   /* 1.0 */
+	SHCL_STEP_V2,   /* 1.1 */
+	SHCL_STEP_V2,   /* 2.0 */
+	SHCL_STEP_V2,   /* 3.0-1f8 */
+	SHCL_STEP_V2,   /* 3.0-30d */
+	SHCL_STEP_V2,   /* 3.0-b10 */
+	SHCL_STEP_V2,   /* 3.0-f8e */
+	SHCL_STEP_V2,   /* 3.0-a37 */
+	SHCL_STEP_SAME, /* 3.0-9ef, which refused an apostrophe inside a bare word */
+	SHCL_STEP_SAME, /* 3.0-a65 */
+};
+
+/* The first step of the run from format to the current one that changes
+   anything, or -1 when every step from there is SAME, as from the current
+   format, or for NULL, a newer format's. */
+static int s_first_rewrite(const char *format) {
+	size_t steps = sizeof shcl_format_steps / sizeof shcl_format_steps[0], at = steps;
+	for (size_t k = 0; format && k < steps; k++) {
+		if (strcmp(shcl_format_days[k].name, format) == 0) { at = k; break; }
+	}
+	for (; at < steps; at++) {
+		if (shcl_format_steps[at] != SHCL_STEP_SAME) return (int)shcl_format_steps[at];
+	}
+	return -1;
+}
 
 /* The runs of shcl_format_days the design doc's Tells table counts each tell
    against, by their first and last format. A footer's run is the formats
@@ -16129,42 +16188,11 @@ static int s_something_at(const char *path) {
 #endif
 }
 
-/* What turns a text in one format of shcl_format_days into the next one's, as
-   the design doc's Reading and converting says. A new format adds a row to
-   shcl_format_steps, and a kind here only when no step yet does what it
-   needs. SAME: the 2 formats read every line the same, but for lines the
-   older one refuses, which stay as typed. Nothing changes. V2: migrate's
-   rewrite from the 2.x rules, which lands on the current format. It stands in
-   for the steps from 1.0 to 3.0-a37 until they're built (2026111908444515,
-   2026111908444534). */
-typedef enum { SHCL_STEP_SAME, SHCL_STEP_V2 } ShclStep;
-
-/* The step out of each format of shcl_format_days but the current one, in the
-   same order. */
-static const ShclStep shcl_format_steps[sizeof shcl_format_days / sizeof shcl_format_days[0] - 1] = {
-	SHCL_STEP_V2,   /* 1.0 */
-	SHCL_STEP_V2,   /* 1.1 */
-	SHCL_STEP_V2,   /* 2.0 */
-	SHCL_STEP_V2,   /* 3.0-1f8 */
-	SHCL_STEP_V2,   /* 3.0-30d */
-	SHCL_STEP_V2,   /* 3.0-b10 */
-	SHCL_STEP_V2,   /* 3.0-f8e */
-	SHCL_STEP_V2,   /* 3.0-a37 */
-	SHCL_STEP_SAME, /* 3.0-9ef, which refused an apostrophe inside a bare word */
-	SHCL_STEP_SAME, /* 3.0-a65 */
-};
-
 /* The text, written in format, as the current format reads it, one step per
    format in order, in memory. NULL, a newer format's, comes back as it is.
    from_v2 is migrate's. The text is malloc'd, and the caller frees it. */
 static shcl_migration s_convert(const char *text, size_t len, const char *format, int from_v2) {
-	size_t steps = sizeof shcl_format_steps / sizeof shcl_format_steps[0], at = steps;
-	for (size_t k = 0; format && k < steps; k++) {
-		if (strcmp(shcl_format_days[k].name, format) == 0) { at = k; break; }
-	}
-	for (; at < steps; at++) {
-		if (shcl_format_steps[at] == SHCL_STEP_V2) return shcl_migrate_unstamped(text, len, from_v2);
-	}
+	if (s_first_rewrite(format) == SHCL_STEP_V2) return shcl_migrate_unstamped(text, len, from_v2);
 	shcl_migration m; memset(&m, 0, sizeof m);
 	m.current = 1; m.len = len;
 	m.text = (char *)malloc(len + 1);
@@ -16530,7 +16558,8 @@ shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, int banner, 
 		if (rerr) return upgrade_why(why, s_write_status_of(rerr), upgrade_fail(message, SHCL_UPGRADE_IO, "%s: %s", path, strerror(rerr)));
 		return upgrade_why(why, SHCL_WRITE_UNREADABLE, upgrade_fail(message, SHCL_UPGRADE_IO, "%s: can't be read as UTF-8 text", path));
 	}
-	shcl_upgraded up = shcl_upgrade(text, len, from_v2, banner);
+	int64_t mtime = 0;
+	shcl_upgraded up = shcl_upgrade_dated(text, len, s_file_mtime(path, &mtime) ? &mtime : NULL, from_v2, banner);
 	shcl_upgrade_error r = SHCL_UPGRADE_OK;
 	if (up.current) { // NOLINT(bugprone-branch-clone): already current and just written both hand the result back
 		*out = up;
