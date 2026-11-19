@@ -127,8 +127,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: work out a file's format from its stamp and its mtime
 	- ID: 2026111907075423
 	- Type: Feature
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: analyze-c.bash and the cppcheck line from `LINT_EXTRA`, for the `shcl.h` change, and codeql-scan.bash for the C and Python test code.
+	- Status: Closed
+	- Needs local test suite run?: No
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261119-070754
@@ -146,6 +146,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: the read and its date table in Rust, Go, Python and C, with the C++ interface over C's. Python's `__all__` names it. spec.md, the changelog and the design doc say so. No CLI calls it yet.
 	- Test case: `a_file_format_comes_from_its_stamp_and_mtime` (Rust `dfgvd`, Go `dfgve`, Python `dfgvf`, C `dfgvg`, veneer `dfgvh`).
 	- Branch: `nov19-2026111018212703`
+	- Closed reason: Done
+	- Closed: 20261119-110734
+	- Acceptance signoff: Self-closed (me): every Needs row ran and passed, by the memory.md close policy.
+	- Verified: 20261119 on nov19 at 53196692: analyze-c passed (de2wz-de2x4), the cppcheck line from LINT_EXTRA exited 0, and codeql-scan passed every row but de5aj, the Python CLI finding already filed as 2026111709183317.
 
 - Format versions: narrow a file's format by its tells and the most legal reading
 	- ID: 2026111907080400
@@ -250,8 +254,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: upgrade and upgrade_file convert by the load's steps
 	- ID: 2026111908444554
 	- Type: Feature
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: analyze-c.bash and the cppcheck line from `LINT_EXTRA`, for the `shcl.h` change; codeql-scan.bash for the C and Python test code.
+	- Status: Closed
+	- Needs local test suite run?: No
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261119-084445
@@ -275,6 +279,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `b514a272`
 	- Verified: check-push-gate passed on nov19 at `477aaac2`, 89 PASS and no FAIL (`private/claude_simple/cpg.log`).
 	- Verified: on b29w with a short-name TEMP, at `477aaac2`, `dfh0e`, `dfh0f`, `dfh0g` and `dfh0h` passed, built for Windows here (Rust and C static). The C CLI's `shcl upgrade` on a file dated 2026-08-06 printed the 2.x conversion and left the file alone, and with `--write` wrote that text and a backup. Dated 2026-11-10 it printed the file as it was and said nothing to upgrade, with and without `--write`. Every output matched the Linux build's byte for byte.
+	- Closed reason: Done
+	- Closed: 20261119-110734
+	- Acceptance signoff: Self-closed (me): every Needs row ran and passed, by the memory.md close policy.
+	- Verified: 20261119 on nov19 at 53196692: analyze-c passed (de2wz-de2x4), the cppcheck line from LINT_EXTRA exited 0, and codeql-scan passed every row but de5aj, the Python CLI finding already filed as 2026111709183317.
 
 - Format versions: `from` and `--from=FORMAT` replace `from_v2` and `--from-2x`
 	- ID: 2026111907080445
