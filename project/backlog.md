@@ -224,7 +224,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: port the steps out of 3.0-1f8 to 3.0-a37 to Go
 	- ID: 2026111912004789
 	- Type: Feature
-	- Status: Queued
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261119-120047
@@ -234,6 +234,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: mirror 2026111912004261's step kinds, rules and test in Go, by parity over idiom.
 	- Estimated effort: Avg
 	- Note: the docs, the changelog, cli-regress and check-migrate already say what the ports build. Each binding's twins of `de60f` (`migrate_writes_the_text_2x_read`) and `ddmhc` (`upgrade_writes_a_fresh_file_with_the_info_block`) need the 2026-09-01 mtime the Rust ones got, and its `dfgyc` twin keeps its `[1, 2]` row, which is still found to be 2.0. `pin-step-oracle.py` in the private tools folder checks a CLI's `upgrade` against the pins' own CLIs.
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261119: the pin rules are an unexported `lex` type beside the exported `Rules`, with `lexCurrent` and `lexV2` equal to their `Rules` values, so `Tokenize` and `TokenizeValue` convert and the public API doesn't change.
+		- me, 20261119: Rust's `Step::Pin(Pin)` is a `step` struct of a `stepKind` and a `pinRules`, set only for `stepPin`. Rust's `Option<Pin>` to `migrate_text` is a `*pinRules`, nil for none.
+	- Verified: `dfh64` fails with the pin rows set back to `stepV2` and passes with them. Go tests in both modules, `--backlog-run-quick go cli` (vet, staticcheck, gofmt included), cli-regress over the 4 CLIs, crosscheck over the corpus, `lint-report.bash --check --no-mark` and `test-ids.py check` passed. The Go CLI's `upgrade` printed the same bytes and exit code as the Rust CLI's on every corpus document with its stamp taken off, dated into 3.0-30d, 3.0-b10, 3.0-a37, 1.1 and the current format (3430 runs), and on 23 hand-written escape and selector lines in the 3 pins.
+	- Swept: every Rust function the step touched has its Go twin changed: `blankLen`, `skipBlank`, `quoteClose`, `scanPiece`, `lexValue`, `scanValue`, `scanArray`, `lexLine`, `migrating`, `mostLegal`, `formatLineRead`, `ReadSchemaRef` and `rawLines`, `convert`, `firstRewrite`, `migrateText`, `UpgradeDated`, `valueEdits`, `v2ArrayText`, `v2ElementText`, `v2BracketArray` and `migrateLine`, with `oldText`, `pinEscapes`, `pinCodepoint`, `pinBadQuoted` and `oldRefused` new. `Upgrade`'s doc comment says so. The Go twins of `de60f` (`de61a`) and `ddmhc` (`ddmk9`) pin 2026-09-01, each assert as it was. `dfgyd` keeps its `[1, 2]` row.
+	- Test case: `TestALoadConvertsFromAPinnedDevFormat` (Go `dfh64`, twin of Rust `dfh4s`).
+	- Branch: `nov19b-2026111912004789`
+	- Commit: `2bb0a16c`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the steps, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261119-130743
 
 - Format versions: port the steps out of 3.0-1f8 to 3.0-a37 to Python
 	- ID: 2026111912004810
