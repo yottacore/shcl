@@ -35,295 +35,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- The C++ veneer smoke doesn't build with SHCL_NO_FILE_IO
-	- ID: 2026111814490325
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261118-144903
-	- Opened by:
-	- Progress log:
-		- veneer_smoke.cpp declares a_save_names_this_format inside the file I/O guard but calls it outside it, so a -DSHCL_NO_FILE_IO build fails to compile. No gate builds that combination. Found in round nov18 while working 2026111708542868.
-
-- A remove drops the blank line above its target, so the gap between 2 groups closes
-	- ID: 2026111623191917
-	- Type: Enhancement
-	- Status: Closed
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261116-231919
-	- Opened by: split from 2026110712372281
-	- Parent ID: 2026110712372281
-	- Problem description: `x`, a blank, `y`, `z`, minus `y`, gives `x`, `z`. The remove takes its comment lines, per spec.md, and the blank goes with them. A dotted pair with a blank above it loses the blank the same way (2026110613470312).
-	- Requirements: the remove hands its blank to the line that now follows in the file, in all 4 bindings. spec.md Remove says so. Placement rows for the `x`, blank, `y`, `z` remove and the dotted pair with a blank above it.
-	- Estimated effort: Avg
-	- Actual effort: Avg
-	- Progress log:
-		- 20261116, all 4 bindings: the remove's rebuild hands the blank above what it took (`hand_blank`) to the first kept line it left under the target, else the next sibling (`set_blank`), else the first of the parent's trailing lines or the footer (`blank_below`). The save that keeps lines keeps the blank lines above a dotted line whose last name went, where it used to cut them. spec.md's Remove, design.md's "Kept lines under edits", and the changelog say so. The placement property in `fuzz_smoke.rs` lets the line after a removed target gain its blank.
-		- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
-	- Decisions:
-		- me, 20261116: past the parent's trailing lines the blank goes, as design.md's fallback reads, so a block's last field doesn't hand its blank to the next field outside the block, and row `2026110712372276-7` stays as it was. Handing it to the next line in the file was the other option. Filed as a `Check:` in questions.md.
-		- me, 20261116: a repeated header's blank still goes with the header when its last line is removed, as design.md's kept-lines bullet says, since it isn't the removed field's own blank.
-		- me, 20261116: the setter's folds still drop the blank of the instance that folds, which is 2026111623191935's, along with `adopt`. This item only changes the remove.
-	- Swept: the remove's rebuild is the one place a remove drops a node's lines in all 4: `try_remove` in Rust, `TryRemove` in Go, `try_remove` in Python, `shcl_try_remove` in C. The opened-by-kept path moves the field's lines whole, with its blank on its kept line. The keep-lines cut was in `keep_lines_as` in Rust, `keepLinesAs` in Go, `_keep_lines_as` in Python, and `keep_lines` in C. `collapse_dup` and `fold_dups_below` call `beside_kept` too, unchanged on purpose.
-	- Test case: placement rows `2026111623191917-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dd3t9`, `dderx`.
-	- Verified: the 3 rows fail on the library at `813dfecf` in all 4 (Rust and Go runners, C runner, `placement-watch.py` for Python) and pass on the change. The 4 conformance suites, the whole Rust suite, the Go tests in both modules, the 200,000-iteration release fuzz apart from `dd16k` (2026111623445822, which fails the same way at `813dfecf`), cli-regress (671 rows), crosscheck with a 2000-iteration dump (55461 comparisons), perf-gate, check-docs, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, gcc and clang at `-Werror`, and markdownlint. analyze-c found 2 things in C's `hand_blank`, a null dereference it couldn't rule out and swappable parameters, both fixed, and the pinned clang analyzer passes on `main.c`. Its other 2 reds are older (2026111623502776).
-	- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
-	- Branch: `nov17-2026110712372281`
-	- Prereq IDs: 2026111809400000, 2026111809400100
-	- Acceptance signoff: Self-closed: its Needs row, the 2M release fuzz, passed.
-	- Closed: 20261118-163127
-	- Closed reason: Done
-
-- The remove and the setter folds hand their lines on through `adopt`
-	- ID: 2026111623191935
-	- Type: Enhancement
-	- Status: Closed
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261116-231919
-	- Opened by: split from 2026110712372281
-	- Parent ID: 2026110712372281
-	- Problem description: the remove, `collapse_dup` and `fold_dups_below` move the lines a node leaves with `beside_kept`, `leave_above`, `leave_last` and `leave_below` rather than `adopt`.
-	- Requirements: those callers go through `adopt`, with its fallback of the heir, else the next sibling, else the parent's trailing lines, in all 4. The kept-line rules stay as they are. The old helpers go in the same commit, once the placement table and fuzz property pass with both in place.
-	- Note: `refile_folded` calls `leave_above` and `leave_last` too, so they turn into `adopt`'s fallback here rather than going, and 2026111623192782 takes the last of them. The remove's blank handover from 2026111623191917 (`hand_blank`, `set_blank`, `blank_below`) joins `adopt` too. `adopt` places lines after the heir's comments for what takes the node's place, and before them for a next sibling, since a kept line beside a removed node stays above that sibling's comments.
-	- Estimated effort: High
-	- Actual effort: Avg
-	- Progress log:
-		- 20261117, all 4 bindings: `adopt` takes who gets the lines, as what takes the node's place, the next sibling, or the parent, and the blank owed, and does the placement each old helper did. The remove's rebuild and its opened-by-kept path, `collapse_dup`, `fold_dups_below`, and `refile_folded`'s 2 placement calls go through it. A setter's fold now hands the blank above the instance that folds to the next line, as a remove does. design.md's fold bullet and "Where the code still differs", spec.md's fold sentence, and the changelog say so.
-		- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
-		- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
-	- Decisions:
-		- me, 20261117: the 3 kinds of heir are an enum in Rust (`Heir`), a struct with a kind in Go (`heir`), a tuple in Python, and `ShclHeir` in C. A list's settle runs outside a document, so the heir branch is `adopt_heir`, which `unstack` calls and `adopt` calls for that kind.
-		- me, 20261117: `hand_blank` joined `beside_kept`, since the blank a node owes comes off it with the lines it leaves. `set_blank`, `blank_below`, `leave_above`, `leave_last`, `leave_below`, and C's `leave_orphans` became `adopt`'s branches. `refile_folded` calls `adopt` too, so none of those names is left, and 2026111623192782 still has `refile_folded`, `folded_kept`, and `settle_first_blank`.
-		- me, 20261117: the blank of a setter's fold goes the remove's way, per 2026111623191917's call. It used to be dropped, or left between the 2 instances' comments. The load's fold still does that, filed as 2026111700365065.
-	- Swept: every call of the old helpers in all 4, in `lib.rs`, `shcl.go`, `shcl.py`, and `shcl.h`: the remove's rebuild and opened-by-kept path, `collapse_dup`, `fold_dups_below`, `refile_folded`, `unstack`, and the settle of kept lines among list items. A grep of `source/` for the retired names finds none.
-	- Test case: placement rows `2026111623191935-1` and `-2` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dd3t9`, `dderx`, `dd16k`.
-	- Verified: the 2 rows fail on the library at `87683db6` in Python and C, and row 1 through the Rust CLI, and pass on the change in all 4. The 4 conformance suites, the whole Rust suite, the Go tests in both modules, `--backlog-run-quick rust go python c`, cli-regress (671 rows), crosscheck with a 2000-iteration dump (55461 comparisons), the 200,000-iteration release fuzz apart from `dd16k` (2026111623445822, at the same iteration as before), rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, gcc, gcc 15 and clang at `-Werror`, lint-report, and markdownlint. analyze-c found swappable parameters on the new `heir_at` in C, now marked as the Rust twin's order. Its other reds are older: `set_off` from `1bbee68b`, and `fs_property.c` (2026111623502776).
-	- Branch: `nov17-2026111623191935`
-	- Prereq IDs: 2026111809400000, 2026111809400100
-	- Acceptance signoff: Self-closed: its Needs row, the 2M release fuzz, passed.
-	- Closed: 20261118-163127
-	- Closed reason: Done
-
-- The load's fold hands its lines on through `adopt`
-	- ID: 2026111623192782
-	- Type: Enhancement
-	- Status: Closed
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261116-231927
-	- Opened by: split from 2026110712372281
-	- Parent ID: 2026110712372281
-	- Prereq IDs: 2026111623191935, 2026111809400000, 2026111809400100
-	- Problem description: a fold at load moves the kept lines of the later instance with `refile_folded` and `folded_kept`, and fixes the first blank with `settle_first_blank`, rather than `adopt`.
-	- Requirements: the fold goes through `adopt` in all 4, with the same file-order placement `refile_folded` gives now. The old helpers go in the same commit, once the placement table and fuzz property pass with both in place. `settle_first_blank` also clears the blank at the top of the output for every edit, which moves no line, so this item decides whether that part stays under its own name.
-	- Estimated effort: High
-	- Related IDs: 2026111700365065
-	- Bug 2026111700365065 (the load's fold puts its blank among the comments) likely closes with this item, since it moves the load's fold onto adopt.
-	- Actual effort: Avg
-	- Progress log:
-		- 20261117, all 4 bindings: the load notes each fold and re-mention with its line and the blank above it, and `adopt_folded` hands on what the later line leaves through `adopt`. That's its lines up to the last kept line among them, the blank above it, and the blank above the comments written against it, which stay with the first instance. Placement is `place_folded`'s file order, as before. A re-mention no longer puts its blank on the first instance. `refile_folded`, `folded_kept` and `folded_span` are gone. design.md, spec.md's blank-line bullet, and the changelog say so.
-		- Golden changed: corpus `001-messy-cities` (`d9s1g`) and `013-comments` (`da4hk`), `expected.shcl`. Each loses the blank between the first instance's comments and the second's. In 001 no line comes after the second Chicago block, so the blank goes. In 013 it goes to `items:`, which has one. The conformance README's notes for both say so.
-		- This fixes Bug 2026111700365065: placement rows `2026111700365065-1` and `-2` are its 2 commands.
-		- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
-		- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
-	- Decisions:
-		- me, 20261117: `settle_first_blank` stays under its own name. It files the lines at the ends as a reload does and clears the blank where output starts, and it moves no line off a node that goes, so it isn't `adopt`'s work. The load runs it once, after the fold rather than before. The fold can hand a blank to the first field, and a kept line it hands to the end of the file has to go after the footer lines read before it.
-		- me, 20261117: the lines that move are the old span, from a node's first later line to the last kept line among them, so placement is as before. The blank of each fold goes to the heir of its own line.
-		- me, 20261117: an `E028` re-mention, whose lines move to a field of their own, takes its blank with them and clears it on its fold record.
-		- JC, 20261117: keep the blank between the 2 instances' comments unless that changes a meaning. me, 20261117: it does, since a reload then files the comments above the blank as the top of the file rather than the field's, so the fold's blank stays as built.
-	- Swept: the 2 load sites that note a fold, the field-line bind and `fold_dups_from`, and `array_under`'s re-mention branch, in `lib.rs`, `shcl.go`, `shcl.py`, and `shcl.h`. The setter's folds already go through `adopt`. A grep of the repo for the retired names finds only design.md's history sentence.
-	- Test case: placement rows `2026111700365065-1` to `-5` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), corpus `001-messy-cities` (`d9s1g`), `013-comments` (`da4hk`), `213-load-fold-keeps-kept-lines` (`devra`), perf-gate `reopens` (`df014`), `dd3t9`, `dderx`.
-	- Verified: the 5 rows fail on the library at `59074148` in all 4 runners and pass on the change, and the rest of the placement table passes on both. The 4 conformance suites, the whole Rust suite, the Go tests in both modules, `--backlog-run-quick rust go python c`, cli-regress (671 rows), crosscheck with a 2000-iteration dump (55461 comparisons), perf-gate, check-docs, the 200,000-iteration release fuzz apart from `dd16k` (2026111623445822, at the same iteration as before), rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, and gcc, gcc 15 and clang at `-Werror`. analyze-c's 2 reds are the older `set_off` and `fs_property.c` ones (2026111623502776).
-	- Branch: `nov17-2026111623192782`
-	- Acceptance signoff: Self-closed: its Needs row, the 2M release fuzz, passed.
-	- Closed: 20261118-163127
-	- Closed reason: Done
-
-- The banner toggle hands the author's lines on through `adopt`
-	- ID: 2026111623192800
-	- Type: Enhancement
-	- Status: Closed
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261116-231928
-	- Opened by: split from 2026110712372281
-	- Parent ID: 2026110712372281
-	- Prereq IDs: 2026111623191935, 2026111623192782, 2026111809400000, 2026111809400100
-	- Problem description: `drop_banners` moves the lines around the info block it takes off in its own code.
-	- Requirements: the lines it leaves go through `adopt` in all 4, with the author's lines kept where the block was (2026110613470302). Then a check-docs row greps the 4 bindings for the retired helper names, and design.md's "Where the code still differs" bullet loses its second half.
-	- Estimated effort: Avg
-	- Actual effort: Avg
-	- Progress log:
-		- 20261117, all 4 bindings: `banner_spans` finds the blocks in a lead list and moves nothing. `take_banners` takes each one out, from the end, and hands the author's lines and the blank to `adopt` with a new heir kind, `At`, for something that sat in a lead list. It puts them back where the block was, with the blank on the first of them, else on the line after, else on the node the list is above, as before. `drop_banners` is gone. check-docs `dfdpp` greps the 4 bindings for every retired mover. design.md's banner sub-bullet says so, and "Where the code still differs" is gone, since nothing differs now. No output changed, so no changelog entry.
-		- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
-		- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
-	- Decisions:
-		- me, 20261117: the info block isn't a node, so none of the 3 heir kinds puts its lines where the block was. `adopt` takes a fourth, the place in a lead list, named by a `Spot` (leading, trailing, opening lines, or the footer) and an index. It's `Heir::At` in Rust, `heirAt` with `spot` and `at` fields in Go, `(_HEIR_AT, node, spot, at)` in Python, and `HEIR_AT` with `spot` and `at` fields in C. Go's and C's other heir literals name their fields now.
-		- me, 20261117: the list is stepped (`restep`) once after all its blocks are off, not in each `adopt` call. A step with an earlier block still in the list could lower a line further than the old single pass did.
-		- me, 20261117: a current block at the end of the footer is split off before the footer goes through `adopt`, as before, so the blank of an old block above it isn't handed to it.
-	- Swept: every caller of the old `drop_banners`, `dropBanners` and `_drop_banners` in all 4, which is `swap_banner` only: trailing lines, opening lines, leading lines, the root's opening lines, and the footer. `adopt`'s blank step for what takes the place and the next sibling skips the new kind in all 4. A grep of `source/` for every retired mover finds none.
-	- Test case: check-docs `dfdpp`, corpus `149-banner`, `161-banner-moved`, `180-banner-first-child`, `190-banner-own-comments`, `217-banner-author-line` (`dez6b`), `218-banner-off-author-line` (`dez6c`), cli-regress `dez6e`, fuzz `de116`.
-	- Verified: `dfdpp` fails on an injected `_leave_above` and its grep finds the old names in all 4 files at `31714ad8`, and it passes on the change. A differential over 11,000 random files with info blocks, through `set_banner` on and off and `upgrade` with and without `from_v2`, gives the same results on the old and new Python library, and it catches a dropped blank. The 4 CLIs agree on `banner on`, `banner off` and `upgrade --from-2x` over 300 more. The 4 conformance suites, the Rust lib, upgrade and fuzz tests, the Go tests in both modules, `--backlog-run-quick rust go python c`, cli-regress (671 rows), crosscheck (23862 comparisons), check-docs, lint-report, the banner-touching fuzz properties at 200,000 in release apart from `dd16k` (2026111623445822, at the same iteration as before), rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, and gcc, gcc 15 and clang at `-Werror`. analyze-c's 2 reds are the older `set_off` and `fs_property.c` ones (2026111623502776).
-	- Branch: `nov17-2026111623192800`
-	- Acceptance signoff: Self-closed: its Needs row, the 2M release fuzz, passed.
-	- Closed: 20261118-163127
-	- Closed reason: Done
-
-- Format versions: write `##    Format   3.0` in the info block, and let the banner calls see a `## SHCL format` stamp
-	- ID: 2026111708125373
-	- Type: Feature
-	- Status: Closed
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261117-081253
-	- Opened by: me
-	- Parent ID: 2026111702033137
-	- Requirements: the info block's row is `##    Format   3.0` wherever the block is written, in all 4 and the C++ interface. `set_banner`, `banner_spans` and `swap_banner` find a `## SHCL format` stamp as they find a Format line.
-	- Estimated effort: Avg
-	- Actual effort: Avg
-	- Note: `FORMAT_LINE` changes every banner and every `migrate` stamp, so corpus outputs and cli-regress rows change with it. A changed corpus input shifts the fuzz seeds, so a 2M release fuzz and check-migrate go on the same commit.
-	- Decisions:
-		- me, 20261117: a stamp counts as one of the block's own lines in `banner_own`, as the `migrate` note does, since only shcl writes one. `take_banners` keeps every line that isn't the block's own, so a lone stamp would have stayed otherwise. So a stamp inside a block goes with it, and a stamp in a block at the end makes that block not current, so `banner on` replaces it. Where 2026111708130702 puts the stamp beside a block has to fit that.
-		- me, 20261117: a block kept at the top gets its stamp set to `## SHCL format 3.0`, as its Format line is set to `FORMAT_LINE`.
-		- me, 20261117: corpus `217-banner-author-line` tests a block that reads as the current one, so its input and `expected.shcl` name `3.0` now. With beta1's `3`, `banner on` would replace the block and the case would test something else.
-		- 20261117: asserts updated for the new `FORMAT_LINE`: `an_older_format_line_becomes_this_one_in_place` (`ddqrp`, `ddqrq`, `ddqrs` and Python's `upgrade_restamp`) and veneer_smoke's `FORMAT_LINE` and migrate checks went from `##    Format   3` to `##    Format   3.0`. So did the migrate, init and banner outputs in 35 corpus `expected-*` files and 29 cli-regress rows, plus the `infoBlock` that `ddf5t`, `ddf5v` and `dez6e` compare against. Nothing else they check changed.
-	- Actual fix: `FORMAT_LINE` and the `GEN_BANNER` row are `##    Format   3.0` in all 4. The C++ interface reads the C macros. `banner_spans` takes a lone stamp as it takes a lone Format line, `banner_own` counts a stamp as the block's, and `swap_banner` sets a kept top block's stamp to this format, in all 4. spec.md, design.md, examples.md, the format-versions doc and the changelog say so.
-	- Swept: `banner_spans`, `banner_own` and the kept-top rewrite in `swap_banner` in Rust, Go (`bannerSpans`, `bannerOwn`, `swapBanner`), Python and C. `current_footer` reads through `banner_own` and `GEN_BANNER`. `restamp` and `migrate_text` write `FORMAT_LINE`, so they follow it. No CLI writes the line itself. A grep of `source/`, spec.md and examples.md for `##    Format   3` finds only inputs and reads of beta1's line.
-	- Verified: the new test fails in all 4 with the stamp checks taken out and passes with them. `--backlog-run-quick rust python` and `--backlog-run-quick go c cli` passed, as did cli-regress (675 rows), the crosscheck over the corpus (23862 comparisons), check-migrate, check-docs, check-doc-examples, check-veneer, veneer_smoke, `test-ids.py check` and `lint-report.bash --check --no-mark`.
-	- Test case: `a_stamp_goes_where_a_format_line_goes` (Rust `dfe3m`, Go `dfe3n`, Python `dfe3p`, C `dfe3q`), and the corpus `expected-*` files and cli-regress rows above.
-	- Branch: `nov17b-2026111708125373`
-	- Acceptance signoff: Self-closed: its Needs row, the 2M release fuzz, passed.
-	- Closed: 20261118-163127
-	- Closed reason: Done
-	- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
-
-- Format versions: write the stamp on every save and every text call that saves
-	- ID: 2026111708130702
-	- Type: Feature
-	- Status: Closed
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261117-081307
-	- Opened by: me
-	- Parent ID: 2026111702033137
-	- Prereq IDs: 2026111708125373
-	- Requirements: every save and every text call that saves writes `## SHCL format 3.0` at the end, or rewrites the stamp there to name this format, in all 4 and the C++ interface. `fmt --check` and the write's nothing-to-write check agree with it.
-	- Estimated effort: High
-	- Decisions:
-		- me, 20261117: the stamp goes in through `to_canonical` and `to_text_keep_lines` (each binding's spelling), which every save and every save through text go through. So `fmt` to stdout, `set`'s print and `fmt --check` match `--write`, and every corpus `expected.shcl` gains the stamp. Stamping only in the file saves and the CLI writes would leave those 3 to add it on their own.
-		- JC, 20261117: through `to_canonical` and `to_text_keep_lines`, as built.
-		- me, 20261117, left to me by JC: the edge cases below stand as built. Writing `3.0` over a newer stamp would hide that the file is newer. A canonical fallback for an open raw block would rewrite a whole file the user asked to keep. Layer stamps piling up in a merge would name files that aren't the output.
-		- me, 20261117: a stamp naming a newer format is left as it is, so the next load still sees it, and a save of that document is refused anyway (`TooNew`). The text call's refusal is 2026111708542868.
-		- me, 20261117: beta1's `Format 3` and a pin such as `3.0-a37` are rewritten to name `3.0`, since the save writes by this format's rules. Only the line the format read picks is rewritten, and it keeps its head and indent.
-		- me, 20261117: a kept text that ends in a raw block left open goes without a stamp, as `migrate` does, rather than fall back to canonical. Appended, the line would be the block's content.
-		- me, 20261117: an added stamp line ends the way the save's new lines do, by the loaded text's majority.
-		- me, 20261117: a merge leaves a layer's `## SHCL format` lines at its top and end out, since they name the layer's file, and keeps the base's end stamp as its last line. Otherwise a merge over a saved file and over the same document differ, which `merge_never_panics_and_stays_fixpoint` and `edits_and_merges_match_a_reload` caught. A layer's stamp inside a node's own comments still rides with the node.
-		- me, 20261117: `upgrade` builds its text without the step, since its info block already carries the Format line.
-		- 20261117: asserts updated for the stamp, in Rust only so far: every one that compares a saved or canonical text gained `## SHCL format 3.0` at the end or a `with_stamp` wrap. `keeping_lines_without_edits_writes_the_input` (`dd3t8`) and the fuzz's no-edit property now allow only the stamp to differ. `a_format_line_at_the_top_goes_when_the_block_goes_on` (`ddy7s`) now expects `##    Format   3.0` after banner off, and `a_stamp_goes_where_a_format_line_goes` (`dfe3m`) expects the stamp back after banner off. The merge fixpoint compares with stamp numbers taken out, since a layer's canonical form rewrites its stamp. Nothing else they check changed.
-	- Note: a line-keeping save adds the stamp as a new last line, so an unedited file without one no longer comes back byte for byte. The fuzz gets a property that a saved file names this format and reloads the same (design doc, Testing).
-	- Progress log:
-		- 20261117: split for its time cap. The Rust step, the stamped corpus (`expected.shcl`, `-write`, `-keep`, `-merged`) and placement table, Rust's asserts and the new test are on `wip/nov17b-2026111708130702`. They can't merge alone, since the other 3 runners read the same corpus. Go, Python, C, the C++ interface, the cli-regress rows and the docs are child 2026111709431277.
-		- 20261117: on the wip branch, `cargo test`, clippy with `-D warnings` and rustfmt pass. Not run there: the other bindings, cli-regress, crosscheck, check-migrate and the 2M release fuzz.
-		- 20261117: child 2026111709431277 brought the Rust half onto `nov17b-2026111709431277` with the other bindings, cli-regress and the docs. It waits on the release fuzz, and so does this one. The demo gif rerender is child 2026111710564808, Stalled for the gif stage.
-		- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
-	- Test case: `a_save_names_this_format` (Rust `dfe62`; Go `dfe63`, Python `dfe64`, C `dfe65` and veneer `dfe66` with the child), plus the corpus files and the fuzz's no-edit save property in `keeping_lines_reloads_as_the_document`.
-	- Branch: `nov17b-2026111709431277` (the Rust half was `wip/nov17b-2026111708130702`)
-	- Acceptance signoff: Self-closed: its Needs row, the 2M release fuzz, passed.
-	- Closed: 20261118-163127
-	- Closed reason: Done
-
-- Format versions: write the stamp on every save in Go, Python, C and the C++ interface
-	- ID: 2026111709431277
-	- Type: Feature
-	- Status: Closed
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261117-094312
-	- Opened by: me
-	- Parent ID: 2026111708130702
-	- Requirements: the parent's stamp step, as Rust has it on `wip/nov17b-2026111708130702`, in Go, Python, C and the C++ interface, with their tests, the cli-regress rows, and spec.md, design.md, the format-versions doc and the changelog. Then the parent's work merges as one, since the corpus is shared.
-	- Estimated effort: High
-	- Note: start from `wip/nov17b-2026111708130702`. It has the Rust step (`stamped`, `canonical_text`, `keep_lines_text`, and the merge's stamp lines), the stamped corpus and placement table, Rust's updated asserts, and the new test `a_save_names_this_format` (`dfe62`). The fixture's other runners take `dfe63` (Go), `dfe64` (Python), `dfe65` (C) and `dfe66` (veneer smoke). `private/claude_simple/tools/stamp-expected.py` stamps saved-text fixtures by the same rule.
-	- Actual effort: High
-	- Decisions:
-		- me, 20261117: C adds the stamp in the emitter's own buffer when the canonical text has no Format or stamp line, without the read-back the other 3 do there, since `mem_bounds` holds a released `to_canonical` loop to no allocation, and the canonical form closes every raw block. A text with such a line goes through the whole step.
-		- me, 20261117: cli-regress `dcb0f` writes a fresh copy (`%BW%`) rather than the shared `%BA%`, since the stamp makes its `fmt --write` write the file, which left `dcq6n` nothing to migrate. `dcvgn`, `deky4` and `dcvgr` take an input that has the stamp, so they still test a canonical file.
-		- 20261117: asserts updated for the stamp in Go, Python, C, the C++ interface, cli-regress, crosscheck and check-abnf: every one that compares a saved or canonical text gained `## SHCL format 3.0` at the end, or a `withStamp`, `with_stamp` or `stamped_is` wrap. The no-edit save checks (`dd3w7` and its twins) allow only the stamp to differ. The kept-reload check in `edits_and_merges_match_a_reload` (`dd16m`, `dd16n`, `dc474`) drops a blank line kept above an added stamp, as Rust's fuzz does. `a_format_line_at_the_top_goes_when_the_block_goes_on` expects `##    Format   3.0` after banner off, and `a_stamp_goes_where_a_format_line_goes` expects the stamp back after banner off. 124 cli-regress rows, 3 crosscheck save-gate answers and the check-abnf bareword probe gained the stamp line. Nothing else they check changed.
-	- Actual fix: the stamp step (`stamped`, `names_this` and `restamp_as`, each binding's spelling) in Go, Python and C. `to_canonical` and `to_text_keep_lines` stamp, and the internal callers (`keep_source`, `keep_lines_as`, `upgrade_text`) use the unstamped `canonical_text` and `keep_lines_text`. A merge skips a layer's stamp and keeps the base's end stamp last. C saves through `canonical_stamped` and `keep_text_stamped`. The C++ interface wraps the C calls, so it follows. spec.md, design.md, the format-versions doc and the changelog say so.
-	- Swept: every internal caller of the canonical and line-keeping text calls and the save in Go, Python and C (`upgradeText`, `keepSource`, `keepLinesAs`, `SaveFileWith` and their twins; C's `upgrade_text`, `keep_source_in`, `keep_lines`, `keep_text`, `shcl_save_file_with`), and each merge's footer and top paths. Test programs: the Go module tests, Python's runner, soak and fs_property, C's runner, `mem_bounds`, `oom_hook`, `oom_recover`, `soak`, `fs_property` and the veneer smoke, plus cli-regress, crosscheck, check-doc-examples and check-abnf.
-	- Verified: the 4 conformance suites, the veneer smoke, `mem_bounds`, `oom_hook`, `oom_recover`, C's `soak` and `fs_property`, Python's soak and fs_property, cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), perf-gate, check-doc-examples, check-docs, check-abnf, check-veneer, `test-ids.py check`, `lint-report.bash --check --no-mark`, gofmt, go vet, staticcheck, ruff and mypy. The new test fails in Go and C with the stamp step taken out, and passes with it. Python's wasn't run that way.
-	- Note: shell-regress's crosscheck rows (`dd51b`, `de114` and the rest) pass, after the stub's save-gate answers and `de114`'s byte count gained the stamp line. `dcvej` (the demo gif) waits on child 2026111710564808. `de1a8`, `dc0b5` and `dcavz` fail for causes older than this item, and `dcavz` is 2026111710564830.
-	- Test case: `a_save_names_this_format` (Go `dfe63`, Python `dfe64`, C `dfe65`, veneer `dfe66`), plus the corpus files the 4 runners read and the cli-regress rows above.
-	- Branch: `nov17b-2026111709431277`
-	- Commit: `2109dde5` (the Rust half, picked from `ccbbe057`), `a495d6df`, `db105dcb`, `a3885051`, `10a1729a`
-	- Acceptance signoff: Self-closed: the 2M release fuzz, cppcheck and analyze-c passed, and codeql-scan's one red is older.
-	- Closed: 20261118-163127
-	- Closed reason: Done
-	- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
-	- Verified 20261118 on nov18: the cppcheck line from `LINT_EXTRA` gave no findings, and analyze-c.bash passed, `de2wz` to `de2x4`, with `2b0d2957`'s suppression in.
-	- Verified 20261118 on nov18: codeql-scan.bash passed every check but `de5aj`, whose finding in the Python CLI is older than the round (2026111709183317).
-
-- A load's fold of a second instance moves the blank line above it among the comments, or above the wrong field
-	- ID: 2026111700365065
-	- Type: Bug
-	- Status: Closed
-	- Severity: Avg
-	- Target version: v3.0.0
-	- Opened: 20261117-003650
-	- Opened by: found while working 2026111623191935
-	- Related IDs: 2026111623192782, 2026111623191935
-	- Steps to reproduce: `printf 'q: 0\n\n# about x\nb: x\n\tp: 1\nc: 1\n\n# about y\nb: x\n\tq: 2\nd: 2\n' | shcl fmt -`, and `printf 'b: x\n\tk: 1\n\t\tm: 1\n\tc: 1\nb: x\n\td: 2\n\n\tk: 1\n\t\tn: 2\n\te: 3\n' | shcl fmt -`.
-	- Incorrect behavior: the first writes a blank between `# about x` and `# about y` above `b: x`, and none above `d: 2`. The second writes a blank above `k: 1` right under `b: x`, and none above `e: 3`. Same output in all 4 CLIs, at exit 0.
-	- Expected behavior: the blank above the instance that folds stays above the next line, `d: 2` and `e: 3` here, as a setter's fold now leaves it (2026111623191935).
-	- Reproduced: 20261117, all 4 CLIs on `nov17-2026111623191935`.
-	- Possible cause: the load's fold appends the second instance's leading lines to the first one's with their blank, and the instance's own blank is dropped. The setter's fold takes both off and hands them on through `adopt`. 2026111623192782 moves the load's fold onto `adopt` and may close this with it.
-	- Estimated effort: Avg
-	- Prereq IDs: 2026111623192782, 2026111809400000, 2026111809400100
-	- Test case: placement rows `2026111700365065-1` to `-5` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C).
-	- Fixed by 2026111623192782's commit, whose new placement rows -1 and -2 are this Bug's 2 commands. They failed on 59074148 in all 4 runners and pass after.
-	- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
-	- Acceptance signoff: Self-closed: its Needs row, the 2M release fuzz, passed.
-	- Closed: 20261118-163127
-	- Closed reason: Done
-	- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
-
-- A deeper comment above a top-level kept line is written one level in by `fmt` and at column 0 after any edit
-	- ID: 2026111111560900
-	- Type: Bug
-	- Status: Closed
-	- Severity: Avg
-	- Target version: v3.0.0
-	- Opened: 20261111-115609
-	- Opened by: me, found while working 2026111012160121 in run b2bits
-	- Related IDs: 2026111012160121, 2026111109371400, 2026110712372276
-	- Version and build: b2bits at `f19d4f80`, with run b2bits' changes
-	- Steps to reproduce: `printf '# note 0\n\n    # note 2\n        b: [3\n' > f.shcl`, then `shcl fmt f.shcl`, and `printf 'int\tz0\t7\n' | shcl set f.shcl`.
-	- Incorrect behavior: `fmt` writes `# note 0`, a blank, `\t# note 2`, `b: [3`. Any edit, even one far from the comment, writes `# note 2` at column 0. `int z0 7` and `comment z0 added` both do, in the canonical form and in the line-keeping save, which keeps `        b: [3` as written. So the file has one canonical form unedited and another after an edit.
-	- Expected behavior: `# note 2` is written at column 0 in both, which is the kept line's column. The blank breaks the run, so `# note 2` is its run's first comment, and design.md says a run's first comment is written at the level of the place it ends up. No block is open at its column, so by spec.md's comment rule it belongs to the root.
-	- Reproduced: 20261111, the Rust, Go, and C CLIs, all with the same output.
-	- Estimated effort: Low
-	- Note: the placement property in `dderx` and `dd3t9` excuses this class with a check keyed by this ID. It was found at iteration 759783 of `dderx`'s 2M release run. `df50j` has the case. The fix takes the excuse out.
-	- Decisions:
-		- me, 20261111: the kept line's column is the right form, per design.md's "A comment no deeper than the place it ends up is written at that place's level, as before, which also keeps a run's first comment there", and spec.md's "Then it belongs to the block it's in".
-		- me, 20261117: the footer is restepped from the cut `set_off` gives over its lines up to the last kept line, wherever the footer is settled, the load included. That is the cut and the restep a new field's settle makes, so only the last blank above the first kept line starts a run, as on an edit. design.md's comment-run bullet says so.
-		- me, 20261117, send-back: a first try reset the parse's comment chain at that cut instead. Setters and merges still wrote the old depth, so `dc26d`, `dab72`, `dd16k` and `ddrnk` failed in the release fuzz, and a fresh chain could also nest a later comment differently from the restep. It was replaced.
-	- Reproduced: 20261117, Rust at `f0584691` on nov17, the same output as before. The line movers' move onto adopt didn't change it.
-	- Actual cause: with no binding line after them, the parse gave the top-level lines one comment chain, so `# note 2` nested under `# note 0` across the blank. A new field takes those lines and splits them at the blank, and the restep puts `# note 2` back at column 0.
-	- Actual fix: in all 4 bindings, `settle_first_blank` resteps the footer from that cut (`restep_set_off`). It runs at the end of the load and after every edit and merge that settles the ends. The excuse keyed by this ID is out of `placement_slips`, and `df50j` now expects column 0 on the load.
-	- Swept: the parse's other sites that hand pending lines on. `give_set_off` already splits at the same cut when a binding line follows. A block's inside lines through `hang_deeper_pending` have the same bug, filed as child 2026111702420992. A comment after the last kept line still moves under the new field and goes to column 0 there, which is `new_child`'s by design.
-	- Branch: nov17-2026111111560900-fix
-	- Test case: placement rows `2026111111560900-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `df50j`, `dd3t9`, `dderx`.
-	- Verified: the 3 placement rows fail on the C library at `f0584691` (canonical text for -1 and -3, kept text for -2) and pass in all 4 now. `df50j`, all of `fuzz_smoke` and the conformance suites in debug, the C and Python conformance runners, Go `go test -count=1`, cli-regress (671 rows) and crosscheck over the corpus (23862 comparisons), `dd3t9` and `dderx` at 1,000,000 in release, `--backlog-run-quick rust go python c`, and lint-report.
-		- After the send-back fix: all of `fuzz_smoke` at 200,000 in release fails only `dd16k` at 124446, as on `f0584691`. `ddrnk`, `dd3t9` and `dderx` pass 1,000,000 in release. The 4 conformance suites, Go's cmd module, cli-regress (671 rows), crosscheck over the corpus and a 2000-iteration dump (55461 comparisons, `ddesf` included), `--backlog-run-quick rust go python c`, and lint-report.
-	- Prereq IDs: 2026111809400000, 2026111809400100
-	- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
-	- Acceptance signoff: Self-closed: its Needs row, the 2M release fuzz, passed.
-	- Closed: 20261118-163127
-	- Closed reason: Done
-	- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
-
 - Format versions: the demo gif and its golden text show fmt output without the stamp
 	- ID: 2026111710564808
 	- Type: Feature
@@ -337,53 +48,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: rerender assets/demo.gif and refresh cicd/demo/expected.txt (the gif stage, or gen-demo-gif.py), so shell-regress dcvej matches the CLI again. Only a tool run.
 	- Estimated effort: Low
 	- Note: until then shell-regress dcvej fails, since every fmt now ends with the stamp.
-
-- Removes, folds, merges, and the banner toggle hand lines on through `adopt`
-	- ID: 2026110712372281
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261107-123722
-	- Opened by: split from 2026110616475902
-	- Parent ID: 2026110616475902
-	- Prereq IDs: 2026110616475903, 2026110712372276
-	- Related IDs: 2026110712372271, 2026110613470302, 2026110613470312, 2026110312163204, 2026110315051536
-	- Problem description: `adopt` is in, and a replaced item list goes through it (2026110712372271). The other edits still move the lines around what they take away in their own code: the remove's own path, `beside_kept` with `leave_above` and `leave_last` for a merged duplicate, `refile_folded` and `settle_first_blank` for a fold at load, and `drop_banners` for the info block.
-	- Requirements:
-		- Each of them calls `adopt`, with the same call sites in all 4 bindings, per design.md's "Lines an edit takes from their node". The heir is what takes the node's place, else the next sibling, else the parent's trailing lines.
-		- The old helpers go in the same commit, once the placement suite 2026110616475903 passes with both in place. A grep for them then finds only `adopt`.
-		- The kept-line rules stay as they are: design.md's table for kept lines under edits, a misplaced line keeping its space indent, `E001` and `E008` lines as built.
-		- design.md's "Where the code still differs" bullet loses its second half.
-		- A remove takes the node's comment lines, per spec.md's Remove, and hands its blank line to the heir. So `x`, a blank, `y`, `z`, minus `y`, gives `x`, a blank, `z`, and 2026110613470312's dotted pair keeps the blank above it (me, 20261109, from that item's `Check:`). spec.md's Remove sentence says so, and a corpus golden that changes is named on this item.
-	- Regression test: 2026110616475903's property and table run against both the old helpers and `adopt` before the old ones go, and a check-docs row greps the 4 bindings for the retired helper names. The table gets the `x`, blank, `y`, `z` remove row and 2026110613470312's dotted pair with a blank above it.
-	- Estimated effort: High
-	- Progress log:
-		- 20261116: split in 4. The remove's blank is child 2026111623191917. The remove and the setter folds through `adopt` are 2026111623191935, the load's fold 2026111623192782, and the banner toggle with the check-docs row and the design.md bullet 2026111623192800.
-
-- One helper reattaches the lines around a node an edit takes away
-	- ID: 2026110616475902
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261106-164759
-	- Opened by: Code review 20261106 follow-up (JC)
-	- Related IDs: 2026110613470311, 2026110613470302, 2026110613470312, 2026100307163904, 2026100218185700, 2026092718195400, 2026110312163204, 2026110315051536
-	- Problem description: when an edit removes, replaces, folds or merges a node, the comments and blank lines around it are moved by that edit's own code: `unstack` for a replaced item list, `beside_kept` with `leave_above` and `leave_last` for a merged duplicate, `refile_folded` and `settle_first_blank` for a fold at load, `drop_banners` for the info block, and the remove's own path. Each one has its own code for where the lines around a node go when the node goes, and each has got the blank line wrong at least once. Code review 20261106 found one more (2026110613470311), and the setter and fold ones were 2026110312163204 and 2026110315051536 this month. Fixing the site at hand has closed one case per round since Code review 20260802.
-	- Requirements:
-		- Write the design in design.md first, with one ownership rule. Every comment line and blank line belongs to one node from the parse on, as its leading lines or its trailing lines, and the emitter writes a node's lines in one fixed order: the blank, the comments, the line, the children, the trailing lines. spec.md states the rule beside the SetComment rule.
-		- One function, say `adopt`, takes a node that is going away and gives its leading lines to the node that takes its place, else the next sibling, else the parent's trailing lines, with the blank staying above the comments. Removes, item list replaces, setter folds, load folds, merges and the banner toggle all call it. After the change no edit moves a comment or a blank any other way, and a grep for the old helpers finds only `adopt`.
-		- It has the same name and the same call sites in all 4 bindings. The old helpers go in the same commit, once the placement suite 2026110616475903 passes with both in place.
-		- The kept-line rules stay as they are: design.md's table for kept lines under edits, a misplaced line keeping its space indent, `E001` and `E008` lines as built.
-		- The placement suite 2026110616475903 is the gate. 2026110613470311 closes through this item.
-	- Reason: code in one place can be tested once, and a new edit kind can't get the blank line wrong on its own.
-	- Alternatives:
-		- Fix `unstack` alone. That closes 2026110613470311 but leaves the class open, as every fix before it did.
-	- Regression test: 2026110616475903's property and table are the gate, and they run against both the old helpers and `adopt` before the old ones go. A check-docs row greps the 4 bindings for the retired helper names, so a second mover can't come back.
-	- Estimated effort: High
-	- Progress log:
-		- 20261107: split in 3. The design and `adopt`, with the item list replace through it, are child 2026110712372271. A node's blank above its comments from the parse on is child 2026110712372276. The other edits through `adopt`, and the old helpers gone, are child 2026110712372281, after 2026110616475903.
 
 - Format versions: every file stamped, and every published format read and converted
 	- ID: 2026111018212700
@@ -410,38 +74,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261110: part of the next release, beta2 (JC).
 	- Estimated effort: High
 
-- Format versions: the stamp on every save, and the format constants
-	- ID: 2026111018212702
-	- Type: Feature
-	- Status: Queued
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261110-182127
-	- Opened by: JC
-	- Parent ID: 2026111018212700
-	- Prereq IDs: 2026111018212701
-	- Requirements:
-		- Add `FORMAT_MAJOR`, a minor, and the format name table in all 4.
-		- Every save and every text call that saves writes the stamp, or rewrites the one there.
-		- beta1's `##    Format   3` and the new forms all read.
-	- Estimated effort: Avg
-	- Note: split for its time cap. The constants, name table and reading are child 2026111702033119, which is done. The stamp on every save is child 2026111702033137, Queued.
-
-- Format versions: write the stamp on every save
-	- ID: 2026111702033137
-	- Type: Feature
-	- Status: Queued
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261117-020331
-	- Opened by: me
-	- Parent ID: 2026111018212702
-	- Prereq IDs: 2026111702033119
-	- Requirements: every save and every text call that saves writes `## SHCL format 3.0`, or rewrites the stamp there, in all 4 and the C++ interface. The info block's row becomes `##    Format   3.0`. A stamp naming a newer minor of this major is refused for saves, as `TooNew` is.
-	- Estimated effort: Avg
-	- Note: `set_banner` and its `banner_spans` find a Format line by `FORMAT_LINE_HEAD` only, so they don't yet see a `## SHCL format` stamp. The Format read gives the major only, so a newer minor needs the minor from it too.
-	- Note: split for its time cap. The newer-minor refusal is child 2026111708125354, which is done. The info block's `3.0` row and the banner calls seeing the stamp are child 2026111708125373, which is done. The stamp on every save is child 2026111708130702, with its Go, Python, C and C++ part in 2026111709431277, both done.
-
 - Format versions: find an unstamped file's format, and convert any older one
 	- ID: 2026111018212703
 	- Type: Feature
@@ -459,214 +91,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `from` and `--from=FORMAT` replace `from_v2` and `--from-2x`.
 		- Each published format and pin round-trips against its own tag's CLI in a gate.
 	- Estimated effort: High
-
-- A program that migrates in memory, or saves through text, gets none of the save's guards
-	- ID: 2026111016205704
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261110-162057
-	- Opened by: gitniblet and slodworld2 feedback
-	- Parent ID: 2026111018212700
-	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
-	- Problem description: a program whose files might be old reads the text, runs `migrate_unstamped`, then `parse`, so the document isn't tied to its path. Its save then doesn't get a changed check, a lost-content gate, a newer-format refusal, an atomic rename, or `mode`. gitniblet saves with `to_text_keep_lines` and its own `O_TRUNC` open for that reason. `parse_keep_lines("a: 1\n##    Format   4\n", Standard)`, then `set_int("a", 2)`, gives Ok, and `to_text_keep_lines()` gives the text and true, so gitniblet writes over a file a newer gitniblet wrote. `upgrade_file` is the only call that knows migration, and it rewrites the file at start.
-	- Requirements:
-		- Add a `load_file` option that migrates in memory and keeps the path, so a later save goes through every guard.
-		- A text call on a document naming a newer major refuses, as the save does with `TooNew`.
-		- Make the same change in all 4 and the C++ interface.
-	- Estimated effort: Avg
-	- Note: split in 2. The load option is 2026111708542849, and the text call's refusal is 2026111708542868.
-
-- Format versions: the line-keeping text call gives a newer format's text with no refusal
-	- ID: 2026111708542868
-	- Type: Enhancement
-	- Status: Closed
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261117-085428
-	- Opened by: 2026111016205704
-	- Parent ID: 2026111016205704
-	- Requirements: the parent's second requirement, in all 4 and the C++ interface. A text call on a document naming a newer format refuses, as the save does with TooNew.
-	- Estimated effort: Avg
-	- Actual effort: Avg
-	- Decisions:
-		- me, 20261118: the refusal is the save's own newer-format kind with an empty path, so a program that saves through the text catches it as it catches the save's. Rust gives `Result<(String, bool), SaveError>` and `Err(SaveError::TooNew { path: "" })`, Go adds an `error` (`*SaveTooNew`, empty `Path`), Python raises `SaveTooNew("")`, C returns `shcl_save_result` with the text in a new out-parameter, and C++ gives `std::tuple<SaveResult, std::string, bool>`. With no path, the message starts at "refusing to save".
-		- me, 20261118: only the line-keeping text call refuses. `to_canonical` still gives the text, since `fmt` to stdout prints a newer file and writes nothing.
-		- me, 20261118: C's signature changes, rather than signalling through `*kept` or a NULL text, since `kept` may be NULL, and a caller that missed a NULL text would write an empty file. `shcl_save_result` and C++ `SaveResult` move outside the `SHCL_NO_FILE_IO` guard for it.
-		- me, 20261118: the CLIs keep their own newer-format check first, with its wording. The text call's refusal behind it exits 7 too, and C's `set` print uses the refusal as that check.
-		- me, 20261118: split in 2 at first, then both halves fit the time cap, so the 2 children were dropped before commit.
-		- 20261118: asserts updated for the refusal. The rows of `a_save_names_this_format` (Rust `dfe62`, Go `dfe63`, Python `dfe64`, C `dfe65`, veneer `dfe66`) that name a newer format expected the kept text, and now expect the refusal. Their canonical asserts stay. The no-edit corpus checks (`dd3t8` and its twins) expect the refusal for `204-format-newer-hint`, and the fuzz properties check a newer document's refusal and skip it. Nothing else they check changed.
-	- Actual fix: `to_text_keep_lines` (each binding's spelling) refuses when the document's newer flag is set, before any text is built, in all 4. The save calls an internal `keep_lines_stamped` (Go `keepLinesStamped`, Python `_keep_lines_stamped`), since it refuses first anyway. C's `shcl_to_text_keep_lines(d, &text, &kept)` returns `SHCL_SAVE_OK` or `SHCL_SAVE_TOO_NEW`, and the C++ interface wraps it. The 4 CLIs map the refusal to exit 7. spec.md, design.md and the changelog say so.
-	- Swept: every caller in all 4 and the C++ interface: the libraries' saves, the 4 CLIs (`write_back` and `set`'s print), Rust's lib tests, conformance and fuzz_smoke, Go's module tests, Python's runner, C's runner, `oom_recover` and the veneer smoke. No other test program, cicd script or doc example calls it (`git grep`).
-	- Verified: the 4 conformance suites, the veneer smoke, `oom_recover`, cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), check-docs, check-veneer, `test-ids.py check`, clippy with `-D warnings`, rustfmt, gofmt, go vet, staticcheck, ruff, mypy, the C library built with `SHCL_NO_FILE_IO`, and `cicd.bash --backlog-run-quick rust go python c cli`. With the refusal taken out, the new test fails in Rust, Go and C, and Python's runner stops at its first newer-format check. The new tests in Rust, Go, C and C++ don't compile against the old signature.
-	- Test case: `a_newer_format_document_gives_no_text` in Rust (`dffvy`), Python (`dffvz`), Go `TestANewerFormatDocumentGivesNoText` (`dffw0`), the C runner (`dffw1`) and the veneer smoke (`dffw2`).
-	- Branch: `nov18-2026111708542868`
-	- Acceptance signoff: Self-closed: cppcheck and analyze-c passed, and codeql-scan's one red is older.
-	- Closed: 20261118-163127
-	- Closed reason: Done
-	- Verified 20261118 on nov18: the cppcheck line from `LINT_EXTRA` gave no findings, and analyze-c.bash passed, `de2wz` to `de2x4`, with `2b0d2957`'s suppression in.
-	- Verified 20261118 on nov18: codeql-scan.bash passed every check but `de5aj`, whose finding in the Python CLI is older than the round (2026111709183317).
-
-- A save can't choose whether to add the info block
-	- ID: 2026111016205705
-	- Type: Enhancement
-	- Status: Closed
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261110-162057
-	- Opened by: gitniblet, slodworld1 and slodworld2 feedback
-	- Parent ID: 2026111018212700
-	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
-	- Problem description: a library save never writes a Format line, and `format_version` on the saved file is none, the same as a 2.x file. A program that follows the `format_version` doc then sends its own files through migrate, where with `from_v2` a quoted `\\` comes back as one backslash. `set_banner` is the only way to stamp, and it writes the whole info block with the Home, Syntax and Legal lines. That puts shcl's copyright and MIT line in an app's user files, and a Syntax link to `v3.0.0-beta1` for good. So gitniblet writes `##    Format   3` by hand on a fresh file and gets the full block on an upgraded one.
-	- Requirements:
-		- Every save writes the stamp, per 2026111018212700. What's left here is a `SaveOptions` choice to add the info block or not, in all 4 and the C++ interface.
-		- `upgrade` and `upgrade_file` take the same choice.
-	- Note: the standing rule that only `init` and a creating `set --write` add the info block isn't touched. This is opt-in, and the Format line alone isn't the block.
-	- Estimated effort: Avg
-	- Actual effort: Avg
-	- Note: split for its time cap. The `upgrade` half is child 2026111814503025, done in the same job and waiting on the same checks.
-	- Decisions:
-		- me, 20261118: the choice is `banner` in `SaveOptions` (each binding's spelling), off by default, so the block stays opt-in.
-		- me, 20261118: with it, the save gives the document the block first, as `set_banner(true)` does, and the document keeps it, so a later save without the option writes it again. Adding the block to the written text only would let the next plain save take it off. A refused save still leaves the block on the document, so a retry with `force` writes the same text. The newer-format refusal comes first and leaves the document alone. Filed as a `Check:` in questions.md.
-	- Actual fix: `banner` in `SaveOptions`, and `save_file_with` (each binding's spelling) calls `set_banner(true)` first when it's set, in Rust, Go, Python, C and the C++ interface. `set_banner`'s doc comments name the option, and spec.md, design.md and the changelog say so.
-	- Swept: the 4 bindings' and the veneer's options and save calls. Each newer-format test that sets every option (Rust `all`, Go, Python `nall`, C `all`, veneer `all`) sets `banner` too. The CLIs' saves don't set it, so their output is unchanged.
-	- Test case: `a_save_can_add_the_info_block` (Rust `dffwt`, Go `dffwv`, Python `dffww`, C `dffwx`, veneer `dffwy`), and the child's.
-	- Verified: `dffwt` fails in Rust with the option's call stubbed out and passes with it. With both halves in, `--backlog-run-quick rust python` and `--backlog-run-quick go c`, cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), check-docs, check-veneer, `test-ids.py check`, rustfmt, gofmt and `lint-report.bash --check --no-mark` passed. analyze-c didn't finish inside 4 minutes, so it waits with cppcheck.
-	- Branch: `nov18-2026111016205705`
-	- Commit: `7f1d9f0f`
-	- Acceptance signoff: Self-closed: cppcheck and analyze-c passed.
-	- Closed: 20261118-163127
-	- Closed reason: Done
-	- Verified 20261118 on nov18: the cppcheck line from `LINT_EXTRA` gave no findings, and analyze-c.bash passed, `de2wz` to `de2x4`, with `2b0d2957`'s suppression in.
-
-- upgrade and upgrade_file always write the info block, with no choice to leave it off
-	- ID: 2026111814503025
-	- Type: Enhancement
-	- Status: Closed
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261118-145030
-	- Opened by: me, split from 2026111016205705
-	- Parent ID: 2026111016205705
-	- Requirements: `upgrade` and `upgrade_file` take the info block choice `SaveOptions` has, in all 4 and the C++ interface, and the 4 CLIs pass it.
-	- Estimated effort: Avg
-	- Actual effort: Avg
-	- Decisions:
-		- me, 20261118: a `banner` argument after `from_v2`, with no default, in all 4 and the C++ interface, so each caller says which it wants. An options struct is more than 2 flags need.
-		- me, 20261118: off, an old info block comes off as `set_banner(false)` takes it, 2.x's `#` one included, and the text ends with the stamp a save writes. The old block's Legal and Syntax lines name another release, which the parent's reporters didn't want in their files.
-		- me, 20261118: the 4 CLIs' `shcl upgrade` pass it on, so the command still writes the block. A flag for it waits for someone to ask.
-		- me, 20261118: every existing test passes it on, since each checks the block. Filed as a `Check:` in questions.md.
-	- Actual fix: `upgrade` and `upgrade_file` (each binding's spelling) take `banner`, hand it to the banner swap, and without it build the text through the stamped canonical and line-keeping calls, in Rust, Go, Python, C and the C++ interface. spec.md, design.md and the changelog say so.
-	- Swept: every call of `upgrade` and `upgrade_file` in the 4 bindings, their tests, the fuzz, the veneer and the 4 CLIs, 194 calls, each built or run after. Doc mentions in spec.md and design.md. The v4 design doc's API sketch is left as a sketch. `private/claude_simple/tools/banner-diff.py` passes the argument when the module takes it.
-	- Test case: `upgrade_can_leave_the_info_block_off` (Rust `dffxa`, Go `dffxb`, Python `dffxc`, C `dffxd`, veneer `dffxe`).
-	- Verified: `dffxa` fails in Rust with the choice ignored and passes with it. banner-diff.py found Python's `upgrade(text, v2, True)` the same as HEAD's `upgrade(text, v2)` over 300 inputs. The parent's gates passed on this tree.
-	- Branch: `nov18-2026111016205705`
-	- Commit: `c8bc0e9f`
-	- Acceptance signoff: Self-closed: cppcheck and analyze-c passed.
-	- Closed: 20261118-163127
-	- Closed reason: Done
-	- Verified 20261118 on nov18: the cppcheck line from `LINT_EXTRA` gave no findings, and analyze-c.bash passed, `de2wz` to `de2x4`, with `2b0d2957`'s suppression in.
-
-- Fuzz `dd16k` fails at iteration 571195 at 2,000,000: `set_banner` on a document and on its reload give different text after a clear, a merge and a literal
-	- ID: 2026111809400000
-	- Type: Bug
-	- Status: Closed
-	- Severity: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261118-094000
-	- Opened by: me, the 2M fuzz for 2026111623445822
-	- Version and build: `fz16k` at `e62c2fc2`
-	- Steps to reproduce: `SHCL_FUZZ_ITERS=2000000 cargo test --release --test fuzz_smoke edits_and_merges_match_a_reload`. The base is the info block corpus input with blocks after fields, then `clear_comments` at `a`, a merge, `set_literal` at `e`, and `set_banner(true)`.
-	- Incorrect behavior: the banner step gives different canonical text on the document and on the reload of its canonical text.
-	- Expected behavior: the same text.
-	- Reproduced: 20261118, Rust. It was hidden behind the failure at 124450 (2026111623445822), and the kept line refile from that fix never runs in this iteration.
-	- Note: the log's step at `e` is `set_empty`, not `set_literal`. `set_banner(true)` alone on the base gives the same difference.
-	- Actual cause: the save rewrites the Format line it reads to name `3.0`, but the document keeps the old line, and `banner on` judged the document's line, so it saw something other than a reload of the save. It showed 2 ways.
-		- An old block under a field, among lines indented below it that no field takes, was in a lead list `banner on` didn't look in. It stayed, with `Format 2` in the document and `3.0` on the reload, and once the new block named the format the save no longer rewrote it.
-		- A beta1 block at the end read as old in the document and as current on the reload, so one replaced it and the other kept it, with the author's line inside or above. The fuzz reached this at iteration 952411 once the first was fixed.
-	- Estimated effort: Avg
-	- Actual effort: Avg
-	- Decisions:
-		- me, 20261118: lines indented under a field are after the first field, so a block there comes off, as corpus `161-banner-moved` says of blocks after the first field. The banner calls look in each node's inside lines (`Spot::Inside`, each binding's spelling).
-		- me, 20261118: `banner on` first gives the document the one Format line or stamp the save would rewrite (`restamp_leads`, each binding's spelling). It finds the line by trying each Format line and stamp until the canonical text matches the stamped one, since nothing maps a canonical line back to its lead. It runs only for `banner on`, and only when the document holds a Format line or stamp that doesn't name `3.0`.
-		- me, 20261118: so a beta1 block at the end whose Format line the save rewrites stays with `banner on`, author's lines in it, and the count is 0. The changelog said `banner on` replaces such a block, and now says when it doesn't. Filed as a `Check:` in questions.md.
-	- Actual fix: `restamp_leads` and the inside lines in `swap_banner`, in Rust, Go, Python and C, with their `set_banner` doc comments, design.md and the changelog. The C++ interface wraps `shcl_set_banner`, so it follows.
-	- Swept: every `take_banners` call in `swap_banner` in all 4 now covers leading, trailing, opening and inside lines and the footer. `among` and `notes` hold only kept lines and item comments, which no Format line can be. The top rewrite and `current_footer` are the only readers of a Format line's text there. `upgrade` goes through `swap_banner`, so it gets both. No other setter reads the Format line.
-	- Test case: `banner_on_agrees_with_a_reload` (Rust `dffsw`, Go `dffsx`, Python `dffsy`, C `dffsz`), and fuzz `dd16k`.
-	- Verified: the new test fails in all 4 on the unfixed library and passes on the fix. Its beta1 row fails in Python with `restamp_leads` stubbed out. `dd16k` passed at 2,000,000 in release. `--backlog-run-quick rust go python c`, cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), `test-ids.py check` and `lint-report.bash --check --no-mark` passed.
-	- Branch: `nov18-2026111809400000`
-	- Commit: `96e18da5`
-	- Acceptance signoff: Self-closed: the 2M release fuzz, cppcheck and analyze-c passed.
-	- Closed: 20261118-163127
-	- Closed reason: Done
-	- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
-	- Verified 20261118 on nov18: the cppcheck line from `LINT_EXTRA` gave no findings, and analyze-c.bash passed, `de2wz` to `de2x4`, with `2b0d2957`'s suppression in.
-
-- Fuzz `dd3t9` fails at iteration 249474 at 2,000,000: the line-keeping save of a file whose info block names a newer format reloads as a stamped document
-	- ID: 2026111809400100
-	- Type: Bug
-	- Status: Closed
-	- Severity: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261118-094001
-	- Opened by: me, the 2M fuzz for 2026111623445822
-	- Version and build: dev at `1d67552e`
-	- Steps to reproduce: `SHCL_FUZZ_ITERS=2000000 cargo test --release --test fuzz_smoke keeping_lines_reloads_as_the_document`. The base is a mutated corpus input with a raw body holding `##    Format   .2` and a footer block with `##    Format   4`.
-	- Incorrect behavior: the document reads as a newer format and writes no stamp, but a reload of its line-keeping save writes `## SHCL format 3.0`, so the reload doesn't see the newer format.
-	- Expected behavior: the reload reads the same format as the document.
-	- Reproduced: 20261118, Rust, on dev with its own library, at the same iteration. Likely from nov17b's stamp work, since dd3t9 passed at 2M before it.
-	- Estimated effort: Avg
-	- Actual effort: Avg
-	- Note: still failed the same way on nov18 with 2026111809400000's fix in.
-	- Actual cause: the footer's line is `\r##    Format   4`, with a carriage return before it. The parser takes a carriage return after the indent as a blank, so the comment, and the canonical form, read `##    Format   4`. The Format read took only spaces and tabs as indent, so it found no Format line in the file. So the canonical form named format 4 and went without a stamp, while the load saw no newer format and the line-keeping save added one. The read missed the line before the stamp work too; the stamp made the 2 disagree. A Schema line read the same way.
-	- Decisions:
-		- me, 20261118: the Format and Schema reads skip the blanks after the indent, as the parser does for a comment, rather than the canonical form keeping the carriage return, since spec.md says a carriage return is never indent and is trimmed at a comment's edge. A save that rewrites such a line keeps the carriage return, so only the format on it changes.
-	- Actual fix: the line walk the Format and Schema reads share (`RawLines::step`, each binding's spelling) gives a line's text past its indent and the blanks after it, and `restamp_as` keeps that whole run, in Rust, Go, Python and C. The C++ interface wraps C, so it follows. The changelog's Fixed says so.
-	- Swept: every caller of the line walk in all 4. The Format read and the Schema read take its text, and both are fixed. `migrate`'s check for runs read 2 ways uses only whether a line is in a block. Where blocks open is unchanged, since the fence step still sees the text it saw before. The tree-side Format line checks (`banner_own`, `restamp_leads`, the merge's `repeat_line`, `current_footer`) read comment text the parser already trimmed, and `stamped`'s head check trims too. `migrate` and `upgrade` rewrite the line through `restamp_as`, so they keep the carriage return too.
-	- Test case: new rows in `stamp_reads_say_why` (Rust `ddqh8`, Go `ddqh9`, Python `ddqha`, C `ddqhb`) and `a_save_names_this_format` (Rust `dfe62`, Go `dfe63`, Python `dfe64`, C `dfe65`), and fuzz `dd3t9`.
-	- Verified: the new rows fail in all 4 on the unfixed library and pass on the fix. The kept carriage return row fails in Python with only the line walk fixed. `dd3t9` passed at 600,000 iterations in release, past 249474. `--backlog-run-quick rust python` and `--backlog-run-quick go c`, cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), rustfmt, gofmt and `lint-report.bash --check --no-mark` passed. codeql-scan passed but `de5aj`, whose finding in the Python CLI is older than the round (2026111709183317).
-	- Branch: `nov18-2026111809400100`
-	- Commit: `3eb195be`
-	- Acceptance signoff: Self-closed: the 2M release fuzz, cppcheck and analyze-c passed.
-	- Closed: 20261118-163127
-	- Closed reason: Done
-	- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
-	- Verified 20261118 on nov18: the cppcheck line from `LINT_EXTRA` gave no findings, and analyze-c.bash passed, `de2wz` to `de2x4`, with `2b0d2957`'s suppression in.
-
-- A deeper comment a blank sets off above a kept line that ends a block is written one level in by `fmt` and at the block's level after an edit
-	- ID: 2026111702420992
-	- Type: Bug
-	- Status: Closed
-	- Severity: Avg
-	- Target version: v3.0.0
-	- Opened: 20261117-024209
-	- Opened by: me, the sweep of 2026111111560900
-	- Parent ID: 2026111111560900
-	- Related IDs: 2026110712372276
-	- Steps to reproduce: `printf 'a:\n\t# c0\n\n\t\t# c2\n\tb: [3\n' | shcl fmt -`, then the same through `printf 'int\ta.z\t7\n' | shcl set`.
-	- Incorrect behavior: `fmt` writes `\t\t# c2`. After the edit it is `\t# c2`, at the block's level, in the canonical form and the line-keeping save.
-	- Expected behavior: `\t# c2` in both, as 2026111111560900 does for the top level.
-	- Reproduced: 20261117, Rust CLI.
-	- Possible cause: the parse files a block's last pending lines through `hang_deeper_pending` with one comment chain, and the setter's `new_child` splits them at the blank through `set_off`. The top-level fix starts the chain again at that cut.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Reproduced: 20261118, Rust CLI on nov18 at `90864db9`, the same output. Through `set`, the line-keeping save wrote `\t# c2`.
-	- Actual cause: the footer is restepped from the `set_off` cut on every settle, but a block's last lines aren't. The parse gives them one comment chain across the blank, so `# c2` nests under `# c0` until a new child takes them and its settle resteps them.
-	- Actual fix: in all 4 bindings, `settle_block` ends with `settle_tail`, which resteps the block's lines after its last field from that cut through `restep_set_off`, as `settle_first_blank` does for the footer. Those are the block's inside lines with no child, else its last child's trailing lines from the first one at that child's level. design.md's comment-run bullet and the changelog say so.
-	- Decisions:
-		- me, 20261118: the save that keeps lines leaves `\t\t# c2` as written after the edit, since the edit no longer moves it. That is what row `2026111111560900-2` keeps at the top level. The canonical form writes `\t# c2` on a load and after the edit.
-		- me, 20261118: the restep goes in `settle_block`, which the load runs on every block and a merge, a new child and the writer's fold run where they change a child list, rather than in the parse. The parent's send-back found a parse-time reset of the chain left setters and merges on the old depth.
-	- Swept: the other list that ends a run with no binding line after it is the footer, already restepped in `settle_first_blank`. `give_set_off` splits at the same cut when a binding line follows. `settle_block` is the one settle in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`, and C's early return for a block with no children runs `settle_tail` too.
-	- Test case: placement rows `2026111702420992-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C).
-	- Verified: the 3 rows fail on the unfixed library in Rust (fix commented out), Go and Python (`placement-watch.py`), and pass in all 4 now. The whole Rust suite, Go in both modules, the C and Python conformance runners, all of fuzz_smoke at 200,000 in release (`dd16k`, `dd3t9`, `dderx`, `df50j` included), cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), `--backlog-run-quick rust go python c`, check-docs, clang and gcc-15 at `-Werror` on `main.c`, and `lint-report.bash --check --no-mark`. analyze-c.bash didn't finish within 4 minutes.
-	- Branch: `nov18-2026111702420992`
-	- Commit: `bde3f842`
-	- Acceptance signoff: Self-closed: the 2M release fuzz, cppcheck and analyze-c passed.
-	- Closed: 20261118-163127
-	- Closed reason: Done
-	- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
-	- Verified 20261118 on nov18: the cppcheck line from `LINT_EXTRA` gave no findings, and analyze-c.bash passed, `de2wz` to `de2x4`, with `2b0d2957`'s suppression in.
 
 - A remove that takes a field opened from a kept line moves a kept line's comments down with a misplaced line
 	- ID: 2026111109022600
@@ -896,6 +320,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Add a read that gives every value across repeats and arrays, in file order.
 		- The `_or` doc says a repeat gives the default, and points to that read.
 	- Estimated effort: Avg
+
+- The C++ veneer smoke doesn't build with SHCL_NO_FILE_IO
+	- ID: 2026111814490325
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261118-144903
+	- Opened by:
+	- Progress log:
+		- veneer_smoke.cpp declares a_save_names_this_format inside the file I/O guard but calls it outside it, so a -DSHCL_NO_FILE_IO build fails to compile. No gate builds that combination. Found in round nov18 while working 2026111708542868.
 
 - shell-regress de1a8 and dc0b5 fail on dev
 	- ID: 2026111711415580
@@ -1649,6 +1083,587 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- spec.md and the `upgrade` docs say 2.x includes 1.x, and that a 1.x file's backup is named `format-v2`.
 		- The next changelog's upgrading notes say C's `SHCL_SET_OK` is 0, so old code testing a setter `!= 0` reads every success as a failure, and that a string read of an array gives its bracket text. The released beta1 section stays as it is.
 	- Estimated effort: Low
+
+- A remove drops the blank line above its target, so the gap between 2 groups closes
+	- ID: 2026111623191917
+	- Type: Enhancement
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261116-231919
+	- Opened by: split from 2026110712372281
+	- Parent ID: 2026110712372281
+	- Problem description: `x`, a blank, `y`, `z`, minus `y`, gives `x`, `z`. The remove takes its comment lines, per spec.md, and the blank goes with them. A dotted pair with a blank above it loses the blank the same way (2026110613470312).
+	- Requirements: the remove hands its blank to the line that now follows in the file, in all 4 bindings. spec.md Remove says so. Placement rows for the `x`, blank, `y`, `z` remove and the dotted pair with a blank above it.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Progress log:
+		- 20261116, all 4 bindings: the remove's rebuild hands the blank above what it took (`hand_blank`) to the first kept line it left under the target, else the next sibling (`set_blank`), else the first of the parent's trailing lines or the footer (`blank_below`). The save that keeps lines keeps the blank lines above a dotted line whose last name went, where it used to cut them. spec.md's Remove, design.md's "Kept lines under edits", and the changelog say so. The placement property in `fuzz_smoke.rs` lets the line after a removed target gain its blank.
+		- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
+	- Decisions:
+		- me, 20261116: past the parent's trailing lines the blank goes, as design.md's fallback reads, so a block's last field doesn't hand its blank to the next field outside the block, and row `2026110712372276-7` stays as it was. Handing it to the next line in the file was the other option. Filed as a `Check:` in questions.md.
+		- me, 20261116: a repeated header's blank still goes with the header when its last line is removed, as design.md's kept-lines bullet says, since it isn't the removed field's own blank.
+		- me, 20261116: the setter's folds still drop the blank of the instance that folds, which is 2026111623191935's, along with `adopt`. This item only changes the remove.
+	- Swept: the remove's rebuild is the one place a remove drops a node's lines in all 4: `try_remove` in Rust, `TryRemove` in Go, `try_remove` in Python, `shcl_try_remove` in C. The opened-by-kept path moves the field's lines whole, with its blank on its kept line. The keep-lines cut was in `keep_lines_as` in Rust, `keepLinesAs` in Go, `_keep_lines_as` in Python, and `keep_lines` in C. `collapse_dup` and `fold_dups_below` call `beside_kept` too, unchanged on purpose.
+	- Test case: placement rows `2026111623191917-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dd3t9`, `dderx`.
+	- Verified: the 3 rows fail on the library at `813dfecf` in all 4 (Rust and Go runners, C runner, `placement-watch.py` for Python) and pass on the change. The 4 conformance suites, the whole Rust suite, the Go tests in both modules, the 200,000-iteration release fuzz apart from `dd16k` (2026111623445822, which fails the same way at `813dfecf`), cli-regress (671 rows), crosscheck with a 2000-iteration dump (55461 comparisons), perf-gate, check-docs, rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, gcc and clang at `-Werror`, and markdownlint. analyze-c found 2 things in C's `hand_blank`, a null dereference it couldn't rule out and swappable parameters, both fixed, and the pinned clang analyzer passes on `main.c`. Its other 2 reds are older (2026111623502776).
+	- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
+	- Branch: `nov17-2026110712372281`
+	- Prereq IDs: 2026111809400000, 2026111809400100
+	- Acceptance signoff: Self-closed: its Needs row, the 2M release fuzz, passed.
+	- Closed: 20261118-163127
+	- Closed reason: Done
+
+- The remove and the setter folds hand their lines on through `adopt`
+	- ID: 2026111623191935
+	- Type: Enhancement
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261116-231919
+	- Opened by: split from 2026110712372281
+	- Parent ID: 2026110712372281
+	- Problem description: the remove, `collapse_dup` and `fold_dups_below` move the lines a node leaves with `beside_kept`, `leave_above`, `leave_last` and `leave_below` rather than `adopt`.
+	- Requirements: those callers go through `adopt`, with its fallback of the heir, else the next sibling, else the parent's trailing lines, in all 4. The kept-line rules stay as they are. The old helpers go in the same commit, once the placement table and fuzz property pass with both in place.
+	- Note: `refile_folded` calls `leave_above` and `leave_last` too, so they turn into `adopt`'s fallback here rather than going, and 2026111623192782 takes the last of them. The remove's blank handover from 2026111623191917 (`hand_blank`, `set_blank`, `blank_below`) joins `adopt` too. `adopt` places lines after the heir's comments for what takes the node's place, and before them for a next sibling, since a kept line beside a removed node stays above that sibling's comments.
+	- Estimated effort: High
+	- Actual effort: Avg
+	- Progress log:
+		- 20261117, all 4 bindings: `adopt` takes who gets the lines, as what takes the node's place, the next sibling, or the parent, and the blank owed, and does the placement each old helper did. The remove's rebuild and its opened-by-kept path, `collapse_dup`, `fold_dups_below`, and `refile_folded`'s 2 placement calls go through it. A setter's fold now hands the blank above the instance that folds to the next line, as a remove does. design.md's fold bullet and "Where the code still differs", spec.md's fold sentence, and the changelog say so.
+		- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
+		- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
+	- Decisions:
+		- me, 20261117: the 3 kinds of heir are an enum in Rust (`Heir`), a struct with a kind in Go (`heir`), a tuple in Python, and `ShclHeir` in C. A list's settle runs outside a document, so the heir branch is `adopt_heir`, which `unstack` calls and `adopt` calls for that kind.
+		- me, 20261117: `hand_blank` joined `beside_kept`, since the blank a node owes comes off it with the lines it leaves. `set_blank`, `blank_below`, `leave_above`, `leave_last`, `leave_below`, and C's `leave_orphans` became `adopt`'s branches. `refile_folded` calls `adopt` too, so none of those names is left, and 2026111623192782 still has `refile_folded`, `folded_kept`, and `settle_first_blank`.
+		- me, 20261117: the blank of a setter's fold goes the remove's way, per 2026111623191917's call. It used to be dropped, or left between the 2 instances' comments. The load's fold still does that, filed as 2026111700365065.
+	- Swept: every call of the old helpers in all 4, in `lib.rs`, `shcl.go`, `shcl.py`, and `shcl.h`: the remove's rebuild and opened-by-kept path, `collapse_dup`, `fold_dups_below`, `refile_folded`, `unstack`, and the settle of kept lines among list items. A grep of `source/` for the retired names finds none.
+	- Test case: placement rows `2026111623191935-1` and `-2` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dd3t9`, `dderx`, `dd16k`.
+	- Verified: the 2 rows fail on the library at `87683db6` in Python and C, and row 1 through the Rust CLI, and pass on the change in all 4. The 4 conformance suites, the whole Rust suite, the Go tests in both modules, `--backlog-run-quick rust go python c`, cli-regress (671 rows), crosscheck with a 2000-iteration dump (55461 comparisons), the 200,000-iteration release fuzz apart from `dd16k` (2026111623445822, at the same iteration as before), rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, gcc, gcc 15 and clang at `-Werror`, lint-report, and markdownlint. analyze-c found swappable parameters on the new `heir_at` in C, now marked as the Rust twin's order. Its other reds are older: `set_off` from `1bbee68b`, and `fs_property.c` (2026111623502776).
+	- Branch: `nov17-2026111623191935`
+	- Prereq IDs: 2026111809400000, 2026111809400100
+	- Acceptance signoff: Self-closed: its Needs row, the 2M release fuzz, passed.
+	- Closed: 20261118-163127
+	- Closed reason: Done
+
+- The load's fold hands its lines on through `adopt`
+	- ID: 2026111623192782
+	- Type: Enhancement
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261116-231927
+	- Opened by: split from 2026110712372281
+	- Parent ID: 2026110712372281
+	- Prereq IDs: 2026111623191935, 2026111809400000, 2026111809400100
+	- Problem description: a fold at load moves the kept lines of the later instance with `refile_folded` and `folded_kept`, and fixes the first blank with `settle_first_blank`, rather than `adopt`.
+	- Requirements: the fold goes through `adopt` in all 4, with the same file-order placement `refile_folded` gives now. The old helpers go in the same commit, once the placement table and fuzz property pass with both in place. `settle_first_blank` also clears the blank at the top of the output for every edit, which moves no line, so this item decides whether that part stays under its own name.
+	- Estimated effort: High
+	- Related IDs: 2026111700365065
+	- Bug 2026111700365065 (the load's fold puts its blank among the comments) likely closes with this item, since it moves the load's fold onto adopt.
+	- Actual effort: Avg
+	- Progress log:
+		- 20261117, all 4 bindings: the load notes each fold and re-mention with its line and the blank above it, and `adopt_folded` hands on what the later line leaves through `adopt`. That's its lines up to the last kept line among them, the blank above it, and the blank above the comments written against it, which stay with the first instance. Placement is `place_folded`'s file order, as before. A re-mention no longer puts its blank on the first instance. `refile_folded`, `folded_kept` and `folded_span` are gone. design.md, spec.md's blank-line bullet, and the changelog say so.
+		- Golden changed: corpus `001-messy-cities` (`d9s1g`) and `013-comments` (`da4hk`), `expected.shcl`. Each loses the blank between the first instance's comments and the second's. In 001 no line comes after the second Chicago block, so the blank goes. In 013 it goes to `items:`, which has one. The conformance README's notes for both say so.
+		- This fixes Bug 2026111700365065: placement rows `2026111700365065-1` and `-2` are its 2 commands.
+		- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
+		- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
+	- Decisions:
+		- me, 20261117: `settle_first_blank` stays under its own name. It files the lines at the ends as a reload does and clears the blank where output starts, and it moves no line off a node that goes, so it isn't `adopt`'s work. The load runs it once, after the fold rather than before. The fold can hand a blank to the first field, and a kept line it hands to the end of the file has to go after the footer lines read before it.
+		- me, 20261117: the lines that move are the old span, from a node's first later line to the last kept line among them, so placement is as before. The blank of each fold goes to the heir of its own line.
+		- me, 20261117: an `E028` re-mention, whose lines move to a field of their own, takes its blank with them and clears it on its fold record.
+		- JC, 20261117: keep the blank between the 2 instances' comments unless that changes a meaning. me, 20261117: it does, since a reload then files the comments above the blank as the top of the file rather than the field's, so the fold's blank stays as built.
+	- Swept: the 2 load sites that note a fold, the field-line bind and `fold_dups_from`, and `array_under`'s re-mention branch, in `lib.rs`, `shcl.go`, `shcl.py`, and `shcl.h`. The setter's folds already go through `adopt`. A grep of the repo for the retired names finds only design.md's history sentence.
+	- Test case: placement rows `2026111700365065-1` to `-5` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), corpus `001-messy-cities` (`d9s1g`), `013-comments` (`da4hk`), `213-load-fold-keeps-kept-lines` (`devra`), perf-gate `reopens` (`df014`), `dd3t9`, `dderx`.
+	- Verified: the 5 rows fail on the library at `59074148` in all 4 runners and pass on the change, and the rest of the placement table passes on both. The 4 conformance suites, the whole Rust suite, the Go tests in both modules, `--backlog-run-quick rust go python c`, cli-regress (671 rows), crosscheck with a 2000-iteration dump (55461 comparisons), perf-gate, check-docs, the 200,000-iteration release fuzz apart from `dd16k` (2026111623445822, at the same iteration as before), rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, and gcc, gcc 15 and clang at `-Werror`. analyze-c's 2 reds are the older `set_off` and `fs_property.c` ones (2026111623502776).
+	- Branch: `nov17-2026111623192782`
+	- Acceptance signoff: Self-closed: its Needs row, the 2M release fuzz, passed.
+	- Closed: 20261118-163127
+	- Closed reason: Done
+
+- The banner toggle hands the author's lines on through `adopt`
+	- ID: 2026111623192800
+	- Type: Enhancement
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261116-231928
+	- Opened by: split from 2026110712372281
+	- Parent ID: 2026110712372281
+	- Prereq IDs: 2026111623191935, 2026111623192782, 2026111809400000, 2026111809400100
+	- Problem description: `drop_banners` moves the lines around the info block it takes off in its own code.
+	- Requirements: the lines it leaves go through `adopt` in all 4, with the author's lines kept where the block was (2026110613470302). Then a check-docs row greps the 4 bindings for the retired helper names, and design.md's "Where the code still differs" bullet loses its second half.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Progress log:
+		- 20261117, all 4 bindings: `banner_spans` finds the blocks in a lead list and moves nothing. `take_banners` takes each one out, from the end, and hands the author's lines and the blank to `adopt` with a new heir kind, `At`, for something that sat in a lead list. It puts them back where the block was, with the blank on the first of them, else on the line after, else on the node the list is above, as before. `drop_banners` is gone. check-docs `dfdpp` greps the 4 bindings for every retired mover. design.md's banner sub-bullet says so, and "Where the code still differs" is gone, since nothing differs now. No output changed, so no changelog entry.
+		- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
+		- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
+	- Decisions:
+		- me, 20261117: the info block isn't a node, so none of the 3 heir kinds puts its lines where the block was. `adopt` takes a fourth, the place in a lead list, named by a `Spot` (leading, trailing, opening lines, or the footer) and an index. It's `Heir::At` in Rust, `heirAt` with `spot` and `at` fields in Go, `(_HEIR_AT, node, spot, at)` in Python, and `HEIR_AT` with `spot` and `at` fields in C. Go's and C's other heir literals name their fields now.
+		- me, 20261117: the list is stepped (`restep`) once after all its blocks are off, not in each `adopt` call. A step with an earlier block still in the list could lower a line further than the old single pass did.
+		- me, 20261117: a current block at the end of the footer is split off before the footer goes through `adopt`, as before, so the blank of an old block above it isn't handed to it.
+	- Swept: every caller of the old `drop_banners`, `dropBanners` and `_drop_banners` in all 4, which is `swap_banner` only: trailing lines, opening lines, leading lines, the root's opening lines, and the footer. `adopt`'s blank step for what takes the place and the next sibling skips the new kind in all 4. A grep of `source/` for every retired mover finds none.
+	- Test case: check-docs `dfdpp`, corpus `149-banner`, `161-banner-moved`, `180-banner-first-child`, `190-banner-own-comments`, `217-banner-author-line` (`dez6b`), `218-banner-off-author-line` (`dez6c`), cli-regress `dez6e`, fuzz `de116`.
+	- Verified: `dfdpp` fails on an injected `_leave_above` and its grep finds the old names in all 4 files at `31714ad8`, and it passes on the change. A differential over 11,000 random files with info blocks, through `set_banner` on and off and `upgrade` with and without `from_v2`, gives the same results on the old and new Python library, and it catches a dropped blank. The 4 CLIs agree on `banner on`, `banner off` and `upgrade --from-2x` over 300 more. The 4 conformance suites, the Rust lib, upgrade and fuzz tests, the Go tests in both modules, `--backlog-run-quick rust go python c`, cli-regress (671 rows), crosscheck (23862 comparisons), check-docs, lint-report, the banner-touching fuzz properties at 200,000 in release apart from `dd16k` (2026111623445822, at the same iteration as before), rustfmt, clippy, gofmt, go vet, staticcheck, ruff, mypy, and gcc, gcc 15 and clang at `-Werror`. analyze-c's 2 reds are the older `set_off` and `fs_property.c` ones (2026111623502776).
+	- Branch: `nov17-2026111623192800`
+	- Acceptance signoff: Self-closed: its Needs row, the 2M release fuzz, passed.
+	- Closed: 20261118-163127
+	- Closed reason: Done
+
+- Format versions: write `##    Format   3.0` in the info block, and let the banner calls see a `## SHCL format` stamp
+	- ID: 2026111708125373
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-081253
+	- Opened by: me
+	- Parent ID: 2026111702033137
+	- Requirements: the info block's row is `##    Format   3.0` wherever the block is written, in all 4 and the C++ interface. `set_banner`, `banner_spans` and `swap_banner` find a `## SHCL format` stamp as they find a Format line.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Note: `FORMAT_LINE` changes every banner and every `migrate` stamp, so corpus outputs and cli-regress rows change with it. A changed corpus input shifts the fuzz seeds, so a 2M release fuzz and check-migrate go on the same commit.
+	- Decisions:
+		- me, 20261117: a stamp counts as one of the block's own lines in `banner_own`, as the `migrate` note does, since only shcl writes one. `take_banners` keeps every line that isn't the block's own, so a lone stamp would have stayed otherwise. So a stamp inside a block goes with it, and a stamp in a block at the end makes that block not current, so `banner on` replaces it. Where 2026111708130702 puts the stamp beside a block has to fit that.
+		- me, 20261117: a block kept at the top gets its stamp set to `## SHCL format 3.0`, as its Format line is set to `FORMAT_LINE`.
+		- me, 20261117: corpus `217-banner-author-line` tests a block that reads as the current one, so its input and `expected.shcl` name `3.0` now. With beta1's `3`, `banner on` would replace the block and the case would test something else.
+		- 20261117: asserts updated for the new `FORMAT_LINE`: `an_older_format_line_becomes_this_one_in_place` (`ddqrp`, `ddqrq`, `ddqrs` and Python's `upgrade_restamp`) and veneer_smoke's `FORMAT_LINE` and migrate checks went from `##    Format   3` to `##    Format   3.0`. So did the migrate, init and banner outputs in 35 corpus `expected-*` files and 29 cli-regress rows, plus the `infoBlock` that `ddf5t`, `ddf5v` and `dez6e` compare against. Nothing else they check changed.
+	- Actual fix: `FORMAT_LINE` and the `GEN_BANNER` row are `##    Format   3.0` in all 4. The C++ interface reads the C macros. `banner_spans` takes a lone stamp as it takes a lone Format line, `banner_own` counts a stamp as the block's, and `swap_banner` sets a kept top block's stamp to this format, in all 4. spec.md, design.md, examples.md, the format-versions doc and the changelog say so.
+	- Swept: `banner_spans`, `banner_own` and the kept-top rewrite in `swap_banner` in Rust, Go (`bannerSpans`, `bannerOwn`, `swapBanner`), Python and C. `current_footer` reads through `banner_own` and `GEN_BANNER`. `restamp` and `migrate_text` write `FORMAT_LINE`, so they follow it. No CLI writes the line itself. A grep of `source/`, spec.md and examples.md for `##    Format   3` finds only inputs and reads of beta1's line.
+	- Verified: the new test fails in all 4 with the stamp checks taken out and passes with them. `--backlog-run-quick rust python` and `--backlog-run-quick go c cli` passed, as did cli-regress (675 rows), the crosscheck over the corpus (23862 comparisons), check-migrate, check-docs, check-doc-examples, check-veneer, veneer_smoke, `test-ids.py check` and `lint-report.bash --check --no-mark`.
+	- Test case: `a_stamp_goes_where_a_format_line_goes` (Rust `dfe3m`, Go `dfe3n`, Python `dfe3p`, C `dfe3q`), and the corpus `expected-*` files and cli-regress rows above.
+	- Branch: `nov17b-2026111708125373`
+	- Acceptance signoff: Self-closed: its Needs row, the 2M release fuzz, passed.
+	- Closed: 20261118-163127
+	- Closed reason: Done
+	- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
+
+- Format versions: write the stamp on every save and every text call that saves
+	- ID: 2026111708130702
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-081307
+	- Opened by: me
+	- Parent ID: 2026111702033137
+	- Prereq IDs: 2026111708125373
+	- Requirements: every save and every text call that saves writes `## SHCL format 3.0` at the end, or rewrites the stamp there to name this format, in all 4 and the C++ interface. `fmt --check` and the write's nothing-to-write check agree with it.
+	- Estimated effort: High
+	- Decisions:
+		- me, 20261117: the stamp goes in through `to_canonical` and `to_text_keep_lines` (each binding's spelling), which every save and every save through text go through. So `fmt` to stdout, `set`'s print and `fmt --check` match `--write`, and every corpus `expected.shcl` gains the stamp. Stamping only in the file saves and the CLI writes would leave those 3 to add it on their own.
+		- JC, 20261117: through `to_canonical` and `to_text_keep_lines`, as built.
+		- me, 20261117, left to me by JC: the edge cases below stand as built. Writing `3.0` over a newer stamp would hide that the file is newer. A canonical fallback for an open raw block would rewrite a whole file the user asked to keep. Layer stamps piling up in a merge would name files that aren't the output.
+		- me, 20261117: a stamp naming a newer format is left as it is, so the next load still sees it, and a save of that document is refused anyway (`TooNew`). The text call's refusal is 2026111708542868.
+		- me, 20261117: beta1's `Format 3` and a pin such as `3.0-a37` are rewritten to name `3.0`, since the save writes by this format's rules. Only the line the format read picks is rewritten, and it keeps its head and indent.
+		- me, 20261117: a kept text that ends in a raw block left open goes without a stamp, as `migrate` does, rather than fall back to canonical. Appended, the line would be the block's content.
+		- me, 20261117: an added stamp line ends the way the save's new lines do, by the loaded text's majority.
+		- me, 20261117: a merge leaves a layer's `## SHCL format` lines at its top and end out, since they name the layer's file, and keeps the base's end stamp as its last line. Otherwise a merge over a saved file and over the same document differ, which `merge_never_panics_and_stays_fixpoint` and `edits_and_merges_match_a_reload` caught. A layer's stamp inside a node's own comments still rides with the node.
+		- me, 20261117: `upgrade` builds its text without the step, since its info block already carries the Format line.
+		- 20261117: asserts updated for the stamp, in Rust only so far: every one that compares a saved or canonical text gained `## SHCL format 3.0` at the end or a `with_stamp` wrap. `keeping_lines_without_edits_writes_the_input` (`dd3t8`) and the fuzz's no-edit property now allow only the stamp to differ. `a_format_line_at_the_top_goes_when_the_block_goes_on` (`ddy7s`) now expects `##    Format   3.0` after banner off, and `a_stamp_goes_where_a_format_line_goes` (`dfe3m`) expects the stamp back after banner off. The merge fixpoint compares with stamp numbers taken out, since a layer's canonical form rewrites its stamp. Nothing else they check changed.
+	- Note: a line-keeping save adds the stamp as a new last line, so an unedited file without one no longer comes back byte for byte. The fuzz gets a property that a saved file names this format and reloads the same (design doc, Testing).
+	- Progress log:
+		- 20261117: split for its time cap. The Rust step, the stamped corpus (`expected.shcl`, `-write`, `-keep`, `-merged`) and placement table, Rust's asserts and the new test are on `wip/nov17b-2026111708130702`. They can't merge alone, since the other 3 runners read the same corpus. Go, Python, C, the C++ interface, the cli-regress rows and the docs are child 2026111709431277.
+		- 20261117: on the wip branch, `cargo test`, clippy with `-D warnings` and rustfmt pass. Not run there: the other bindings, cli-regress, crosscheck, check-migrate and the 2M release fuzz.
+		- 20261117: child 2026111709431277 brought the Rust half onto `nov17b-2026111709431277` with the other bindings, cli-regress and the docs. It waits on the release fuzz, and so does this one. The demo gif rerender is child 2026111710564808, Stalled for the gif stage.
+		- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
+	- Test case: `a_save_names_this_format` (Rust `dfe62`; Go `dfe63`, Python `dfe64`, C `dfe65` and veneer `dfe66` with the child), plus the corpus files and the fuzz's no-edit save property in `keeping_lines_reloads_as_the_document`.
+	- Branch: `nov17b-2026111709431277` (the Rust half was `wip/nov17b-2026111708130702`)
+	- Acceptance signoff: Self-closed: its Needs row, the 2M release fuzz, passed.
+	- Closed: 20261118-163127
+	- Closed reason: Done
+
+- Format versions: write the stamp on every save in Go, Python, C and the C++ interface
+	- ID: 2026111709431277
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-094312
+	- Opened by: me
+	- Parent ID: 2026111708130702
+	- Requirements: the parent's stamp step, as Rust has it on `wip/nov17b-2026111708130702`, in Go, Python, C and the C++ interface, with their tests, the cli-regress rows, and spec.md, design.md, the format-versions doc and the changelog. Then the parent's work merges as one, since the corpus is shared.
+	- Estimated effort: High
+	- Note: start from `wip/nov17b-2026111708130702`. It has the Rust step (`stamped`, `canonical_text`, `keep_lines_text`, and the merge's stamp lines), the stamped corpus and placement table, Rust's updated asserts, and the new test `a_save_names_this_format` (`dfe62`). The fixture's other runners take `dfe63` (Go), `dfe64` (Python), `dfe65` (C) and `dfe66` (veneer smoke). `private/claude_simple/tools/stamp-expected.py` stamps saved-text fixtures by the same rule.
+	- Actual effort: High
+	- Decisions:
+		- me, 20261117: C adds the stamp in the emitter's own buffer when the canonical text has no Format or stamp line, without the read-back the other 3 do there, since `mem_bounds` holds a released `to_canonical` loop to no allocation, and the canonical form closes every raw block. A text with such a line goes through the whole step.
+		- me, 20261117: cli-regress `dcb0f` writes a fresh copy (`%BW%`) rather than the shared `%BA%`, since the stamp makes its `fmt --write` write the file, which left `dcq6n` nothing to migrate. `dcvgn`, `deky4` and `dcvgr` take an input that has the stamp, so they still test a canonical file.
+		- 20261117: asserts updated for the stamp in Go, Python, C, the C++ interface, cli-regress, crosscheck and check-abnf: every one that compares a saved or canonical text gained `## SHCL format 3.0` at the end, or a `withStamp`, `with_stamp` or `stamped_is` wrap. The no-edit save checks (`dd3w7` and its twins) allow only the stamp to differ. The kept-reload check in `edits_and_merges_match_a_reload` (`dd16m`, `dd16n`, `dc474`) drops a blank line kept above an added stamp, as Rust's fuzz does. `a_format_line_at_the_top_goes_when_the_block_goes_on` expects `##    Format   3.0` after banner off, and `a_stamp_goes_where_a_format_line_goes` expects the stamp back after banner off. 124 cli-regress rows, 3 crosscheck save-gate answers and the check-abnf bareword probe gained the stamp line. Nothing else they check changed.
+	- Actual fix: the stamp step (`stamped`, `names_this` and `restamp_as`, each binding's spelling) in Go, Python and C. `to_canonical` and `to_text_keep_lines` stamp, and the internal callers (`keep_source`, `keep_lines_as`, `upgrade_text`) use the unstamped `canonical_text` and `keep_lines_text`. A merge skips a layer's stamp and keeps the base's end stamp last. C saves through `canonical_stamped` and `keep_text_stamped`. The C++ interface wraps the C calls, so it follows. spec.md, design.md, the format-versions doc and the changelog say so.
+	- Swept: every internal caller of the canonical and line-keeping text calls and the save in Go, Python and C (`upgradeText`, `keepSource`, `keepLinesAs`, `SaveFileWith` and their twins; C's `upgrade_text`, `keep_source_in`, `keep_lines`, `keep_text`, `shcl_save_file_with`), and each merge's footer and top paths. Test programs: the Go module tests, Python's runner, soak and fs_property, C's runner, `mem_bounds`, `oom_hook`, `oom_recover`, `soak`, `fs_property` and the veneer smoke, plus cli-regress, crosscheck, check-doc-examples and check-abnf.
+	- Verified: the 4 conformance suites, the veneer smoke, `mem_bounds`, `oom_hook`, `oom_recover`, C's `soak` and `fs_property`, Python's soak and fs_property, cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), perf-gate, check-doc-examples, check-docs, check-abnf, check-veneer, `test-ids.py check`, `lint-report.bash --check --no-mark`, gofmt, go vet, staticcheck, ruff and mypy. The new test fails in Go and C with the stamp step taken out, and passes with it. Python's wasn't run that way.
+	- Note: shell-regress's crosscheck rows (`dd51b`, `de114` and the rest) pass, after the stub's save-gate answers and `de114`'s byte count gained the stamp line. `dcvej` (the demo gif) waits on child 2026111710564808. `de1a8`, `dc0b5` and `dcavz` fail for causes older than this item, and `dcavz` is 2026111710564830.
+	- Test case: `a_save_names_this_format` (Go `dfe63`, Python `dfe64`, C `dfe65`, veneer `dfe66`), plus the corpus files the 4 runners read and the cli-regress rows above.
+	- Branch: `nov17b-2026111709431277`
+	- Commit: `2109dde5` (the Rust half, picked from `ccbbe057`), `a495d6df`, `db105dcb`, `a3885051`, `10a1729a`
+	- Acceptance signoff: Self-closed: the 2M release fuzz, cppcheck and analyze-c passed, and codeql-scan's one red is older.
+	- Closed: 20261118-163127
+	- Closed reason: Done
+	- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
+	- Verified 20261118 on nov18: the cppcheck line from `LINT_EXTRA` gave no findings, and analyze-c.bash passed, `de2wz` to `de2x4`, with `2b0d2957`'s suppression in.
+	- Verified 20261118 on nov18: codeql-scan.bash passed every check but `de5aj`, whose finding in the Python CLI is older than the round (2026111709183317).
+
+- A load's fold of a second instance moves the blank line above it among the comments, or above the wrong field
+	- ID: 2026111700365065
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261117-003650
+	- Opened by: found while working 2026111623191935
+	- Related IDs: 2026111623192782, 2026111623191935
+	- Steps to reproduce: `printf 'q: 0\n\n# about x\nb: x\n\tp: 1\nc: 1\n\n# about y\nb: x\n\tq: 2\nd: 2\n' | shcl fmt -`, and `printf 'b: x\n\tk: 1\n\t\tm: 1\n\tc: 1\nb: x\n\td: 2\n\n\tk: 1\n\t\tn: 2\n\te: 3\n' | shcl fmt -`.
+	- Incorrect behavior: the first writes a blank between `# about x` and `# about y` above `b: x`, and none above `d: 2`. The second writes a blank above `k: 1` right under `b: x`, and none above `e: 3`. Same output in all 4 CLIs, at exit 0.
+	- Expected behavior: the blank above the instance that folds stays above the next line, `d: 2` and `e: 3` here, as a setter's fold now leaves it (2026111623191935).
+	- Reproduced: 20261117, all 4 CLIs on `nov17-2026111623191935`.
+	- Possible cause: the load's fold appends the second instance's leading lines to the first one's with their blank, and the instance's own blank is dropped. The setter's fold takes both off and hands them on through `adopt`. 2026111623192782 moves the load's fold onto `adopt` and may close this with it.
+	- Estimated effort: Avg
+	- Prereq IDs: 2026111623192782, 2026111809400000, 2026111809400100
+	- Test case: placement rows `2026111700365065-1` to `-5` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C).
+	- Fixed by 2026111623192782's commit, whose new placement rows -1 and -2 are this Bug's 2 commands. They failed on 59074148 in all 4 runners and pass after.
+	- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
+	- Acceptance signoff: Self-closed: its Needs row, the 2M release fuzz, passed.
+	- Closed: 20261118-163127
+	- Closed reason: Done
+	- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
+
+- A deeper comment above a top-level kept line is written one level in by `fmt` and at column 0 after any edit
+	- ID: 2026111111560900
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261111-115609
+	- Opened by: me, found while working 2026111012160121 in run b2bits
+	- Related IDs: 2026111012160121, 2026111109371400, 2026110712372276
+	- Version and build: b2bits at `f19d4f80`, with run b2bits' changes
+	- Steps to reproduce: `printf '# note 0\n\n    # note 2\n        b: [3\n' > f.shcl`, then `shcl fmt f.shcl`, and `printf 'int\tz0\t7\n' | shcl set f.shcl`.
+	- Incorrect behavior: `fmt` writes `# note 0`, a blank, `\t# note 2`, `b: [3`. Any edit, even one far from the comment, writes `# note 2` at column 0. `int z0 7` and `comment z0 added` both do, in the canonical form and in the line-keeping save, which keeps `        b: [3` as written. So the file has one canonical form unedited and another after an edit.
+	- Expected behavior: `# note 2` is written at column 0 in both, which is the kept line's column. The blank breaks the run, so `# note 2` is its run's first comment, and design.md says a run's first comment is written at the level of the place it ends up. No block is open at its column, so by spec.md's comment rule it belongs to the root.
+	- Reproduced: 20261111, the Rust, Go, and C CLIs, all with the same output.
+	- Estimated effort: Low
+	- Note: the placement property in `dderx` and `dd3t9` excuses this class with a check keyed by this ID. It was found at iteration 759783 of `dderx`'s 2M release run. `df50j` has the case. The fix takes the excuse out.
+	- Decisions:
+		- me, 20261111: the kept line's column is the right form, per design.md's "A comment no deeper than the place it ends up is written at that place's level, as before, which also keeps a run's first comment there", and spec.md's "Then it belongs to the block it's in".
+		- me, 20261117: the footer is restepped from the cut `set_off` gives over its lines up to the last kept line, wherever the footer is settled, the load included. That is the cut and the restep a new field's settle makes, so only the last blank above the first kept line starts a run, as on an edit. design.md's comment-run bullet says so.
+		- me, 20261117, send-back: a first try reset the parse's comment chain at that cut instead. Setters and merges still wrote the old depth, so `dc26d`, `dab72`, `dd16k` and `ddrnk` failed in the release fuzz, and a fresh chain could also nest a later comment differently from the restep. It was replaced.
+	- Reproduced: 20261117, Rust at `f0584691` on nov17, the same output as before. The line movers' move onto adopt didn't change it.
+	- Actual cause: with no binding line after them, the parse gave the top-level lines one comment chain, so `# note 2` nested under `# note 0` across the blank. A new field takes those lines and splits them at the blank, and the restep puts `# note 2` back at column 0.
+	- Actual fix: in all 4 bindings, `settle_first_blank` resteps the footer from that cut (`restep_set_off`). It runs at the end of the load and after every edit and merge that settles the ends. The excuse keyed by this ID is out of `placement_slips`, and `df50j` now expects column 0 on the load.
+	- Swept: the parse's other sites that hand pending lines on. `give_set_off` already splits at the same cut when a binding line follows. A block's inside lines through `hang_deeper_pending` have the same bug, filed as child 2026111702420992. A comment after the last kept line still moves under the new field and goes to column 0 there, which is `new_child`'s by design.
+	- Branch: nov17-2026111111560900-fix
+	- Test case: placement rows `2026111111560900-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `df50j`, `dd3t9`, `dderx`.
+	- Verified: the 3 placement rows fail on the C library at `f0584691` (canonical text for -1 and -3, kept text for -2) and pass in all 4 now. `df50j`, all of `fuzz_smoke` and the conformance suites in debug, the C and Python conformance runners, Go `go test -count=1`, cli-regress (671 rows) and crosscheck over the corpus (23862 comparisons), `dd3t9` and `dderx` at 1,000,000 in release, `--backlog-run-quick rust go python c`, and lint-report.
+		- After the send-back fix: all of `fuzz_smoke` at 200,000 in release fails only `dd16k` at 124446, as on `f0584691`. `ddrnk`, `dd3t9` and `dderx` pass 1,000,000 in release. The 4 conformance suites, Go's cmd module, cli-regress (671 rows), crosscheck over the corpus and a 2000-iteration dump (55461 comparisons, `ddesf` included), `--backlog-run-quick rust go python c`, and lint-report.
+	- Prereq IDs: 2026111809400000, 2026111809400100
+	- Verified 20261117 on nov17 after the footer fix: all of fuzz_smoke at 2,000,000 in release passed but dd16k (at 124446, 2026111623445822) and dc26d (at 1076243, 2026111703284678, which fails the same on 813dfecf). dd3t9, dderx and df50j passed. The cppcheck line from LINT_EXTRA ran clean with an empty log.
+	- Acceptance signoff: Self-closed: its Needs row, the 2M release fuzz, passed.
+	- Closed: 20261118-163127
+	- Closed reason: Done
+	- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
+
+- Removes, folds, merges, and the banner toggle hand lines on through `adopt`
+	- ID: 2026110712372281
+	- Type: Enhancement
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261107-123722
+	- Opened by: split from 2026110616475902
+	- Parent ID: 2026110616475902
+	- Prereq IDs: 2026110616475903, 2026110712372276
+	- Related IDs: 2026110712372271, 2026110613470302, 2026110613470312, 2026110312163204, 2026110315051536
+	- Problem description: `adopt` is in, and a replaced item list goes through it (2026110712372271). The other edits still move the lines around what they take away in their own code: the remove's own path, `beside_kept` with `leave_above` and `leave_last` for a merged duplicate, `refile_folded` and `settle_first_blank` for a fold at load, and `drop_banners` for the info block.
+	- Requirements:
+		- Each of them calls `adopt`, with the same call sites in all 4 bindings, per design.md's "Lines an edit takes from their node". The heir is what takes the node's place, else the next sibling, else the parent's trailing lines.
+		- The old helpers go in the same commit, once the placement suite 2026110616475903 passes with both in place. A grep for them then finds only `adopt`.
+		- The kept-line rules stay as they are: design.md's table for kept lines under edits, a misplaced line keeping its space indent, `E001` and `E008` lines as built.
+		- design.md's "Where the code still differs" bullet loses its second half.
+		- A remove takes the node's comment lines, per spec.md's Remove, and hands its blank line to the heir. So `x`, a blank, `y`, `z`, minus `y`, gives `x`, a blank, `z`, and 2026110613470312's dotted pair keeps the blank above it (me, 20261109, from that item's `Check:`). spec.md's Remove sentence says so, and a corpus golden that changes is named on this item.
+	- Regression test: 2026110616475903's property and table run against both the old helpers and `adopt` before the old ones go, and a check-docs row greps the 4 bindings for the retired helper names. The table gets the `x`, blank, `y`, `z` remove row and 2026110613470312's dotted pair with a blank above it.
+	- Estimated effort: High
+	- Progress log:
+		- 20261116: split in 4. The remove's blank is child 2026111623191917. The remove and the setter folds through `adopt` are 2026111623191935, the load's fold 2026111623192782, and the banner toggle with the check-docs row and the design.md bullet 2026111623192800.
+	- Test case: its children's: 2026111623191917: placement rows `2026111623191917-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dd3t9`, `dderx`.; 2026111623191935: placement rows `2026111623191935-1` and `-2` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dd3t9`, `dderx`, `dd16k`.; 2026111623192782: placement rows `2026111700365065-1` to `-5` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), corpus `001-messy-cities` (`d9s1g`), `013-comments` (`da4hk`), `213-load-fold-keeps-kept-lines` (`devra`), perf-gate `reopens` (`df014`), `dd3t9`, `dderx`.; 2026111623192800: check-docs `dfdpp`, corpus `149-banner`, `161-banner-moved`, `180-banner-first-child`, `190-banner-own-comments`, `217-banner-author-line` (`dez6b`), `218-banner-off-author-line` (`dez6c`), cli-regress `dez6e`, fuzz `de116`.
+	- Closed: 20261118-163355
+	- Closed reason: Done
+
+- One helper reattaches the lines around a node an edit takes away
+	- ID: 2026110616475902
+	- Type: Enhancement
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261106-164759
+	- Opened by: Code review 20261106 follow-up (JC)
+	- Related IDs: 2026110613470311, 2026110613470302, 2026110613470312, 2026100307163904, 2026100218185700, 2026092718195400, 2026110312163204, 2026110315051536
+	- Problem description: when an edit removes, replaces, folds or merges a node, the comments and blank lines around it are moved by that edit's own code: `unstack` for a replaced item list, `beside_kept` with `leave_above` and `leave_last` for a merged duplicate, `refile_folded` and `settle_first_blank` for a fold at load, `drop_banners` for the info block, and the remove's own path. Each one has its own code for where the lines around a node go when the node goes, and each has got the blank line wrong at least once. Code review 20261106 found one more (2026110613470311), and the setter and fold ones were 2026110312163204 and 2026110315051536 this month. Fixing the site at hand has closed one case per round since Code review 20260802.
+	- Requirements:
+		- Write the design in design.md first, with one ownership rule. Every comment line and blank line belongs to one node from the parse on, as its leading lines or its trailing lines, and the emitter writes a node's lines in one fixed order: the blank, the comments, the line, the children, the trailing lines. spec.md states the rule beside the SetComment rule.
+		- One function, say `adopt`, takes a node that is going away and gives its leading lines to the node that takes its place, else the next sibling, else the parent's trailing lines, with the blank staying above the comments. Removes, item list replaces, setter folds, load folds, merges and the banner toggle all call it. After the change no edit moves a comment or a blank any other way, and a grep for the old helpers finds only `adopt`.
+		- It has the same name and the same call sites in all 4 bindings. The old helpers go in the same commit, once the placement suite 2026110616475903 passes with both in place.
+		- The kept-line rules stay as they are: design.md's table for kept lines under edits, a misplaced line keeping its space indent, `E001` and `E008` lines as built.
+		- The placement suite 2026110616475903 is the gate. 2026110613470311 closes through this item.
+	- Reason: code in one place can be tested once, and a new edit kind can't get the blank line wrong on its own.
+	- Alternatives:
+		- Fix `unstack` alone. That closes 2026110613470311 but leaves the class open, as every fix before it did.
+	- Regression test: 2026110616475903's property and table are the gate, and they run against both the old helpers and `adopt` before the old ones go. A check-docs row greps the 4 bindings for the retired helper names, so a second mover can't come back.
+	- Estimated effort: High
+	- Progress log:
+		- 20261107: split in 3. The design and `adopt`, with the item list replace through it, are child 2026110712372271. A node's blank above its comments from the parse on is child 2026110712372276. The other edits through `adopt`, and the old helpers gone, are child 2026110712372281, after 2026110616475903.
+	- Test case: its children's: 2026110712372281: its children's: 2026111623191917: placement rows `2026111623191917-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dd3t9`, `dderx`.; 2026111623191935: placement rows `2026111623191935-1` and `-2` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dd3t9`, `dderx`, `dd16k`.; 2026111623192782: placement rows `2026111700365065-1` to `-5` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), corpus `001-messy-cities` (`d9s1g`), `013-comments` (`da4hk`), `213-load-fold-keeps-kept-lines` (`devra`), perf-gate `reopens` (`df014`), `dd3t9`, `dderx`.; 2026111623192800: check-docs `dfdpp`, corpus `149-banner`, `161-banner-moved`, `180-banner-first-child`, `190-banner-own-comments`, `217-banner-author-line` (`dez6b`), `218-banner-off-author-line` (`dez6c`), cli-regress `dez6e`, fuzz `de116`.; 2026110712372276: placement rows `2026110712372276-1` to `-8` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `df50j`, `dd3t9`, `dderx`, corpus `098-set-comment-blank` (`dbzb9`).; 2026110712372271: corpus `221-list-replace-comments` (`df09h`), through the write ops, the line-keeping save, and the layered merge.
+	- Closed: 20261118-163355
+	- Closed reason: Done
+
+- Format versions: the stamp on every save, and the format constants
+	- ID: 2026111018212702
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261110-182127
+	- Opened by: JC
+	- Parent ID: 2026111018212700
+	- Prereq IDs: 2026111018212701
+	- Requirements:
+		- Add `FORMAT_MAJOR`, a minor, and the format name table in all 4.
+		- Every save and every text call that saves writes the stamp, or rewrites the one there.
+		- beta1's `##    Format   3` and the new forms all read.
+	- Estimated effort: Avg
+	- Note: split for its time cap. The constants, name table and reading are child 2026111702033119, which is done. The stamp on every save is child 2026111702033137, Queued.
+	- Test case: its children's: 2026111702033137: its children's: 2026111708125373: `a_stamp_goes_where_a_format_line_goes` (Rust `dfe3m`, Go `dfe3n`, Python `dfe3p`, C `dfe3q`), and the corpus `expected-*` files and cli-regress rows above.; 2026111708130702: `a_save_names_this_format` (Rust `dfe62`; Go `dfe63`, Python `dfe64`, C `dfe65` and veneer `dfe66` with the child), plus the corpus files and the fuzz's no-edit save property in `keeping_lines_reloads_as_the_document`.; 2026111708125354: new rows in `stamp_reads_say_why` (`ddqh8`, `ddqh9`, `ddqha`, `ddqhb`), `stamp_hints_quote_digits` (`de0zn`, `de0zp`, `de0zq`, `de0zr`), new asserts in `a_newer_format_document_saves_nowhere` (`dekvt`, `dekvv`, `dekvw`, `dekvx`), and cli-regress `dfe2v`, `dfe2w`, `dfe2x`, `dfe2y`.; 2026111702033119: `format_names_read` (Rust `dfdqv`, Go `dfdqw`, Python `dfdqx`, C `dfdqy`), and the new rows of `stamp_reads_say_why` (`ddqh8`, `ddqh9`, `ddqha`, `ddqhb`).
+	- Closed: 20261118-163355
+	- Closed reason: Done
+
+- Format versions: write the stamp on every save
+	- ID: 2026111702033137
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-020331
+	- Opened by: me
+	- Parent ID: 2026111018212702
+	- Prereq IDs: 2026111702033119
+	- Requirements: every save and every text call that saves writes `## SHCL format 3.0`, or rewrites the stamp there, in all 4 and the C++ interface. The info block's row becomes `##    Format   3.0`. A stamp naming a newer minor of this major is refused for saves, as `TooNew` is.
+	- Estimated effort: Avg
+	- Note: `set_banner` and its `banner_spans` find a Format line by `FORMAT_LINE_HEAD` only, so they don't yet see a `## SHCL format` stamp. The Format read gives the major only, so a newer minor needs the minor from it too.
+	- Note: split for its time cap. The newer-minor refusal is child 2026111708125354, which is done. The info block's `3.0` row and the banner calls seeing the stamp are child 2026111708125373, which is done. The stamp on every save is child 2026111708130702, with its Go, Python, C and C++ part in 2026111709431277, both done.
+	- Test case: its children's: 2026111708125373: `a_stamp_goes_where_a_format_line_goes` (Rust `dfe3m`, Go `dfe3n`, Python `dfe3p`, C `dfe3q`), and the corpus `expected-*` files and cli-regress rows above.; 2026111708130702: `a_save_names_this_format` (Rust `dfe62`; Go `dfe63`, Python `dfe64`, C `dfe65` and veneer `dfe66` with the child), plus the corpus files and the fuzz's no-edit save property in `keeping_lines_reloads_as_the_document`.; 2026111708125354: new rows in `stamp_reads_say_why` (`ddqh8`, `ddqh9`, `ddqha`, `ddqhb`), `stamp_hints_quote_digits` (`de0zn`, `de0zp`, `de0zq`, `de0zr`), new asserts in `a_newer_format_document_saves_nowhere` (`dekvt`, `dekvv`, `dekvw`, `dekvx`), and cli-regress `dfe2v`, `dfe2w`, `dfe2x`, `dfe2y`.
+	- Closed: 20261118-163355
+	- Closed reason: Done
+
+- A program that migrates in memory, or saves through text, gets none of the save's guards
+	- ID: 2026111016205704
+	- Type: Enhancement
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261110-162057
+	- Opened by: gitniblet and slodworld2 feedback
+	- Parent ID: 2026111018212700
+	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
+	- Problem description: a program whose files might be old reads the text, runs `migrate_unstamped`, then `parse`, so the document isn't tied to its path. Its save then doesn't get a changed check, a lost-content gate, a newer-format refusal, an atomic rename, or `mode`. gitniblet saves with `to_text_keep_lines` and its own `O_TRUNC` open for that reason. `parse_keep_lines("a: 1\n##    Format   4\n", Standard)`, then `set_int("a", 2)`, gives Ok, and `to_text_keep_lines()` gives the text and true, so gitniblet writes over a file a newer gitniblet wrote. `upgrade_file` is the only call that knows migration, and it rewrites the file at start.
+	- Requirements:
+		- Add a `load_file` option that migrates in memory and keeps the path, so a later save goes through every guard.
+		- A text call on a document naming a newer major refuses, as the save does with `TooNew`.
+		- Make the same change in all 4 and the C++ interface.
+	- Estimated effort: Avg
+	- Note: split in 2. The load option is 2026111708542849, and the text call's refusal is 2026111708542868.
+	- Test case: its children's: 2026111708542868: `a_newer_format_document_gives_no_text` in Rust (`dffvy`), Python (`dffvz`), Go `TestANewerFormatDocumentGivesNoText` (`dffw0`), the C runner (`dffw1`) and the veneer smoke (`dffw2`).; 2026111708542849: `a_load_that_migrates_saves_through_the_guards` in Rust (`dfe4q`), Go `TestALoadThatMigratesSavesThroughTheGuards` (`dfe4r`), Python (`dfe4s`), the C runner (`dfe4t`) and the veneer smoke (`dfe4v`), plus a `load_file_opts` row in `devwa`.
+	- Closed: 20261118-163355
+	- Closed reason: Done
+
+- Format versions: the line-keeping text call gives a newer format's text with no refusal
+	- ID: 2026111708542868
+	- Type: Enhancement
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-085428
+	- Opened by: 2026111016205704
+	- Parent ID: 2026111016205704
+	- Requirements: the parent's second requirement, in all 4 and the C++ interface. A text call on a document naming a newer format refuses, as the save does with TooNew.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261118: the refusal is the save's own newer-format kind with an empty path, so a program that saves through the text catches it as it catches the save's. Rust gives `Result<(String, bool), SaveError>` and `Err(SaveError::TooNew { path: "" })`, Go adds an `error` (`*SaveTooNew`, empty `Path`), Python raises `SaveTooNew("")`, C returns `shcl_save_result` with the text in a new out-parameter, and C++ gives `std::tuple<SaveResult, std::string, bool>`. With no path, the message starts at "refusing to save".
+		- me, 20261118: only the line-keeping text call refuses. `to_canonical` still gives the text, since `fmt` to stdout prints a newer file and writes nothing.
+		- me, 20261118: C's signature changes, rather than signalling through `*kept` or a NULL text, since `kept` may be NULL, and a caller that missed a NULL text would write an empty file. `shcl_save_result` and C++ `SaveResult` move outside the `SHCL_NO_FILE_IO` guard for it.
+		- me, 20261118: the CLIs keep their own newer-format check first, with its wording. The text call's refusal behind it exits 7 too, and C's `set` print uses the refusal as that check.
+		- me, 20261118: split in 2 at first, then both halves fit the time cap, so the 2 children were dropped before commit.
+		- 20261118: asserts updated for the refusal. The rows of `a_save_names_this_format` (Rust `dfe62`, Go `dfe63`, Python `dfe64`, C `dfe65`, veneer `dfe66`) that name a newer format expected the kept text, and now expect the refusal. Their canonical asserts stay. The no-edit corpus checks (`dd3t8` and its twins) expect the refusal for `204-format-newer-hint`, and the fuzz properties check a newer document's refusal and skip it. Nothing else they check changed.
+	- Actual fix: `to_text_keep_lines` (each binding's spelling) refuses when the document's newer flag is set, before any text is built, in all 4. The save calls an internal `keep_lines_stamped` (Go `keepLinesStamped`, Python `_keep_lines_stamped`), since it refuses first anyway. C's `shcl_to_text_keep_lines(d, &text, &kept)` returns `SHCL_SAVE_OK` or `SHCL_SAVE_TOO_NEW`, and the C++ interface wraps it. The 4 CLIs map the refusal to exit 7. spec.md, design.md and the changelog say so.
+	- Swept: every caller in all 4 and the C++ interface: the libraries' saves, the 4 CLIs (`write_back` and `set`'s print), Rust's lib tests, conformance and fuzz_smoke, Go's module tests, Python's runner, C's runner, `oom_recover` and the veneer smoke. No other test program, cicd script or doc example calls it (`git grep`).
+	- Verified: the 4 conformance suites, the veneer smoke, `oom_recover`, cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), check-docs, check-veneer, `test-ids.py check`, clippy with `-D warnings`, rustfmt, gofmt, go vet, staticcheck, ruff, mypy, the C library built with `SHCL_NO_FILE_IO`, and `cicd.bash --backlog-run-quick rust go python c cli`. With the refusal taken out, the new test fails in Rust, Go and C, and Python's runner stops at its first newer-format check. The new tests in Rust, Go, C and C++ don't compile against the old signature.
+	- Test case: `a_newer_format_document_gives_no_text` in Rust (`dffvy`), Python (`dffvz`), Go `TestANewerFormatDocumentGivesNoText` (`dffw0`), the C runner (`dffw1`) and the veneer smoke (`dffw2`).
+	- Branch: `nov18-2026111708542868`
+	- Acceptance signoff: Self-closed: cppcheck and analyze-c passed, and codeql-scan's one red is older.
+	- Closed: 20261118-163127
+	- Closed reason: Done
+	- Verified 20261118 on nov18: the cppcheck line from `LINT_EXTRA` gave no findings, and analyze-c.bash passed, `de2wz` to `de2x4`, with `2b0d2957`'s suppression in.
+	- Verified 20261118 on nov18: codeql-scan.bash passed every check but `de5aj`, whose finding in the Python CLI is older than the round (2026111709183317).
+
+- A save can't choose whether to add the info block
+	- ID: 2026111016205705
+	- Type: Enhancement
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261110-162057
+	- Opened by: gitniblet, slodworld1 and slodworld2 feedback
+	- Parent ID: 2026111018212700
+	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
+	- Problem description: a library save never writes a Format line, and `format_version` on the saved file is none, the same as a 2.x file. A program that follows the `format_version` doc then sends its own files through migrate, where with `from_v2` a quoted `\\` comes back as one backslash. `set_banner` is the only way to stamp, and it writes the whole info block with the Home, Syntax and Legal lines. That puts shcl's copyright and MIT line in an app's user files, and a Syntax link to `v3.0.0-beta1` for good. So gitniblet writes `##    Format   3` by hand on a fresh file and gets the full block on an upgraded one.
+	- Requirements:
+		- Every save writes the stamp, per 2026111018212700. What's left here is a `SaveOptions` choice to add the info block or not, in all 4 and the C++ interface.
+		- `upgrade` and `upgrade_file` take the same choice.
+	- Note: the standing rule that only `init` and a creating `set --write` add the info block isn't touched. This is opt-in, and the Format line alone isn't the block.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Note: split for its time cap. The `upgrade` half is child 2026111814503025, done in the same job and waiting on the same checks.
+	- Decisions:
+		- me, 20261118: the choice is `banner` in `SaveOptions` (each binding's spelling), off by default, so the block stays opt-in.
+		- me, 20261118: with it, the save gives the document the block first, as `set_banner(true)` does, and the document keeps it, so a later save without the option writes it again. Adding the block to the written text only would let the next plain save take it off. A refused save still leaves the block on the document, so a retry with `force` writes the same text. The newer-format refusal comes first and leaves the document alone. Filed as a `Check:` in questions.md.
+	- Actual fix: `banner` in `SaveOptions`, and `save_file_with` (each binding's spelling) calls `set_banner(true)` first when it's set, in Rust, Go, Python, C and the C++ interface. `set_banner`'s doc comments name the option, and spec.md, design.md and the changelog say so.
+	- Swept: the 4 bindings' and the veneer's options and save calls. Each newer-format test that sets every option (Rust `all`, Go, Python `nall`, C `all`, veneer `all`) sets `banner` too. The CLIs' saves don't set it, so their output is unchanged.
+	- Test case: `a_save_can_add_the_info_block` (Rust `dffwt`, Go `dffwv`, Python `dffww`, C `dffwx`, veneer `dffwy`), and the child's.
+	- Verified: `dffwt` fails in Rust with the option's call stubbed out and passes with it. With both halves in, `--backlog-run-quick rust python` and `--backlog-run-quick go c`, cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), check-docs, check-veneer, `test-ids.py check`, rustfmt, gofmt and `lint-report.bash --check --no-mark` passed. analyze-c didn't finish inside 4 minutes, so it waits with cppcheck.
+	- Branch: `nov18-2026111016205705`
+	- Commit: `7f1d9f0f`
+	- Acceptance signoff: Self-closed: cppcheck and analyze-c passed.
+	- Closed: 20261118-163127
+	- Closed reason: Done
+	- Verified 20261118 on nov18: the cppcheck line from `LINT_EXTRA` gave no findings, and analyze-c.bash passed, `de2wz` to `de2x4`, with `2b0d2957`'s suppression in.
+
+- upgrade and upgrade_file always write the info block, with no choice to leave it off
+	- ID: 2026111814503025
+	- Type: Enhancement
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261118-145030
+	- Opened by: me, split from 2026111016205705
+	- Parent ID: 2026111016205705
+	- Requirements: `upgrade` and `upgrade_file` take the info block choice `SaveOptions` has, in all 4 and the C++ interface, and the 4 CLIs pass it.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261118: a `banner` argument after `from_v2`, with no default, in all 4 and the C++ interface, so each caller says which it wants. An options struct is more than 2 flags need.
+		- me, 20261118: off, an old info block comes off as `set_banner(false)` takes it, 2.x's `#` one included, and the text ends with the stamp a save writes. The old block's Legal and Syntax lines name another release, which the parent's reporters didn't want in their files.
+		- me, 20261118: the 4 CLIs' `shcl upgrade` pass it on, so the command still writes the block. A flag for it waits for someone to ask.
+		- me, 20261118: every existing test passes it on, since each checks the block. Filed as a `Check:` in questions.md.
+	- Actual fix: `upgrade` and `upgrade_file` (each binding's spelling) take `banner`, hand it to the banner swap, and without it build the text through the stamped canonical and line-keeping calls, in Rust, Go, Python, C and the C++ interface. spec.md, design.md and the changelog say so.
+	- Swept: every call of `upgrade` and `upgrade_file` in the 4 bindings, their tests, the fuzz, the veneer and the 4 CLIs, 194 calls, each built or run after. Doc mentions in spec.md and design.md. The v4 design doc's API sketch is left as a sketch. `private/claude_simple/tools/banner-diff.py` passes the argument when the module takes it.
+	- Test case: `upgrade_can_leave_the_info_block_off` (Rust `dffxa`, Go `dffxb`, Python `dffxc`, C `dffxd`, veneer `dffxe`).
+	- Verified: `dffxa` fails in Rust with the choice ignored and passes with it. banner-diff.py found Python's `upgrade(text, v2, True)` the same as HEAD's `upgrade(text, v2)` over 300 inputs. The parent's gates passed on this tree.
+	- Branch: `nov18-2026111016205705`
+	- Commit: `c8bc0e9f`
+	- Acceptance signoff: Self-closed: cppcheck and analyze-c passed.
+	- Closed: 20261118-163127
+	- Closed reason: Done
+	- Verified 20261118 on nov18: the cppcheck line from `LINT_EXTRA` gave no findings, and analyze-c.bash passed, `de2wz` to `de2x4`, with `2b0d2957`'s suppression in.
+
+- Fuzz `dd16k` fails at iteration 571195 at 2,000,000: `set_banner` on a document and on its reload give different text after a clear, a merge and a literal
+	- ID: 2026111809400000
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261118-094000
+	- Opened by: me, the 2M fuzz for 2026111623445822
+	- Version and build: `fz16k` at `e62c2fc2`
+	- Steps to reproduce: `SHCL_FUZZ_ITERS=2000000 cargo test --release --test fuzz_smoke edits_and_merges_match_a_reload`. The base is the info block corpus input with blocks after fields, then `clear_comments` at `a`, a merge, `set_literal` at `e`, and `set_banner(true)`.
+	- Incorrect behavior: the banner step gives different canonical text on the document and on the reload of its canonical text.
+	- Expected behavior: the same text.
+	- Reproduced: 20261118, Rust. It was hidden behind the failure at 124450 (2026111623445822), and the kept line refile from that fix never runs in this iteration.
+	- Note: the log's step at `e` is `set_empty`, not `set_literal`. `set_banner(true)` alone on the base gives the same difference.
+	- Actual cause: the save rewrites the Format line it reads to name `3.0`, but the document keeps the old line, and `banner on` judged the document's line, so it saw something other than a reload of the save. It showed 2 ways.
+		- An old block under a field, among lines indented below it that no field takes, was in a lead list `banner on` didn't look in. It stayed, with `Format 2` in the document and `3.0` on the reload, and once the new block named the format the save no longer rewrote it.
+		- A beta1 block at the end read as old in the document and as current on the reload, so one replaced it and the other kept it, with the author's line inside or above. The fuzz reached this at iteration 952411 once the first was fixed.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261118: lines indented under a field are after the first field, so a block there comes off, as corpus `161-banner-moved` says of blocks after the first field. The banner calls look in each node's inside lines (`Spot::Inside`, each binding's spelling).
+		- me, 20261118: `banner on` first gives the document the one Format line or stamp the save would rewrite (`restamp_leads`, each binding's spelling). It finds the line by trying each Format line and stamp until the canonical text matches the stamped one, since nothing maps a canonical line back to its lead. It runs only for `banner on`, and only when the document holds a Format line or stamp that doesn't name `3.0`.
+		- me, 20261118: so a beta1 block at the end whose Format line the save rewrites stays with `banner on`, author's lines in it, and the count is 0. The changelog said `banner on` replaces such a block, and now says when it doesn't. Filed as a `Check:` in questions.md.
+	- Actual fix: `restamp_leads` and the inside lines in `swap_banner`, in Rust, Go, Python and C, with their `set_banner` doc comments, design.md and the changelog. The C++ interface wraps `shcl_set_banner`, so it follows.
+	- Swept: every `take_banners` call in `swap_banner` in all 4 now covers leading, trailing, opening and inside lines and the footer. `among` and `notes` hold only kept lines and item comments, which no Format line can be. The top rewrite and `current_footer` are the only readers of a Format line's text there. `upgrade` goes through `swap_banner`, so it gets both. No other setter reads the Format line.
+	- Test case: `banner_on_agrees_with_a_reload` (Rust `dffsw`, Go `dffsx`, Python `dffsy`, C `dffsz`), and fuzz `dd16k`.
+	- Verified: the new test fails in all 4 on the unfixed library and passes on the fix. Its beta1 row fails in Python with `restamp_leads` stubbed out. `dd16k` passed at 2,000,000 in release. `--backlog-run-quick rust go python c`, cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), `test-ids.py check` and `lint-report.bash --check --no-mark` passed.
+	- Branch: `nov18-2026111809400000`
+	- Commit: `96e18da5`
+	- Acceptance signoff: Self-closed: the 2M release fuzz, cppcheck and analyze-c passed.
+	- Closed: 20261118-163127
+	- Closed reason: Done
+	- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
+	- Verified 20261118 on nov18: the cppcheck line from `LINT_EXTRA` gave no findings, and analyze-c.bash passed, `de2wz` to `de2x4`, with `2b0d2957`'s suppression in.
+
+- Fuzz `dd3t9` fails at iteration 249474 at 2,000,000: the line-keeping save of a file whose info block names a newer format reloads as a stamped document
+	- ID: 2026111809400100
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261118-094001
+	- Opened by: me, the 2M fuzz for 2026111623445822
+	- Version and build: dev at `1d67552e`
+	- Steps to reproduce: `SHCL_FUZZ_ITERS=2000000 cargo test --release --test fuzz_smoke keeping_lines_reloads_as_the_document`. The base is a mutated corpus input with a raw body holding `##    Format   .2` and a footer block with `##    Format   4`.
+	- Incorrect behavior: the document reads as a newer format and writes no stamp, but a reload of its line-keeping save writes `## SHCL format 3.0`, so the reload doesn't see the newer format.
+	- Expected behavior: the reload reads the same format as the document.
+	- Reproduced: 20261118, Rust, on dev with its own library, at the same iteration. Likely from nov17b's stamp work, since dd3t9 passed at 2M before it.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Note: still failed the same way on nov18 with 2026111809400000's fix in.
+	- Actual cause: the footer's line is `\r##    Format   4`, with a carriage return before it. The parser takes a carriage return after the indent as a blank, so the comment, and the canonical form, read `##    Format   4`. The Format read took only spaces and tabs as indent, so it found no Format line in the file. So the canonical form named format 4 and went without a stamp, while the load saw no newer format and the line-keeping save added one. The read missed the line before the stamp work too; the stamp made the 2 disagree. A Schema line read the same way.
+	- Decisions:
+		- me, 20261118: the Format and Schema reads skip the blanks after the indent, as the parser does for a comment, rather than the canonical form keeping the carriage return, since spec.md says a carriage return is never indent and is trimmed at a comment's edge. A save that rewrites such a line keeps the carriage return, so only the format on it changes.
+	- Actual fix: the line walk the Format and Schema reads share (`RawLines::step`, each binding's spelling) gives a line's text past its indent and the blanks after it, and `restamp_as` keeps that whole run, in Rust, Go, Python and C. The C++ interface wraps C, so it follows. The changelog's Fixed says so.
+	- Swept: every caller of the line walk in all 4. The Format read and the Schema read take its text, and both are fixed. `migrate`'s check for runs read 2 ways uses only whether a line is in a block. Where blocks open is unchanged, since the fence step still sees the text it saw before. The tree-side Format line checks (`banner_own`, `restamp_leads`, the merge's `repeat_line`, `current_footer`) read comment text the parser already trimmed, and `stamped`'s head check trims too. `migrate` and `upgrade` rewrite the line through `restamp_as`, so they keep the carriage return too.
+	- Test case: new rows in `stamp_reads_say_why` (Rust `ddqh8`, Go `ddqh9`, Python `ddqha`, C `ddqhb`) and `a_save_names_this_format` (Rust `dfe62`, Go `dfe63`, Python `dfe64`, C `dfe65`), and fuzz `dd3t9`.
+	- Verified: the new rows fail in all 4 on the unfixed library and pass on the fix. The kept carriage return row fails in Python with only the line walk fixed. `dd3t9` passed at 600,000 iterations in release, past 249474. `--backlog-run-quick rust python` and `--backlog-run-quick go c`, cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), rustfmt, gofmt and `lint-report.bash --check --no-mark` passed. codeql-scan passed but `de5aj`, whose finding in the Python CLI is older than the round (2026111709183317).
+	- Branch: `nov18-2026111809400100`
+	- Commit: `3eb195be`
+	- Acceptance signoff: Self-closed: the 2M release fuzz, cppcheck and analyze-c passed.
+	- Closed: 20261118-163127
+	- Closed reason: Done
+	- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
+	- Verified 20261118 on nov18: the cppcheck line from `LINT_EXTRA` gave no findings, and analyze-c.bash passed, `de2wz` to `de2x4`, with `2b0d2957`'s suppression in.
+
+- A deeper comment a blank sets off above a kept line that ends a block is written one level in by `fmt` and at the block's level after an edit
+	- ID: 2026111702420992
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261117-024209
+	- Opened by: me, the sweep of 2026111111560900
+	- Parent ID: 2026111111560900
+	- Related IDs: 2026110712372276
+	- Steps to reproduce: `printf 'a:\n\t# c0\n\n\t\t# c2\n\tb: [3\n' | shcl fmt -`, then the same through `printf 'int\ta.z\t7\n' | shcl set`.
+	- Incorrect behavior: `fmt` writes `\t\t# c2`. After the edit it is `\t# c2`, at the block's level, in the canonical form and the line-keeping save.
+	- Expected behavior: `\t# c2` in both, as 2026111111560900 does for the top level.
+	- Reproduced: 20261117, Rust CLI.
+	- Possible cause: the parse files a block's last pending lines through `hang_deeper_pending` with one comment chain, and the setter's `new_child` splits them at the blank through `set_off`. The top-level fix starts the chain again at that cut.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Reproduced: 20261118, Rust CLI on nov18 at `90864db9`, the same output. Through `set`, the line-keeping save wrote `\t# c2`.
+	- Actual cause: the footer is restepped from the `set_off` cut on every settle, but a block's last lines aren't. The parse gives them one comment chain across the blank, so `# c2` nests under `# c0` until a new child takes them and its settle resteps them.
+	- Actual fix: in all 4 bindings, `settle_block` ends with `settle_tail`, which resteps the block's lines after its last field from that cut through `restep_set_off`, as `settle_first_blank` does for the footer. Those are the block's inside lines with no child, else its last child's trailing lines from the first one at that child's level. design.md's comment-run bullet and the changelog say so.
+	- Decisions:
+		- me, 20261118: the save that keeps lines leaves `\t\t# c2` as written after the edit, since the edit no longer moves it. That is what row `2026111111560900-2` keeps at the top level. The canonical form writes `\t# c2` on a load and after the edit.
+		- me, 20261118: the restep goes in `settle_block`, which the load runs on every block and a merge, a new child and the writer's fold run where they change a child list, rather than in the parse. The parent's send-back found a parse-time reset of the chain left setters and merges on the old depth.
+	- Swept: the other list that ends a run with no binding line after it is the footer, already restepped in `settle_first_blank`. `give_set_off` splits at the same cut when a binding line follows. `settle_block` is the one settle in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`, and C's early return for a block with no children runs `settle_tail` too.
+	- Test case: placement rows `2026111702420992-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C).
+	- Verified: the 3 rows fail on the unfixed library in Rust (fix commented out), Go and Python (`placement-watch.py`), and pass in all 4 now. The whole Rust suite, Go in both modules, the C and Python conformance runners, all of fuzz_smoke at 200,000 in release (`dd16k`, `dd3t9`, `dderx`, `df50j` included), cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), `--backlog-run-quick rust go python c`, check-docs, clang and gcc-15 at `-Werror` on `main.c`, and `lint-report.bash --check --no-mark`. analyze-c.bash didn't finish within 4 minutes.
+	- Branch: `nov18-2026111702420992`
+	- Commit: `bde3f842`
+	- Acceptance signoff: Self-closed: the 2M release fuzz, cppcheck and analyze-c passed.
+	- Closed: 20261118-163127
+	- Closed reason: Done
+	- Verified 20261118 on nov18 at `7f80ed8b`: all of fuzz_smoke at 2,000,000 in release passed, 34 of 34, with `dd16k`, `dd3t9`, `dderx` and `df50j` among them.
+	- Verified 20261118 on nov18: the cppcheck line from `LINT_EXTRA` gave no findings, and analyze-c.bash passed, `de2wz` to `de2x4`, with `2b0d2957`'s suppression in.
 
 - Fuzz `dd16k` fails at iteration 124446 at 200,000: a `set_literal` then `clear_comments` gives a document and its reload different text
 	- ID: 2026111623445822
