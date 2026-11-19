@@ -7338,6 +7338,8 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 	   caller's buffer and per-piece duplication disappears. */
 	full = s_dup(a, full);
 	P.src = full;
+	/* Read before the text is cut into lines, as the reference does. */
+	stamp_hint(&P, full);
 	ShclVecS lines = {0};
 	{
 		size_t start = 0;
@@ -7359,7 +7361,6 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 		}
 	}
 	P.src_lines = lines;
-	stamp_hint(&P, full);
 	size_t i = 0;
 	while (i < lines.len) {
 		/* Node cap: reported at the first line not parsed, so the count can

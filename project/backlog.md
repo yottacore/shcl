@@ -81,7 +81,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Under Miri, Document::parse slows with the square of its lines
 	- ID: 2026111910541579
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261119-105415
@@ -92,6 +92,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Split by searching only what is left of the text, for the parse and for `format_line_read`.
 	- Cause: `Parser::parse` splits the text with `text.split('\n')`, and `format_line_read` then runs `text.contains(FORMAT_WORD)` over the whole text. Under Stacked Borrows each step reborrows the whole text and pays for every piece already cut off it, so both are quadratic there.
 	- Origin: tukzmon 2026111717051144. The draft text, a patch (`miri-split.patch`) and a reproduction with no shcl in it (`repro_main.rs`) are in `private/claude_simple/upstream/tukzmon-2026111717051144/`. With the patch, tukzmon's spec went from 258 s to 209 s under Miri, and a native parse gave the same document over 313 texts.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261119: `lines_of` is Rust only. Go, Python and C split as before, since nothing there pays per piece, and the style guide's Rust section lists it as a deviation. The Format line read moved before the split in all 4, so the order still matches.
+		- me, 20261119: the other whole-text `split('\n')` sites in lib.rs stay as they are. Each reads one line at a time and keeps no piece, so none pays for earlier pieces the way the parse's kept `lines` do.
+	- Swept: the 4 parse entries (Rust `Parser::parse`, Go `parser.parse`, Python `Parser.parse`, C `parse_body`) read the Format line before the split now. `format_line_read`'s other callers get `lines_of` through it. lib.rs's other splits (`most_legal`, `restamp_as`, `stamped_eol`, `read_schema_ref`, `migrate_text`, raw bodies, comments) don't hold their pieces.
+	- Verified: under Miri, `Document::parse` per line at 250 and 1000 lines. Before: 13.4 and 18.1 ms a line for comment lines, 91 and 100 ms for values. After: 13.6 and 13.4 ms, 99 and 96 ms. Load 9 to 13 on 32 cores. `dfh3v` fails with `lines_of` changed to drop an empty last piece, and passes as built. `--backlog-run-quick rust go python c`, crosscheck over the corpus (23862 comparisons), perf-gate over the 4 CLIs, check-docs and lint-report passed.
+	- Branch: nov19b-2026111910541579
+	- Test case: `lines_of_cuts_as_split_does` (`dfh3v`) pins the split. The Miri timing has no test, since Miri skips timing tests; `private/claude_simple/tools/miri-parse-scale/` reruns it.
+	- Acceptance signoff: Self-closed: the per-line cost under Miri is flat now, and the parse's output is unchanged across the 4 conformance suites and the crosscheck.
+	- Closed: 20261119-115544
+	- Closed reason: Done
 
 - Format versions: every file stamped, and every published format read and converted
 	- ID: 2026111018212700

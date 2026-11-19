@@ -5498,6 +5498,12 @@ class _Parser:
 		# UTF-8 BOM strip, then split keeping raw lines (CR stripped per line).
 		if text.startswith("﻿"):
 			text = text[1:]
+		# Read before the text is cut into lines, as the reference does.
+		stamp = _format_line_read(text)
+		newer = _names_newer(stamp)
+		hint = _stamp_hint(stamp)
+		if hint is not None:
+			self._diag(hint)
 		# The whole trailing CR run goes, not just one: a raw block keeps its
 		# content untrimmed, so a line left ending in CR would be written back as
 		# CRLF and read as neither - the one shape where the count is visible.
@@ -5509,11 +5515,6 @@ class _Parser:
 		if text.endswith("\n"):
 			lines.pop()
 		self.src = lines
-		stamp = _format_line_read(text)
-		newer = _names_newer(stamp)
-		hint = _stamp_hint(stamp)
-		if hint is not None:
-			self._diag(hint)
 		i = 0
 		nlines = len(lines)
 		tok = Tokens(self.max_elements)

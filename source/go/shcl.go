@@ -6928,6 +6928,12 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 	// untrimmed, so a line left ending in CR would be written back as CRLF and
 	// read as neither - the one shape where the count is visible.
 	text = strings.TrimPrefix(text, "\uFEFF")
+	// Read before the text is cut into lines, as the reference does.
+	stamp := formatLineRead(text)
+	newer := namesNewer(stamp)
+	if d, ok := stampHint(stamp); ok {
+		p.diag(d)
+	}
 	lines := strings.Split(text, "\n")
 	nodeLines := trimCountingNodeLines(lines)
 	// A newline-terminated text splits into one more piece than it has lines.
@@ -6938,11 +6944,6 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		lines = lines[:len(lines)-1]
 	}
 	p.src = lines
-	stamp := formatLineRead(text)
-	newer := namesNewer(stamp)
-	if d, ok := stampHint(stamp); ok {
-		p.diag(d)
-	}
 	// Growing the arena by append cost about an eighth of fmt on a large
 	// file, and more than that in peak memory.
 	want := arenaWant(nodeLines, p.maxNodes)

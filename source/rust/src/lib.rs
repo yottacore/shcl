@@ -3372,6 +3372,27 @@ fn convert(text: &str, format: Option<&str>, from_v2: bool) -> Migration {
 	}
 }
 
+/// `text.split('\n')`, but each step searches only what is left. std's split
+/// reborrows the whole text at every step, and Miri's Stacked Borrows charges
+/// each reborrow for every piece already cut off it, so a long text split in
+/// place cost time growing with the square of its lines there.
+fn lines_of(text: &str) -> impl Iterator<Item = &str> {
+	let mut rest = Some(text);
+	std::iter::from_fn(move || {
+		let r = rest?;
+		match r.find('\n') {
+			Some(k) => {
+				rest = Some(&r[k + 1..]);
+				Some(&r[..k])
+			}
+			None => {
+				rest = None;
+				Some(r)
+			}
+		}
+	})
+}
+
 /// read_format_version() on text with the BOM already off. Digits that do
 /// not fit 32 bits read as the largest number that does: a format newer than
 /// this one, so the file is left alone like any other newer one.
@@ -3396,7 +3417,7 @@ fn format_line_read(text: &str) -> Read<u32> {
 	let mut found: Option<((u32, u32), usize, &str)> = None;
 	let mut newest: Option<((u32, u32), usize, &str)> = None;
 	let mut unread: Option<(Status, usize, &str)> = None;
-	for (i, line) in text.split('\n').enumerate() {
+	for (i, line) in lines_of(text).enumerate() {
 		let current = now.step(line);
 		let old = then.step(line);
 		let Some(rest) = current.or(old) else {
@@ -6685,7 +6706,15 @@ impl<'a> Parser<'a> {
 		// content untrimmed, so a line left ending in CR would be written back as
 		// CRLF and read as neither - the one shape where the count is visible.
 		let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-		let mut lines: Vec<&str> = text.split('\n').map(|l| l.trim_end_matches('\r')).collect();
+		// Read before the text is cut into lines: under Miri's Stacked
+		// Borrows, a search over the whole text pays for every piece it has
+		// been cut into.
+		let stamp = format_line_read(text);
+		let newer = names_newer(&stamp);
+		if let Some(d) = stamp_hint(&stamp) {
+			self.diag(d);
+		}
+		let mut lines: Vec<&str> = lines_of(text).map(|l| l.trim_end_matches('\r')).collect();
 		// A newline-terminated text splits into one more piece than it has
 		// lines. An unterminated raw block took that empty tail as a body
 		// line, so the same last line read differently with and without its
@@ -6694,11 +6723,6 @@ impl<'a> Parser<'a> {
 			lines.pop();
 		}
 		self.src = lines.clone();
-		let stamp = format_line_read(text);
-		let newer = names_newer(&stamp);
-		if let Some(d) = stamp_hint(&stamp) {
-			self.diag(d);
-		}
 		let mut i = 0usize;
 		let mut tok = Tokens {
 			cap: self.max_elements,
@@ -19203,6 +19227,77 @@ mod write_status_map {
 		] {
 			let e = std::io::Error::from_raw_os_error(code);
 			assert_eq!(write_status_of(&e), want, "{code}");
+		}
+	}
+}
+
+// lines_of() stands in for split('\n') in the parse and the Format line read,
+// so it has to cut every text the same way.
+#[cfg(test)]
+mod split_lines {
+	use super::*;
+
+	struct TestId(&'static str);
+
+	fn test_id(id: &'static str) -> TestId {
+		crate::pin_test_clock();
+		TestId(id)
+	}
+
+	impl Drop for TestId {
+		fn drop(&mut self) {
+			use std::io::Write;
+			let status = if std::thread::panicking() {
+				"FAIL"
+			} else {
+				"PASS"
+			};
+			let thread = std::thread::current();
+			let name = thread.name().unwrap_or("?");
+			let _ = writeln!(
+				std::io::stderr().lock(),
+				"{:<4} {} rust {}",
+				status,
+				self.0,
+				name
+			);
+		}
+	}
+
+	#[test]
+	fn lines_of_cuts_as_split_does() {
+		let _id = test_id("dfh3v");
+		let mut texts: Vec<String> = [
+			"",
+			"\n",
+			"\n\n",
+			"a",
+			"a\n",
+			"\na",
+			"a\n\nb",
+			"a\r\nb\r\n",
+			"\r\n",
+			"\u{feff}a\n",
+			"é\nü\n\n",
+		]
+		.iter()
+		.map(|s| s.to_string())
+		.collect();
+		// Every run of 4 of these pieces, the empty one included.
+		let parts = ["", "x", "\n", "\r", "yz"];
+		for n in 0..parts.len().pow(4) {
+			let mut t = String::new();
+			let mut k = n;
+			for _ in 0..4 {
+				t.push_str(parts[k % parts.len()]);
+				k /= parts.len();
+			}
+			texts.push(t);
+		}
+		for t in &texts {
+			let want: Vec<&str> = t.split('\n').collect();
+			let got: Vec<&str> = lines_of(t).collect();
+			assert_eq!(got, want, "{t:?}");
 		}
 	}
 }
