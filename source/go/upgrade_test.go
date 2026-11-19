@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 const upgradeV2File = `name: "say \"hi\""
@@ -355,10 +356,15 @@ func TestUpgradeWritesAFreshFileWithTheInfoBlock(t *testing.T) {
 	}
 }
 
+// sep1 is 2026-09-01, an mtime that leaves 2.0 the newest format. Without it,
+// a text with no tells reads as this format, which leaves its errors as typed
+// (2026111908444554).
+var sep1 int64 = 1788220800
+
 func TestUpgradeRefusesTextThatReadsTwoWays(t *testing.T) {
 	defer testID(t, "ddmka")
 	text := "a: x,y\nb: \"q\n"
-	if up := Upgrade(text, false, true); up.Current || up.Ambiguous != 1 || up.Text != text {
+	if up := UpgradeDated(text, &sep1, false, true); up.Current || up.Ambiguous != 1 || up.Text != text {
 		t.Fatalf("unsaid: %+v", up)
 	}
 	if up := Upgrade(text, true, true); up.Ambiguous != 0 || !strings.HasPrefix(up.Text, "a: [x, y]\nb: '\"q'\n\n##\n") {
@@ -401,7 +407,7 @@ func TestUpgradeCanLeaveTheInfoBlockOff(t *testing.T) {
 		{"p: a,b\n", true, "p: [a, b]\n## SHCL format 3.0\n"},
 		{"a: 1\r\nb: \"q\r\n", false, "a: 1\r\nb: '\"q'\r\n## SHCL format 3.0\r\n"},
 	} {
-		up := Upgrade(c.text, c.fromV2, false)
+		up := UpgradeDated(c.text, &sep1, c.fromV2, false)
 		if up.Current || up.Text != c.want {
 			t.Fatalf("%q: %v %q", c.text, up.Current, up.Text)
 		}
@@ -409,7 +415,7 @@ func TestUpgradeCanLeaveTheInfoBlockOff(t *testing.T) {
 			t.Fatalf("%q: not current on the next run", c.text)
 		}
 		// With the block, for the same file.
-		if with := Upgrade(c.text, c.fromV2, true).Text; !strings.Contains(with, "## This config file format is SHCL.") {
+		if with := UpgradeDated(c.text, &sep1, c.fromV2, true).Text; !strings.Contains(with, "## This config file format is SHCL.") {
 			t.Fatalf("%q: %q", c.text, with)
 		}
 	}
@@ -506,6 +512,9 @@ func TestUpgradeFileNeverWritesOverABackup(t *testing.T) {
 	}
 	amb := filepath.Join(dir, "amb.shcl")
 	if err := os.WriteFile(amb, []byte("a: x,y\nb: \"q\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(amb, time.Unix(sep1, 0), time.Unix(sep1, 0)); err != nil {
 		t.Fatal(err)
 	}
 	_, err = UpgradeFile(amb, false, true)

@@ -11,8 +11,9 @@ use common::test_id;
 use shcl::{
 	Document, DurationUnit, FORMAT_LINE, FORMAT_LINE_HEAD, FORMAT_MAJOR, FORMAT_MINOR,
 	FORMAT_NAMES, Field, MIGRATED_LINE, Rules, STAMP_HEAD, STAMP_LINE, SaveError, SizeUnit, Status,
-	Strictness, Tokens, format_version, generate, migrate, migrate_unstamped, parse_datetime,
-	quote_segment, read_format_version, read_schema_ref, schema_ref, tokenize,
+	Strictness, Tokens, find_format, format_version, generate, migrate, migrate_unstamped,
+	parse_datetime, quote_segment, read_format_version, read_schema_ref, schema_ref, tokenize,
+	upgrade, upgrade_dated, upgrade_file,
 };
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -4714,6 +4715,151 @@ fn format_names_read() {
 	}
 }
 
+/// A text's format comes from its stamp, then its mtime, and the newest
+/// format they leave (2026111907075423). The same rows are in every
+/// binding's runner. The mtimes are Unix seconds at UTC.
+#[test]
+fn a_file_format_comes_from_its_stamp_and_mtime() {
+	let _id = test_id("dfgvd");
+	let plain = "a: 1\n";
+	let beta1 = "a: 1\n##    Format   3\n";
+	let cases: [(&str, Option<i64>, Option<&str>); 24] = [
+		(plain, None, Some("3.0")),
+		(plain, Some(1784505600), Some("1.0")),     // 2026-07-20
+		(plain, Some(1785758400), Some("1.1")),     // 2026-08-03 12:00, the day before
+		(plain, Some(1785715199), Some("1.0")),     // 2026-08-02 23:59:59
+		(plain, Some(1788220800), Some("2.0")),     // 2026-09-01
+		(plain, Some(1791590400), Some("3.0-a37")), // 2026-10-10
+		(plain, Some(1793750400), Some("3.0")),     // 2026-11-04
+		(plain, Some(1782864000), Some("3.0")),     // 2026-07-01, before any format
+		(plain, Some(-1), Some("3.0")),
+		(beta1, None, Some("3.0")),
+		(beta1, Some(1790553600), Some("3.0-30d")), // 2026-09-28
+		(beta1, Some(1792800000), Some("3.0-a65")), // 2026-10-24
+		(beta1, Some(1792796400), Some("3.0-9ef")), // 2026-10-23 23:00
+		(beta1, Some(1788220800), Some("3.0")),     // 2026-09-01, older than the stamp
+		(
+			"## SHCL format 3.0-231\n",
+			Some(1784505600),
+			Some("3.0-a37"),
+		),
+		(
+			"\u{feff}## SHCL format 2.0\na: 1\n",
+			Some(1794268800),
+			Some("2.0"),
+		),
+		("##    Format   1\n", Some(1794268800), Some("1.1")), // 2026-11-10
+		("##    Format   1\n", Some(1784505600), Some("1.0")),
+		(
+			"## SHCL format 3.0-zzz\n",
+			Some(1791158400),
+			Some("3.0-a37"),
+		), // 2026-10-05
+		("## SHCL format 1.2\n", Some(1788220800), Some("2.0")),
+		("##    Format   3x\n", Some(1788220800), Some("2.0")),
+		("## SHCL format 3.1\n", Some(1788220800), None),
+		("##    Format   4\n", None, None),
+		(
+			"a: ~~~\n##    Format   3\n~~~\n",
+			Some(1788220800),
+			Some("2.0"),
+		),
+	];
+	for (text, mtime, want) in cases {
+		assert_eq!(find_format(text, mtime), want, "{:?} at {:?}", text, mtime);
+	}
+	for (name, format) in FORMAT_NAMES {
+		let text = format!("a: 1\n{}{}\n", STAMP_HEAD, name);
+		assert_eq!(
+			find_format(&text, Some(1784505600)),
+			Some(format),
+			"{}",
+			name
+		);
+	}
+	// Day by day, a text without a stamp goes through every format in order.
+	let own: Vec<&str> = FORMAT_NAMES
+		.iter()
+		.filter(|(n, f)| n == f)
+		.map(|(n, _)| *n)
+		.collect();
+	let mut seen: Vec<&str> = Vec::new();
+	for day in 20648..20770_i64 {
+		let f = find_format(plain, Some(day * 86400 + 43200)).unwrap_or_default();
+		if seen.last() != Some(&f) {
+			seen.push(f);
+		}
+	}
+	assert_eq!(seen, own);
+}
+
+/// Of the formats a text's stamp and mtime leave, the one whose rules refuse
+/// the fewest of its tells is its format, and a tie goes to the newest
+/// (2026111907080400). The same rows are in every binding's runner. The
+/// mtimes are Unix seconds at UTC.
+#[test]
+fn a_file_format_comes_from_its_tells() {
+	let _id = test_id("dfgwc");
+	let sep1 = Some(1788220800); // 2026-09-01, 1.0 to 2.0
+	let sep28 = Some(1790553600); // 2026-09-28, to 3.0-30d
+	let oct10 = Some(1791590400); // 2026-10-10, to 3.0-a37
+	let oct20 = Some(1792454400); // 2026-10-20, to 3.0-9ef
+	let nov10 = Some(1794268800); // 2026-11-10, every format
+	let f3 = "a: 1\n##    Format   3\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0/project/spec.md\n";
+	let f3b1 = "a: 1\n##    Format   3\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n";
+	let f2 = "a: 1\n#    Home     https://example.com/shcl\n#    Syntax   https://example.com/shcl/blob/main/project/spec.md\n";
+	let cases: [(&str, Option<i64>, &str); 30] = [
+		("a: [1, 2]\n", oct10, "2.0"),
+		("a: [1, 2]\n", nov10, "3.0"),
+		("a: 1, 2\n", nov10, "3.0-a37"),
+		("a: 1, 2\n", None, "3.0-a37"),
+		("a: x,\n", None, "3.0-a37"),
+		("a:\n\t* x\n\t* y\n", nov10, "3.0-a37"),
+		("s[\"p\"].h: 1\n", None, "3.0-a37"),
+		("1a: x\n", None, "3.0-a37"),
+		("h: x\r y\n", None, "3.0-a37"),
+		("a: it's ok\n", oct20, "3.0-a37"),
+		("a: it's ok\n", nov10, "3.0"),
+		("a: \"it's\" ok\n", oct20, "3.0-9ef"),
+		// Content newer than the mtime: every format left refuses it alike.
+		("a:\n\t- x\n", oct10, "3.0-a37"),
+		("s(p).h: 1\n", sep1, "2.0"),
+		("a: [1, 2]\nb:\n\t- x\n", oct10, "2.0"),
+		("a: 1, 2\nb: [3]\n", None, "2.0"),
+		("a: 1, 2\nb:\n\t- x\n\t- y\n", None, "3.0"),
+		// The footers.
+		(f3, None, "3.0-1f8"),
+		(f3, nov10, "3.0-1f8"),
+		(f3b1, nov10, "3.0"),
+		(f3b1, sep28, "3.0-30d"),
+		(f2, nov10, "2.0"),
+		(f2, Some(1784505600), "1.0"), // 2026-07-20
+		// Not tells: read clean both ways, refused by every format, or in a
+		// raw body.
+		(
+			"a: 'C:\\temp'\nb: \"x\\ty\"\nc: `q`\nd: 1,2\ne: 0o17\n",
+			None,
+			"3.0",
+		),
+		("a: 'C:\\temp'\n", sep1, "2.0"),
+		("b b: 1\ns[#0].h: 1\n- x\n", None, "3.0"),
+		("c: [1, 2]\n\tx: 1\n", None, "3.0"),
+		("a: ~~~\nb: 1, 2\n~~~\n", None, "3.0"),
+		// A whole stamp settles it.
+		("a: 1, 2\n## SHCL format 3.0\n", None, "3.0"),
+		("\u{feff}a: 1, 2\n", nov10, "3.0-a37"),
+	];
+	for (text, mtime, want) in cases {
+		assert_eq!(
+			find_format(text, mtime),
+			Some(want),
+			"{:?} at {:?}",
+			text,
+			mtime
+		);
+	}
+}
+
 /// The Format and Schema lines read with a status, so an unstamped file and a
 /// damaged stamp read apart, and the load's H006 and H007 hints say the same
 /// as the Format read on every row (2026100912352401, 2026100717500017). The
@@ -7014,6 +7160,119 @@ fn a_load_that_migrates_saves_through_the_guards() {
 	let gone = dir.join("gone.shcl").to_str().unwrap().to_string();
 	let (_, st) = Document::load_file_opts(&gone, Strictness::Standard, &opts).unwrap();
 	assert_eq!(st, FileStatus::NotFound);
+	let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A load that migrates converts from the format `find_format` gives the
+/// file's text and mtime, with the mtime pinned on the file. One whose
+/// format reads like this one's but for refused lines comes back as typed,
+/// and an older one goes through the 2.x migration that stands in for its
+/// steps (2026111908443663). Same rows in every runner.
+#[test]
+fn a_load_converts_from_the_format_its_mtime_gives() {
+	let _id = test_id("dfgyc");
+	use shcl::LoadOptions;
+	use std::time::{Duration, UNIX_EPOCH};
+	let dir = std::env::temp_dir().join(format!("shcl-loadconv-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(&dir).unwrap();
+	let f = dir.join("f.shcl").to_str().unwrap().to_string();
+	let aug6 = 1785974400; // 2026-08-06, to 1.1
+	let oct10 = 1791590400; // 2026-10-10, to 3.0-a37
+	let oct20 = 1792454400; // 2026-10-20, to 3.0-9ef
+	let oct30 = 1793318400; // 2026-10-30, to 3.0-a65
+	let nov10 = 1794268800; // 2026-11-10, every format
+	let y2020 = 1577836800; // before any format, so ignored
+	let quote = "a: x\"y\n";
+	let brackets = "a: [1, 2]\n";
+	// The text, the mtime, from_v2, and whether it goes through migrate.
+	let cases: [(&str, u64, bool, bool); 8] = [
+		(quote, nov10, false, false),
+		(quote, oct30, false, false),
+		(quote, oct20, false, false),
+		(quote, y2020, false, false),
+		(quote, aug6, false, true),
+		(quote, nov10, true, true),
+		(brackets, nov10, false, false),
+		(brackets, oct10, false, true),
+	];
+	for (text, mtime, from_v2, migrated) in cases {
+		std::fs::write(&f, text).unwrap();
+		let file = std::fs::File::options().write(true).open(&f).unwrap();
+		file.set_modified(UNIX_EPOCH + Duration::from_secs(mtime))
+			.unwrap();
+		drop(file);
+		let opts = LoadOptions {
+			keep_lines: true,
+			migrate: true,
+			from_v2,
+		};
+		let (doc, _) = Document::load_file_opts(&f, Strictness::Standard, &opts).unwrap();
+		let (want, lost) = if migrated {
+			let m = migrate_unstamped(text, from_v2);
+			(m.text, m.lost)
+		} else {
+			(text.to_string(), 0)
+		};
+		let got = (doc.to_text_keep_lines().map(|t| t.0), doc.lost_count());
+		assert_eq!(
+			got,
+			(Ok(with_stamp(&want)), lost),
+			"{text:?} at {mtime}, from_v2 {from_v2}"
+		);
+		assert_eq!(std::fs::read_to_string(&f).unwrap(), text);
+	}
+	let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `upgrade` and `upgrade_file` find the format as the load does, with the
+/// file's mtime, and make over only a file whose steps to this format rewrite
+/// anything. One from 3.0-9ef on is current, its error kept as typed
+/// (2026111908444554). Same rows in every runner.
+#[test]
+fn an_upgrade_converts_from_the_format_its_mtime_gives() {
+	let _id = test_id("dfh0e");
+	use std::time::{Duration, UNIX_EPOCH};
+	let dir = std::env::temp_dir().join(format!("shcl-upconv-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(&dir).unwrap();
+	let f = dir.join("f.shcl").to_str().unwrap().to_string();
+	let aug6 = 1785974400; // 2026-08-06, to 1.1
+	let oct20 = 1792454400; // 2026-10-20, to 3.0-9ef
+	let nov10 = 1794268800; // 2026-11-10, every format
+	let y2020 = 1577836800; // before any format, so ignored
+	let quote = "a: x\"y\n";
+	let fresh = "a: 'x\"y'\n## SHCL format 3.0\n";
+	// Text from no file reads as the newest format its tells leave.
+	assert!(upgrade(quote, false, false).current);
+	// The mtime, from_v2, and whether it's made over.
+	let cases: [(u64, bool, bool); 5] = [
+		(nov10, false, false),
+		(oct20, false, false),
+		(y2020, false, false),
+		(aug6, false, true),
+		(nov10, true, true),
+	];
+	for (mtime, from_v2, made) in cases {
+		let up = upgrade_dated(quote, Some(i64::try_from(mtime).unwrap()), from_v2, false);
+		let want = if made { fresh } else { quote };
+		assert_eq!(
+			(up.current, up.text.as_str()),
+			(!made, want),
+			"{mtime}, from_v2 {from_v2}"
+		);
+		std::fs::write(&f, quote).unwrap();
+		let file = std::fs::File::options().write(true).open(&f).unwrap();
+		file.set_modified(UNIX_EPOCH + Duration::from_secs(mtime))
+			.unwrap();
+		drop(file);
+		let up = upgrade_file(&f, from_v2, false).unwrap();
+		assert_eq!(up.current, !made, "file at {mtime}, from_v2 {from_v2}");
+		assert_eq!(std::fs::read_to_string(&f).unwrap(), want);
+		if made {
+			let _ = std::fs::remove_file(&up.backup);
+		}
+	}
 	let _ = std::fs::remove_dir_all(&dir);
 }
 

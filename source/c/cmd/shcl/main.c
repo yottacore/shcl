@@ -1600,6 +1600,26 @@ static int do_migrate(const Opts *o) {
 	return rc;
 }
 
+// 1 with file's mtime in Unix seconds in *out, as the library's
+// shcl_upgrade_file reads it. 0 for stdin, and when it can't be read or is
+// before 1970.
+static int file_mtime(const char *file, int64_t *out) {
+	if (strcmp(file, "-") == 0) return 0;
+#ifdef _WIN32
+	wchar_t *w = shcl_widen(file);
+	if (!w) return 0;
+	struct _stat64 st;
+	int ok = _wstat64(w, &st) == 0;
+	free(w);
+#else
+	struct stat st;
+	int ok = stat(file, &st) == 0;
+#endif
+	if (!ok || st.st_mtime < 0) return 0;
+	*out = (int64_t)st.st_mtime;
+	return 1;
+}
+
 // A file this shcl cannot load clean, backed up and written fresh: the
 // library's shcl_upgrade_file with --write, and its text half without, which
 // prints the fresh text and touches nothing.
@@ -1616,12 +1636,16 @@ static int do_upgrade(const Opts *o) {
 	// load's diagnostics to print (2026101514324706).
 	size_t len; char *text = read_input(file, &len);
 	if (!text) return EXIT_IO;
+	// The mtime shcl_upgrade_file reads, so the text half finds the same
+	// format.
+	int64_t at = 0;
+	const int64_t *mtime = file_mtime(file, &at) ? &at : NULL;
 	shcl_upgraded up;
 	if (o->write) {
 		char *why = NULL;
 		shcl_upgrade_error e = shcl_upgrade_file(file, o->from_2x, 1, &up, &why, NULL);
 		if (e != SHCL_UPGRADE_OK) {
-			shcl_upgraded found = shcl_upgrade(text, len, o->from_2x, 1);
+			shcl_upgraded found = shcl_upgrade_dated(text, len, mtime, o->from_2x, 1);
 			say_diagnostics_from("", found.diagnostics);
 			shcl_upgraded_free(&found);
 			if (e == SHCL_UPGRADE_AMBIGUOUS) fprintf(stderr, "%s (--from-2x rewrites them)\n", why);
@@ -1632,7 +1656,7 @@ static int do_upgrade(const Opts *o) {
 			return e == SHCL_UPGRADE_AMBIGUOUS || e == SHCL_UPGRADE_ERRORS_LEFT ? 7 : EXIT_IO;
 		}
 	} else {
-		up = shcl_upgrade(text, len, o->from_2x, 1);
+		up = shcl_upgrade_dated(text, len, mtime, o->from_2x, 1);
 	}
 	free(text);
 	if (up.current) {

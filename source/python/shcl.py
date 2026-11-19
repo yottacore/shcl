@@ -98,6 +98,7 @@ __all__ = [
 	"WriteError",
 	"WriteStatus",
 	"backup_file_name",
+	"find_format",
 	"format_array",
 	"format_diagnostic",
 	"format_float",
@@ -118,6 +119,7 @@ __all__ = [
 	"tokenize",
 	"tokenize_value",
 	"upgrade",
+	"upgrade_dated",
 	"upgrade_file",
 	"write_backup",
 	"write_file_atomic",
@@ -438,12 +440,13 @@ class LoadOptions:
 	level is its own argument, since it is the one choice every load makes,
 	and an all-zero options struct in Go and C would be Loose. keep_lines keeps
 	the text for to_text_keep_lines, as load_file_keep_lines does; with
-	migrate, the text kept is the migrated one. migrate parses what
-	migrate_unstamped makes of the file rather than the file itself. Only the
-	document changes: the file is not written, and a save checks the path
-	against the bytes the load read, so a save over the file gets every check
-	a plain load's does. from_v2 is migrate's: the file can only have been
-	written for 2.x. It is ignored without migrate."""
+	migrate, the text kept is the migrated one. migrate parses the file
+	converted to this format, from the format its text and mtime give, rather
+	than the file itself. Only the document changes: the file is not written,
+	and a save checks the path against the bytes the load read, so a save over
+	the file gets every check a plain load's does. from_v2 is migrate's: the
+	file can only have been written for 2.x, so it converts from 2.0. It is
+	ignored without migrate."""
 	__slots__ = ("keep_lines", "migrate", "from_v2")
 
 	def __init__(self, keep_lines: bool = False, migrate: bool = False, from_v2: bool = False) -> None:
@@ -2875,6 +2878,238 @@ def _names_newer(stamp: Read[int]) -> bool:
 	return f is not None and f > (FORMAT_MAJOR, FORMAT_MINOR)
 
 
+# Each format in FORMAT_NAMES, oldest first, with the day it was first
+# written, in days since 1970-01-01 UTC: a release's publish date, or a pin's
+# commit date.
+_FORMAT_DAYS: tuple[tuple[str, int], ...] = (
+	("1.0", 20649),  # 2026-07-15
+	("1.1", 20669),  # 2026-08-04
+	("2.0", 20691),  # 2026-08-26
+	("3.0-1f8", 20720),  # 2026-09-24
+	("3.0-30d", 20721),  # 2026-09-25
+	("3.0-b10", 20727),  # 2026-10-01
+	("3.0-f8e", 20729),  # 2026-10-03
+	("3.0-a37", 20730),  # 2026-10-04
+	("3.0-9ef", 20740),  # 2026-10-14
+	("3.0-a65", 20751),  # 2026-10-25
+	("3.0", 20762),  # 2026-11-05
+)
+
+
+def find_format(text: str, mtime: float | None = None) -> str | None:
+	"""The format a text was written in, by its stamp, mtime in Unix seconds,
+	and its tells, as the 4 steps of the format versions design doc's Finding
+	a file's format give it. None for a stamp naming a newer format than this
+	reader's.
+
+	A stamp naming a whole format, or a pin's own name, settles it. beta1's
+	`Format 3` names only a major, and leaves every format of that major. A
+	stamp naming no format shcl knows, such as `1.2`, is no stamp. The mtime
+	then takes off every format first written after it, counted from the day
+	before, so the writer's time zone doesn't matter. It doesn't take off an
+	older format, since a program pinned to an old shcl still writes one. An
+	mtime that would take off every format is ignored, which covers one before
+	any format existed and one older than the stamp. Of the formats left, the
+	one whose rules refuse the fewest of the text's tells is the answer, and a
+	tie goes to the newest, so a text without tells reads as the newest format
+	left. Text from no file passes None."""
+	stamp = read_format_version(text)
+	if _names_newer(stamp):
+		return None
+	left = (1 << len(_FORMAT_DAYS)) - 1
+	if stamp.status is Status.Good:
+		raw = stamp.raw or ""
+		for fname, fformat in FORMAT_NAMES:
+			if fname == raw:
+				return fformat
+		named = _stamp_format(raw)
+		whole = "." in raw
+		by_stamp = 0
+		for i, (f, _) in enumerate(_FORMAT_DAYS):
+			fv = _stamp_format(f)
+			if fv is not None and named is not None and fv[0] == named[0] and (not whole or fv[1] == named[1]):
+				by_stamp |= 1 << i
+		if by_stamp:
+			left = by_stamp
+	if mtime is not None:
+		by_mtime = 0
+		for i, (_, day) in enumerate(_FORMAT_DAYS):
+			if mtime >= (day - 1) * 86400:
+				by_mtime |= 1 << i
+		if left & by_mtime:
+			left &= by_mtime
+	if left & (left - 1):
+		left = _most_legal(text[1:] if text.startswith("\ufeff") else text, left)
+	return _FORMAT_DAYS[left.bit_length() - 1][0]
+
+
+# The runs of _FORMAT_DAYS the design doc's Tells table counts each tell
+# against, by their first and last format. A footer's run is the formats
+# whose `init` wrote it, and it counts against the rest. A spelling 2 formats
+# both read clean, such as an escape, isn't a tell here.
+_TELL_RUNS = (
+	# Refused from the format 3 value syntax on: a comma list, `*` items, a
+	# bracket selector, a bare name led by a digit, a CR in a bare value.
+	("3.0-9ef", "3.0"),
+	# A bracketed value, which binds nothing.
+	("3.0-1f8", "3.0-a37"),
+	# `-` items and a paren selector.
+	("1.0", "3.0-a37"),
+	# An apostrophe inside a bare word.
+	("3.0-9ef", "3.0-9ef"),
+	# The footers, by their Syntax line.
+	("1.1", "2.0"),
+	("3.0-1f8", "3.0-1f8"),
+	("3.0-30d", "3.0"),
+)
+
+_TELL_REFUSED_NOW = 0
+_TELL_BRACKETS = 1
+_TELL_NEW_SPELLING = 2
+_TELL_APOSTROPHE = 3
+_TELL_FOOTER_2 = 4
+_TELL_FOOTER_1F8 = 5
+_TELL_FOOTER_3 = 6
+
+# The Syntax line of each footer, and the tell it is.
+_TELL_FOOTERS = (
+	("#    Syntax   ", "", _TELL_FOOTER_2),
+	("##    Syntax   ", "/v3.0.0/", _TELL_FOOTER_1F8),
+	("##    Syntax   ", "/v3.0.0-beta1/", _TELL_FOOTER_3),
+)
+
+
+def _tell_run(tell: int) -> int:
+	"""A tell's run as bits of _FORMAT_DAYS."""
+	first, last = _TELL_RUNS[tell]
+	names = [f for f, _ in _FORMAT_DAYS]
+	a, b = names.index(first), names.index(last)
+	return ((1 << (b + 1)) - 1) & ~((1 << a) - 1)
+
+
+def _most_legal(text: str, left: int) -> int:
+	"""The one format of `left` that reads the text most legally, as the last
+	2 steps of the design doc's Finding a file's format give it. Each counts
+	the lines with a tell it refuses or reads as binding nothing, plus each
+	footer its `init` didn't write. The lowest count wins, and a tie goes to
+	the newest, so a format the tells take off loses to any they leave."""
+	refused: dict[int, list[str]] = {}
+	for d in Document.parse(text).diagnostics():
+		if d.severity is Severity.Error:
+			refused.setdefault(d.line, []).append(d.code)
+	against = [0] * len(_FORMAT_DAYS)
+	footers = 0
+	raw = _RawLines(Rules.Current)
+	tok = Tokens()
+	for i, line in enumerate(text.split("\n")):
+		rest = raw.step(line)
+		if rest is None:
+			continue
+		if rest.startswith("#"):
+			for head, tag, tell in _TELL_FOOTERS:
+				if rest.startswith(head) and tag in rest:
+					footers |= 1 << tell
+			continue
+		run = _line_tells(rest, refused.get(i + 1, []), tok)
+		for f in range(len(against)):
+			against[f] += run >> f & 1
+	for tell in (_TELL_FOOTER_2, _TELL_FOOTER_1F8, _TELL_FOOTER_3):
+		if footers >> tell & 1:
+			wrote = _tell_run(tell)
+			for f in range(len(against)):
+				against[f] += (wrote >> f & 1) ^ 1
+	best = None
+	for f, n in enumerate(against):
+		if left >> f & 1 and (best is None or n <= against[best]):
+			best = f
+	return left if best is None else 1 << best
+
+
+def _line_tells(rest: str, codes: list[str], tok: Tokens) -> int:
+	"""The formats a line's tells count against, as bits of _FORMAT_DAYS.
+	`codes` are the errors these rules give the line. What these rules refuse
+	is told by its code, and what they read clean by its tokens. A line these
+	rules refuse for another reason has no tell, since the other formats
+	refuse it too."""
+	if rest.startswith("*"):
+		return _tell_run(_TELL_REFUSED_NOW) if "E013" in codes else 0
+	if _is_item(rest):
+		return 0 if codes else _tell_run(_TELL_NEW_SPELLING)
+	tokenize(rest, ":", False, Rules.Current, tok)
+	src = tok.src
+	led_by_digit = tok.misspelled is not None and tok.misspelled < len(src) and 0x30 <= src[tok.misspelled] <= 0x39
+	if (
+		"E026" in codes
+		or "E029" in codes
+		or ("E025" in codes and "\r" in rest)
+		or ("E014" in codes and led_by_digit)
+	):
+		return _tell_run(_TELL_REFUSED_NOW)
+	if codes:
+		return 0
+	run = 0
+	if tok.array is not None:
+		run |= _tell_run(_TELL_BRACKETS)
+	if any(s.selector is not None for s in tok.segments):
+		run |= _tell_run(_TELL_NEW_SPELLING)
+
+	def inner(p: Piece) -> bool:
+		b = src[p.start:p.end]
+		return p.quote is Quote.None_ and any(
+			b[k] == 0x27 and not _is_wsp_byte(b[k - 1]) and not _is_wsp_byte(b[k + 1]) for k in range(1, len(b) - 1)
+		)
+
+	if any(inner(p) for p in tok.elements):
+		run |= _tell_run(_TELL_APOSTROPHE)
+	return run
+
+
+class _Step(Enum):
+	"""What turns a text in one format of _FORMAT_DAYS into the next one's, as
+	the design doc's Reading and converting says. A new format adds a row to
+	_FORMAT_STEPS, and a kind here only when no step yet does what it needs.
+	SAME: the 2 formats read every line the same, but for lines the older one
+	refuses, which stay as typed. Nothing changes. V2: migrate's rewrite from
+	the 2.x rules, which lands on the current format. It stands in for the
+	steps from 1.0 to 3.0-a37 until they're built (2026111908444515,
+	2026111908444534)."""
+	SAME = 0
+	V2 = 1
+
+
+# The step out of each format of _FORMAT_DAYS but the current one, in the
+# same order.
+_FORMAT_STEPS: tuple[_Step, ...] = (
+	_Step.V2,  # 1.0
+	_Step.V2,  # 1.1
+	_Step.V2,  # 2.0
+	_Step.V2,  # 3.0-1f8
+	_Step.V2,  # 3.0-30d
+	_Step.V2,  # 3.0-b10
+	_Step.V2,  # 3.0-f8e
+	_Step.V2,  # 3.0-a37
+	_Step.SAME,  # 3.0-9ef, which refused an apostrophe inside a bare word
+	_Step.SAME,  # 3.0-a65
+)
+
+
+def _first_rewrite(fmt: str | None) -> _Step | None:
+	"""The first step of the run from fmt to the current one that changes
+	anything. None when every step from there is SAME, as from the current
+	format, or for None, a newer format's."""
+	at = next((i for i, (f, _) in enumerate(_FORMAT_DAYS) if f == fmt), len(_FORMAT_STEPS))
+	return next((s for s in _FORMAT_STEPS[at:] if s is not _Step.SAME), None)
+
+
+def _convert(text: str, fmt: str | None, from_v2: bool) -> Migration:
+	"""The text, written in fmt, as the current format reads it, one step per
+	format in order, in memory. None, a newer format's, comes back as it is.
+	from_v2 is migrate's."""
+	if _first_rewrite(fmt) is _Step.V2:
+		return migrate_unstamped(text, from_v2)
+	return Migration(text, True, 0, 0)
+
+
 def _format_line_read(text: str) -> Read[int]:
 	"""read_format_version() on text with the BOM already off. Digits that do
 	not fit 32 bits read as the largest number that does: a format newer than
@@ -3321,11 +3556,27 @@ def upgrade(text: str, from_v2: bool, banner: bool) -> Upgrade:
 	file is made over only when the fresh text loads clean; when it wouldn't,
 	errors_left names the lines still in error. Pass from_v2 only for a file
 	known to be old, never on every start: a file this format wrote that picks
-	up an error later would be read by 2.x rules too."""
+	up an error later would be read by 2.x rules too.
+
+	Without from_v2, the file's format is find_format()'s, from the text alone,
+	and only a format whose steps to this one rewrite anything gets made over:
+	one from 3.0-9ef on is current, its errors kept as typed, as a load with
+	migrate keeps them. upgrade_dated() takes the file's mtime too."""
+	return upgrade_dated(text, None, from_v2, banner)
+
+
+def upgrade_dated(text: str, mtime: float | None, from_v2: bool, banner: bool) -> Upgrade:
+	"""upgrade(), with mtime for find_format(): the file's, in Unix seconds, or
+	None for text from no file. upgrade_file() passes the file's."""
 	named = read_format_version(text)
 	version = named.value if named.status is Status.Good else None
 	up = Upgrade(text, True, version if version is not None else 2)
 	if _names_newer(named) or (version == FORMAT_MAJOR and not from_v2):
+		return up
+	# The load's step table. Only V2 rewrites yet, and this is its upgrade
+	# form, so a format whose run is all SAME has nothing to do.
+	fmt = "2.0" if from_v2 else find_format(text, mtime)
+	if _first_rewrite(fmt) is not _Step.V2:
 		return up
 	before = Document.parse(text)
 	clean = before.error_count() == 0
@@ -7109,10 +7360,12 @@ class Document:
 		path: str | os.PathLike[str], strictness: Strictness, opts: LoadOptions
 	) -> tuple[Document, FileStatus]:
 		"""load_file_with, as the options describe. With migrate, the document
-		is the one migrate_unstamped makes of the file, in memory, for a
-		program whose files may be older than this format: its save goes
-		through every check a save of a plain load does, over the file it
-		read. The lines migrate counts in lost count in lost_count, so a save
+		is the file converted to this format in memory, for a program whose
+		files may be older: find_format works out its format from its text and
+		its mtime, and it goes through one step per format from there, as the
+		format versions design doc's Reading and converting says. Its save
+		goes through every check a save of a plain load does, over the file it
+		read. The lines a step counts in lost count in lost_count, so a save
 		that would write them canonical refuses as for any lost line. A file
 		naming a newer format is parsed as it is, so its save raises
 		SaveTooNew."""
@@ -7140,7 +7393,9 @@ class Document:
 			return doc, st
 		parsed, mig = text, None
 		if migrate is not None:
-			mig = migrate_unstamped(text, migrate)
+			# from_v2 says the file is 2.x, whatever its stamp and mtime say.
+			fmt = "2.0" if migrate else find_format(text, _file_mtime(path))
+			mig = _convert(text, fmt, migrate)
 			parsed = mig.text
 		doc = _Parser().parse(parsed, strictness)
 		# migrate's count, summed as a merge sums a layer's. Its lines are gone
@@ -11071,6 +11326,16 @@ def _read_capped(f, limit):
 	return b"".join(chunks)
 
 
+def _file_mtime(path: str | os.PathLike[str]) -> int | None:
+	"""path's mtime in Unix seconds, or None when it can't be read or is before
+	1970, which find_format would ignore anyway."""
+	try:
+		t = os.stat(path).st_mtime_ns // 1_000_000_000
+	except (OSError, ValueError):
+		return None
+	return t if t >= 0 else None
+
+
 def read_file(path: str | os.PathLike[str], max_bytes: int = 0) -> tuple[str | None, FileStatus]:
 	"""The file tier's read half on its own: (text, FileStatus.Clean), or
 	(None, status) saying why not - NotFound, or Unreadable for everything
@@ -11635,7 +11900,7 @@ def upgrade_file(path: str | os.PathLike[str], from_v2: bool, banner: bool) -> U
 		text = data.decode("utf-8")
 	except UnicodeDecodeError:
 		raise UpgradeFailed(f"{path}: can't be read as UTF-8 text", WriteStatus.Unreadable) from None
-	up = upgrade(text, from_v2, banner)
+	up = upgrade_dated(text, _file_mtime(path), from_v2, banner)
 	if up.current:
 		return up
 	if up.ambiguous != 0:

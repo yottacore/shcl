@@ -3367,6 +3367,260 @@ func namesNewer(stamp Read[int]) bool {
 	return ok && (major > FormatMajor || (major == FormatMajor && minor > FormatMinor))
 }
 
+// formatDay is a format in FormatNames with the day it was first written.
+type formatDay struct {
+	name string
+	day  int64
+}
+
+// formatDays is each format in FormatNames, oldest first, with the day it
+// was first written, in days since 1970-01-01 UTC: a release's publish date,
+// or a pin's commit date.
+var formatDays = [11]formatDay{
+	{"1.0", 20649},     // 2026-07-15
+	{"1.1", 20669},     // 2026-08-04
+	{"2.0", 20691},     // 2026-08-26
+	{"3.0-1f8", 20720}, // 2026-09-24
+	{"3.0-30d", 20721}, // 2026-09-25
+	{"3.0-b10", 20727}, // 2026-10-01
+	{"3.0-f8e", 20729}, // 2026-10-03
+	{"3.0-a37", 20730}, // 2026-10-04
+	{"3.0-9ef", 20740}, // 2026-10-14
+	{"3.0-a65", 20751}, // 2026-10-25
+	{"3.0", 20762},     // 2026-11-05
+}
+
+// FindFormat is the format a text was written in, by its stamp, mtime in Unix
+// seconds, and its tells, as the 4 steps of the format versions design doc's
+// Finding a file's format give it. ok is false for a stamp naming a newer
+// format than this reader's.
+//
+// A stamp naming a whole format, or a pin's own name, settles it. beta1's
+// `Format 3` names only a major, and leaves every format of that major. A
+// stamp naming no format shcl knows, such as `1.2`, is no stamp. The mtime
+// then takes off every format first written after it, counted from the day
+// before, so the writer's time zone doesn't matter. It doesn't take off an
+// older format, since a program pinned to an old shcl still writes one. An
+// mtime that would take off every format is ignored, which covers one before
+// any format existed and one older than the stamp. Of the formats left, the
+// one whose rules refuse the fewest of the text's tells is the answer, and a
+// tie goes to the newest, so a text without tells reads as the newest format
+// left. Text from no file passes nil.
+func FindFormat(text string, mtime *int64) (string, bool) {
+	stamp := ReadFormatVersion(text)
+	if namesNewer(stamp) {
+		return "", false
+	}
+	left := uint32(1)<<len(formatDays) - 1
+	if stamp.Status == Good && stamp.Raw != nil {
+		raw := *stamp.Raw
+		for _, row := range FormatNames {
+			if row[0] == raw {
+				return row[1], true
+			}
+		}
+		major, minor, ok := stampFormat(raw)
+		whole := strings.Contains(raw, ".")
+		byStamp := uint32(0)
+		for i, f := range formatDays {
+			fmaj, fmin, fok := stampFormat(f.name)
+			if ok && fok && fmaj == major && (!whole || fmin == minor) {
+				byStamp |= 1 << i
+			}
+		}
+		if byStamp != 0 {
+			left = byStamp
+		}
+	}
+	if mtime != nil {
+		byMtime := uint32(0)
+		for i, f := range formatDays {
+			if *mtime >= (f.day-1)*86400 {
+				byMtime |= 1 << i
+			}
+		}
+		if left&byMtime != 0 {
+			left &= byMtime
+		}
+	}
+	if left&(left-1) != 0 {
+		left = mostLegal(strings.TrimPrefix(text, "\ufeff"), left)
+	}
+	return formatDays[bits.Len32(left)-1].name, true
+}
+
+// tellRuns are the runs of formatDays the design doc's Tells table counts
+// each tell against, by their first and last format. A footer's run is the
+// formats whose `init` wrote it, and it counts against the rest. A spelling 2
+// formats both read clean, such as an escape, isn't a tell here.
+var tellRuns = [...][2]string{
+	// Refused from the format 3 value syntax on: a comma list, `*` items, a
+	// bracket selector, a bare name led by a digit, a CR in a bare value.
+	{"3.0-9ef", "3.0"},
+	// A bracketed value, which binds nothing.
+	{"3.0-1f8", "3.0-a37"},
+	// `-` items and a paren selector.
+	{"1.0", "3.0-a37"},
+	// An apostrophe inside a bare word.
+	{"3.0-9ef", "3.0-9ef"},
+	// The footers, by their Syntax line.
+	{"1.1", "2.0"},
+	{"3.0-1f8", "3.0-1f8"},
+	{"3.0-30d", "3.0"},
+}
+
+const (
+	tellRefusedNow = iota
+	tellBrackets
+	tellNewSpelling
+	tellApostrophe
+	tellFooter2
+	tellFooter1f8
+	tellFooter3
+)
+
+// tellFooters are the Syntax line of each footer, and the tell it is.
+var tellFooters = [...]struct {
+	head, tag string
+	tell      int
+}{
+	{"#    Syntax   ", "", tellFooter2},
+	{"##    Syntax   ", "/v3.0.0/", tellFooter1f8},
+	{"##    Syntax   ", "/v3.0.0-beta1/", tellFooter3},
+}
+
+// tellRun is a tell's run as bits of formatDays.
+func tellRun(tell int) uint32 {
+	at := func(n string) int {
+		for i, f := range formatDays {
+			if f.name == n {
+				return i
+			}
+		}
+		return 0
+	}
+	a, b := at(tellRuns[tell][0]), at(tellRuns[tell][1])
+	return (uint32(1)<<(b+1) - 1) &^ (uint32(1)<<a - 1)
+}
+
+// mostLegal is the one format of left that reads the text most legally, as
+// the last 2 steps of the design doc's Finding a file's format give it. Each
+// counts the lines with a tell it refuses or reads as binding nothing, plus
+// each footer its `init` didn't write. The lowest count wins, and a tie goes
+// to the newest, so a format the tells take off loses to any they leave.
+func mostLegal(text string, left uint32) uint32 {
+	refused := map[int][]string{}
+	for _, d := range Parse(text).Diagnostics() {
+		if d.Severity == SeverityError {
+			refused[d.Line] = append(refused[d.Line], d.Code)
+		}
+	}
+	var against [len(formatDays)]int
+	footers := uint32(0)
+	raw := newRawLines(RulesCurrent)
+	var tok Tokens
+	for i, line := range strings.Split(text, "\n") {
+		rest, ok := raw.step(line)
+		if !ok {
+			continue
+		}
+		if strings.HasPrefix(rest, "#") {
+			for _, ft := range tellFooters {
+				if strings.HasPrefix(rest, ft.head) && strings.Contains(rest, ft.tag) {
+					footers |= 1 << ft.tell
+				}
+			}
+			continue
+		}
+		run := lineTells(rest, refused[i+1], &tok)
+		for f := range against {
+			against[f] += int(run >> f & 1)
+		}
+	}
+	for _, tell := range [...]int{tellFooter2, tellFooter1f8, tellFooter3} {
+		if footers>>tell&1 == 1 {
+			wrote := tellRun(tell)
+			for f := range against {
+				against[f] += int(wrote>>f&1 ^ 1)
+			}
+		}
+	}
+	best := -1
+	for f, n := range against {
+		if left>>f&1 == 1 && (best < 0 || n <= against[best]) {
+			best = f
+		}
+	}
+	if best < 0 {
+		return left
+	}
+	return 1 << best
+}
+
+// lineTells is the formats a line's tells count against, as bits of
+// formatDays. codes are the errors these rules give the line. What these
+// rules refuse is told by its code, and what they read clean by its tokens. A
+// line these rules refuse for another reason has no tell, since the other
+// formats refuse it too.
+func lineTells(rest string, codes []string, tok *Tokens) uint32 {
+	has := func(c string) bool {
+		for _, x := range codes {
+			if x == c {
+				return true
+			}
+		}
+		return false
+	}
+	if strings.HasPrefix(rest, "*") {
+		if has("E013") {
+			return tellRun(tellRefusedNow)
+		}
+		return 0
+	}
+	if isItem(rest) {
+		if len(codes) == 0 {
+			return tellRun(tellNewSpelling)
+		}
+		return 0
+	}
+	Tokenize(rest, ':', false, RulesCurrent, tok)
+	ledByDigit := tok.Misspelled >= 0 && tok.Misspelled < len(rest) && rest[tok.Misspelled] >= '0' && rest[tok.Misspelled] <= '9'
+	if has("E026") || has("E029") || (has("E025") && strings.Contains(rest, "\r")) || (has("E014") && ledByDigit) {
+		return tellRun(tellRefusedNow)
+	}
+	if len(codes) > 0 {
+		return 0
+	}
+	run := uint32(0)
+	if tok.Array >= 0 {
+		run |= tellRun(tellBrackets)
+	}
+	for _, seg := range tok.Segments {
+		if seg.Selector != nil {
+			run |= tellRun(tellNewSpelling)
+			break
+		}
+	}
+	for _, p := range tok.Elements {
+		b := rest[p.Start:p.End]
+		if p.Quote != QuoteNone {
+			continue
+		}
+		found := false
+		for k := 1; k+1 < len(b); k++ {
+			if b[k] == '\'' && !isWspByte(b[k-1]) && !isWspByte(b[k+1]) {
+				found = true
+				break
+			}
+		}
+		if found {
+			run |= tellRun(tellApostrophe)
+			break
+		}
+	}
+	return run
+}
+
 // SchemaRef is the schema a document's `##    Schema   REF` line names: a
 // path, or a URL for an editor to fetch. ok is false when no line names one,
 // and when the only Schema line names nothing; ReadSchemaRef tells those
@@ -3477,6 +3731,65 @@ func opensRaw(rest string, tok *Tokens) openFence {
 		ch, length, _, ok = lineFence(tok, rest)
 	}
 	return openFence{ch: ch, length: length, open: ok}
+}
+
+// step is what turns a text in one format of formatDays into the next one's,
+// as the design doc's Reading and converting says. A new format adds a row to
+// formatSteps, and a kind here only when no step yet does what it needs.
+type step int
+
+const (
+	// stepSame: the 2 formats read every line the same, but for lines the
+	// older one refuses, which stay as typed. Nothing changes.
+	stepSame step = iota
+	// stepV2: Migrate's rewrite from the 2.x rules, which lands on the
+	// current format. It stands in for the steps from 1.0 to 3.0-a37 until
+	// they're built (2026111908444515, 2026111908444534).
+	stepV2
+)
+
+// formatSteps is the step out of each format of formatDays but the current
+// one, in the same order.
+var formatSteps = [len(formatDays) - 1]step{
+	stepV2,   // 1.0
+	stepV2,   // 1.1
+	stepV2,   // 2.0
+	stepV2,   // 3.0-1f8
+	stepV2,   // 3.0-30d
+	stepV2,   // 3.0-b10
+	stepV2,   // 3.0-f8e
+	stepV2,   // 3.0-a37
+	stepSame, // 3.0-9ef, which refused an apostrophe inside a bare word
+	stepSame, // 3.0-a65
+}
+
+// firstRewrite is the first step of the run from format to the current one
+// that changes anything. found is false when every step from there is
+// stepSame, as from the current format, or for ok false, a newer format's.
+func firstRewrite(format string, ok bool) (step, bool) {
+	at := len(formatSteps)
+	for i, row := range formatDays {
+		if ok && row.name == format {
+			at = i
+			break
+		}
+	}
+	for _, s := range formatSteps[at:] {
+		if s != stepSame {
+			return s, true
+		}
+	}
+	return stepSame, false
+}
+
+// convert is the text, written in format, as the current format reads it, one
+// step per format in order, in memory. ok false, a newer format's, comes back
+// as it is. fromV2 is Migrate's.
+func convert(text, format string, ok, fromV2 bool) Migration {
+	if s, found := firstRewrite(format, ok); found && s == stepV2 {
+		return MigrateUnstamped(text, fromV2)
+	}
+	return Migration{Text: text, Current: true}
 }
 
 // formatLineRead is ReadFormatVersion on text with the BOM already off.
@@ -3933,7 +4246,18 @@ type Upgraded struct {
 // the lines still in error. Pass fromV2 only for a file known to be old, never
 // on every start: a file this format wrote that picks up an error later would
 // be read by 2.x rules too.
+//
+// Without fromV2, the file's format is FindFormat's, from the text alone, and
+// only a format whose steps to this one rewrite anything gets made over: one
+// from 3.0-9ef on is Current, its errors kept as typed, as a load with Migrate
+// keeps them. UpgradeDated takes the file's mtime too.
 func Upgrade(text string, fromV2, banner bool) Upgraded {
+	return UpgradeDated(text, nil, fromV2, banner)
+}
+
+// UpgradeDated is Upgrade, with mtime for FindFormat: the file's, in Unix
+// seconds, or nil for text from no file. UpgradeFile passes the file's.
+func UpgradeDated(text string, mtime *int64, fromV2, banner bool) Upgraded {
 	named := ReadFormatVersion(text)
 	version, hasVersion := named.Value, named.Status == Good
 	up := Upgraded{Text: text, Current: true, Format: 2}
@@ -3941,6 +4265,15 @@ func Upgrade(text string, fromV2, banner bool) Upgraded {
 		up.Format = version
 	}
 	if namesNewer(named) || (hasVersion && version == FormatMajor && !fromV2) {
+		return up
+	}
+	// The load's step table. Only stepV2 rewrites yet, and this is its
+	// upgrade form, so a format whose run is all stepSame has nothing to do.
+	format, ok := "2.0", true
+	if !fromV2 {
+		format, ok = FindFormat(text, mtime)
+	}
+	if s, found := firstRewrite(format, ok); !found || s != stepV2 {
 		return up
 	}
 	before := Parse(text)
@@ -9813,6 +10146,20 @@ func SuppressDeclaredRepeats(schema *Document, diags []Diagnostic) []Diagnostic 
 	return kept
 }
 
+// fileMtime is path's mtime in Unix seconds, or nil when it can't be read or
+// is before 1970, which FindFormat would ignore anyway.
+func fileMtime(path string) *int64 {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil
+	}
+	t := fi.ModTime().Unix()
+	if t < 0 {
+		return nil
+	}
+	return &t
+}
+
 // ReadFile is the file tier's read half on its own: the text of path with
 // FileClean, or "" with the status that says why not - FileNotFound, or
 // FileUnreadable for everything else (permissions, a directory, bad encoding,
@@ -10489,7 +10836,7 @@ func UpgradeFile(path string, fromV2, banner bool) (Upgraded, error) {
 		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: &WriteError{Status: WriteUnreadable, Err: fmt.Errorf("%s: can't be read as UTF-8 text", path)}}
 	}
 	text := string(data)
-	up := Upgrade(text, fromV2, banner)
+	up := UpgradeDated(text, fileMtime(path), fromV2, banner)
 	if up.Current {
 		return up, nil
 	}
@@ -10771,22 +11118,24 @@ type LoadOptions struct {
 	// KeepLines keeps the text for ToTextKeepLines, as LoadFileKeepLines
 	// does. With Migrate, the text kept is the migrated one.
 	KeepLines bool
-	// Migrate parses what MigrateUnstamped makes of the file rather than the
-	// file itself. Only the document changes: the file is not written, and a
+	// Migrate parses the file converted to this format, from the format its
+	// text and mtime give, rather than the file itself. Only the document changes: the file is not written, and a
 	// save checks the path against the bytes the load read, so a save over
 	// the file gets every check a plain load's does.
 	Migrate bool
 	// FromV2 is Migrate's fromV2: the file can only have been written for
-	// 2.x. Ignored without Migrate.
+	// 2.x, so it converts from 2.0. Ignored without Migrate.
 	FromV2 bool
 }
 
 // LoadFileOpts is LoadFileWith, as the options describe. With Migrate, the
-// document is the one MigrateUnstamped makes of the file, in memory, for a
-// program whose files may be older than this format: its save goes through
-// every check a save of a plain load does, over the file it read. The lines
-// Migrate counts in Lost count in LostCount, so a save that would write them
-// canonical refuses as for any lost line. A file naming a newer format is
+// document is the file converted to this format in memory, for a program
+// whose files may be older: FindFormat works out its format from its text and
+// its mtime, and it goes through one step per format from there, as the
+// format versions design doc's Reading and converting says. Its save goes
+// through every check a save of a plain load does, over the file it read. The
+// lines a step counts in Lost count in LostCount, so a save that would write
+// them canonical refuses as for any lost line. A file naming a newer format is
 // parsed as it is, so its save is *SaveTooNew.
 func LoadFileOpts(path string, level Strictness, opts LoadOptions) (*Document, FileStatus, error) {
 	doc, st := loadFileAny(path, level, opts.KeepLines, opts.Migrate, opts.FromV2)
@@ -10811,7 +11160,12 @@ func loadFileAny(path string, level Strictness, keep, migrate, fromV2 bool) (*Do
 	}
 	parsed, mig := text, Migration{}
 	if migrate {
-		mig = MigrateUnstamped(text, fromV2)
+		// fromV2 says the file is 2.x, whatever its stamp and mtime say.
+		format, ok := "2.0", true
+		if !fromV2 {
+			format, ok = FindFormat(text, fileMtime(path))
+		}
+		mig = convert(text, format, ok, fromV2)
 		parsed = mig.Text
 	}
 	doc := newParser().parse(parsed, level)

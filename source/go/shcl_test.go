@@ -4573,6 +4573,138 @@ func TestFormatNamesRead(t *testing.T) {
 	}
 }
 
+// TestAFileFormatComesFromItsStampAndMtime: a text's format comes from its
+// stamp, then its mtime, and the newest format they leave. Rust's
+// a_file_format_comes_from_its_stamp_and_mtime has the same rows. The mtimes
+// are Unix seconds at UTC.
+func TestAFileFormatComesFromItsStampAndMtime(t *testing.T) {
+	defer testID(t, "dfgve")
+	at := func(n int64) *int64 { return &n }
+	plain := "a: 1\n"
+	beta1 := "a: 1\n##    Format   3\n"
+	cases := []struct {
+		text  string
+		mtime *int64
+		want  string
+	}{
+		{plain, nil, "3.0"},
+		{plain, at(1784505600), "1.0"},     // 2026-07-20
+		{plain, at(1785758400), "1.1"},     // 2026-08-03 12:00, the day before
+		{plain, at(1785715199), "1.0"},     // 2026-08-02 23:59:59
+		{plain, at(1788220800), "2.0"},     // 2026-09-01
+		{plain, at(1791590400), "3.0-a37"}, // 2026-10-10
+		{plain, at(1793750400), "3.0"},     // 2026-11-04
+		{plain, at(1782864000), "3.0"},     // 2026-07-01, before any format
+		{plain, at(-1), "3.0"},
+		{beta1, nil, "3.0"},
+		{beta1, at(1790553600), "3.0-30d"}, // 2026-09-28
+		{beta1, at(1792800000), "3.0-a65"}, // 2026-10-24
+		{beta1, at(1792796400), "3.0-9ef"}, // 2026-10-23 23:00
+		{beta1, at(1788220800), "3.0"},     // 2026-09-01, older than the stamp
+		{"## SHCL format 3.0-231\n", at(1784505600), "3.0-a37"},
+		{"\ufeff## SHCL format 2.0\na: 1\n", at(1794268800), "2.0"},
+		{"##    Format   1\n", at(1794268800), "1.1"}, // 2026-11-10
+		{"##    Format   1\n", at(1784505600), "1.0"},
+		{"## SHCL format 3.0-zzz\n", at(1791158400), "3.0-a37"}, // 2026-10-05
+		{"## SHCL format 1.2\n", at(1788220800), "2.0"},
+		{"##    Format   3x\n", at(1788220800), "2.0"},
+		{"## SHCL format 3.1\n", at(1788220800), ""},
+		{"##    Format   4\n", nil, ""},
+		{"a: ~~~\n##    Format   3\n~~~\n", at(1788220800), "2.0"},
+	}
+	for _, c := range cases {
+		got, ok := FindFormat(c.text, c.mtime)
+		if got != c.want || ok != (c.want != "") {
+			t.Errorf("%q at %v: %q %v, want %q", c.text, c.mtime, got, ok, c.want)
+		}
+	}
+	for _, row := range FormatNames {
+		text := "a: 1\n" + StampHead + row[0] + "\n"
+		if got, ok := FindFormat(text, at(1784505600)); !ok || got != row[1] {
+			t.Errorf("%s: %q", row[0], got)
+		}
+	}
+	// Day by day, a text without a stamp goes through every format in order.
+	var own, seen []string
+	for _, row := range FormatNames {
+		if row[0] == row[1] {
+			own = append(own, row[0])
+		}
+	}
+	for day := int64(20648); day < 20770; day++ {
+		f, _ := FindFormat(plain, at(day*86400+43200))
+		if len(seen) == 0 || seen[len(seen)-1] != f {
+			seen = append(seen, f)
+		}
+	}
+	if !reflect.DeepEqual(seen, own) {
+		t.Errorf("by day %v, want %v", seen, own)
+	}
+}
+
+// TestAFileFormatComesFromItsTells: of the formats a text's stamp and mtime
+// leave, the one whose rules refuse the fewest of its tells is its format,
+// and a tie goes to the newest. Rust's a_file_format_comes_from_its_tells has
+// the same rows. The mtimes are Unix seconds at UTC.
+func TestAFileFormatComesFromItsTells(t *testing.T) {
+	defer testID(t, "dfgwd")
+	at := func(n int64) *int64 { return &n }
+	sep1 := at(1788220800)  // 2026-09-01, 1.0 to 2.0
+	sep28 := at(1790553600) // 2026-09-28, to 3.0-30d
+	oct10 := at(1791590400) // 2026-10-10, to 3.0-a37
+	oct20 := at(1792454400) // 2026-10-20, to 3.0-9ef
+	nov10 := at(1794268800) // 2026-11-10, every format
+	f3 := "a: 1\n##    Format   3\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0/project/spec.md\n"
+	f3b1 := "a: 1\n##    Format   3\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n"
+	f2 := "a: 1\n#    Home     https://example.com/shcl\n#    Syntax   https://example.com/shcl/blob/main/project/spec.md\n"
+	cases := []struct {
+		text  string
+		mtime *int64
+		want  string
+	}{
+		{"a: [1, 2]\n", oct10, "2.0"},
+		{"a: [1, 2]\n", nov10, "3.0"},
+		{"a: 1, 2\n", nov10, "3.0-a37"},
+		{"a: 1, 2\n", nil, "3.0-a37"},
+		{"a: x,\n", nil, "3.0-a37"},
+		{"a:\n\t* x\n\t* y\n", nov10, "3.0-a37"},
+		{"s[\"p\"].h: 1\n", nil, "3.0-a37"},
+		{"1a: x\n", nil, "3.0-a37"},
+		{"h: x\r y\n", nil, "3.0-a37"},
+		{"a: it's ok\n", oct20, "3.0-a37"},
+		{"a: it's ok\n", nov10, "3.0"},
+		{"a: \"it's\" ok\n", oct20, "3.0-9ef"},
+		// Content newer than the mtime: every format left refuses it alike.
+		{"a:\n\t- x\n", oct10, "3.0-a37"},
+		{"s(p).h: 1\n", sep1, "2.0"},
+		{"a: [1, 2]\nb:\n\t- x\n", oct10, "2.0"},
+		{"a: 1, 2\nb: [3]\n", nil, "2.0"},
+		{"a: 1, 2\nb:\n\t- x\n\t- y\n", nil, "3.0"},
+		// The footers.
+		{f3, nil, "3.0-1f8"},
+		{f3, nov10, "3.0-1f8"},
+		{f3b1, nov10, "3.0"},
+		{f3b1, sep28, "3.0-30d"},
+		{f2, nov10, "2.0"},
+		{f2, at(1784505600), "1.0"}, // 2026-07-20
+		// Not tells: read clean both ways, refused by every format, or in a
+		// raw body.
+		{"a: 'C:\\temp'\nb: \"x\\ty\"\nc: `q`\nd: 1,2\ne: 0o17\n", nil, "3.0"},
+		{"a: 'C:\\temp'\n", sep1, "2.0"},
+		{"b b: 1\ns[#0].h: 1\n- x\n", nil, "3.0"},
+		{"c: [1, 2]\n\tx: 1\n", nil, "3.0"},
+		{"a: ~~~\nb: 1, 2\n~~~\n", nil, "3.0"},
+		// A whole stamp settles it.
+		{"a: 1, 2\n## SHCL format 3.0\n", nil, "3.0"},
+		{"\ufeffa: 1, 2\n", nov10, "3.0-a37"},
+	}
+	for _, c := range cases {
+		if got, ok := FindFormat(c.text, c.mtime); !ok || got != c.want {
+			t.Errorf("%q at %v: %q, want %q", c.text, c.mtime, got, c.want)
+		}
+	}
+}
+
 // TestStampReadsSayWhy: the Format and Schema lines read with a status, so an
 // unstamped file and a damaged stamp read apart, and the load's H006 and H007
 // hints say the same as the Format read on every row. Rust's
@@ -8305,6 +8437,123 @@ func TestANewerFormatDocumentSavesNowhere(t *testing.T) {
 			if up := Upgrade(text, fromV2, true); !up.Current || up.Text != text {
 				t.Errorf("%q: Upgrade(%v) gave %+v", text, fromV2, up)
 			}
+		}
+	}
+}
+
+// TestALoadConvertsFromTheFormatItsMtimeGives: a load that migrates converts
+// from the format FindFormat gives the file's text and mtime, with the mtime
+// pinned on the file. One whose format reads like this one's but for refused
+// lines comes back as typed, and an older one goes through the 2.x migration
+// that stands in for its steps (2026111908443663). Same rows in every runner.
+func TestALoadConvertsFromTheFormatItsMtimeGives(t *testing.T) {
+	defer testID(t, "dfgyd")
+	f := filepath.Join(t.TempDir(), "f.shcl")
+	const (
+		aug6  = 1785974400 // 2026-08-06, to 1.1
+		oct10 = 1791590400 // 2026-10-10, to 3.0-a37
+		oct20 = 1792454400 // 2026-10-20, to 3.0-9ef
+		oct30 = 1793318400 // 2026-10-30, to 3.0-a65
+		nov10 = 1794268800 // 2026-11-10, every format
+		y2020 = 1577836800 // before any format, so ignored
+	)
+	quote, brackets := "a: x\"y\n", "a: [1, 2]\n"
+	cases := []struct {
+		text     string
+		mtime    int64
+		fromV2   bool
+		migrated bool
+	}{
+		{quote, nov10, false, false},
+		{quote, oct30, false, false},
+		{quote, oct20, false, false},
+		{quote, y2020, false, false},
+		{quote, aug6, false, true},
+		{quote, nov10, true, true},
+		{brackets, nov10, false, false},
+		{brackets, oct10, false, true},
+	}
+	for _, c := range cases {
+		if err := os.WriteFile(f, []byte(c.text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		at := time.Unix(c.mtime, 0)
+		if err := os.Chtimes(f, at, at); err != nil {
+			t.Fatal(err)
+		}
+		opts := LoadOptions{KeepLines: true, Migrate: true, FromV2: c.fromV2}
+		doc, _, _ := LoadFileOpts(f, Standard, opts)
+		want, lost := c.text, 0
+		if c.migrated {
+			m := MigrateUnstamped(c.text, c.fromV2)
+			want, lost = m.Text, m.Lost
+		}
+		got, _, err := doc.ToTextKeepLines()
+		if err != nil || got != withStamp(want) || doc.LostCount() != lost {
+			t.Errorf("%q at %d, fromV2 %v: gave %q, lost %d, %v; want %q, lost %d", c.text, c.mtime, c.fromV2, got, doc.LostCount(), err, withStamp(want), lost)
+		}
+		if b, err := os.ReadFile(f); err != nil || string(b) != c.text {
+			t.Errorf("%q: the load wrote %q, %v", c.text, b, err)
+		}
+	}
+}
+
+// TestAnUpgradeConvertsFromTheFormatItsMtimeGives: Upgrade and UpgradeFile
+// find the format as the load does, with the file's mtime, and make over only
+// a file whose steps to this format rewrite anything. One from 3.0-9ef on is
+// current, its error kept as typed (2026111908444554). Same rows in every
+// runner.
+func TestAnUpgradeConvertsFromTheFormatItsMtimeGives(t *testing.T) {
+	defer testID(t, "dfh0f")
+	f := filepath.Join(t.TempDir(), "f.shcl")
+	const (
+		aug6  = 1785974400 // 2026-08-06, to 1.1
+		oct20 = 1792454400 // 2026-10-20, to 3.0-9ef
+		nov10 = 1794268800 // 2026-11-10, every format
+		y2020 = 1577836800 // before any format, so ignored
+	)
+	quote, fresh := "a: x\"y\n", "a: 'x\"y'\n## SHCL format 3.0\n"
+	// Text from no file reads as the newest format its tells leave.
+	if !Upgrade(quote, false, false).Current {
+		t.Errorf("Upgrade with no mtime made over %q", quote)
+	}
+	cases := []struct {
+		mtime  int64
+		fromV2 bool
+		made   bool
+	}{
+		{nov10, false, false},
+		{oct20, false, false},
+		{y2020, false, false},
+		{aug6, false, true},
+		{nov10, true, true},
+	}
+	for _, c := range cases {
+		want := quote
+		if c.made {
+			want = fresh
+		}
+		mtime := c.mtime
+		up := UpgradeDated(quote, &mtime, c.fromV2, false)
+		if up.Current == c.made || up.Text != want {
+			t.Errorf("%d, fromV2 %v: gave %v, %q; want %q", c.mtime, c.fromV2, up.Current, up.Text, want)
+		}
+		if err := os.WriteFile(f, []byte(quote), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		at := time.Unix(c.mtime, 0)
+		if err := os.Chtimes(f, at, at); err != nil {
+			t.Fatal(err)
+		}
+		up, err := UpgradeFile(f, c.fromV2, false)
+		if err != nil || up.Current == c.made {
+			t.Errorf("file at %d, fromV2 %v: current %v, %v", c.mtime, c.fromV2, up.Current, err)
+		}
+		if b, err := os.ReadFile(f); err != nil || string(b) != want {
+			t.Errorf("file at %d, fromV2 %v: holds %q, %v; want %q", c.mtime, c.fromV2, b, err, want)
+		}
+		if c.made {
+			_ = os.Remove(up.Backup)
 		}
 	}
 }

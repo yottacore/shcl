@@ -273,6 +273,12 @@ std::optional<std::uint32_t> format_version(std::string_view text);
 // BadType for one whose number does not read, such as `##    Format   3x`.
 // value is 0 unless Good.
 Read<std::uint32_t> read_format_version(std::string_view text);
+// The format a text was written in, by its stamp, mtime in Unix seconds, and
+// its tells, as the 4 steps of the format versions design doc's Finding a
+// file's format give it: a name from FORMAT_NAMES, or none for a stamp naming a newer
+// format than this reader's. shcl_find_format has the rules. Text from no file
+// passes no mtime.
+std::optional<std::string_view> find_format(std::string_view text, std::optional<std::int64_t> mtime);
 // The schema a document's Schema line names, a path or a URL; none when no
 // line names one, or when it names nothing. The first line naming one wins,
 // and a relative path is the caller's to resolve, from the config file's
@@ -317,8 +323,12 @@ struct Upgrade {
 // the file can only be 2.x, a clean file is still made over when migrate would
 // change it, as it would `p: a,b`, and any file only when the fresh text loads
 // clean (errors_left). Pass from_v2 only for a file known to be old, never on
-// every start.
+// every start. Without from_v2, the file's format is find_format's, and one
+// from 3.0-9ef on is current, its errors kept as typed.
 Upgrade upgrade(std::string_view text, bool from_v2, bool banner);
+// upgrade(), with mtime for find_format: the file's, in Unix seconds, or
+// std::nullopt for text from no file. upgrade_file() passes the file's.
+Upgrade upgrade_dated(std::string_view text, std::optional<std::int64_t> mtime, bool from_v2, bool banner);
 // The name a config file's backup gets:
 // NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local time, with N the format
 // the file was written for. SHCL_TEST_CLOCK stands in for the clock.
@@ -361,8 +371,8 @@ struct SaveOptions {
 // How load_file_opts loads. The default is load_file_with.
 struct LoadOptions {
 	bool keep_lines{}; // keep the text for to_text_keep_lines(), as load_file_keep_lines; with migrate, the migrated text
-	bool migrate{};    // parse what migrate_unstamped makes of the file; the file is not written, and a save checks the path against the bytes the load read
-	bool from_v2{};    // migrate's from_v2: the file can only have been written for 2.x; ignored without migrate
+	bool migrate{};    // parse the file converted to this format, from the format its text and mtime give; the file is not written, and a save checks the path against the bytes the load read
+	bool from_v2{};    // migrate's from_v2: the file can only have been written for 2.x, so it converts from 2.0; ignored without migrate
 };
 // Why a write failed, so a program can tell a missing folder from no
 // permission or a full disk. NotFound and Unreadable are FileStatus's names.
@@ -494,9 +504,10 @@ public:
 	// load_file_with, keeping the text for to_text_keep_lines().
 	static std::pair<Document, FileStatus> load_file_keep_lines(const std::string &path, Strictness s);
 	// load_file_with, as the options describe. With migrate, the document is
-	// the one migrate_unstamped makes of the file, in memory: its save goes
-	// through every check a save of a plain load does, over the file it read.
-	// The lines the migration counts in lost count in lost_count(), so a save
+	// the file converted to this format in memory, from the format
+	// find_format gives its text and its mtime, one step per format: its save
+	// goes through every check a save of a plain load does, over the file it
+	// read. The lines a step counts in lost count in lost_count(), so a save
 	// that would write them canonical refuses. A file naming a newer format
 	// is parsed as it is, so its save is TooNew.
 	static std::pair<Document, FileStatus> load_file_opts(const std::string &path, Strictness s, const LoadOptions &opts);
@@ -1143,6 +1154,12 @@ Read<std::uint32_t> read_format_version(std::string_view text) {
 	return {static_cast<std::uint32_t>(r.value), detail::st(r.status)};
 }
 
+std::optional<std::string_view> find_format(std::string_view text, std::optional<std::int64_t> mtime) {
+	const char *f = shcl_find_format(text.data(), text.size(), mtime ? &*mtime : nullptr);
+	if (!f) return std::nullopt;
+	return std::string_view(f);
+}
+
 std::optional<DurationUnit> duration_unit_from_spelling(std::string_view s) {
 	shcl_duration_unit u = shcl_duration_unit_from_spelling(s.data(), s.size());
 	if (u == SHCL_DURATION_NONE) return std::nullopt;
@@ -1170,6 +1187,12 @@ Read<std::string> read_schema_ref(std::string_view text) {
 Upgrade upgrade(std::string_view text, bool from_v2, bool banner) {
 	detail::UpgradedOwn own;
 	own.c = shcl_upgrade(text.data(), text.size(), from_v2 ? 1 : 0, banner ? 1 : 0);
+	return detail::upgraded(own.c);
+}
+
+Upgrade upgrade_dated(std::string_view text, std::optional<std::int64_t> mtime, bool from_v2, bool banner) {
+	detail::UpgradedOwn own;
+	own.c = shcl_upgrade_dated(text.data(), text.size(), mtime ? &*mtime : nullptr, from_v2 ? 1 : 0, banner ? 1 : 0);
 	return detail::upgraded(own.c);
 }
 

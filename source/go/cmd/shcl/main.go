@@ -2604,6 +2604,23 @@ func migrateWouldRefuse(file string, doc *shcl.Document, misplaced int, o *opts)
 	return 0
 }
 
+// fileMtime is file's mtime in Unix seconds, as the library's UpgradeFile
+// reads it. nil for stdin, and when it can't be read or is before 1970.
+func fileMtime(file string) *int64 {
+	if file == "-" {
+		return nil
+	}
+	fi, err := os.Stat(file)
+	if err != nil {
+		return nil
+	}
+	t := fi.ModTime().Unix()
+	if t < 0 {
+		return nil
+	}
+	return &t
+}
+
 // doUpgrade: a file this shcl cannot load clean, backed up and written fresh:
 // the library's UpgradeFile with --write, and its text half without, which
 // prints the fresh text and touches nothing.
@@ -2628,10 +2645,12 @@ func doUpgrade(o *opts) int {
 		fmt.Fprintln(os.Stderr, err)
 		return exitIO
 	}
+	// The mtime UpgradeFile reads, so the text half finds the same format.
+	mtime := fileMtime(file)
 	var up shcl.Upgraded
 	if o.write {
 		if up, err = shcl.UpgradeFile(file, o.from2x, true); err != nil {
-			sayDiagnosticsFrom("", shcl.Upgrade(text, o.from2x, true).Diagnostics)
+			sayDiagnosticsFrom("", shcl.UpgradeDated(text, mtime, o.from2x, true).Diagnostics)
 			var ue *shcl.UpgradeError
 			if errors.As(err, &ue) && ue.Kind == shcl.UpgradeAmbiguous {
 				fmt.Fprintf(os.Stderr, "%v (--from-2x rewrites them)\n", err)
@@ -2645,7 +2664,7 @@ func doUpgrade(o *opts) int {
 			return exitIO
 		}
 	} else {
-		up = shcl.Upgrade(text, o.from2x, true)
+		up = shcl.UpgradeDated(text, mtime, o.from2x, true)
 	}
 	if up.Current {
 		// Diagnostics is empty when current, but the file is still loaded, and

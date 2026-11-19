@@ -366,8 +366,8 @@ typedef struct {
    choice every load makes, and a zero level is SHCL_LOOSE. */
 typedef struct {
 	int keep_lines; /* keep the text for shcl_to_text_keep_lines, as shcl_load_file_keep_lines; with migrate, the migrated text */
-	int migrate;    /* parse what shcl_migrate_unstamped makes of the file; the file is not written, and a save checks the path against the bytes the load read */
-	int from_v2;    /* migrate's from_v2: the file can only have been written for 2.x; ignored without migrate */
+	int migrate;    /* parse the file converted to this format, from the format its text and mtime give; the file is not written, and a save checks the path against the bytes the load read */
+	int from_v2;    /* migrate's from_v2: the file can only have been written for 2.x, so it converts from 2.0; ignored without migrate */
 } shcl_load_options;
 /* Why a write failed, so a program can tell a missing folder from no
    permission or a full disk without reading errno itself. NOT_FOUND and
@@ -405,11 +405,13 @@ int shcl_write_file_atomic(const char *path, const char *data, size_t n, shcl_wr
 // shcl_load_file_with, keeping the text for shcl_to_text_keep_lines.
 shcl_doc *shcl_load_file_keep_lines(const char *path, shcl_strictness s, shcl_file_status *status);
 // shcl_load_file_with, as the options describe. With migrate, the document is
-// the one shcl_migrate_unstamped makes of the file, in memory, for a program
-// whose files may be older than this format: its save goes through every
-// check a save of a plain load does, over the file it read. The lines the
-// migration counts in lost count in shcl_lost_count, so a save that would
-// write them canonical refuses as for any lost line. A file naming a newer
+// the file converted to this format in memory, for a program whose files may
+// be older: shcl_find_format works out its format from its text and its
+// mtime, and it goes through one step per format from there, as the format
+// versions design doc's Reading and converting says. Its save goes through
+// every check a save of a plain load does, over the file it read. The lines
+// a step counts in lost count in shcl_lost_count, so a save that would write
+// them canonical refuses as for any lost line. A file naming a newer
 // format is parsed as it is, so its save is SHCL_SAVE_TOO_NEW.
 shcl_doc *shcl_load_file_opts(const char *path, shcl_strictness s, shcl_load_options opts, shcl_file_status *status);
 // shcl_save_file with shcl_to_text_keep_lines: *kept (when not NULL) is 1 when
@@ -880,6 +882,21 @@ int64_t shcl_format_version(const char *text, size_t len);
 // value is 0 unless SHCL_GOOD. The load's H006 and H007 hints come from this
 // same reading, and quote the number as written.
 shcl_read_i64 shcl_read_format_version(const char *text, size_t len);
+// The format a text was written in, by its stamp, *mtime in Unix seconds,
+// and its tells, as the 4 steps of the format versions design doc's Finding a
+// file's format give it: a name from shcl_format_names, or NULL for a stamp
+// naming a newer format than this reader's. A stamp naming a whole format, or
+// a pin's own name, settles it. beta1's `Format 3` names only a major, and
+// leaves every format of that major. A stamp naming no format shcl knows,
+// such as `1.2`, is no stamp. The mtime then takes off every format first
+// written after it, counted from the day before, so the writer's time zone
+// doesn't matter. It doesn't take off an older format, since a program pinned
+// to an old shcl still writes one. An mtime that would take off every format
+// is ignored, which covers one before any format existed and one older than
+// the stamp. Of the formats left, the one whose rules refuse the fewest of the
+// text's tells is the answer, and a tie goes to the newest, so a text without
+// tells reads as the newest format left. Text from no file passes NULL.
+const char *shcl_find_format(const char *text, size_t len, const int64_t *mtime);
 // The schema a document's `##    Schema   REF` line names: a path, or a URL
 // for an editor to fetch, as a pointer into text with its length in *ref_len.
 // NULL when no line names one, and when the only Schema line names nothing;
@@ -949,7 +966,15 @@ typedef struct {
 // Pass from_v2 only for a file known to be old, never on every start: a file
 // this format wrote that picks up an error later would be read by 2.x rules
 // too.
+//
+// Without from_v2, the file's format is shcl_find_format's, from the text
+// alone, and only a format whose steps to this one rewrite anything gets made
+// over: one from 3.0-9ef on is current, its errors kept as typed, as a load
+// with migrate keeps them. shcl_upgrade_dated takes the file's mtime too.
 shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2, int banner);
+// shcl_upgrade, with mtime for shcl_find_format: the file's, in Unix seconds,
+// or NULL for text from no file. shcl_upgrade_file passes the file's.
+shcl_upgraded shcl_upgrade_dated(const char *text, size_t len, const int64_t *mtime, int from_v2, int banner);
 // Frees what an shcl_upgraded holds and zeroes it, so a second call is
 // harmless.
 void shcl_upgraded_free(shcl_upgraded *up);
@@ -3888,6 +3913,7 @@ static int names_newer(ShclStamp st) {
 }
 
 static shcl_read_i64 stamp_read(const char *text, size_t len, int *newer);
+static ShclStamp stamp_of(const char *text, size_t len);
 
 /* Whether text holds needle anywhere. */
 static int s_has(ShclStr text, ShclStr needle) {
@@ -4321,6 +4347,19 @@ static shcl_str upgrade_text(shcl_doc *fresh, int banner, jmp_buf *panic) {
 	return better ? lines : canonical;
 }
 
+/* What turns a text in one format of shcl_format_days into the next one's, as
+   the design doc's Reading and converting says. A new format adds a row to
+   shcl_format_steps, and a kind here only when no step yet does what it
+   needs. SAME: the 2 formats read every line the same, but for lines the
+   older one refuses, which stay as typed. Nothing changes. V2: migrate's
+   rewrite from the 2.x rules, which lands on the current format. It stands in
+   for the steps from 1.0 to 3.0-a37 until they're built (2026111908444515,
+   2026111908444534). */
+typedef enum { SHCL_STEP_SAME, SHCL_STEP_V2 } ShclStep;
+
+/* Defined beside shcl_format_days. */
+static int s_first_rewrite(const char *format);
+
 /* The lines with an error on them, in order, each once, into *out (malloc'd).
    Returns how many. */
 static size_t error_lines(const shcl_doc *d, size_t **out, jmp_buf *panic) {
@@ -4337,13 +4376,21 @@ static size_t error_lines(const shcl_doc *d, size_t **out, jmp_buf *panic) {
 	return u;
 }
 
-static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, size_t len, int from_v2, int banner, int64_t version, int newer, shcl_upgraded *up) { // NOLINT(bugprone-easily-swappable-parameters): shcl_upgrade's order, as in the Rust twin
+static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, size_t len, const int64_t *mtime, int from_v2, int banner, shcl_upgraded *up) { // NOLINT(bugprone-easily-swappable-parameters): shcl_upgrade_dated's order, as in the Rust twin
 	if (!text) { text = ""; len = 0; }
+	/* Read here rather than before the setjmp, where -Wclobbered guesses
+	   they could be lost. */
+	int newer = 0;
+	shcl_read_i64 named = stamp_read(text, len, &newer);
+	int64_t version = named.status == SHCL_GOOD ? named.value : -1;
 	up->current = 1;
 	up->format = version < 0 ? 2 : (uint32_t)version;
 	shcl_str keep; keep.p = text; keep.n = len;
 	int restamped = 0;
-	if (!newer && (version < SHCL_FORMAT_MAJOR || (version == SHCL_FORMAT_MAJOR && from_v2))) {
+	/* The load's step table. Only V2 rewrites yet, and this is its upgrade
+	   form, so a format whose run is all SAME has nothing to do. */
+	if (!newer && (version < SHCL_FORMAT_MAJOR || (version == SHCL_FORMAT_MAJOR && from_v2))
+		&& s_first_rewrite(from_v2 ? "2.0" : shcl_find_format(text, len, mtime)) == SHCL_STEP_V2) {
 		own->before = shcl_parse(text, len);
 		if (!own->before) longjmp(*panic, 1);
 		int clean = shcl_error_count(own->before) == 0;
@@ -4413,9 +4460,10 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 }
 
 shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2, int banner) {
-	int newer = 0;
-	shcl_read_i64 named = stamp_read(text, len, &newer);
-	int64_t version = named.status == SHCL_GOOD ? named.value : -1;
+	return shcl_upgrade_dated(text, len, NULL, from_v2, banner);
+}
+
+shcl_upgraded shcl_upgrade_dated(const char *text, size_t len, const int64_t *mtime, int from_v2, int banner) {
 	shcl_upgraded up; memset(&up, 0, sizeof up);
 	SHCL_VOLATILE_OWNER_BEGIN
 	ShclUpgradeOwn *volatile own = (ShclUpgradeOwn *)calloc(1, sizeof *own);
@@ -4428,7 +4476,7 @@ shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2, int banner
 		SHCL_OOM();
 		abort();
 	}
-	upgrade_into(own, &panic, text, len, from_v2, banner, version, newer, &up);
+	upgrade_into(own, &panic, text, len, mtime, from_v2, banner, &up);
 	ShclUpgradeOwn *done = own;
 	shcl_free(done->before); shcl_free(done->fresh); shcl_free(done->made); free(done->migrated); free(done->left); free(done);
 	return up;
@@ -4452,6 +4500,15 @@ shcl_read_i64 shcl_read_format_version(const char *text, size_t len) {
 /* shcl_read_format_version, with *newer, when given, set as names_newer
    says. */
 static shcl_read_i64 stamp_read(const char *text, size_t len, int *newer) {
+	ShclStamp st = stamp_of(text, len);
+	if (newer) *newer = names_newer(st);
+	shcl_read_i64 r; r.value = st.status == SHCL_GOOD ? st.value : 0; r.status = st.status;
+	return r;
+}
+
+/* What the Format line or stamp in text says, as format_line_read() reads it
+   with the BOM off. Its digits point into text. */
+static ShclStamp stamp_of(const char *text, size_t len) {
 	SHCL_VOLATILE_OWNER_BEGIN
 	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
 	if (!own) { SHCL_OOM(); abort(); }
@@ -4469,9 +4526,235 @@ static shcl_read_i64 stamp_read(const char *text, size_t len, int *newer) {
 	ShclStamp st = format_line_read(&own->a, &own->sc, in);
 	ShclMigrateOwn *done = own;
 	arena_free(&done->a); arena_free(&done->sc); free(done);
-	if (newer) *newer = names_newer(st);
-	shcl_read_i64 r; r.value = st.status == SHCL_GOOD ? st.value : 0; r.status = st.status;
-	return r;
+	return st;
+}
+
+/* Each format in shcl_format_names, oldest first, with the day it was first
+   written, in days since 1970-01-01 UTC: a release's publish date, or a pin's
+   commit date. */
+static const struct { const char *name; int64_t day; } shcl_format_days[11] = {
+	{"1.0", 20649},     /* 2026-07-15 */
+	{"1.1", 20669},     /* 2026-08-04 */
+	{"2.0", 20691},     /* 2026-08-26 */
+	{"3.0-1f8", 20720}, /* 2026-09-24 */
+	{"3.0-30d", 20721}, /* 2026-09-25 */
+	{"3.0-b10", 20727}, /* 2026-10-01 */
+	{"3.0-f8e", 20729}, /* 2026-10-03 */
+	{"3.0-a37", 20730}, /* 2026-10-04 */
+	{"3.0-9ef", 20740}, /* 2026-10-14 */
+	{"3.0-a65", 20751}, /* 2026-10-25 */
+	{"3.0", 20762},     /* 2026-11-05 */
+};
+
+/* The step out of each format of shcl_format_days but the current one, in the
+   same order. */
+static const ShclStep shcl_format_steps[sizeof shcl_format_days / sizeof shcl_format_days[0] - 1] = {
+	SHCL_STEP_V2,   /* 1.0 */
+	SHCL_STEP_V2,   /* 1.1 */
+	SHCL_STEP_V2,   /* 2.0 */
+	SHCL_STEP_V2,   /* 3.0-1f8 */
+	SHCL_STEP_V2,   /* 3.0-30d */
+	SHCL_STEP_V2,   /* 3.0-b10 */
+	SHCL_STEP_V2,   /* 3.0-f8e */
+	SHCL_STEP_V2,   /* 3.0-a37 */
+	SHCL_STEP_SAME, /* 3.0-9ef, which refused an apostrophe inside a bare word */
+	SHCL_STEP_SAME, /* 3.0-a65 */
+};
+
+/* The first step of the run from format to the current one that changes
+   anything, or -1 when every step from there is SAME, as from the current
+   format, or for NULL, a newer format's. */
+static int s_first_rewrite(const char *format) {
+	size_t steps = sizeof shcl_format_steps / sizeof shcl_format_steps[0], at = steps;
+	for (size_t k = 0; format && k < steps; k++) {
+		if (strcmp(shcl_format_days[k].name, format) == 0) { at = k; break; }
+	}
+	for (; at < steps; at++) {
+		if (shcl_format_steps[at] != SHCL_STEP_SAME) return (int)shcl_format_steps[at];
+	}
+	return -1;
+}
+
+/* The runs of shcl_format_days the design doc's Tells table counts each tell
+   against, by their first and last format. A footer's run is the formats
+   whose `init` wrote it, and it counts against the rest. A spelling 2 formats
+   both read clean, such as an escape, isn't a tell here. */
+static const char *const shcl_tell_runs[7][2] = {
+	/* Refused from the format 3 value syntax on: a comma list, `*` items, a
+	   bracket selector, a bare name led by a digit, a CR in a bare value. */
+	{"3.0-9ef", "3.0"},
+	/* A bracketed value, which binds nothing. */
+	{"3.0-1f8", "3.0-a37"},
+	/* `-` items and a paren selector. */
+	{"1.0", "3.0-a37"},
+	/* An apostrophe inside a bare word. */
+	{"3.0-9ef", "3.0-9ef"},
+	/* The footers, by their Syntax line. */
+	{"1.1", "2.0"},
+	{"3.0-1f8", "3.0-1f8"},
+	{"3.0-30d", "3.0"},
+};
+
+enum { TELL_REFUSED_NOW, TELL_BRACKETS, TELL_NEW_SPELLING, TELL_APOSTROPHE, TELL_FOOTER_2, TELL_FOOTER_1F8, TELL_FOOTER_3 };
+
+/* The Syntax line of each footer, and the tell it is. */
+static const struct { const char *head, *tag; int tell; } shcl_tell_footers[3] = {
+	{"#    Syntax   ", "", TELL_FOOTER_2},
+	{"##    Syntax   ", "/v3.0.0/", TELL_FOOTER_1F8},
+	{"##    Syntax   ", "/v3.0.0-beta1/", TELL_FOOTER_3},
+};
+
+/* A tell's run as bits of shcl_format_days. */
+static uint32_t tell_run(int tell) {
+	size_t count = sizeof shcl_format_days / sizeof shcl_format_days[0], a = 0, b = 0;
+	for (size_t k = 0; k < count; k++) {
+		if (strcmp(shcl_format_days[k].name, shcl_tell_runs[tell][0]) == 0) a = k;
+		if (strcmp(shcl_format_days[k].name, shcl_tell_runs[tell][1]) == 0) b = k;
+	}
+	return ((((uint32_t)1) << (b + 1)) - 1) & ~((((uint32_t)1) << a) - 1);
+}
+
+/* The errors these rules give a line, as bits, for line_tells. */
+enum { TELL_ERR_ANY = 1, TELL_ERR_E013 = 2, TELL_ERR_E014 = 4, TELL_ERR_E025 = 8, TELL_ERR_E026 = 16, TELL_ERR_E029 = 32 };
+
+/* The formats a line's tells count against, as bits of shcl_format_days.
+   errs are the errors these rules give the line. What these rules refuse is
+   told by its code, and what they read clean by its tokens. A line these rules
+   refuse for another reason has no tell, since the other formats refuse it
+   too. */
+static uint32_t line_tells(ShclArena *ta, ShclStr rest, unsigned errs, ShclTokens *tok) {
+	if (rest.p[0] == '*') return (errs & TELL_ERR_E013) ? tell_run(TELL_REFUSED_NOW) : 0;
+	if (is_item(rest)) return errs ? 0 : tell_run(TELL_NEW_SPELLING);
+	tokenize(ta, rest, ':', 0, SHCL_RULES_CURRENT, tok);
+	int led_by_digit = tok->has_misspelled && tok->misspelled < rest.n && rest.p[tok->misspelled] >= '0' && rest.p[tok->misspelled] <= '9';
+	if ((errs & (TELL_ERR_E026 | TELL_ERR_E029)) || ((errs & TELL_ERR_E025) && memchr(rest.p, '\r', rest.n)) || ((errs & TELL_ERR_E014) && led_by_digit))
+		return tell_run(TELL_REFUSED_NOW);
+	if (errs) return 0;
+	uint32_t run = 0;
+	if (tok->has_array) run |= tell_run(TELL_BRACKETS);
+	for (size_t k = 0; k < tok->nseg; k++) {
+		if (tok->segments[k].has_selector) { run |= tell_run(TELL_NEW_SPELLING); break; }
+	}
+	for (size_t e = 0; e < tok->nelem; e++) {
+		const shcl_piece *p = &tok->elements[e];
+		if (p->quote != SHCL_QUOTE_NONE) continue;
+		int found = 0;
+		for (size_t k = p->start + 1; k + 1 < p->end; k++) {
+			if (rest.p[k] == '\'' && !is_wsp((unsigned char)rest.p[k - 1]) && !is_wsp((unsigned char)rest.p[k + 1])) { found = 1; break; }
+		}
+		if (found) { run |= tell_run(TELL_APOSTROPHE); break; }
+	}
+	return run;
+}
+
+/* The one format of left that reads the text most legally, as the last 2
+   steps of the design doc's Finding a file's format give it. Each counts the
+   lines with a tell it refuses or reads as binding nothing, plus each footer
+   its `init` didn't write. The lowest count wins, and a tie goes to the
+   newest, so a format the tells take off loses to any they leave. */
+static uint32_t most_legal(ShclStr in, uint32_t left) {
+	SHCL_VOLATILE_OWNER_BEGIN
+	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
+	if (!own) { SHCL_OOM(); abort(); }
+	SHCL_VOLATILE_OWNER_END
+	jmp_buf panic;
+	if (SHCL_SETJMP(panic)) {
+		ShclMigrateOwn *bad = own;
+		if (bad->doc) shcl_free(bad->doc);
+		arena_free(&bad->a); arena_free(&bad->sc); free(bad);
+		SHCL_OOM();
+		abort();
+	}
+	arena_guard(&own->a, &panic); arena_guard(&own->sc, &panic);
+	if (in.n >= 3 && (unsigned char)in.p[0] == 0xEF && (unsigned char)in.p[1] == 0xBB && (unsigned char)in.p[2] == 0xBF) in = s_slice(in, 3, in.n);
+	size_t nlines = 1;
+	for (size_t i = 0; i < in.n; i++) nlines += in.p[i] == '\n';
+	unsigned char *errs = (unsigned char *)arena_alloc(&own->a, nlines + 1);
+	memset(errs, 0, nlines + 1);
+	const ShclVecDiag *diags = migrate_load(own, in);
+	for (size_t k = 0; k < diags->len; k++) {
+		const ShclDiag *dg = &diags->data[k];
+		if (dg->sev != SHCL_SEV_ERROR || dg->line < 1 || dg->line > nlines) continue;
+		unsigned bit = TELL_ERR_ANY;
+		if (strcmp(dg->code, "E013") == 0) bit |= TELL_ERR_E013;
+		else if (strcmp(dg->code, "E014") == 0) bit |= TELL_ERR_E014;
+		else if (strcmp(dg->code, "E025") == 0) bit |= TELL_ERR_E025;
+		else if (strcmp(dg->code, "E026") == 0) bit |= TELL_ERR_E026;
+		else if (strcmp(dg->code, "E029") == 0) bit |= TELL_ERR_E029;
+		errs[dg->line] |= (unsigned char)bit;
+	}
+	migrate_unload(own);
+	size_t count = sizeof shcl_format_days / sizeof shcl_format_days[0];
+	size_t against[sizeof shcl_format_days / sizeof shcl_format_days[0]] = {0};
+	uint32_t footers = 0;
+	ShclRawLines lines;
+	raw_lines_init(&lines, SHCL_RULES_CURRENT);
+	ShclTokens tok; memset(&tok, 0, sizeof tok);
+	size_t start = 0, ln = 0;
+	for (size_t i = 0; i <= in.n; i++) {
+		if (i < in.n && in.p[i] != '\n') continue;
+		ShclStr raw = s_slice(in, start, i);
+		start = i + 1;
+		ln++;
+		ShclStr rest = s_empty();
+		if (!raw_lines_step(&own->a, &own->sc, &lines, raw, &rest) || rest.n == 0) continue;
+		if (rest.p[0] == '#') {
+			for (size_t f = 0; f < 3; f++) {
+				if (s_starts(rest, shcl_tell_footers[f].head) && s_has(rest, s_lit(shcl_tell_footers[f].tag))) footers |= (uint32_t)1 << shcl_tell_footers[f].tell;
+			}
+			continue;
+		}
+		uint32_t run = line_tells(&own->a, rest, errs[ln], &tok);
+		for (size_t f = 0; f < count; f++) against[f] += (run >> f) & 1;
+	}
+	static const int footer_tells[3] = {TELL_FOOTER_2, TELL_FOOTER_1F8, TELL_FOOTER_3};
+	for (size_t t = 0; t < 3; t++) {
+		if (!((footers >> footer_tells[t]) & 1)) continue;
+		uint32_t wrote = tell_run(footer_tells[t]);
+		for (size_t f = 0; f < count; f++) against[f] += ((wrote >> f) & 1) ^ 1;
+	}
+	ShclMigrateOwn *done = own;
+	arena_free(&done->a); arena_free(&done->sc); free(done);
+	size_t best = count;
+	for (size_t f = 0; f < count; f++) {
+		if (((left >> f) & 1) && (best == count || against[f] <= against[best])) best = f;
+	}
+	return best == count ? left : (uint32_t)1 << best;
+}
+
+const char *shcl_find_format(const char *text, size_t len, const int64_t *mtime) {
+	ShclStamp st = stamp_of(text, len);
+	if (names_newer(st)) return NULL;
+	size_t count = sizeof shcl_format_days / sizeof shcl_format_days[0];
+	uint32_t left = ((uint32_t)1 << count) - 1;
+	if (st.status == SHCL_GOOD) {
+		for (size_t k = 0; k < SHCL_FORMAT_NAME_COUNT; k++) {
+			if (s_eq(st.digits, s_lit(shcl_format_names[k][0]))) return shcl_format_names[k][1];
+		}
+		int64_t minor, fminor;
+		int64_t major = stamp_format(st.digits, &minor);
+		int whole = memchr(st.digits.p, '.', st.digits.n) != NULL;
+		uint32_t by_stamp = 0;
+		for (size_t k = 0; k < count; k++) {
+			int64_t fmajor = stamp_format(s_lit(shcl_format_days[k].name), &fminor);
+			if (major >= 0 && fmajor == major && (!whole || fminor == minor)) by_stamp |= (uint32_t)1 << k;
+		}
+		if (by_stamp) left = by_stamp;
+	}
+	if (mtime) {
+		uint32_t by_mtime = 0;
+		for (size_t k = 0; k < count; k++) {
+			if (*mtime >= (shcl_format_days[k].day - 1) * 86400) by_mtime |= (uint32_t)1 << k;
+		}
+		if (left & by_mtime) left &= by_mtime;
+	}
+	if (left & (left - 1)) {
+		ShclStr in; in.p = text ? text : ""; in.n = len;
+		left = most_legal(in, left);
+	}
+	size_t newest = 0;
+	for (size_t k = 0; k < count; k++) if (left & ((uint32_t)1 << k)) newest = k;
+	return shcl_format_days[newest].name;
 }
 
 /* The Schema line's reference: SHCL_GOOD with it in *out, SHCL_EMPTY for a
@@ -15905,6 +16188,38 @@ static int s_something_at(const char *path) {
 #endif
 }
 
+/* The text, written in format, as the current format reads it, one step per
+   format in order, in memory. NULL, a newer format's, comes back as it is.
+   from_v2 is migrate's. The text is malloc'd, and the caller frees it. */
+static shcl_migration s_convert(const char *text, size_t len, const char *format, int from_v2) {
+	if (s_first_rewrite(format) == SHCL_STEP_V2) return shcl_migrate_unstamped(text, len, from_v2);
+	shcl_migration m; memset(&m, 0, sizeof m);
+	m.current = 1; m.len = len;
+	m.text = (char *)malloc(len + 1);
+	if (!m.text) arena_panic(NULL);
+	if (len) memcpy(m.text, text, len);
+	m.text[len] = 0;
+	return m;
+}
+
+/* 1 with path's mtime in Unix seconds in *out, or 0 when it can't be read or
+   is before 1970, which shcl_find_format would ignore anyway. */
+static int s_file_mtime(const char *path, int64_t *out) {
+#ifdef _WIN32
+	wchar_t *w = shcl_widen(path);
+	if (!w) { SHCL_OOM(); abort(); }
+	struct _stat64 st;
+	int ok = _wstat64(w, &st) == 0;
+	free(w);
+#else
+	struct stat st;
+	int ok = stat(path, &st) == 0;
+#endif
+	if (!ok || st.st_mtime < 0) return 0;
+	*out = (int64_t)st.st_mtime;
+	return 1;
+}
+
 /* Every load that reads a file comes here, as the reference's load_file_any:
    read, parse, and keep the text for a save's changed check. A file that could
    not be read gives a save nothing to compare, so its bytes are as unread as a
@@ -15916,7 +16231,10 @@ static shcl_doc *s_load_file_any(const char *path, shcl_strictness s, int keep, 
 	if (status) *status = st;
 	shcl_doc *d;
 	if (buf && migrate >= 0) {
-		shcl_migration mig = shcl_migrate_unstamped(buf, len, migrate);
+		// from_v2 says the file is 2.x, whatever its stamp and mtime say.
+		int64_t mtime = 0;
+		const char *format = migrate ? "2.0" : shcl_find_format(buf, len, s_file_mtime(path, &mtime) ? &mtime : NULL);
+		shcl_migration mig = s_convert(buf, len, format, migrate);
 		if (!mig.text) { free(buf); return NULL; }
 		d = keep ? shcl_parse_keep_lines(mig.text, mig.len, s) : shcl_parse_with(mig.text, mig.len, s);
 		free(mig.text);
@@ -16240,7 +16558,8 @@ shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, int banner, 
 		if (rerr) return upgrade_why(why, s_write_status_of(rerr), upgrade_fail(message, SHCL_UPGRADE_IO, "%s: %s", path, strerror(rerr)));
 		return upgrade_why(why, SHCL_WRITE_UNREADABLE, upgrade_fail(message, SHCL_UPGRADE_IO, "%s: can't be read as UTF-8 text", path));
 	}
-	shcl_upgraded up = shcl_upgrade(text, len, from_v2, banner);
+	int64_t mtime = 0;
+	shcl_upgraded up = shcl_upgrade_dated(text, len, s_file_mtime(path, &mtime) ? &mtime : NULL, from_v2, banner);
 	shcl_upgrade_error r = SHCL_UPGRADE_OK;
 	if (up.current) { // NOLINT(bugprone-branch-clone): already current and just written both hand the result back
 		*out = up;

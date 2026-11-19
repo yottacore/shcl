@@ -4332,6 +4332,106 @@ def main():
 			if (fnr.value, fnr.status, fnr.line, fnr.raw) != (fmajor, shcl.Status.Good, 2, fname):
 				raise SystemExit(f"read_format_version {fnt!r}: {fnr}")
 
+	test_id("dfgvf", "a_file_format_comes_from_its_stamp_and_mtime")
+	# A text's format comes from its stamp, then its mtime, and the newest
+	# format they leave. Rust's a_file_format_comes_from_its_stamp_and_mtime
+	# has the same rows. The mtimes are Unix seconds at UTC.
+	ffplain = "a: 1\n"
+	ffbeta1 = "a: 1\n##    Format   3\n"
+	for fftext, ffmtime, ffwant in (
+		(ffplain, None, "3.0"),
+		(ffplain, 1784505600, "1.0"),  # 2026-07-20
+		(ffplain, 1785758400, "1.1"),  # 2026-08-03 12:00, the day before
+		(ffplain, 1785715199, "1.0"),  # 2026-08-02 23:59:59
+		(ffplain, 1788220800, "2.0"),  # 2026-09-01
+		(ffplain, 1791590400, "3.0-a37"),  # 2026-10-10
+		(ffplain, 1793750400, "3.0"),  # 2026-11-04
+		(ffplain, 1782864000, "3.0"),  # 2026-07-01, before any format
+		(ffplain, -1, "3.0"),
+		(ffbeta1, None, "3.0"),
+		(ffbeta1, 1790553600, "3.0-30d"),  # 2026-09-28
+		(ffbeta1, 1792800000, "3.0-a65"),  # 2026-10-24
+		(ffbeta1, 1792796400, "3.0-9ef"),  # 2026-10-23 23:00
+		(ffbeta1, 1788220800, "3.0"),  # 2026-09-01, older than the stamp
+		("## SHCL format 3.0-231\n", 1784505600, "3.0-a37"),
+		("\ufeff## SHCL format 2.0\na: 1\n", 1794268800, "2.0"),
+		("##    Format   1\n", 1794268800, "1.1"),  # 2026-11-10
+		("##    Format   1\n", 1784505600, "1.0"),
+		("## SHCL format 3.0-zzz\n", 1791158400, "3.0-a37"),  # 2026-10-05
+		("## SHCL format 1.2\n", 1788220800, "2.0"),
+		("##    Format   3x\n", 1788220800, "2.0"),
+		("## SHCL format 3.1\n", 1788220800, None),
+		("##    Format   4\n", None, None),
+		("a: ~~~\n##    Format   3\n~~~\n", 1788220800, "2.0"),
+	):
+		if shcl.find_format(fftext, ffmtime) != ffwant:
+			raise SystemExit(f"find_format {fftext!r} at {ffmtime}: {shcl.find_format(fftext, ffmtime)!r}, want {ffwant!r}")
+	for ffname, ffformat in shcl.FORMAT_NAMES:
+		if shcl.find_format(f"a: 1\n{shcl.STAMP_HEAD}{ffname}\n", 1784505600) != ffformat:
+			raise SystemExit(f"find_format: stamp {ffname}")
+	# Day by day, a text without a stamp goes through every format in order.
+	ffown: list[str | None] = [n for n, f in shcl.FORMAT_NAMES if n == f]
+	ffseen: list[str | None] = []
+	for ffday in range(20648, 20770):
+		ffgot = shcl.find_format(ffplain, ffday * 86400 + 43200)
+		if not ffseen or ffseen[-1] != ffgot:
+			ffseen.append(ffgot)
+	if ffseen != ffown:
+		raise SystemExit(f"find_format by day: {ffseen}, want {ffown}")
+
+	test_id("dfgwe", "a_file_format_comes_from_its_tells")
+	# Of the formats a text's stamp and mtime leave, the one whose rules
+	# refuse the fewest of its tells is its format, and a tie goes to the
+	# newest. Rust's a_file_format_comes_from_its_tells has the same rows. The
+	# mtimes are Unix seconds at UTC.
+	ftsep1 = 1788220800  # 2026-09-01, 1.0 to 2.0
+	ftsep28 = 1790553600  # 2026-09-28, to 3.0-30d
+	ftoct10 = 1791590400  # 2026-10-10, to 3.0-a37
+	ftoct20 = 1792454400  # 2026-10-20, to 3.0-9ef
+	ftnov10 = 1794268800  # 2026-11-10, every format
+	ftf3 = "a: 1\n##    Format   3\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0/project/spec.md\n"
+	ftf3b1 = "a: 1\n##    Format   3\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n"
+	ftf2 = "a: 1\n#    Home     https://example.com/shcl\n#    Syntax   https://example.com/shcl/blob/main/project/spec.md\n"
+	for fttext, ftmtime, ftwant in (
+		("a: [1, 2]\n", ftoct10, "2.0"),
+		("a: [1, 2]\n", ftnov10, "3.0"),
+		("a: 1, 2\n", ftnov10, "3.0-a37"),
+		("a: 1, 2\n", None, "3.0-a37"),
+		("a: x,\n", None, "3.0-a37"),
+		("a:\n\t* x\n\t* y\n", ftnov10, "3.0-a37"),
+		("s[\"p\"].h: 1\n", None, "3.0-a37"),
+		("1a: x\n", None, "3.0-a37"),
+		("h: x\r y\n", None, "3.0-a37"),
+		("a: it's ok\n", ftoct20, "3.0-a37"),
+		("a: it's ok\n", ftnov10, "3.0"),
+		("a: \"it's\" ok\n", ftoct20, "3.0-9ef"),
+		# Content newer than the mtime: every format left refuses it alike.
+		("a:\n\t- x\n", ftoct10, "3.0-a37"),
+		("s(p).h: 1\n", ftsep1, "2.0"),
+		("a: [1, 2]\nb:\n\t- x\n", ftoct10, "2.0"),
+		("a: 1, 2\nb: [3]\n", None, "2.0"),
+		("a: 1, 2\nb:\n\t- x\n\t- y\n", None, "3.0"),
+		# The footers.
+		(ftf3, None, "3.0-1f8"),
+		(ftf3, ftnov10, "3.0-1f8"),
+		(ftf3b1, ftnov10, "3.0"),
+		(ftf3b1, ftsep28, "3.0-30d"),
+		(ftf2, ftnov10, "2.0"),
+		(ftf2, 1784505600, "1.0"),  # 2026-07-20
+		# Not tells: read clean both ways, refused by every format, or in a
+		# raw body.
+		("a: 'C:\\temp'\nb: \"x\\ty\"\nc: `q`\nd: 1,2\ne: 0o17\n", None, "3.0"),
+		("a: 'C:\\temp'\n", ftsep1, "2.0"),
+		("b b: 1\ns[#0].h: 1\n- x\n", None, "3.0"),
+		("c: [1, 2]\n\tx: 1\n", None, "3.0"),
+		("a: ~~~\nb: 1, 2\n~~~\n", None, "3.0"),
+		# A whole stamp settles it.
+		("a: 1, 2\n## SHCL format 3.0\n", None, "3.0"),
+		("\ufeffa: 1, 2\n", ftnov10, "3.0-a37"),
+	):
+		if shcl.find_format(fttext, ftmtime) != ftwant:
+			raise SystemExit(f"find_format {fttext!r} at {ftmtime}: {shcl.find_format(fttext, ftmtime)!r}, want {ftwant!r}")
+
 	test_id("ddqha", "stamp_reads_say_why")
 	# The Format and Schema lines read with a status, so an unstamped file and
 	# a damaged stamp read apart, and the load's H006 and H007 hints say the
@@ -5681,9 +5781,14 @@ def main():
 	if not shcl.upgrade(up.text, False, True).current:
 		raise SystemExit("the fresh text is not current")
 
+	# 2026-09-01, an mtime that leaves 2.0 the newest format. Without it, a
+	# text with no tells reads as this format, which leaves its errors as
+	# typed (2026111908444554).
+	up_sep1 = 1788220800
+
 	test_id("ddmkt", "upgrade_refuses_text_that_reads_two_ways")
 	up_amb = "a: x,y\nb: \"q\n"
-	up = shcl.upgrade(up_amb, False, True)
+	up = shcl.upgrade_dated(up_amb, up_sep1, False, True)
 	if up.current or up.ambiguous != 1 or up.text != up_amb:
 		raise SystemExit(f"{up.current} {up.ambiguous} {up.text!r}")
 	up = shcl.upgrade(up_amb, True, True)
@@ -5755,6 +5860,7 @@ def main():
 		up_amb_path = os.path.join(ud, "amb.shcl")
 		with open(up_amb_path, "wb") as uf:
 			uf.write(b"a: x,y\nb: \"q\n")
+		os.utime(up_amb_path, (up_sep1, up_sep1))
 		try:
 			shcl.upgrade_file(up_amb_path, False, True)
 			raise SystemExit("amb: no error")
@@ -5773,13 +5879,13 @@ def main():
 		("p: a,b\n", True, "p: [a, b]\n## SHCL format 3.0\n"),
 		("a: 1\r\nb: \"q\r\n", False, "a: 1\r\nb: '\"q'\r\n## SHCL format 3.0\r\n"),
 	):
-		up = shcl.upgrade(ub_text, ub_v2, False)
+		up = shcl.upgrade_dated(ub_text, up_sep1, ub_v2, False)
 		if up.current or up.text != ub_want:
 			raise SystemExit(f"no block {ub_text!r}: {up.current} {up.text!r}")
 		if not shcl.upgrade(up.text, False, False).current or not shcl.upgrade(up.text, True, False).current:
 			raise SystemExit(f"no block {ub_text!r}: not current on the next run")
 		# With the block, for the same file.
-		if "## This config file format is SHCL." not in shcl.upgrade(ub_text, ub_v2, True).text:
+		if "## This config file format is SHCL." not in shcl.upgrade_dated(ub_text, up_sep1, ub_v2, True).text:
 			raise SystemExit(f"no block {ub_text!r}: none with it")
 	# upgrade_file writes the same text, and keeps the original.
 	with tempfile.TemporaryDirectory() as ud:
@@ -6445,6 +6551,87 @@ def main():
 		msame("no options", (mplain.to_canonical(), mpst), (mwant.to_canonical(), mwst))
 		_, mst = shcl.Document.load_file_opts(os.path.join(md, "gone.shcl"), shcl.Strictness.Standard, mopts)
 		msame("missing", mst, shcl.FileStatus.NotFound)
+
+	test_id("dfgye", "a_load_converts_from_the_format_its_mtime_gives")
+	# A load that migrates converts from the format find_format gives the
+	# file's text and mtime, with the mtime pinned on the file. One whose
+	# format reads like this one's but for refused lines comes back as typed,
+	# and an older one goes through the 2.x migration that stands in for its
+	# steps (2026111908443663). Same rows in every runner.
+	with tempfile.TemporaryDirectory() as cd:
+		cf = os.path.join(cd, "f.shcl")
+		aug6 = 1785974400  # 2026-08-06, to 1.1
+		oct10 = 1791590400  # 2026-10-10, to 3.0-a37
+		oct20 = 1792454400  # 2026-10-20, to 3.0-9ef
+		oct30 = 1793318400  # 2026-10-30, to 3.0-a65
+		nov10 = 1794268800  # 2026-11-10, every format
+		y2020 = 1577836800  # before any format, so ignored
+		cquote, cbrackets = 'a: x"y\n', "a: [1, 2]\n"
+		# The text, the mtime, from_v2, and whether it goes through migrate.
+		for ctext, cmtime, cv2, cmigrated in (
+			(cquote, nov10, False, False),
+			(cquote, oct30, False, False),
+			(cquote, oct20, False, False),
+			(cquote, y2020, False, False),
+			(cquote, aug6, False, True),
+			(cquote, nov10, True, True),
+			(cbrackets, nov10, False, False),
+			(cbrackets, oct10, False, True),
+		):
+			with open(cf, "w", encoding="utf-8", newline="") as fh:
+				fh.write(ctext)
+			os.utime(cf, (cmtime, cmtime))
+			cdoc, _ = shcl.Document.load_file_opts(cf, shcl.Strictness.Standard, shcl.LoadOptions(keep_lines=True, migrate=True, from_v2=cv2))
+			cwant, clost = ctext, 0
+			if cmigrated:
+				cm = shcl.migrate_unstamped(ctext, cv2)
+				cwant, clost = cm.text, cm.lost
+			cgot = (cdoc.to_text_keep_lines()[0], cdoc.lost_count())
+			if cgot != (with_stamp(cwant), clost):
+				raise SystemExit(f"{ctext!r} at {cmtime}, from_v2 {cv2}: {cgot!r}, want {(with_stamp(cwant), clost)!r}")
+			with open(cf, encoding="utf-8", newline="") as fh:
+				if fh.read() != ctext:
+					raise SystemExit(f"{ctext!r}: the load wrote the file")
+
+	test_id("dfh0g", "an_upgrade_converts_from_the_format_its_mtime_gives")
+	# upgrade and upgrade_file find the format as the load does, with the
+	# file's mtime, and make over only a file whose steps to this format
+	# rewrite anything. One from 3.0-9ef on is current, its error kept as
+	# typed (2026111908444554). Same rows in every runner.
+	with tempfile.TemporaryDirectory() as ud:
+		uf = os.path.join(ud, "f.shcl")
+		aug6 = 1785974400  # 2026-08-06, to 1.1
+		oct20 = 1792454400  # 2026-10-20, to 3.0-9ef
+		nov10 = 1794268800  # 2026-11-10, every format
+		y2020 = 1577836800  # before any format, so ignored
+		uquote, ufresh = 'a: x"y\n', "a: 'x\"y'\n## SHCL format 3.0\n"
+		# Text from no file reads as the newest format its tells leave.
+		if not shcl.upgrade(uquote, False, False).current:
+			raise SystemExit("upgrade with no mtime made it over")
+		# The mtime, from_v2, and whether it's made over.
+		for umtime, uv2, umade in (
+			(nov10, False, False),
+			(oct20, False, False),
+			(y2020, False, False),
+			(aug6, False, True),
+			(nov10, True, True),
+		):
+			uwant = ufresh if umade else uquote
+			up = shcl.upgrade_dated(uquote, umtime, uv2, False)
+			if (up.current, up.text) != (not umade, uwant):
+				raise SystemExit(f"{umtime}, from_v2 {uv2}: {(up.current, up.text)!r}, want {uwant!r}")
+			with open(uf, "w", encoding="utf-8", newline="") as fh:
+				fh.write(uquote)
+			os.utime(uf, (umtime, umtime))
+			up = shcl.upgrade_file(uf, uv2, False)
+			if up.current == umade:
+				raise SystemExit(f"file at {umtime}, from_v2 {uv2}: current {up.current}")
+			with open(uf, encoding="utf-8", newline="") as fh:
+				ugot = fh.read()
+			if ugot != uwant:
+				raise SystemExit(f"file at {umtime}, from_v2 {uv2}: holds {ugot!r}, want {uwant!r}")
+			if umade:
+				os.remove(up.backup)
 
 	test_id("ddrnd", "default_fills_what_does_not_read")
 	# A default form writes where the field is missing, empty or does not read

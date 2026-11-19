@@ -24,6 +24,9 @@
 #include <unistd.h>
 #ifdef _WIN32
 #include <direct.h>   // _mkdir - windows' mkdir takes no mode argument
+#include <sys/utime.h>  // an upgrade fixture pins a file's mtime
+#else
+#include <utime.h>      // an upgrade fixture pins a file's mtime
 #endif
 #endif
 
@@ -231,6 +234,32 @@ static int reads_from_several_threads() {
 			fails++;
 		}
 	}
+	return test_id_end(fails);
+}
+
+// A text's format comes from its stamp, then its mtime, and the newest format
+// they leave. Some of the C runner's rows, through the veneer.
+static int a_file_format_comes_from_its_stamp_and_mtime() {
+	test_id("dfgvh", "a_file_format_comes_from_its_stamp_and_mtime");
+	CHECK(shcl::find_format("a: 1\n", std::nullopt) == "3.0");
+	CHECK(shcl::find_format("a: 1\n", 1785758400) == "1.1");
+	CHECK(shcl::find_format("a: 1\n##    Format   3\n", 1790553600) == "3.0-30d");
+	CHECK(shcl::find_format("a: 1\n##    Format   3\n", 1788220800) == "3.0");
+	CHECK(shcl::find_format("## SHCL format 3.0-231\n", 1784505600) == "3.0-a37");
+	CHECK(!shcl::find_format("## SHCL format 3.1\n", std::nullopt));
+	return test_id_end(fails);
+}
+
+// upgrade finds the format as the load does, and makes over only a text whose
+// steps to this format rewrite anything (2026111908444554). Some of the C
+// runner's rows, through the veneer.
+static int an_upgrade_converts_from_the_format_its_mtime_gives() {
+	test_id("dfh0j", "an_upgrade_converts_from_the_format_its_mtime_gives");
+	const std::string quote = "a: x\"y\n";
+	CHECK(shcl::upgrade(quote, false, false).current);
+	CHECK(shcl::upgrade_dated(quote, 1794268800, false, false).current);
+	const auto up = shcl::upgrade_dated(quote, 1785974400, false, false);
+	CHECK(!up.current && up.text == "a: 'x\"y'\n" + std::string(shcl::STAMP_LINE) + "\n");
 	return test_id_end(fails);
 }
 
@@ -1121,7 +1150,9 @@ int main() {
 	CHECK(up.text == "tags: [a, b]\n\n" + std::string(shcl::GEN_BANNER));
 	CHECK(up.diagnostics.size() == 1 && up.diagnostics[0].code == "E026");
 	CHECK(shcl::upgrade(up.text, false, true).current && shcl::upgrade(up.text, false, true).diagnostics.empty());
-	CHECK(shcl::upgrade("a: x,y\nb: \"q\n", false, true).ambiguous == 1);
+	// 2026-09-01 leaves 2.0 the newest format. Without it, a text with no
+	// tells reads as this format, which keeps its errors (2026111908444554).
+	CHECK(shcl::upgrade_dated("a: x,y\nb: \"q\n", 1788220800, false, true).ambiguous == 1);
 	// With from_v2, a fresh text that would keep an error is not made.
 	auto left = shcl::upgrade("a: 1\nb 2\n##    Format   3\n", true, true);
 	CHECK(!left.current && left.errors_left == std::vector<std::size_t>{2} && left.text == "a: 1\nb 2\n##    Format   3\n");
@@ -1454,6 +1485,13 @@ int main() {
 		CHECK(rmdir(swapDir.c_str()) == 0);
 		CHECK(shcl::upgrade_file(dir + "/none.shcl", false, true).second->kind == shcl::UpgradeErrorKind::NotFound);
 		CHECK(shcl::write_file_atomic(f, "a: x,y\nb: \"q\n") == shcl::WriteStatus::Ok);
+#ifdef _WIN32
+		struct _utimbuf sep1 = {1788220800, 1788220800};
+		CHECK(_utime(f.c_str(), &sep1) == 0);
+#else
+		struct utimbuf sep1 = {1788220800, 1788220800};
+		CHECK(utime(f.c_str(), &sep1) == 0);
+#endif
 		auto [amb2, amb2Err] = shcl::upgrade_file(f, false, true);
 		CHECK(amb2Err && amb2Err->kind == shcl::UpgradeErrorKind::Ambiguous && amb2Err->count == 1 && amb2.text.empty());
 		CHECK(shcl::write_file_atomic(f, "a: 1\nb 2\n##    Format   3\n") == shcl::WriteStatus::Ok);
@@ -1541,6 +1579,10 @@ int main() {
 	fails = 0;
 	const int no_text = a_newer_format_document_gives_no_text();
 	fails = 0;
+	const int found = a_file_format_comes_from_its_stamp_and_mtime();
+	fails = 0;
+	const int upconv = an_upgrade_converts_from_the_format_its_mtime_gives();
+	fails = 0;
 #ifndef SHCL_NO_FILE_IO
 	const int changed = a_save_over_a_file_changed_since_the_load_is_refused();
 	fails = 0;
@@ -1556,8 +1598,8 @@ int main() {
 	fails = 0;
 	const int no_banner = upgrade_can_leave_the_info_block_off();
 	fails = 0;
-	return changed | spellings | created | newer | migrating | with_banner | no_banner | a_path_holding_a_nul_is_refused() | threads | stamped | no_text | smoke;
+	return changed | spellings | created | newer | migrating | with_banner | no_banner | a_path_holding_a_nul_is_refused() | threads | stamped | no_text | found | upconv | smoke;
 #else
-	return threads | stamped | no_text | smoke;
+	return threads | stamped | no_text | found | upconv | smoke;
 #endif
 }

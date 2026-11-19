@@ -25,8 +25,10 @@ typedef int Arena, Node, Value, Element, Str, Parser, Diag, Segment, Selector, S
 #ifdef _WIN32
 #include <direct.h>   // _mkdir - windows' mkdir takes no mode argument
 #include <sddl.h>     // the DACL fixture compares DACLs as SDDL
+#include <sys/utime.h>  // the load fixture pins a file's mtime
 #else
 #include <sys/stat.h>   // the file-mode fixture stats and chmods for itself
+#include <utime.h>      // the load fixture pins a file's mtime
 #include <pthread.h>    // the small-stack validate fixture
 #include <unistd.h>     // sysconf, for the smallest stack this platform allows
 #endif
@@ -1609,6 +1611,19 @@ static void put_file(const char *path, const char *text) {
 	fwrite(text, 1, strlen(text), f);
 	fclose(f);
 }
+static void pin_mtime(const char *path, int64_t secs) {
+#ifdef _WIN32
+	struct _utimbuf times = {(time_t)secs, (time_t)secs};
+	if (_utime(path, &times) != 0) fail("pin_mtime", path);
+#else
+	struct utimbuf times = {(time_t)secs, (time_t)secs};
+	if (utime(path, &times) != 0) fail("pin_mtime", path);
+#endif
+}
+/* 2026-09-01, an mtime that leaves 2.0 the newest format. Without it, a text
+   with no tells reads as this format, which leaves its errors as typed
+   (2026111908444554). */
+static const int64_t up_sep1 = 1788220800;
 static int file_is(const char *path, const char *text) {
 	size_t n = 0; shcl_file_status st;
 	char *t = shcl_read_file(path, 0, &n, &st);
@@ -5054,6 +5069,122 @@ int main(int argc, char **argv) {
 			}
 		}
 	}
+	test_id("dfgvg", "a_file_format_comes_from_its_stamp_and_mtime");
+	/* A text's format comes from its stamp, then its mtime, and the newest
+	   format they leave. Rust's a_file_format_comes_from_its_stamp_and_mtime
+	   has the same rows. The mtimes are Unix seconds at UTC, and has_mtime 0
+	   passes none. */
+	{
+		const char *plain = "a: 1\n", *beta1 = "a: 1\n##    Format   3\n";
+		const struct { const char *text; int has_mtime; int64_t mtime; const char *want; } ff[] = {
+			{plain, 0, 0, "3.0"},
+			{plain, 1, 1784505600, "1.0"},     /* 2026-07-20 */
+			{plain, 1, 1785758400, "1.1"},     /* 2026-08-03 12:00, the day before */
+			{plain, 1, 1785715199, "1.0"},     /* 2026-08-02 23:59:59 */
+			{plain, 1, 1788220800, "2.0"},     /* 2026-09-01 */
+			{plain, 1, 1791590400, "3.0-a37"}, /* 2026-10-10 */
+			{plain, 1, 1793750400, "3.0"},     /* 2026-11-04 */
+			{plain, 1, 1782864000, "3.0"},     /* 2026-07-01, before any format */
+			{plain, 1, -1, "3.0"},
+			{beta1, 0, 0, "3.0"},
+			{beta1, 1, 1790553600, "3.0-30d"}, /* 2026-09-28 */
+			{beta1, 1, 1792800000, "3.0-a65"}, /* 2026-10-24 */
+			{beta1, 1, 1792796400, "3.0-9ef"}, /* 2026-10-23 23:00 */
+			{beta1, 1, 1788220800, "3.0"},     /* 2026-09-01, older than the stamp */
+			{"## SHCL format 3.0-231\n", 1, 1784505600, "3.0-a37"},
+			{"\xEF\xBB\xBF## SHCL format 2.0\na: 1\n", 1, 1794268800, "2.0"},
+			{"##    Format   1\n", 1, 1794268800, "1.1"}, /* 2026-11-10 */
+			{"##    Format   1\n", 1, 1784505600, "1.0"},
+			{"## SHCL format 3.0-zzz\n", 1, 1791158400, "3.0-a37"}, /* 2026-10-05 */
+			{"## SHCL format 1.2\n", 1, 1788220800, "2.0"},
+			{"##    Format   3x\n", 1, 1788220800, "2.0"},
+			{"## SHCL format 3.1\n", 1, 1788220800, NULL},
+			{"##    Format   4\n", 0, 0, NULL},
+			{"a: ~~~\n##    Format   3\n~~~\n", 1, 1788220800, "2.0"},
+		};
+		for (size_t k = 0; k < sizeof ff / sizeof ff[0]; k++) {
+			const char *got = shcl_find_format(ff[k].text, strlen(ff[k].text), ff[k].has_mtime ? &ff[k].mtime : NULL);
+			if (got != ff[k].want && (!got || !ff[k].want || strcmp(got, ff[k].want))) fail("a_file_format_comes_from_its_stamp_and_mtime", ff[k].text);
+		}
+		char buf[96];
+		int64_t july = 1784505600;
+		for (size_t k = 0; k < SHCL_FORMAT_NAME_COUNT; k++) {
+			int n = snprintf(buf, sizeof buf, "a: 1\n%s%s\n", SHCL_STAMP_HEAD, shcl_format_names[k][0]);
+			const char *got = shcl_find_format(buf, (size_t)n, &july);
+			if (!got || strcmp(got, shcl_format_names[k][1])) fail("a_file_format_comes_from_its_stamp_and_mtime", buf);
+		}
+		/* Day by day, a text without a stamp goes through every format in
+		   order. */
+		const char *last = NULL;
+		size_t own = 0;
+		while (own < SHCL_FORMAT_NAME_COUNT && strcmp(shcl_format_names[own][0], shcl_format_names[own][1])) own++;
+		for (int64_t day = 20648; day < 20770; day++) {
+			int64_t t = day * 86400 + 43200;
+			const char *got = shcl_find_format(plain, strlen(plain), &t);
+			if (!got) { fail("a_file_format_comes_from_its_stamp_and_mtime", "no format by day"); break; }
+			if (last && !strcmp(last, got)) continue;
+			if (own >= SHCL_FORMAT_NAME_COUNT || strcmp(got, shcl_format_names[own][0])) { fail("a_file_format_comes_from_its_stamp_and_mtime", got); break; }
+			last = got;
+			for (own++; own < SHCL_FORMAT_NAME_COUNT && strcmp(shcl_format_names[own][0], shcl_format_names[own][1]); own++) {}
+		}
+		if (own != SHCL_FORMAT_NAME_COUNT) fail("a_file_format_comes_from_its_stamp_and_mtime", "a format never came by day");
+	}
+	test_id("dfgwf", "a_file_format_comes_from_its_tells");
+	/* Of the formats a text's stamp and mtime leave, the one whose rules refuse
+	   the fewest of its tells is its format, and a tie goes to the newest.
+	   Rust's a_file_format_comes_from_its_tells has the same rows. The mtimes
+	   are Unix seconds at UTC, and has_mtime 0 passes none. */
+	{
+		const int64_t sep1 = 1788220800;  /* 2026-09-01, 1.0 to 2.0 */
+		const int64_t sep28 = 1790553600; /* 2026-09-28, to 3.0-30d */
+		const int64_t oct10 = 1791590400; /* 2026-10-10, to 3.0-a37 */
+		const int64_t oct20 = 1792454400; /* 2026-10-20, to 3.0-9ef */
+		const int64_t nov10 = 1794268800; /* 2026-11-10, every format */
+		const char *f3 = "a: 1\n##    Format   3\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0/project/spec.md\n";
+		const char *f3b1 = "a: 1\n##    Format   3\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n";
+		const char *f2 = "a: 1\n#    Home     https://example.com/shcl\n#    Syntax   https://example.com/shcl/blob/main/project/spec.md\n";
+		const struct { const char *text; int has_mtime; int64_t mtime; const char *want; } ft[] = {
+			{"a: [1, 2]\n", 1, oct10, "2.0"},
+			{"a: [1, 2]\n", 1, nov10, "3.0"},
+			{"a: 1, 2\n", 1, nov10, "3.0-a37"},
+			{"a: 1, 2\n", 0, 0, "3.0-a37"},
+			{"a: x,\n", 0, 0, "3.0-a37"},
+			{"a:\n\t* x\n\t* y\n", 1, nov10, "3.0-a37"},
+			{"s[\"p\"].h: 1\n", 0, 0, "3.0-a37"},
+			{"1a: x\n", 0, 0, "3.0-a37"},
+			{"h: x\r y\n", 0, 0, "3.0-a37"},
+			{"a: it's ok\n", 1, oct20, "3.0-a37"},
+			{"a: it's ok\n", 1, nov10, "3.0"},
+			{"a: \"it's\" ok\n", 1, oct20, "3.0-9ef"},
+			/* Content newer than the mtime: every format left refuses it alike. */
+			{"a:\n\t- x\n", 1, oct10, "3.0-a37"},
+			{"s(p).h: 1\n", 1, sep1, "2.0"},
+			{"a: [1, 2]\nb:\n\t- x\n", 1, oct10, "2.0"},
+			{"a: 1, 2\nb: [3]\n", 0, 0, "2.0"},
+			{"a: 1, 2\nb:\n\t- x\n\t- y\n", 0, 0, "3.0"},
+			/* The footers. */
+			{f3, 0, 0, "3.0-1f8"},
+			{f3, 1, nov10, "3.0-1f8"},
+			{f3b1, 1, nov10, "3.0"},
+			{f3b1, 1, sep28, "3.0-30d"},
+			{f2, 1, nov10, "2.0"},
+			{f2, 1, 1784505600, "1.0"}, /* 2026-07-20 */
+			/* Not tells: read clean both ways, refused by every format, or in a
+			   raw body. */
+			{"a: 'C:\\temp'\nb: \"x\\ty\"\nc: `q`\nd: 1,2\ne: 0o17\n", 0, 0, "3.0"},
+			{"a: 'C:\\temp'\n", 1, sep1, "2.0"},
+			{"b b: 1\ns[#0].h: 1\n- x\n", 0, 0, "3.0"},
+			{"c: [1, 2]\n\tx: 1\n", 0, 0, "3.0"},
+			{"a: ~~~\nb: 1, 2\n~~~\n", 0, 0, "3.0"},
+			/* A whole stamp settles it. */
+			{"a: 1, 2\n## SHCL format 3.0\n", 0, 0, "3.0"},
+			{"\xEF\xBB\xBF" "a: 1, 2\n", 1, nov10, "3.0-a37"},
+		};
+		for (size_t k = 0; k < sizeof ft / sizeof ft[0]; k++) {
+			const char *got = shcl_find_format(ft[k].text, strlen(ft[k].text), ft[k].has_mtime ? &ft[k].mtime : NULL);
+			if (!got || strcmp(got, ft[k].want)) fail("a_file_format_comes_from_its_tells", ft[k].text);
+		}
+	}
 	test_id("ddqhb", "stamp_reads_say_why");
 	/* The Format and Schema lines read with a status, so an unstamped file and
 	   a damaged stamp read apart, and the load's H006 and H007 hints say the
@@ -6578,7 +6709,7 @@ int main(int argc, char **argv) {
 	test_id("ddmmk", "upgrade_refuses_text_that_reads_two_ways");
 	{
 		const char *amb = "a: x,y\nb: \"q\n";
-		shcl_upgraded up = shcl_upgrade(amb, strlen(amb), 0, 1);
+		shcl_upgraded up = shcl_upgrade_dated(amb, strlen(amb), &up_sep1, 0, 1);
 		if (up.current || up.ambiguous != 1 || !up_is(&up, amb)) fail("upgrade_ambiguous", "without from_v2");
 		shcl_upgraded_free(&up);
 		up = shcl_upgrade(amb, strlen(amb), 1, 1);
@@ -6643,7 +6774,7 @@ int main(int argc, char **argv) {
 			{"a: 1\r\nb: \"q\r\n", 0, "a: 1\r\nb: '\"q'\r\n## SHCL format 3.0\r\n"},
 		};
 		for (size_t i = 0; i < sizeof rows / sizeof rows[0]; i++) {
-			shcl_upgraded up = shcl_upgrade(rows[i].text, strlen(rows[i].text), rows[i].v2, 0);
+			shcl_upgraded up = shcl_upgrade_dated(rows[i].text, strlen(rows[i].text), &up_sep1, rows[i].v2, 0);
 			if (up.current || up.len != strlen(rows[i].want) || memcmp(up.text, rows[i].want, up.len) != 0) fail(at, rows[i].text);
 			for (int v2 = 0; v2 < 2; v2++) {
 				shcl_upgraded again = shcl_upgrade(up.text, up.len, v2, 0);
@@ -6652,7 +6783,7 @@ int main(int argc, char **argv) {
 			}
 			shcl_upgraded_free(&up);
 			/* With the block, for the same file. */
-			up = shcl_upgrade(rows[i].text, strlen(rows[i].text), rows[i].v2, 1);
+			up = shcl_upgrade_dated(rows[i].text, strlen(rows[i].text), &up_sep1, rows[i].v2, 1);
 			if (!up.text || !strstr(up.text, "## This config file format is SHCL.")) fail(at, "none with it");
 			shcl_upgraded_free(&up);
 		}
@@ -6690,6 +6821,7 @@ int main(int argc, char **argv) {
 		shcl_upgraded_free(&up);
 		snprintf(amb, sizeof amb, "%s/amb.shcl", udir);
 		put_file(amb, "a: x,y\nb: \"q\n");
+		pin_mtime(amb, up_sep1);
 		if (shcl_upgrade_file(amb, 0, 1, &up, NULL, NULL) != SHCL_UPGRADE_AMBIGUOUS || up.ambiguous != 1) fail("upgrade_taken", "amb");
 		shcl_upgraded_free(&up);
 		if (dir_entries(udir) != 3) fail("upgrade_taken", "entries");
@@ -8238,6 +8370,108 @@ int main(int argc, char **argv) {
 		if (st != SHCL_FILE_NOT_FOUND) fail(at, "missing");
 		shcl_free(doc);
 		dir_clear(mdir);
+	}
+	test_id("dfh0h", "an_upgrade_converts_from_the_format_its_mtime_gives");
+	{
+		/* shcl_upgrade and shcl_upgrade_file find the format as the load does,
+		   with the file's mtime, and make over only a file whose steps to this
+		   format rewrite anything. One from 3.0-9ef on is current, its error
+		   kept as typed (2026111908444554). Same rows in every runner. */
+		const char *at = "upgrade convert";
+		const int64_t aug6 = 1785974400;  /* 2026-08-06, to 1.1 */
+		const int64_t oct20 = 1792454400; /* 2026-10-20, to 3.0-9ef */
+		const int64_t nov10 = 1794268800; /* 2026-11-10, every format */
+		const int64_t y2020 = 1577836800; /* before any format, so ignored */
+		const char *quote = "a: x\"y\n", *fresh = "a: 'x\"y'\n## SHCL format 3.0\n";
+		/* Text from no file reads as the newest format its tells leave. */
+		shcl_upgraded up = shcl_upgrade(quote, strlen(quote), 0, 0);
+		if (!up.current) fail(at, "no mtime made it over");
+		shcl_upgraded_free(&up);
+		/* The mtime, from_v2, and whether it's made over. */
+		const struct { int64_t mtime; int from_v2, made; } cases[] = {
+			{nov10, 0, 0},
+			{oct20, 0, 0},
+			{y2020, 0, 0},
+			{aug6, 0, 1},
+			{nov10, 1, 1},
+		};
+		char udir[256], f[320];
+		up_dir(udir, sizeof udir, "upconv");
+		snprintf(f, sizeof f, "%s/f.shcl", udir);
+		for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+			const char *want = cases[i].made ? fresh : quote;
+			up = shcl_upgrade_dated(quote, strlen(quote), &cases[i].mtime, cases[i].from_v2, 0);
+			if (up.current == cases[i].made || !up_is(&up, want)) fail(at, up.text ? up.text : "no text");
+			shcl_upgraded_free(&up);
+			put_file(f, quote);
+			pin_mtime(f, cases[i].mtime);
+			if (shcl_upgrade_file(f, cases[i].from_v2, 0, &up, NULL, NULL) != SHCL_UPGRADE_OK || up.current == cases[i].made) fail(at, "upgrade_file");
+			if (!file_is(f, want)) fail(at, "file text");
+			if (cases[i].made && up.backup) remove(up.backup);
+			shcl_upgraded_free(&up);
+		}
+		dir_clear(udir);
+	}
+	test_id("dfgyf", "a_load_converts_from_the_format_its_mtime_gives");
+	{
+		/* A load that migrates converts from the format shcl_find_format gives
+		   the file's text and mtime, with the mtime pinned on the file. One
+		   whose format reads like this one's but for refused lines comes back
+		   as typed, and an older one goes through the 2.x migration that
+		   stands in for its steps (2026111908443663). Same rows in every
+		   runner. */
+		const char *at = "load convert";
+		const int64_t aug6 = 1785974400;  /* 2026-08-06, to 1.1 */
+		const int64_t oct10 = 1791590400; /* 2026-10-10, to 3.0-a37 */
+		const int64_t oct20 = 1792454400; /* 2026-10-20, to 3.0-9ef */
+		const int64_t oct30 = 1793318400; /* 2026-10-30, to 3.0-a65 */
+		const int64_t nov10 = 1794268800; /* 2026-11-10, every format */
+		const int64_t y2020 = 1577836800; /* before any format, so ignored */
+		const char *quote = "a: x\"y\n", *brackets = "a: [1, 2]\n";
+		/* The text, the mtime, from_v2, and whether it goes through migrate. */
+		const struct { const char *text; int64_t mtime; int from_v2, migrated; } cases[] = {
+			{quote, nov10, 0, 0},
+			{quote, oct30, 0, 0},
+			{quote, oct20, 0, 0},
+			{quote, y2020, 0, 0},
+			{quote, aug6, 0, 1},
+			{quote, nov10, 1, 1},
+			{brackets, nov10, 0, 0},
+			{brackets, oct10, 0, 1},
+		};
+		char cdir[256], f[320];
+		up_dir(cdir, sizeof cdir, "loadconv");
+		snprintf(f, sizeof f, "%s/f.shcl", cdir);
+		for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+			const char *text = cases[i].text;
+			put_file(f, text);
+#ifdef _WIN32
+			struct _utimbuf times = {(time_t)cases[i].mtime, (time_t)cases[i].mtime};
+			if (_utime(f, &times) != 0) fail(at, "utime");
+#else
+			struct utimbuf times = {(time_t)cases[i].mtime, (time_t)cases[i].mtime};
+			if (utime(f, &times) != 0) fail(at, "utime");
+#endif
+			shcl_load_options opts = {0};
+			opts.keep_lines = opts.migrate = 1;
+			opts.from_v2 = cases[i].from_v2;
+			shcl_doc *doc = shcl_load_file_opts(f, SHCL_STANDARD, opts, NULL);
+			shcl_migration mig = {0};
+			if (cases[i].migrated) mig = shcl_migrate_unstamped(text, strlen(text), cases[i].from_v2);
+			const char *want = cases[i].migrated ? mig.text : text;
+			size_t want_len = strlen(want);
+			int k = 0;
+			shcl_str kt = text_kept(doc, &k);
+			if (kt.n != want_len + sizeof SHCL_STAMP_LINE || memcmp(kt.p, want, want_len) != 0 || memcmp(kt.p + want_len, SHCL_STAMP_LINE "\n", sizeof SHCL_STAMP_LINE) != 0) {
+				fprintf(stderr, "%s at %lld, from_v2 %d: %.*s\n", text, (long long)cases[i].mtime, cases[i].from_v2, (int)kt.n, kt.p);
+				fail(at, "kept text");
+			}
+			if (shcl_lost_count(doc) != (cases[i].migrated ? mig.lost : 0)) fail(at, "lost");
+			if (!file_is(f, text)) fail(at, "the load wrote the file");
+			shcl_free(doc);
+			free(mig.text);
+		}
+		dir_clear(cdir);
 	}
 	/* Every text a save writes names this format: a stamp is rewritten where
 	   it is, with its own head, and a text with none gets one as its last

@@ -238,13 +238,13 @@ pub struct LoadOptions {
 	/// Keep the text for `to_text_keep_lines`, as `load_file_keep_lines`
 	/// does. With `migrate`, the text kept is the migrated one.
 	pub keep_lines: bool,
-	/// Parse what `migrate_unstamped` makes of the file rather than the file
-	/// itself. Only the document changes: the file is not written, and a
+	/// Parse the file converted to this format, from the format its text and
+	/// mtime give, rather than the file itself. Only the document changes: the file is not written, and a
 	/// save checks the path against the bytes the load read, so a save over
 	/// the file gets every check a plain load's does.
 	pub migrate: bool,
-	/// migrate's `from_v2`: the file can only have been written for 2.x.
-	/// Ignored without `migrate`.
+	/// migrate's `from_v2`: the file can only have been written for 2.x, so
+	/// it converts from 2.0. Ignored without `migrate`.
 	pub from_v2: bool,
 }
 
@@ -3089,6 +3089,289 @@ fn names_newer(stamp: &Read<u32>) -> bool {
 			.is_some_and(|f| f > (FORMAT_MAJOR, FORMAT_MINOR))
 }
 
+/// Each format in `FORMAT_NAMES`, oldest first, with the day it was first
+/// written, in days since 1970-01-01 UTC: a release's publish date, or a pin's
+/// commit date.
+const FORMAT_DAYS: [(&str, i64); 11] = [
+	("1.0", 20649),     // 2026-07-15
+	("1.1", 20669),     // 2026-08-04
+	("2.0", 20691),     // 2026-08-26
+	("3.0-1f8", 20720), // 2026-09-24
+	("3.0-30d", 20721), // 2026-09-25
+	("3.0-b10", 20727), // 2026-10-01
+	("3.0-f8e", 20729), // 2026-10-03
+	("3.0-a37", 20730), // 2026-10-04
+	("3.0-9ef", 20740), // 2026-10-14
+	("3.0-a65", 20751), // 2026-10-25
+	("3.0", 20762),     // 2026-11-05
+];
+
+/// The format a text was written in, by its stamp, `mtime` in Unix seconds,
+/// and its tells, as the 4 steps of the format versions design doc's Finding
+/// a file's format give it. None for a stamp naming a newer format than this
+/// reader's.
+///
+/// A stamp naming a whole format, or a pin's own name, settles it. beta1's
+/// `Format 3` names only a major, and leaves every format of that major. A
+/// stamp naming no format shcl knows, such as `1.2`, is no stamp. The mtime
+/// then takes off every format first written after it, counted from the day
+/// before, so the writer's time zone doesn't matter. It doesn't take off an
+/// older format, since a program pinned to an old shcl still writes one. An
+/// mtime that would take off every format is ignored, which covers one before
+/// any format existed and one older than the stamp. Of the formats left,
+/// the one whose rules refuse the fewest of the text's tells is the answer,
+/// and a tie goes to the newest, so a text without tells reads as the newest
+/// format left. Text from no file passes None.
+#[must_use]
+pub fn find_format(text: &str, mtime: Option<i64>) -> Option<&'static str> {
+	let stamp = read_format_version(text);
+	if names_newer(&stamp) {
+		return None;
+	}
+	let mut left: u32 = (1 << FORMAT_DAYS.len()) - 1;
+	if stamp.status == Status::Good {
+		let raw = stamp.raw.as_deref().unwrap_or_default();
+		if let Some((_, f)) = FORMAT_NAMES.iter().find(|(n, _)| *n == raw) {
+			return Some(f);
+		}
+		let named = stamp_format(raw);
+		let whole = raw.contains('.');
+		let mut by_stamp = 0;
+		for (i, (f, _)) in FORMAT_DAYS.iter().enumerate() {
+			let fv = stamp_format(f);
+			if fv.is_some_and(|v| named.is_some_and(|s| v.0 == s.0 && (!whole || v.1 == s.1))) {
+				by_stamp |= 1 << i;
+			}
+		}
+		if by_stamp != 0 {
+			left = by_stamp;
+		}
+	}
+	if let Some(t) = mtime {
+		let mut by_mtime = 0;
+		for (i, (_, day)) in FORMAT_DAYS.iter().enumerate() {
+			if t >= (day - 1) * 86400 {
+				by_mtime |= 1 << i;
+			}
+		}
+		if left & by_mtime != 0 {
+			left &= by_mtime;
+		}
+	}
+	if left & (left - 1) != 0 {
+		left = most_legal(text.strip_prefix('\u{feff}').unwrap_or(text), left);
+	}
+	let newest = 31 - left.leading_zeros();
+	Some(FORMAT_DAYS[newest as usize].0)
+}
+
+/// The runs of `FORMAT_DAYS` the design doc's Tells table counts each tell
+/// against, by their first and last format. A footer's run is the formats
+/// whose `init` wrote it, and it counts against the rest. A spelling 2
+/// formats both read clean, such as an escape, isn't a tell here.
+const TELL_RUNS: [(&str, &str); 7] = [
+	// Refused from the format 3 value syntax on: a comma list, `*` items, a
+	// bracket selector, a bare name led by a digit, a CR in a bare value.
+	("3.0-9ef", "3.0"),
+	// A bracketed value, which binds nothing.
+	("3.0-1f8", "3.0-a37"),
+	// `-` items and a paren selector.
+	("1.0", "3.0-a37"),
+	// An apostrophe inside a bare word.
+	("3.0-9ef", "3.0-9ef"),
+	// The footers, by their Syntax line.
+	("1.1", "2.0"),
+	("3.0-1f8", "3.0-1f8"),
+	("3.0-30d", "3.0"),
+];
+
+const TELL_REFUSED_NOW: usize = 0;
+const TELL_BRACKETS: usize = 1;
+const TELL_NEW_SPELLING: usize = 2;
+const TELL_APOSTROPHE: usize = 3;
+const TELL_FOOTER_2: usize = 4;
+const TELL_FOOTER_1F8: usize = 5;
+const TELL_FOOTER_3: usize = 6;
+
+/// The Syntax line of each footer, and the tell it is.
+const TELL_FOOTERS: [(&str, &str, usize); 3] = [
+	("#    Syntax   ", "", TELL_FOOTER_2),
+	("##    Syntax   ", "/v3.0.0/", TELL_FOOTER_1F8),
+	("##    Syntax   ", "/v3.0.0-beta1/", TELL_FOOTER_3),
+];
+
+/// A tell's run as bits of `FORMAT_DAYS`.
+fn tell_run(tell: usize) -> u32 {
+	let (first, last) = TELL_RUNS[tell];
+	let at = |n: &str| FORMAT_DAYS.iter().position(|(f, _)| *f == n).unwrap_or(0);
+	let (a, b) = (at(first), at(last));
+	((1 << (b + 1)) - 1) & !((1 << a) - 1)
+}
+
+/// The one format of `left` that reads the text most legally, as the last 2
+/// steps of the design doc's Finding a file's format give it. Each counts the
+/// lines with a tell it refuses or reads as binding nothing, plus each footer
+/// its `init` didn't write. The lowest count wins, and a tie goes to the
+/// newest, so a format the tells take off loses to any they leave.
+fn most_legal(text: &str, left: u32) -> u32 {
+	let mut refused: Vec<(usize, &str)> = Document::parse(text)
+		.diagnostics()
+		.iter()
+		.filter(|d| d.severity == Severity::Error)
+		.map(|d| (d.line, d.code))
+		.collect();
+	refused.sort_unstable();
+	let mut against = [0usize; FORMAT_DAYS.len()];
+	let mut footers = 0u32;
+	let mut raw = RawLines::new(Rules::Current);
+	let mut tok = Tokens::default();
+	for (i, line) in text.split('\n').enumerate() {
+		let Some(rest) = raw.step(line) else {
+			continue;
+		};
+		if rest.starts_with('#') {
+			for (head, tag, tell) in TELL_FOOTERS {
+				if rest.starts_with(head) && rest.contains(tag) {
+					footers |= 1 << tell;
+				}
+			}
+			continue;
+		}
+		let lo = refused.partition_point(|r| r.0 <= i);
+		let hi = refused.partition_point(|r| r.0 <= i + 1);
+		let run = line_tells(rest, &refused[lo..hi], &mut tok);
+		for (f, n) in against.iter_mut().enumerate() {
+			*n += (run >> f & 1) as usize;
+		}
+	}
+	for tell in [TELL_FOOTER_2, TELL_FOOTER_1F8, TELL_FOOTER_3] {
+		if footers >> tell & 1 == 1 {
+			let wrote = tell_run(tell);
+			for (f, n) in against.iter_mut().enumerate() {
+				*n += (wrote >> f & 1 ^ 1) as usize;
+			}
+		}
+	}
+	let mut best: Option<usize> = None;
+	for (f, n) in against.iter().enumerate() {
+		if left >> f & 1 == 1 && best.is_none_or(|b| *n <= against[b]) {
+			best = Some(f);
+		}
+	}
+	best.map_or(left, |f| 1 << f)
+}
+
+/// The formats a line's tells count against, as bits of `FORMAT_DAYS`.
+/// `codes` are the errors these rules give the line. What these rules refuse
+/// is told by its code, and what they read clean by its tokens. A line these
+/// rules refuse for another reason has no tell, since the other formats
+/// refuse it too.
+fn line_tells(rest: &str, codes: &[(usize, &str)], tok: &mut Tokens) -> u32 {
+	let has = |c: &str| codes.iter().any(|r| r.1 == c);
+	if rest.starts_with('*') {
+		return if has("E013") {
+			tell_run(TELL_REFUSED_NOW)
+		} else {
+			0
+		};
+	}
+	if is_item(rest) {
+		return if codes.is_empty() {
+			tell_run(TELL_NEW_SPELLING)
+		} else {
+			0
+		};
+	}
+	tokenize(rest, b':', false, Rules::Current, tok);
+	let led_by_digit = tok
+		.misspelled
+		.is_some_and(|at| rest.as_bytes().get(at).is_some_and(u8::is_ascii_digit));
+	if has("E026")
+		|| has("E029")
+		|| (has("E025") && rest.contains('\r'))
+		|| (has("E014") && led_by_digit)
+	{
+		return tell_run(TELL_REFUSED_NOW);
+	}
+	if !codes.is_empty() {
+		return 0;
+	}
+	let mut run = 0;
+	if tok.array.is_some() {
+		run |= tell_run(TELL_BRACKETS);
+	}
+	if tok.segments.iter().any(|s| s.selector.is_some()) {
+		run |= tell_run(TELL_NEW_SPELLING);
+	}
+	let inner = |p: &Piece| {
+		let b = &rest.as_bytes()[p.start..p.end];
+		p.quote == Quote::None
+			&& (1..b.len().saturating_sub(1))
+				.any(|k| b[k] == b'\'' && !is_wsp_byte(b[k - 1]) && !is_wsp_byte(b[k + 1]))
+	};
+	if tok.elements.iter().any(inner) {
+		run |= tell_run(TELL_APOSTROPHE);
+	}
+	run
+}
+
+/// What turns a text in one format of `FORMAT_DAYS` into the next one's, as
+/// the design doc's Reading and converting says. A new format adds a row to
+/// `FORMAT_STEPS`, and a kind here only when no step yet does what it needs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Step {
+	/// The 2 formats read every line the same, but for lines the older one
+	/// refuses, which stay as typed. Nothing changes.
+	Same,
+	/// migrate's rewrite from the 2.x rules, which lands on the current
+	/// format. It stands in for the steps from 1.0 to 3.0-a37 until they're
+	/// built (2026111908444515, 2026111908444534).
+	V2,
+}
+
+/// The step out of each format of `FORMAT_DAYS` but the current one, in the
+/// same order.
+const FORMAT_STEPS: [Step; FORMAT_DAYS.len() - 1] = [
+	Step::V2,   // 1.0
+	Step::V2,   // 1.1
+	Step::V2,   // 2.0
+	Step::V2,   // 3.0-1f8
+	Step::V2,   // 3.0-30d
+	Step::V2,   // 3.0-b10
+	Step::V2,   // 3.0-f8e
+	Step::V2,   // 3.0-a37
+	Step::Same, // 3.0-9ef, which refused an apostrophe inside a bare word
+	Step::Same, // 3.0-a65
+];
+
+/// The first step of the run from `format` to the current one that changes
+/// anything. None when every step from there is `Same`, as from the current
+/// format, or for None, a newer format's.
+fn first_rewrite(format: Option<&str>) -> Option<Step> {
+	let at = format
+		.and_then(|n| FORMAT_DAYS.iter().position(|(f, _)| *f == n))
+		.unwrap_or(FORMAT_STEPS.len());
+	FORMAT_STEPS[at..]
+		.iter()
+		.copied()
+		.find(|s| *s != Step::Same)
+}
+
+/// The text, written in `format`, as the current format reads it, one step
+/// per format in order, in memory. None, a newer format's, comes back as it
+/// is. `from_v2` is migrate's.
+fn convert(text: &str, format: Option<&str>, from_v2: bool) -> Migration {
+	match first_rewrite(format) {
+		Some(Step::V2) => migrate_unstamped(text, from_v2),
+		Some(Step::Same) | None => Migration {
+			text: text.to_string(),
+			current: true,
+			ambiguous: 0,
+			lost: 0,
+		},
+	}
+}
+
 /// read_format_version() on text with the BOM already off. Digits that do
 /// not fit 32 bits read as the largest number that does: a format newer than
 /// this one, so the file is left alone like any other newer one.
@@ -3654,7 +3937,19 @@ pub struct Upgrade {
 /// it wouldn't, `errors_left` names the lines still in error. Pass `from_v2`
 /// only for a file known to be old, never on every start: a file this format
 /// wrote that picks up an error later would be read by 2.x rules too.
+///
+/// Without `from_v2`, the file's format is `find_format`'s, from the text
+/// alone, and only a format whose steps to this one rewrite anything gets
+/// made over: one from 3.0-9ef on is `current`, its errors kept as typed, as
+/// a load with `migrate` keeps them. `upgrade_dated` takes the file's mtime
+/// too.
 pub fn upgrade(text: &str, from_v2: bool, banner: bool) -> Upgrade {
+	upgrade_dated(text, None, from_v2, banner)
+}
+
+/// `upgrade`, with `mtime` for `find_format`: the file's, in Unix seconds, or
+/// None for text from no file. `upgrade_file` passes the file's.
+pub fn upgrade_dated(text: &str, mtime: Option<i64>, from_v2: bool, banner: bool) -> Upgrade {
 	let named = read_format_version(text);
 	let version = (named.status == Status::Good).then_some(named.value);
 	let mut up = Upgrade {
@@ -3669,6 +3964,17 @@ pub fn upgrade(text: &str, from_v2: bool, banner: bool) -> Upgrade {
 	};
 	if names_newer(&named) || (version == Some(FORMAT_MAJOR) && !from_v2) {
 		return up;
+	}
+	// The load's step table. Only V2 rewrites yet, and this is its upgrade
+	// form, so a format whose run is all Same has nothing to do.
+	let format = if from_v2 {
+		Some("2.0")
+	} else {
+		find_format(text, mtime)
+	};
+	match first_rewrite(format) {
+		Some(Step::V2) => {}
+		Some(Step::Same) | None => return up,
 	}
 	let before = Document::parse(text);
 	let clean = before.error_count() == 0;
@@ -7256,13 +7562,15 @@ impl Document {
 		Document::load_file_gated(path, level, false)
 	}
 
-	/// load_file_with, as the options describe. With `migrate`, the document is the
-	/// one `migrate_unstamped` makes of the file, in memory, for a program
-	/// whose files may be older than this format: its save goes through every
-	/// check a save of a plain load does, over the file it read. The lines
-	/// `migrate` counts in `lost` count in `lost_count`, so a save that
-	/// would write them canonical refuses as for any lost line. A file
-	/// naming a newer format is parsed as it is, so its save is `TooNew`.
+	/// load_file_with, as the options describe. With `migrate`, the document is
+	/// the file converted to this format in memory, for a program whose files
+	/// may be older: `find_format` works out its format from its text and its
+	/// mtime, and it goes through one step per format from there, as the
+	/// format versions design doc's Reading and converting says. Its save goes
+	/// through every check a save of a plain load does, over the file it
+	/// read. The lines a step counts in `lost` count in `lost_count`, so a
+	/// save that would write them canonical refuses as for any lost line. A
+	/// file naming a newer format is parsed as it is, so its save is `TooNew`.
 	#[allow(clippy::result_large_err)]
 	pub fn load_file_opts(
 		path: &str,
@@ -7297,7 +7605,15 @@ impl Document {
 			// so its bytes are as unread as a parsed document's.
 			Err(st) => return (Parser::new().parse("", level), st),
 		};
-		let mig = migrate.map(|from_v2| migrate_unstamped(&text, from_v2));
+		// from_v2 says the file is 2.x, whatever its stamp and mtime say.
+		let mig = migrate.map(|from_v2| {
+			let format = if from_v2 {
+				Some("2.0")
+			} else {
+				find_format(&text, file_mtime(path))
+			};
+			convert(&text, format, from_v2)
+		});
 		let parsed = mig.as_ref().map_or(text.as_str(), |mig| mig.text.as_str());
 		let mut doc = Parser::new().parse(parsed, level);
 		// migrate's count, summed as a merge sums a layer's. Its lines are gone
@@ -9897,6 +10213,13 @@ pub fn read_file(path: &str, max_bytes: usize) -> Result<String, FileStatus> {
 	String::from_utf8(bytes).map_err(|_| FileStatus::Unreadable)
 }
 
+/// PATH's mtime in Unix seconds, or None when it can't be read or is before
+/// 1970, which `find_format` would ignore anyway.
+fn file_mtime(path: &str) -> Option<i64> {
+	let t = std::fs::metadata(path).ok()?.modified().ok()?;
+	i64::try_from(t.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs()).ok()
+}
+
 /// What read_named_schema() found. `NotFound` and `Empty` are
 /// read_schema_ref()'s answers; the rest say why a named schema was not read.
 /// New values go on the end; the other bindings number them in this order.
@@ -10572,7 +10895,7 @@ pub fn upgrade_file(path: &str, from_v2: bool, banner: bool) -> Result<Upgrade, 
 			format!("{}: can't be read as UTF-8 text", path),
 		)));
 	};
-	let mut up = upgrade(&text, from_v2, banner);
+	let mut up = upgrade_dated(&text, file_mtime(path), from_v2, banner);
 	if up.current {
 		return Ok(up);
 	}

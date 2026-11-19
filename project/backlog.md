@@ -35,6 +35,37 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Windows-only save tests expect a save without the format stamp, and fail on b29w
+	- ID: 2026111910545268
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-105452
+	- Opened by: me
+	- Target OS: Windows
+	- Test environment: b29w with a short-name TEMP, test binaries built here for Windows (Rust and C static)
+	- Steps to reproduce: run the C runner, the Rust conformance tests or the Go tests on b29w.
+	- Incorrect behavior: C `dbxm2` (file not rewritten), `dc475` (the long path did not read back) and `dc476` (the save did not reach the link's target) fail. So do Rust `save_rewrites_a_read_only_file` and Go `dbxkc` and `dc3vv`.
+	- Expected behavior: they pass, as they did on b29w on 20261107.
+	- Reproduced: 20261119, b29w, the C runner from dev (`a1ea3b4a`) and from nov19 (`477aaac2`), 2 runs each, same 3 failures every run. Rust and Go once, at nov19.
+	- Possible cause: the C and Rust fixtures compare the saved file with `a: 2` or `a: 1` alone, with no stamp line, which every save writes since `ff279feb` (stamp on save). These tests run only on Windows, so no Linux run saw it. Go `dc3vv` saves a parse over an existing file without `force`. Read only, not confirmed.
+	- Estimated effort: Low
+	- Origin: `ff279feb`, round nov17b. Plausible.
+	- Sweep: every `_WIN32`, `cfg(windows)` and `shcl_windows_test.go` fixture that compares saved bytes or saves a parse over a file. Python's whole suite passed on b29w.
+
+- Format versions: find_format doesn't count a quote in a bare value as a tell
+	- ID: 2026111910270033
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-102700
+	- Opened by: me
+	- Related IDs: 2026111907080400, 2026111908444554
+	- Problem description: `a: x"y` and `b: "q` are E025 or an open quote under the current rules, and the 2.x migration quotes them, so 2.0 read them as text. find_format counts E025 only on a CR, so a file with only such a line and a recent mtime reads as 3.0, and neither a load with migrate nor upgrade converts it.
+	- Origin: Plausible, read only (2026111908444554). Which formats from 3.0-1f8 to 3.0-a37 read these lines clean isn't checked against their CLIs.
+
 - Format versions: the demo gif and its golden text show fmt output without the stamp
 	- ID: 2026111710564808
 	- Type: Feature
@@ -90,6 +121,193 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Add one table-driven step per format, run in order in memory on load.
 		- `from` and `--from=FORMAT` replace `from_v2` and `--from-2x`.
 		- Each published format and pin round-trips against its own tag's CLI in a gate.
+	- Estimated effort: High
+	- Note: split for its time cap into 2026111907075423 (the stamp and mtime steps), 2026111907080400 (the tells and the most legal reading), 2026111907080423 (the conversion steps on load), 2026111907080445 (`from`) and 2026111907080466 (the round-trip gate).
+
+- Format versions: work out a file's format from its stamp and its mtime
+	- ID: 2026111907075423
+	- Type: Feature
+	- Status: Closed
+	- Needs local test suite run?: No
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-070754
+	- Opened by: me
+	- Parent ID: 2026111018212703
+	- Requirements: steps 1 and 2 of the design doc's Finding a file's format, as a read in all 4 bindings and the C++ interface. It gives the newest format the stamp and the mtime leave, which is the answer for a file without tells.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261119: `find_format(text, mtime)` gives a name from `FORMAT_NAMES`, or none for a stamp naming a newer format. The mtime is Unix seconds, and none for text from no file. Go takes `*int64` as C takes a pointer, and C++ takes a `std::optional`.
+		- me, 20261119: a stamp naming a major alone leaves every format of that major, so `1` leaves 1.0 and 1.1. A name no format has, such as `1.2`, counts as no stamp, as a number that doesn't read does. An unknown pin of a known minor, such as `3.0-zzz`, leaves every format of that minor.
+		- me, 20261119: the dates sit in an internal table beside `FORMAT_NAMES`, since only the read needs them. The test walks the read day by day and checks it gives every format in `FORMAT_NAMES` in order, so the 2 tables can't drift.
+		- me, 20261119: nothing calls it on load yet. The load and `upgrade` take it up with the conversion steps (2026111907080423).
+	- Verified: the new test fails in all 4 runners with the day before taken out of the mtime rule, and again with a format's date moved, and passes without. `--backlog-run-quick` over every area, the veneer smoke, check-veneer, check-docs, `test-ids.py check`, `lint-report.bash --check --no-mark` and the markdown check passed. analyze-c didn't finish in 4 minutes.
+	- Swept: the read and its date table in Rust, Go, Python and C, with the C++ interface over C's. Python's `__all__` names it. spec.md, the changelog and the design doc say so. No CLI calls it yet.
+	- Test case: `a_file_format_comes_from_its_stamp_and_mtime` (Rust `dfgvd`, Go `dfgve`, Python `dfgvf`, C `dfgvg`, veneer `dfgvh`).
+	- Branch: `nov19-2026111018212703`
+	- Closed reason: Done
+	- Closed: 20261119-110734
+	- Acceptance signoff: Self-closed (me): every Needs row ran and passed, by the memory.md close policy.
+	- Verified: 20261119 on nov19 at 53196692: analyze-c passed (de2wz-de2x4), the cppcheck line from LINT_EXTRA exited 0, and codeql-scan passed every row but de5aj, the Python CLI finding already filed as 2026111709183317.
+
+- Format versions: narrow a file's format by its tells and the most legal reading
+	- ID: 2026111907080400
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-070804
+	- Opened by: me
+	- Parent ID: 2026111018212703
+	- Prereq IDs: 2026111907075423
+	- Requirements: steps 3 and 4 of the design doc's Finding a file's format, from its Tells table, in the same read and in all 4 bindings. Pin each case with `touch -d` mtimes where a file is read.
+	- Estimated effort: High
+	- Actual effort: Avg
+	- Note: the 2 steps give the same answer as one count. Each format `find_format` would choose from, after the stamp and the mtime, counts the lines with a tell that it refuses or reads as binding nothing, plus the footer when its `init` didn't write it. The lowest count wins, and a tie goes to the newest. A format the tells take off has a count above 0, so it loses to any format they leave.
+	- Decisions:
+		- me, 20261119: a line the current rules refuse is told by its error code: `E013` for `*` items, `E026` for a comma list, `E029` for a bracket selector, `E014` on a name led by a digit, and `E025` on a line with a CR. A line they read clean is told by its tokens: a bracketed value, a `-` item, a paren selector, or an apostrophe inside a bare word. A line they refuse for any other reason has no tell, since the other formats refuse it too.
+		- me, 20261119: a footer is told by its Syntax line, once per file: `#` for 1.1 to 2.0, `##` linking `v3.0.0` for 3.0-1f8, and `##` linking `v3.0.0-beta1` for 3.0-30d on. Only the current rules' raw blocks are skipped.
+		- me, 20261119: `name:[disc]` with children isn't counted, since every format refuses it. Spellings that read clean both ways aren't counted, per the design doc.
+		- me, 20261119: departs from the wording. No call reads a file yet, so the cases pass the mtime as a number, as 2026111907075423's do. The `touch -d` cases go with the load, which passes the file's mtime (2026111907080423).
+	- Verified: the new test fails in the Rust, Go and Python runners with the tells step turned off, and passes in all 4 with it. `--backlog-run-quick` over every area, check-veneer, `test-ids.py check`, `lint-report.bash --check --no-mark` and the markdown check passed. The C runner passed under ASan and UBSan with `SHCL_ARENA_MALLOC`. analyze-c and the cppcheck line from `LINT_EXTRA` passed. codeql-scan found nothing in the C, C++, Go and Rust code. Its one Python finding, `de5aj`, is in `cmd/shcl/main.py` from 2026-11-11, which this item didn't touch.
+	- Swept: the read and its tell table in Rust, Go, Python and C, with the C++ interface's comment over C's. spec.md, the changelog and the design doc say so. No CLI calls it yet.
+	- Test case: `a_file_format_comes_from_its_tells` (Rust `dfgwc`, Go `dfgwd`, Python `dfgwe`, C `dfgwf`).
+	- Branch: `nov19-2026111907080400`
+	- Commit: `e8efdca9`, `1f0309a8`
+	- Acceptance signoff: Self-closed: each tell row is pinned in all 4 runners, by the memory.md close policy.
+	- Closed: 20261119-084012
+	- Closed reason: Done
+
+- Format versions: one table-driven conversion step per format, run in order on load
+	- ID: 2026111907080423
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-070804
+	- Opened by: me
+	- Parent ID: 2026111018212703
+	- Prereq IDs: 2026111907075423
+	- Requirements: the parent's table-driven steps, one per format, run in order in memory on load, in all 4 bindings. A line a step isn't sure of stays as typed and is reported. The load passes the file's mtime to the format read.
+	- Estimated effort: High
+	- Note: likely splits by the design doc's runs, 1.0 to 2.0, 3.0-1f8 to 3.0-a37, and 3.0-9ef to 3.0, since 2.0 to 3.0 is what migrate does now.
+	- 20261119: the load passes the file's mtime to find_format here, so this item also adds the touch -d mtime cases that 2026111907080400 left out (no file was read there).
+	- Note: split for its time cap into 2026111908443663 (the step table, the mtime on load, and the 3.0-9ef to 3.0 run), 2026111908444515 (3.0-1f8 to 3.0-a37), 2026111908444534 (1.0 to 2.0) and 2026111908444554 (`upgrade`).
+
+- Format versions: the load finds a file's format with its mtime, and converts it by a table of steps
+	- ID: 2026111908443663
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-084436
+	- Opened by: me
+	- Parent ID: 2026111907080423
+	- Requirements: in all 4 bindings, a load with migrate passes the file's mtime to find_format and runs a table of steps, one per format, from that format to the current one. The steps for the run 3.0-9ef to 3.0 are built. Older formats keep the 2.x migration until their own steps are built. The touch -d mtime cases go with it.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261119: the table is `FORMAT_STEPS` (Go `formatSteps`, Python `_FORMAT_STEPS`, C `shcl_format_steps`), with one step kind for each format of `FORMAT_DAYS` but the current one, in the same order. The kinds are `Same` and `V2`. A step that lands on the current format, as `V2` does, ends the run.
+		- me, 20261119: the steps out of 3.0-9ef and 3.0-a65 change nothing. A line 3.0-9ef refused, such as `it's ok`, stays as typed and now reads as text, since 3.0-9ef gave it no reading to keep. A line in error stays as typed, and the load reports it as any error.
+		- me, 20261119: 1.0 to 3.0-a37 still go through `migrate_unstamped` with the caller's `from_v2`, until 2026111908444515 and 2026111908444534 build their steps. So only a file found to be 3.0-9ef or later loads differently than before: it isn't rewritten, and `a: [1, 2]` no longer counts as lost.
+		- me, 20261119: `from_v2` takes the file as 2.0, whatever its stamp and mtime say, so that load is as before.
+		- me, 20261119: the mtime comes from a stat of the path, in whole seconds. It's none when the stat fails or gives a time before 1970, which `find_format` ignores anyway.
+		- me, 20261119: no veneer case, since the C++ interface's `load_file_opts` only wraps C's.
+	- Verified: the new test fails in all 4 runners with the mtime left out of the load, and with the step out of 3.0-9ef or 3.0-a65 set to `V2`, and passes without. `--backlog-run-quick` over every area, check-veneer, check-docs, `test-ids.py check`, `lint-report.bash --check --no-mark` and the markdown check passed. The C runner passed under ASan and UBSan. codeql-scan found nothing in the C, C++, Go and Rust code. Its one Python finding, `de5aj`, is in `cmd/shcl/main.py`, which this item didn't touch (2026111709183317). analyze-c and the cppcheck line from `LINT_EXTRA` passed.
+	- Swept: the load in all 4 (`load_file_any`, `loadFileAny`, `_load_file_any`, `s_load_file_any`) is the only caller of the table. No CLI loads with migrate. `upgrade` and `upgrade_file` still run the 2.x migration, which 2026111908444554 takes up. spec.md's `LoadFileOpts` bullet, design.md's `load_file_opts` bullet, the design doc, the changelog, and the option docs in all 4 and `shcl.hpp` say so.
+	- Test case: `a_load_converts_from_the_format_its_mtime_gives` (Rust `dfgyc`, Go `dfgyd`, Python `dfgye`, C `dfgyf`).
+	- Branch: `nov19-2026111907080423`
+	- Commit: `1d8535d4`
+	- 20261119 (me): reopened from Done. Only the Linux mtime branch ran, and Windows path code doesn't close on a stand-in.
+	- Verified: on b29w with a short-name TEMP, at `477aaac2`, `dfgyc`, `dfgyd`, `dfgye` and `dfgyf` passed, built for Windows here (Rust and C static).
+	- Acceptance signoff: Self-closed: the 4 runners' rows passed on b29w.
+	- Closed reason: Done
+	- Closed: 20261119-105500
+
+- Format versions: conversion steps for 3.0-1f8 to 3.0-a37, and from 3.0-a37 to 3.0-9ef
+	- ID: 2026111908444515
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-084445
+	- Opened by: me
+	- Parent ID: 2026111907080423
+	- Prereq IDs: 2026111908443663
+	- Requirements: rows and steps in the load's step table for the run 3.0-1f8 to 3.0-a37, per the design doc's Pinned dev snapshots, and the step into the format 3 value syntax, with a backslash outside double quotes read as plain text. In all 4 bindings. A line a step isn't sure of stays as typed and is reported.
+	- Estimated effort: High
+
+- Format versions: conversion steps for 1.0 to 2.0, and from 2.0 to 3.0-1f8
+	- ID: 2026111908444534
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-084445
+	- Opened by: me
+	- Parent ID: 2026111907080423
+	- Prereq IDs: 2026111908443663, 2026111908444515
+	- Requirements: rows and steps in the load's step table for 1.0, 1.1 and 2.0, per the design doc's Format numbers and Tells, in place of the 2.x migration that stands in for them. In all 4 bindings. A line a step isn't sure of stays as typed and is reported.
+	- Estimated effort: High
+
+- Format versions: upgrade and upgrade_file convert by the load's steps
+	- ID: 2026111908444554
+	- Type: Feature
+	- Status: Closed
+	- Needs local test suite run?: No
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-084445
+	- Opened by: me
+	- Parent ID: 2026111907080423
+	- Prereq IDs: 2026111908443663
+	- Requirements: upgrade finds the format with find_format, and upgrade_file passes the file's mtime, then both convert by the load's step table rather than the 2.x migration alone. In all 4 bindings and the 4 CLIs' upgrade.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261119: `upgrade` reads the text alone, with no mtime, and `upgrade_dated(text, mtime, from_v2, banner)` (Go `UpgradeDated`, C `shcl_upgrade_dated`, C++ `upgrade_dated`) takes one. `upgrade_file` passes the file's. A new call rather than a new argument to `upgrade`, so no caller of `upgrade` has to change.
+		- me, 20261119: the 4 CLIs stat the file themselves and pass its mtime to `upgrade_dated`, so `shcl upgrade FILE` prints what `--write` would write. Stdin has none.
+		- me, 20261119: a format whose run of steps is all `Same` has nothing to convert, so the file is current, as one stamped 3.0 is. A run that reaches `V2` goes through upgrade's 2.x path as before. So a file with no stamp and a broken line that no format reads clean, such as an open quote or `base:[Boston]` with children, written today, is now left as it is unless `from_v2`. Logged as a `Check:` in questions.md.
+		- me, 20261119: the walk is one helper, `first_rewrite` (Go `firstRewrite`, Python `_first_rewrite`, C `s_first_rewrite`), which the load's convert uses too. C's step table moved out of the file tier, since `shcl_upgrade` is outside it.
+		- me, 20261119: `Upgrade::format`, which names the backup, is still the Format line's major or 2, not the found format.
+	- 20261119: tests whose 2.x text has no tells now pin an mtime of 2026-09-01, so the text is still found to be 2.0, with each assert as it was: `upgrade_refuses_text_that_reads_two_ways` (`ddmhd`, `ddmka`, `ddmkt`, `ddmmk`), `upgrade_can_leave_the_info_block_off` (`dffxa` to `dffxd`), `upgrade_file_never_writes_over_a_backup` (`ddmhg`, `ddmkd`, `ddmkx`, `ddmmp`), the veneer smoke's 2 ambiguous rows (`d9v59`), and cli-regress `ddmhk`, `ddmhr`, `ddmhs`, `ddmht`, `ddmhw`, `ddmhx`, `de11w`, `de11x`, `de120`, `de121`.
+	- Verified: the new test fails in all 4 runners with the mtime left out of `upgrade_file`, and with a format whose run is all `Same` sent down the 2.x path, and passes without. `--backlog-run-quick rust go python c cli`, the veneer smoke, check-veneer, check-docs, `test-ids.py check`, cli-regress, crosscheck over the corpus, the 4 shell-regress rows that read cli-regress, `lint-report.bash --check --no-mark` and the markdown check passed. The C runner passed under ASan and UBSan. All 4 CLIs print the 2.x conversion for a file dated 2026-08-06 and leave it as is dated 2026-11-10.
+	- Swept: `upgrade` and `upgrade_file` in all 4 and the C++ interface, the CLIs' `do_upgrade` with and without `--write`, and the error path that prints the load's diagnostics. `migrate` and `migrate_unstamped` don't find a format, by design. spec.md's `UpgradeFile` bullet, design.md's `upgrade_file` bullet, the design doc and the changelog say so. Python's `__all__` names `upgrade_dated`.
+	- Test case: `an_upgrade_converts_from_the_format_its_mtime_gives` (Rust `dfh0e`, Go `dfh0f`, Python `dfh0g`, C `dfh0h`, veneer `dfh0j`).
+	- Branch: `nov19-2026111908444554`
+	- Commit: `b514a272`
+	- Verified: check-push-gate passed on nov19 at `477aaac2`, 89 PASS and no FAIL (`private/claude_simple/cpg.log`).
+	- Verified: on b29w with a short-name TEMP, at `477aaac2`, `dfh0e`, `dfh0f`, `dfh0g` and `dfh0h` passed, built for Windows here (Rust and C static). The C CLI's `shcl upgrade` on a file dated 2026-08-06 printed the 2.x conversion and left the file alone, and with `--write` wrote that text and a backup. Dated 2026-11-10 it printed the file as it was and said nothing to upgrade, with and without `--write`. Every output matched the Linux build's byte for byte.
+	- Closed reason: Done
+	- Closed: 20261119-110734
+	- Acceptance signoff: Self-closed (me): every Needs row ran and passed, by the memory.md close policy.
+	- Verified: 20261119 on nov19 at 53196692: analyze-c passed (de2wz-de2x4), the cppcheck line from LINT_EXTRA exited 0, and codeql-scan passed every row but de5aj, the Python CLI finding already filed as 2026111709183317.
+
+- Format versions: `from` and `--from=FORMAT` replace `from_v2` and `--from-2x`
+	- ID: 2026111907080445
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-070804
+	- Opened by: me
+	- Parent ID: 2026111018212703
+	- Prereq IDs: 2026111907075423, 2026111907080423
+	- Requirements: a caller names the format with `from`, which overrides the stamp and the scan, in all 4 bindings, the C++ interface and the 4 CLIs. It replaces `from_v2` and `--from-2x`.
+	- Estimated effort: High
+
+- Format versions: each published format and pin round-trips against its own tag's CLI in a gate
+	- ID: 2026111907080466
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-070804
+	- Opened by: me
+	- Parent ID: 2026111018212703
+	- Prereq IDs: 2026111907080423, 2026111907080445
+	- Requirements: a gate reads the corpus and fuzz documents with the CLI built at each tag and pin, and the converted reading matches, as check-migrate does for 2.0.
 	- Estimated effort: High
 
 - A remove that takes a field opened from a kept line moves a kept line's comments down with a misplaced line

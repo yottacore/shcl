@@ -8,8 +8,8 @@ use shcl::{
 	Diagnostic, Document, DurationUnit, FORMAT_MAJOR, GEN_BANNER, Piece, Quote, Rules, SaveError,
 	SaveOptions, SchemaStatus, Severity, SizeUnit, Status, Strictness, Tokens, UpgradeError,
 	format_diagnostic, format_float, format_version, generate, migrate, parse_datetime,
-	read_named_schema, suppress_declared_reopens, suppress_declared_repeats, tokenize, upgrade,
-	upgrade_file, write_backup, write_file_atomic,
+	read_named_schema, suppress_declared_reopens, suppress_declared_repeats, tokenize,
+	upgrade_dated, upgrade_file, write_backup, write_file_atomic,
 };
 use std::fmt::Write as _;
 use std::process::ExitCode;
@@ -2190,6 +2190,16 @@ fn read_input(file: &str) -> Result<String, String> {
 	}
 }
 
+/// FILE's mtime in Unix seconds, as the library's upgrade_file reads it. None
+/// for stdin, and when it can't be read or is before 1970.
+fn file_mtime(file: &str) -> Option<i64> {
+	if file == "-" {
+		return None;
+	}
+	let t = std::fs::metadata(file).ok()?.modified().ok()?;
+	i64::try_from(t.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs()).ok()
+}
+
 /// A load, labeled with the file the text came from, so a strict failure in
 /// one layer of a fold says which layer.
 fn load_from(file: &str, text: &str, strictness: Strictness, keep: bool) -> Result<Document, u8> {
@@ -2783,11 +2793,16 @@ fn do_upgrade(o: &Opts) -> u8 {
 			return EXIT_IO;
 		}
 	};
+	// The mtime upgrade_file reads, so the text half finds the same format.
+	let mtime = file_mtime(file);
 	let up = if o.write {
 		match upgrade_file(file, o.from_2x, true) {
 			Ok(up) => up,
 			Err(e) => {
-				say_diagnostics_from("", &upgrade(&text, o.from_2x, true).diagnostics);
+				say_diagnostics_from(
+					"",
+					&upgrade_dated(&text, mtime, o.from_2x, true).diagnostics,
+				);
 				return match e {
 					UpgradeError::Ambiguous { .. } => {
 						errln!("{} (--from-2x rewrites them)", e);
@@ -2805,7 +2820,7 @@ fn do_upgrade(o: &Opts) -> u8 {
 			}
 		}
 	} else {
-		upgrade(&text, o.from_2x, true)
+		upgrade_dated(&text, mtime, o.from_2x, true)
 	};
 	if up.current {
 		// `diagnostics` is empty when current, but the file is still loaded,
