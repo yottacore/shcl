@@ -35,6 +35,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Under Miri, Document::parse slows with the square of its lines
+	- ID: 2026111910541579
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-105415
+	- Opened by:
+	- Problem description: Under Miri with Stacked Borrows, a parse costs more per line the longer the text. tukzmon's 2413-line settings spec took 257 s, at 139 ms a value, against 101 ms a value for its first 200 lines. With Stacked Borrows off it's 85 ms a value at any length. A native parse grows in step with the text.
+	- Requirements:
+		- Read the Format line before the text is cut into lines.
+		- Split by searching only what is left of the text, for the parse and for `format_line_read`.
+	- Cause: `Parser::parse` splits the text with `text.split('\n')`, and `format_line_read` then runs `text.contains(FORMAT_WORD)` over the whole text. Under Stacked Borrows each step reborrows the whole text and pays for every piece already cut off it, so both are quadratic there.
+	- Origin: tukzmon 2026111717051144. The draft text, a patch (`miri-split.patch`) and a reproduction with no shcl in it (`repro_main.rs`) are in `private/claude_simple/upstream/tukzmon-2026111717051144/`. With the patch, tukzmon's spec went from 258 s to 209 s under Miri, and a native parse gave the same document over 313 texts.
+
 - Windows-only save tests expect a save without the format stamp, and fail on b29w
 	- ID: 2026111910545268
 	- Type: Bug
