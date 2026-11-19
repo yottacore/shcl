@@ -3008,7 +3008,7 @@ func TestSaveRewritesAReadOnlyFile(t *testing.T) {
 	if _, err := Parse("a: 2\n").SaveFileWith(f, SaveOptions{Force: true}); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := os.ReadFile(f); err != nil || string(got) != "a: 2\n" {
+	if got, err := os.ReadFile(f); err != nil || string(got) != withStamp("a: 2\n") {
 		t.Errorf("read-only file: got %q %v", got, err)
 	}
 	if st, err := os.Stat(f); err != nil || st.Mode().Perm()&0o200 != 0 {

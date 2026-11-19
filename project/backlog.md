@@ -52,7 +52,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Windows-only save tests expect a save without the format stamp, and fail on b29w
 	- ID: 2026111910545268
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261119-105452
@@ -65,8 +65,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261119, b29w, the C runner from dev (`a1ea3b4a`) and from nov19 (`477aaac2`), 2 runs each, same 3 failures every run. Rust and Go once, at nov19.
 	- Possible cause: the C and Rust fixtures compare the saved file with `a: 2` or `a: 1` alone, with no stamp line, which every save writes since `ff279feb` (stamp on save). These tests run only on Windows, so no Linux run saw it. Go `dc3vv` saves a parse over an existing file without `force`. Read only, not confirmed.
 	- Estimated effort: Low
-	- Origin: `ff279feb`, round nov17b. Plausible.
+	- Origin: `ff279feb`, round nov17b. Confirmed: the old test binaries failed on b29w on 20261119, with the saved file read back as `a: 2` plus `## SHCL format 3.0`, and Go `dc3vv` with the save refused as over bytes the document never read.
 	- Sweep: every `_WIN32`, `cfg(windows)` and `shcl_windows_test.go` fixture that compares saved bytes or saves a parse over a file. Python's whole suite passed on b29w.
+	- Actual cause [Bug]: since every save stamps (`ff279feb`), C `dbxm2`, `dc475`, `dc476`, Rust `save_rewrites_a_read_only_file` and Go `dbxkc` still compared the saved file with the bare text. Go `dc3vv` saved a parse over an existing file without `force`, which the save guard from 2026110613470307 refuses. The library was right in every case.
+	- Actual fix [Bug]: the 5 fixtures compare with the stamped text through each runner's helper (C `stamped_is`, Rust `with_stamp`, Go `withStamp`), and `dc3vv` saves with `force`, as its Rust and C twins already did.
+	- Swept: every `#ifdef _WIN32` block in the C runner (`dd526` already expected the stamp; the DACL, errno and publish fixtures call the raw atomic write, which doesn't stamp), every `cfg(windows)` test in Rust's `conformance.rs`, `fs_property.rs` and lib.rs, and every test in `shcl_windows_test.go` and the GOOS-guarded ones in `shcl_test.go`, by running each suite whole on b29w.
+	- Verified: on b29w with a short-name TEMP, the C runner (222 cases) and the whole Go suite passed on the fix, and failed on the old code with exactly the 5 named C and Go failures. Rust's `save` and `read_named_schema` tests from `conformance.rs`, the lib unit tests and `fs_property` passed on the fix. Rust's failure before the fix is the item's own reproduction. Here: `--backlog-run-quick rust go c`, lint-report, `cargo fmt --check`, clippy for windows-gnu with tests, and `go vet` and staticcheck for windows.
+	- Test case: the fixtures themselves, C `dbxm2`, `dc475`, `dc476`, Rust `dbxk3` (`save_rewrites_a_read_only_file`), Go `dbxkc` and `dc3vv`.
+	- Branch: `nov19b-2026111910545268`
+	- Commit: `82b3214d`
+	- Acceptance signoff: Self-closed: failed before the fix and passes after on b29w, and swept.
+	- Closed: 20261119-113900
+	- Closed reason: Done
 
 - Under Miri, Document::parse slows with the square of its lines
 	- ID: 2026111910541579

@@ -3042,7 +3042,7 @@ fn save_rewrites_a_read_only_file() {
 	};
 	let mut doc = Document::parse("a: 2\n");
 	doc.save_file_with(f.to_str().unwrap(), &force).unwrap();
-	assert_eq!(std::fs::read_to_string(&f).unwrap(), "a: 2\n");
+	assert_eq!(std::fs::read_to_string(&f).unwrap(), with_stamp("a: 2\n"));
 	assert!(std::fs::metadata(&f).unwrap().permissions().readonly());
 	let left: Vec<_> = std::fs::read_dir(&dir).unwrap().collect();
 	assert_eq!(left.len(), 1);

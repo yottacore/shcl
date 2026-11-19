@@ -3639,7 +3639,7 @@ int main(int argc, char **argv) {
 		shcl_doc *rd = shcl_parse("a: 2\n", 5);
 		if (shcl_save_file_with(rd, rfile, rforce, NULL, NULL) != SHCL_SAVE_OK) fail("readonly", "save over a read-only file failed");
 		size_t rn; char *rt = read_file(rfile, &rn);
-		if (!rt || rn != 5 || memcmp(rt, "a: 2\n", 5) != 0) fail("readonly", "file not rewritten");
+		if (!rt || !stamped_is((shcl_str){rt, rn}, "a: 2\n")) fail("readonly", "file not rewritten");
 		free(rt);
 		if (!(GetFileAttributesA(rfile) & FILE_ATTRIBUTE_READONLY)) fail("readonly", "file did not come back read-only");
 		// Hidden and system come back too: ReplaceFile's preserve list does not
@@ -6993,7 +6993,7 @@ int main(int argc, char **argv) {
 		/* Through the library, which is what has to add the prefix: the
 		   runner's own reader is plain fopen and would refuse the path. */
 		size_t rn = 0; shcl_file_status lst; char *rt = shcl_read_file(lp, 0, &rn, &lst);
-		if (!rt || lst != SHCL_FILE_CLEAN || rn != 5 || memcmp(rt, "a: 1\n", 5) != 0)
+		if (!rt || lst != SHCL_FILE_CLEAN || !stamped_is((shcl_str){rt, rn}, "a: 1\n"))
 			fail("longpath", "the long path did not read back");
 		free(rt);
 		if (shcl_set_int(ld, "a", 1, 2) == SHCL_SET_OK && shcl_save_file(ld, lp, NULL) != SHCL_SAVE_OK)
@@ -7039,7 +7039,7 @@ int main(int argc, char **argv) {
 			else if (shcl_save_file(sd, link, NULL) != SHCL_SAVE_OK) fail("winlink", "save through the link failed");
 			shcl_free(sd);
 			size_t rn; char *rt = read_file(real, &rn);
-			if (!rt || rn != 5 || memcmp(rt, "a: 2\n", 5) != 0) fail("winlink", "the save did not reach the link's target");
+			if (!rt || !stamped_is((shcl_str){rt, rn}, "a: 2\n")) fail("winlink", "the save did not reach the link's target");
 			free(rt);
 			DWORD a = GetFileAttributesW(wl);
 			if (a == INVALID_FILE_ATTRIBUTES || !(a & FILE_ATTRIBUTE_REPARSE_POINT))
