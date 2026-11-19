@@ -273,6 +273,12 @@ std::optional<std::uint32_t> format_version(std::string_view text);
 // BadType for one whose number does not read, such as `##    Format   3x`.
 // value is 0 unless Good.
 Read<std::uint32_t> read_format_version(std::string_view text);
+// The format a text was written in, by its stamp and mtime, in Unix seconds,
+// as the first 2 steps of the format versions design doc's Finding a file's
+// format give it: a name from FORMAT_NAMES, or none for a stamp naming a newer
+// format than this reader's. shcl_find_format has the rules. Text from no file
+// passes no mtime.
+std::optional<std::string_view> find_format(std::string_view text, std::optional<std::int64_t> mtime);
 // The schema a document's Schema line names, a path or a URL; none when no
 // line names one, or when it names nothing. The first line naming one wins,
 // and a relative path is the caller's to resolve, from the config file's
@@ -1141,6 +1147,12 @@ std::optional<std::uint32_t> format_version(std::string_view text) {
 Read<std::uint32_t> read_format_version(std::string_view text) {
 	shcl_read_i64 r = shcl_read_format_version(text.data(), text.size());
 	return {static_cast<std::uint32_t>(r.value), detail::st(r.status)};
+}
+
+std::optional<std::string_view> find_format(std::string_view text, std::optional<std::int64_t> mtime) {
+	const char *f = shcl_find_format(text.data(), text.size(), mtime ? &*mtime : nullptr);
+	if (!f) return std::nullopt;
+	return std::string_view(f);
 }
 
 std::optional<DurationUnit> duration_unit_from_spelling(std::string_view s) {

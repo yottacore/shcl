@@ -5054,6 +5054,66 @@ int main(int argc, char **argv) {
 			}
 		}
 	}
+	test_id("dfgvg", "a_file_format_comes_from_its_stamp_and_mtime");
+	/* A text's format comes from its stamp, then its mtime, and the newest
+	   format they leave. Rust's a_file_format_comes_from_its_stamp_and_mtime
+	   has the same rows. The mtimes are Unix seconds at UTC, and has_mtime 0
+	   passes none. */
+	{
+		const char *plain = "a: 1\n", *beta1 = "a: 1\n##    Format   3\n";
+		const struct { const char *text; int has_mtime; int64_t mtime; const char *want; } ff[] = {
+			{plain, 0, 0, "3.0"},
+			{plain, 1, 1784505600, "1.0"},     /* 2026-07-20 */
+			{plain, 1, 1785758400, "1.1"},     /* 2026-08-03 12:00, the day before */
+			{plain, 1, 1785715199, "1.0"},     /* 2026-08-02 23:59:59 */
+			{plain, 1, 1788220800, "2.0"},     /* 2026-09-01 */
+			{plain, 1, 1791590400, "3.0-a37"}, /* 2026-10-10 */
+			{plain, 1, 1793750400, "3.0"},     /* 2026-11-04 */
+			{plain, 1, 1782864000, "3.0"},     /* 2026-07-01, before any format */
+			{plain, 1, -1, "3.0"},
+			{beta1, 0, 0, "3.0"},
+			{beta1, 1, 1790553600, "3.0-30d"}, /* 2026-09-28 */
+			{beta1, 1, 1792800000, "3.0-a65"}, /* 2026-10-24 */
+			{beta1, 1, 1792796400, "3.0-9ef"}, /* 2026-10-23 23:00 */
+			{beta1, 1, 1788220800, "3.0"},     /* 2026-09-01, older than the stamp */
+			{"## SHCL format 3.0-231\n", 1, 1784505600, "3.0-a37"},
+			{"\xEF\xBB\xBF## SHCL format 2.0\na: 1\n", 1, 1794268800, "2.0"},
+			{"##    Format   1\n", 1, 1794268800, "1.1"}, /* 2026-11-10 */
+			{"##    Format   1\n", 1, 1784505600, "1.0"},
+			{"## SHCL format 3.0-zzz\n", 1, 1791158400, "3.0-a37"}, /* 2026-10-05 */
+			{"## SHCL format 1.2\n", 1, 1788220800, "2.0"},
+			{"##    Format   3x\n", 1, 1788220800, "2.0"},
+			{"## SHCL format 3.1\n", 1, 1788220800, NULL},
+			{"##    Format   4\n", 0, 0, NULL},
+			{"a: ~~~\n##    Format   3\n~~~\n", 1, 1788220800, "2.0"},
+		};
+		for (size_t k = 0; k < sizeof ff / sizeof ff[0]; k++) {
+			const char *got = shcl_find_format(ff[k].text, strlen(ff[k].text), ff[k].has_mtime ? &ff[k].mtime : NULL);
+			if (got != ff[k].want && (!got || !ff[k].want || strcmp(got, ff[k].want))) fail("a_file_format_comes_from_its_stamp_and_mtime", ff[k].text);
+		}
+		char buf[96];
+		int64_t july = 1784505600;
+		for (size_t k = 0; k < SHCL_FORMAT_NAME_COUNT; k++) {
+			int n = snprintf(buf, sizeof buf, "a: 1\n%s%s\n", SHCL_STAMP_HEAD, shcl_format_names[k][0]);
+			const char *got = shcl_find_format(buf, (size_t)n, &july);
+			if (!got || strcmp(got, shcl_format_names[k][1])) fail("a_file_format_comes_from_its_stamp_and_mtime", buf);
+		}
+		/* Day by day, a text without a stamp goes through every format in
+		   order. */
+		const char *last = NULL;
+		size_t own = 0;
+		while (own < SHCL_FORMAT_NAME_COUNT && strcmp(shcl_format_names[own][0], shcl_format_names[own][1])) own++;
+		for (int64_t day = 20648; day < 20770; day++) {
+			int64_t t = day * 86400 + 43200;
+			const char *got = shcl_find_format(plain, strlen(plain), &t);
+			if (!got) { fail("a_file_format_comes_from_its_stamp_and_mtime", "no format by day"); break; }
+			if (last && !strcmp(last, got)) continue;
+			if (own >= SHCL_FORMAT_NAME_COUNT || strcmp(got, shcl_format_names[own][0])) { fail("a_file_format_comes_from_its_stamp_and_mtime", got); break; }
+			last = got;
+			for (own++; own < SHCL_FORMAT_NAME_COUNT && strcmp(shcl_format_names[own][0], shcl_format_names[own][1]); own++) {}
+		}
+		if (own != SHCL_FORMAT_NAME_COUNT) fail("a_file_format_comes_from_its_stamp_and_mtime", "a format never came by day");
+	}
 	test_id("ddqhb", "stamp_reads_say_why");
 	/* The Format and Schema lines read with a status, so an unstamped file and
 	   a damaged stamp read apart, and the load's H006 and H007 hints say the

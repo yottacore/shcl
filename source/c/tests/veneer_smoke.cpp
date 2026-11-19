@@ -234,6 +234,19 @@ static int reads_from_several_threads() {
 	return test_id_end(fails);
 }
 
+// A text's format comes from its stamp, then its mtime, and the newest format
+// they leave. Some of the C runner's rows, through the veneer.
+static int a_file_format_comes_from_its_stamp_and_mtime() {
+	test_id("dfgvh", "a_file_format_comes_from_its_stamp_and_mtime");
+	CHECK(shcl::find_format("a: 1\n", std::nullopt) == "3.0");
+	CHECK(shcl::find_format("a: 1\n", 1785758400) == "1.1");
+	CHECK(shcl::find_format("a: 1\n##    Format   3\n", 1790553600) == "3.0-30d");
+	CHECK(shcl::find_format("a: 1\n##    Format   3\n", 1788220800) == "3.0");
+	CHECK(shcl::find_format("## SHCL format 3.0-231\n", 1784505600) == "3.0-a37");
+	CHECK(!shcl::find_format("## SHCL format 3.1\n", std::nullopt));
+	return test_id_end(fails);
+}
+
 #ifndef SHCL_NO_FILE_IO
 // A save over the file a load read refuses when another program changed
 // it since, writes nothing, and writes with force. A save over a file the
@@ -1541,6 +1554,8 @@ int main() {
 	fails = 0;
 	const int no_text = a_newer_format_document_gives_no_text();
 	fails = 0;
+	const int found = a_file_format_comes_from_its_stamp_and_mtime();
+	fails = 0;
 #ifndef SHCL_NO_FILE_IO
 	const int changed = a_save_over_a_file_changed_since_the_load_is_refused();
 	fails = 0;
@@ -1556,8 +1571,8 @@ int main() {
 	fails = 0;
 	const int no_banner = upgrade_can_leave_the_info_block_off();
 	fails = 0;
-	return changed | spellings | created | newer | migrating | with_banner | no_banner | a_path_holding_a_nul_is_refused() | threads | stamped | no_text | smoke;
+	return changed | spellings | created | newer | migrating | with_banner | no_banner | a_path_holding_a_nul_is_refused() | threads | stamped | no_text | found | smoke;
 #else
-	return threads | stamped | no_text | smoke;
+	return threads | stamped | no_text | found | smoke;
 #endif
 }

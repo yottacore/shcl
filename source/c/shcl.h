@@ -880,6 +880,20 @@ int64_t shcl_format_version(const char *text, size_t len);
 // value is 0 unless SHCL_GOOD. The load's H006 and H007 hints come from this
 // same reading, and quote the number as written.
 shcl_read_i64 shcl_read_format_version(const char *text, size_t len);
+// The format a text was written in, by its stamp and *mtime, in Unix
+// seconds, as the first 2 steps of the format versions design doc's Finding a
+// file's format give it: a name from shcl_format_names, or NULL for a stamp
+// naming a newer format than this reader's. A stamp naming a whole format, or
+// a pin's own name, settles it. beta1's `Format 3` names only a major, and
+// leaves every format of that major. A stamp naming no format shcl knows,
+// such as `1.2`, is no stamp. The mtime then takes off every format first
+// written after it, counted from the day before, so the writer's time zone
+// doesn't matter. It doesn't take off an older format, since a program pinned
+// to an old shcl still writes one. An mtime that would take off every format
+// is ignored, which covers one before any format existed and one older than
+// the stamp. The newest format left is the answer, which it is for a text
+// without any of the design doc's tells. Text from no file passes NULL.
+const char *shcl_find_format(const char *text, size_t len, const int64_t *mtime);
 // The schema a document's `##    Schema   REF` line names: a path, or a URL
 // for an editor to fetch, as a pointer into text with its length in *ref_len.
 // NULL when no line names one, and when the only Schema line names nothing;
@@ -3888,6 +3902,7 @@ static int names_newer(ShclStamp st) {
 }
 
 static shcl_read_i64 stamp_read(const char *text, size_t len, int *newer);
+static ShclStamp stamp_of(const char *text, size_t len);
 
 /* Whether text holds needle anywhere. */
 static int s_has(ShclStr text, ShclStr needle) {
@@ -4452,6 +4467,15 @@ shcl_read_i64 shcl_read_format_version(const char *text, size_t len) {
 /* shcl_read_format_version, with *newer, when given, set as names_newer
    says. */
 static shcl_read_i64 stamp_read(const char *text, size_t len, int *newer) {
+	ShclStamp st = stamp_of(text, len);
+	if (newer) *newer = names_newer(st);
+	shcl_read_i64 r; r.value = st.status == SHCL_GOOD ? st.value : 0; r.status = st.status;
+	return r;
+}
+
+/* What the Format line or stamp in text says, as format_line_read() reads it
+   with the BOM off. Its digits point into text. */
+static ShclStamp stamp_of(const char *text, size_t len) {
 	SHCL_VOLATILE_OWNER_BEGIN
 	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
 	if (!own) { SHCL_OOM(); abort(); }
@@ -4469,9 +4493,55 @@ static shcl_read_i64 stamp_read(const char *text, size_t len, int *newer) {
 	ShclStamp st = format_line_read(&own->a, &own->sc, in);
 	ShclMigrateOwn *done = own;
 	arena_free(&done->a); arena_free(&done->sc); free(done);
-	if (newer) *newer = names_newer(st);
-	shcl_read_i64 r; r.value = st.status == SHCL_GOOD ? st.value : 0; r.status = st.status;
-	return r;
+	return st;
+}
+
+/* Each format in shcl_format_names, oldest first, with the day it was first
+   written, in days since 1970-01-01 UTC: a release's publish date, or a pin's
+   commit date. */
+static const struct { const char *name; int64_t day; } shcl_format_days[11] = {
+	{"1.0", 20649},     /* 2026-07-15 */
+	{"1.1", 20669},     /* 2026-08-04 */
+	{"2.0", 20691},     /* 2026-08-26 */
+	{"3.0-1f8", 20720}, /* 2026-09-24 */
+	{"3.0-30d", 20721}, /* 2026-09-25 */
+	{"3.0-b10", 20727}, /* 2026-10-01 */
+	{"3.0-f8e", 20729}, /* 2026-10-03 */
+	{"3.0-a37", 20730}, /* 2026-10-04 */
+	{"3.0-9ef", 20740}, /* 2026-10-14 */
+	{"3.0-a65", 20751}, /* 2026-10-25 */
+	{"3.0", 20762},     /* 2026-11-05 */
+};
+
+const char *shcl_find_format(const char *text, size_t len, const int64_t *mtime) {
+	ShclStamp st = stamp_of(text, len);
+	if (names_newer(st)) return NULL;
+	size_t count = sizeof shcl_format_days / sizeof shcl_format_days[0];
+	uint32_t left = ((uint32_t)1 << count) - 1;
+	if (st.status == SHCL_GOOD) {
+		for (size_t k = 0; k < SHCL_FORMAT_NAME_COUNT; k++) {
+			if (s_eq(st.digits, s_lit(shcl_format_names[k][0]))) return shcl_format_names[k][1];
+		}
+		int64_t minor, fminor;
+		int64_t major = stamp_format(st.digits, &minor);
+		int whole = memchr(st.digits.p, '.', st.digits.n) != NULL;
+		uint32_t by_stamp = 0;
+		for (size_t k = 0; k < count; k++) {
+			int64_t fmajor = stamp_format(s_lit(shcl_format_days[k].name), &fminor);
+			if (major >= 0 && fmajor == major && (!whole || fminor == minor)) by_stamp |= (uint32_t)1 << k;
+		}
+		if (by_stamp) left = by_stamp;
+	}
+	if (mtime) {
+		uint32_t by_mtime = 0;
+		for (size_t k = 0; k < count; k++) {
+			if (*mtime >= (shcl_format_days[k].day - 1) * 86400) by_mtime |= (uint32_t)1 << k;
+		}
+		if (left & by_mtime) left &= by_mtime;
+	}
+	size_t newest = 0;
+	for (size_t k = 0; k < count; k++) if (left & ((uint32_t)1 << k)) newest = k;
+	return shcl_format_days[newest].name;
 }
 
 /* The Schema line's reference: SHCL_GOOD with it in *out, SHCL_EMPTY for a

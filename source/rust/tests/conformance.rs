@@ -11,8 +11,8 @@ use common::test_id;
 use shcl::{
 	Document, DurationUnit, FORMAT_LINE, FORMAT_LINE_HEAD, FORMAT_MAJOR, FORMAT_MINOR,
 	FORMAT_NAMES, Field, MIGRATED_LINE, Rules, STAMP_HEAD, STAMP_LINE, SaveError, SizeUnit, Status,
-	Strictness, Tokens, format_version, generate, migrate, migrate_unstamped, parse_datetime,
-	quote_segment, read_format_version, read_schema_ref, schema_ref, tokenize,
+	Strictness, Tokens, find_format, format_version, generate, migrate, migrate_unstamped,
+	parse_datetime, quote_segment, read_format_version, read_schema_ref, schema_ref, tokenize,
 };
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -4712,6 +4712,84 @@ fn format_names_read() {
 			assert_eq!(r.raw.as_deref(), Some(name), "{:?}", text);
 		}
 	}
+}
+
+/// A text's format comes from its stamp, then its mtime, and the newest
+/// format they leave (2026111907075423). The same rows are in every
+/// binding's runner. The mtimes are Unix seconds at UTC.
+#[test]
+fn a_file_format_comes_from_its_stamp_and_mtime() {
+	let _id = test_id("dfgvd");
+	let plain = "a: 1\n";
+	let beta1 = "a: 1\n##    Format   3\n";
+	let cases: [(&str, Option<i64>, Option<&str>); 24] = [
+		(plain, None, Some("3.0")),
+		(plain, Some(1784505600), Some("1.0")),     // 2026-07-20
+		(plain, Some(1785758400), Some("1.1")),     // 2026-08-03 12:00, the day before
+		(plain, Some(1785715199), Some("1.0")),     // 2026-08-02 23:59:59
+		(plain, Some(1788220800), Some("2.0")),     // 2026-09-01
+		(plain, Some(1791590400), Some("3.0-a37")), // 2026-10-10
+		(plain, Some(1793750400), Some("3.0")),     // 2026-11-04
+		(plain, Some(1782864000), Some("3.0")),     // 2026-07-01, before any format
+		(plain, Some(-1), Some("3.0")),
+		(beta1, None, Some("3.0")),
+		(beta1, Some(1790553600), Some("3.0-30d")), // 2026-09-28
+		(beta1, Some(1792800000), Some("3.0-a65")), // 2026-10-24
+		(beta1, Some(1792796400), Some("3.0-9ef")), // 2026-10-23 23:00
+		(beta1, Some(1788220800), Some("3.0")),     // 2026-09-01, older than the stamp
+		(
+			"## SHCL format 3.0-231\n",
+			Some(1784505600),
+			Some("3.0-a37"),
+		),
+		(
+			"\u{feff}## SHCL format 2.0\na: 1\n",
+			Some(1794268800),
+			Some("2.0"),
+		),
+		("##    Format   1\n", Some(1794268800), Some("1.1")), // 2026-11-10
+		("##    Format   1\n", Some(1784505600), Some("1.0")),
+		(
+			"## SHCL format 3.0-zzz\n",
+			Some(1791158400),
+			Some("3.0-a37"),
+		), // 2026-10-05
+		("## SHCL format 1.2\n", Some(1788220800), Some("2.0")),
+		("##    Format   3x\n", Some(1788220800), Some("2.0")),
+		("## SHCL format 3.1\n", Some(1788220800), None),
+		("##    Format   4\n", None, None),
+		(
+			"a: ~~~\n##    Format   3\n~~~\n",
+			Some(1788220800),
+			Some("2.0"),
+		),
+	];
+	for (text, mtime, want) in cases {
+		assert_eq!(find_format(text, mtime), want, "{:?} at {:?}", text, mtime);
+	}
+	for (name, format) in FORMAT_NAMES {
+		let text = format!("a: 1\n{}{}\n", STAMP_HEAD, name);
+		assert_eq!(
+			find_format(&text, Some(1784505600)),
+			Some(format),
+			"{}",
+			name
+		);
+	}
+	// Day by day, a text without a stamp goes through every format in order.
+	let own: Vec<&str> = FORMAT_NAMES
+		.iter()
+		.filter(|(n, f)| n == f)
+		.map(|(n, _)| *n)
+		.collect();
+	let mut seen: Vec<&str> = Vec::new();
+	for day in 20648..20770_i64 {
+		let f = find_format(plain, Some(day * 86400 + 43200)).unwrap_or_default();
+		if seen.last() != Some(&f) {
+			seen.push(f);
+		}
+	}
+	assert_eq!(seen, own);
 }
 
 /// The Format and Schema lines read with a status, so an unstamped file and a

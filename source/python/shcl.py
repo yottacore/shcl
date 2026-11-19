@@ -98,6 +98,7 @@ __all__ = [
 	"WriteError",
 	"WriteStatus",
 	"backup_file_name",
+	"find_format",
 	"format_array",
 	"format_diagnostic",
 	"format_float",
@@ -2873,6 +2874,68 @@ def _names_newer(stamp: Read[int]) -> bool:
 		return False
 	f = _stamp_format(stamp.raw or "")
 	return f is not None and f > (FORMAT_MAJOR, FORMAT_MINOR)
+
+
+# Each format in FORMAT_NAMES, oldest first, with the day it was first
+# written, in days since 1970-01-01 UTC: a release's publish date, or a pin's
+# commit date.
+_FORMAT_DAYS: tuple[tuple[str, int], ...] = (
+	("1.0", 20649),  # 2026-07-15
+	("1.1", 20669),  # 2026-08-04
+	("2.0", 20691),  # 2026-08-26
+	("3.0-1f8", 20720),  # 2026-09-24
+	("3.0-30d", 20721),  # 2026-09-25
+	("3.0-b10", 20727),  # 2026-10-01
+	("3.0-f8e", 20729),  # 2026-10-03
+	("3.0-a37", 20730),  # 2026-10-04
+	("3.0-9ef", 20740),  # 2026-10-14
+	("3.0-a65", 20751),  # 2026-10-25
+	("3.0", 20762),  # 2026-11-05
+)
+
+
+def find_format(text: str, mtime: float | None = None) -> str | None:
+	"""The format a text was written in, by its stamp and mtime, in Unix
+	seconds, as the first 2 steps of the format versions design doc's Finding
+	a file's format give it. None for a stamp naming a newer format than this
+	reader's.
+
+	A stamp naming a whole format, or a pin's own name, settles it. beta1's
+	`Format 3` names only a major, and leaves every format of that major. A
+	stamp naming no format shcl knows, such as `1.2`, is no stamp. The mtime
+	then takes off every format first written after it, counted from the day
+	before, so the writer's time zone doesn't matter. It doesn't take off an
+	older format, since a program pinned to an old shcl still writes one. An
+	mtime that would take off every format is ignored, which covers one before
+	any format existed and one older than the stamp. The newest format left is
+	the answer, which it is for a text without any of the design doc's tells.
+	Text from no file passes None."""
+	stamp = read_format_version(text)
+	if _names_newer(stamp):
+		return None
+	left = (1 << len(_FORMAT_DAYS)) - 1
+	if stamp.status is Status.Good:
+		raw = stamp.raw or ""
+		for fname, fformat in FORMAT_NAMES:
+			if fname == raw:
+				return fformat
+		named = _stamp_format(raw)
+		whole = "." in raw
+		by_stamp = 0
+		for i, (f, _) in enumerate(_FORMAT_DAYS):
+			fv = _stamp_format(f)
+			if fv is not None and named is not None and fv[0] == named[0] and (not whole or fv[1] == named[1]):
+				by_stamp |= 1 << i
+		if by_stamp:
+			left = by_stamp
+	if mtime is not None:
+		by_mtime = 0
+		for i, (_, day) in enumerate(_FORMAT_DAYS):
+			if mtime >= (day - 1) * 86400:
+				by_mtime |= 1 << i
+		if left & by_mtime:
+			left &= by_mtime
+	return _FORMAT_DAYS[left.bit_length() - 1][0]
 
 
 def _format_line_read(text: str) -> Read[int]:

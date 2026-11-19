@@ -3089,6 +3089,78 @@ fn names_newer(stamp: &Read<u32>) -> bool {
 			.is_some_and(|f| f > (FORMAT_MAJOR, FORMAT_MINOR))
 }
 
+/// Each format in `FORMAT_NAMES`, oldest first, with the day it was first
+/// written, in days since 1970-01-01 UTC: a release's publish date, or a pin's
+/// commit date.
+const FORMAT_DAYS: [(&str, i64); 11] = [
+	("1.0", 20649),     // 2026-07-15
+	("1.1", 20669),     // 2026-08-04
+	("2.0", 20691),     // 2026-08-26
+	("3.0-1f8", 20720), // 2026-09-24
+	("3.0-30d", 20721), // 2026-09-25
+	("3.0-b10", 20727), // 2026-10-01
+	("3.0-f8e", 20729), // 2026-10-03
+	("3.0-a37", 20730), // 2026-10-04
+	("3.0-9ef", 20740), // 2026-10-14
+	("3.0-a65", 20751), // 2026-10-25
+	("3.0", 20762),     // 2026-11-05
+];
+
+/// The format a text was written in, by its stamp and `mtime`, in Unix
+/// seconds, as the first 2 steps of the format versions design doc's Finding
+/// a file's format give it. None for a stamp naming a newer format than this
+/// reader's.
+///
+/// A stamp naming a whole format, or a pin's own name, settles it. beta1's
+/// `Format 3` names only a major, and leaves every format of that major. A
+/// stamp naming no format shcl knows, such as `1.2`, is no stamp. The mtime
+/// then takes off every format first written after it, counted from the day
+/// before, so the writer's time zone doesn't matter. It doesn't take off an
+/// older format, since a program pinned to an old shcl still writes one. An
+/// mtime that would take off every format is ignored, which covers one before
+/// any format existed and one older than the stamp. The newest format left
+/// is the answer, which it is for a text without any of the design doc's
+/// tells. Text from no file passes None.
+#[must_use]
+pub fn find_format(text: &str, mtime: Option<i64>) -> Option<&'static str> {
+	let stamp = read_format_version(text);
+	if names_newer(&stamp) {
+		return None;
+	}
+	let mut left: u32 = (1 << FORMAT_DAYS.len()) - 1;
+	if stamp.status == Status::Good {
+		let raw = stamp.raw.as_deref().unwrap_or_default();
+		if let Some((_, f)) = FORMAT_NAMES.iter().find(|(n, _)| *n == raw) {
+			return Some(f);
+		}
+		let named = stamp_format(raw);
+		let whole = raw.contains('.');
+		let mut by_stamp = 0;
+		for (i, (f, _)) in FORMAT_DAYS.iter().enumerate() {
+			let fv = stamp_format(f);
+			if fv.is_some_and(|v| named.is_some_and(|s| v.0 == s.0 && (!whole || v.1 == s.1))) {
+				by_stamp |= 1 << i;
+			}
+		}
+		if by_stamp != 0 {
+			left = by_stamp;
+		}
+	}
+	if let Some(t) = mtime {
+		let mut by_mtime = 0;
+		for (i, (_, day)) in FORMAT_DAYS.iter().enumerate() {
+			if t >= (day - 1) * 86400 {
+				by_mtime |= 1 << i;
+			}
+		}
+		if left & by_mtime != 0 {
+			left &= by_mtime;
+		}
+	}
+	let newest = 31 - left.leading_zeros();
+	Some(FORMAT_DAYS[newest as usize].0)
+}
+
 /// read_format_version() on text with the BOM already off. Digits that do
 /// not fit 32 bits read as the largest number that does: a format newer than
 /// this one, so the file is left alone like any other newer one.

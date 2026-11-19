@@ -4332,6 +4332,53 @@ def main():
 			if (fnr.value, fnr.status, fnr.line, fnr.raw) != (fmajor, shcl.Status.Good, 2, fname):
 				raise SystemExit(f"read_format_version {fnt!r}: {fnr}")
 
+	test_id("dfgvf", "a_file_format_comes_from_its_stamp_and_mtime")
+	# A text's format comes from its stamp, then its mtime, and the newest
+	# format they leave. Rust's a_file_format_comes_from_its_stamp_and_mtime
+	# has the same rows. The mtimes are Unix seconds at UTC.
+	ffplain = "a: 1\n"
+	ffbeta1 = "a: 1\n##    Format   3\n"
+	for fftext, ffmtime, ffwant in (
+		(ffplain, None, "3.0"),
+		(ffplain, 1784505600, "1.0"),  # 2026-07-20
+		(ffplain, 1785758400, "1.1"),  # 2026-08-03 12:00, the day before
+		(ffplain, 1785715199, "1.0"),  # 2026-08-02 23:59:59
+		(ffplain, 1788220800, "2.0"),  # 2026-09-01
+		(ffplain, 1791590400, "3.0-a37"),  # 2026-10-10
+		(ffplain, 1793750400, "3.0"),  # 2026-11-04
+		(ffplain, 1782864000, "3.0"),  # 2026-07-01, before any format
+		(ffplain, -1, "3.0"),
+		(ffbeta1, None, "3.0"),
+		(ffbeta1, 1790553600, "3.0-30d"),  # 2026-09-28
+		(ffbeta1, 1792800000, "3.0-a65"),  # 2026-10-24
+		(ffbeta1, 1792796400, "3.0-9ef"),  # 2026-10-23 23:00
+		(ffbeta1, 1788220800, "3.0"),  # 2026-09-01, older than the stamp
+		("## SHCL format 3.0-231\n", 1784505600, "3.0-a37"),
+		("\ufeff## SHCL format 2.0\na: 1\n", 1794268800, "2.0"),
+		("##    Format   1\n", 1794268800, "1.1"),  # 2026-11-10
+		("##    Format   1\n", 1784505600, "1.0"),
+		("## SHCL format 3.0-zzz\n", 1791158400, "3.0-a37"),  # 2026-10-05
+		("## SHCL format 1.2\n", 1788220800, "2.0"),
+		("##    Format   3x\n", 1788220800, "2.0"),
+		("## SHCL format 3.1\n", 1788220800, None),
+		("##    Format   4\n", None, None),
+		("a: ~~~\n##    Format   3\n~~~\n", 1788220800, "2.0"),
+	):
+		if shcl.find_format(fftext, ffmtime) != ffwant:
+			raise SystemExit(f"find_format {fftext!r} at {ffmtime}: {shcl.find_format(fftext, ffmtime)!r}, want {ffwant!r}")
+	for ffname, ffformat in shcl.FORMAT_NAMES:
+		if shcl.find_format(f"a: 1\n{shcl.STAMP_HEAD}{ffname}\n", 1784505600) != ffformat:
+			raise SystemExit(f"find_format: stamp {ffname}")
+	# Day by day, a text without a stamp goes through every format in order.
+	ffown: list[str | None] = [n for n, f in shcl.FORMAT_NAMES if n == f]
+	ffseen: list[str | None] = []
+	for ffday in range(20648, 20770):
+		ffgot = shcl.find_format(ffplain, ffday * 86400 + 43200)
+		if not ffseen or ffseen[-1] != ffgot:
+			ffseen.append(ffgot)
+	if ffseen != ffown:
+		raise SystemExit(f"find_format by day: {ffseen}, want {ffown}")
+
 	test_id("ddqha", "stamp_reads_say_why")
 	# The Format and Schema lines read with a status, so an unstamped file and
 	# a damaged stamp read apart, and the load's H006 and H007 hints say the

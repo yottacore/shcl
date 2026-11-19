@@ -4573,6 +4573,75 @@ func TestFormatNamesRead(t *testing.T) {
 	}
 }
 
+// TestAFileFormatComesFromItsStampAndMtime: a text's format comes from its
+// stamp, then its mtime, and the newest format they leave. Rust's
+// a_file_format_comes_from_its_stamp_and_mtime has the same rows. The mtimes
+// are Unix seconds at UTC.
+func TestAFileFormatComesFromItsStampAndMtime(t *testing.T) {
+	defer testID(t, "dfgve")
+	at := func(n int64) *int64 { return &n }
+	plain := "a: 1\n"
+	beta1 := "a: 1\n##    Format   3\n"
+	cases := []struct {
+		text  string
+		mtime *int64
+		want  string
+	}{
+		{plain, nil, "3.0"},
+		{plain, at(1784505600), "1.0"},     // 2026-07-20
+		{plain, at(1785758400), "1.1"},     // 2026-08-03 12:00, the day before
+		{plain, at(1785715199), "1.0"},     // 2026-08-02 23:59:59
+		{plain, at(1788220800), "2.0"},     // 2026-09-01
+		{plain, at(1791590400), "3.0-a37"}, // 2026-10-10
+		{plain, at(1793750400), "3.0"},     // 2026-11-04
+		{plain, at(1782864000), "3.0"},     // 2026-07-01, before any format
+		{plain, at(-1), "3.0"},
+		{beta1, nil, "3.0"},
+		{beta1, at(1790553600), "3.0-30d"}, // 2026-09-28
+		{beta1, at(1792800000), "3.0-a65"}, // 2026-10-24
+		{beta1, at(1792796400), "3.0-9ef"}, // 2026-10-23 23:00
+		{beta1, at(1788220800), "3.0"},     // 2026-09-01, older than the stamp
+		{"## SHCL format 3.0-231\n", at(1784505600), "3.0-a37"},
+		{"\ufeff## SHCL format 2.0\na: 1\n", at(1794268800), "2.0"},
+		{"##    Format   1\n", at(1794268800), "1.1"}, // 2026-11-10
+		{"##    Format   1\n", at(1784505600), "1.0"},
+		{"## SHCL format 3.0-zzz\n", at(1791158400), "3.0-a37"}, // 2026-10-05
+		{"## SHCL format 1.2\n", at(1788220800), "2.0"},
+		{"##    Format   3x\n", at(1788220800), "2.0"},
+		{"## SHCL format 3.1\n", at(1788220800), ""},
+		{"##    Format   4\n", nil, ""},
+		{"a: ~~~\n##    Format   3\n~~~\n", at(1788220800), "2.0"},
+	}
+	for _, c := range cases {
+		got, ok := FindFormat(c.text, c.mtime)
+		if got != c.want || ok != (c.want != "") {
+			t.Errorf("%q at %v: %q %v, want %q", c.text, c.mtime, got, ok, c.want)
+		}
+	}
+	for _, row := range FormatNames {
+		text := "a: 1\n" + StampHead + row[0] + "\n"
+		if got, ok := FindFormat(text, at(1784505600)); !ok || got != row[1] {
+			t.Errorf("%s: %q", row[0], got)
+		}
+	}
+	// Day by day, a text without a stamp goes through every format in order.
+	var own, seen []string
+	for _, row := range FormatNames {
+		if row[0] == row[1] {
+			own = append(own, row[0])
+		}
+	}
+	for day := int64(20648); day < 20770; day++ {
+		f, _ := FindFormat(plain, at(day*86400+43200))
+		if len(seen) == 0 || seen[len(seen)-1] != f {
+			seen = append(seen, f)
+		}
+	}
+	if !reflect.DeepEqual(seen, own) {
+		t.Errorf("by day %v, want %v", seen, own)
+	}
+}
+
 // TestStampReadsSayWhy: the Format and Schema lines read with a status, so an
 // unstamped file and a damaged stamp read apart, and the load's H006 and H007
 // hints say the same as the Format read on every row. Rust's

@@ -91,6 +91,84 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `from` and `--from=FORMAT` replace `from_v2` and `--from-2x`.
 		- Each published format and pin round-trips against its own tag's CLI in a gate.
 	- Estimated effort: High
+	- Note: split for its time cap into 2026111907075423 (the stamp and mtime steps), 2026111907080400 (the tells and the most legal reading), 2026111907080423 (the conversion steps on load), 2026111907080445 (`from`) and 2026111907080466 (the round-trip gate).
+
+- Format versions: work out a file's format from its stamp and its mtime
+	- ID: 2026111907075423
+	- Type: Feature
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: analyze-c.bash and the cppcheck line from `LINT_EXTRA`, for the `shcl.h` change, and codeql-scan.bash for the C and Python test code.
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-070754
+	- Opened by: me
+	- Parent ID: 2026111018212703
+	- Requirements: steps 1 and 2 of the design doc's Finding a file's format, as a read in all 4 bindings and the C++ interface. It gives the newest format the stamp and the mtime leave, which is the answer for a file without tells.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261119: `find_format(text, mtime)` gives a name from `FORMAT_NAMES`, or none for a stamp naming a newer format. The mtime is Unix seconds, and none for text from no file. Go takes `*int64` as C takes a pointer, and C++ takes a `std::optional`.
+		- me, 20261119: a stamp naming a major alone leaves every format of that major, so `1` leaves 1.0 and 1.1. A name no format has, such as `1.2`, counts as no stamp, as a number that doesn't read does. An unknown pin of a known minor, such as `3.0-zzz`, leaves every format of that minor.
+		- me, 20261119: the dates sit in an internal table beside `FORMAT_NAMES`, since only the read needs them. The test walks the read day by day and checks it gives every format in `FORMAT_NAMES` in order, so the 2 tables can't drift.
+		- me, 20261119: nothing calls it on load yet. The load and `upgrade` take it up with the conversion steps (2026111907080423).
+	- Verified: the new test fails in all 4 runners with the day before taken out of the mtime rule, and again with a format's date moved, and passes without. `--backlog-run-quick` over every area, the veneer smoke, check-veneer, check-docs, `test-ids.py check`, `lint-report.bash --check --no-mark` and the markdown check passed. analyze-c didn't finish in 4 minutes.
+	- Swept: the read and its date table in Rust, Go, Python and C, with the C++ interface over C's. Python's `__all__` names it. spec.md, the changelog and the design doc say so. No CLI calls it yet.
+	- Test case: `a_file_format_comes_from_its_stamp_and_mtime` (Rust `dfgvd`, Go `dfgve`, Python `dfgvf`, C `dfgvg`, veneer `dfgvh`).
+	- Branch: `nov19-2026111018212703`
+
+- Format versions: narrow a file's format by its tells and the most legal reading
+	- ID: 2026111907080400
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-070804
+	- Opened by: me
+	- Parent ID: 2026111018212703
+	- Prereq IDs: 2026111907075423
+	- Requirements: steps 3 and 4 of the design doc's Finding a file's format, from its Tells table, in the same read and in all 4 bindings. Pin each case with `touch -d` mtimes where a file is read.
+	- Estimated effort: High
+	- Note: the 2 steps give the same answer as one count. Each format `find_format` would choose from, after the stamp and the mtime, counts the lines with a tell that it refuses or reads as binding nothing, plus the footer when its `init` didn't write it. The lowest count wins, and a tie goes to the newest. A format the tells take off has a count above 0, so it loses to any format they leave.
+
+- Format versions: one table-driven conversion step per format, run in order on load
+	- ID: 2026111907080423
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-070804
+	- Opened by: me
+	- Parent ID: 2026111018212703
+	- Prereq IDs: 2026111907075423
+	- Requirements: the parent's table-driven steps, one per format, run in order in memory on load, in all 4 bindings. A line a step isn't sure of stays as typed and is reported. The load passes the file's mtime to the format read.
+	- Estimated effort: High
+	- Note: likely splits by the design doc's runs, 1.0 to 2.0, 3.0-1f8 to 3.0-a37, and 3.0-9ef to 3.0, since 2.0 to 3.0 is what migrate does now.
+
+- Format versions: `from` and `--from=FORMAT` replace `from_v2` and `--from-2x`
+	- ID: 2026111907080445
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-070804
+	- Opened by: me
+	- Parent ID: 2026111018212703
+	- Prereq IDs: 2026111907075423, 2026111907080423
+	- Requirements: a caller names the format with `from`, which overrides the stamp and the scan, in all 4 bindings, the C++ interface and the 4 CLIs. It replaces `from_v2` and `--from-2x`.
+	- Estimated effort: High
+
+- Format versions: each published format and pin round-trips against its own tag's CLI in a gate
+	- ID: 2026111907080466
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-070804
+	- Opened by: me
+	- Parent ID: 2026111018212703
+	- Prereq IDs: 2026111907080423, 2026111907080445
+	- Requirements: a gate reads the corpus and fuzz documents with the CLI built at each tag and pin, and the converted reading matches, as check-migrate does for 2.0.
+	- Estimated effort: High
 
 - A remove that takes a field opened from a kept line moves a kept line's comments down with a misplaced line
 	- ID: 2026111109022600

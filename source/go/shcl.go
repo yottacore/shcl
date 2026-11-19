@@ -3367,6 +3367,84 @@ func namesNewer(stamp Read[int]) bool {
 	return ok && (major > FormatMajor || (major == FormatMajor && minor > FormatMinor))
 }
 
+// formatDay is a format in FormatNames with the day it was first written.
+type formatDay struct {
+	name string
+	day  int64
+}
+
+// formatDays is each format in FormatNames, oldest first, with the day it
+// was first written, in days since 1970-01-01 UTC: a release's publish date,
+// or a pin's commit date.
+var formatDays = [11]formatDay{
+	{"1.0", 20649},     // 2026-07-15
+	{"1.1", 20669},     // 2026-08-04
+	{"2.0", 20691},     // 2026-08-26
+	{"3.0-1f8", 20720}, // 2026-09-24
+	{"3.0-30d", 20721}, // 2026-09-25
+	{"3.0-b10", 20727}, // 2026-10-01
+	{"3.0-f8e", 20729}, // 2026-10-03
+	{"3.0-a37", 20730}, // 2026-10-04
+	{"3.0-9ef", 20740}, // 2026-10-14
+	{"3.0-a65", 20751}, // 2026-10-25
+	{"3.0", 20762},     // 2026-11-05
+}
+
+// FindFormat is the format a text was written in, by its stamp and mtime, in
+// Unix seconds, as the first 2 steps of the format versions design doc's
+// Finding a file's format give it. ok is false for a stamp naming a newer
+// format than this reader's.
+//
+// A stamp naming a whole format, or a pin's own name, settles it. beta1's
+// `Format 3` names only a major, and leaves every format of that major. A
+// stamp naming no format shcl knows, such as `1.2`, is no stamp. The mtime
+// then takes off every format first written after it, counted from the day
+// before, so the writer's time zone doesn't matter. It doesn't take off an
+// older format, since a program pinned to an old shcl still writes one. An
+// mtime that would take off every format is ignored, which covers one before
+// any format existed and one older than the stamp. The newest format left is
+// the answer, which it is for a text without any of the design doc's tells.
+// Text from no file passes nil.
+func FindFormat(text string, mtime *int64) (string, bool) {
+	stamp := ReadFormatVersion(text)
+	if namesNewer(stamp) {
+		return "", false
+	}
+	left := uint32(1)<<len(formatDays) - 1
+	if stamp.Status == Good && stamp.Raw != nil {
+		raw := *stamp.Raw
+		for _, row := range FormatNames {
+			if row[0] == raw {
+				return row[1], true
+			}
+		}
+		major, minor, ok := stampFormat(raw)
+		whole := strings.Contains(raw, ".")
+		byStamp := uint32(0)
+		for i, f := range formatDays {
+			fmaj, fmin, fok := stampFormat(f.name)
+			if ok && fok && fmaj == major && (!whole || fmin == minor) {
+				byStamp |= 1 << i
+			}
+		}
+		if byStamp != 0 {
+			left = byStamp
+		}
+	}
+	if mtime != nil {
+		byMtime := uint32(0)
+		for i, f := range formatDays {
+			if *mtime >= (f.day-1)*86400 {
+				byMtime |= 1 << i
+			}
+		}
+		if left&byMtime != 0 {
+			left &= byMtime
+		}
+	}
+	return formatDays[bits.Len32(left)-1].name, true
+}
+
 // SchemaRef is the schema a document's `##    Schema   REF` line names: a
 // path, or a URL for an editor to fetch. ok is false when no line names one,
 // and when the only Schema line names nothing; ReadSchemaRef tells those
