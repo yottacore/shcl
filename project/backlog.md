@@ -157,6 +157,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: the parent's table-driven steps, one per format, run in order in memory on load, in all 4 bindings. A line a step isn't sure of stays as typed and is reported. The load passes the file's mtime to the format read.
 	- Estimated effort: High
 	- Note: likely splits by the design doc's runs, 1.0 to 2.0, 3.0-1f8 to 3.0-a37, and 3.0-9ef to 3.0, since 2.0 to 3.0 is what migrate does now.
+	- 20261119: the load passes the file's mtime to find_format here, so this item also adds the touch -d mtime cases that 2026111907080400 left out (no file was read there).
 
 - Format versions: `from` and `--from=FORMAT` replace `from_v2` and `--from-2x`
 	- ID: 2026111907080445
