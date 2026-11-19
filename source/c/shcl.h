@@ -9680,17 +9680,15 @@ shcl_set_status shcl_check_set_path(shcl_doc *d, const char *path, size_t plen) 
    the document arena. */
 static void w_push_comment(shcl_doc *d, size_t idx, ShclStr text) {
 	ShclArena *a = &d->arena;
-	/* The node's own blank moves above its first comment; otherwise the blank
-	   would separate the comment from what it annotates. Above the first one
-	   already there, when there is one. */
+	/* The node's own blank moves above the new comment; otherwise the blank
+	   would separate the comment from what it annotates. The lines already
+	   above the node are written above its blank, so they stay there, a kept
+	   line's comments included (2026111022100191). */
 	ShclNode *nd = &NODE(d, idx);
 	ShclLead lead = lead_plain(text);
 	ShclTrivia *t = triv_mut(a, nd);
-	if (nd->blank_before) {
-		nd->blank_before = 0;
-		if (t->leading.len) t->leading.data[0].blank_before = 1;
-		else lead.blank_before = 1;
-	}
+	lead.blank_before = nd->blank_before;
+	nd->blank_before = 0;
 	ShclVecLead_push(a, &t->leading, lead);
 	settle_first_blank(d);
 	resettle_kept(d);

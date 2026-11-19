@@ -14132,18 +14132,13 @@ impl Document {
 
 	/// A comment line right above a node, after any already there.
 	fn push_comment(&mut self, node: usize, text: String) {
-		// The node's own blank moves above its first comment; otherwise
-		// the blank would separate the comment from what it annotates.
-		// Above the first one already there, when there is one.
+		// The node's own blank moves above the new comment; otherwise the
+		// blank would separate the comment from what it annotates. The
+		// lines already above the node are written above its blank, so they
+		// stay there, a kept line's comments included (2026111022100191).
 		let nd = &mut self.arena[node];
 		let mut lead = Lead::plain(text);
-		if nd.blank_before {
-			nd.blank_before = false;
-			match nd.triv_mut().leading.first_mut() {
-				Some(first) => first.blank_before = true,
-				None => lead.blank_before = true,
-			}
-		}
+		lead.blank_before = std::mem::take(&mut nd.blank_before);
 		nd.triv_mut().leading.push(lead);
 		settle_first_blank(&mut self.arena, &mut self.orphans);
 		self.resettle_kept();

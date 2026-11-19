@@ -9616,18 +9616,14 @@ class Document:
 
 	def _push_comment(self, idx, text):
 		"""A comment line right above a node, after any already there."""
-		# The node's own blank moves above its first comment; otherwise the
-		# blank would separate the comment from what it annotates. Above the
-		# first one already there, when there is one.
+		# The node's own blank moves above the new comment; otherwise the
+		# blank would separate the comment from what it annotates. The lines
+		# already above the node are written above its blank, so they stay
+		# there, a kept line's comments included (2026111022100191).
 		nd = self.arena[idx]
-		lead = _Lead(text, False)
+		lead = _Lead(text, nd.blank_before)
+		nd.blank_before = False
 		t = nd._triv()
-		if nd.blank_before:
-			nd.blank_before = False
-			if t.leading:
-				t.leading[0].blank_before = True
-			else:
-				lead.blank_before = True
 		t.leading.append(lead)
 		_settle_first_blank(self.arena, self.orphans)
 		self._resettle_kept()

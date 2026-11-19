@@ -984,3 +984,84 @@ a:
  - 5
 z: 1
 ## SHCL format 3.0
+
+:: row 2026111022100191-1 a default form's replaced value goes under the blank above its field, below a kept line's comments
+:: before
+b:
+# note
+q: [1
+
+z: "t"
+:: ops
+int-default	z	5
+:: expected
+b:
+# note
+q: [1
+
+# z: "t"  ## replaced by shcl when setting a default for z, 2026-10-04 00:15:00 PDT: not an int
+z: "5"
+## SHCL format 3.0
+:: keep
+b:
+# note
+q: [1
+
+# z: "t"  ## replaced by shcl when setting a default for z, 2026-10-04 00:15:00 PDT: not an int
+z: "5"
+## SHCL format 3.0
+
+:: row 2026111022100191-2 a comment added to a field goes under its blank, below a kept line's comments
+:: before
+b:
+# note
+q: [1
+
+z: "t"
+:: ops
+comment	z	hi
+:: expected
+b:
+# note
+q: [1
+
+# hi
+z: "t"
+## SHCL format 3.0
+:: keep
+b:
+# note
+q: [1
+
+# hi
+z: "t"
+## SHCL format 3.0
+
+:: row 2026111022100191-3 a comment between a kept line and a field's blank stays above the blank
+:: before
+b:
+# note
+q: [1
+# c
+
+z: "t"
+:: ops
+int-default	z	5
+:: expected
+b:
+# note
+q: [1
+# c
+
+# z: "t"  ## replaced by shcl when setting a default for z, 2026-10-04 00:15:00 PDT: not an int
+z: "5"
+## SHCL format 3.0
+:: keep
+b:
+# note
+q: [1
+# c
+
+# z: "t"  ## replaced by shcl when setting a default for z, 2026-10-04 00:15:00 PDT: not an int
+z: "5"
+## SHCL format 3.0

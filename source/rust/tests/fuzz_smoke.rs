@@ -2867,21 +2867,6 @@ fn placement_slips(
 	};
 	let had: std::collections::HashSet<&str> =
 		before.lines().map(|l| l.trim_matches(BLANKS)).collect();
-	// 2026111022100191: a setter's new note comment, such as a default form's
-	// replaced value, puts its field's blank above the comments of the kept
-	// lines that head the field.
-	let noted_new = edit == Placed::Set
-		&& after
-			.lines()
-			.any(|l| l.contains("  ## ") && !had.contains(l.trim_matches(BLANKS)));
-	let heads_target = |a: &Anchor| {
-		kept.contains(&a.line)
-			&& was
-				.iter()
-				.skip_while(|w| w.line <= a.line)
-				.find(|w| !kept.contains(&w.line))
-				.is_some_and(|w| w.key == path)
-	};
 	let mut slips = Vec::new();
 	for a in &was {
 		if one_anchor(&was, &a.key).is_none() {
@@ -3063,11 +3048,7 @@ fn placement_slips(
 		// A remove hands the blank above what it took to the line now in its
 		// place (2026111623191917).
 		let handed = edit == Placed::Remove && blank && !a.blank && by_target(a.above, &was);
-		let unheld = a.first
-			|| b.first
-			|| noted || made && kept.contains(&a.line)
-			|| noted_new && heads_target(a)
-			|| handed;
+		let unheld = a.first || b.first || noted || made && kept.contains(&a.line) || handed;
 		if fresh && !unheld && a.blank != blank {
 			slips.push(format!(
 				"{}: blank above its comments {} is now {}",

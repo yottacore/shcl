@@ -50,6 +50,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- A comment added above a field, by `set_comment` or as the note a default form leaves on the value it replaced, went above the field's blank line when a line kept for an error sat above the field. So the blank went above that kept line's comments, away from the field. The new comment goes under the blank now, right above the field, in every binding.
+
 - A remove that took the last field under a field opened by a line kept for an error, with a misplaced line among the kept lines above it, moved every comment among those lines down with the misplaced line. A comment above a kept field line now stays above it, as when the removed line is cut by hand and the file is formatted.
 
 - A Format line, stamp, or Schema line with a carriage return before it counts, in every binding, as it does in the canonical form, where the carriage return comes off. Such a line naming a newer format got no `H006`, so a save stamped the file `3.0`, and a Schema line there wasn't found until `fmt` rewrote the file. A save that rewrites the line keeps the carriage return.

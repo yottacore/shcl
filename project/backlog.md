@@ -388,7 +388,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A default form's replaced-value comment puts the field's blank above a kept line's comments
 	- ID: 2026111022100191
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Severity: Avg
 	- Target version: v3.0.0
 	- Opened: 20261110-221001
@@ -403,6 +403,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Note: the placement property in `dderx` and `dd3t9` excuses this class with a check keyed by this ID. The fix takes it out.
 	- 20261111: the property that excuses this is now in dev's `fuzz_smoke.rs`, on b2bits. The CLI reproduction stands.
+	- Reproduced: 20261119, the Rust CLI on nov19b, the same output.
+	- Actual cause [Bug]: `push_comment`, which `set_comment` and the default forms' note both call, moved the node's blank onto the first of its leading lines. The canonical text writes those lines above the node's blank, so with a kept line among them the blank went above the kept line's comments.
+	- Actual fix [Bug]: the blank goes on the new comment, so every line already above the node stays above the blank, in all 4 bindings (`push_comment` in `lib.rs`, `pushComment` in `shcl.go`, `_push_comment` in `shcl.py`, `w_push_comment` in `shcl.h`). design.md's "Kept lines under edits" and the changelog say so. The excuse keyed by this ID is out of `placement_slips`.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261119: the blank stays where the canonical text had it, and the new comment goes under it, rather than the blank moving to the line after the last kept line. That way a comment between a kept line and the blank stays above the blank, as `int z 5` leaves it (row `-3`).
+	- Swept: the 2 callers of `push_comment` in each binding, `set_comment` and `replace_default`. `adopt_heir` already puts the blank on the first line it adds. `adopt`'s handover of a removed node's blank goes above the heir's comments on purpose, as cutting the line by hand does (2026111623191917). The banner's blank is its own rule.
+	- Test case: placement rows `2026111022100191-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dd3t9`, `dderx`.
+	- Verified: the 3 rows fail on the library at `6a983d87` (Rust runner, C runner) and pass on the change in all 4 runners. The issue's commands give the expected text through all 4 CLIs. `--backlog-run-quick rust go python c` (with `dd3t9`, `dderx`, `df50j`), `dd3t9` and `dderx` at 200,000 in release, cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), check-docs, lint-report, rustfmt, and markdownlint.
+	- Needs local test suite run?: the 2,000,000 release fuzz of `dd3t9` and `dderx` (`SHCL_FUZZ_ITERS=2000000 cargo test --release --test fuzz_smoke -- keeping_lines_reloads_as_the_document kept_lines_survive_edits`), since the fix changes where a comment edit puts a blank and takes out the property's excuse.
+	- Branch: `nov19b-2026111022100191`
 
 - `set_comment` making a field after a kept last line puts its blank above the kept line's comments
 	- ID: 2026111021153725

@@ -14085,20 +14085,15 @@ func (d *Document) SetComment(path, text string) SetStatus {
 // pushComment puts a comment line right above a node, after any already
 // there.
 func (d *Document) pushComment(idx int, text string) {
-	// The node's own blank moves above its first comment; otherwise the blank
-	// would separate the comment from what it annotates. Above the first one
-	// already there, when there is one.
+	// The node's own blank moves above the new comment; otherwise the blank
+	// would separate the comment from what it annotates. The lines already
+	// above the node are written above its blank, so they stay there, a kept
+	// line's comments included (2026111022100191).
 	nd := &d.arena[idx]
 	l := plainLead(text)
 	t := nd.trivMut()
-	if nd.blankBefore {
-		nd.blankBefore = false
-		if len(t.leading) > 0 {
-			t.leading[0].blankBefore = true
-		} else {
-			l.blankBefore = true
-		}
-	}
+	l.blankBefore = nd.blankBefore
+	nd.blankBefore = false
 	t.leading = append(t.leading, l)
 	settleFirstBlank(d.arena, &d.orphans)
 	d.resettleKept()

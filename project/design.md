@@ -765,6 +765,8 @@ Where a kept line is comes from canonical output before the edit. Under the targ
 
 - There are 2 kinds of kept line that stay as they are. One has a kept line written under it and isn't where a new field goes, since as a comment it would leave that line under the field above. The other has a misplaced line under it, since a misplaced line is filed by its own text and can't move with it. The first comment is then the first of the others. `SetComment` makes a missing field without touching any of these lines.
 
+- A comment `SetComment` or a default form adds goes under the field's blank line, right above the field. The lines already above the field stay above the blank, so the comments of a kept line there stay with it (2026111022100191).
+
 - A line the load dropped right after the kept line a new field goes under isn't placed by the save that keeps lines, since the lines before it are all new. That save falls back to canonical and refuses, as for any dropped line, and `--lossy` writes it.
 
 - The note on each comment says why and when: `# a: O' Brien  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E025 a quote in a bare value`. It names the path the setter was given, the local time with the zone's short name, and the code and reason the load gave, without the advice after the reason. A zone without a short name, such as one named `+03`, is written as its offset, `UTC+03:00`. Windows names a zone only in full, so there it's always the offset. The line is a plain comment from then on, as a reload reads it. The save gate doesn't count it any more, and `ClearComments` and a remove of the field take it like any comment on the field. A default form that writes ends up here like any setter.
