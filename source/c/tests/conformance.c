@@ -25,8 +25,10 @@ typedef int Arena, Node, Value, Element, Str, Parser, Diag, Segment, Selector, S
 #ifdef _WIN32
 #include <direct.h>   // _mkdir - windows' mkdir takes no mode argument
 #include <sddl.h>     // the DACL fixture compares DACLs as SDDL
+#include <sys/utime.h>  // the load fixture pins a file's mtime
 #else
 #include <sys/stat.h>   // the file-mode fixture stats and chmods for itself
+#include <utime.h>      // the load fixture pins a file's mtime
 #include <pthread.h>    // the small-stack validate fixture
 #include <unistd.h>     // sysconf, for the smallest stack this platform allows
 #endif
@@ -8354,6 +8356,67 @@ int main(int argc, char **argv) {
 		if (st != SHCL_FILE_NOT_FOUND) fail(at, "missing");
 		shcl_free(doc);
 		dir_clear(mdir);
+	}
+	test_id("dfgyf", "a_load_converts_from_the_format_its_mtime_gives");
+	{
+		/* A load that migrates converts from the format shcl_find_format gives
+		   the file's text and mtime, with the mtime pinned on the file. One
+		   whose format reads like this one's but for refused lines comes back
+		   as typed, and an older one goes through the 2.x migration that
+		   stands in for its steps (2026111908443663). Same rows in every
+		   runner. */
+		const char *at = "load convert";
+		const int64_t aug6 = 1785974400;  /* 2026-08-06, to 1.1 */
+		const int64_t oct10 = 1791590400; /* 2026-10-10, to 3.0-a37 */
+		const int64_t oct20 = 1792454400; /* 2026-10-20, to 3.0-9ef */
+		const int64_t oct30 = 1793318400; /* 2026-10-30, to 3.0-a65 */
+		const int64_t nov10 = 1794268800; /* 2026-11-10, every format */
+		const int64_t y2020 = 1577836800; /* before any format, so ignored */
+		const char *quote = "a: x\"y\n", *brackets = "a: [1, 2]\n";
+		/* The text, the mtime, from_v2, and whether it goes through migrate. */
+		const struct { const char *text; int64_t mtime; int from_v2, migrated; } cases[] = {
+			{quote, nov10, 0, 0},
+			{quote, oct30, 0, 0},
+			{quote, oct20, 0, 0},
+			{quote, y2020, 0, 0},
+			{quote, aug6, 0, 1},
+			{quote, nov10, 1, 1},
+			{brackets, nov10, 0, 0},
+			{brackets, oct10, 0, 1},
+		};
+		char cdir[256], f[320];
+		up_dir(cdir, sizeof cdir, "loadconv");
+		snprintf(f, sizeof f, "%s/f.shcl", cdir);
+		for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+			const char *text = cases[i].text;
+			put_file(f, text);
+#ifdef _WIN32
+			struct _utimbuf times = {(time_t)cases[i].mtime, (time_t)cases[i].mtime};
+			if (_utime(f, &times) != 0) fail(at, "utime");
+#else
+			struct utimbuf times = {(time_t)cases[i].mtime, (time_t)cases[i].mtime};
+			if (utime(f, &times) != 0) fail(at, "utime");
+#endif
+			shcl_load_options opts = {0};
+			opts.keep_lines = opts.migrate = 1;
+			opts.from_v2 = cases[i].from_v2;
+			shcl_doc *doc = shcl_load_file_opts(f, SHCL_STANDARD, opts, NULL);
+			shcl_migration mig = {0};
+			if (cases[i].migrated) mig = shcl_migrate_unstamped(text, strlen(text), cases[i].from_v2);
+			const char *want = cases[i].migrated ? mig.text : text;
+			size_t want_len = strlen(want);
+			int k = 0;
+			shcl_str kt = text_kept(doc, &k);
+			if (kt.n != want_len + sizeof SHCL_STAMP_LINE || memcmp(kt.p, want, want_len) != 0 || memcmp(kt.p + want_len, SHCL_STAMP_LINE "\n", sizeof SHCL_STAMP_LINE) != 0) {
+				fprintf(stderr, "%s at %lld, from_v2 %d: %.*s\n", text, (long long)cases[i].mtime, cases[i].from_v2, (int)kt.n, kt.p);
+				fail(at, "kept text");
+			}
+			if (shcl_lost_count(doc) != (cases[i].migrated ? mig.lost : 0)) fail(at, "lost");
+			if (!file_is(f, text)) fail(at, "the load wrote the file");
+			shcl_free(doc);
+			free(mig.text);
+		}
+		dir_clear(cdir);
 	}
 	/* Every text a save writes names this format: a stamp is rewritten where
 	   it is, with its own head, and a text with none gets one as its last

@@ -366,8 +366,8 @@ typedef struct {
    choice every load makes, and a zero level is SHCL_LOOSE. */
 typedef struct {
 	int keep_lines; /* keep the text for shcl_to_text_keep_lines, as shcl_load_file_keep_lines; with migrate, the migrated text */
-	int migrate;    /* parse what shcl_migrate_unstamped makes of the file; the file is not written, and a save checks the path against the bytes the load read */
-	int from_v2;    /* migrate's from_v2: the file can only have been written for 2.x; ignored without migrate */
+	int migrate;    /* parse the file converted to this format, from the format its text and mtime give; the file is not written, and a save checks the path against the bytes the load read */
+	int from_v2;    /* migrate's from_v2: the file can only have been written for 2.x, so it converts from 2.0; ignored without migrate */
 } shcl_load_options;
 /* Why a write failed, so a program can tell a missing folder from no
    permission or a full disk without reading errno itself. NOT_FOUND and
@@ -405,11 +405,13 @@ int shcl_write_file_atomic(const char *path, const char *data, size_t n, shcl_wr
 // shcl_load_file_with, keeping the text for shcl_to_text_keep_lines.
 shcl_doc *shcl_load_file_keep_lines(const char *path, shcl_strictness s, shcl_file_status *status);
 // shcl_load_file_with, as the options describe. With migrate, the document is
-// the one shcl_migrate_unstamped makes of the file, in memory, for a program
-// whose files may be older than this format: its save goes through every
-// check a save of a plain load does, over the file it read. The lines the
-// migration counts in lost count in shcl_lost_count, so a save that would
-// write them canonical refuses as for any lost line. A file naming a newer
+// the file converted to this format in memory, for a program whose files may
+// be older: shcl_find_format works out its format from its text and its
+// mtime, and it goes through one step per format from there, as the format
+// versions design doc's Reading and converting says. Its save goes through
+// every check a save of a plain load does, over the file it read. The lines
+// a step counts in lost count in shcl_lost_count, so a save that would write
+// them canonical refuses as for any lost line. A file naming a newer
 // format is parsed as it is, so its save is SHCL_SAVE_TOO_NEW.
 shcl_doc *shcl_load_file_opts(const char *path, shcl_strictness s, shcl_load_options opts, shcl_file_status *status);
 // shcl_save_file with shcl_to_text_keep_lines: *kept (when not NULL) is 1 when
@@ -16127,6 +16129,69 @@ static int s_something_at(const char *path) {
 #endif
 }
 
+/* What turns a text in one format of shcl_format_days into the next one's, as
+   the design doc's Reading and converting says. A new format adds a row to
+   shcl_format_steps, and a kind here only when no step yet does what it
+   needs. SAME: the 2 formats read every line the same, but for lines the
+   older one refuses, which stay as typed. Nothing changes. V2: migrate's
+   rewrite from the 2.x rules, which lands on the current format. It stands in
+   for the steps from 1.0 to 3.0-a37 until they're built (2026111908444515,
+   2026111908444534). */
+typedef enum { SHCL_STEP_SAME, SHCL_STEP_V2 } ShclStep;
+
+/* The step out of each format of shcl_format_days but the current one, in the
+   same order. */
+static const ShclStep shcl_format_steps[sizeof shcl_format_days / sizeof shcl_format_days[0] - 1] = {
+	SHCL_STEP_V2,   /* 1.0 */
+	SHCL_STEP_V2,   /* 1.1 */
+	SHCL_STEP_V2,   /* 2.0 */
+	SHCL_STEP_V2,   /* 3.0-1f8 */
+	SHCL_STEP_V2,   /* 3.0-30d */
+	SHCL_STEP_V2,   /* 3.0-b10 */
+	SHCL_STEP_V2,   /* 3.0-f8e */
+	SHCL_STEP_V2,   /* 3.0-a37 */
+	SHCL_STEP_SAME, /* 3.0-9ef, which refused an apostrophe inside a bare word */
+	SHCL_STEP_SAME, /* 3.0-a65 */
+};
+
+/* The text, written in format, as the current format reads it, one step per
+   format in order, in memory. NULL, a newer format's, comes back as it is.
+   from_v2 is migrate's. The text is malloc'd, and the caller frees it. */
+static shcl_migration s_convert(const char *text, size_t len, const char *format, int from_v2) {
+	size_t steps = sizeof shcl_format_steps / sizeof shcl_format_steps[0], at = steps;
+	for (size_t k = 0; format && k < steps; k++) {
+		if (strcmp(shcl_format_days[k].name, format) == 0) { at = k; break; }
+	}
+	for (; at < steps; at++) {
+		if (shcl_format_steps[at] == SHCL_STEP_V2) return shcl_migrate_unstamped(text, len, from_v2);
+	}
+	shcl_migration m; memset(&m, 0, sizeof m);
+	m.current = 1; m.len = len;
+	m.text = (char *)malloc(len + 1);
+	if (!m.text) arena_panic(NULL);
+	if (len) memcpy(m.text, text, len);
+	m.text[len] = 0;
+	return m;
+}
+
+/* 1 with path's mtime in Unix seconds in *out, or 0 when it can't be read or
+   is before 1970, which shcl_find_format would ignore anyway. */
+static int s_file_mtime(const char *path, int64_t *out) {
+#ifdef _WIN32
+	wchar_t *w = shcl_widen(path);
+	if (!w) { SHCL_OOM(); abort(); }
+	struct _stat64 st;
+	int ok = _wstat64(w, &st) == 0;
+	free(w);
+#else
+	struct stat st;
+	int ok = stat(path, &st) == 0;
+#endif
+	if (!ok || st.st_mtime < 0) return 0;
+	*out = (int64_t)st.st_mtime;
+	return 1;
+}
+
 /* Every load that reads a file comes here, as the reference's load_file_any:
    read, parse, and keep the text for a save's changed check. A file that could
    not be read gives a save nothing to compare, so its bytes are as unread as a
@@ -16138,7 +16203,10 @@ static shcl_doc *s_load_file_any(const char *path, shcl_strictness s, int keep, 
 	if (status) *status = st;
 	shcl_doc *d;
 	if (buf && migrate >= 0) {
-		shcl_migration mig = shcl_migrate_unstamped(buf, len, migrate);
+		// from_v2 says the file is 2.x, whatever its stamp and mtime say.
+		int64_t mtime = 0;
+		const char *format = migrate ? "2.0" : shcl_find_format(buf, len, s_file_mtime(path, &mtime) ? &mtime : NULL);
+		shcl_migration mig = s_convert(buf, len, format, migrate);
 		if (!mig.text) { free(buf); return NULL; }
 		d = keep ? shcl_parse_keep_lines(mig.text, mig.len, s) : shcl_parse_with(mig.text, mig.len, s);
 		free(mig.text);

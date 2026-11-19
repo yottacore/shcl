@@ -439,12 +439,13 @@ class LoadOptions:
 	level is its own argument, since it is the one choice every load makes,
 	and an all-zero options struct in Go and C would be Loose. keep_lines keeps
 	the text for to_text_keep_lines, as load_file_keep_lines does; with
-	migrate, the text kept is the migrated one. migrate parses what
-	migrate_unstamped makes of the file rather than the file itself. Only the
-	document changes: the file is not written, and a save checks the path
-	against the bytes the load read, so a save over the file gets every check
-	a plain load's does. from_v2 is migrate's: the file can only have been
-	written for 2.x. It is ignored without migrate."""
+	migrate, the text kept is the migrated one. migrate parses the file
+	converted to this format, from the format its text and mtime give, rather
+	than the file itself. Only the document changes: the file is not written,
+	and a save checks the path against the bytes the load read, so a save over
+	the file gets every check a plain load's does. from_v2 is migrate's: the
+	file can only have been written for 2.x, so it converts from 2.0. It is
+	ignored without migrate."""
 	__slots__ = ("keep_lines", "migrate", "from_v2")
 
 	def __init__(self, keep_lines: bool = False, migrate: bool = False, from_v2: bool = False) -> None:
@@ -3060,6 +3061,47 @@ def _line_tells(rest: str, codes: list[str], tok: Tokens) -> int:
 	if any(inner(p) for p in tok.elements):
 		run |= _tell_run(_TELL_APOSTROPHE)
 	return run
+
+
+class _Step(Enum):
+	"""What turns a text in one format of _FORMAT_DAYS into the next one's, as
+	the design doc's Reading and converting says. A new format adds a row to
+	_FORMAT_STEPS, and a kind here only when no step yet does what it needs.
+	SAME: the 2 formats read every line the same, but for lines the older one
+	refuses, which stay as typed. Nothing changes. V2: migrate's rewrite from
+	the 2.x rules, which lands on the current format. It stands in for the
+	steps from 1.0 to 3.0-a37 until they're built (2026111908444515,
+	2026111908444534)."""
+	SAME = 0
+	V2 = 1
+
+
+# The step out of each format of _FORMAT_DAYS but the current one, in the
+# same order.
+_FORMAT_STEPS: tuple[_Step, ...] = (
+	_Step.V2,  # 1.0
+	_Step.V2,  # 1.1
+	_Step.V2,  # 2.0
+	_Step.V2,  # 3.0-1f8
+	_Step.V2,  # 3.0-30d
+	_Step.V2,  # 3.0-b10
+	_Step.V2,  # 3.0-f8e
+	_Step.V2,  # 3.0-a37
+	_Step.SAME,  # 3.0-9ef, which refused an apostrophe inside a bare word
+	_Step.SAME,  # 3.0-a65
+)
+
+
+def _convert(text: str, fmt: str | None, from_v2: bool) -> Migration:
+	"""The text, written in fmt, as the current format reads it, one step per
+	format in order, in memory. None, a newer format's, comes back as it is.
+	from_v2 is migrate's."""
+	at = next((i for i, (f, _) in enumerate(_FORMAT_DAYS) if f == fmt), len(_FORMAT_STEPS))
+	while at < len(_FORMAT_STEPS):
+		if _FORMAT_STEPS[at] is _Step.V2:
+			return migrate_unstamped(text, from_v2)
+		at += 1
+	return Migration(text, True, 0, 0)
 
 
 def _format_line_read(text: str) -> Read[int]:
@@ -7296,10 +7338,12 @@ class Document:
 		path: str | os.PathLike[str], strictness: Strictness, opts: LoadOptions
 	) -> tuple[Document, FileStatus]:
 		"""load_file_with, as the options describe. With migrate, the document
-		is the one migrate_unstamped makes of the file, in memory, for a
-		program whose files may be older than this format: its save goes
-		through every check a save of a plain load does, over the file it
-		read. The lines migrate counts in lost count in lost_count, so a save
+		is the file converted to this format in memory, for a program whose
+		files may be older: find_format works out its format from its text and
+		its mtime, and it goes through one step per format from there, as the
+		format versions design doc's Reading and converting says. Its save
+		goes through every check a save of a plain load does, over the file it
+		read. The lines a step counts in lost count in lost_count, so a save
 		that would write them canonical refuses as for any lost line. A file
 		naming a newer format is parsed as it is, so its save raises
 		SaveTooNew."""
@@ -7327,7 +7371,9 @@ class Document:
 			return doc, st
 		parsed, mig = text, None
 		if migrate is not None:
-			mig = migrate_unstamped(text, migrate)
+			# from_v2 says the file is 2.x, whatever its stamp and mtime say.
+			fmt = "2.0" if migrate else find_format(text, _file_mtime(path))
+			mig = _convert(text, fmt, migrate)
 			parsed = mig.text
 		doc = _Parser().parse(parsed, strictness)
 		# migrate's count, summed as a merge sums a layer's. Its lines are gone
@@ -11256,6 +11302,16 @@ def _read_capped(f, limit):
 		chunks.append(piece)
 		got += len(piece)
 	return b"".join(chunks)
+
+
+def _file_mtime(path: str | os.PathLike[str]) -> int | None:
+	"""path's mtime in Unix seconds, or None when it can't be read or is before
+	1970, which find_format would ignore anyway."""
+	try:
+		t = os.stat(path).st_mtime_ns // 1_000_000_000
+	except (OSError, ValueError):
+		return None
+	return t if t >= 0 else None
 
 
 def read_file(path: str | os.PathLike[str], max_bytes: int = 0) -> tuple[str | None, FileStatus]:

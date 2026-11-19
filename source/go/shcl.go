@@ -3733,6 +3733,58 @@ func opensRaw(rest string, tok *Tokens) openFence {
 	return openFence{ch: ch, length: length, open: ok}
 }
 
+// step is what turns a text in one format of formatDays into the next one's,
+// as the design doc's Reading and converting says. A new format adds a row to
+// formatSteps, and a kind here only when no step yet does what it needs.
+type step int
+
+const (
+	// stepSame: the 2 formats read every line the same, but for lines the
+	// older one refuses, which stay as typed. Nothing changes.
+	stepSame step = iota
+	// stepV2: Migrate's rewrite from the 2.x rules, which lands on the
+	// current format. It stands in for the steps from 1.0 to 3.0-a37 until
+	// they're built (2026111908444515, 2026111908444534).
+	stepV2
+)
+
+// formatSteps is the step out of each format of formatDays but the current
+// one, in the same order.
+var formatSteps = [len(formatDays) - 1]step{
+	stepV2,   // 1.0
+	stepV2,   // 1.1
+	stepV2,   // 2.0
+	stepV2,   // 3.0-1f8
+	stepV2,   // 3.0-30d
+	stepV2,   // 3.0-b10
+	stepV2,   // 3.0-f8e
+	stepV2,   // 3.0-a37
+	stepSame, // 3.0-9ef, which refused an apostrophe inside a bare word
+	stepSame, // 3.0-a65
+}
+
+// convert is the text, written in format, as the current format reads it, one
+// step per format in order, in memory. ok false, a newer format's, comes back
+// as it is. fromV2 is Migrate's.
+func convert(text, format string, ok, fromV2 bool) Migration {
+	at := len(formatSteps)
+	for i, row := range formatDays {
+		if ok && row.name == format {
+			at = i
+			break
+		}
+	}
+	for at < len(formatSteps) {
+		switch formatSteps[at] {
+		case stepSame:
+			at++
+		case stepV2:
+			return MigrateUnstamped(text, fromV2)
+		}
+	}
+	return Migration{Text: text, Current: true}
+}
+
 // formatLineRead is ReadFormatVersion on text with the BOM already off.
 // Digits that do not fit 32 bits read as the largest number that does: a
 // format newer than this one, so the file is left alone like any other newer
@@ -10067,6 +10119,20 @@ func SuppressDeclaredRepeats(schema *Document, diags []Diagnostic) []Diagnostic 
 	return kept
 }
 
+// fileMtime is path's mtime in Unix seconds, or nil when it can't be read or
+// is before 1970, which FindFormat would ignore anyway.
+func fileMtime(path string) *int64 {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil
+	}
+	t := fi.ModTime().Unix()
+	if t < 0 {
+		return nil
+	}
+	return &t
+}
+
 // ReadFile is the file tier's read half on its own: the text of path with
 // FileClean, or "" with the status that says why not - FileNotFound, or
 // FileUnreadable for everything else (permissions, a directory, bad encoding,
@@ -11025,22 +11091,24 @@ type LoadOptions struct {
 	// KeepLines keeps the text for ToTextKeepLines, as LoadFileKeepLines
 	// does. With Migrate, the text kept is the migrated one.
 	KeepLines bool
-	// Migrate parses what MigrateUnstamped makes of the file rather than the
-	// file itself. Only the document changes: the file is not written, and a
+	// Migrate parses the file converted to this format, from the format its
+	// text and mtime give, rather than the file itself. Only the document changes: the file is not written, and a
 	// save checks the path against the bytes the load read, so a save over
 	// the file gets every check a plain load's does.
 	Migrate bool
 	// FromV2 is Migrate's fromV2: the file can only have been written for
-	// 2.x. Ignored without Migrate.
+	// 2.x, so it converts from 2.0. Ignored without Migrate.
 	FromV2 bool
 }
 
 // LoadFileOpts is LoadFileWith, as the options describe. With Migrate, the
-// document is the one MigrateUnstamped makes of the file, in memory, for a
-// program whose files may be older than this format: its save goes through
-// every check a save of a plain load does, over the file it read. The lines
-// Migrate counts in Lost count in LostCount, so a save that would write them
-// canonical refuses as for any lost line. A file naming a newer format is
+// document is the file converted to this format in memory, for a program
+// whose files may be older: FindFormat works out its format from its text and
+// its mtime, and it goes through one step per format from there, as the
+// format versions design doc's Reading and converting says. Its save goes
+// through every check a save of a plain load does, over the file it read. The
+// lines a step counts in Lost count in LostCount, so a save that would write
+// them canonical refuses as for any lost line. A file naming a newer format is
 // parsed as it is, so its save is *SaveTooNew.
 func LoadFileOpts(path string, level Strictness, opts LoadOptions) (*Document, FileStatus, error) {
 	doc, st := loadFileAny(path, level, opts.KeepLines, opts.Migrate, opts.FromV2)
@@ -11065,7 +11133,12 @@ func loadFileAny(path string, level Strictness, keep, migrate, fromV2 bool) (*Do
 	}
 	parsed, mig := text, Migration{}
 	if migrate {
-		mig = MigrateUnstamped(text, fromV2)
+		// fromV2 says the file is 2.x, whatever its stamp and mtime say.
+		format, ok := "2.0", true
+		if !fromV2 {
+			format, ok = FindFormat(text, fileMtime(path))
+		}
+		mig = convert(text, format, ok, fromV2)
 		parsed = mig.Text
 	}
 	doc := newParser().parse(parsed, level)

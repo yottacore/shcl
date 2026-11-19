@@ -238,13 +238,13 @@ pub struct LoadOptions {
 	/// Keep the text for `to_text_keep_lines`, as `load_file_keep_lines`
 	/// does. With `migrate`, the text kept is the migrated one.
 	pub keep_lines: bool,
-	/// Parse what `migrate_unstamped` makes of the file rather than the file
-	/// itself. Only the document changes: the file is not written, and a
+	/// Parse the file converted to this format, from the format its text and
+	/// mtime give, rather than the file itself. Only the document changes: the file is not written, and a
 	/// save checks the path against the bytes the load read, so a save over
 	/// the file gets every check a plain load's does.
 	pub migrate: bool,
-	/// migrate's `from_v2`: the file can only have been written for 2.x.
-	/// Ignored without `migrate`.
+	/// migrate's `from_v2`: the file can only have been written for 2.x, so
+	/// it converts from 2.0. Ignored without `migrate`.
 	pub from_v2: bool,
 }
 
@@ -3313,6 +3313,56 @@ fn line_tells(rest: &str, codes: &[(usize, &str)], tok: &mut Tokens) -> u32 {
 		run |= tell_run(TELL_APOSTROPHE);
 	}
 	run
+}
+
+/// What turns a text in one format of `FORMAT_DAYS` into the next one's, as
+/// the design doc's Reading and converting says. A new format adds a row to
+/// `FORMAT_STEPS`, and a kind here only when no step yet does what it needs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Step {
+	/// The 2 formats read every line the same, but for lines the older one
+	/// refuses, which stay as typed. Nothing changes.
+	Same,
+	/// migrate's rewrite from the 2.x rules, which lands on the current
+	/// format. It stands in for the steps from 1.0 to 3.0-a37 until they're
+	/// built (2026111908444515, 2026111908444534).
+	V2,
+}
+
+/// The step out of each format of `FORMAT_DAYS` but the current one, in the
+/// same order.
+const FORMAT_STEPS: [Step; FORMAT_DAYS.len() - 1] = [
+	Step::V2,   // 1.0
+	Step::V2,   // 1.1
+	Step::V2,   // 2.0
+	Step::V2,   // 3.0-1f8
+	Step::V2,   // 3.0-30d
+	Step::V2,   // 3.0-b10
+	Step::V2,   // 3.0-f8e
+	Step::V2,   // 3.0-a37
+	Step::Same, // 3.0-9ef, which refused an apostrophe inside a bare word
+	Step::Same, // 3.0-a65
+];
+
+/// The text, written in `format`, as the current format reads it, one step
+/// per format in order, in memory. None, a newer format's, comes back as it
+/// is. `from_v2` is migrate's.
+fn convert(text: &str, format: Option<&str>, from_v2: bool) -> Migration {
+	let mut at = format
+		.and_then(|n| FORMAT_DAYS.iter().position(|(f, _)| *f == n))
+		.unwrap_or(FORMAT_STEPS.len());
+	while at < FORMAT_STEPS.len() {
+		match FORMAT_STEPS[at] {
+			Step::Same => at += 1,
+			Step::V2 => return migrate_unstamped(text, from_v2),
+		}
+	}
+	Migration {
+		text: text.to_string(),
+		current: true,
+		ambiguous: 0,
+		lost: 0,
+	}
 }
 
 /// read_format_version() on text with the BOM already off. Digits that do
@@ -7482,13 +7532,15 @@ impl Document {
 		Document::load_file_gated(path, level, false)
 	}
 
-	/// load_file_with, as the options describe. With `migrate`, the document is the
-	/// one `migrate_unstamped` makes of the file, in memory, for a program
-	/// whose files may be older than this format: its save goes through every
-	/// check a save of a plain load does, over the file it read. The lines
-	/// `migrate` counts in `lost` count in `lost_count`, so a save that
-	/// would write them canonical refuses as for any lost line. A file
-	/// naming a newer format is parsed as it is, so its save is `TooNew`.
+	/// load_file_with, as the options describe. With `migrate`, the document is
+	/// the file converted to this format in memory, for a program whose files
+	/// may be older: `find_format` works out its format from its text and its
+	/// mtime, and it goes through one step per format from there, as the
+	/// format versions design doc's Reading and converting says. Its save goes
+	/// through every check a save of a plain load does, over the file it
+	/// read. The lines a step counts in `lost` count in `lost_count`, so a
+	/// save that would write them canonical refuses as for any lost line. A
+	/// file naming a newer format is parsed as it is, so its save is `TooNew`.
 	#[allow(clippy::result_large_err)]
 	pub fn load_file_opts(
 		path: &str,
@@ -7523,7 +7575,15 @@ impl Document {
 			// so its bytes are as unread as a parsed document's.
 			Err(st) => return (Parser::new().parse("", level), st),
 		};
-		let mig = migrate.map(|from_v2| migrate_unstamped(&text, from_v2));
+		// from_v2 says the file is 2.x, whatever its stamp and mtime say.
+		let mig = migrate.map(|from_v2| {
+			let format = if from_v2 {
+				Some("2.0")
+			} else {
+				find_format(&text, file_mtime(path))
+			};
+			convert(&text, format, from_v2)
+		});
 		let parsed = mig.as_ref().map_or(text.as_str(), |mig| mig.text.as_str());
 		let mut doc = Parser::new().parse(parsed, level);
 		// migrate's count, summed as a merge sums a layer's. Its lines are gone
@@ -10121,6 +10181,13 @@ pub fn read_file(path: &str, max_bytes: usize) -> Result<String, FileStatus> {
 		return Err(FileStatus::Unreadable);
 	}
 	String::from_utf8(bytes).map_err(|_| FileStatus::Unreadable)
+}
+
+/// PATH's mtime in Unix seconds, or None when it can't be read or is before
+/// 1970, which `find_format` would ignore anyway.
+fn file_mtime(path: &str) -> Option<i64> {
+	let t = std::fs::metadata(path).ok()?.modified().ok()?;
+	i64::try_from(t.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs()).ok()
 }
 
 /// What read_named_schema() found. `NotFound` and `Empty` are

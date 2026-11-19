@@ -8441,6 +8441,63 @@ func TestANewerFormatDocumentSavesNowhere(t *testing.T) {
 	}
 }
 
+// TestALoadConvertsFromTheFormatItsMtimeGives: a load that migrates converts
+// from the format FindFormat gives the file's text and mtime, with the mtime
+// pinned on the file. One whose format reads like this one's but for refused
+// lines comes back as typed, and an older one goes through the 2.x migration
+// that stands in for its steps (2026111908443663). Same rows in every runner.
+func TestALoadConvertsFromTheFormatItsMtimeGives(t *testing.T) {
+	defer testID(t, "dfgyd")
+	f := filepath.Join(t.TempDir(), "f.shcl")
+	const (
+		aug6  = 1785974400 // 2026-08-06, to 1.1
+		oct10 = 1791590400 // 2026-10-10, to 3.0-a37
+		oct20 = 1792454400 // 2026-10-20, to 3.0-9ef
+		oct30 = 1793318400 // 2026-10-30, to 3.0-a65
+		nov10 = 1794268800 // 2026-11-10, every format
+		y2020 = 1577836800 // before any format, so ignored
+	)
+	quote, brackets := "a: x\"y\n", "a: [1, 2]\n"
+	cases := []struct {
+		text     string
+		mtime    int64
+		fromV2   bool
+		migrated bool
+	}{
+		{quote, nov10, false, false},
+		{quote, oct30, false, false},
+		{quote, oct20, false, false},
+		{quote, y2020, false, false},
+		{quote, aug6, false, true},
+		{quote, nov10, true, true},
+		{brackets, nov10, false, false},
+		{brackets, oct10, false, true},
+	}
+	for _, c := range cases {
+		if err := os.WriteFile(f, []byte(c.text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		at := time.Unix(c.mtime, 0)
+		if err := os.Chtimes(f, at, at); err != nil {
+			t.Fatal(err)
+		}
+		opts := LoadOptions{KeepLines: true, Migrate: true, FromV2: c.fromV2}
+		doc, _, _ := LoadFileOpts(f, Standard, opts)
+		want, lost := c.text, 0
+		if c.migrated {
+			m := MigrateUnstamped(c.text, c.fromV2)
+			want, lost = m.Text, m.Lost
+		}
+		got, _, err := doc.ToTextKeepLines()
+		if err != nil || got != withStamp(want) || doc.LostCount() != lost {
+			t.Errorf("%q at %d, fromV2 %v: gave %q, lost %d, %v; want %q, lost %d", c.text, c.mtime, c.fromV2, got, doc.LostCount(), err, withStamp(want), lost)
+		}
+		if b, err := os.ReadFile(f); err != nil || string(b) != c.text {
+			t.Errorf("%q: the load wrote %q, %v", c.text, b, err)
+		}
+	}
+}
+
 func TestALoadThatMigratesSavesThroughTheGuards(t *testing.T) {
 	defer testID(t, "dfe4r")
 	dir := t.TempDir()

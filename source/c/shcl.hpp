@@ -367,8 +367,8 @@ struct SaveOptions {
 // How load_file_opts loads. The default is load_file_with.
 struct LoadOptions {
 	bool keep_lines{}; // keep the text for to_text_keep_lines(), as load_file_keep_lines; with migrate, the migrated text
-	bool migrate{};    // parse what migrate_unstamped makes of the file; the file is not written, and a save checks the path against the bytes the load read
-	bool from_v2{};    // migrate's from_v2: the file can only have been written for 2.x; ignored without migrate
+	bool migrate{};    // parse the file converted to this format, from the format its text and mtime give; the file is not written, and a save checks the path against the bytes the load read
+	bool from_v2{};    // migrate's from_v2: the file can only have been written for 2.x, so it converts from 2.0; ignored without migrate
 };
 // Why a write failed, so a program can tell a missing folder from no
 // permission or a full disk. NotFound and Unreadable are FileStatus's names.
@@ -500,9 +500,10 @@ public:
 	// load_file_with, keeping the text for to_text_keep_lines().
 	static std::pair<Document, FileStatus> load_file_keep_lines(const std::string &path, Strictness s);
 	// load_file_with, as the options describe. With migrate, the document is
-	// the one migrate_unstamped makes of the file, in memory: its save goes
-	// through every check a save of a plain load does, over the file it read.
-	// The lines the migration counts in lost count in lost_count(), so a save
+	// the file converted to this format in memory, from the format
+	// find_format gives its text and its mtime, one step per format: its save
+	// goes through every check a save of a plain load does, over the file it
+	// read. The lines a step counts in lost count in lost_count(), so a save
 	// that would write them canonical refuses. A file naming a newer format
 	// is parsed as it is, so its save is TooNew.
 	static std::pair<Document, FileStatus> load_file_opts(const std::string &path, Strictness s, const LoadOptions &opts);

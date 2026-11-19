@@ -158,6 +158,74 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: High
 	- Note: likely splits by the design doc's runs, 1.0 to 2.0, 3.0-1f8 to 3.0-a37, and 3.0-9ef to 3.0, since 2.0 to 3.0 is what migrate does now.
 	- 20261119: the load passes the file's mtime to find_format here, so this item also adds the touch -d mtime cases that 2026111907080400 left out (no file was read there).
+	- Note: split for its time cap into 2026111908443663 (the step table, the mtime on load, and the 3.0-9ef to 3.0 run), 2026111908444515 (3.0-1f8 to 3.0-a37), 2026111908444534 (1.0 to 2.0) and 2026111908444554 (`upgrade`).
+
+- Format versions: the load finds a file's format with its mtime, and converts it by a table of steps
+	- ID: 2026111908443663
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-084436
+	- Opened by: me
+	- Parent ID: 2026111907080423
+	- Requirements: in all 4 bindings, a load with migrate passes the file's mtime to find_format and runs a table of steps, one per format, from that format to the current one. The steps for the run 3.0-9ef to 3.0 are built. Older formats keep the 2.x migration until their own steps are built. The touch -d mtime cases go with it.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261119: the table is `FORMAT_STEPS` (Go `formatSteps`, Python `_FORMAT_STEPS`, C `shcl_format_steps`), with one step kind for each format of `FORMAT_DAYS` but the current one, in the same order. The kinds are `Same` and `V2`. A step that lands on the current format, as `V2` does, ends the run.
+		- me, 20261119: the steps out of 3.0-9ef and 3.0-a65 change nothing. A line 3.0-9ef refused, such as `it's ok`, stays as typed and now reads as text, since 3.0-9ef gave it no reading to keep. A line in error stays as typed, and the load reports it as any error.
+		- me, 20261119: 1.0 to 3.0-a37 still go through `migrate_unstamped` with the caller's `from_v2`, until 2026111908444515 and 2026111908444534 build their steps. So only a file found to be 3.0-9ef or later loads differently than before: it isn't rewritten, and `a: [1, 2]` no longer counts as lost.
+		- me, 20261119: `from_v2` takes the file as 2.0, whatever its stamp and mtime say, so that load is as before.
+		- me, 20261119: the mtime comes from a stat of the path, in whole seconds. It's none when the stat fails or gives a time before 1970, which `find_format` ignores anyway.
+		- me, 20261119: no veneer case, since the C++ interface's `load_file_opts` only wraps C's.
+	- Verified: the new test fails in all 4 runners with the mtime left out of the load, and with the step out of 3.0-9ef or 3.0-a65 set to `V2`, and passes without. `--backlog-run-quick` over every area, check-veneer, check-docs, `test-ids.py check`, `lint-report.bash --check --no-mark` and the markdown check passed. The C runner passed under ASan and UBSan. codeql-scan found nothing in the C, C++, Go and Rust code. Its one Python finding, `de5aj`, is in `cmd/shcl/main.py`, which this item didn't touch (2026111709183317). analyze-c and the cppcheck line from `LINT_EXTRA` passed.
+	- Swept: the load in all 4 (`load_file_any`, `loadFileAny`, `_load_file_any`, `s_load_file_any`) is the only caller of the table. No CLI loads with migrate. `upgrade` and `upgrade_file` still run the 2.x migration, which 2026111908444554 takes up. spec.md's `LoadFileOpts` bullet, design.md's `load_file_opts` bullet, the design doc, the changelog, and the option docs in all 4 and `shcl.hpp` say so.
+	- Test case: `a_load_converts_from_the_format_its_mtime_gives` (Rust `dfgyc`, Go `dfgyd`, Python `dfgye`, C `dfgyf`).
+	- Branch: `nov19-2026111907080423`
+	- Commit: `1d8535d4`
+	- Acceptance signoff: Self-closed: each new step row and the mtime pass are pinned in all 4 runners, each seen to fail without its part, by the memory.md close policy.
+	- Closed: 20261119-094259
+	- Closed reason: Done
+
+- Format versions: conversion steps for 3.0-1f8 to 3.0-a37, and from 3.0-a37 to 3.0-9ef
+	- ID: 2026111908444515
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-084445
+	- Opened by: me
+	- Parent ID: 2026111907080423
+	- Prereq IDs: 2026111908443663
+	- Requirements: rows and steps in the load's step table for the run 3.0-1f8 to 3.0-a37, per the design doc's Pinned dev snapshots, and the step into the format 3 value syntax, with a backslash outside double quotes read as plain text. In all 4 bindings. A line a step isn't sure of stays as typed and is reported.
+	- Estimated effort: High
+
+- Format versions: conversion steps for 1.0 to 2.0, and from 2.0 to 3.0-1f8
+	- ID: 2026111908444534
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-084445
+	- Opened by: me
+	- Parent ID: 2026111907080423
+	- Prereq IDs: 2026111908443663, 2026111908444515
+	- Requirements: rows and steps in the load's step table for 1.0, 1.1 and 2.0, per the design doc's Format numbers and Tells, in place of the 2.x migration that stands in for them. In all 4 bindings. A line a step isn't sure of stays as typed and is reported.
+	- Estimated effort: High
+
+- Format versions: upgrade and upgrade_file convert by the load's steps
+	- ID: 2026111908444554
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-084445
+	- Opened by: me
+	- Parent ID: 2026111907080423
+	- Prereq IDs: 2026111908443663
+	- Requirements: upgrade finds the format with find_format, and upgrade_file passes the file's mtime, then both convert by the load's step table rather than the 2.x migration alone. In all 4 bindings and the 4 CLIs' upgrade.
+	- Estimated effort: Avg
 
 - Format versions: `from` and `--from=FORMAT` replace `from_v2` and `--from-2x`
 	- ID: 2026111907080445

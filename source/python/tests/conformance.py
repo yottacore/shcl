@@ -6546,6 +6546,47 @@ def main():
 		_, mst = shcl.Document.load_file_opts(os.path.join(md, "gone.shcl"), shcl.Strictness.Standard, mopts)
 		msame("missing", mst, shcl.FileStatus.NotFound)
 
+	test_id("dfgye", "a_load_converts_from_the_format_its_mtime_gives")
+	# A load that migrates converts from the format find_format gives the
+	# file's text and mtime, with the mtime pinned on the file. One whose
+	# format reads like this one's but for refused lines comes back as typed,
+	# and an older one goes through the 2.x migration that stands in for its
+	# steps (2026111908443663). Same rows in every runner.
+	with tempfile.TemporaryDirectory() as cd:
+		cf = os.path.join(cd, "f.shcl")
+		aug6 = 1785974400  # 2026-08-06, to 1.1
+		oct10 = 1791590400  # 2026-10-10, to 3.0-a37
+		oct20 = 1792454400  # 2026-10-20, to 3.0-9ef
+		oct30 = 1793318400  # 2026-10-30, to 3.0-a65
+		nov10 = 1794268800  # 2026-11-10, every format
+		y2020 = 1577836800  # before any format, so ignored
+		cquote, cbrackets = 'a: x"y\n', "a: [1, 2]\n"
+		# The text, the mtime, from_v2, and whether it goes through migrate.
+		for ctext, cmtime, cv2, cmigrated in (
+			(cquote, nov10, False, False),
+			(cquote, oct30, False, False),
+			(cquote, oct20, False, False),
+			(cquote, y2020, False, False),
+			(cquote, aug6, False, True),
+			(cquote, nov10, True, True),
+			(cbrackets, nov10, False, False),
+			(cbrackets, oct10, False, True),
+		):
+			with open(cf, "w", encoding="utf-8", newline="") as fh:
+				fh.write(ctext)
+			os.utime(cf, (cmtime, cmtime))
+			cdoc, _ = shcl.Document.load_file_opts(cf, shcl.Strictness.Standard, shcl.LoadOptions(keep_lines=True, migrate=True, from_v2=cv2))
+			cwant, clost = ctext, 0
+			if cmigrated:
+				cm = shcl.migrate_unstamped(ctext, cv2)
+				cwant, clost = cm.text, cm.lost
+			cgot = (cdoc.to_text_keep_lines()[0], cdoc.lost_count())
+			if cgot != (with_stamp(cwant), clost):
+				raise SystemExit(f"{ctext!r} at {cmtime}, from_v2 {cv2}: {cgot!r}, want {(with_stamp(cwant), clost)!r}")
+			with open(cf, encoding="utf-8", newline="") as fh:
+				if fh.read() != ctext:
+					raise SystemExit(f"{ctext!r}: the load wrote the file")
+
 	test_id("ddrnd", "default_fills_what_does_not_read")
 	# A default form writes where the field is missing, empty or does not read
 	# as its type, and keeps a value it replaces above the field as a comment

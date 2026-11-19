@@ -7162,6 +7162,68 @@ fn a_load_that_migrates_saves_through_the_guards() {
 	let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A load that migrates converts from the format `find_format` gives the
+/// file's text and mtime, with the mtime pinned on the file. One whose
+/// format reads like this one's but for refused lines comes back as typed,
+/// and an older one goes through the 2.x migration that stands in for its
+/// steps (2026111908443663). Same rows in every runner.
+#[test]
+fn a_load_converts_from_the_format_its_mtime_gives() {
+	let _id = test_id("dfgyc");
+	use shcl::LoadOptions;
+	use std::time::{Duration, UNIX_EPOCH};
+	let dir = std::env::temp_dir().join(format!("shcl-loadconv-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(&dir).unwrap();
+	let f = dir.join("f.shcl").to_str().unwrap().to_string();
+	let aug6 = 1785974400; // 2026-08-06, to 1.1
+	let oct10 = 1791590400; // 2026-10-10, to 3.0-a37
+	let oct20 = 1792454400; // 2026-10-20, to 3.0-9ef
+	let oct30 = 1793318400; // 2026-10-30, to 3.0-a65
+	let nov10 = 1794268800; // 2026-11-10, every format
+	let y2020 = 1577836800; // before any format, so ignored
+	let quote = "a: x\"y\n";
+	let brackets = "a: [1, 2]\n";
+	// The text, the mtime, from_v2, and whether it goes through migrate.
+	let cases: [(&str, u64, bool, bool); 8] = [
+		(quote, nov10, false, false),
+		(quote, oct30, false, false),
+		(quote, oct20, false, false),
+		(quote, y2020, false, false),
+		(quote, aug6, false, true),
+		(quote, nov10, true, true),
+		(brackets, nov10, false, false),
+		(brackets, oct10, false, true),
+	];
+	for (text, mtime, from_v2, migrated) in cases {
+		std::fs::write(&f, text).unwrap();
+		let file = std::fs::File::options().write(true).open(&f).unwrap();
+		file.set_modified(UNIX_EPOCH + Duration::from_secs(mtime))
+			.unwrap();
+		drop(file);
+		let opts = LoadOptions {
+			keep_lines: true,
+			migrate: true,
+			from_v2,
+		};
+		let (doc, _) = Document::load_file_opts(&f, Strictness::Standard, &opts).unwrap();
+		let (want, lost) = if migrated {
+			let m = migrate_unstamped(text, from_v2);
+			(m.text, m.lost)
+		} else {
+			(text.to_string(), 0)
+		};
+		let got = (doc.to_text_keep_lines().map(|t| t.0), doc.lost_count());
+		assert_eq!(
+			got,
+			(Ok(with_stamp(&want)), lost),
+			"{text:?} at {mtime}, from_v2 {from_v2}"
+		);
+		assert_eq!(std::fs::read_to_string(&f).unwrap(), text);
+	}
+	let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Every text a save writes names this format: a stamp is rewritten where it
 /// is, with its own head, and a text with none gets one as its last line. A
 /// newer format's stamp stays, and so does a kept text that ends in a raw
