@@ -181,7 +181,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: conversion steps for 3.0-1f8 to 3.0-a37, and from 3.0-a37 to 3.0-9ef
 	- ID: 2026111908444515
 	- Type: Feature
-	- Status: Queued
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261119-084445
@@ -191,6 +191,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: rows and steps in the load's step table for the run 3.0-1f8 to 3.0-a37, per the design doc's Pinned dev snapshots, and the step into the format 3 value syntax, with a backslash outside double quotes read as plain text. In all 4 bindings. A line a step isn't sure of stays as typed and is reported.
 	- Estimated effort: High
 	- Note: split for its time cap into 2026111912004261 (the Rust reference), then the ports 2026111912004789 (Go), 2026111912004810 (Python) and 2026111912004831 (C).
+	- Test case: its children's: 2026111912004261: `a_load_converts_from_a_pinned_dev_format` (Rust `dfh4s`).; 2026111912004789: `TestALoadConvertsFromAPinnedDevFormat` (Go `dfh64`, twin of Rust `dfh4s`).; 2026111912004810: `a_load_converts_from_a_pinned_dev_format` (Python `dfh6n`, twin of Rust `dfh4s`).; 2026111912004831: `a_load_converts_from_a_pinned_dev_format` (C `dfh7e`, twin of Rust `dfh4s`).
+	- Acceptance signoff: me, 20261119. The steps out of 3.0-1f8 to 3.0-a37 are built in all 4 bindings, and 3.0-a37 to 3.0-9ef is the 3.0-a37 pin step.
+	- Closed: 20261119-135846
+	- Closed reason: Done
 
 - Format versions: the Rust steps out of 3.0-1f8 to 3.0-a37
 	- ID: 2026111912004261
