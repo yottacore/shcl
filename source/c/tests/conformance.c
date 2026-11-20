@@ -2256,7 +2256,7 @@ int main(int argc, char **argv) {
 		for (int from_v2 = 1; from_v2 >= 0; from_v2--) {
 			shcl_migration full = shcl_migrate(input, ilen, v2_from(from_v2));
 			shcl_migration bare = shcl_migrate_unstamped(input, ilen, v2_from(from_v2));
-			if (bare.current != full.current || bare.ambiguous != full.ambiguous || bare.lost != full.lost) fail(names[ci], "counts differ without the stamp");
+			if (bare.current != full.current || bare.ambiguous != full.ambiguous || bare.lost != full.lost || bare.unfinished != full.unfinished) fail(names[ci], "counts differ without the stamp");
 			if (contains(bare.text, bare.len, SHCL_FORMAT_LINE_HEAD) && !contains(input, ilen, SHCL_FORMAT_LINE_HEAD)) fail(names[ci], "migrate_unstamped wrote a Format line");
 			// The stamp's lines end the way most of the input's lines do.
 			size_t crlf = 0, lf = 0;
@@ -8718,6 +8718,36 @@ int main(int argc, char **argv) {
 		if (strcmp(bare.text, "a: \"x" MK "TAB" MK "y\"\n") != 0) fail("migrate_from", bare.text);
 		free(bare.text);
 		#undef MK
+	}
+	test_id("dfj8f", "migrate_says_when_it_could_not_finish");
+	/* shcl_migrate says when the migration couldn't finish, so a program that
+	   writes the version line itself after shcl_migrate_unstamped can leave it
+	   off: a raw block that never closes, or ambiguous pieces, which is when
+	   shcl_migrate leaves its own off (2026111014552300). Same rows in every
+	   runner. */
+	{
+		const char *open = "notes: ```\nnever closed\n";
+		const char *closed = "notes: ```\nclosed\n```\n";
+		const char *sq = "b: 'C:\\temp'\n";
+		/* The text, from, and whether the migration finishes. */
+		const struct { const char *text, *from; int finishes; } rows[] = {
+			{open, "2.0", 0},
+			{open, NULL, 0},
+			{"p: a,b\n", NULL, 0},
+			{closed, "2.0", 1},
+			{closed, NULL, 1},
+			{sq, "2.0", 1},
+			{sq, "3.0", 1},
+		};
+		for (size_t i = 0; i < sizeof rows / sizeof rows[0]; i++) {
+			size_t n = strlen(rows[i].text);
+			shcl_migration bare = shcl_migrate_unstamped(rows[i].text, n, rows[i].from);
+			shcl_migration full = shcl_migrate(rows[i].text, n, rows[i].from);
+			if (bare.unfinished != !rows[i].finishes || full.unfinished != !rows[i].finishes) fail("migrate_unfinished", rows[i].text);
+			if (contains(full.text, full.len, SHCL_FORMAT_LINE_HEAD) != (rows[i].finishes && !full.current)) fail("migrate_unfinished", full.text);
+			free(bare.text);
+			free(full.text);
+		}
 	}
 	test_id("dfhhv", "a_caller_names_the_format_with_from");
 	{

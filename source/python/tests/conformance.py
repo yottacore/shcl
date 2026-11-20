@@ -1583,7 +1583,12 @@ def main():
 		for from_v2 in (True, False):
 			stamped = shcl.migrate(case["input"], v2_from(from_v2))
 			unstamped = shcl.migrate_unstamped(case["input"], v2_from(from_v2))
-			if (unstamped.current, unstamped.ambiguous, unstamped.lost) != (stamped.current, stamped.ambiguous, stamped.lost):
+			if (unstamped.current, unstamped.ambiguous, unstamped.lost, unstamped.unfinished) != (
+				stamped.current,
+				stamped.ambiguous,
+				stamped.lost,
+				stamped.unfinished,
+			):
 				fails.append(f"{case['name']}: counts differ without the stamp")
 			if shcl.FORMAT_LINE_HEAD in unstamped.text and shcl.FORMAT_LINE_HEAD not in case["input"]:
 				fails.append(f"{case['name']}: migrate_unstamped wrote a Format line")
@@ -6821,6 +6826,30 @@ def main():
 		raise SystemExit(f"from_ 1.2 {munknown!r}, none {mnone!r}")
 	if shcl.migrate_unstamped(mtab, "3.0-a37").text != "a: \"x\u25c9TAB\u25c9y\"\n":
 		raise SystemExit("migrate_unstamped from_ 3.0-a37")
+
+	test_id("dfj8e", "migrate_says_when_it_could_not_finish")
+	# migrate says when the migration couldn't finish, so a program that
+	# writes the version line itself after migrate_unstamped can leave it off:
+	# a raw block that never closes, or ambiguous pieces, which is when
+	# migrate leaves its own off (2026111014552300). Same rows in every runner.
+	uopen = "notes: ```\nnever closed\n"
+	uclosed = "notes: ```\nclosed\n```\n"
+	usq = "b: 'C:\\temp'\n"
+	# The text, from_, and whether the migration finishes.
+	for ut, ufrom, ufinishes in (
+		(uopen, "2.0", False),
+		(uopen, None, False),
+		("p: a,b\n", None, False),
+		(uclosed, "2.0", True),
+		(uclosed, None, True),
+		(usq, "2.0", True),
+		(usq, "3.0", True),
+	):
+		ubare, ufull = shcl.migrate_unstamped(ut, ufrom), shcl.migrate(ut, ufrom)
+		if (ubare.unfinished, ufull.unfinished) != (not ufinishes, not ufinishes):
+			raise SystemExit(f"{ut!r}, from_ {ufrom}: unfinished {ubare.unfinished}, {ufull.unfinished}")
+		if (shcl.FORMAT_LINE_HEAD in ufull.text) != (ufinishes and not ufull.current):
+			raise SystemExit(f"{ut!r}, from_ {ufrom}: {ufull.text!r}")
 
 	test_id("dfhhb", "a_caller_names_the_format_with_from")
 	# A caller's from_ names the format a file was written in, by a name in

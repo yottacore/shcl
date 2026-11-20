@@ -898,7 +898,7 @@ func TestMigrateUnstampedIsMigrateWithoutTheStamp(t *testing.T) {
 		for _, fromV2 := range []bool{true, false} {
 			full := Migrate(c.input, v2From(fromV2))
 			bare := MigrateUnstamped(c.input, v2From(fromV2))
-			if bare.Current != full.Current || bare.Ambiguous != full.Ambiguous || bare.Lost != full.Lost {
+			if bare.Current != full.Current || bare.Ambiguous != full.Ambiguous || bare.Lost != full.Lost || bare.Unfinished != full.Unfinished {
 				t.Errorf("%s: counts differ without the stamp", c.name)
 			}
 			if strings.Contains(bare.Text, FormatLineHead) && !strings.Contains(c.input, FormatLineHead) {
@@ -8819,6 +8819,40 @@ func TestMigrateReadsFromAsUpgradeDoes(t *testing.T) {
 	}
 	if got, want := MigrateUnstamped(tab, "3.0-a37").Text, "a: \"x\u25c9TAB\u25c9y\"\n"; got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// TestMigrateSaysWhenItCouldNotFinish: Migrate says when the migration
+// couldn't finish, so a program that writes the version line itself after
+// MigrateUnstamped can leave it off: a raw block that never closes, or
+// ambiguous pieces, which is when Migrate leaves its own off
+// (2026111014552300). Same rows in every runner.
+func TestMigrateSaysWhenItCouldNotFinish(t *testing.T) {
+	defer testID(t, "dfj8d")
+	open := "notes: ```\nnever closed\n"
+	closed := "notes: ```\nclosed\n```\n"
+	sq := "b: 'C:\\temp'\n"
+	// The text, from, and whether the migration finishes.
+	cases := []struct {
+		text, from string
+		finishes   bool
+	}{
+		{open, "2.0", false},
+		{open, "", false},
+		{"p: a,b\n", "", false},
+		{closed, "2.0", true},
+		{closed, "", true},
+		{sq, "2.0", true},
+		{sq, "3.0", true},
+	}
+	for _, c := range cases {
+		bare, full := MigrateUnstamped(c.text, c.from), Migrate(c.text, c.from)
+		if bare.Unfinished != !c.finishes || full.Unfinished != !c.finishes {
+			t.Errorf("%q, from %q: unfinished %v and %v", c.text, c.from, bare.Unfinished, full.Unfinished)
+		}
+		if strings.Contains(full.Text, FormatLineHead) != (c.finishes && !full.Current) {
+			t.Errorf("%q, from %q: %q", c.text, c.from, full.Text)
+		}
 	}
 }
 

@@ -58,6 +58,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- `migrate()` and `migrate_unstamped()` say when the migration couldn't finish, in a new `unfinished` field (each binding's spelling). It's set for text that reads 2 ways or a raw block that never closes, which is when `migrate()` leaves its stamp off, so a program that writes the info block itself after `migrate_unstamped()` can leave the Format line off too. It used to get the same result as a migration that finished.
+
 - A comment added above a field, by `set_comment` or as the note a default form leaves on the value it replaced, went above the field's blank line when a line kept for an error sat above the field. So the blank went above that kept line's comments, away from the field. The new comment goes under the blank now, right above the field, in every binding.
 
 - A remove that took the last field under a field opened by a line kept for an error, with a misplaced line among the kept lines above it, moved every comment among those lines down with the misplaced line. A comment above a kept field line now stays above it, as when the removed line is cut by hand and the file is formatted.

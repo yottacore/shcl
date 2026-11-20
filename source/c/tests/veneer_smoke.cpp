@@ -298,6 +298,20 @@ static int migrate_reads_from_as_upgrade_does() {
 	return test_id_end(fails);
 }
 
+// migrate says when the migration couldn't finish, so a caller of
+// migrate_unstamped can leave the version line off too (2026111014552300).
+// Some of the C runner's rows, through the veneer.
+static int migrate_says_when_it_could_not_finish() {
+	test_id("dfj8g", "migrate_says_when_it_could_not_finish");
+	const std::string open = "notes: ```\nnever closed\n";
+	CHECK(shcl::migrate_unstamped(open, "2.0").unfinished);
+	CHECK(shcl::migrate(open, std::nullopt).unfinished);
+	CHECK(shcl::migrate_unstamped("p: a,b\n", std::nullopt).unfinished);
+	CHECK(!shcl::migrate_unstamped("notes: ```\nclosed\n```\n", "2.0").unfinished);
+	CHECK(!shcl::migrate("b: 'C:\\temp'\n", "3.0").unfinished);
+	return test_id_end(fails);
+}
+
 #ifndef SHCL_NO_FILE_IO
 // A save over the file a load read refuses when another program changed
 // it since, writes nothing, and writes with force. A save over a file the
@@ -1623,6 +1637,8 @@ int main() {
 	fails = 0;
 	const int mig_from = migrate_reads_from_as_upgrade_does();
 	fails = 0;
+	const int unfinished = migrate_says_when_it_could_not_finish();
+	fails = 0;
 #ifndef SHCL_NO_FILE_IO
 	const int changed = a_save_over_a_file_changed_since_the_load_is_refused();
 	fails = 0;
@@ -1638,8 +1654,8 @@ int main() {
 	fails = 0;
 	const int no_banner = upgrade_can_leave_the_info_block_off();
 	fails = 0;
-	return changed | spellings | created | newer | migrating | with_banner | no_banner | a_path_holding_a_nul_is_refused() | threads | stamped | no_text | found | upconv | told | mig_from | smoke;
+	return changed | spellings | created | newer | migrating | with_banner | no_banner | a_path_holding_a_nul_is_refused() | threads | stamped | no_text | found | upconv | told | mig_from | unfinished | smoke;
 #else
-	return threads | stamped | no_text | found | upconv | told | mig_from | smoke;
+	return threads | stamped | no_text | found | upconv | told | mig_from | unfinished | smoke;
 #endif
 }

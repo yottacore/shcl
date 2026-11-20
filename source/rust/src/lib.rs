@@ -3043,6 +3043,12 @@ pub struct Migration {
 	/// kept as written where the format isn't found, as in `migrate`, and a
 	/// selector 1.0 or 1.1 matched otherwise.
 	pub lost: usize,
+	/// The migration couldn't finish, so `migrate` left the version line off:
+	/// `ambiguous` is nonzero, or a raw block never closes under either rule
+	/// set, where the line would be one more line of its content. A program
+	/// that writes the version line itself after `migrate_unstamped` leaves it
+	/// off too, or the next run takes the file as current.
+	pub unfinished: bool,
 }
 
 /// The counters a line rewrite reports back, and the one thing it asks.
@@ -3483,6 +3489,7 @@ fn convert(text: &str, format: Option<&str>, told: bool) -> Migration {
 			current: true,
 			ambiguous: 0,
 			lost: 0,
+			unfinished: false,
 		},
 	}
 }
@@ -3937,6 +3944,7 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool, step: Step) 
 			current: true,
 			ambiguous: 0,
 			lost: 0,
+			unfinished: false,
 		};
 	}
 	let mut st = Migrating {
@@ -4026,7 +4034,8 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool, step: Step) 
 	// either, under either rule set: appended, it would be another line of the
 	// block's content. The lines end the way most of the file's do. An older
 	// Format line becomes this one where it is, so the file names one format.
-	if stamp && st.ambiguous == 0 && fence.is_none() && now.fence.is_none() {
+	let unfinished = st.ambiguous > 0 || fence.is_some() || now.fence.is_some();
+	if stamp && !unfinished {
 		let eol = majority_eol(body_text);
 		let restamped = version.and_then(|_| restamp(&out, named.line));
 		let add_format = restamped.is_none();
@@ -4051,6 +4060,7 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool, step: Step) 
 		current: false,
 		ambiguous: st.ambiguous,
 		lost: st.lost,
+		unfinished,
 	}
 }
 

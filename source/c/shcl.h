@@ -853,8 +853,13 @@ extern const char *const shcl_format_names[SHCL_FORMAT_NAME_COUNT][2];
 // with lines under it (E028 in brackets). Also a quoted name with a backslash
 // pair, which 1.2 read as typed and 2.0 resolved, so it is kept as written
 // where the format isn't found, as in shcl_migrate, and a selector 1.0 or 1.1
-// matched otherwise.
-typedef struct { char *text; size_t len; int current; size_t ambiguous; size_t lost; } shcl_migration;
+// matched otherwise. unfinished: the migration couldn't finish, so
+// shcl_migrate left the version line off: ambiguous is nonzero, or a raw block
+// never closes under either rule set, where the line would be one more line
+// of its content. A program that writes the version line itself after
+// shcl_migrate_unstamped leaves it off too, or the next run takes the file as
+// current.
+typedef struct { char *text; size_t len; int current; size_t ambiguous; size_t lost; int unfinished; } shcl_migration;
 
 // Rewrite a document written under the 2.x lexical rules so this parser reads
 // the same tree; everything the two rule sets agree on comes through as
@@ -3591,7 +3596,7 @@ typedef struct { ShclStepKind kind; ShclPin pin; ShclV2Read v2; } ShclStep;
    bracketed: the line just rewritten put a 2.x comma list in brackets.
    refused_now: these rules refuse the line about to be rewritten, so it is
    not a correct 3.0 line, whatever the file is. */
-typedef struct { ShclLex rules; ShclPin pin; ShclV2Read v2; int from_v2; size_t ambiguous; size_t lost; int bracketed; int refused_now; } ShclMigrating;
+typedef struct { ShclLex rules; ShclPin pin; ShclV2Read v2; int from_v2; size_t ambiguous; size_t lost; int bracketed; int refused_now; int unfinished; } ShclMigrating;
 
 /* The character a `\u` or `\U` escape names under 3.0-b10 to 3.0-a37 in *cp,
    and how many hex digits it takes in *len: 4 after `u`, 8 after `U`. 0 for a
@@ -4420,7 +4425,8 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
 	   either, under either rule set: appended, it would be another line of the
 	   block's content. The lines end the way most of the file's do. An older
 	   Format line becomes this one where it is, so the file names one format. */
-	if (stamp && st->ambiguous == 0 && !fence_on && !now.fence_on) {
+	st->unfinished = st->ambiguous > 0 || fence_on || now.fence_on;
+	if (stamp && !st->unfinished) {
 		const char *eol = majority_eol(text);
 		ShclSB re;
 		int add_format = !(version >= 0 && restamp(a, sc, sb_S(&out), named.line, &re));
@@ -4482,7 +4488,7 @@ static shcl_migration migrate_text(const char *text, size_t len, int from_v2, in
 	st.from_v2 = from_v2 || pinned;
 	shcl_migration m; m.current = 0;
 	ShclStr r = migrate(own, in, &st, &m.current, stamp, beta);
-	m.ambiguous = st.ambiguous; m.lost = st.lost; m.len = r.n;
+	m.ambiguous = st.ambiguous; m.lost = st.lost; m.unfinished = st.unfinished; m.len = r.n;
 	m.text = (char *)malloc(r.n + 1);
 	if (!m.text) {
 		ShclMigrateOwn *bad = own;

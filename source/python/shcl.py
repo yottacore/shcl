@@ -2806,15 +2806,23 @@ class Migration:
 	comma, which matched an array value, and a comma list with lines under it
 	(E028 in brackets). Also a quoted name with a backslash pair, which 1.2
 	read as typed and 2.0 resolved, so it is kept as written where the format
-	isn't found, as in migrate, and a selector 1.0 or 1.1 matched otherwise."""
+	isn't found, as in migrate, and a selector 1.0 or 1.1 matched otherwise.
+	unfinished: the migration couldn't finish, so migrate left the version line
+	off: ambiguous is nonzero, or a raw block never closes under either rule
+	set, where the line would be one more line of its content. A program that
+	writes the version line itself after migrate_unstamped leaves it off too,
+	or the next run takes the file as current."""
 
-	__slots__ = ("text", "current", "ambiguous", "lost")
+	__slots__ = ("text", "current", "ambiguous", "lost", "unfinished")
 
-	def __init__(self, text: str, current: bool = False, ambiguous: int = 0, lost: int = 0) -> None:
+	def __init__(
+		self, text: str, current: bool = False, ambiguous: int = 0, lost: int = 0, unfinished: bool = False
+	) -> None:
 		self.text = text
 		self.current = current
 		self.ambiguous = ambiguous
 		self.lost = lost
+		self.unfinished = unfinished
 
 
 class _Migrating:
@@ -3620,7 +3628,8 @@ def _migrate_text(text, from_v2, stamp, beta, step):
 	# either, under either rule set: appended, it would be another line of the
 	# block's content. The lines end the way most of the file's do. An older
 	# Format line becomes this one where it is, so the file names one format.
-	if stamp and st.ambiguous == 0 and fence is None and now.fence is None:
+	unfinished = st.ambiguous > 0 or fence is not None or now.fence is not None
+	if stamp and not unfinished:
 		eol = _majority_eol(text)
 		s = "".join(out)
 		restamped = _restamp(s, named.line) if version is not None else None
@@ -3637,7 +3646,7 @@ def _migrate_text(text, from_v2, stamp, beta, step):
 		if changed and pin is None:
 			out.append(MIGRATED_LINE)
 			out.append(eol)
-	return Migration("".join(out), ambiguous=st.ambiguous, lost=st.lost)
+	return Migration("".join(out), ambiguous=st.ambiguous, lost=st.lost, unfinished=unfinished)
 
 
 class Upgrade:

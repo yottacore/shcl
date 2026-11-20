@@ -1242,8 +1242,8 @@ fn migrate_unstamped_is_migrate_without_the_stamp() {
 			let full = migrate(&case.input, v2_from(from_v2));
 			let bare = migrate_unstamped(&case.input, v2_from(from_v2));
 			assert_eq!(
-				(bare.current, bare.ambiguous, bare.lost),
-				(full.current, full.ambiguous, full.lost),
+				(bare.current, bare.ambiguous, bare.lost, bare.unfinished),
+				(full.current, full.ambiguous, full.lost, full.unfinished),
 				"{}: counts differ without the stamp",
 				case.name
 			);
@@ -7616,6 +7616,43 @@ fn migrate_reads_from_as_upgrade_does() {
 		migrate_unstamped(tab, Some("3.0-a37")).text,
 		"a: \"x\u{25c9}TAB\u{25c9}y\"\n"
 	);
+}
+
+// migrate says when the migration couldn't finish, so a program that writes
+// the version line itself after migrate_unstamped can leave it off: a raw
+// block that never closes, or ambiguous pieces, which is when migrate leaves
+// its own off (2026111014552300). Same rows in every runner.
+#[test]
+fn migrate_says_when_it_could_not_finish() {
+	let _id = test_id("dfj8c");
+	let open = "notes: ```\nnever closed\n";
+	let closed = "notes: ```\nclosed\n```\n";
+	let sq = "b: 'C:\\temp'\n";
+	// The text, from, and whether the migration finishes.
+	let cases: [(&str, Option<&str>, bool); 7] = [
+		(open, Some("2.0"), false),
+		(open, None, false),
+		("p: a,b\n", None, false),
+		(closed, Some("2.0"), true),
+		(closed, None, true),
+		(sq, Some("2.0"), true),
+		(sq, Some("3.0"), true),
+	];
+	for (text, from, finishes) in cases {
+		let bare = migrate_unstamped(text, from);
+		let full = migrate(text, from);
+		assert_eq!(
+			(bare.unfinished, full.unfinished),
+			(!finishes, !finishes),
+			"{text:?}, from {from:?}"
+		);
+		assert_eq!(
+			full.text.contains(FORMAT_LINE_HEAD),
+			finishes && !full.current,
+			"{text:?}, from {from:?}: {:?}",
+			full.text
+		);
+	}
 }
 
 #[test]

@@ -3293,6 +3293,12 @@ type Migration struct {
 	// where the format isn't found, as in Migrate, and a selector 1.0 or 1.1
 	// matched otherwise.
 	Lost int
+	// Unfinished: the migration couldn't finish, so Migrate left the version
+	// line off: Ambiguous is nonzero, or a raw block never closes under either
+	// rule set, where the line would be one more line of its content. A
+	// program that writes the version line itself after MigrateUnstamped
+	// leaves it off too, or the next run takes the file as current.
+	Unfinished bool
 }
 
 // migrating keeps the counters a line rewrite reports back, and the one
@@ -4321,7 +4327,8 @@ func migrateText(text string, fromV2, stamp, beta bool, s step) Migration {
 	// either, under either rule set: appended, it would be another line of the
 	// block's content. The lines end the way most of the file's do. An older
 	// Format line becomes this one where it is, so the file names one format.
-	if stamp && st.ambiguous == 0 && !fence.open && !now.fence.open {
+	unfinished := st.ambiguous > 0 || fence.open || now.fence.open
+	if stamp && !unfinished {
 		eol := majorityEol(text)
 		addFormat := true
 		if hasVersion {
@@ -4345,7 +4352,7 @@ func migrateText(text string, fromV2, stamp, beta bool, s step) Migration {
 			out.WriteString(eol)
 		}
 	}
-	return Migration{Text: out.String(), Ambiguous: st.ambiguous, Lost: st.lost}
+	return Migration{Text: out.String(), Ambiguous: st.ambiguous, Lost: st.lost, Unfinished: unfinished}
 }
 
 // Upgraded is what Upgrade made of a document, and UpgradeFile of a file.

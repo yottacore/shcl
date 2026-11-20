@@ -52,7 +52,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `migrate_unstamped` can't say a migration didn't finish
 	- ID: 2026111014552300
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-145523
@@ -66,8 +66,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- All 4 bindings get the same field.
 	- Reproduced: 20261120, on dev `07fa68a1` in Python, with `from` 2.0 and with none. `current`, `ambiguous` and `lost` are false, 0 and 0, and the text comes back as it went in.
 	- Estimated effort: Low
+	- Actual effort: Low
 	- Decisions:
 		- JC, 20261120: a bug, fixed before the next cut.
+		- me, 20261120: the field is `unfinished` (Go `Unfinished`, C `int unfinished` at the end of `shcl_migration`, C++ `bool unfinished`). It's set exactly when `migrate` leaves its stamp off: `ambiguous` is nonzero, or a raw block never closes under either rule set. So one check answers whether a caller may write the Format line. Logged as a `Check:` in questions.md.
+	- Cause: `migrate_text` dropped the stamp for an open raw block without telling the caller, and the counts it returns don't cover it.
+	- Fixed: `Migration` carries `unfinished` in all 4 bindings and the C++ veneer, computed once beside the stamp test, which now reads it. Doc comments, spec.md, design.md and the changelog say so.
+	- Verified: `dfj8c` fails with `unfinished` held false, on the issue's text with `from` 2.0, and passes with the fix; so does `dfj8e`. `dd2kj` and its Go, Python and C twins compare `unfinished` between `migrate` and `migrate_unstamped` over the corpus. `--backlog-run-quick rust go python c cli` (all 5 steps), check-docs, check-veneer, `test-ids.py check`, `lint-report.bash --check --no-mark`, the markdown check and markdownlint (only lines already there) passed.
+	- Note: cppcheck and analyze-c, which `shcl.h` changes call for, are left to the round's gate step.
+	- Swept: every `Migration` built in each binding (`convert`, `migrate_text`'s current return and its end, C's `migration_as_is` and `upgrade_into`'s zeroed one), and C++'s `migration()`. `Upgrade` has no such field and reports an open block as `E005`, so it's left as it is.
+	- Test case: `migrate_says_when_it_could_not_finish` (Rust `dfj8c`, Go `dfj8d`, Python `dfj8e`, C `dfj8f`, veneer `dfj8g`), with `dd2kj` and its twins.
+	- Branch: `nov20b-2026111014552300`
+	- Commit: `b0ccf9bd`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the fix, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261120-072440
 
 - Make sure testing covers exhaustively, mismatched file format stamps, mtime, and content
 	- ID: 2026112007004374
