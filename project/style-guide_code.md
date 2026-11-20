@@ -93,6 +93,8 @@ New bindings, which are Tier 3, follow the same recipe. Port the reference funct
 
 - `Cow<str>` is used where a per-line helper usually doesn't have anything to do. That's `fold_name` when a name doesn't have any upper case to fold, and the path scanner's fast path for a plain name when there's nothing to resolve. The other 3 allocate freely there or leave the work to a garbage collector, so there's nothing to mirror. The parser calls these once per segment per line, and a profile showed the cost there of building and freeing 2 strings only to copy bytes onto themselves.
 
+- The parse and the Format line read cut the text with `lines_of` rather than `split('\n')`. They cut it the same way, but std's split reborrows the whole text at every step, and Miri's Stacked Borrows charges each reborrow for every piece already cut off it, so a long text cost time growing with the square of its lines there. The other 3 split as they did, since nothing there pays that way. For the same reason the parse reads the Format line before it cuts the text, and the other 3 do too, to keep the order.
+
 - `SetStatus` is `#[must_use]`, so every setter's result is too. That only affects the surface, so parity isn't touched. The other 3 don't have an equivalent and say the same thing in prose. If a refusal is dropped, the save that follows writes a config missing the edit and reports success. That's the one failure here that doesn't leave any trace, and the compiler catches it for free in the one language where it can.
 
 ### Go

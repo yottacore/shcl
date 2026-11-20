@@ -3639,7 +3639,7 @@ int main(int argc, char **argv) {
 		shcl_doc *rd = shcl_parse("a: 2\n", 5);
 		if (shcl_save_file_with(rd, rfile, rforce, NULL, NULL) != SHCL_SAVE_OK) fail("readonly", "save over a read-only file failed");
 		size_t rn; char *rt = read_file(rfile, &rn);
-		if (!rt || rn != 5 || memcmp(rt, "a: 2\n", 5) != 0) fail("readonly", "file not rewritten");
+		if (!rt || !stamped_is((shcl_str){rt, rn}, "a: 2\n")) fail("readonly", "file not rewritten");
 		free(rt);
 		if (!(GetFileAttributesA(rfile) & FILE_ATTRIBUTE_READONLY)) fail("readonly", "file did not come back read-only");
 		// Hidden and system come back too: ReplaceFile's preserve list does not
@@ -6429,9 +6429,11 @@ int main(int argc, char **argv) {
 		shcl_free(d);
 		free(mm.text);
 		/* The call from the report. Without from_v2 the file could be a 3.0
-		   one, so the two values are left and counted. */
+		   one, so the two values are left and counted. Dated 2026-09-01, so
+		   it's found to be 2.0 rather than 3.0-a37, which reads the comma
+		   list too. */
 		t = "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\n";
-		shcl_upgraded up = shcl_upgrade(t, strlen(t), 0, 1);
+		shcl_upgraded up = shcl_upgrade_dated(t, strlen(t), &up_sep1, 0, 1);
 		if (up.current || up.ambiguous != 2 || !up_is(&up, t)) fail("migrate_2x_read", "upgrade without from_v2");
 		shcl_upgraded_free(&up);
 		up = shcl_upgrade(t, strlen(t), 1, 1);
@@ -6690,7 +6692,9 @@ int main(int argc, char **argv) {
 	}
 	test_id("ddmmj", "upgrade_writes_a_fresh_file_with_the_info_block");
 	{
-		shcl_upgraded up = shcl_upgrade(UP_V2, strlen(UP_V2), 0, 1);
+		/* Dated, so it's found to be 2.0 rather than 3.0-a37, which reads the
+		   comma list too and wrote no `#` block. */
+		shcl_upgraded up = shcl_upgrade_dated(UP_V2, strlen(UP_V2), &up_sep1, 0, 1);
 		if (up.current || up.ambiguous != 0 || up.lost != 0 || up.format != 2) fail("upgrade_fresh", "counts");
 		int e026 = 0;
 		for (size_t i = 0; up.diagnostics && i < shcl_diag_count(up.diagnostics); i++) e026 |= !strcmp(shcl_diag_code(up.diagnostics, i), "E026");
@@ -6796,7 +6800,9 @@ int main(int argc, char **argv) {
 		if (shcl_upgrade_file(file, 0, 0, &up, NULL, NULL) != SHCL_UPGRADE_OK) fail(at, "upgrade_file");
 		if (!up.backup || !file_is(up.backup, UP_V2)) fail(at, "backup");
 		shcl_upgraded_free(&up);
-		if (!file_is(file, rows[0].want)) fail(at, "file text");
+		up = shcl_upgrade(UP_V2, strlen(UP_V2), 0, 0);
+		if (!file_is(file, up.text)) fail(at, "file text");
+		shcl_upgraded_free(&up);
 		if (shcl_upgrade_file(file, 0, 0, &up, NULL, NULL) != SHCL_UPGRADE_OK || !up.current) fail(at, "again");
 		shcl_upgraded_free(&up);
 		dir_clear(udir);
@@ -6993,7 +6999,7 @@ int main(int argc, char **argv) {
 		/* Through the library, which is what has to add the prefix: the
 		   runner's own reader is plain fopen and would refuse the path. */
 		size_t rn = 0; shcl_file_status lst; char *rt = shcl_read_file(lp, 0, &rn, &lst);
-		if (!rt || lst != SHCL_FILE_CLEAN || rn != 5 || memcmp(rt, "a: 1\n", 5) != 0)
+		if (!rt || lst != SHCL_FILE_CLEAN || !stamped_is((shcl_str){rt, rn}, "a: 1\n"))
 			fail("longpath", "the long path did not read back");
 		free(rt);
 		if (shcl_set_int(ld, "a", 1, 2) == SHCL_SET_OK && shcl_save_file(ld, lp, NULL) != SHCL_SAVE_OK)
@@ -7039,7 +7045,7 @@ int main(int argc, char **argv) {
 			else if (shcl_save_file(sd, link, NULL) != SHCL_SAVE_OK) fail("winlink", "save through the link failed");
 			shcl_free(sd);
 			size_t rn; char *rt = read_file(real, &rn);
-			if (!rt || rn != 5 || memcmp(rt, "a: 2\n", 5) != 0) fail("winlink", "the save did not reach the link's target");
+			if (!rt || !stamped_is((shcl_str){rt, rn}, "a: 2\n")) fail("winlink", "the save did not reach the link's target");
 			free(rt);
 			DWORD a = GetFileAttributesW(wl);
 			if (a == INVALID_FILE_ATTRIBUTES || !(a & FILE_ATTRIBUTE_REPARSE_POINT))
@@ -8412,6 +8418,54 @@ int main(int argc, char **argv) {
 		}
 		dir_clear(udir);
 	}
+	test_id("dfh8c", "an_upgrade_reads_a_beta1_stamp_as_the_load_does");
+	{
+		/* A file stamped beta1's `Format 3` names only a major, so
+		   shcl_upgrade finds its format as the load does, with the mtime and
+		   the tells, and makes it over by that format's steps. A pin's own
+		   stamp settles it, and so does `3.0`. from_v2 still takes the file as
+		   2.x (2026111912330681). Same rows in every runner. */
+		const char *at = "upgrade beta1 stamp";
+		const int64_t oct10 = 1791590400; /* 2026-10-10, to 3.0-a37 */
+		const int64_t nov10 = 1794268800; /* 2026-11-10, every format */
+		const char *beta = "a: \"x\\ty\"\n##    Format   3\n";
+		const char *made = "a: \"x\xe2\x97\x89TAB\xe2\x97\x89y\"\n## SHCL format 3.0\n";
+		/* The text, the mtime, from_v2, and the text shcl_upgrade gives, which
+		   is the input when it's current. */
+		const struct { const char *text; const int64_t *mtime; int from_v2; const char *want; } cases[] = {
+			{beta, NULL, 0, beta},
+			{beta, &nov10, 0, beta},
+			{beta, &oct10, 0, made},
+			{beta, &oct10, 1, beta},
+			{"a: \"x\\ty\"\n## SHCL format 3.0-a37\n", NULL, 0, made},
+			{"a: \"x\\ty\"\n## SHCL format 3.0\n", &oct10, 0, "a: \"x\\ty\"\n## SHCL format 3.0\n"},
+			{"a: \"x\\ty\"\n##    Format   3.0\n", &oct10, 0, "a: \"x\\ty\"\n##    Format   3.0\n"},
+			/* A pin that rewrites nothing leaves the file as it was. */
+			{"a: 1\n##    Format   3\n", &oct10, 0, "a: 1\n##    Format   3\n"},
+			/* A line the pin refused stays as typed, as on load. */
+			{"o: \"open\n##    Format   3\n", &oct10, 0, "o: \"open\n## SHCL format 3.0\n"},
+		};
+		for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+			shcl_upgraded up = shcl_upgrade_dated(cases[i].text, strlen(cases[i].text), cases[i].mtime, cases[i].from_v2, 0);
+			if (up.current != (strcmp(cases[i].want, cases[i].text) == 0) || !up_is(&up, cases[i].want)) fail(at, up.text ? up.text : "no text");
+			shcl_upgraded_free(&up);
+		}
+		char udir[256], f[320];
+		up_dir(udir, sizeof udir, "upbeta");
+		snprintf(f, sizeof f, "%s/f.shcl", udir);
+		const struct { int64_t mtime; const char *want; } files[] = {{nov10, beta}, {oct10, made}};
+		for (size_t i = 0; i < sizeof files / sizeof files[0]; i++) {
+			shcl_upgraded up;
+			put_file(f, beta);
+			pin_mtime(f, files[i].mtime);
+			int is_beta = files[i].want == beta;
+			if (shcl_upgrade_file(f, 0, 0, &up, NULL, NULL) != SHCL_UPGRADE_OK || up.current != is_beta) fail(at, "upgrade_file");
+			if (!file_is(f, files[i].want)) fail(at, "file text");
+			if (!up.current && up.backup) remove(up.backup);
+			shcl_upgraded_free(&up);
+		}
+		dir_clear(udir);
+	}
 	test_id("dfgyf", "a_load_converts_from_the_format_its_mtime_gives");
 	{
 		/* A load that migrates converts from the format shcl_find_format gives
@@ -8472,6 +8526,81 @@ int main(int argc, char **argv) {
 			free(mig.text);
 		}
 		dir_clear(cdir);
+	}
+	test_id("dfh7e", "a_load_converts_from_a_pinned_dev_format");
+	{
+		/* A file from a pin of 3.0-1f8 to 3.0-a37 is rewritten into the
+		   format 3 value syntax on load. A backslash outside double quotes was
+		   text and stays, an escape in double quotes becomes its `◉`
+		   name, and a line the pin refused stays as typed. Which escapes it
+		   read and refused goes by the pin: `\u` from 3.0-b10, and a Windows
+		   path from 3.0-f8e (2026111912004261). shcl_upgrade_dated makes over
+		   the same text. Same rows in every runner. */
+		#define MK "\xe2\x97\x89"
+		const char *at = "pin convert";
+		const int64_t sep26 = 1790380800; /* 2026-09-26, to 3.0-30d */
+		const int64_t oct1 = 1790812800;  /* 2026-10-01, to 3.0-b10 */
+		const int64_t oct10 = 1791590400; /* 2026-10-10, to 3.0-a37 */
+		const char *text =
+			"a: \"x\\ty\"\n"
+			"b: 'C:\\new'\n"
+			"c: C:\\temp\n"
+			"d: 1, 2\n"
+			"e: \"\\u00e9\"\n"
+			"f:\n"
+			"\t* one\n"
+			"\t* \"t\\\"wo\"\n"
+			"s: p\n"
+			"s[\"p\"].h: 1\n"
+			"\"q\\\"r\": 5\n"
+			"p: \"C:\\temp\"\n"
+			"u: \"\\q\"\n"
+			"o: \"open\n";
+		const char *common =
+			"a: \"x" MK "TAB" MK "y\"\n"
+			"b: 'C:\\new'\n"
+			"c: C:\\temp\n"
+			"d: [1, 2]\n";
+		const char *tail =
+			"f:\n"
+			"\t- one\n"
+			"\t- 't\"wo'\n"
+			"s: p\n"
+			"s(\"p\").h: 1\n"
+			"'q\"r': 5\n";
+		/* 3.0-30d read `\u` and `\q` as text. 3.0-b10 read `\u00e9` as a
+		   character and refused `\q`, and 3.0-a37 refused the path too. */
+		const struct { int64_t mtime; const char *e, *end; } cases[] = {
+			{sep26, "e: \"\\u00e9\"\n", "p: \"C:" MK "TAB" MK "emp\"\nu: \"\\q\"\n"},
+			{oct1, "e: \"\xc3\xa9\"\n", "p: \"C:" MK "TAB" MK "emp\"\nu: \"\\q\"\n"},
+			{oct10, "e: \"\xc3\xa9\"\n", "p: \"C:\\temp\"\nu: \"\\q\"\n"},
+		};
+		char pdir[256], f[320], want[1024];
+		up_dir(pdir, sizeof pdir, "pinconv");
+		snprintf(f, sizeof f, "%s/f.shcl", pdir);
+		for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+			snprintf(want, sizeof want, "%s%s%s%so: \"open\n" SHCL_STAMP_LINE "\n", common, cases[i].e, tail, cases[i].end);
+			put_file(f, text);
+			pin_mtime(f, cases[i].mtime);
+			shcl_load_options opts = {0};
+			opts.keep_lines = opts.migrate = 1;
+			shcl_doc *doc = shcl_load_file_opts(f, SHCL_STANDARD, opts, NULL);
+			int k = 0;
+			shcl_str kt = text_kept(doc, &k);
+			if (kt.n != strlen(want) || memcmp(kt.p, want, kt.n) != 0 || shcl_lost_count(doc) != 0) {
+				fprintf(stderr, "at %lld: %.*s\n", (long long)cases[i].mtime, (int)kt.n, kt.p);
+				fail(at, "kept text");
+			}
+			shcl_free(doc);
+			shcl_upgraded up = shcl_upgrade_dated(text, strlen(text), &cases[i].mtime, 0, 0);
+			if (up.current || !up_is(&up, want)) {
+				fprintf(stderr, "upgrade at %lld: %s\n", (long long)cases[i].mtime, up.text ? up.text : "no text");
+				fail(at, "upgrade");
+			}
+			shcl_upgraded_free(&up);
+		}
+		dir_clear(pdir);
+		#undef MK
 	}
 	/* Every text a save writes names this format: a stamp is rewritten where
 	   it is, with its own head, and a text with none gets one as its last

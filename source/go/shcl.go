@@ -1650,7 +1650,10 @@ const tmpNameBytes = 64
 // every comma splits, a backslash shields the next character in bare and
 // single-quoted value text, a bare selector body still runs to its first `]`,
 // a separator followed by `[` is the selector sugar, and an open quote
-// swallows the rest of the line.
+// swallows the rest of the line. Under the unexported lexPin it reads the
+// spellings of the pins from 3.0-1f8 to 3.0-a37, for their conversion step:
+// every comma splits, a backslash escapes in double quotes only, a selector
+// is in brackets, and a `[` after the separator is plain text.
 
 // Quote is how a piece was quoted. QuoteOpen is a piece that began with a
 // quote and never closed with the matching quote as its last character: the
@@ -1770,6 +1773,19 @@ const (
 	RulesV2
 )
 
+// lex is Rules, and the rules the pins from 3.0-1f8 to 3.0-a37 read by,
+// which only their conversion step asks for, so they aren't exported.
+type lex int
+
+const (
+	lexCurrent = lex(RulesCurrent)
+	lexV2      = lex(RulesV2)
+	// lexPin: every comma splits, a backslash escapes in double quotes and
+	// nowhere else, a selector is in brackets, and a `[` after the separator
+	// is bracket text, which they refused.
+	lexPin = lexV2 + 1
+)
+
 // isWspByte is a blank: space, tab, or a carriage return, which is trimmed
 // wherever a blank is and content in the middle of a piece.
 func isWspByte(b byte) bool {
@@ -1790,11 +1806,11 @@ func skipWsp(s string, pos int) int {
 // blankLen is the byte length of the blank at s[i], or 0. 2.x trimmed every
 // Unicode White_Space character at a piece's edges, a no-break space and a
 // vertical tab included, so its rules count those as blanks too.
-func blankLen(s string, i int, rules Rules) int {
+func blankLen(s string, i int, rules lex) int {
 	if isWspByte(s[i]) {
 		return 1
 	}
-	if rules != RulesV2 || s[i] < 0x0B || (s[i] > 0x0C && s[i] < 0x80) {
+	if rules != lexV2 || s[i] < 0x0B || (s[i] > 0x0C && s[i] < 0x80) {
 		return 0
 	}
 	if r, n := utf8.DecodeRuneInString(s[i:]); r != utf8.RuneError && whiteSpace(r) {
@@ -1803,7 +1819,7 @@ func blankLen(s string, i int, rules Rules) int {
 	return 0
 }
 
-func skipBlank(s string, pos int, rules Rules) int {
+func skipBlank(s string, pos int, rules lex) int {
 	for pos < len(s) {
 		n := blankLen(s, pos, rules)
 		if n == 0 {
@@ -1850,9 +1866,9 @@ func nameStop(b, sep byte) bool {
 
 // quoteClose is the offset of the quote that closes the one at pos, or -1.
 // 2.x read a backslash as an escape inside quotes; now it is text.
-func quoteClose(s string, pos int, rules Rules) int {
+func quoteClose(s string, pos int, rules lex) int {
 	q := s[pos]
-	escapes := rules == RulesV2
+	escapes := rules == lexV2 || (rules == lexPin && q == '"')
 	i := pos + 1
 	for i < len(s) {
 		if escapes && s[i] == '\\' && i+1 < len(s) {
@@ -1902,12 +1918,12 @@ func looseComma(s string, at int) bool {
 // a lookup path, where a `#` opens nothing. In a bracket array (array) the
 // `]` that closes it ends a value element too, and every comma does;
 // elsewhere only a loose one does, 2.x aside.
-func scanPiece(s string, pos int, term byte, rules Rules, comments, array bool) (Piece, int) {
+func scanPiece(s string, pos int, term byte, rules lex, comments, array bool) (Piece, int) {
 	// 2.x's wider trim is taken for a value piece only. The selector arm
 	// of migrate cuts a body by its own offsets.
 	edges := rules
 	if term != ',' {
-		edges = RulesCurrent
+		edges = lexCurrent
 	}
 	clamp := func(i int) int {
 		if i > len(s) {
@@ -1918,13 +1934,13 @@ func scanPiece(s string, pos int, term byte, rules Rules, comments, array bool) 
 	pos = skipBlank(s, pos, edges)
 	start := pos
 	quote := QuoteNone
-	everyComma := term != ',' || array || rules == RulesV2
+	everyComma := term != ',' || array || rules != lexCurrent
 	endsAt := func(i int) bool {
 		return s[i] == term && (everyComma || looseComma(s, i))
 	}
 	// A backtick quotes a raw value element. 2.x had none, a selector body
 	// takes none, and a run of three opens a raw block instead.
-	tick := rules == RulesCurrent && term == ',' && !strings.HasPrefix(s[clamp(pos):], "```")
+	tick := rules == lexCurrent && term == ',' && !strings.HasPrefix(s[clamp(pos):], "```")
 	if pos < len(s) && (s[pos] == '"' || s[pos] == '\'' || (tick && s[pos] == '`')) {
 		if close := quoteClose(s, pos, rules); close >= 0 {
 			// A value piece may also end at a comment or the line end;
@@ -1950,12 +1966,12 @@ func scanPiece(s string, pos int, term byte, rules Rules, comments, array bool) 
 			// after all, and the scan restarts at it. 2.x went on from
 			// the close with the quotes read as a pair.
 			quote = QuoteOpen
-			if rules == RulesV2 {
+			if rules == lexV2 {
 				pos = close + 1
 			}
 		} else {
 			quote = QuoteOpen
-			if rules == RulesV2 {
+			if rules == lexV2 {
 				// 2.x: an open quote swallowed the rest of the line.
 				end := start
 				for i := start; i < len(s); {
@@ -1973,7 +1989,7 @@ func scanPiece(s string, pos int, term byte, rules Rules, comments, array bool) 
 	// 2.x shielded a backslash in value text only. A bare selector body ran to
 	// its first `]`, the same as now, so shielding one here would hide the `]`.
 	// Now a backslash is text.
-	shield := rules == RulesV2 && term == ','
+	shield := rules == lexV2 && term == ','
 	contentEnd := start
 	for pos < len(s) {
 		b := s[pos]
@@ -2004,7 +2020,7 @@ func scanPiece(s string, pos int, term byte, rules Rules, comments, array bool) 
 	// 2.x judged a value piece quoted by its shape after the scan: a quote at
 	// both ends, the last one not escaped, however many closes sat between. A
 	// selector body had to close right before its `]`, or the line was E014.
-	if rules == RulesV2 && term == ',' && quote == QuoteOpen && contentEnd-start >= 2 && s[contentEnd-1] == s[start] {
+	if rules == lexV2 && term == ',' && quote == QuoteOpen && contentEnd-start >= 2 && s[contentEnd-1] == s[start] {
 		run := 0
 		for j := contentEnd - 2; j >= start && s[j] == '\\'; j-- {
 			run++
@@ -2025,6 +2041,10 @@ func scanPiece(s string, pos int, term byte, rules Rules, comments, array bool) 
 // reads as 0: the reference's offset is unsigned, so there is nothing else one
 // can mean, and Go panicked on it (20260918b item 31).
 func TokenizeValue(text string, from int, rules Rules, out *Tokens) {
+	lexValue(text, from, lex(rules), out)
+}
+
+func lexValue(text string, from int, rules lex, out *Tokens) {
 	out.clear()
 	if from < 0 {
 		from = 0
@@ -2032,10 +2052,10 @@ func TokenizeValue(text string, from int, rules Rules, out *Tokens) {
 	scanValue(text, from, rules, out)
 }
 
-func scanValue(text string, from int, rules Rules, out *Tokens) {
+func scanValue(text string, from int, rules lex, out *Tokens) {
 	s := text
 	pos := skipWsp(s, from)
-	if rules == RulesCurrent && pos < len(s) && s[pos] == '[' {
+	if rules == lexCurrent && pos < len(s) && s[pos] == '[' {
 		scanArray(text, from, pos, out)
 		return
 	}
@@ -2104,7 +2124,7 @@ func scanArray(text string, from, open int, out *Tokens) {
 	closeAt := -1
 	var stopAt int
 	for {
-		piece, stop := scanPiece(s, pos, ',', RulesCurrent, true, true)
+		piece, stop := scanPiece(s, pos, ',', lexCurrent, true, true)
 		out.Elements = append(out.Elements, piece)
 		if piece.Quote == QuoteNone && piece.End == piece.Start {
 			// `[]`, blanks or not, is the empty array; any other empty piece
@@ -2146,7 +2166,7 @@ func scanArray(text string, from, open int, out *Tokens) {
 			noteFault(after, "text after ']'")
 			// The comment past the stray text, found the way a value finds it.
 			for {
-				piece, stop := scanPiece(s, after, ',', RulesCurrent, true, false)
+				piece, stop := scanPiece(s, after, ',', lexCurrent, true, false)
 				if stop < len(s) && s[stop] == ',' {
 					after = stop + 1
 					continue
@@ -2181,6 +2201,10 @@ func scanArray(text string, from, open int, out *Tokens) {
 // once per document rather than once per line. text is the line after its
 // indent, or the path.
 func Tokenize(text string, sep byte, path bool, rules Rules, out *Tokens) {
+	lexLine(text, sep, path, lex(rules), out)
+}
+
+func lexLine(text string, sep byte, path bool, rules lex, out *Tokens) {
 	out.clear()
 	s := text
 	pos := 0
@@ -2219,7 +2243,7 @@ func Tokenize(text string, sep byte, path bool, rules Rules, out *Tokens) {
 			// a byte order mark does not read: at the start of a file the
 			// load strips the mark, so the line would bind as something else.
 			// One led by a `*` is a list item's line, which never gets here.
-			if !path && rules == RulesCurrent && !strings.HasPrefix(s[start:], "\uFEFF") && s[start] != '*' {
+			if !path && rules == lexCurrent && !strings.HasPrefix(s[start:], "\uFEFF") && s[start] != '*' {
 				end := pos
 				for pos < len(s) && !nameStop(s[pos], sep) {
 					b := s[pos]
@@ -2247,16 +2271,16 @@ func Tokenize(text string, sep byte, path bool, rules Rules, out *Tokens) {
 		var close byte
 		if pos < len(s) {
 			switch {
-			case s[pos] == '(' && rules == RulesCurrent:
+			case s[pos] == '(' && rules == lexCurrent:
 				open, close = pos, ')'
 			case s[pos] == '[':
-				if rules == RulesCurrent && out.BracketSelector < 0 {
+				if rules == lexCurrent && out.BracketSelector < 0 {
 					out.BracketSelector = pos
 				}
 				open, close = pos, ']'
 			}
 		}
-		if open < 0 && rules == RulesV2 && pos < len(s) && s[pos] == sep {
+		if open < 0 && rules == lexV2 && pos < len(s) && s[pos] == sep {
 			q := skipWsp(s, pos+1)
 			if q < len(s) && s[q] == '[' {
 				open, close = q, ']'
@@ -2279,7 +2303,7 @@ func Tokenize(text string, sep byte, path bool, rules Rules, out *Tokens) {
 				out.Fault, out.FaultReason = open, "empty selector"
 				return
 			}
-			if piece.Quote == QuoteOpen && rules == RulesV2 {
+			if piece.Quote == QuoteOpen && rules == lexV2 {
 				out.Fault, out.FaultReason = open, "unterminated quote in a selector"
 				return
 			}
@@ -3272,6 +3296,11 @@ type Migration struct {
 // migrating keeps the counters a line rewrite reports back, and the one
 // thing it asks.
 type migrating struct {
+	// The old rules the text is read by, lexV2 or lexPin.
+	rules lex
+	// Under lexPin, which pinned rules, so which escapes they read and
+	// refused.
+	pin       pinRules
 	fromV2    bool
 	ambiguous int
 	lost      int
@@ -3517,7 +3546,7 @@ func mostLegal(text string, left uint32) uint32 {
 	}
 	var against [len(formatDays)]int
 	footers := uint32(0)
-	raw := newRawLines(RulesCurrent)
+	raw := newRawLines(lexCurrent)
 	var tok Tokens
 	for i, line := range strings.Split(text, "\n") {
 		rest, ok := raw.step(line)
@@ -3645,7 +3674,7 @@ func ReadSchemaRef(text string) Read[string] {
 		return Read[string]{Status: NotFound}
 	}
 	// The Schema line is new in this format, so the blocks are the parser's.
-	lines := newRawLines(RulesCurrent)
+	lines := newRawLines(lexCurrent)
 	empty := 0
 	for i, line := range strings.Split(text, "\n") {
 		rest, ok := lines.step(line)
@@ -3675,15 +3704,15 @@ func ReadSchemaRef(text string) Read[string] {
 // the way one rule set reads the file: the current rules find a block where
 // the parser does, and the 2.x rules where the rewrite does.
 type rawLines struct {
-	rules Rules
+	rules lex
 	tok   Tokens
 	fence openFence
 	// Only the blocks a line opens are wanted, not what the rewrite counts.
 	dry migrating
 }
 
-func newRawLines(rules Rules) *rawLines {
-	return &rawLines{rules: rules, dry: migrating{fromV2: true}}
+func newRawLines(rules lex) *rawLines {
+	return &rawLines{rules: rules, dry: migrating{rules: rules, pin: pinFromA37, fromV2: true}}
 }
 
 // step reads the next line. ok is false when it is part of a raw block,
@@ -3701,7 +3730,7 @@ func (w *rawLines) step(line string) (rest string, ok bool) {
 	// Only a line with a run of three backticks or tildes can open a block,
 	// so the rest skip the tokenizer.
 	if strings.Contains(rest, "```") || strings.Contains(rest, "~~~") {
-		if w.rules == RulesCurrent {
+		if w.rules == lexCurrent {
 			w.fence = opensRaw(rest, &w.tok)
 		} else {
 			migrateLine(rest, &w.tok, &w.fence, &w.dry)
@@ -3736,31 +3765,58 @@ func opensRaw(rest string, tok *Tokens) openFence {
 // step is what turns a text in one format of formatDays into the next one's,
 // as the design doc's Reading and converting says. A new format adds a row to
 // formatSteps, and a kind here only when no step yet does what it needs.
-type step int
+// pin is set for stepPin only.
+type step struct {
+	kind stepKind
+	pin  pinRules
+}
+
+type stepKind int
 
 const (
 	// stepSame: the 2 formats read every line the same, but for lines the
 	// older one refuses, which stay as typed. Nothing changes.
-	stepSame step = iota
+	stepSame stepKind = iota
 	// stepV2: Migrate's rewrite from the 2.x rules, which lands on the
-	// current format. It stands in for the steps from 1.0 to 3.0-a37 until
-	// they're built (2026111908444515, 2026111908444534).
+	// current format. It stands in for the steps from 1.0 to 2.0 until
+	// they're built (2026111908444534).
 	stepV2
+	// stepPin: the rewrite from the rules of a pin from 3.0-1f8 to 3.0-a37
+	// into the format 3 value syntax, where a backslash is text. It ends at
+	// the current format. A line those rules refused stays as typed.
+	stepPin
+)
+
+// pinRules is which escapes a pin from 3.0-1f8 to 3.0-a37 read in double
+// quotes, the only place it read any, and which it refused. Later ones
+// refuse more, so the order counts.
+type pinRules int
+
+const (
+	// pinFrom30d: 3.0-1f8 and 3.0-30d: `\t`, `\n`, `\\`, `\"` and `\'`. Any
+	// other backslash is text.
+	pinFrom30d pinRules = iota
+	// pinFromB10: 3.0-b10: also `\u` with 4 hex digits and `\U` with 8. Any
+	// other pair is refused (E023).
+	pinFromB10
+	// pinFromA37: 3.0-f8e and 3.0-a37: also refused is a value that starts
+	// like a Windows path, a drive or a share, and holds `\t` or `\n` (E024).
+	pinFromA37
 )
 
 // formatSteps is the step out of each format of formatDays but the current
 // one, in the same order.
 var formatSteps = [len(formatDays) - 1]step{
-	stepV2,   // 1.0
-	stepV2,   // 1.1
-	stepV2,   // 2.0
-	stepV2,   // 3.0-1f8
-	stepV2,   // 3.0-30d
-	stepV2,   // 3.0-b10
-	stepV2,   // 3.0-f8e
-	stepV2,   // 3.0-a37
-	stepSame, // 3.0-9ef, which refused an apostrophe inside a bare word
-	stepSame, // 3.0-a65
+	{kind: stepV2},                   // 1.0
+	{kind: stepV2},                   // 1.1
+	{kind: stepV2},                   // 2.0
+	{kind: stepPin, pin: pinFrom30d}, // 3.0-1f8, read as 3.0-30d but where a line has an error
+	{kind: stepPin, pin: pinFrom30d}, // 3.0-30d
+	{kind: stepPin, pin: pinFromB10}, // 3.0-b10
+	{kind: stepSame},                 // 3.0-f8e, read as 3.0-a37 but where a line has an error
+	{kind: stepPin, pin: pinFromA37}, // 3.0-a37
+	{kind: stepSame},                 // 3.0-9ef, which refused an apostrophe inside a bare word
+	{kind: stepSame},                 // 3.0-a65
 }
 
 // firstRewrite is the first step of the run from format to the current one
@@ -3775,19 +3831,23 @@ func firstRewrite(format string, ok bool) (step, bool) {
 		}
 	}
 	for _, s := range formatSteps[at:] {
-		if s != stepSame {
+		if s.kind != stepSame {
 			return s, true
 		}
 	}
-	return stepSame, false
+	return step{kind: stepSame}, false
 }
 
 // convert is the text, written in format, as the current format reads it, one
 // step per format in order, in memory. ok false, a newer format's, comes back
 // as it is. fromV2 is Migrate's.
 func convert(text, format string, ok, fromV2 bool) Migration {
-	if s, found := firstRewrite(format, ok); found && s == stepV2 {
+	s, found := firstRewrite(format, ok)
+	switch {
+	case found && s.kind == stepV2:
 		return MigrateUnstamped(text, fromV2)
+	case found && s.kind == stepPin:
+		return migrateText(text, fromV2, false, false, &s.pin)
 	}
 	return Migration{Text: text, Current: true}
 }
@@ -3812,8 +3872,8 @@ func formatLineRead(text string) Read[int] {
 	if !strings.Contains(text, formatWord) && !strings.Contains(text, stampWord) {
 		return Read[int]{Status: NotFound}
 	}
-	now := newRawLines(RulesCurrent)
-	then := newRawLines(RulesV2)
+	now := newRawLines(lexCurrent)
+	then := newRawLines(lexV2)
 	var found, newest, unread Read[int]
 	// The minors of found and newest, which decide between equal majors.
 	var foundMinor, newestMinor int
@@ -4045,14 +4105,14 @@ func stampHint(stamp Read[int]) (Diagnostic, bool) {
 // answer the first one did not. An older Format line becomes that line where
 // it is; a file with none gets it at the end.
 func Migrate(text string, fromV2 bool) Migration {
-	return migrateText(text, fromV2, true, false)
+	return migrateText(text, fromV2, true, false, nil)
 }
 
 // MigrateUnstamped is Migrate without the version line or the migrated note,
 // for a program that writes GenBanner itself, which includes the version line.
 // The next run can tell the result is current only once that is written.
 func MigrateUnstamped(text string, fromV2 bool) Migration {
-	return migrateText(text, fromV2, false, false)
+	return migrateText(text, fromV2, false, false, nil)
 }
 
 // majorityEol is the line ending most of the text's lines end with. A tie
@@ -4067,8 +4127,10 @@ func majorityEol(text string) string {
 }
 
 // migrateText: beta takes a file naming this format as 2.x too, which only
-// Upgrade asks for, once the caller has said so.
-func migrateText(text string, fromV2, stamp, beta bool) Migration {
+// Upgrade asks for, once the caller has said so. pin reads the text by that
+// pin's rules rather than 2.x, for a file found to be in one of those
+// formats, whatever its Format line says.
+func migrateText(text string, fromV2, stamp, beta bool, pin *pinRules) Migration {
 	whole := text
 	bom := ""
 	if strings.HasPrefix(text, "\ufeff") {
@@ -4077,10 +4139,13 @@ func migrateText(text string, fromV2, stamp, beta bool) Migration {
 	}
 	named := formatLineRead(text)
 	version, hasVersion := named.Value, named.Status == Good
-	if hasVersion && (version > FormatMajor || (version == FormatMajor && !beta)) {
+	if pin == nil && hasVersion && (version > FormatMajor || (version == FormatMajor && !beta)) {
 		return Migration{Text: whole, Current: true}
 	}
-	st := migrating{fromV2: fromV2 || hasVersion}
+	st := migrating{rules: lexV2, pin: pinFromA37, fromV2: fromV2 || hasVersion || pin != nil}
+	if pin != nil {
+		st.rules, st.pin = lexPin, *pin
+	}
 	var bracketed []int
 	// Where a file that does not say it is 2.x might be a 3.0 one, the lines
 	// these rules already refuse are safe to rewrite.
@@ -4100,7 +4165,7 @@ func migrateText(text string, fromV2, stamp, beta bool) Migration {
 	var fence openFence
 	changed := false
 	// The output as the parser will read it, for where its raw blocks are.
-	now := newRawLines(RulesCurrent)
+	now := newRawLines(lexCurrent)
 	split := false
 	for i, line := range strings.Split(text, "\n") {
 		if i > 0 {
@@ -4195,10 +4260,11 @@ type Upgraded struct {
 	// ErrorsLeft.
 	Text string
 	// Current: the input loads with no error under these rules and, with
-	// fromV2, migrates to the same text and names no older format, or it
-	// names this format, so it is left as it is. A beta build of 3.0 stamped
-	// the same Format line as a release, so a beta file is current here too,
-	// unless fromV2 says a 2.x build wrote it and it loads with an error.
+	// fromV2, migrates to the same text and names no older format, or its
+	// stamp names this format whole, so it is left as it is. A file stamped
+	// beta1's `Format 3` is current when FindFormat finds it to be 3.0-9ef or
+	// later, unless fromV2 says a 2.x build wrote it and it loads with an
+	// error.
 	Current bool
 	// Format is the format the input was written for, which goes in the
 	// backup's name: what its Format line names, else 2.
@@ -4232,16 +4298,17 @@ type Upgraded struct {
 // be kept, or keeping them keeps an error, it is written the way `fmt` writes
 // it. A whole block above the first field stays, so a file with its
 // block at the top comes out with 2, both naming this format. This and a save
-// with SaveOptions.Banner are the library calls that write the block. A file that names this format comes back
+// with SaveOptions.Banner are the library calls that write the block. A file
+// whose stamp names this format whole comes back
 // Current and untouched, and so does one that loads with no error under these
 // rules, since a program calling this on every start must never rewrite a good
 // file. fromV2 is Migrate's: the file can only have been written for 2.x. Then
 // a file that loads clean is still made over when Migrate would change it, as
 // it would `p: a,b`, an array under 2.x and one string now. One it would not
 // change that names an older format gets this format on that Format line, and
-// nothing else. The one file naming this format that is made over is one that
-// loads with an error when fromV2 says a 2.x build wrote it, as with a beta of
-// 3.0 that wrote 2.x lines. It is taken as 2.x. With fromV2, any file is made
+// nothing else. A file naming this format that loads with an error is taken as
+// 2.x when fromV2 says a 2.x build wrote it, as with a beta of 3.0 that wrote
+// 2.x lines. With fromV2, any file is made
 // over only when the fresh text loads clean; when it wouldn't, ErrorsLeft names
 // the lines still in error. Pass fromV2 only for a file known to be old, never
 // on every start: a file this format wrote that picks up an error later would
@@ -4250,7 +4317,12 @@ type Upgraded struct {
 // Without fromV2, the file's format is FindFormat's, from the text alone, and
 // only a format whose steps to this one rewrite anything gets made over: one
 // from 3.0-9ef on is Current, its errors kept as typed, as a load with Migrate
-// keeps them. UpgradeDated takes the file's mtime too.
+// keeps them. One from 3.0-1f8 to 3.0-a37 goes through that format's step
+// rather than MigrateUnstamped, and is made over even when it loads clean,
+// since `"x\ty"` loads clean now and held a tab then. A file stamped beta1's
+// `Format 3` or a pin is read the same way, and the made-over file's Format
+// line names this format whole. UpgradeDated takes the
+// file's mtime too.
 func Upgrade(text string, fromV2, banner bool) Upgraded {
 	return UpgradeDated(text, nil, fromV2, banner)
 }
@@ -4264,32 +4336,39 @@ func UpgradeDated(text string, mtime *int64, fromV2, banner bool) Upgraded {
 	if hasVersion {
 		up.Format = version
 	}
-	if namesNewer(named) || (hasVersion && version == FormatMajor && !fromV2) {
+	if namesNewer(named) {
 		return up
 	}
-	// The load's step table. Only stepV2 rewrites yet, and this is its
-	// upgrade form, so a format whose run is all stepSame has nothing to do.
+	// The load's step table, in its upgrade form, so a format whose run is
+	// all stepSame has nothing to do. beta1's `Format 3` names only a major,
+	// so FindFormat reads it as the load does, with the mtime and the tells.
 	format, ok := "2.0", true
 	if !fromV2 {
 		format, ok = FindFormat(text, mtime)
 	}
-	if s, found := firstRewrite(format, ok); !found || s != stepV2 {
+	var pin *pinRules
+	switch s, found := firstRewrite(format, ok); {
+	case !found || s.kind == stepSame:
 		return up
+	case s.kind == stepPin:
+		pin = &s.pin
 	}
 	before := Parse(text)
 	clean := before.ErrorCount() == 0
 	// A beta of 3.0 wrote this format's line too, so only the caller can say
 	// a 2.x build wrote the file. One that loads clean is what an upgrade
-	// leaves, so a second run over its output leaves it alone.
-	if clean && (!fromV2 || (hasVersion && version == FormatMajor)) {
+	// leaves, so a second run over its output leaves it alone. A file found
+	// to be from 3.0-1f8 to 3.0-a37 can load clean and still read otherwise,
+	// as `"x\ty"` does, so it is made over as the load makes it over.
+	if clean && pin == nil && (!fromV2 || (hasVersion && version == FormatMajor)) {
 		return up
 	}
-	m := migrateText(text, fromV2, false, true)
+	m := migrateText(text, fromV2, false, true, pin)
 	// A 2.x file can load clean and still read differently now, as `a,b`
 	// does. One migrate leaves as it was has nothing to do, but an older
 	// Format line, which would keep the load's H007 hint, becomes this one.
 	if clean && m.Text == text {
-		if !hasVersion {
+		if !hasVersion || version >= FormatMajor {
 			return up
 		}
 		if t, ok := restamp(text, named.Line); ok {
@@ -4310,11 +4389,20 @@ func UpgradeDated(text string, mtime *int64, fromV2, banner bool) Upgraded {
 	lost := m.Lost + fresh.LostCount()
 	// migrate keeps every line where it was, so these are the input's.
 	left := errorLines(fresh.diags)
-	fresh.swapBanner(banner, true)
+	// Only 2.x's block is in `#` comments.
+	fresh.swapBanner(banner, pin == nil)
 	made := upgradeText(fresh, banner)
+	// The block names this format, but a beta1 `Format 3` line above it is
+	// the one read, and would send the next run to FindFormat again, so it
+	// names this format too, as the stamp a save without the block writes.
+	if read := ReadFormatVersion(made); read.Status == Good && !namesThis(read) && !namesNewer(read) {
+		if t, ok := restamp(made, read.Line); ok {
+			made = t
+		}
+	}
 	// With fromV2 it goes only when that leaves it loading clean, or the next
 	// run with it would read the result by 2.x rules again
-	// (2026101515372401). Without, a Format 3 file with an error is current.
+	// (2026101515372401). Without, a line in error stays as typed, as on load.
 	if fromV2 {
 		if check := Parse(made); check.ErrorCount() != 0 {
 			// Empty only if a clean text formats to one with an error, and then
@@ -4452,12 +4540,177 @@ func v2Text(raw string) string {
 	return out.String()
 }
 
-// v2BracketArray is true when 2.x read this bare `[...]` body as the JSON-habit
-// array rather than a discriminator: more than one element, where a comma
-// behind a backslash was not one.
-func v2BracketArray(body string) bool {
+// oldText is the text the old rules read for a piece as written, quoted as
+// quote says: v2Text under 2.x, and under the rules of 3.0-1f8 to 3.0-a37 the
+// escapes in double quotes only.
+func oldText(raw string, quote Quote, st *migrating) string {
+	switch {
+	case st.rules == lexPin && quote == QuoteDouble:
+		return pinEscapes(raw, st.pin >= pinFromB10)
+	case st.rules == lexPin:
+		return raw
+	default:
+		return v2Text(raw)
+	}
+}
+
+// pinEscapes is what 3.0-1f8 to 3.0-a37 read in double quotes: `\t`, `\n`,
+// `\\`, `\"` and `\'` resolved, and with codepoints, from 3.0-b10, `\u` with
+// 4 hex digits and `\U` with 8. Any other backslash stays.
+func pinEscapes(raw string, codepoints bool) string {
+	var out strings.Builder
+	out.Grow(len(raw))
+	for i := 0; i < len(raw); {
+		if raw[i] != '\\' {
+			out.WriteByte(raw[i])
+			i++
+			continue
+		}
+		i++
+		if i >= len(raw) {
+			out.WriteByte('\\')
+			break
+		}
+		switch c := raw[i]; c {
+		case 't':
+			out.WriteByte('\t')
+			i++
+		case 'n':
+			out.WriteByte('\n')
+			i++
+		case '\\', '"', '\'':
+			out.WriteByte(c)
+			i++
+		default:
+			if r, n, ok := pinCodepoint(c, raw[i+1:]); ok && codepoints {
+				out.WriteRune(r)
+				i += 1 + n
+				continue
+			}
+			// The character after it is copied on the next pass.
+			out.WriteByte('\\')
+		}
+	}
+	return out.String()
+}
+
+// pinCodepoint is the character a `\u` or `\U` escape names under 3.0-b10 to
+// 3.0-a37, and how many hex digits it takes: 4 after `u`, 8 after `U`. ok is
+// false for any other kind, a short run, a surrogate or a value past
+// U+10FFFF.
+func pinCodepoint(kind byte, after string) (rune, int, bool) {
+	var n int
+	switch kind {
+	case 'u':
+		n = 4
+	case 'U':
+		n = 8
+	default:
+		return 0, 0, false
+	}
+	if len(after) < n {
+		return 0, 0, false
+	}
+	var v uint32
+	for j := 0; j < n; j++ {
+		d := hexDigit(after[j])
+		if d < 0 {
+			return 0, 0, false
+		}
+		v = v<<4 | uint32(d)
+	}
+	if v > utf8.MaxRune || !utf8.ValidRune(rune(v)) {
+		return 0, 0, false
+	}
+	return rune(v), n, true
+}
+
+// pinBadQuoted is true when the pin refused this double-quoted text: from
+// 3.0-b10 a backslash pair it didn't know (E023), and from 3.0-f8e, in a
+// value, `\t` or `\n` in text that starts like a Windows path, a drive or a
+// share (E024).
+func pinBadQuoted(raw string, value bool, pin pinRules) bool {
+	if pin == pinFrom30d {
+		return false
+	}
+	tab := false
+	for i := 0; i < len(raw); i++ {
+		if raw[i] != '\\' {
+			continue
+		}
+		i++
+		if i >= len(raw) {
+			return true
+		}
+		switch c := raw[i]; c {
+		case 't', 'n':
+			tab = true
+		case '\\', '"', '\'':
+		case 'u', 'U':
+			_, n, ok := pinCodepoint(c, raw[i+1:])
+			if !ok {
+				return true
+			}
+			i += n
+		default:
+			return true
+		}
+	}
+	drive := len(raw) >= 3 && isASCIIAlpha(raw[0]) && raw[1] == ':' && raw[2] == '\\'
+	return pin >= pinFromA37 && value && tab && (drive || strings.HasPrefix(raw, `\\`))
+}
+
+// oldRefused is true when the old rules refused a line, as tokenized by them,
+// so it has no reading to keep and stays as typed. Only the rules of 3.0-1f8
+// to 3.0-a37 are asked: a quote that never closes as a piece's last character
+// (E017), a `[` first after the separator (E019), and from 3.0-b10 a bad
+// escape in double quotes. The 2.x rewrite judges its lines itself.
+func oldRefused(rest string, tok *Tokens, item bool, st *migrating) bool {
+	if st.rules != lexPin {
+		return false
+	}
+	quoted := func(p *Piece, value bool) bool {
+		return p.Quote == QuoteOpen || (p.Quote == QuoteDouble && pinBadQuoted(rest[p.Start:p.End], value, st.pin))
+	}
+	for i := range tok.Segments {
+		seg := &tok.Segments[i]
+		if quoted(&seg.Name, false) || (seg.Selector != nil && quoted(seg.Selector, false)) {
+			return true
+		}
+	}
+	if tok.Sep < 0 && !item {
+		return false
+	}
+	// A raw block's info string is not escape text.
+	fenced := false
+	if !item {
+		_, _, _, fenced = fenceOpen(rest[tok.Value[0]:])
+	}
+	bracket := false
+	if !item && len(tok.Elements) > 0 {
+		p := &tok.Elements[0]
+		bracket = p.Quote == QuoteNone && p.End > p.Start && rest[p.Start] == '['
+	}
+	if bracket {
+		return true
+	}
+	if fenced {
+		return false
+	}
+	for i := range tok.Elements {
+		if quoted(&tok.Elements[i], true) {
+			return true
+		}
+	}
+	return false
+}
+
+// v2BracketArray is true when the old rules read this bare `[...]` body as the
+// JSON-habit array rather than a discriminator: more than one element, where
+// under 2.x a comma behind a backslash was not one.
+func v2BracketArray(body string, rules lex) bool {
 	var tok Tokens
-	TokenizeValue(body, 0, RulesV2, &tok)
+	lexValue(body, 0, rules, &tok)
 	return len(tok.Elements) > 1
 }
 
@@ -4467,7 +4720,7 @@ func v2BracketArray(body string) bool {
 // the current rules would read it as other text than 2.x did. 2.x resolved a
 // backslash pair, so `"C:\\new"` is written `"C:\new"` and `C:\temp` gets the
 // tab escape.
-func valueEdits(text string, tok *Tokens, edits *[]edit) {
+func valueEdits(text string, tok *Tokens, edits *[]edit, st *migrating) {
 	for i := range tok.Elements {
 		p := &tok.Elements[i]
 		raw := text[p.Start:p.End]
@@ -4476,14 +4729,16 @@ func valueEdits(text string, tok *Tokens, edits *[]edit) {
 		if quoted {
 			a, b = p.Start-1, p.End+1
 		}
-		v2EdgeEdits(text, a, b, edits)
+		if st.rules == lexV2 {
+			v2EdgeEdits(text, a, b, edits)
+		}
 		// A comma or a `#` in a bare piece sat inside a quote 2.0 paired.
 		if p.Quote == QuoteNone && !strings.ContainsAny(raw, "\\,#") && !strings.ContainsRune(raw, escapeMark) && raw != "" {
 			if _, bad := bareTrouble(raw, bareValue); !bad {
 				continue
 			}
 		}
-		logical := v2Text(raw)
+		logical := oldText(raw, p.Quote, st)
 		if readsSame(text[a:b], quoted, logical) {
 			continue
 		}
@@ -4534,7 +4789,7 @@ func v2EdgeEdits(text string, a, b int, edits *[]edit) {
 // comma as an array. Its empty elements go, as 2.x dropped them. Each element
 // is written the way the writer writes one inside `[]`, unless its quoted
 // spelling already reads the same.
-func v2ArrayText(text string, tok *Tokens) string {
+func v2ArrayText(text string, tok *Tokens, st *migrating) string {
 	var out strings.Builder
 	out.WriteByte('[')
 	for i := range tok.Elements {
@@ -4545,7 +4800,7 @@ func v2ArrayText(text string, tok *Tokens) string {
 		if out.Len() > 1 {
 			out.WriteString(", ")
 		}
-		out.WriteString(v2ElementText(text, p))
+		out.WriteString(v2ElementText(text, p, st))
 	}
 	out.WriteByte(']')
 	return out.String()
@@ -4553,8 +4808,8 @@ func v2ArrayText(text string, tok *Tokens) string {
 
 // v2ElementText is one 2.x element, as the text 2.x read, the way the writer
 // writes it, unless its quoted spelling already reads the same.
-func v2ElementText(text string, p *Piece) string {
-	logical := v2Text(text[p.Start:p.End])
+func v2ElementText(text string, p *Piece, st *migrating) string {
+	logical := oldText(text[p.Start:p.End], p.Quote, st)
 	quoted := p.Quote == QuoteSingle || p.Quote == QuoteDouble
 	switch {
 	case quoted && readsSame(text[p.Start-1:p.End+1], true, logical):
@@ -4607,17 +4862,20 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 	s := rest
 	var edits []edit
 	if strings.HasPrefix(rest, "*") && len(s) > 1 && isWspByte(s[1]) {
+		lexValue(rest, 1, st.rules, tok)
+		if oldRefused(rest, tok, true, st) {
+			return rest
+		}
 		edits = append(edits, edit{start: 0, end: 1, with: "-"})
-		TokenizeValue(rest, 1, RulesV2, tok)
 		// A bare comma was refused (E010), so there is nothing to convert.
 		// A value's rules are an item's, and stricter about a colon, so
 		// what reads clean as one reads clean as the other.
 		if len(tok.Elements) == 1 {
-			valueEdits(rest, tok, &edits)
+			valueEdits(rest, tok, &edits, st)
 		}
 	} else {
-		Tokenize(rest, ':', false, RulesV2, tok)
-		if tok.Fault >= 0 {
+		lexLine(rest, ':', false, st.rules, tok)
+		if tok.Fault >= 0 || oldRefused(rest, tok, false, st) {
 			return rest
 		}
 		last := len(tok.Segments) - 1
@@ -4640,8 +4898,21 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 			// would start a list item now.
 			// A file that does not say it is 2.x could be a 3.0 one. Where it
 			// reads clean under these rules as well, it is left and counted.
+			// Under the rules of 3.0-1f8 to 3.0-a37 a double-quoted name
+			// resolved its escapes, and 2 spellings of one name were one, so
+			// it gets the spelling of the name it read.
+			logical := name
 			var respell, cleanNow bool
-			if seg.Name.Quote == QuoteSingle || seg.Name.Quote == QuoteDouble {
+			if st.rules == lexPin && seg.Name.Quote != QuoteNone {
+				if strings.Contains(name, "\\") || strings.ContainsRune(name, escapeMark) {
+					logical = oldText(name, seg.Name.Quote, st)
+					now, ok := quotedNameNow(rest[seg.Name.Start-1 : seg.Name.End+1])
+					respell = !ok || now != logical
+					cleanNow = ok
+				} else {
+					cleanNow = true
+				}
+			} else if seg.Name.Quote == QuoteSingle || seg.Name.Quote == QuoteDouble {
 				pair := v2Text(name) != name
 				if pair {
 					st.lost++
@@ -4663,7 +4934,7 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 				if seg.Name.Quote != QuoteNone {
 					a, b = seg.Name.Start-1, seg.Name.End+1
 				}
-				edits = append(edits, edit{start: a, end: b, with: escapeName(name)})
+				edits = append(edits, edit{start: a, end: b, with: escapeName(logical)})
 			}
 			sel := seg.Selector
 			if sel == nil {
@@ -4701,7 +4972,7 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 			}
 			// 2.x matched a selector by its text with the backslash pairs
 			// resolved, as it read a value.
-			logical := v2Text(body)
+			logical = oldText(body, sel.Quote, st)
 			if i == last && tok.Sep < 0 {
 				if colon >= 0 {
 					// `name:[disc]` with nothing after it: 2.x read it as
@@ -4718,7 +4989,7 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 					// is no spelling to move that to - in brackets it is an
 					// array of several now - so the binding goes, and the
 					// caller hears about it rather than reading exit 0.
-					if !quoted && v2BracketArray(body) {
+					if !quoted && v2BracketArray(body, st.rules) {
 						st.lost++
 						return rest
 					}
@@ -4755,7 +5026,7 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 			index := !quoted && (indexShape(body) || body == "*")
 			// 2.x matched an array value by its display form, and a selector
 			// matches one plain value now, so nothing spells this.
-			if !index && !quoted && v2BracketArray(body) {
+			if !index && !quoted && v2BracketArray(body, st.rules) {
 				st.lost++
 				return rest
 			}
@@ -4799,20 +5070,20 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 						for i := range tok.Elements {
 							p := &tok.Elements[i]
 							if p.Quote != QuoteNone || p.End > p.Start {
-								edits = append(edits, edit{start: tok.Value[0], end: tok.Value[1], with: v2ElementText(rest, p)})
+								edits = append(edits, edit{start: tok.Value[0], end: tok.Value[1], with: v2ElementText(rest, p, st)})
 								break
 							}
 						}
 					} else {
 						st.bracketed = true
-						edits = append(edits, edit{start: tok.Value[0], end: tok.Value[1], with: v2ArrayText(rest, tok)})
+						edits = append(edits, edit{start: tok.Value[0], end: tok.Value[1], with: v2ArrayText(rest, tok, st)})
 					}
 				} else {
 					st.ambiguous++
 				}
 			} else {
 				before := len(edits)
-				valueEdits(rest, tok, &edits)
+				valueEdits(rest, tok, &edits, st)
 				if !st.fromV2 && !st.refusedNow && len(edits) > before && readsCleanNow(rest, sep+1) {
 					edits = edits[:before]
 					st.ambiguous++
@@ -6928,6 +7199,12 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 	// untrimmed, so a line left ending in CR would be written back as CRLF and
 	// read as neither - the one shape where the count is visible.
 	text = strings.TrimPrefix(text, "\uFEFF")
+	// Read before the text is cut into lines, as the reference does.
+	stamp := formatLineRead(text)
+	newer := namesNewer(stamp)
+	if d, ok := stampHint(stamp); ok {
+		p.diag(d)
+	}
 	lines := strings.Split(text, "\n")
 	nodeLines := trimCountingNodeLines(lines)
 	// A newline-terminated text splits into one more piece than it has lines.
@@ -6938,11 +7215,6 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		lines = lines[:len(lines)-1]
 	}
 	p.src = lines
-	stamp := formatLineRead(text)
-	newer := namesNewer(stamp)
-	if d, ok := stampHint(stamp); ok {
-		p.diag(d)
-	}
 	// Growing the arena by append cost about an eighth of fmt on a large
 	// file, and more than that in peak memory.
 	want := arenaWant(nodeLines, p.maxNodes)
@@ -13578,7 +13850,8 @@ func (d *Document) adoptFolded(folded []foldRec) {
 // goes to the first of the parent's trailing lines. With none of those it
 // goes, since nothing under it is left to set off. A misplaced line has no
 // level at the end of a block, so it goes to the next binding line, as a
-// reload files it, with the comments after it.
+// reload files it, with the comments after it that come before another
+// misplaced line or the end.
 func (d *Document) adopt(to heir, lines []lead, blank bool) {
 	// Above the node's comments, else above its line.
 	if blank && (to.kind == heirTakes || to.kind == heirNext) {
@@ -13631,10 +13904,20 @@ func (d *Document) adopt(to heir, lines []lead, blank bool) {
 		var below []lead
 		for at := range lines {
 			if strings.HasPrefix(lines[at].text, " ") || strings.HasPrefix(lines[at].text, "\t") {
+				// A comment goes with the line after it, as a reload files
+				// it: it stays above a kept field line, and goes down before
+				// a misplaced line or past the last line (2026111109022600).
 				rest := append([]lead(nil), lines[at:]...)
 				lines = lines[:at:at]
-				for _, l := range rest {
-					if isField(l.text) {
+				next := 0
+				for k, l := range rest {
+					if next < k {
+						next = k
+					}
+					for next < len(rest) && strings.HasPrefix(rest[next].text, "#") {
+						next++
+					}
+					if next < len(rest) && isField(rest[next].text) {
 						lines = append(lines, l)
 					} else {
 						below = append(below, l)
@@ -13802,20 +14085,15 @@ func (d *Document) SetComment(path, text string) SetStatus {
 // pushComment puts a comment line right above a node, after any already
 // there.
 func (d *Document) pushComment(idx int, text string) {
-	// The node's own blank moves above its first comment; otherwise the blank
-	// would separate the comment from what it annotates. Above the first one
-	// already there, when there is one.
+	// The node's own blank moves above the new comment; otherwise the blank
+	// would separate the comment from what it annotates. The lines already
+	// above the node are written above its blank, so they stay there, a kept
+	// line's comments included (2026111022100191).
 	nd := &d.arena[idx]
 	l := plainLead(text)
 	t := nd.trivMut()
-	if nd.blankBefore {
-		nd.blankBefore = false
-		if len(t.leading) > 0 {
-			t.leading[0].blankBefore = true
-		} else {
-			l.blankBefore = true
-		}
-	}
+	l.blankBefore = nd.blankBefore
+	nd.blankBefore = false
 	t.leading = append(t.leading, l)
 	settleFirstBlank(d.arena, &d.orphans)
 	d.resettleKept()

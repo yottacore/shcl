@@ -49,40 +49,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Note: until then shell-regress dcvej fails, since every fmt now ends with the stamp.
 
-- Windows-only save tests expect a save without the format stamp, and fail on b29w
-	- ID: 2026111910545268
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261119-105452
-	- Opened by: me
-	- Target OS: Windows
-	- Test environment: b29w with a short-name TEMP, test binaries built here for Windows (Rust and C static)
-	- Steps to reproduce: run the C runner, the Rust conformance tests or the Go tests on b29w.
-	- Incorrect behavior: C `dbxm2` (file not rewritten), `dc475` (the long path did not read back) and `dc476` (the save did not reach the link's target) fail. So do Rust `save_rewrites_a_read_only_file` and Go `dbxkc` and `dc3vv`.
-	- Expected behavior: they pass, as they did on b29w on 20261107.
-	- Reproduced: 20261119, b29w, the C runner from dev (`a1ea3b4a`) and from nov19 (`477aaac2`), 2 runs each, same 3 failures every run. Rust and Go once, at nov19.
-	- Possible cause: the C and Rust fixtures compare the saved file with `a: 2` or `a: 1` alone, with no stamp line, which every save writes since `ff279feb` (stamp on save). These tests run only on Windows, so no Linux run saw it. Go `dc3vv` saves a parse over an existing file without `force`. Read only, not confirmed.
-	- Estimated effort: Low
-	- Origin: `ff279feb`, round nov17b. Plausible.
-	- Sweep: every `_WIN32`, `cfg(windows)` and `shcl_windows_test.go` fixture that compares saved bytes or saves a parse over a file. Python's whole suite passed on b29w.
-
-- Under Miri, Document::parse slows with the square of its lines
-	- ID: 2026111910541579
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261119-105415
-	- Opened by:
-	- Problem description: Under Miri with Stacked Borrows, a parse costs more per line the longer the text. tukzmon's 2413-line settings spec took 257 s, at 139 ms a value, against 101 ms a value for its first 200 lines. With Stacked Borrows off it's 85 ms a value at any length. A native parse grows in step with the text.
-	- Requirements:
-		- Read the Format line before the text is cut into lines.
-		- Split by searching only what is left of the text, for the parse and for `format_line_read`.
-	- Cause: `Parser::parse` splits the text with `text.split('\n')`, and `format_line_read` then runs `text.contains(FORMAT_WORD)` over the whole text. Under Stacked Borrows each step reborrows the whole text and pays for every piece already cut off it, so both are quadratic there.
-	- Origin: tukzmon 2026111717051144. The draft text, a patch (`miri-split.patch`) and a reproduction with no shcl in it (`repro_main.rs`) are in `private/claude_simple/upstream/tukzmon-2026111717051144/`. With the patch, tukzmon's spec went from 258 s to 209 s under Miri, and a native parse gave the same document over 313 texts.
-
 - Format versions: every file stamped, and every published format read and converted
 	- ID: 2026111018212700
 	- Type: Feature
@@ -143,19 +109,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- 20261119: the load passes the file's mtime to find_format here, so this item also adds the touch -d mtime cases that 2026111907080400 left out (no file was read there).
 	- Note: split for its time cap into 2026111908443663 (the step table, the mtime on load, and the 3.0-9ef to 3.0 run), 2026111908444515 (3.0-1f8 to 3.0-a37), 2026111908444534 (1.0 to 2.0) and 2026111908444554 (`upgrade`).
 
-- Format versions: conversion steps for 3.0-1f8 to 3.0-a37, and from 3.0-a37 to 3.0-9ef
-	- ID: 2026111908444515
-	- Type: Feature
-	- Status: Queued
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261119-084445
-	- Opened by: me
-	- Parent ID: 2026111907080423
-	- Prereq IDs: 2026111908443663
-	- Requirements: rows and steps in the load's step table for the run 3.0-1f8 to 3.0-a37, per the design doc's Pinned dev snapshots, and the step into the format 3 value syntax, with a backslash outside double quotes read as plain text. In all 4 bindings. A line a step isn't sure of stays as typed and is reported.
-	- Estimated effort: High
-
 - Format versions: conversion steps for 1.0 to 2.0, and from 2.0 to 3.0-1f8
 	- ID: 2026111908444534
 	- Type: Feature
@@ -207,43 +160,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Problem description: `a: x"y` and `b: "q` are E025 or an open quote under the current rules, and the 2.x migration quotes them, so 2.0 read them as text. find_format counts E025 only on a CR, so a file with only such a line and a recent mtime reads as 3.0, and neither a load with migrate nor upgrade converts it.
 	- Origin: Plausible, read only (2026111908444554). Which formats from 3.0-1f8 to 3.0-a37 read these lines clean isn't checked against their CLIs.
 
-- A remove that takes a field opened from a kept line moves a kept line's comments down with a misplaced line
-	- ID: 2026111109022600
-	- Type: Bug
-	- Status: Queued
-	- Severity: Avg
-	- Target version: v3.0.0
-	- Opened: 20261111-090226
-	- Opened by: found while working 2026111022322992
-	- Related IDs: 2026111012160121, 2026111022322992, 2026110714552634
-	- Version and build: b2bits at `f19d4f80`
-	- Steps to reproduce: `printf 'a:\n\tx: 1\n - 2\n\tb: 3, , 4\n\t# note\n\tc: 1, , 2\n\t\tq: 1\n' > f.shcl`, then `printf 'remove\ta.c.q\n' | shcl set f.shcl`.
-	- Incorrect behavior: the output is `a:`, `x: 1`, `b: 3, , 4`, `c: 1, , 2`, the misplaced ` - 2`, then `# note` at the top level. `# note` leaves the kept `E026` line `c: 1, , 2` it was written against and goes down with the misplaced line, though the kept line `b: 3, , 4` is between them. Without `b: 3, , 4` the same happens.
-	- Expected behavior: `a:`, `x: 1`, `b: 3, , 4`, `# note`, `c: 1, , 2`, ` - 2`. That's what cutting `q: 1` by hand and formatting gives, and design.md says a comment on the far side of a kept line stays with that line. The misplaced line still goes down to the end of the block.
-	- Reproduced: 20261111, the Rust, Go, Python, and C CLIs, all with the same output.
-	- Possible cause: when `c` goes with its last child, the misplaced line among the kept lines under `c` goes down "with the comments after it", and that takes every comment in those lines, not only the ones right after it.
-	- Estimated effort: Low
-	- Note: the placement property in `dd3t9` excuses this class with a check keyed by this ID. The case was found at iteration 804362 of the 2M release run. `df50j` has the case, and checks that the excuse applies only to a remove. The fix takes the excuse out, and that `df50j` check with it.
-
-- A default form's replaced-value comment puts the field's blank above a kept line's comments
-	- ID: 2026111022100191
-	- Type: Bug
-	- Status: Queued
-	- Severity: Avg
-	- Target version: v3.0.0
-	- Opened: 20261110-221001
-	- Opened by: found while working 2026111012160121
-	- Related IDs: 2026111012160121, 2026111021153725
-	- Version and build: r1111 at `e0b1f62d`
-	- Steps to reproduce: `printf 'b:\n# note\nq: [1\n\nz: "t"\n' > f.shcl`, then `printf 'int-default\tz\t5\n' | shcl set f.shcl`.
-	- Incorrect behavior: the output is `b:`, a blank, `# note`, `q: [1`, the `# z: "t"  ## replaced by shcl ...` comment, `z: "5"`. The blank that set off `z` goes above the comment on the kept `E019` line. A `comment` op on `z` does the same.
-	- Expected behavior: the output is `b:`, `# note`, `q: [1`, a blank, the replaced-value comment, `z: "5"`, as `int z 5` keeps the blank above `z`.
-	- Reproduced: 20261111, the Rust, Go, and C CLIs.
-	- Possible cause: the same as 2026111021153725. A comment added to a node counts the kept lines in its leading lines, and their comments, as the node's own comments, and puts its blank above them all.
-	- Estimated effort: Low
-	- Note: the placement property in `dderx` and `dd3t9` excuses this class with a check keyed by this ID. The fix takes it out.
-	- 20261111: the property that excuses this is now in dev's `fuzz_smoke.rs`, on b2bits. The CLI reproduction stands.
-
 - `set_comment` making a field after a kept last line puts its blank above the kept line's comments
 	- ID: 2026111021153725
 	- Type: Bug
@@ -261,6 +177,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Note: the placement property in `dd3t9` excuses this class with a check keyed by this ID. The fix takes it out.
 	- 20261111: the property that excuses this is now in dev's `fuzz_smoke.rs`, on b2bits. The CLI reproduction stands.
+	- 20261119: the fix for 2026111022100191 (`push_comment` puts the blank on the new comment) gives this item's expected output through all 4 CLIs. What's left: take the `made` excuse out of `placement_slips`, add a placement row, and close against that fix.
 
 - `clear_comments` takes a comment on the far side of a kept line above its target
 	- ID: 2026111021095858
@@ -435,6 +352,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Add a read that gives every value across repeats and arrays, in file order.
 		- The `_or` doc says a repeat gives the default, and points to that read.
 	- Estimated effort: Avg
+
+- The C++ veneer's `de1a5` failed once under the quick gate, and passed 3 runs alone
+	- ID: 2026111912330703
+	- Type: Bug
+	- Status: Queued
+	- Priority: Low
+	- Target version: v3.0.0
+	- Opened: 20261119-123307
+	- Opened by: me
+	- Version and build: nov19b at `33313a39` plus Rust-only changes
+	- Steps to reproduce: `cicd/cicd.bash --backlog-run-quick rust go python c cli` on a loaded box. Seen once, 20261119.
+	- Incorrect behavior: `veneer FAIL: round 2, thread 7, call 0`, where got and want print the same up to a line end, then `FAIL de1a5 c++ reads_from_several_threads`.
+	- Expected behavior: the threads test passes every run.
+	- Note: control: the same source built with g++ and run 3 times alone passed every time. No C or C++ code changed in that tree.
 
 - The C++ veneer smoke doesn't build with SHCL_NO_FILE_IO
 	- ID: 2026111814490325
@@ -1199,6 +1130,255 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The next changelog's upgrading notes say C's `SHCL_SET_OK` is 0, so old code testing a setter `!= 0` reads every success as a failure, and that a string read of an array gives its bracket text. The released beta1 section stays as it is.
 	- Estimated effort: Low
 
+- Windows-only save tests expect a save without the format stamp, and fail on b29w
+	- ID: 2026111910545268
+	- Type: Bug
+	- Status: Closed
+	- Severity: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-105452
+	- Opened by: me
+	- Target OS: Windows
+	- Test environment: b29w with a short-name TEMP, test binaries built here for Windows (Rust and C static)
+	- Steps to reproduce: run the C runner, the Rust conformance tests or the Go tests on b29w.
+	- Incorrect behavior: C `dbxm2` (file not rewritten), `dc475` (the long path did not read back) and `dc476` (the save did not reach the link's target) fail. So do Rust `save_rewrites_a_read_only_file` and Go `dbxkc` and `dc3vv`.
+	- Expected behavior: they pass, as they did on b29w on 20261107.
+	- Reproduced: 20261119, b29w, the C runner from dev (`a1ea3b4a`) and from nov19 (`477aaac2`), 2 runs each, same 3 failures every run. Rust and Go once, at nov19.
+	- Possible cause: the C and Rust fixtures compare the saved file with `a: 2` or `a: 1` alone, with no stamp line, which every save writes since `ff279feb` (stamp on save). These tests run only on Windows, so no Linux run saw it. Go `dc3vv` saves a parse over an existing file without `force`. Read only, not confirmed.
+	- Estimated effort: Low
+	- Origin: `ff279feb`, round nov17b. Confirmed: the old test binaries failed on b29w on 20261119, with the saved file read back as `a: 2` plus `## SHCL format 3.0`, and Go `dc3vv` with the save refused as over bytes the document never read.
+	- Sweep: every `_WIN32`, `cfg(windows)` and `shcl_windows_test.go` fixture that compares saved bytes or saves a parse over a file. Python's whole suite passed on b29w.
+	- Actual cause [Bug]: since every save stamps (`ff279feb`), C `dbxm2`, `dc475`, `dc476`, Rust `save_rewrites_a_read_only_file` and Go `dbxkc` still compared the saved file with the bare text. Go `dc3vv` saved a parse over an existing file without `force`, which the save guard from 2026110613470307 refuses. The library was right in every case.
+	- Actual fix [Bug]: the 5 fixtures compare with the stamped text through each runner's helper (C `stamped_is`, Rust `with_stamp`, Go `withStamp`), and `dc3vv` saves with `force`, as its Rust and C twins already did.
+	- Swept: every `#ifdef _WIN32` block in the C runner (`dd526` already expected the stamp; the DACL, errno and publish fixtures call the raw atomic write, which doesn't stamp), every `cfg(windows)` test in Rust's `conformance.rs`, `fs_property.rs` and lib.rs, and every test in `shcl_windows_test.go` and the GOOS-guarded ones in `shcl_test.go`, by running each suite whole on b29w.
+	- Verified: on b29w with a short-name TEMP, the C runner (222 cases) and the whole Go suite passed on the fix, and failed on the old code with exactly the 5 named C and Go failures. Rust's `save` and `read_named_schema` tests from `conformance.rs`, the lib unit tests and `fs_property` passed on the fix. Rust's failure before the fix is the item's own reproduction. Here: `--backlog-run-quick rust go c`, lint-report, `cargo fmt --check`, clippy for windows-gnu with tests, and `go vet` and staticcheck for windows.
+	- Test case: the fixtures themselves, C `dbxm2`, `dc475`, `dc476`, Rust `dbxk3` (`save_rewrites_a_read_only_file`), Go `dbxkc` and `dc3vv`.
+	- Branch: `nov19b-2026111910545268`
+	- Commit: `82b3214d`
+	- Acceptance signoff: Self-closed: failed before the fix and passes after on b29w, and swept.
+	- Closed: 20261119-113900
+	- Closed reason: Done
+
+- Under Miri, Document::parse slows with the square of its lines
+	- ID: 2026111910541579
+	- Type: Enhancement
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-105415
+	- Opened by:
+	- Problem description: Under Miri with Stacked Borrows, a parse costs more per line the longer the text. tukzmon's 2413-line settings spec took 257 s, at 139 ms a value, against 101 ms a value for its first 200 lines. With Stacked Borrows off it's 85 ms a value at any length. A native parse grows in step with the text.
+	- Requirements:
+		- Read the Format line before the text is cut into lines.
+		- Split by searching only what is left of the text, for the parse and for `format_line_read`.
+	- Cause: `Parser::parse` splits the text with `text.split('\n')`, and `format_line_read` then runs `text.contains(FORMAT_WORD)` over the whole text. Under Stacked Borrows each step reborrows the whole text and pays for every piece already cut off it, so both are quadratic there.
+	- Origin: tukzmon 2026111717051144. The draft text, a patch (`miri-split.patch`) and a reproduction with no shcl in it (`repro_main.rs`) are in `private/claude_simple/upstream/tukzmon-2026111717051144/`. With the patch, tukzmon's spec went from 258 s to 209 s under Miri, and a native parse gave the same document over 313 texts.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261119: `lines_of` is Rust only. Go, Python and C split as before, since nothing there pays per piece, and the style guide's Rust section lists it as a deviation. The Format line read moved before the split in all 4, so the order still matches.
+		- me, 20261119: the other whole-text `split('\n')` sites in lib.rs stay as they are. Each reads one line at a time and keeps no piece, so none pays for earlier pieces the way the parse's kept `lines` do.
+	- Swept: the 4 parse entries (Rust `Parser::parse`, Go `parser.parse`, Python `Parser.parse`, C `parse_body`) read the Format line before the split now. `format_line_read`'s other callers get `lines_of` through it. lib.rs's other splits (`most_legal`, `restamp_as`, `stamped_eol`, `read_schema_ref`, `migrate_text`, raw bodies, comments) don't hold their pieces.
+	- Verified: under Miri, `Document::parse` per line at 250 and 1000 lines. Before: 13.4 and 18.1 ms a line for comment lines, 91 and 100 ms for values. After: 13.6 and 13.4 ms, 99 and 96 ms. Load 9 to 13 on 32 cores. `dfh3v` fails with `lines_of` changed to drop an empty last piece, and passes as built. `--backlog-run-quick rust go python c`, crosscheck over the corpus (23862 comparisons), perf-gate over the 4 CLIs, check-docs and lint-report passed.
+	- Branch: nov19b-2026111910541579
+	- Test case: `lines_of_cuts_as_split_does` (`dfh3v`) pins the split. The Miri timing has no test, since Miri skips timing tests; `private/claude_simple/tools/miri-parse-scale/` reruns it.
+	- Acceptance signoff: Self-closed: the per-line cost under Miri is flat now, and the parse's output is unchanged across the 4 conformance suites and the crosscheck.
+	- Closed: 20261119-115544
+	- Closed reason: Done
+
+- Format versions: conversion steps for 3.0-1f8 to 3.0-a37, and from 3.0-a37 to 3.0-9ef
+	- ID: 2026111908444515
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-084445
+	- Opened by: me
+	- Parent ID: 2026111907080423
+	- Prereq IDs: 2026111908443663
+	- Requirements: rows and steps in the load's step table for the run 3.0-1f8 to 3.0-a37, per the design doc's Pinned dev snapshots, and the step into the format 3 value syntax, with a backslash outside double quotes read as plain text. In all 4 bindings. A line a step isn't sure of stays as typed and is reported.
+	- Estimated effort: High
+	- Note: split for its time cap into 2026111912004261 (the Rust reference), then the ports 2026111912004789 (Go), 2026111912004810 (Python) and 2026111912004831 (C).
+	- Test case: its children's: 2026111912004261: `a_load_converts_from_a_pinned_dev_format` (Rust `dfh4s`).; 2026111912004789: `TestALoadConvertsFromAPinnedDevFormat` (Go `dfh64`, twin of Rust `dfh4s`).; 2026111912004810: `a_load_converts_from_a_pinned_dev_format` (Python `dfh6n`, twin of Rust `dfh4s`).; 2026111912004831: `a_load_converts_from_a_pinned_dev_format` (C `dfh7e`, twin of Rust `dfh4s`).
+	- Acceptance signoff: me, 20261119. The steps out of 3.0-1f8 to 3.0-a37 are built in all 4 bindings, and 3.0-a37 to 3.0-9ef is the 3.0-a37 pin step.
+	- Closed: 20261119-135846
+	- Closed reason: Done
+
+- Format versions: the Rust steps out of 3.0-1f8 to 3.0-a37
+	- ID: 2026111912004261
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-120042
+	- Opened by: me
+	- Parent ID: 2026111908444515
+	- Requirements: in the Rust reference, the step table's rows for 3.0-1f8, 3.0-30d, 3.0-b10, 3.0-f8e and 3.0-a37, and the step that rewrites text those formats wrote into the format 3 value syntax, with a backslash outside double quotes read as plain text. A line the old format refused stays as typed. The ports follow it.
+	- Estimated effort: High
+	- Actual effort: Avg
+	- Decisions:
+	- Verified: `dfh4s` fails with the pin rows set back to `V2` and passes with them. cargo test, clippy and rustfmt, `--backlog-run-quick rust go python c cli`, cli-regress over the 4 CLIs, crosscheck over the corpus, check-migrate, `lint-report.bash --check --no-mark`, shellcheck, the markdown check and markdownlint passed. shell-regress failed only `dcvej`, `de1a8` and `dc0b5`, which fail on dev already. An earlier quick run failed the C++ `de1a5` once, filed as 2026111912330703. On every corpus document each pin's own CLI loads clean, unstamped and dated to that pin, the converted text read the same as under that CLI (built from `30d36727`, `b10c2009` and `a37aa2ce`). The only mismatches were values holding a control character, which each CLI prints in its own escapes.
+	- Swept: `convert` and `upgrade_dated` are the only users of `first_rewrite`. Every 2.x read in `migrate_line` takes the step's rules now: the item and field tokenize, `value_edits`, `v2_array_text`, `v2_element_text`, `v2_bracket_array`, quoted names and selector bodies. `RawLines` takes them for its dry run. Docs: spec.md's `UpgradeFile` and `LoadFileOpts` bullets, design.md's `upgrade_file` and `load_file_opts` bullets, the design doc's Reading and converting, the changelog, and `upgrade`'s doc comment.
+	- Test case: `a_load_converts_from_a_pinned_dev_format` (Rust `dfh4s`).
+	- Branch: `nov19b-2026111908444515`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the steps, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261119-124650
+	- Commit: `f5530062`
+	- 20261119: tests whose 2.x text has a comma list and no mtime now pin 2026-09-01, so the text is still found to be 2.0, with each assert as it was: `de60f` (`migrate_writes_the_text_2x_read`) and `ddmhc` (`upgrade_writes_a_fresh_file_with_the_info_block`), cli-regress `de60p` (stdin moved to a dated file, `%U2R%`), `ddmhh` and `ddmhj` (`upgv2.shcl` dated), and check-migrate's upgrade runs.
+	- me, 20261119: each pin step rewrites into the format 3 value syntax and ends at the current format, as `V2` does. The table is `Pin(From30d)` for 3.0-1f8 and 3.0-30d, `Pin(FromB10)` for 3.0-b10, `Same` for 3.0-f8e and `Pin(FromA37)` for 3.0-a37. 3.0-b10 has its own step since 3.0-f8e added `E024`, so 3.0-b10 read `"C:\temp"` with a tab, which 3.0-a37 refused. A chain of pin-to-pin rewrites would need spellings such as `\u0009` on the way.
+	- me, 20261119: the pin rules are a private `Lex::Pin` beside the public `Rules`, so no binding's public API changes. Adding a `Rules` member failed check-docs `ddydt` until Python had it too.
+	- me, 20261119: a line the pin refused stays as typed, with no count, as with the step out of 3.0-9ef: an open quote (`E017`), a `[` after the colon (`E019`), and from 3.0-b10 a refused escape (`E023`, `E024`). So `a: [1, 2]` found to be 3.0-a37 binds the array now. The load reports such a line only where the current rules refuse it, and line numbers for kept lines are 2026111016205703's.
+	- me, 20261119: a quoted thousands number and an octal int are the same text in every pin, and only a typed read of them differs, which no rewrite can keep, so they stay.
+	- me, 20261119: `upgrade` makes over a file found to be a pin even when it loads clean, since `"x\ty"` loads clean now and held a tab then. A `#` comment block stays, since only 2.x's `init` wrote one. A file stamped beta1's `Format 3` is still current in `upgrade`, which 2026111912330681 takes up.
+	- me, 20261119: text with no mtime whose tells leave 3.0-a37 and older now reads as 3.0-a37, so `upgrade` converts it by that pin's rules rather than refusing it at 7 as reading 2 ways under 2.x. Logged as a `Check:` in questions.md.
+
+- Format versions: port the steps out of 3.0-1f8 to 3.0-a37 to Go
+	- ID: 2026111912004789
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-120047
+	- Opened by: me
+	- Parent ID: 2026111908444515
+	- Prereq IDs: 2026111912004261
+	- Requirements: mirror 2026111912004261's step kinds, rules and test in Go, by parity over idiom.
+	- Estimated effort: Avg
+	- Note: the docs, the changelog, cli-regress and check-migrate already say what the ports build. Each binding's twins of `de60f` (`migrate_writes_the_text_2x_read`) and `ddmhc` (`upgrade_writes_a_fresh_file_with_the_info_block`) need the 2026-09-01 mtime the Rust ones got, and its `dfgyc` twin keeps its `[1, 2]` row, which is still found to be 2.0. `pin-step-oracle.py` in the private tools folder checks a CLI's `upgrade` against the pins' own CLIs.
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261119: the pin rules are an unexported `lex` type beside the exported `Rules`, with `lexCurrent` and `lexV2` equal to their `Rules` values, so `Tokenize` and `TokenizeValue` convert and the public API doesn't change.
+		- me, 20261119: Rust's `Step::Pin(Pin)` is a `step` struct of a `stepKind` and a `pinRules`, set only for `stepPin`. Rust's `Option<Pin>` to `migrate_text` is a `*pinRules`, nil for none.
+	- Verified: `dfh64` fails with the pin rows set back to `stepV2` and passes with them. Go tests in both modules, `--backlog-run-quick go cli` (vet, staticcheck, gofmt included), cli-regress over the 4 CLIs, crosscheck over the corpus, `lint-report.bash --check --no-mark` and `test-ids.py check` passed. The Go CLI's `upgrade` printed the same bytes and exit code as the Rust CLI's on every corpus document with its stamp taken off, dated into 3.0-30d, 3.0-b10, 3.0-a37, 1.1 and the current format (3430 runs), and on 23 hand-written escape and selector lines in the 3 pins.
+	- Swept: every Rust function the step touched has its Go twin changed: `blankLen`, `skipBlank`, `quoteClose`, `scanPiece`, `lexValue`, `scanValue`, `scanArray`, `lexLine`, `migrating`, `mostLegal`, `formatLineRead`, `ReadSchemaRef` and `rawLines`, `convert`, `firstRewrite`, `migrateText`, `UpgradeDated`, `valueEdits`, `v2ArrayText`, `v2ElementText`, `v2BracketArray` and `migrateLine`, with `oldText`, `pinEscapes`, `pinCodepoint`, `pinBadQuoted` and `oldRefused` new. `Upgrade`'s doc comment says so. The Go twins of `de60f` (`de61a`) and `ddmhc` (`ddmk9`) pin 2026-09-01, each assert as it was. `dfgyd` keeps its `[1, 2]` row.
+	- Test case: `TestALoadConvertsFromAPinnedDevFormat` (Go `dfh64`, twin of Rust `dfh4s`).
+	- Branch: `nov19b-2026111912004789`
+	- Commit: `2bb0a16c`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the steps, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261119-130743
+
+- Format versions: port the steps out of 3.0-1f8 to 3.0-a37 to Python
+	- ID: 2026111912004810
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-120048
+	- Opened by: me
+	- Parent ID: 2026111908444515
+	- Prereq IDs: 2026111912004261
+	- Requirements: mirror 2026111912004261's step kinds, rules and test in Python, by parity over idiom.
+	- Estimated effort: Avg
+	- Note: the docs, the changelog, cli-regress and check-migrate already say what the ports build. Each binding's twins of `de60f` (`migrate_writes_the_text_2x_read`) and `ddmhc` (`upgrade_writes_a_fresh_file_with_the_info_block`) need the 2026-09-01 mtime the Rust ones got, and its `dfgyc` twin keeps its `[1, 2]` row, which is still found to be 2.0. `pin-step-oracle.py` in the private tools folder checks a CLI's `upgrade` against the pins' own CLIs.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261119: the pin rules are a private `_Lex` enum beside the public `Rules`, with `_LEX_OF` mapping each `Rules` member to its `_Lex` twin, so `tokenize` and `tokenize_value` convert and call `_lex_line` and `_lex_value`, and the public API doesn't change.
+		- me, 20261119: Rust's `Step::Pin(Pin)` is a `_Step` named tuple of a `_StepKind` and a `_Pin`, set only for `PIN`. `_Pin` is an `IntEnum`, since the rules compare by order. Rust's `Option<Pin>` to `migrate_text` is `_Pin | None`.
+	- Verified: `dfh6n` fails with the pin rows set back to `V2` and passes with them. The Python conformance suite, `--backlog-run-quick rust go python c cli` (ruff and mypy included; all 5 steps passed), cli-regress for Python and Rust, crosscheck over the corpus with the 4 CLIs, perf-gate for Python, `lint-report.bash --check --no-mark` and `test-ids.py check` passed. The Python CLI's `upgrade` printed the same bytes and exit code as the Rust CLI's on every corpus document with its stamp taken off, dated into 3.0-30d, 3.0-b10, 3.0-a37, 1.1 and the current format (3430 runs, `pin-port-diff.bash`), and stdout and stderr matched on 24 hand-written escape, name and selector lines in the 3 pins.
+	- Swept: every Rust function the step touched has its Python twin changed: `_blank_len`, `_quote_close`, `_scan_piece`, `_lex_value`, `_scan_value`, `_scan_array`, `_lex_line`, `_Migrating`, `_most_legal`, `_format_line_read`, `read_schema_ref` and `_RawLines`, `_convert`, `_first_rewrite`, `_migrate_text`, `upgrade_dated`, `_value_edits`, `_v2_array_text`, `_v2_element_text`, `_v2_bracket_array` and `_migrate_line`, with `_old_text`, `_pin_escapes`, `_pin_codepoint`, `_pin_bad_quoted` and `_old_refused` new. `upgrade`'s docstring says so. The Python twins of `de60f` (`de61d`) and `ddmhc` (`ddmks`) pin 2026-09-01, each assert as it was. `dfgye` keeps its `[1, 2]` row.
+	- Test case: `a_load_converts_from_a_pinned_dev_format` (Python `dfh6n`, twin of Rust `dfh4s`).
+	- Branch: `nov19b-2026111912004810`
+	- Commit: `bb67f8e2`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the steps, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261119-132716
+
+- Format versions: port the steps out of 3.0-1f8 to 3.0-a37 to C
+	- ID: 2026111912004831
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-120048
+	- Opened by: me
+	- Parent ID: 2026111908444515
+	- Prereq IDs: 2026111912004261
+	- Requirements: mirror 2026111912004261's step kinds, rules and test in C, with the C++ interface where it wraps a changed call, by parity over idiom.
+	- Estimated effort: Avg
+	- Note: the docs, the changelog, cli-regress and check-migrate already say what the ports build. Each binding's twins of `de60f` (`migrate_writes_the_text_2x_read`) and `ddmhc` (`upgrade_writes_a_fresh_file_with_the_info_block`) need the 2026-09-01 mtime the Rust ones got, and its `dfgyc` twin keeps its `[1, 2]` row, which is still found to be 2.0. `pin-step-oracle.py` in the private tools folder checks a CLI's `upgrade` against the pins' own CLIs.
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261119: the pin rules are a private `ShclLex` enum beside the public `shcl_rules`. The static `tokenize` and `tokenize_value` convert by `lex_of` and call the new `lex_line` and `lex_value`, so the public API doesn't change.
+		- me, 20261119: Rust's `Step::Pin(Pin)` is a `ShclStep` struct of a `ShclStepKind` and a `ShclPin`, as Go's `step` is, and `s_first_rewrite` returns one of kind `SHCL_STEP_SAME` for Rust's `None`. Rust's `Option<Pin>` to `migrate_text` is a `const ShclPin *`, NULL for none. The `quoted` closure in Rust's `old_refused` is the static `pin_refused_piece`, since C has no closures.
+		- me, 20261119: `dffxd` (`upgrade_can_leave_the_info_block_off`) compared the file `shcl_upgrade_file` wrote with the 2.0 row's text, where its Rust, Go and Python twins compare it with `upgrade(V2, false, false)`. A file dated today reads as 3.0-a37 now, so the C one takes the twins' form.
+	- 20261119: `dffxd`'s file text check now compares with `shcl_upgrade(UP_V2, ..., 0, 0)` rather than the 2.0 row's text, as in its twins. Every other assert in it is as it was.
+	- Verified: `dfh7e` fails with the pin rows set back to `SHCL_STEP_V2`, and no other test does, and passes with them. The C runner, `--backlog-run-quick c`, `--backlog-run-quick rust go python c cli` through its tests step (its release step was cut off by the call's time limit after the C cross checks passed), cli-regress for the 4 CLIs and again for Rust and C after rebuilding the C CLI, crosscheck over the corpus with the 4 CLIs, check-veneer, `test-ids.py check`, `lint-report.bash --check --no-mark`, the markdown check and markdownlint passed. The C CLI's `upgrade` printed the same bytes and exit code as the Rust CLI's on every corpus document with its stamp taken off, dated into 3.0-30d, 3.0-b10, 3.0-a37, 1.1 and the current format (3430 runs, `pin-port-diff.bash`), and stdout, stderr and exit code matched on 25 hand-written escape, name, selector and item lines in the 3 pins.
+	- Note: one `--backlog-run-quick c` run failed only the C++ `de1a5`, with the signature of 2026111912330703. It passed in the other 2 gate runs and in 6 runs of the veneer smoke alone. check-migrate didn't finish in 210 seconds. cppcheck, analyze-c and codeql-scan are left to the round's gate step.
+	- Swept: every Rust function the step touched has its C twin changed: `blank_len`, `skip_blank`, `quote_close`, `scan_piece`, `scan_value`, `lex_line` and `lex_value` under `tokenize` and `tokenize_value`, `ShclRawLines` and `raw_lines_init`, `format_line_read`, `most_legal`, `shcl_read_schema_ref`, `s_convert`, `s_first_rewrite`, `migrate` and `migrate_text`, `upgrade_into`, `value_edits`, `v2_array_text`, `v2_element_text`, `v2_bracket_array` and `migrate_line`, with `old_text`, `pin_escapes`, `pin_codepoint`, `pin_bad_quoted`, `pin_refused_piece` and `old_refused` new. The doc comments on `shcl_upgrade` and the C++ `upgrade` say so, and the C++ calls wrap the C ones with nothing else to change. The C twins of `de60f` (`de61g`) and `ddmhc` (`ddmmj`) pin 2026-09-01, each assert as it was. `dfgyf` keeps its `[1, 2]` row. design.md and the format-versions design doc say all 4 bindings.
+	- Test case: `a_load_converts_from_a_pinned_dev_format` (C `dfh7e`, twin of Rust `dfh4s`).
+	- Branch: `nov19b-2026111912004831`
+	- Commit: `00076674`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the steps, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261119-135739
+
+- A remove that takes a field opened from a kept line moves a kept line's comments down with a misplaced line
+	- ID: 2026111109022600
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261111-090226
+	- Opened by: found while working 2026111022322992
+	- Related IDs: 2026111012160121, 2026111022322992, 2026110714552634
+	- Version and build: b2bits at `f19d4f80`
+	- Steps to reproduce: `printf 'a:\n\tx: 1\n - 2\n\tb: 3, , 4\n\t# note\n\tc: 1, , 2\n\t\tq: 1\n' > f.shcl`, then `printf 'remove\ta.c.q\n' | shcl set f.shcl`.
+	- Incorrect behavior: the output is `a:`, `x: 1`, `b: 3, , 4`, `c: 1, , 2`, the misplaced ` - 2`, then `# note` at the top level. `# note` leaves the kept `E026` line `c: 1, , 2` it was written against and goes down with the misplaced line, though the kept line `b: 3, , 4` is between them. Without `b: 3, , 4` the same happens.
+	- Expected behavior: `a:`, `x: 1`, `b: 3, , 4`, `# note`, `c: 1, , 2`, ` - 2`. That's what cutting `q: 1` by hand and formatting gives, and design.md says a comment on the far side of a kept line stays with that line. The misplaced line still goes down to the end of the block.
+	- Reproduced: 20261111, the Rust, Go, Python, and C CLIs, all with the same output.
+	- Possible cause: when `c` goes with its last child, the misplaced line among the kept lines under `c` goes down "with the comments after it", and that takes every comment in those lines, not only the ones right after it.
+	- Estimated effort: Low
+	- Note: the placement property in `dd3t9` excuses this class with a check keyed by this ID. The case was found at iteration 804362 of the 2M release run. `df50j` has the case, and checks that the excuse applies only to a remove. The fix takes the excuse out, and that `df50j` check with it.
+	- Actual cause [Bug]: `adopt` hands the lines a node left past the last child of a block, and from the first misplaced line on, it sent every line that wasn't a kept field line down to the next binding line. So a comment above a kept field line went down with the misplaced line. A reload files a comment with the line after it: above a kept field line it stays, and before a misplaced line or past the last line it goes down.
+	- Actual fix [Bug]: `adopt` sends a comment there down only when the next line that isn't a comment is a misplaced line or there isn't one, in all 4 bindings (`adopt` in `lib.rs`, `shcl.go`, `shcl.h`, `_adopt` in `shcl.py`). design.md's "Kept lines under edits" bullet says so, and the changelog. The excuse in `placement_slips` is out, and `df50j`'s check of it now checks the case has no slip.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261119: a comment goes with the line after it, as `fmt` of the file with the target cut by hand files it, rather than only a comment right after a misplaced line going down. 8 shapes with comments, misplaced lines and kept field lines in different orders give the same text as the cut file through all 4 CLIs.
+	- Swept: the parser's own split of pending lines before a fence (`partition` in the parser's fence branch) keeps comments with the kept field line after them already. `adopt`'s Last branch is the only place an edit splits misplaced lines from kept field lines, in all 4.
+	- Test case: placement rows `2026111109022600-1` and `-2` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `df50j`, `dd3t9`, `dderx`.
+	- Verified: both placement rows and `df50j` fail on the library at `8bc8ced1` (Rust) and pass on the change. The C CLI at `8bc8ced1` gives the cut file's text in 1 of the 8 shapes, and every CLI gives it in all 8 now. `--backlog-run-quick rust go python c` (with `dd3t9`, `dderx`, `df50j` and the 4 placement runners), lint-report, cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), rustfmt, gofmt, ruff, and markdownlint.
+	- Verified: 20261119, the 2,000,000 release fuzz of all fuzz_smoke on nov19b at 9d6d9d7e passed, `dd3t9` and `dderx` included (34 passed).
+	- Needs local test suite run?: No. The 2M release fuzz passed on 20261119.
+	- Branch: `nov19b-2026111109022600`
+	- Acceptance signoff: me, 20261119. Tests cover the fix, each new test was seen to fail without it, and the 2M fuzz passed.
+	- Closed: 20261119-155137
+	- Closed reason: Done
+
+- A default form's replaced-value comment puts the field's blank above a kept line's comments
+	- ID: 2026111022100191
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261110-221001
+	- Opened by: found while working 2026111012160121
+	- Related IDs: 2026111012160121, 2026111021153725
+	- Version and build: r1111 at `e0b1f62d`
+	- Steps to reproduce: `printf 'b:\n# note\nq: [1\n\nz: "t"\n' > f.shcl`, then `printf 'int-default\tz\t5\n' | shcl set f.shcl`.
+	- Incorrect behavior: the output is `b:`, a blank, `# note`, `q: [1`, the `# z: "t"  ## replaced by shcl ...` comment, `z: "5"`. The blank that set off `z` goes above the comment on the kept `E019` line. A `comment` op on `z` does the same.
+	- Expected behavior: the output is `b:`, `# note`, `q: [1`, a blank, the replaced-value comment, `z: "5"`, as `int z 5` keeps the blank above `z`.
+	- Reproduced: 20261111, the Rust, Go, and C CLIs.
+	- Possible cause: the same as 2026111021153725. A comment added to a node counts the kept lines in its leading lines, and their comments, as the node's own comments, and puts its blank above them all.
+	- Estimated effort: Low
+	- Note: the placement property in `dderx` and `dd3t9` excuses this class with a check keyed by this ID. The fix takes it out.
+	- 20261111: the property that excuses this is now in dev's `fuzz_smoke.rs`, on b2bits. The CLI reproduction stands.
+	- Reproduced: 20261119, the Rust CLI on nov19b, the same output.
+	- Actual cause [Bug]: `push_comment`, which `set_comment` and the default forms' note both call, moved the node's blank onto the first of its leading lines. The canonical text writes those lines above the node's blank, so with a kept line among them the blank went above the kept line's comments.
+	- Actual fix [Bug]: the blank goes on the new comment, so every line already above the node stays above the blank, in all 4 bindings (`push_comment` in `lib.rs`, `pushComment` in `shcl.go`, `_push_comment` in `shcl.py`, `w_push_comment` in `shcl.h`). design.md's "Kept lines under edits" and the changelog say so. The excuse keyed by this ID is out of `placement_slips`.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261119: the blank stays where the canonical text had it, and the new comment goes under it, rather than the blank moving to the line after the last kept line. That way a comment between a kept line and the blank stays above the blank, as `int z 5` leaves it (row `-3`).
+	- Swept: the 2 callers of `push_comment` in each binding, `set_comment` and `replace_default`. `adopt_heir` already puts the blank on the first line it adds. `adopt`'s handover of a removed node's blank goes above the heir's comments on purpose, as cutting the line by hand does (2026111623191917). The banner's blank is its own rule.
+	- Test case: placement rows `2026111022100191-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dd3t9`, `dderx`.
+	- Verified: the 3 rows fail on the library at `6a983d87` (Rust runner, C runner) and pass on the change in all 4 runners. The issue's commands give the expected text through all 4 CLIs. `--backlog-run-quick rust go python c` (with `dd3t9`, `dderx`, `df50j`), `dd3t9` and `dderx` at 200,000 in release, cli-regress (675 rows), crosscheck over the corpus (23862 comparisons), check-docs, lint-report, rustfmt, and markdownlint.
+	- Verified: 20261119, the 2,000,000 release fuzz of all fuzz_smoke on nov19b at 9d6d9d7e passed, `dd3t9` and `dderx` included (34 passed).
+	- Needs local test suite run?: No. The 2M release fuzz passed on 20261119.
+	- Branch: `nov19b-2026111022100191`
+	- Acceptance signoff: me, 20261119. Tests cover the fix, each new test was seen to fail without it, and the 2M fuzz passed.
+	- Closed: 20261119-155137
+	- Closed reason: Done
+
 - Format versions: work out a file's format from its stamp and its mtime
 	- ID: 2026111907075423
 	- Type: Feature
@@ -1316,6 +1496,40 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Closed: 20261119-110734
 	- Acceptance signoff: Self-closed (me): every Needs row ran and passed, by the memory.md close policy.
 	- Verified: 20261119 on nov19 at 53196692: analyze-c passed (de2wz-de2x4), the cppcheck line from LINT_EXTRA exited 0, and codeql-scan passed every row but de5aj, the Python CLI finding already filed as 2026111709183317.
+
+- Format versions: `upgrade` leaves a file stamped beta1's `Format 3` alone, where the load converts it from the format its mtime and tells give
+	- ID: 2026111912330681
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-123306
+	- Opened by: me
+	- Parent ID: 2026111907080423
+	- Prereq IDs: 2026111912004261
+	- Requirements: `upgrade` and `upgrade_file` find the format of a file stamped `Format 3` with `find_format` and convert it by the load's steps, as the load does, in all 4. The rules for `from_v2` on such a file, and the fuzz property `de116` that pins them, are 2026111907080445's to replace with `from`, so this likely goes with it.
+	- Estimated effort: Avg
+	- Note: 20261119, removing the early return on the Format line broke `de116`: with no mtime, a stamped file with an error was found to be a pin and made over with the error kept.
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261119: `upgrade` leaves a file alone up front only when its stamp names a newer format. Any other stamp goes to `find_format`, which settles `3.0` and a pin's own name, and reads beta1's `Format 3` by the mtime and the tells, as the load does. So a pin stamp such as `## SHCL format 3.0-a37` is made over too.
+		- me, 20261119: `from_v2` still takes a stamped file as 2.0, as before and as the load does, so 2026111907080445's `from` can replace it in one place.
+		- me, 20261119: a stamped file found to be a pin keeps the lines the pin refused as typed, as the load and an unstamped file do, so its fresh text can still have an error. `de116` now asks a made-over file to load clean only under `from_v2`, and a clean file naming this format to be current only when `find_format` doesn't give a pin from 3.0-a37 back. A new guard asks for files naming this format found to be a pin.
+		- me, 20261119: a pin whose rewrite changes nothing leaves a `Format 3` file current, stamp and all, since that line gives no hint and nothing needs writing. Only an older major's Format line gets the restamp.
+		- me, 20261119: when the fresh text's Format line read is beta1's `Format 3` or a pin, such as one inside a field's lines above the new block, it's rewritten to `3.0`, as a save without the block rewrites it. Without that, the next run read it by `find_format` again and made the file over again (`de116` at 200,000).
+		- me, 20261119: cli-regress `ddy87` (`upgrade-beta-unsaid`) gave `tags: a, b` under `Format 3` back as it was. The comma list is a tell of 3.0-a37 and older, so it's made over now, to `tags: [a, b]` with the block, and the load's `E026` printed.
+	- Verified: `dfh89` to `dfh8c` fail in all 4 runners with the early return on the Format line put back, and pass without. `dfh89` fails with the restamp of an unchanged pin file allowed. `de116` fails its new guard with the early return put back, and passes at 300, and at 200,000 and 1,000,000 in release. The 4 conformance suites, the C runner under ASan and UBSan, `--backlog-run-quick rust go python c cli`, cli-regress over the 4 CLIs, crosscheck over the corpus, shell-regress `dej8g`, `dc7gs`, `dcmcq` and `dd86w`, `test-ids.py check` and `lint-report.bash --check --no-mark` passed.
+	- Verified: 20261119, the 2,000,000 release fuzz of all fuzz_smoke on nov19b at 9d6d9d7e passed, `de116` included (34 passed).
+	- Swept: `upgrade_dated` in Rust, Go, Python and C, with the C++ interface over C's. The load already reads a stamped file by `find_format`. `migrate` doesn't find a format, by design. The CLIs call `upgrade_dated`. Docs: spec.md's `UpgradeFile` bullet and the Format line paragraph, design.md's `upgrade_file` bullet, the design doc, the changelog, and the `Upgrade` and `upgrade` doc comments in all 4 and `shcl.hpp`.
+	- Test case: `an_upgrade_reads_a_beta1_stamp_as_the_load_does` (Rust `dfh89`, Go `dfh8a`, Python `dfh8b`, C `dfh8c`), fuzz `de116`, and check-migrate `ddmp8`.
+	- Branch: `nov19b-2026111912330681`, fix on `nov19b-2026111912330681-fix`
+	- Needs local test suite run?: No. The 2M release fuzz passed on 20261119.
+	- Commit: `bec14386`
+	- Acceptance signoff: me, 20261119. Tests cover the fix, each new test was seen to fail without it, and the 2M fuzz passed.
+	- Closed: 20261119-155137
+	- Closed reason: Done
+	- 20261119: cli-regress `ddy87` expected `tags: a, b\n##    Format   3\n` and `nothing to upgrade`; it now expects `tags: [a, b]` with the block, and `E026`.
+	- 20261119: check-migrate `ddmp8` expected its 2 beta files (`tags: a, b` under `Format 3`, bare and under the info block) left alone without `--from-2x`. It now expects them made over without the flag too, backed up as `format-v3` and the same fresh file `--from-2x` writes. A corpus input naming format 3 with no pin's tell is still left alone. Verified: check-migrate passed.
 
 - A remove drops the blank line above its target, so the gap between 2 groups closes
 	- ID: 2026111623191917

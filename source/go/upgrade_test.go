@@ -332,7 +332,9 @@ func TestBannerOnAgreesWithAReload(t *testing.T) {
 
 func TestUpgradeWritesAFreshFileWithTheInfoBlock(t *testing.T) {
 	defer testID(t, "ddmk9")
-	up := Upgrade(upgradeV2File, false, true)
+	// Dated, so it's found to be 2.0 rather than 3.0-a37, which reads the
+	// comma list too and wrote no `#` block.
+	up := UpgradeDated(upgradeV2File, &sep1, false, true)
 	if up.Current || up.Ambiguous != 0 || up.Lost != 0 || up.Format != 2 {
 		t.Fatalf("2.x file: %+v", up)
 	}

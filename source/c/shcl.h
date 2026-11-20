@@ -917,10 +917,10 @@ shcl_read_str shcl_read_schema_ref(const char *text, size_t len);
 // shcl_upgraded_free gives back all of it. text is malloc'd and
 // NUL-terminated, len its length: the fresh file's text, or the input when
 // current, ambiguous or errors_left. current: the input loads with no error
-// under these rules and, with from_v2, migrates to the same text, or it names
-// this format, so it is left as it is. A beta build of 3.0 stamped the same
-// Format line as a release, so a beta file is current here too, unless
-// from_v2 says a 2.x build wrote it and it loads with an error.
+// under these rules and, with from_v2, migrates to the same text, or its stamp
+// names this format whole, so it is left as it is. A file stamped beta1's
+// `Format 3` is current when shcl_find_format finds it to be 3.0-9ef or later,
+// unless from_v2 says a 2.x build wrote it and it loads with an error.
 // format: the format the input was written for, which goes in the backup's
 // name: what its Format line names, else 2. ambiguous: as shcl_migration's;
 // nonzero means the text reads two ways and nothing is written. lost: lines
@@ -953,15 +953,16 @@ typedef struct {
 // be kept, or keeping them keeps an error, it is written the way `fmt` writes
 // it. A whole block above the first field stays, so a file with its block
 // at the top comes out with 2, both naming this format. This and a save with
-// shcl_save_options' banner are the library calls that write the block. A file that names this format comes back current
+// shcl_save_options' banner are the library calls that write the block. A file
+// whose stamp names this format whole comes back current
 // and untouched, and so does one that loads with no error under these rules,
 // since a program calling this on every start must never rewrite a good file.
 // from_v2 is shcl_migrate's: the file can only have been written for 2.x. Then
 // a file that loads clean is still made over when migrate would change it, as
-// it would `p: a,b`, an array under 2.x and one string now. The one file naming
-// this format that is made over is one that loads with an error when from_v2
-// says a 2.x build wrote it, as with a beta of 3.0 that wrote 2.x lines. It is
-// taken as 2.x. With from_v2, any file is made over only when the fresh text
+// it would `p: a,b`, an array under 2.x and one string now. A file naming this
+// format that loads with an error is taken as 2.x when from_v2 says a 2.x
+// build wrote it, as with a beta of 3.0 that wrote 2.x lines. With from_v2,
+// any file is made over only when the fresh text
 // loads clean; when it wouldn't, errors_left names the lines still in error.
 // Pass from_v2 only for a file known to be old, never on every start: a file
 // this format wrote that picks up an error later would be read by 2.x rules
@@ -970,7 +971,12 @@ typedef struct {
 // Without from_v2, the file's format is shcl_find_format's, from the text
 // alone, and only a format whose steps to this one rewrite anything gets made
 // over: one from 3.0-9ef on is current, its errors kept as typed, as a load
-// with migrate keeps them. shcl_upgrade_dated takes the file's mtime too.
+// with migrate keeps them. One from 3.0-1f8 to 3.0-a37 goes through that
+// format's step rather than shcl_migrate_unstamped, and is made over even when
+// it loads clean, since `"x\ty"` loads clean now and held a tab then. A file
+// stamped beta1's `Format 3` or a pin is read the same way, and the made-over
+// file's Format line names this format whole.
+// shcl_upgrade_dated takes the file's mtime too.
 shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2, int banner);
 // shcl_upgrade, with mtime for shcl_find_format: the file's, in Unix seconds,
 // or NULL for text from no file. shcl_upgrade_file passes the file's.
@@ -2069,7 +2075,10 @@ static int src_matches_display(ShclArena *a, const ShclValue *v, ShclStr s) {
 // shcl_migrate: every comma splits, a backslash shields the next character in
 // bare and single-quoted value text, a bare selector body still runs to its
 // first `]`, a separator followed by `[` is the selector sugar, and an open
-// quote swallows the rest of the line.
+// quote swallows the rest of the line. Under the private SHCL_LEX_PIN it reads
+// the spellings of the pins from 3.0-1f8 to 3.0-a37, for their conversion
+// step: every comma splits, a backslash escapes in double quotes only, a
+// selector is in brackets, and a `[` after the separator is plain text.
 //
 // The two span vectors grow in whatever arena the caller hands over - the
 // parser's scratch for a parse, the read arena for the public entry points -
@@ -2078,6 +2087,14 @@ static int src_matches_display(ShclArena *a, const ShclValue *v, ShclStr s) {
 
 typedef shcl_quote ShclQuote; typedef shcl_piece ShclPiece; typedef shcl_seg_tok ShclSegTok;
 typedef shcl_tokens ShclTokens; typedef shcl_rules ShclRules;
+
+/* shcl_rules, and the rules the pins from 3.0-1f8 to 3.0-a37 read by, which
+   only their conversion step asks for, so they aren't public. PIN: every
+   comma splits, a backslash escapes in double quotes and nowhere else, a
+   selector is in brackets, and a `[` after the separator is bracket text,
+   which they refused. */
+typedef enum { SHCL_LEX_CURRENT, SHCL_LEX_V2, SHCL_LEX_PIN } ShclLex;
+static ShclLex lex_of(ShclRules r) { return r == SHCL_RULES_V2 ? SHCL_LEX_V2 : SHCL_LEX_CURRENT; }
 
 static void tok_clear(ShclTokens *t) {
 	t->nseg = 0; t->has_sep = 0; t->sep = 0; t->value_start = 0; t->value_end = 0; t->nelem = 0;
@@ -2111,15 +2128,15 @@ static int white_space(uint32_t c);
 /* Byte length of the blank at s.p[i], or 0. 2.x trimmed every Unicode
    White_Space character at a piece's edges, a no-break space and a vertical
    tab included, so its rules count those as blanks too. */
-static size_t blank_len(ShclStr s, size_t i, ShclRules rules) {
+static size_t blank_len(ShclStr s, size_t i, ShclLex rules) {
 	unsigned char b = (unsigned char)s.p[i];
 	if (is_wsp(b)) return 1;
-	if (rules != SHCL_RULES_V2 || b < 0x0B || (b > 0x0C && b < 0x80)) return 0;
+	if (rules != SHCL_LEX_V2 || b < 0x0B || (b > 0x0C && b < 0x80)) return 0;
 	uint32_t c;
 	size_t n = utf8_decode(s.p, s.n, i, &c);
 	return (n > 1 || b < 0x80) && white_space(c) ? n : 0;
 }
-static void skip_blank(ShclStr s, size_t *pos, ShclRules rules) {
+static void skip_blank(ShclStr s, size_t *pos, ShclLex rules) {
 	size_t n;
 	while (*pos < s.n && (n = blank_len(s, *pos, rules)) != 0) *pos += n;
 }
@@ -2148,9 +2165,9 @@ static int name_stop(unsigned char b, char sep) {
 
 /* Offset of the quote that closes the one at pos; 0 when there is none. 2.x
    read a backslash as an escape inside quotes; now it is text. */
-static int quote_close(ShclStr s, size_t pos, ShclRules rules, size_t *close) {
+static int quote_close(ShclStr s, size_t pos, ShclLex rules, size_t *close) {
 	char q = s.p[pos];
-	int escapes = rules == SHCL_RULES_V2;
+	int escapes = rules == SHCL_LEX_V2 || (rules == SHCL_LEX_PIN && q == '"');
 	size_t i = pos + 1;
 	while (i < s.n) {
 		if (escapes && s.p[i] == '\\' && i + 1 < s.n) { i += 1 + utf8_len(s, i + 1); continue; }
@@ -2195,17 +2212,17 @@ static int loose_comma(ShclStr s, size_t at) {
    lookup path, where a `#` opens nothing. In a bracket array (array) the
    `]` that closes it ends a value element too, and every comma does;
    elsewhere only a loose one does, 2.x aside. */
-static size_t scan_piece(ShclStr s, size_t pos, char term, ShclRules rules, int comments, int array, ShclPiece *out) {
+static size_t scan_piece(ShclStr s, size_t pos, char term, ShclLex rules, int comments, int array, ShclPiece *out) {
 	/* 2.x's wider trim is taken for a value piece only. The selector arm of
 	   migrate cuts a body by its own offsets. */
-	ShclRules edges = term == ',' ? rules : SHCL_RULES_CURRENT;
+	ShclLex edges = term == ',' ? rules : SHCL_LEX_CURRENT;
 	skip_blank(s, &pos, edges);
 	size_t start = pos;
 	ShclQuote quote = SHCL_QUOTE_NONE;
-	int every_comma = term != ',' || array || rules == SHCL_RULES_V2;
+	int every_comma = term != ',' || array || rules != SHCL_LEX_CURRENT;
 	/* A backtick quotes a raw value element. 2.x had none, a selector body
 	   takes none, and a run of three opens a raw block instead. */
-	int tick = rules == SHCL_RULES_CURRENT && term == ',' && !(pos + 3 <= s.n && memcmp(s.p + pos, "```", 3) == 0);
+	int tick = rules == SHCL_LEX_CURRENT && term == ',' && !(pos + 3 <= s.n && memcmp(s.p + pos, "```", 3) == 0);
 	if (pos < s.n && (s.p[pos] == '"' || s.p[pos] == '\'' || (tick && s.p[pos] == '`'))) {
 		size_t close;
 		if (quote_close(s, pos, rules, &close)) {
@@ -2227,10 +2244,10 @@ static size_t scan_piece(ShclStr s, size_t pos, char term, ShclRules rules, int 
 			   all, and the scan restarts at it. 2.x went on from the close
 			   with the quotes read as a pair. */
 			quote = SHCL_QUOTE_OPEN;
-			if (rules == SHCL_RULES_V2) pos = close + 1;
+			if (rules == SHCL_LEX_V2) pos = close + 1;
 		} else {
 			quote = SHCL_QUOTE_OPEN;
-			if (rules == SHCL_RULES_V2) {
+			if (rules == SHCL_LEX_V2) {
 				/* 2.x: an open quote swallowed the rest of the line. */
 				size_t end = start;
 				for (size_t i = start; i < s.n;) {
@@ -2246,7 +2263,7 @@ static size_t scan_piece(ShclStr s, size_t pos, char term, ShclRules rules, int 
 	/* 2.x shielded a backslash in value text only. A bare selector body ran to
 	   its first `]`, the same as now, so shielding one here would hide the `]`.
 	   Now a backslash is text. */
-	int shield = rules == SHCL_RULES_V2 && term == ',';
+	int shield = rules == SHCL_LEX_V2 && term == ',';
 	size_t content_end = start;
 	while (pos < s.n) {
 		unsigned char b = (unsigned char)s.p[pos];
@@ -2268,7 +2285,7 @@ static size_t scan_piece(ShclStr s, size_t pos, char term, ShclRules rules, int 
 	/* 2.x judged a value piece quoted by its shape after the scan: a quote at
 	   both ends, the last one not escaped, however many closes sat between. A
 	   selector body had to close right before its `]`, or the line was E014. */
-	if (rules == SHCL_RULES_V2 && term == ',' && quote == SHCL_QUOTE_OPEN && content_end - start >= 2 && s.p[content_end - 1] == s.p[start]) {
+	if (rules == SHCL_LEX_V2 && term == ',' && quote == SHCL_QUOTE_OPEN && content_end - start >= 2 && s.p[content_end - 1] == s.p[start]) {
 		size_t run = 0;
 		while (run < content_end - 1 - start && s.p[content_end - 2 - run] == '\\') run++;
 		if (run % 2 == 0) {
@@ -2285,8 +2302,8 @@ static void scan_array(ShclArena *a, ShclStr text, size_t from, size_t open_at, 
 
 /* The value half: everything from `from` on, split into pieces, with the
    comment found on the way. */
-static void scan_value(ShclArena *a, ShclStr text, size_t from, ShclRules rules, ShclTokens *out) {
-	if (rules == SHCL_RULES_CURRENT) {
+static void scan_value(ShclArena *a, ShclStr text, size_t from, ShclLex rules, ShclTokens *out) {
+	if (rules == SHCL_LEX_CURRENT) {
 		size_t at = from; skip_wsp(text, &at);
 		if (at < text.n && text.p[at] == '[') { scan_array(a, text, from, at, out); return; }
 	}
@@ -2327,7 +2344,7 @@ static void scan_array(ShclArena *a, ShclStr s, size_t from, size_t open_at, Shc
 	size_t pos = open_at + 1, count = 0, stop_at;
 	int closed = 0; size_t close = 0;
 	for (;;) {
-		ShclPiece piece; size_t stop = scan_piece(s, pos, ',', SHCL_RULES_CURRENT, 1, 1, &piece);
+		ShclPiece piece; size_t stop = scan_piece(s, pos, ',', SHCL_LEX_CURRENT, 1, 1, &piece);
 		tok_push_elem(a, out, piece);
 		if (piece.quote == SHCL_QUOTE_NONE && piece.end == piece.start) {
 			/* `[]`, blanks or not, is the empty array; any other empty piece
@@ -2356,7 +2373,7 @@ static void scan_array(ShclArena *a, ShclStr s, size_t from, size_t open_at, Shc
 			if (!out->has_array_fault) tok_array_fault(out, after, "text after ']'");
 			/* The comment past the stray text, found the way a value finds it. */
 			for (;;) {
-				ShclPiece piece; size_t stop = scan_piece(s, after, ',', SHCL_RULES_CURRENT, 1, 0, &piece);
+				ShclPiece piece; size_t stop = scan_piece(s, after, ',', SHCL_LEX_CURRENT, 1, 0, &piece);
 				if (stop < s.n && s.p[stop] == ',') { after = stop + 1; continue; }
 				if (stop < s.n && glued_comment(s, &piece, stop)) { out->has_glued = 1; out->glued = stop; }
 				end = stop;
@@ -2373,9 +2390,12 @@ static void scan_array(ShclArena *a, ShclStr s, size_t from, size_t open_at, Shc
 	while (b > open_at && is_wsp((unsigned char)s.p[b - 1])) b--;
 	out->value_start = open_at; out->value_end = b;
 }
-static void tokenize_value(ShclArena *a, ShclStr text, size_t from, ShclRules rules, ShclTokens *out) {
+static void lex_value(ShclArena *a, ShclStr text, size_t from, ShclLex rules, ShclTokens *out) {
 	tok_clear(out);
 	scan_value(a, text, from, rules, out);
+}
+static void tokenize_value(ShclArena *a, ShclStr text, size_t from, ShclRules rules, ShclTokens *out) {
+	lex_value(a, text, from, lex_of(rules), out);
 }
 
 /* Tokenize one line (sep = ':') or one lookup path (path: the bare `*` name
@@ -2383,7 +2403,7 @@ static void tokenize_value(ShclArena *a, ShclStr text, size_t from, ShclRules ru
    CLI's --set passes '='. out is cleared and reused, so a parse allocates
    once per document rather than once per line. text is the line after its
    indent, or the path. */
-static void tokenize(ShclArena *a, ShclStr text, char sep, int path, ShclRules rules, ShclTokens *out) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order; sep is a char literal
+static void lex_line(ShclArena *a, ShclStr text, char sep, int path, ShclLex rules, ShclTokens *out) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order; sep is a char literal
 	tok_clear(out);
 	ShclStr s = text;
 	size_t pos = 0;
@@ -2410,7 +2430,7 @@ static void tokenize(ShclArena *a, ShclStr text, char sep, int path, ShclRules r
 			   strips the mark, so the line would bind as something else. One
 			   led by a `*` is a list item's line, which never gets here. */
 			int bom = start + 3 <= s.n && (unsigned char)s.p[start] == 0xEF && (unsigned char)s.p[start + 1] == 0xBB && (unsigned char)s.p[start + 2] == 0xBF;
-			if (!path && rules == SHCL_RULES_CURRENT && s.p[start] != '*' && !bom) {
+			if (!path && rules == SHCL_LEX_CURRENT && s.p[start] != '*' && !bom) {
 				size_t run = pos, end = pos;
 				while (pos < s.n && !name_stop((unsigned char)s.p[pos], sep)) {
 					unsigned char b = (unsigned char)s.p[pos];
@@ -2429,12 +2449,12 @@ static void tokenize(ShclArena *a, ShclStr text, char sep, int path, ShclRules r
 		/* 2.x wrote a selector in brackets only. Now it is parens, and a
 		   bracket one still reads, to its `]`, so the parser can say why. */
 		int have_open = 0; size_t open = 0; char close = ']';
-		if (pos < s.n && s.p[pos] == '(' && rules == SHCL_RULES_CURRENT) { have_open = 1; open = pos; close = ')'; }
+		if (pos < s.n && s.p[pos] == '(' && rules == SHCL_LEX_CURRENT) { have_open = 1; open = pos; close = ')'; }
 		else if (pos < s.n && s.p[pos] == '[') {
-			if (rules == SHCL_RULES_CURRENT && !out->has_bracket_selector) { out->has_bracket_selector = 1; out->bracket_selector = pos; }
+			if (rules == SHCL_LEX_CURRENT && !out->has_bracket_selector) { out->has_bracket_selector = 1; out->bracket_selector = pos; }
 			have_open = 1; open = pos;
 		}
-		if (!have_open && rules == SHCL_RULES_V2 && pos < s.n && s.p[pos] == sep) {
+		if (!have_open && rules == SHCL_LEX_V2 && pos < s.n && s.p[pos] == sep) {
 			size_t q = pos + 1; skip_wsp(s, &q);
 			if (q < s.n && s.p[q] == '[') { have_open = 1; open = q; }
 		}
@@ -2444,7 +2464,7 @@ static void tokenize(ShclArena *a, ShclStr text, char sep, int path, ShclRules r
 			if (!path && stop < s.n && comment_at(s, stop) && glued_comment(s, &piece, stop)) { out->has_glued = 1; out->glued = stop; }
 			if (stop >= s.n || s.p[stop] != close) { tok_fault(out, open, "unterminated selector"); return; }
 			if (piece.end == piece.start && piece.quote == SHCL_QUOTE_NONE) { tok_fault(out, open, "empty selector"); return; }
-			if (piece.quote == SHCL_QUOTE_OPEN && rules == SHCL_RULES_V2) { tok_fault(out, open, "unterminated quote in a selector"); return; }
+			if (piece.quote == SHCL_QUOTE_OPEN && rules == SHCL_LEX_V2) { tok_fault(out, open, "unterminated quote in a selector"); return; }
 			seg.selector = piece; seg.has_selector = 1;
 			pos = stop + 1;
 			skip_wsp(s, &pos);
@@ -2458,6 +2478,9 @@ static void tokenize(ShclArena *a, ShclStr text, char sep, int path, ShclRules r
 		tok_fault(out, pos, "unexpected character after the path");
 		return;
 	}
+}
+static void tokenize(ShclArena *a, ShclStr text, char sep, int path, ShclRules rules, ShclTokens *out) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order; sep is a char literal
+	lex_line(a, text, sep, path, lex_of(rules), out);
 }
 
 /* The two arrays belong to the arena they were grown in. Kept across a
@@ -3493,20 +3516,136 @@ static ShclStr v2_text(ShclArena *a, ShclStr raw) {
 	return sb_S(&out);
 }
 
-/* True when 2.x read this bare `[...]` body as the JSON-habit array rather
-   than a discriminator: more than one element, where a comma behind a
-   backslash was not one. */
-static int v2_bracket_array(ShclArena *a, ShclStr body) {
+/* True when the old rules read this bare `[...]` body as the JSON-habit
+   array rather than a discriminator: more than one element, where under 2.x
+   a comma behind a backslash was not one. */
+static int v2_bracket_array(ShclArena *a, ShclStr body, ShclLex rules) {
 	ShclTokens tok; memset(&tok, 0, sizeof tok);
-	tokenize_value(a, body, 0, SHCL_RULES_V2, &tok);
+	lex_value(a, body, 0, rules, &tok);
 	return tok.nelem > 1;
 }
 
+/* Which escapes a pin from 3.0-1f8 to 3.0-a37 read in double quotes, the only
+   place it read any, and which it refused. Later ones refuse more.
+   FROM_30D: 3.0-1f8 and 3.0-30d: `\t`, `\n`, `\\`, `\"` and `\'`. Any other
+   backslash is text.
+   FROM_B10: 3.0-b10: also `\u` with 4 hex digits and `\U` with 8. Any other
+   pair is refused (E023).
+   FROM_A37: 3.0-f8e and 3.0-a37: also refused is a value that starts like a
+   Windows path, a drive or a share, and holds `\t` or `\n` (E024). */
+typedef enum { SHCL_PIN_FROM_30D, SHCL_PIN_FROM_B10, SHCL_PIN_FROM_A37 } ShclPin;
+
 /* The counters a line rewrite reports back, and the one thing it asks.
+   rules: the old rules the text is read by, V2 or PIN. pin: under PIN, which
+   pinned rules, so which escapes they read and refused.
    bracketed: the line just rewritten put a 2.x comma list in brackets.
    refused_now: these rules refuse the line about to be rewritten, so it is
    not a correct 3.0 line, whatever the file is. */
-typedef struct { int from_v2; size_t ambiguous; size_t lost; int bracketed; int refused_now; } ShclMigrating;
+typedef struct { ShclLex rules; ShclPin pin; int from_v2; size_t ambiguous; size_t lost; int bracketed; int refused_now; } ShclMigrating;
+
+/* The character a `\u` or `\U` escape names under 3.0-b10 to 3.0-a37 in *cp,
+   and how many hex digits it takes in *len: 4 after `u`, 8 after `U`. 0 for a
+   short run, a surrogate or a value past U+10FFFF. */
+static int pin_codepoint(char kind, ShclStr after, uint32_t *cp, size_t *len) {
+	size_t n = kind == 'u' ? 4 : 8;
+	if (after.n < n) return 0;
+	uint32_t v = 0;
+	for (size_t i = 0; i < n; i++) {
+		char c = after.p[i];
+		uint32_t d;
+		if (c >= '0' && c <= '9') d = (uint32_t)(c - '0');
+		else if (c >= 'a' && c <= 'f') d = (uint32_t)(c - 'a' + 10);
+		else if (c >= 'A' && c <= 'F') d = (uint32_t)(c - 'A' + 10);
+		else return 0;
+		if (v > 0x10FFFF) return 0;
+		v = v * 16 + d;
+	}
+	if (v > 0x10FFFF || (v >= 0xD800 && v <= 0xDFFF)) return 0;
+	*cp = v; *len = n;
+	return 1;
+}
+
+/* What 3.0-1f8 to 3.0-a37 read in double quotes: `\t`, `\n`, `\\`, `\"` and
+   `\'` resolved, and with codepoints, from 3.0-b10, `\u` with 4 hex digits and
+   `\U` with 8. Any other backslash stays. */
+static ShclStr pin_escapes(ShclArena *a, ShclStr raw, int codepoints) {
+	if (raw.n == 0 || !memchr(raw.p, '\\', raw.n)) return raw;
+	ShclSB out = {0};
+	size_t i = 0;
+	while (i < raw.n) {
+		char c = raw.p[i++];
+		if (c != '\\') { sb_putc(a, &out, c); continue; }
+		if (i == raw.n) { sb_putc(a, &out, '\\'); break; }
+		c = raw.p[i];
+		uint32_t cp; size_t len;
+		if (c == 't') { sb_putc(a, &out, '\t'); i++; }
+		else if (c == 'n') { sb_putc(a, &out, '\n'); i++; }
+		else if (c == '\\' || c == '"' || c == '\'') { sb_putc(a, &out, c); i++; }
+		else if ((c == 'u' || c == 'U') && codepoints && pin_codepoint(c, s_slice(raw, i + 1, raw.n), &cp, &len)) { sb_put_cp(a, &out, cp); i += 1 + len; }
+		/* The character after it is copied on the next pass. */
+		else sb_putc(a, &out, '\\');
+	}
+	return sb_S(&out);
+}
+
+/* True when the pin refused this double-quoted text: from 3.0-b10 a backslash
+   pair it didn't know (E023), and from 3.0-f8e, in a value, `\t` or `\n` in
+   text that starts like a Windows path, a drive or a share (E024). */
+static int pin_bad_quoted(ShclStr raw, int value, ShclPin pin) {
+	if (pin == SHCL_PIN_FROM_30D) return 0;
+	int tab = 0;
+	size_t i = 0;
+	while (i < raw.n) {
+		if (raw.p[i++] != '\\') continue;
+		if (i == raw.n) return 1;
+		char c = raw.p[i++];
+		uint32_t cp; size_t len;
+		if (c == 't' || c == 'n') tab = 1;
+		else if (c == 'u' || c == 'U') {
+			if (!pin_codepoint(c, s_slice(raw, i, raw.n), &cp, &len)) return 1;
+			i += len;
+		} else if (c != '\\' && c != '"' && c != '\'') return 1;
+	}
+	unsigned char c0 = raw.n ? (unsigned char)raw.p[0] : 0;
+	int drive = raw.n >= 3 && ((c0 | 0x20) >= 'a' && (c0 | 0x20) <= 'z') && raw.p[1] == ':' && raw.p[2] == '\\';
+	int share = raw.n >= 2 && raw.p[0] == '\\' && raw.p[1] == '\\';
+	return pin >= SHCL_PIN_FROM_A37 && value && tab && (drive || share);
+}
+
+/* The text the old rules read for a piece as written, quoted as quote says:
+   v2_text under 2.x, and under the rules of 3.0-1f8 to 3.0-a37 the escapes in
+   double quotes only. */
+static ShclStr old_text(ShclArena *a, ShclStr raw, ShclQuote quote, const ShclMigrating *st) {
+	if (st->rules == SHCL_LEX_PIN) return quote == SHCL_QUOTE_DOUBLE ? pin_escapes(a, raw, st->pin >= SHCL_PIN_FROM_B10) : raw;
+	return v2_text(a, raw);
+}
+
+/* Whether the pin refused piece p of rest, a value one or not: a quote that
+   never closes, or a bad escape in double quotes. */
+static int pin_refused_piece(ShclStr rest, const ShclPiece *p, int value, const ShclMigrating *st) {
+	return p->quote == SHCL_QUOTE_OPEN || (p->quote == SHCL_QUOTE_DOUBLE && pin_bad_quoted(s_slice(rest, p->start, p->end), value, st->pin));
+}
+
+/* True when the old rules refused a line, as tokenized by them, so it has no
+   reading to keep and stays as typed. Only the rules of 3.0-1f8 to 3.0-a37 are
+   asked: a quote that never closes as a piece's last character (E017), a `[`
+   first after the separator (E019), and from 3.0-b10 a bad escape in double
+   quotes. The 2.x rewrite judges its lines itself. */
+static int old_refused(ShclStr rest, const ShclTokens *tok, int item, const ShclMigrating *st) {
+	if (st->rules != SHCL_LEX_PIN) return 0;
+	for (size_t i = 0; i < tok->nseg; i++) {
+		const ShclSegTok *seg = &tok->segments[i];
+		if (pin_refused_piece(rest, &seg->name, 0, st) || (seg->has_selector && pin_refused_piece(rest, &seg->selector, 0, st))) return 1;
+	}
+	if (!tok->has_sep && !item) return 0;
+	/* A raw block's info string is not escape text. */
+	int fenced = !item && fence_open(s_slice(rest, tok->value_start, rest.n)).ok;
+	int bracket = !item && tok->nelem > 0 && tok->elements[0].quote == SHCL_QUOTE_NONE && tok->elements[0].end > tok->elements[0].start && rest.p[tok->elements[0].start] == '[';
+	if (bracket) return 1;
+	for (size_t i = 0; !fenced && i < tok->nelem; i++)
+		if (pin_refused_piece(rest, &tok->elements[i], 1, st)) return 1;
+	return 0;
+}
 
 /* 2.x trimmed a blank the current rules keep, such as a no-break space or a
    vertical tab, at a piece's edges. A run of blanks on either side of the
@@ -3539,16 +3678,16 @@ static void v2_edge_edits(ShclArena *a, ShclStr text, size_t ea, size_t eb, Shcl
    at both ends makes it quoted) and rewritten only where the current rules
    would read it as other text than 2.x did. 2.x resolved a backslash pair,
    so `"C:\\new"` is written `"C:\new"` and `C:\temp` gets the tab escape. */
-static void value_edits(ShclArena *a, ShclStr text, const ShclTokens *tok, ShclVecEdit *edits) {
+static void value_edits(ShclArena *a, ShclStr text, const ShclTokens *tok, ShclVecEdit *edits, const ShclMigrating *st) {
 	for (size_t i = 0; i < tok->nelem; i++) {
 		const ShclPiece *p = &tok->elements[i];
 		ShclStr raw = s_slice(text, p->start, p->end), why;
 		int quoted = piece_quoted(p->quote);
 		size_t ea = quoted ? p->start - 1 : p->start, eb = quoted ? p->end + 1 : p->end;
-		v2_edge_edits(a, text, ea, eb, edits);
+		if (st->rules == SHCL_LEX_V2) v2_edge_edits(a, text, ea, eb, edits);
 		/* A comma or a `#` in a bare piece sat inside a quote 2.0 paired. */
 		if (p->quote == SHCL_QUOTE_NONE && !memchr(raw.p, '\\', raw.n) && !memchr(raw.p, ',', raw.n) && !memchr(raw.p, '#', raw.n) && !has_mark(raw) && raw.n && !bare_trouble(a, raw, BARE_VALUE, &why)) continue;
-		ShclStr logical = v2_text(a, raw);
+		ShclStr logical = old_text(a, raw, p->quote, st);
 		if (reads_same(a, s_slice(text, ea, eb), quoted, logical)) continue;
 		edit_push(a, edits, ea, eb, migrate_spelling(a, logical, !(quoted || p->quote == SHCL_QUOTE_OPEN)));
 	}
@@ -3556,8 +3695,8 @@ static void value_edits(ShclArena *a, ShclStr text, const ShclTokens *tok, ShclV
 
 /* One 2.x element, as the text 2.x read, the way the writer writes it,
    unless its quoted spelling already reads the same. */
-static ShclStr v2_element_text(ShclArena *a, ShclStr text, const ShclPiece *p) {
-	ShclStr logical = v2_text(a, s_slice(text, p->start, p->end));
+static ShclStr v2_element_text(ShclArena *a, ShclStr text, const ShclPiece *p, const ShclMigrating *st) {
+	ShclStr logical = old_text(a, s_slice(text, p->start, p->end), p->quote, st);
 	int quoted = piece_quoted(p->quote);
 	if (quoted && reads_same(a, s_slice(text, p->start - 1, p->end + 1), 1, logical)) return s_slice(text, p->start - 1, p->end + 1);
 	if (p->quote == SHCL_QUOTE_NONE && !needs_quotes(logical)) return logical;
@@ -3568,14 +3707,14 @@ static ShclStr v2_element_text(ShclArena *a, ShclStr text, const ShclPiece *p) {
    array. Its empty elements go, as 2.x dropped them. Each element is written
    the way the writer writes one inside `[]`, unless its quoted spelling
    already reads the same. */
-static ShclStr v2_array_text(ShclArena *a, ShclStr text, const ShclTokens *tok) {
+static ShclStr v2_array_text(ShclArena *a, ShclStr text, const ShclTokens *tok, const ShclMigrating *st) {
 	ShclSB out = {0};
 	sb_putc(a, &out, '[');
 	for (size_t i = 0; i < tok->nelem; i++) {
 		const ShclPiece *p = &tok->elements[i];
 		if (p->quote == SHCL_QUOTE_NONE && p->end <= p->start) continue;
 		if (out.len > 1) sb_puts(a, &out, ", ");
-		sb_putS(a, &out, v2_element_text(a, text, p));
+		sb_putS(a, &out, v2_element_text(a, text, p, st));
 	}
 	sb_putc(a, &out, ']');
 	return sb_S(&out);
@@ -3614,15 +3753,16 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 	if (f.ok) { *fence_on = 1; *fence_ch = f.ch; *fence_len = f.len; return rest; }
 	ShclVecEdit edits = {0};
 	if (rest.p[0] == '*' && rest.n > 1 && is_wsp((unsigned char)rest.p[1])) {
+		lex_value(ta, rest, 1, st->rules, tok);
+		if (old_refused(rest, tok, 1, st)) return rest;
 		edit_push(a, &edits, 0, 1, s_lit("-"));
-		tokenize_value(ta, rest, 1, SHCL_RULES_V2, tok);
 		/* A bare comma was refused (E010), so there is nothing to convert.
 		   A value's rules are an item's, and stricter about a colon, so
 		   what reads clean as one reads clean as the other. */
-		if (tok->nelem == 1) value_edits(a, rest, tok, &edits);
+		if (tok->nelem == 1) value_edits(a, rest, tok, &edits, st);
 	} else {
-		tokenize(ta, rest, ':', 0, SHCL_RULES_V2, tok);
-		if (tok->has_fault) return rest;
+		lex_line(ta, rest, ':', 0, st->rules, tok);
+		if (tok->has_fault || old_refused(rest, tok, 0, st)) return rest;
 		size_t last = tok->nseg - 1;
 		/* A selector in brackets is E029 now, so its line never reads clean
 		   and is rewritten whatever the file says it is. Only `name:[disc]`
@@ -3639,9 +3779,20 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 			   spelling. A bare name not led by a letter goes in quotes, since
 			   `-` then a blank would start a list item now.
 			   A file that does not say it is 2.x could be a 3.0 one. Where it
-			   reads clean under these rules as well, it is left and counted. */
+			   reads clean under these rules as well, it is left and counted.
+			   Under the rules of 3.0-1f8 to 3.0-a37 a double-quoted name
+			   resolved its escapes, and 2 spellings of one name were one, so it
+			   gets the spelling of the name it read. */
 			int respell = 0, clean_now = 0;
-			if (piece_quoted(seg->name.quote)) {
+			ShclStr logical_name = name;
+			if (st->rules == SHCL_LEX_PIN && seg->name.quote != SHCL_QUOTE_NONE) {
+				if ((name.n && memchr(name.p, '\\', name.n)) || has_mark(name)) {
+					logical_name = old_text(a, name, seg->name.quote, st);
+					ShclStr now;
+					clean_now = quoted_name_now(a, s_slice(rest, seg->name.start - 1, seg->name.end + 1), &now);
+					respell = !clean_now || !s_eq(now, logical_name);
+				} else clean_now = 1;
+			} else if (piece_quoted(seg->name.quote)) {
 				int pair = !s_eq(v2_text(a, name), name);
 				if (pair) st->lost++;
 				if (!pair && ((name.n && memchr(name.p, '\\', name.n)) || has_mark(name))) {
@@ -3657,7 +3808,7 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 			if (respell && clean_now && !st->from_v2 && !st->refused_now) st->ambiguous++;
 			else if (respell) {
 				int q = seg->name.quote != SHCL_QUOTE_NONE;
-				edit_push(a, &edits, q ? seg->name.start - 1 : seg->name.start, q ? seg->name.end + 1 : seg->name.end, escape_name(a, name));
+				edit_push(a, &edits, q ? seg->name.start - 1 : seg->name.start, q ? seg->name.end + 1 : seg->name.end, escape_name(a, logical_name));
 			}
 			if (!seg->has_selector) continue;
 			const ShclPiece *sel = &seg->selector;
@@ -3676,7 +3827,7 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 			ShclStr spelled = quoted ? s_slice(rest, sel->start - 1, sel->end + 1) : body;
 			/* 2.x matched a selector by its text with the backslash pairs
 			   resolved, as it read a value. */
-			ShclStr logical = v2_text(a, body);
+			ShclStr logical = old_text(a, body, sel->quote, st);
 			if (i == last && !tok->has_sep) {
 				if (has_colon) {
 					/* name:[disc] with nothing after it: 2.x read it as
@@ -3691,7 +3842,7 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 					   is no spelling to move that to - in brackets it is an
 					   array of several now - so the binding goes, and the
 					   caller hears about it rather than reading exit 0. */
-					if (!quoted && v2_bracket_array(a, body)) { st->lost++; return rest; }
+					if (!quoted && v2_bracket_array(a, body, st->rules)) { st->lost++; return rest; }
 					/* `[a]` is a one-element array now. */
 					if (!st->from_v2 && !st->refused_now) {
 						ShclTokens now; memset(&now, 0, sizeof now);
@@ -3716,7 +3867,7 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 			int index = !quoted && (index_shape(body) || (body.n == 1 && body.p[0] == '*'));
 			/* 2.x matched an array value by its display form, and a selector
 			   matches one plain value now, so nothing spells this. */
-			if (!index && !quoted && v2_bracket_array(a, body)) { st->lost++; return rest; }
+			if (!index && !quoted && v2_bracket_array(a, body, st->rules)) { st->lost++; return rest; }
 			edit_push(a, &edits, open, open + 1, s_lit("("));
 			edit_push(a, &edits, close, close + 1, s_lit(")"));
 			/* A backslash pair 2.x resolved, a quote or a blank the body has
@@ -3747,17 +3898,17 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 						for (size_t i = 0; i < tok->nelem; i++) {
 							const ShclPiece *p = &tok->elements[i];
 							if (p->quote == SHCL_QUOTE_NONE && p->end <= p->start) continue;
-							edit_push(a, &edits, tok->value_start, tok->value_end, v2_element_text(a, rest, p));
+							edit_push(a, &edits, tok->value_start, tok->value_end, v2_element_text(a, rest, p, st));
 							break;
 						}
 					} else {
 						st->bracketed = 1;
-						edit_push(a, &edits, tok->value_start, tok->value_end, v2_array_text(a, rest, tok));
+						edit_push(a, &edits, tok->value_start, tok->value_end, v2_array_text(a, rest, tok, st));
 					}
 				} else st->ambiguous++;
 			} else {
 				size_t before = edits.len;
-				value_edits(a, rest, tok, &edits);
+				value_edits(a, rest, tok, &edits, st);
 				if (!st->from_v2 && !st->refused_now && edits.len > before && reads_clean_now(a, rest, tok->sep + 1)) {
 					edits.len = before;
 					st->ambiguous++;
@@ -3772,16 +3923,18 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
    one rule set reads the file: the current rules find a block where the parser
    does, and the 2.x rules where the rewrite does. */
 typedef struct {
-	ShclRules rules;
+	ShclLex rules;
 	ShclTokens tok;
 	int fence_on; unsigned char fence_ch; size_t fence_len;
 	/* Only the blocks a line opens are wanted, not what the rewrite counts. */
 	ShclMigrating dry;
 } ShclRawLines;
 
-static void raw_lines_init(ShclRawLines *w, ShclRules rules) {
+static void raw_lines_init(ShclRawLines *w, ShclLex rules) {
 	memset(w, 0, sizeof *w);
 	w->rules = rules;
+	w->dry.rules = rules;
+	w->dry.pin = SHCL_PIN_FROM_A37;
 	w->dry.from_v2 = 1;
 }
 
@@ -3818,7 +3971,7 @@ static int raw_lines_step(ShclArena *ta, ShclArena *sc, ShclRawLines *w, ShclStr
 	for (size_t k = 0; k + 2 < rest->n; k++) {
 		char c = rest->p[k];
 		if ((c == '`' || c == '~') && rest->p[k + 1] == c && rest->p[k + 2] == c) {
-			if (w->rules == SHCL_RULES_CURRENT) {
+			if (w->rules == SHCL_LEX_CURRENT) {
 				ShclFence f = opens_raw(ta, *rest, &w->tok);
 				w->fence_on = f.ok; w->fence_ch = f.ch; w->fence_len = f.len;
 			} else {
@@ -3948,8 +4101,8 @@ static ShclStamp format_line_read(ShclArena *ta, ShclArena *sc, ShclStr text) {
 	if (!s_has(text, s_lit(SHCL_FORMAT_WORD)) && !s_has(text, s_lit(SHCL_STAMP_WORD))) return none;
 	ShclStamp found = none, newest = none, unread = none;
 	ShclRawLines now, then;
-	raw_lines_init(&now, SHCL_RULES_CURRENT);
-	raw_lines_init(&then, SHCL_RULES_V2);
+	raw_lines_init(&now, SHCL_LEX_CURRENT);
+	raw_lines_init(&then, SHCL_LEX_V2);
 	size_t lineno = 0;
 	for (size_t i = 0; i <= text.n; i++) {
 		if (i < text.n && text.p[i] != '\n') continue;
@@ -4119,7 +4272,7 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
 	}
 	ShclStamp named = format_line_read(a, sc, text);
 	int64_t version = named.status == SHCL_GOOD ? named.value : -1;
-	if (version > SHCL_FORMAT_MAJOR || (version == SHCL_FORMAT_MAJOR && !beta)) { *current = 1; return whole; }
+	if (st->rules != SHCL_LEX_PIN && (version > SHCL_FORMAT_MAJOR || (version == SHCL_FORMAT_MAJOR && !beta))) { *current = 1; return whole; }
 	if (version >= 0) st->from_v2 = 1;
 	/* Per line: these rules refuse it (1), or it put a 2.x comma list in
 	   brackets (2). */
@@ -4144,7 +4297,7 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
 	int fence_on = 0; unsigned char fence_ch = 0; size_t fence_len = 0;
 	/* The output as the parser will read it, for where its raw blocks are. */
 	ShclRawLines now;
-	raw_lines_init(&now, SHCL_RULES_CURRENT);
+	raw_lines_init(&now, SHCL_LEX_CURRENT);
 	int split = 0;
 	size_t start = 0, lineno = 0;
 	for (size_t i = 0; i <= text.n; i++) {
@@ -4234,8 +4387,10 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
    to `sc`, reset per line, so a large document costs its own size and not
    every line's scratch on top. An allocation failure goes to outer when it is
    not NULL, the recovery point of a call that holds memory of its own around
-   this one, else to SHCL_OOM. */
-static shcl_migration migrate_text(const char *text, size_t len, int from_v2, int stamp, int beta, jmp_buf *outer) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order; each caller is a named wrapper
+   this one, else to SHCL_OOM.
+   pin, when not NULL, reads the text by that pin's rules rather than 2.x, for
+   a file found to be in one of those formats, whatever its Format line says. */
+static shcl_migration migrate_text(const char *text, size_t len, int from_v2, int stamp, int beta, const ShclPin *pin, jmp_buf *outer) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order; each caller is a named wrapper
 	SHCL_VOLATILE_OWNER_BEGIN
 	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
 	if (!own) arena_panic(outer);
@@ -4251,7 +4406,10 @@ static shcl_migration migrate_text(const char *text, size_t len, int from_v2, in
 	}
 	arena_guard(&own->a, &panic); arena_guard(&own->sc, &panic);
 	ShclStr in; in.p = text ? text : ""; in.n = len;
-	ShclMigrating st; memset(&st, 0, sizeof st); st.from_v2 = from_v2;
+	ShclMigrating st; memset(&st, 0, sizeof st);
+	st.rules = pin ? SHCL_LEX_PIN : SHCL_LEX_V2;
+	st.pin = pin ? *pin : SHCL_PIN_FROM_A37;
+	st.from_v2 = from_v2 || pin;
 	shcl_migration m; m.current = 0;
 	ShclStr r = migrate(own, in, &st, &m.current, stamp, beta);
 	m.ambiguous = st.ambiguous; m.lost = st.lost; m.len = r.n;
@@ -4271,9 +4429,10 @@ static shcl_migration migrate_text(const char *text, size_t len, int from_v2, in
 
 /* restamp() for shcl_upgrade, on the line its own read of the text finds: a
    malloc'd copy with its length in *out_len, or NULL when the text names no
-   older format or the new line would not read as the stamp. An allocation
-   failure goes to outer. */
-static char *restamp_text(const char *text, size_t len, size_t *out_len, jmp_buf *outer) {
+   older format or the new line would not read as the stamp. With whole, a
+   line naming this major but not this format whole, as beta1's `Format 3`
+   or a pin, is rewritten too. An allocation failure goes to outer. */
+static char *restamp_text(const char *text, size_t len, size_t *out_len, int whole, jmp_buf *outer) {
 	SHCL_VOLATILE_OWNER_BEGIN
 	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
 	if (!own) arena_panic(outer);
@@ -4291,7 +4450,8 @@ static char *restamp_text(const char *text, size_t len, size_t *out_len, jmp_buf
 	ShclStamp named = format_line_read(&own->a, &own->sc, body);
 	ShclSB re;
 	char *r = NULL;
-	if (named.status == SHCL_GOOD && named.value < SHCL_FORMAT_MAJOR && restamp(&own->a, &own->sc, in, named.line, &re)) {
+	int older = whole ? !names_this(named) && !names_newer(named) : named.value < SHCL_FORMAT_MAJOR;
+	if (named.status == SHCL_GOOD && older && restamp(&own->a, &own->sc, in, named.line, &re)) {
 		ShclStr t = sb_S(&re);
 		r = (char *)malloc(t.n + 1);
 		if (!r) longjmp(panic, 1);
@@ -4304,11 +4464,11 @@ static char *restamp_text(const char *text, size_t len, size_t *out_len, jmp_buf
 }
 
 shcl_migration shcl_migrate(const char *text, size_t len, int from_v2) {
-	return migrate_text(text, len, from_v2, 1, 0, NULL);
+	return migrate_text(text, len, from_v2, 1, 0, NULL, NULL);
 }
 
 shcl_migration shcl_migrate_unstamped(const char *text, size_t len, int from_v2) {
-	return migrate_text(text, len, from_v2, 0, 0, NULL);
+	return migrate_text(text, len, from_v2, 0, 0, NULL, NULL);
 }
 
 static size_t swap_banner(shcl_doc *d, int on, int v2);
@@ -4316,7 +4476,7 @@ static int size_cmp(const void *pa, const void *pb);
 
 /* What shcl_upgrade holds while it works, off the frame for the same reason
    as ShclMigrateOwn. */
-typedef struct { shcl_doc *before, *fresh, *made; char *migrated, *text; size_t *left; } ShclUpgradeOwn;
+typedef struct { shcl_doc *before, *fresh, *made; char *migrated, *stamped, *text; size_t *left; } ShclUpgradeOwn;
 
 static void keep_source_in(shcl_doc *k, ShclStr t);
 static ShclStr emit_canonical(shcl_doc *d);
@@ -4353,12 +4513,18 @@ static shcl_str upgrade_text(shcl_doc *fresh, int banner, jmp_buf *panic) {
    needs. SAME: the 2 formats read every line the same, but for lines the
    older one refuses, which stay as typed. Nothing changes. V2: migrate's
    rewrite from the 2.x rules, which lands on the current format. It stands in
-   for the steps from 1.0 to 3.0-a37 until they're built (2026111908444515,
-   2026111908444534). */
-typedef enum { SHCL_STEP_SAME, SHCL_STEP_V2 } ShclStep;
+   for the steps from 1.0 to 2.0 until they're built (2026111908444534). PIN:
+   the rewrite from the rules of a pin from 3.0-1f8 to 3.0-a37 into the format
+   3 value syntax, where a backslash is text. It ends at the current format. A
+   line those rules refused stays as typed. */
+typedef enum { SHCL_STEP_SAME, SHCL_STEP_V2, SHCL_STEP_PIN } ShclStepKind;
+
+/* A step: its kind, and for PIN which pin's rules. Other kinds leave pin at
+   its first value, which nothing reads. */
+typedef struct { ShclStepKind kind; ShclPin pin; } ShclStep;
 
 /* Defined beside shcl_format_days. */
-static int s_first_rewrite(const char *format);
+static ShclStep s_first_rewrite(const char *format);
 
 /* The lines with an error on them, in order, each once, into *out (malloc'd).
    Returns how many. */
@@ -4387,19 +4553,27 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 	up->format = version < 0 ? 2 : (uint32_t)version;
 	shcl_str keep; keep.p = text; keep.n = len;
 	int restamped = 0;
-	/* The load's step table. Only V2 rewrites yet, and this is its upgrade
-	   form, so a format whose run is all SAME has nothing to do. */
-	if (!newer && (version < SHCL_FORMAT_MAJOR || (version == SHCL_FORMAT_MAJOR && from_v2))
-		&& s_first_rewrite(from_v2 ? "2.0" : shcl_find_format(text, len, mtime)) == SHCL_STEP_V2) {
+	/* The load's step table, in its upgrade form, so a format whose run is
+	   all SAME has nothing to do. beta1's `Format 3` names only a major, so
+	   shcl_find_format reads it as the load does, with the mtime and the
+	   tells. */
+	ShclStep step = {SHCL_STEP_SAME, SHCL_PIN_FROM_30D};
+	if (!newer)
+		step = s_first_rewrite(from_v2 ? "2.0" : shcl_find_format(text, len, mtime));
+	if (step.kind != SHCL_STEP_SAME) {
+		int pinned = step.kind == SHCL_STEP_PIN;
 		own->before = shcl_parse(text, len);
 		if (!own->before) longjmp(*panic, 1);
 		int clean = shcl_error_count(own->before) == 0;
 		shcl_migration m; memset(&m, 0, sizeof m);
 		/* A beta of 3.0 wrote this format's line too, so only the caller can
 		   say a 2.x build wrote the file. One that loads clean is what an
-		   upgrade leaves, so a second run over its output leaves it alone. */
-		if (!clean || (from_v2 && version != SHCL_FORMAT_MAJOR)) {
-			m = migrate_text(text, len, from_v2, 0, 1, panic);
+		   upgrade leaves, so a second run over its output leaves it alone. A
+		   file found to be from 3.0-1f8 to 3.0-a37 can load clean and still
+		   read otherwise, as `"x\ty"` does, so it is made over as the load
+		   makes it over. */
+		if (!clean || pinned || (from_v2 && version != SHCL_FORMAT_MAJOR)) {
+			m = migrate_text(text, len, from_v2, 0, 1, pinned ? &step.pin : NULL, panic);
 			own->migrated = m.text;
 			/* A 2.x file can load clean and still read differently now, as
 			   `a,b` does. One migrate leaves as it was has nothing to do, but an
@@ -4410,7 +4584,7 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 				up->ambiguous = m.ambiguous;
 			} else if (version >= 0) {
 				size_t n = 0;
-				char *re = restamp_text(text, len, &n, panic);
+				char *re = restamp_text(text, len, &n, 0, panic);
 				if (re) {
 					/* The same text as the input, so the copy can go. */
 					free(own->migrated);
@@ -4430,12 +4604,20 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 			size_t nleft = error_lines(own->fresh, &own->left, panic);
 			ShclStr src; src.p = m.text; src.n = m.len;
 			keep_source_in(own->fresh, src);
-			swap_banner(own->fresh, banner, 1);
+			/* Only 2.x's block is in `#` comments. */
+			swap_banner(own->fresh, banner, !pinned);
 			keep = upgrade_text(own->fresh, banner, panic);
+			/* The block names this format, but a beta1 `Format 3` line above
+			   it is the one read, and would send the next run to
+			   shcl_find_format again, so it names this format too, as the
+			   stamp a save without the block writes. */
+			size_t ns = 0;
+			own->stamped = restamp_text(keep.p, keep.n, &ns, 1, panic);
+			if (own->stamped) { keep.p = own->stamped; keep.n = ns; }
 			/* With from_v2 it goes only when that leaves it loading clean, or
 			   the next run with it would read the result by 2.x rules again
-			   (2026101515372401). Without, a Format 3 file with an error is
-			   current. */
+			   (2026101515372401). Without, a line in error stays as typed, as
+			   on load. */
 			if (from_v2) {
 				own->made = shcl_parse(keep.p, keep.n);
 				if (!own->made) longjmp(*panic, 1);
@@ -4472,13 +4654,13 @@ shcl_upgraded shcl_upgrade_dated(const char *text, size_t len, const int64_t *mt
 	jmp_buf panic;
 	if (SHCL_SETJMP(panic)) {
 		ShclUpgradeOwn *bad = own;
-		shcl_free(bad->before); shcl_free(bad->fresh); shcl_free(bad->made); free(bad->migrated); free(bad->text); free(bad->left); free(bad);
+		shcl_free(bad->before); shcl_free(bad->fresh); shcl_free(bad->made); free(bad->migrated); free(bad->stamped); free(bad->text); free(bad->left); free(bad);
 		SHCL_OOM();
 		abort();
 	}
 	upgrade_into(own, &panic, text, len, mtime, from_v2, banner, &up);
 	ShclUpgradeOwn *done = own;
-	shcl_free(done->before); shcl_free(done->fresh); shcl_free(done->made); free(done->migrated); free(done->left); free(done);
+	shcl_free(done->before); shcl_free(done->fresh); shcl_free(done->made); free(done->migrated); free(done->stamped); free(done->left); free(done);
 	return up;
 }
 
@@ -4549,30 +4731,31 @@ static const struct { const char *name; int64_t day; } shcl_format_days[11] = {
 /* The step out of each format of shcl_format_days but the current one, in the
    same order. */
 static const ShclStep shcl_format_steps[sizeof shcl_format_days / sizeof shcl_format_days[0] - 1] = {
-	SHCL_STEP_V2,   /* 1.0 */
-	SHCL_STEP_V2,   /* 1.1 */
-	SHCL_STEP_V2,   /* 2.0 */
-	SHCL_STEP_V2,   /* 3.0-1f8 */
-	SHCL_STEP_V2,   /* 3.0-30d */
-	SHCL_STEP_V2,   /* 3.0-b10 */
-	SHCL_STEP_V2,   /* 3.0-f8e */
-	SHCL_STEP_V2,   /* 3.0-a37 */
-	SHCL_STEP_SAME, /* 3.0-9ef, which refused an apostrophe inside a bare word */
-	SHCL_STEP_SAME, /* 3.0-a65 */
+	{SHCL_STEP_V2, SHCL_PIN_FROM_30D},   /* 1.0 */
+	{SHCL_STEP_V2, SHCL_PIN_FROM_30D},   /* 1.1 */
+	{SHCL_STEP_V2, SHCL_PIN_FROM_30D},   /* 2.0 */
+	{SHCL_STEP_PIN, SHCL_PIN_FROM_30D},  /* 3.0-1f8, read as 3.0-30d but where a line has an error */
+	{SHCL_STEP_PIN, SHCL_PIN_FROM_30D},  /* 3.0-30d */
+	{SHCL_STEP_PIN, SHCL_PIN_FROM_B10},  /* 3.0-b10 */
+	{SHCL_STEP_SAME, SHCL_PIN_FROM_30D}, /* 3.0-f8e, read as 3.0-a37 but where a line has an error */
+	{SHCL_STEP_PIN, SHCL_PIN_FROM_A37},  /* 3.0-a37 */
+	{SHCL_STEP_SAME, SHCL_PIN_FROM_30D}, /* 3.0-9ef, which refused an apostrophe inside a bare word */
+	{SHCL_STEP_SAME, SHCL_PIN_FROM_30D}, /* 3.0-a65 */
 };
 
 /* The first step of the run from format to the current one that changes
-   anything, or -1 when every step from there is SAME, as from the current
-   format, or for NULL, a newer format's. */
-static int s_first_rewrite(const char *format) {
+   anything, or one of kind SAME when every step from there is SAME, as from
+   the current format, or for NULL, a newer format's. */
+static ShclStep s_first_rewrite(const char *format) {
 	size_t steps = sizeof shcl_format_steps / sizeof shcl_format_steps[0], at = steps;
 	for (size_t k = 0; format && k < steps; k++) {
 		if (strcmp(shcl_format_days[k].name, format) == 0) { at = k; break; }
 	}
 	for (; at < steps; at++) {
-		if (shcl_format_steps[at] != SHCL_STEP_SAME) return (int)shcl_format_steps[at];
+		if (shcl_format_steps[at].kind != SHCL_STEP_SAME) return shcl_format_steps[at];
 	}
-	return -1;
+	ShclStep none = {SHCL_STEP_SAME, SHCL_PIN_FROM_30D};
+	return none;
 }
 
 /* The runs of shcl_format_days the design doc's Tells table counts each tell
@@ -4688,7 +4871,7 @@ static uint32_t most_legal(ShclStr in, uint32_t left) {
 	size_t against[sizeof shcl_format_days / sizeof shcl_format_days[0]] = {0};
 	uint32_t footers = 0;
 	ShclRawLines lines;
-	raw_lines_init(&lines, SHCL_RULES_CURRENT);
+	raw_lines_init(&lines, SHCL_LEX_CURRENT);
 	ShclTokens tok; memset(&tok, 0, sizeof tok);
 	size_t start = 0, ln = 0;
 	for (size_t i = 0; i <= in.n; i++) {
@@ -4768,7 +4951,7 @@ static shcl_status schema_line_ref(ShclArena *ta, ShclArena *sc, ShclStr text, S
 	if (!s_has(text, word)) return SHCL_NOT_FOUND;
 	size_t empty = 0;
 	ShclRawLines lines;
-	raw_lines_init(&lines, SHCL_RULES_CURRENT);
+	raw_lines_init(&lines, SHCL_LEX_CURRENT);
 	for (size_t i = 0; i <= text.n; i++) {
 		if (i < text.n && text.p[i] != '\n') continue;
 		ShclStr raw = s_slice(text, start, i);
@@ -7338,6 +7521,8 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 	   caller's buffer and per-piece duplication disappears. */
 	full = s_dup(a, full);
 	P.src = full;
+	/* Read before the text is cut into lines, as the reference does. */
+	stamp_hint(&P, full);
 	ShclVecS lines = {0};
 	{
 		size_t start = 0;
@@ -7359,7 +7544,6 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 		}
 	}
 	P.src_lines = lines;
-	stamp_hint(&P, full);
 	size_t i = 0;
 	while (i < lines.len) {
 		/* Node cap: reported at the first line not parsed, so the count can
@@ -9233,7 +9417,8 @@ static void adopt_folded(shcl_doc *d, ShclVecFoldRec *folded) {
    the first of the parent's trailing lines. With none of those it goes,
    since nothing under it is left to set off. A misplaced line has no level
    at the end of a block, so it goes to the next binding line, as a reload
-   files it, with the comments after it. Takes lines. */
+   files it, with the comments after it that come before another misplaced
+   line or the end. Takes lines. */
 static void adopt(shcl_doc *d, ShclHeir to, ShclVecLead *lines, int blank) {
 	if (blank && (to.kind == HEIR_TAKES || to.kind == HEIR_NEXT)) {
 		/* Above the node's comments, else above its line. */
@@ -9290,9 +9475,14 @@ static void adopt(shcl_doc *d, ShclHeir to, ShclVecLead *lines, int blank) {
 		ShclStr x = lines->data[k].text;
 		if (x.n && (x.p[0] == ' ' || x.p[0] == '\t')) { at = k; break; }
 	}
-	size_t w = at;
+	/* A comment goes with the line after it, as a reload files it: it stays
+	   above a kept field line, and goes down before a misplaced line or past
+	   the last line (2026111109022600). */
+	size_t w = at, next = at;
 	for (size_t k = at; k < lines->len; k++) {
-		if (is_field(lines->data[k].text)) lines->data[w++] = lines->data[k];
+		if (next < k) next = k;
+		while (next < lines->len && lines->data[next].text.n && lines->data[next].text.p[0] == '#') next++;
+		if (next < lines->len && is_field(lines->data[next].text)) lines->data[w++] = lines->data[k];
 		else ShclVecLead_push(&d->arena, &below, lines->data[k]);
 	}
 	lines->len = w;
@@ -9491,17 +9681,15 @@ shcl_set_status shcl_check_set_path(shcl_doc *d, const char *path, size_t plen) 
    the document arena. */
 static void w_push_comment(shcl_doc *d, size_t idx, ShclStr text) {
 	ShclArena *a = &d->arena;
-	/* The node's own blank moves above its first comment; otherwise the blank
-	   would separate the comment from what it annotates. Above the first one
-	   already there, when there is one. */
+	/* The node's own blank moves above the new comment; otherwise the blank
+	   would separate the comment from what it annotates. The lines already
+	   above the node are written above its blank, so they stay there, a kept
+	   line's comments included (2026111022100191). */
 	ShclNode *nd = &NODE(d, idx);
 	ShclLead lead = lead_plain(text);
 	ShclTrivia *t = triv_mut(a, nd);
-	if (nd->blank_before) {
-		nd->blank_before = 0;
-		if (t->leading.len) t->leading.data[0].blank_before = 1;
-		else lead.blank_before = 1;
-	}
+	lead.blank_before = nd->blank_before;
+	nd->blank_before = 0;
 	ShclVecLead_push(a, &t->leading, lead);
 	settle_first_blank(d);
 	resettle_kept(d);
@@ -16192,7 +16380,9 @@ static int s_something_at(const char *path) {
    format in order, in memory. NULL, a newer format's, comes back as it is.
    from_v2 is migrate's. The text is malloc'd, and the caller frees it. */
 static shcl_migration s_convert(const char *text, size_t len, const char *format, int from_v2) {
-	if (s_first_rewrite(format) == SHCL_STEP_V2) return shcl_migrate_unstamped(text, len, from_v2);
+	ShclStep step = s_first_rewrite(format);
+	if (step.kind == SHCL_STEP_V2) return shcl_migrate_unstamped(text, len, from_v2);
+	if (step.kind == SHCL_STEP_PIN) return migrate_text(text, len, from_v2, 0, 0, &step.pin, NULL);
 	shcl_migration m; memset(&m, 0, sizeof m);
 	m.current = 1; m.len = len;
 	m.text = (char *)malloc(len + 1);

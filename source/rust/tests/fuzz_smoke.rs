@@ -10,9 +10,10 @@ mod common;
 
 use common::test_id;
 use shcl::{
-	Document, FORMAT_LINE, FORMAT_LINE_HEAD, FORMAT_MAJOR, Piece, Quote, Rules, STAMP_HEAD,
-	STAMP_LINE, SaveError, SegTok, Severity, Strictness, Tokens, format_array, format_value,
-	format_version, migrate, quote_segment, schema_ref, tokenize, tokenize_value, upgrade,
+	Document, FORMAT_LINE, FORMAT_LINE_HEAD, FORMAT_MAJOR, FORMAT_NAMES, Piece, Quote, Rules,
+	STAMP_HEAD, STAMP_LINE, SaveError, SegTok, Severity, Strictness, Tokens, find_format,
+	format_array, format_value, format_version, migrate, quote_segment, schema_ref, tokenize,
+	tokenize_value, upgrade,
 };
 
 /// Small deterministic PRNG (xorshift64*); no external crates, stable across runs.
@@ -1410,10 +1411,14 @@ fn schema_and_format_lines_follow_the_parser() {
 
 /// `upgrade` over the soup, stamped with this format, the one before, a newer
 /// one, a number past 32 bits or nothing, and run with and without
-/// `from_v2`. A file naming this format that loads clean, or naming a newer
-/// one, comes back current and as it was. A made-over file names this
-/// format, loads clean wherever the input named it or `from_v2` was passed,
-/// and a second run leaves it alone. The scan once missed the block under a
+/// `from_v2`. A file naming a newer format comes back current and as it was,
+/// and so does one naming this format that loads clean, unless its tells
+/// leave a pin from 3.0-a37 back, whose step can rewrite it. A made-over file
+/// names this format, loads clean wherever `from_v2` was passed, and a second
+/// run leaves it alone. A file found to be a pin keeps a line the pin
+/// refused as typed, as the load does, so it can still have an error. The
+/// rules for a stamped file under `from_v2` are 2026111907080445's. The
+/// scan once missed the block under a
 /// `~x:` line, so the stamp an upgrade added read as inside it and every run
 /// made the file over again (2026101514324701); some inputs get a name led
 /// by `~` or a backtick for that.
@@ -1430,8 +1435,11 @@ fn upgrade_leaves_its_own_output_alone() {
 	let iters = iter_count(300);
 	let seeds = seed_texts();
 	let mut rng = Rng(0x5EED_06AD_0000_0004);
-	let (mut kept, mut made, mut beta, mut newer, mut odd) =
-		(0usize, 0usize, 0usize, 0usize, 0usize);
+	let (mut kept, mut made, mut beta, mut pinned, mut newer, mut odd) =
+		(0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
+	// The step out of 3.0-9ef and every one after it change nothing.
+	let place = |f: &str| FORMAT_NAMES.iter().position(|(n, _)| *n == f);
+	let first_same = place("3.0-9ef");
 	for i in 0..iters {
 		let base = if rng.below(2) == 0 {
 			let seed = rng.below(seeds.len());
@@ -1466,6 +1474,7 @@ fn upgrade_leaves_its_own_output_alone() {
 			&& text.matches("##    Format").count() == 1
 			&& at.is_some_and(|k| !raw_spans(&text).iter().any(|&(o, l)| o <= k && k < l));
 		let clean = Document::parse(&text).error_count() == 0;
+		let pin = find_format(&text, None).is_some_and(|f| place(f) < first_same);
 		for from_v2 in [false, true] {
 			let up = upgrade(&text, from_v2, true);
 			let ctx = || format!("iteration {i}, from_v2 {from_v2}:\n{text}\n->\n{}", up.text);
@@ -1473,7 +1482,7 @@ fn upgrade_leaves_its_own_output_alone() {
 				newer += 1;
 				assert!(up.current, "a newer format was made over, {}", ctx());
 			}
-			if named == Some(FORMAT_MAJOR) && clean {
+			if named == Some(FORMAT_MAJOR) && clean && !pin {
 				assert!(up.current, "a clean current file was made over, {}", ctx());
 			}
 			if up.current {
@@ -1499,9 +1508,13 @@ fn upgrade_leaves_its_own_output_alone() {
 			);
 			let loads = Document::parse(&up.text).error_count() == 0;
 			if named == Some(FORMAT_MAJOR) {
-				beta += 1;
+				if from_v2 {
+					beta += 1;
+				} else {
+					pinned += 1;
+				}
 			}
-			if from_v2 || named == Some(FORMAT_MAJOR) {
+			if from_v2 {
 				assert!(loads, "the fresh text has an error, {}", ctx());
 			}
 			let again = upgrade(&up.text, false, true);
@@ -1526,6 +1539,10 @@ fn upgrade_leaves_its_own_output_alone() {
 	assert!(
 		beta > iters / 100,
 		"only {beta} files naming this format were made over"
+	);
+	assert!(
+		pinned > iters / 100,
+		"only {pinned} files naming this format were found to be a pin"
 	);
 	assert!(newer > iters / 10, "only {newer} runs over a newer format");
 	assert!(odd > iters / 10, "only {odd} files had an odd name");
@@ -2850,39 +2867,6 @@ fn placement_slips(
 	};
 	let had: std::collections::HashSet<&str> =
 		before.lines().map(|l| l.trim_matches(BLANKS)).collect();
-	// 2026111022100191: a setter's new note comment, such as a default form's
-	// replaced value, puts its field's blank above the comments of the kept
-	// lines that head the field.
-	let noted_new = edit == Placed::Set
-		&& after
-			.lines()
-			.any(|l| l.contains("  ## ") && !had.contains(l.trim_matches(BLANKS)));
-	let heads_target = |a: &Anchor| {
-		kept.contains(&a.line)
-			&& was
-				.iter()
-				.skip_while(|w| w.line <= a.line)
-				.find(|w| !kept.contains(&w.line))
-				.is_some_and(|w| w.key == path)
-	};
-	// 2026111109022600: a remove that takes a field opened from a kept line
-	// moves a misplaced line in the kept lines above that line down past them,
-	// and the comments of a kept line below it go along.
-	let sunk = |a: &Anchor| {
-		let below_it = |m: &Anchor| {
-			one_anchor(&now, &m.key)
-				.zip(one_anchor(&now, &a.key))
-				.is_some_and(|(n, b)| n.line > b.line)
-		};
-		edit == Placed::Remove
-			&& kept.contains(&a.line)
-			&& was
-				.iter()
-				.rev()
-				.skip_while(|m| m.line >= a.line)
-				.take_while(|m| kept.contains(&m.line))
-				.any(|m| m.key.starts_with('~') && below_it(m))
-	};
 	let mut slips = Vec::new();
 	for a in &was {
 		if one_anchor(&was, &a.key).is_none() {
@@ -2894,7 +2878,6 @@ fn placement_slips(
 		let target = a.key == path;
 		if item(a)
 			|| edit == Placed::Comment && (target || under(&a.key) || past_kept(a))
-			|| sunk(a)
 			|| edit == Placed::Merge && layered(&a.key)
 		{
 			continue;
@@ -3065,11 +3048,7 @@ fn placement_slips(
 		// A remove hands the blank above what it took to the line now in its
 		// place (2026111623191917).
 		let handed = edit == Placed::Remove && blank && !a.blank && by_target(a.above, &was);
-		let unheld = a.first
-			|| b.first
-			|| noted || made && kept.contains(&a.line)
-			|| noted_new && heads_target(a)
-			|| handed;
+		let unheld = a.first || b.first || noted || made && kept.contains(&a.line) || handed;
 		if fresh && !unheld && a.blank != blank {
 			slips.push(format!(
 				"{}: blank above its comments {} is now {}",
@@ -3247,15 +3226,16 @@ fn the_placement_property_reads_a_list_replace() {
 	);
 	let slips = placement_slips(&before, &after, "z0", Placed::Set, "");
 	assert!(slips.is_empty(), "{slips:?}\n{after}");
-	// 2026111109022600 is excused, and only on a remove. The fix takes this
-	// out.
+	// A remove that takes a field opened from a kept line leaves the comments
+	// of the kept lines after a misplaced line where they were
+	// (2026111109022600).
 	let base = "a:\n\tx: 1\n - 2\n\tb: 3, , 4\n\t# note\n\tc: 1, , 2\n\t\tq: 1\n";
 	let before = Document::parse(base).to_canonical();
 	let mut doc = Document::parse(base);
 	assert_eq!(doc.remove("a.c.q"), 1);
 	let after = doc.to_canonical();
-	assert!(placement_slips(&before, &after, "a.c.q", Placed::Remove, "").is_empty());
-	assert!(!placement_slips(&before, &after, "a.c.q", Placed::Merge, "").is_empty());
+	let slips = placement_slips(&before, &after, "a.c.q", Placed::Remove, "");
+	assert!(slips.is_empty(), "{slips:?}\n{after}");
 	// The banner drops an info block's stamp lines with a blank under them.
 	let before =
 		"a: 1\n\n# my notes\n\n##    Format   3\n##    Migrated from SHCL 2.x.\n\n# kept\nb: 2\n";

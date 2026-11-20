@@ -6,7 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- `load_file_opts()` with `migrate`, `upgrade()` and `upgrade_file()` convert a file found to be from a dev build pinned between 3.0-1f8 and 3.0-a37 by that build's own rules, rather than 2.x's. A backslash outside double quotes was text there and stays text, so `C:\temp` keeps its backslash, and `"x\ty"` gets `◉TAB◉`. A line that build refused stays as typed.
+
 - `upgrade()` and `upgrade_file()` work out a file's format with `find_format()`, and `upgrade_file()` and `shcl upgrade` pass it the file's mtime. A file found to be 3.0-9ef or later is left as it is, its errors kept as typed, as a load with `migrate` keeps them. A file with no stamp and a broken line used to go through the 2.x migration whatever its date. `upgrade_dated()` is `upgrade()` with an mtime (each binding's spelling).
+
+- `upgrade()` and `upgrade_file()` work out the format of a file stamped beta1's `##    Format   3`, or a dev pin such as `3.0-a37`, as the load does, and convert it by that format's steps. They used to leave such a file alone, where a load with `migrate` converted it. A file stamped `3.0` is still left alone.
 
 - `upgrade()` and `upgrade_file()` take a `banner` argument after `from_v2` (each binding's spelling). With it they write the info block as before. Without it, an old block comes off and the fresh text ends with the stamp a save writes. `shcl upgrade` still writes the block.
 
@@ -45,6 +49,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `load_file_opts()` with `migrate` loads a file that may be older than this format by converting it in memory, from the format `find_format()` gives its text and its mtime. A save of that document over the file gets every check a save does, a newer format's refusal included.
 
 ### Fixed
+
+- A comment added above a field, by `set_comment` or as the note a default form leaves on the value it replaced, went above the field's blank line when a line kept for an error sat above the field. So the blank went above that kept line's comments, away from the field. The new comment goes under the blank now, right above the field, in every binding.
+
+- A remove that took the last field under a field opened by a line kept for an error, with a misplaced line among the kept lines above it, moved every comment among those lines down with the misplaced line. A comment above a kept field line now stays above it, as when the removed line is cut by hand and the file is formatted.
 
 - A Format line, stamp, or Schema line with a carriage return before it counts, in every binding, as it does in the canonical form, where the carriage return comes off. Such a line naming a newer format got no `H006`, so a save stamped the file `3.0`, and a Schema line there wasn't found until `fmt` rewrote the file. A save that rewrites the line keeps the carriage return.
 

@@ -291,10 +291,11 @@ Read<std::string> read_schema_ref(std::string_view text);
 // What upgrade() made of a document, and upgrade_file() of a file. text is
 // the fresh file's text, or the input when current, ambiguous or errors_left.
 // current: the input loads with no error under these rules and, with
-// from_v2, migrates to the same text, or it names this format, so it is left
-// as it is; a beta build of 3.0 stamped the same Format line as a release, so
-// a beta file is current here too, unless from_v2 says it is 2.x and it loads
-// with an error. format: the format the input was written for, which goes in
+// from_v2, migrates to the same text, or its stamp names this format whole, so
+// it is left as it is; a file stamped beta1's `Format 3` is current when
+// find_format() finds it to be 3.0-9ef or later, unless from_v2 says it is 2.x
+// and it loads with an error. format: the format the input was written for,
+// which goes in
 // the backup's name. ambiguous as Migration's: nonzero means nothing is
 // written. lost: lines and values the fresh text does not carry over, which
 // the backup still has. diagnostics: what loading the input found, empty when
@@ -324,7 +325,9 @@ struct Upgrade {
 // change it, as it would `p: a,b`, and any file only when the fresh text loads
 // clean (errors_left). Pass from_v2 only for a file known to be old, never on
 // every start. Without from_v2, the file's format is find_format's, and one
-// from 3.0-9ef on is current, its errors kept as typed.
+// from 3.0-9ef on is current, its errors kept as typed. One from 3.0-1f8 to
+// 3.0-a37 goes through that format's step, and is made over even when it
+// loads clean, since `"x\ty"` loads clean now and held a tab then.
 Upgrade upgrade(std::string_view text, bool from_v2, bool banner);
 // upgrade(), with mtime for find_format: the file's, in Unix seconds, or
 // std::nullopt for text from no file. upgrade_file() passes the file's.

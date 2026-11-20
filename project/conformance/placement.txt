@@ -922,3 +922,146 @@ c: 7
 srv:
 c: 7
 ## SHCL format 3.0
+
+:: row 2026111109022600-1 a remove that takes a field opened from a kept line leaves the comments of the kept line below a misplaced line
+:: before
+a:
+	x: 1
+ - 2
+	b: 3, , 4
+	# note
+	c: 1, , 2
+		q: 1
+:: ops
+remove	a.c.q
+:: expected
+a:
+	x: 1
+	b: 3, , 4
+	# note
+	c: 1, , 2
+ - 2
+## SHCL format 3.0
+:: keep
+a:
+	x: 1
+	b: 3, , 4
+	# note
+	c: 1, , 2
+ - 2
+## SHCL format 3.0
+
+:: row 2026111109022600-2 a comment between 2 misplaced lines goes down with them, and one above a kept line stays
+:: before
+a:
+	x: 1
+ - 2
+	# m
+ - 5
+	# n
+	c: 1, , 2
+		q: 1
+z: 1
+:: ops
+remove	a.c.q
+:: expected
+a:
+	x: 1
+	# n
+	c: 1, , 2
+ - 2
+# m
+ - 5
+z: 1
+## SHCL format 3.0
+:: keep
+a:
+	x: 1
+	# n
+	c: 1, , 2
+ - 2
+# m
+ - 5
+z: 1
+## SHCL format 3.0
+
+:: row 2026111022100191-1 a default form's replaced value goes under the blank above its field, below a kept line's comments
+:: before
+b:
+# note
+q: [1
+
+z: "t"
+:: ops
+int-default	z	5
+:: expected
+b:
+# note
+q: [1
+
+# z: "t"  ## replaced by shcl when setting a default for z, 2026-10-04 00:15:00 PDT: not an int
+z: "5"
+## SHCL format 3.0
+:: keep
+b:
+# note
+q: [1
+
+# z: "t"  ## replaced by shcl when setting a default for z, 2026-10-04 00:15:00 PDT: not an int
+z: "5"
+## SHCL format 3.0
+
+:: row 2026111022100191-2 a comment added to a field goes under its blank, below a kept line's comments
+:: before
+b:
+# note
+q: [1
+
+z: "t"
+:: ops
+comment	z	hi
+:: expected
+b:
+# note
+q: [1
+
+# hi
+z: "t"
+## SHCL format 3.0
+:: keep
+b:
+# note
+q: [1
+
+# hi
+z: "t"
+## SHCL format 3.0
+
+:: row 2026111022100191-3 a comment between a kept line and a field's blank stays above the blank
+:: before
+b:
+# note
+q: [1
+# c
+
+z: "t"
+:: ops
+int-default	z	5
+:: expected
+b:
+# note
+q: [1
+# c
+
+# z: "t"  ## replaced by shcl when setting a default for z, 2026-10-04 00:15:00 PDT: not an int
+z: "5"
+## SHCL format 3.0
+:: keep
+b:
+# note
+q: [1
+# c
+
+# z: "t"  ## replaced by shcl when setting a default for z, 2026-10-04 00:15:00 PDT: not an int
+z: "5"
+## SHCL format 3.0

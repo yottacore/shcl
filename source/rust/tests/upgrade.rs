@@ -339,7 +339,9 @@ fn banner_on_agrees_with_a_reload() {
 #[test]
 fn upgrade_writes_a_fresh_file_with_the_info_block() {
 	let _id = test_id("ddmhc");
-	let up = upgrade(V2_FILE, false, true);
+	// Dated, so it's found to be 2.0 rather than 3.0-a37, which reads the
+	// comma list too and wrote no `#` block.
+	let up = upgrade_dated(V2_FILE, Some(SEP1), false, true);
 	assert!(!up.current && up.ambiguous == 0 && up.lost == 0);
 	assert_eq!(up.format, 2);
 	assert!(up.diagnostics.iter().any(|d| d.code == "E026"));

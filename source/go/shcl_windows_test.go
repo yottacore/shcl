@@ -34,7 +34,8 @@ func TestSaveKeepsHiddenAndSystem(t *testing.T) {
 	if serr := syscall.SetFileAttributes(p, syscall.FILE_ATTRIBUTE_HIDDEN|syscall.FILE_ATTRIBUTE_SYSTEM); serr != nil {
 		t.Fatal(serr)
 	}
-	if err := Parse("a: 2\n").SaveFile(f); err != nil {
+	// A parse never read the file there, so the save forces.
+	if _, err := Parse("a: 2\n").SaveFileWith(f, SaveOptions{Force: true}); err != nil {
 		t.Fatal(err)
 	}
 	after, aerr := syscall.GetFileAttributes(p)

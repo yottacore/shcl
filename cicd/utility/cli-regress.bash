@@ -370,9 +370,12 @@ printf 'a: x,y\nb: "q\n' > "${tmpDir}/upgamb.shcl"
 ## upgrade reads a file's format off its mtime too, and one with no tells
 ## written today reads as this format, which keeps its errors as typed. This
 ## date leaves 2.0 the newest format, for the rows that need a 2.x file
-## (2026111908444554).
+## (2026111908444554). A comma list is a tell for 3.0-a37 and older, so
+## without it the newest such format, 3.0-a37, would be the pick
+## (2026111912004261).
 fPin2x(){ touch -d 2026-09-01T00:00:00 "$@"; }
-fPin2x "${tmpDir}/upgamb.shcl"
+printf 'p: "C:\\\\new"\nt: C:\\temp\nq: a, b\n' > "${tmpDir}/upg2read.shcl"
+fPin2x "${tmpDir}/upgamb.shcl" "${tmpDir}/upgv2.shcl" "${tmpDir}/upg2read.shcl"
 ## Clean under these rules, and an array under 2.x.
 printf 'p: a,b\n' > "${tmpDir}/upgclean.shcl"
 ## A schema key nothing knows, on schema line 2.
@@ -436,6 +439,7 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	list with a field under it, after an instance of its name with fields,
 ##	%U2% a 2.x file under 2.x's info block that does not load clean, %UA% one
 ##	that reads two ways, and %U2W%/%UAW% fresh copies of them at that path,
+##	%U2R% 2.x text with 2 values these rules read clean another way,
 ##	%UC% one that loads clean and reads as an array under 2.x,
 ##	%W% a fresh copy of the selector-sugar file, %BS% a fresh copy of a file
 ##	holding a backslash 2.x read as an escape, %BW% a fresh copy of
@@ -1063,8 +1067,10 @@ rows=(
 	## 2026101407100010: a file naming this format is taken as 2.x only by an
 	## upgrade told --from-2x, and only when it loads with an error. migrate
 	## leaves it, since its text can keep such a line and a second run would
-	## convert it again.
-	'ddy87|upgrade-beta-unsaid|upgrade -|tags: a, b\n##    Format   3\n|0|tags: a, b\n##    Format   3\n|nothing to upgrade'
+	## convert it again. 2026111912330681: upgrade reads beta1's `Format 3` by
+	## the mtime and the tells, as the load does, so the comma list, a tell of
+	## 3.0-a37 and older, makes it over without --from-2x.
+	'ddy87|upgrade-beta-unsaid|upgrade -|tags: a, b\n##    Format   3\n|0|tags: [a, b]\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3.0\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n|E026'
 	'ddy88|migrate-beta-left|migrate --from-2x -|tags: a, b\n##    Format   3\n|0|tags: a, b\n##    Format   3\n|nothing to migrate'
 	## 2026101419280005: a file upgrade leaves alone was still loaded, so its
 	## diagnostics are printed once, with or without --from-2x, and for a file
@@ -1171,7 +1177,7 @@ rows=(
 	## 2026101911300000: the two lines of the report, as 2.x read them, and the
 	## same file refused without --from-2x, since it could be a 3.0 one.
 	'de60n|migrate-2x-read|migrate --from-2x -|p: "C:\\\\new"\nt: C:\\temp\nq: a, b\n|0|p: "C:\\new"\nt: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\nq: [a, b]\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
-	'de60p|upgrade-2x-read-ambiguous|upgrade -|p: "C:\\\\new"\nt: C:\\temp\nq: a, b\n|7||2 value\(s\) read one way under 2\.x'
+	'de60p|upgrade-2x-read-ambiguous|upgrade %U2R%|-|7||2 value\(s\) read one way under 2\.x'
 	## A quoted name with a backslash pair read as typed under 1.2 and resolved
 	## under 2.0, so it is kept and counted lost, and the rest still converts.
 	'de60s|migrate-lost-quoted-name|migrate --from-2x -|"n\\ty": 1\nt: C:\\temp\n|7|"n\\ty": 1\nt: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|1 line\(s\) bound a value under 2\.x.*quoted name'
@@ -1919,6 +1925,7 @@ for row in "${rows[@]}"; do
 	argv="${argv//%MR%/${tmpDir}/migraw.shcl}"
 	argv="${argv//%MV%/${tmpDir}/miglost2.shcl}"
 	argv="${argv//%U2%/${tmpDir}/upgv2.shcl}"
+	argv="${argv//%U2R%/${tmpDir}/upg2read.shcl}"
 	argv="${argv//%UA%/${tmpDir}/upgamb.shcl}"
 	argv="${argv//%UC%/${tmpDir}/upgclean.shcl}"
 	argv="${argv//%SU%/${tmpDir}/unkey.shcl}"
@@ -2116,7 +2123,7 @@ for row in "${rows[@]}"; do
 		((freshKeepTailLf)) && cp "${tmpDir}/keeptaillf.shcl" "${tmpDir}/created.shcl"
 		((freshMigCrlf)) && cp "${tmpDir}/migcrlf.shcl" "${tmpDir}/created.shcl"
 		[[ -n "${freshMigSrc}" ]] && cp "${tmpDir}/${freshMigSrc}.shcl" "${tmpDir}/created.shcl"
-		[[ "${freshMigSrc}" == upgamb ]] && fPin2x "${tmpDir}/created.shcl"
+		[[ "${freshMigSrc}" == upg* ]] && fPin2x "${tmpDir}/created.shcl"
 		if [[ -n "${runIn}" ]]; then cli="$(realpath -- "${cli}")"; cd -- "${runIn}"; fi
 		rc=0
 		case "${stdinSpec}" in

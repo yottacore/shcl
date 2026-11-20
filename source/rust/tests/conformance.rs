@@ -3042,7 +3042,7 @@ fn save_rewrites_a_read_only_file() {
 	};
 	let mut doc = Document::parse("a: 2\n");
 	doc.save_file_with(f.to_str().unwrap(), &force).unwrap();
-	assert_eq!(std::fs::read_to_string(&f).unwrap(), "a: 2\n");
+	assert_eq!(std::fs::read_to_string(&f).unwrap(), with_stamp("a: 2\n"));
 	assert!(std::fs::metadata(&f).unwrap().permissions().readonly());
 	let left: Vec<_> = std::fs::read_dir(&dir).unwrap().collect();
 	assert_eq!(left.len(), 1);
@@ -5874,9 +5874,10 @@ fn migrate_writes_the_text_2x_read() {
 	assert_eq!(back.get_string("n").unwrap(), "C:\\x");
 	assert_eq!(back.get_string_array("list").unwrap(), ["C:\new"]);
 	// The call from the report. Without from_v2 the file could be a 3.0 one,
-	// so the two values are left and counted.
+	// so the two values are left and counted. Dated 2026-09-01, so it's found
+	// to be 2.0 rather than 3.0-a37, which reads the comma list too.
 	let text = "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\n";
-	let up = shcl::upgrade(text, false, true);
+	let up = upgrade_dated(text, Some(1788220800), false, true);
 	assert!(
 		!up.current && up.ambiguous == 2 && up.text == text,
 		"{up:?}"
@@ -7225,6 +7226,95 @@ fn a_load_converts_from_the_format_its_mtime_gives() {
 	let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A file from a pin of 3.0-1f8 to 3.0-a37 is rewritten into the format 3
+/// value syntax on load. A backslash outside double quotes was text and
+/// stays, an escape in double quotes becomes its `◉` name, and a line the pin
+/// refused stays as typed. Which escapes it read and refused goes by the
+/// pin: `\u` from 3.0-b10, and a Windows path from 3.0-f8e
+/// (2026111912004261). `upgrade_dated` makes over the same text. Same rows
+/// in every runner.
+#[test]
+fn a_load_converts_from_a_pinned_dev_format() {
+	let _id = test_id("dfh4s");
+	use shcl::LoadOptions;
+	use std::time::{Duration, UNIX_EPOCH};
+	let dir = std::env::temp_dir().join(format!("shcl-pinconv-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(&dir).unwrap();
+	let f = dir.join("f.shcl").to_str().unwrap().to_string();
+	let sep26 = 1790380800; // 2026-09-26, to 3.0-30d
+	let oct1 = 1790812800; // 2026-10-01, to 3.0-b10
+	let oct10 = 1791590400; // 2026-10-10, to 3.0-a37
+	let text = concat!(
+		"a: \"x\\ty\"\n",
+		"b: 'C:\\new'\n",
+		"c: C:\\temp\n",
+		"d: 1, 2\n",
+		"e: \"\\u00e9\"\n",
+		"f:\n",
+		"\t* one\n",
+		"\t* \"t\\\"wo\"\n",
+		"s: p\n",
+		"s[\"p\"].h: 1\n",
+		"\"q\\\"r\": 5\n",
+		"p: \"C:\\temp\"\n",
+		"u: \"\\q\"\n",
+		"o: \"open\n",
+	);
+	let common = concat!(
+		"a: \"x\u{25c9}TAB\u{25c9}y\"\n",
+		"b: 'C:\\new'\n",
+		"c: C:\\temp\n",
+		"d: [1, 2]\n",
+	);
+	let tail = concat!(
+		"f:\n",
+		"\t- one\n",
+		"\t- 't\"wo'\n",
+		"s: p\n",
+		"s(\"p\").h: 1\n",
+		"'q\"r': 5\n",
+	);
+	// 3.0-30d read `\u` and `\q` as text. 3.0-b10 read `\u00e9` as a
+	// character and refused `\q`, and 3.0-a37 refused the path too.
+	let cases = [
+		(
+			sep26,
+			"e: \"\\u00e9\"\n",
+			"p: \"C:\u{25c9}TAB\u{25c9}emp\"\nu: \"\\q\"\n",
+		),
+		(
+			oct1,
+			"e: \"\u{e9}\"\n",
+			"p: \"C:\u{25c9}TAB\u{25c9}emp\"\nu: \"\\q\"\n",
+		),
+		(oct10, "e: \"\u{e9}\"\n", "p: \"C:\\temp\"\nu: \"\\q\"\n"),
+	];
+	for (mtime, e, end) in cases {
+		std::fs::write(&f, text).unwrap();
+		let file = std::fs::File::options().write(true).open(&f).unwrap();
+		file.set_modified(UNIX_EPOCH + Duration::from_secs(mtime))
+			.unwrap();
+		drop(file);
+		let opts = LoadOptions {
+			keep_lines: true,
+			migrate: true,
+			from_v2: false,
+		};
+		let (doc, _) = Document::load_file_opts(&f, Strictness::Standard, &opts).unwrap();
+		let want = format!("{common}{e}{tail}{end}o: \"open\n");
+		assert_eq!(
+			(doc.to_text_keep_lines().map(|t| t.0), doc.lost_count()),
+			(Ok(with_stamp(&want)), 0),
+			"at {mtime}"
+		);
+		let up = upgrade_dated(text, Some(mtime as i64), false, false);
+		assert!(!up.current, "at {mtime}");
+		assert_eq!(up.text, with_stamp(&want), "at {mtime}");
+	}
+	let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// `upgrade` and `upgrade_file` find the format as the load does, with the
 /// file's mtime, and make over only a file whose steps to this format rewrite
 /// anything. One from 3.0-9ef on is current, its error kept as typed
@@ -7272,6 +7362,84 @@ fn an_upgrade_converts_from_the_format_its_mtime_gives() {
 		if made {
 			let _ = std::fs::remove_file(&up.backup);
 		}
+	}
+	let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A file stamped beta1's `Format 3` names only a major, so `upgrade` finds
+/// its format as the load does, with the mtime and the tells, and makes it
+/// over by that format's steps. A pin's own stamp settles it, and so does
+/// `3.0`. `from_v2` still takes the file as 2.x (2026111912330681). Same
+/// rows in every runner.
+#[test]
+fn an_upgrade_reads_a_beta1_stamp_as_the_load_does() {
+	let _id = test_id("dfh89");
+	use std::time::{Duration, UNIX_EPOCH};
+	let oct10 = 1791590400; // 2026-10-10, to 3.0-a37
+	let nov10 = 1794268800; // 2026-11-10, every format
+	let tab = "a: \"x\\ty\"\n";
+	let beta = format!("{tab}##    Format   3\n");
+	let made = with_stamp("a: \"x\u{25c9}TAB\u{25c9}y\"\n");
+	// The text, the mtime, from_v2, and the text upgrade gives, which is the
+	// input when it's current.
+	let cases = [
+		(beta.clone(), None, false, beta.clone()),
+		(beta.clone(), Some(nov10), false, beta.clone()),
+		(beta.clone(), Some(oct10), false, made.clone()),
+		(beta.clone(), Some(oct10), true, beta.clone()),
+		(
+			format!("{tab}## SHCL format 3.0-a37\n"),
+			None,
+			false,
+			made.clone(),
+		),
+		(with_stamp(tab), Some(oct10), false, with_stamp(tab)),
+		(
+			format!("{tab}##    Format   3.0\n"),
+			Some(oct10),
+			false,
+			format!("{tab}##    Format   3.0\n"),
+		),
+		// A pin that rewrites nothing leaves the file as it was.
+		(
+			"a: 1\n##    Format   3\n".to_string(),
+			Some(oct10),
+			false,
+			"a: 1\n##    Format   3\n".to_string(),
+		),
+		// A line the pin refused stays as typed, as on load.
+		(
+			"o: \"open\n##    Format   3\n".to_string(),
+			Some(oct10),
+			false,
+			with_stamp("o: \"open\n"),
+		),
+	];
+	for (text, mtime, from_v2, want) in &cases {
+		let up = upgrade_dated(text, *mtime, *from_v2, false);
+		assert_eq!(
+			(up.current, up.text.as_str()),
+			(want == text, want.as_str()),
+			"{text:?} at {mtime:?}, from_v2 {from_v2}"
+		);
+	}
+	let dir = std::env::temp_dir().join(format!("shcl-upbeta-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(&dir).unwrap();
+	let f = dir.join("f.shcl").to_str().unwrap().to_string();
+	for (mtime, want) in [(nov10, &beta), (oct10, &made)] {
+		std::fs::write(&f, &beta).unwrap();
+		let file = std::fs::File::options().write(true).open(&f).unwrap();
+		file.set_modified(UNIX_EPOCH + Duration::from_secs(mtime.unsigned_abs()))
+			.unwrap();
+		drop(file);
+		let up = upgrade_file(&f, false, false).unwrap();
+		assert_eq!(up.current, want == &beta, "file at {mtime}");
+		assert_eq!(
+			&std::fs::read_to_string(&f).unwrap(),
+			want,
+			"file at {mtime}"
+		);
 	}
 	let _ = std::fs::remove_dir_all(&dir);
 }
