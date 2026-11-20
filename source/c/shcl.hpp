@@ -1316,8 +1316,8 @@ std::pair<Upgrade, std::optional<UpgradeError>> upgrade_file(const std::string &
 	detail::UpgradedOwn own;
 	char *why = nullptr;
 	shcl_write_status st = SHCL_WRITE_OK;
-	// codeql[cpp/path-injection] opens the path its caller named, which is the job
 	std::string buf;
+	// codeql[cpp/path-injection] opens the path its caller named, which is the job
 	shcl_upgrade_error e = shcl_upgrade_file(path.c_str(), detail::from_c(from, buf), banner ? 1 : 0, &own.c, &why, &st);
 	std::unique_ptr<char, void (*)(void *)> w(why, &std::free);
 	if (e != SHCL_UPGRADE_OK) {
