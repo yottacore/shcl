@@ -768,6 +768,8 @@ Where a kept line is comes from canonical output before the edit. Under the targ
 
 - There are 2 kinds of kept line that stay as they are. One has a kept line written under it and isn't where a new field goes, since as a comment it would leave that line under the field above. The other has a misplaced line under it, since a misplaced line is filed by its own text and can't move with it. The first comment is then the first of the others. `SetComment` makes a missing field without touching any of these lines.
 
+- `ClearComments` takes the comments a remove takes above its target: the ones after the last kept line, up to the kept line heading it. A comment on the far side of a kept line stays with that line, and the blank above what it takes stays above what's now in its place. `Comments` reads those same lines (2026111021095858).
+
 - A comment `SetComment` or a default form adds goes under the field's blank line, right above the field. The lines already above the field stay above the blank, so the comments of a kept line there stay with it (2026111022100191).
 
 - A line the load dropped right after the kept line a new field goes under isn't placed by the save that keeps lines, since the lines before it are all new. That save falls back to canonical and refuses, as for any dropped line, and `--lossy` writes it.

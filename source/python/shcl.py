@@ -674,9 +674,6 @@ class _Lead:
 		# not a comment, so clear_comments and comments leave it alone.
 		self.kept = kept
 
-	def is_comment(self):
-		return self.text.startswith("#") and not self.kept
-
 	def is_kept_line(self):
 		"""A line the load kept as written, settled or not. The save gate
 		counts these (design.md, Kept lines under edits)."""
@@ -6598,6 +6595,23 @@ def _kept_in(leads):
 	return sum(1 for lead in leads if lead.is_kept_line())
 
 
+def _own_span(nd):
+	"""A node's own comments among its leading lines, the ones
+	clear_comments takes and comments reads, as a range: those after its last
+	kept line, as a remove takes them, up to the kept line written in place of
+	its `name:` line. A comment on the far side of a kept line is that line's
+	(2026111021095858)."""
+	lead = nd.leading()
+	end = len(lead) - 1 if _heads_block(nd) else len(lead)
+	start = next((k + 1 for k in range(end - 1, -1, -1) if lead[k].is_kept_line()), 0)
+	return start, end
+
+
+def _own_comments(nd):
+	start, end = _own_span(nd)
+	return nd.leading()[start:end]
+
+
 def _kept_in_lists(nd):
 	"""Kept lines in all of one node's trivia lists."""
 	return (_kept_in(nd.leading()) + _kept_in(nd.after()) + _kept_in(nd.inside()) + _kept_in(nd.head())
@@ -9980,7 +9994,7 @@ class Document:
 		tag, targets = self._targets_at(path)
 		if tag == "err":
 			return Read([], targets, None)
-		found = [c.text for t in targets if (tr := self.arena[t].trivia) is not None for c in tr.leading if c.is_comment()]
+		found = [c.text for t in targets for c in _own_comments(self.arena[t])]
 		return Read(found, Status.Good, None)._at(self._line_of_one(targets), None)
 
 	def clear_comments(self, path: str) -> int:
@@ -9988,9 +10002,11 @@ class Document:
 		set_comment adds to, so a program can replace a comment rather than
 		stack another one on it. Which lines those are is where the load put
 		them: everything between the node and the binding line before it, so a
-		heading written for a group of fields goes too. A comment on the node's
-		own line stays, and so does a line kept as written for being malformed.
-		Returns how many lines came off, 0 when the path reaches nothing."""
+		heading written for a group of fields goes too, back to a line kept as
+		written for being malformed. That line stays, and so do the comments
+		above it, which are its own. A comment on the node's own line stays
+		too. Returns how many lines came off, 0 when the path reaches
+		nothing."""
 		return self.try_clear_comments(path).value
 
 	def try_clear_comments(self, path: str) -> Read[int]:
@@ -10005,23 +10021,20 @@ class Document:
 		cleared = 0
 		for t in targets:
 			nd = self.arena[t]
+			start, end = _own_span(nd)
+			if start == end:
+				continue
+			cleared += end - start
 			tr = nd.trivia
-			if tr is None:
-				continue
-			before = len(tr.leading)
 			# The blank above the run is the one that separates it from what
-			# comes before, so it stays with whatever is now first.
-			blank = before > 0 and tr.leading[0].blank_before
-			tr.leading = [c for c in tr.leading if not c.is_comment()]
-			gone = before - len(tr.leading)
-			if gone == 0:
-				continue
-			cleared += gone
-			# A kept line left in the run may have sat under a comment that
-			# went.
+			# comes before, so it stays with whatever is now in its place.
+			blank = tr.leading[start].blank_before
+			del tr.leading[start:end]
+			# The kept line heading the node may have sat under a comment
+			# that went.
 			_restep(tr.leading)
-			if tr.leading:
-				tr.leading[0].blank_before = tr.leading[0].blank_before or blank
+			if start < len(tr.leading):
+				tr.leading[start].blank_before = tr.leading[start].blank_before or blank
 			else:
 				nd.blank_before = nd.blank_before or blank
 		if cleared:

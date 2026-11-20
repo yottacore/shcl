@@ -2858,23 +2858,13 @@ fn placement_slips(
 			.is_some_and(|k| rewrites(&a.key[..k]) && new_item(&a.key[..k], a))
 	};
 	let went = |a: &Anchor| item(a) || !now.iter().any(|b| b.key == a.key);
-	// 2026111021095858: a comment edit takes the comments above a kept line
-	// that sits right above its target, past the kept line. Lines with an
-	// error are the kept ones.
+	// Lines with an error are the kept ones.
 	let kept: std::collections::BTreeSet<usize> = base
 		.diagnostics()
 		.iter()
 		.filter(|d| d.severity == Severity::Error && d.line > 0)
 		.map(|d| d.line - 1)
 		.collect();
-	let past_kept = |a: &Anchor| {
-		kept.contains(&a.line)
-			&& was
-				.iter()
-				.skip_while(|b| b.line <= a.line)
-				.find(|b| !kept.contains(&b.line) || b.key == path)
-				.is_some_and(|b| b.key == path || under(&b.key))
-	};
 	let had: std::collections::HashSet<&str> =
 		before.lines().map(|l| l.trim_matches(BLANKS)).collect();
 	let mut slips = Vec::new();
@@ -2887,7 +2877,7 @@ fn placement_slips(
 		};
 		let target = a.key == path;
 		if item(a)
-			|| edit == Placed::Comment && (target || under(&a.key) || past_kept(a))
+			|| edit == Placed::Comment && (target || under(&a.key))
 			|| edit == Placed::Merge && layered(&a.key)
 		{
 			continue;

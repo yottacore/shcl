@@ -1096,9 +1096,10 @@ shcl_read_str_list shcl_read_comments(shcl_doc *d, const char *path, size_t plen
 // Take off the comment lines above the node(s) at a path, the ones
 // shcl_set_comment adds to, so a comment can be replaced rather than stacked.
 // Those are the lines the load put between the node and the binding line
-// before it, so a heading written for a group of fields goes too. A comment on
-// the node's own line stays, and so does a line kept as written for being
-// malformed. Returns how many lines came off, 0 when the path reaches nothing.
+// before it, so a heading written for a group of fields goes too, back to a
+// line kept as written for being malformed. That line stays, and so do the
+// comments above it, which are its own. A comment on the node's own line stays
+// too. Returns how many lines came off, 0 when the path reaches nothing.
 size_t shcl_clear_comments(shcl_doc *d, const char *path, size_t plen);
 // shcl_clear_comments with a status, the way shcl_try_remove has them. A node
 // with no comment above it is SHCL_GOOD with 0.
@@ -1715,7 +1716,6 @@ static ShclLead lead_plain(ShclStr text) { return lead_make(text, 0, 0); }
 static ShclLead lead_copy(ShclArena *a, const ShclLead *l) { ShclLead c = lead_at(s_dup(a, l->text), l->blank_before, l->depth, l->line); c.kept = l->kept; return c; }
 /* A copy that no longer stands for a source line, as a merge moves it. */
 static ShclLead lead_moved(ShclArena *a, const ShclLead *l) { ShclLead c = lead_make(s_dup(a, l->text), l->blank_before, l->depth); c.kept = l->kept; return c; }
-static int lead_is_comment(const ShclLead *l) { return l->text.n && l->text.p[0] == '#' && !l->kept; }
 /* A line the load kept as written, settled or not. The save gate counts these
    (design.md, Kept lines under edits). */
 static int lead_is_kept_line(const ShclLead *l) { return l->kept || !(l->text.n && l->text.p[0] == '#'); }
@@ -10130,6 +10130,20 @@ shcl_set_status shcl_set_comment(shcl_doc *d, const char *path, size_t plen, con
 	return SHCL_SET_OK;
 }
 
+/* A node's own comments among its leading lines, the ones clear_comments
+   takes and comments reads, as [from, end): those after its last kept line,
+   as a remove takes them, up to the kept line written in place of its
+   `name:` line. A comment on the far side of a kept line is that line's
+   (2026111021095858). */
+static void own_comments(shcl_doc *d, const ShclNode *nd, size_t *from, size_t *end) {
+	*from = *end = 0;
+	if (!nd->trivia) return;
+	const ShclVecLead *ld = &nd->trivia->leading;
+	*end = ld->len - (ld->len && heads_block(&d->scratch, nd) ? 1 : 0);
+	for (size_t k = *end; k > 0; k--)
+		if (lead_is_kept_line(&ld->data[k - 1])) { *from = k; break; }
+}
+
 size_t shcl_comments(shcl_doc *d, const char *path, size_t plen, shcl_str **out) {
 	shcl_read_str_list r = shcl_read_comments(d, path, plen);
 	*out = r.values; return r.n;
@@ -10141,11 +10155,11 @@ shcl_read_str_list shcl_read_comments(shcl_doc *d, const char *path, size_t plen
 	ShclVecSize targets;
 	R.status = targets_at(d, p, &targets);
 	for (size_t i = 0; i < targets.len; i++) {
-		const ShclTrivia *tr = NODE(d, targets.data[i]).trivia;
-		if (!tr) continue;
-		for (size_t k = 0; k < tr->leading.len; k++) {
-			if (!lead_is_comment(&tr->leading.data[k])) continue;
-			ShclStr l = tr->leading.data[k].text;
+		const ShclNode *nd = &NODE(d, targets.data[i]);
+		size_t from, end;
+		own_comments(d, nd, &from, &end);
+		for (size_t k = from; k < end; k++) {
+			ShclStr l = nd->trivia->leading.data[k].text;
 			if (n == cap) { size_t nc = cap ? cap * 2 : 8; arr = (shcl_str *)arena_grow(a, arr, cap, nc, sizeof(shcl_str)); cap = nc; }
 			arr[n].p = l.p; arr[n].n = l.n; n++;
 		}
@@ -10165,21 +10179,20 @@ shcl_read_usize shcl_try_clear_comments(shcl_doc *d, const char *path, size_t pl
 	size_t cleared = 0;
 	for (size_t i = 0; i < targets.len; i++) {
 		ShclNode *nd = &NODE(d, targets.data[i]);
-		ShclTrivia *t = nd->trivia;
-		if (!t) continue;
-		ShclVecLead *ld = &t->leading;
+		size_t from, end;
+		own_comments(d, nd, &from, &end);
+		if (from == end) continue;
+		cleared += end - from;
+		ShclVecLead *ld = &nd->trivia->leading;
 		/* The blank above the run is the one that separates it from what
-		   comes before, so it stays with whatever is now first. */
-		int blank = ld->len && ld->data[0].blank_before;
-		size_t w = 0;
-		for (size_t k = 0; k < ld->len; k++) if (!lead_is_comment(&ld->data[k])) ld->data[w++] = ld->data[k];
-		size_t gone = ld->len - w;
-		ld->len = w;
-		if (!gone) continue;
-		cleared += gone;
-		/* A kept line left in the run may have sat under a comment that went. */
+		   comes before, so it stays with whatever is now in its place. */
+		int blank = ld->data[from].blank_before;
+		memmove(ld->data + from, ld->data + end, (ld->len - end) * sizeof *ld->data);
+		ld->len -= end - from;
+		/* The kept line heading the node may have sat under a comment that
+		   went. */
 		restep(ld);
-		if (w) ld->data[0].blank_before |= blank;
+		if (from < ld->len) ld->data[from].blank_before |= blank;
 		else nd->blank_before |= blank;
 	}
 	if (cleared) { settle_first_blank(d); resettle_kept(d); }

@@ -703,10 +703,6 @@ impl Lead {
 		}
 	}
 
-	fn is_comment(&self) -> bool {
-		self.text.starts_with('#') && !self.kept
-	}
-
 	/// A line the load kept as written, settled or not. The save gate
 	/// counts these (design.md, Kept lines under edits).
 	fn is_kept_line(&self) -> bool {
@@ -9279,6 +9275,20 @@ fn beside_kept(nd: &mut NodeData, owed: bool) -> (Vec<Lead>, bool) {
 	(left, blank)
 }
 
+/// A node's own comments among its leading lines, the ones clear_comments
+/// takes and comments reads: those after its last kept line, as a remove
+/// takes them, up to the kept line written in place of its `name:` line. A
+/// comment on the far side of a kept line is that line's (2026111021095858).
+fn own_comments(nd: &NodeData) -> std::ops::Range<usize> {
+	let lead = nd.leading();
+	let end = lead.len() - usize::from(heads_block(nd));
+	let from = lead[..end]
+		.iter()
+		.rposition(Lead::is_kept_line)
+		.map_or(0, |k| k + 1);
+	from..end
+}
+
 /// Kept lines in all of one node's trivia lists.
 fn kept_in_lists(nd: &NodeData) -> usize {
 	kept_in(nd.leading())
@@ -14565,9 +14575,10 @@ impl Document {
 		};
 		let found = targets
 			.iter()
-			.filter_map(|&t| self.arena[t].trivia.as_deref())
-			.flat_map(|tr| &tr.leading)
-			.filter(|l| l.is_comment())
+			.flat_map(|&t| {
+				let nd = &self.arena[t];
+				&nd.leading()[own_comments(nd)]
+			})
 			.map(|l| l.text.clone())
 			.collect();
 		Read::new(found, Status::Good, None).at(self.line_of_one(&targets), None)
@@ -14577,10 +14588,10 @@ impl Document {
 	/// `set_comment` adds to, so a program can replace a comment rather than
 	/// stack another one on it. Which lines those are is where the load put
 	/// them: everything between the node and the binding line before it, so a
-	/// heading written for a group of fields goes too. A comment on the
-	/// node's own line stays, and so does a line kept as written for being
-	/// malformed. Returns how many lines came off, 0 when the path reaches
-	/// nothing.
+	/// heading written for a group of fields goes too, back to a line kept as
+	/// written for being malformed. That line stays, and so do the comments
+	/// above it, which are its own. A comment on the node's own line stays
+	/// too. Returns how many lines came off, 0 when the path reaches nothing.
 	pub fn clear_comments(&mut self, path: &str) -> usize {
 		self.try_clear_comments(path).value
 	}
@@ -14598,26 +14609,22 @@ impl Document {
 		let mut cleared = 0;
 		for t in targets {
 			let nd = &mut self.arena[t];
-			let Some(tr) = nd.trivia.as_deref_mut() else {
-				continue;
-			};
-			let before = tr.leading.len();
-			// The blank above the run is the one that separates it from what
-			// comes before, so it stays with whatever is now first.
-			let blank = tr.leading.first().is_some_and(|l| l.blank_before);
-			tr.leading.retain(|l| !l.is_comment());
-			let gone = before - tr.leading.len();
-			if gone == 0 {
+			let own = own_comments(nd);
+			if own.is_empty() {
 				continue;
 			}
-			cleared += gone;
-			// A kept line left in the run may have sat under a comment that
-			// went.
+			cleared += own.len();
+			let tr = nd.triv_mut();
+			// The blank above the run is the one that separates it from what
+			// comes before, so it stays with whatever is now in its place.
+			let blank = tr.leading[own.start].blank_before;
+			tr.leading.drain(own.clone());
+			// The kept line heading the node may have sat under a comment
+			// that went.
 			restep(&mut tr.leading);
-			if let Some(first) = tr.leading.first_mut() {
-				first.blank_before |= blank;
-			} else {
-				nd.blank_before |= blank;
+			match tr.leading.get_mut(own.start) {
+				Some(next) => next.blank_before |= blank,
+				None => nd.blank_before |= blank,
 			}
 		}
 		if cleared > 0 {

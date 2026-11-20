@@ -649,10 +649,6 @@ func plainLead(text string) lead {
 	return lead{text: text}
 }
 
-func (l *lead) isComment() bool {
-	return strings.HasPrefix(l.text, "#") && !l.kept
-}
-
 // isKeptLine: a line the load kept as written, settled or not. The save gate
 // counts these (design.md, Kept lines under edits).
 func (l *lead) isKeptLine() bool {
@@ -8291,6 +8287,26 @@ func keptAmong(among []amongLead) int {
 	return n
 }
 
+// ownComments gives a node's own comments among its leading lines, the ones
+// ClearComments takes and Comments reads: those after its last kept line, as a
+// remove takes them, up to the kept line written in place of its `name:` line.
+// A comment on the far side of a kept line is that line's (2026111021095858).
+func ownComments(nd *nodeData) (int, int) {
+	lead := nd.leading()
+	end := len(lead)
+	if headsBlock(nd) {
+		end--
+	}
+	from := 0
+	for k := end - 1; k >= 0; k-- {
+		if lead[k].isKeptLine() {
+			from = k + 1
+			break
+		}
+	}
+	return from, end
+}
+
 // keptInLists counts kept lines in all of one node's trivia lists.
 func keptInLists(nd *nodeData) int {
 	return keptIn(nd.leading()) + keptIn(nd.after()) + keptIn(nd.inside()) + keptIn(nd.head()) + keptAmong(nd.among())
@@ -14547,14 +14563,10 @@ func (d *Document) ReadComments(path string) Read[[]string] {
 	}
 	out := []string{}
 	for _, t := range targets {
-		tr := d.arena[t].trivia
-		if tr == nil {
-			continue
-		}
-		for _, l := range tr.leading {
-			if l.isComment() {
-				out = append(out, l.text)
-			}
+		nd := &d.arena[t]
+		from, end := ownComments(nd)
+		for _, l := range nd.leading()[from:end] {
+			out = append(out, l.text)
 		}
 	}
 	return Read[[]string]{Value: out, Status: Good}.at(d.lineOfOne(targets), nil)
@@ -14564,9 +14576,10 @@ func (d *Document) ReadComments(path string) Read[[]string] {
 // lines SetComment adds to, so a program can replace a comment rather than
 // stack another one on it. Which lines those are is where the load put them:
 // everything between the node and the binding line before it, so a heading
-// written for a group of fields goes too. A comment on the node's own line
-// stays, and so does a line kept as written for being malformed. Returns how
-// many lines came off, 0 when the path reaches nothing.
+// written for a group of fields goes too, back to a line kept as written for
+// being malformed. That line stays, and so do the comments above it, which are
+// its own. A comment on the node's own line stays too. Returns how many lines
+// came off, 0 when the path reaches nothing.
 func (d *Document) ClearComments(path string) int {
 	d.ready()
 	return d.TryClearComments(path).Value
@@ -14586,30 +14599,21 @@ func (d *Document) TryClearComments(path string) Read[int] {
 	cleared := 0
 	for _, t := range targets {
 		nd := &d.arena[t]
+		from, end := ownComments(nd)
+		if from == end {
+			continue
+		}
+		cleared += end - from
 		tr := nd.trivia
-		if tr == nil {
-			continue
-		}
-		before := len(tr.leading)
 		// The blank above the run is the one that separates it from what comes
-		// before, so it stays with whatever is now first.
-		blank := before > 0 && tr.leading[0].blankBefore
-		kept := tr.leading[:0]
-		for _, l := range tr.leading {
-			if !l.isComment() {
-				kept = append(kept, l)
-			}
-		}
-		tr.leading = kept
-		gone := before - len(kept)
-		if gone == 0 {
-			continue
-		}
-		cleared += gone
-		// A kept line left in the run may have sat under a comment that went.
-		restep(kept)
-		if len(kept) > 0 {
-			kept[0].blankBefore = kept[0].blankBefore || blank
+		// before, so it stays with whatever is now in its place.
+		blank := tr.leading[from].blankBefore
+		tr.leading = append(tr.leading[:from], tr.leading[end:]...)
+		// The kept line heading the node may have sat under a comment that
+		// went.
+		restep(tr.leading)
+		if from < len(tr.leading) {
+			tr.leading[from].blankBefore = tr.leading[from].blankBefore || blank
 		} else {
 			nd.blankBefore = nd.blankBefore || blank
 		}

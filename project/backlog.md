@@ -90,7 +90,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `clear_comments` takes a comment on the far side of a kept line above its target
 	- ID: 2026111021095858
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Severity: Avg
 	- Target version: v3.0.0
 	- Opened: 20261110-210958
@@ -105,6 +105,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Note: the placement property in `dd3t9` excuses this class with a check keyed by this ID. The fix takes it out.
 	- 20261111: the property that excuses this is now in dev's `fuzz_smoke.rs`, on b2bits. The CLI reproduction stands.
+	- Reproduced: 20261120, the Rust CLI on nov20c at `4607415d`, the same output.
+	- Actual cause [Bug]: `clear_comments` took every comment in the node's leading lines, and `comments` read them all. A kept line right above the node, and the comments above it, are in those lines too.
+	- Actual fix [Bug]: both take only the comments after the last kept line, up to the kept line heading the node, as a remove does, through one helper in all 4 bindings (`own_comments` in `lib.rs` and `shcl.h`, `ownComments` in `shcl.go`, `_own_span` in `shcl.py`). The blank above what goes stays above what's now in its place. The now unused `is_comment` is gone in all 4. The excuse keyed by this ID is out of `placement_slips`. design.md's "Kept lines under edits", spec.md, the doc comments and the changelog say so.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261120: `comments` reads the same lines `clear_comments` takes, as its doc already said, so a comment above a kept line isn't the field's on a read either.
+		- me, 20261120: a settled kept line counts as kept here, as for a remove, so a comment above it stays.
+	- Swept: `set_comment` appends after every line already above the node, so it was right already (2026111022100191). The merge's replaced leaf and `beside_kept` already stop at the last kept line. No other edit reads a node's comments by `is_comment`.
+	- Test case: placement rows `2026111021095858-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dd3t9`, `dderx`.
+	- Verified: the 3 rows fail on the Python library at `4607415d` and pass on the change (`placement-watch.py`). The issue's commands give the expected text through the Rust, Go and C CLIs. cargo test, Go `go test -count=1` in both modules, the Python and C conformance runners, `--backlog-run-quick rust go python c`, `dd3t9`, `dderx` and `df50j` at 200,000 in release, cli-regress (685 rows), crosscheck over the corpus and a 2000-iteration dump (55461 comparisons, `ddesf` included), lint-report, rustfmt, gofmt, go vet, the markdown check and markdownlint.
+	- Needs local test suite run?: the 2M release fuzz of `fuzz_smoke` (`dd3t9`, `dderx`), and cppcheck and analyze-c for the `shcl.h` change.
+	- Branch: `nov20c-2026111021095858`
 
 - Schema check costs the square of the nesting depth in all 4 bindings
 	- ID: 2026110711492228
