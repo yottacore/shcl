@@ -35,18 +35,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- Format versions: find_format doesn't count a value of 2 quoted runs, `a: "x" "y"`, as a tell
-	- ID: 2026112010395941
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Target version: v3.0.0
-	- Opened: 20261120-103959
-	- Opened by: me
-	- Related IDs: 2026111910270033
-	- Problem description: 1.0 to 2.0 read `a: "x" "y"` clean, as `x" "y`. 3.0-1f8 on refuse it with `E017`, the pins binding the text as typed and 3.0-9ef on binding nothing. find_format counts no tell for it, so a 2.0 file with only such a line and a recent mtime reads as 3.0 and isn't converted.
-	- Origin: Confirmed against the v2.0.0 and 3.0-1f8 to 3.0 CLIs (2026111910270033).
-
 - Format versions: the demo gif and its golden text show fmt output without the stamp
 	- ID: 2026111710564808
 	- Type: Feature
@@ -60,248 +48,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: rerender assets/demo.gif and refresh cicd/demo/expected.txt (the gif stage, or gen-demo-gif.py), so shell-regress dcvej matches the CLI again. Only a tool run.
 	- Estimated effort: Low
 	- Note: until then shell-regress dcvej fails, since every fmt now ends with the stamp.
-
-- `migrate_unstamped` can't say a migration didn't finish
-	- ID: 2026111014552300
-	- Type: Bug
-	- Status: Closed
-	- Severity: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261110-145523
-	- Opened by: silkterm feedback
-	- Related IDs: silkterm's 2026100315553545
-	- Version and build: `3.0.0-beta1` from crates.io, and dev at `4901ecac`
-	- Steps to reproduce: `migrate_unstamped("notes: ```\nnever closed\n", Some("2.0"))`, or with no `from`.
-	- Incorrect behavior: it returns `current: false`, `ambiguous: 0`, and `lost: 0`, the same as a migration that finished. A program that writes `GEN_BANNER` itself, which is what `migrate_unstamped` is for, then puts the Format line inside the open raw block, so the file never reads as current. Only the stamped `migrate` shows it, by leaving its Format line off. SilkTerm calls both on every 2.x file to tell. `upgrade()` closes the block and reports `E005`, but it writes its own stamp.
-	- Expected behavior:
-		- `Migration` says when the migration couldn't finish, as for a raw block that never closes, so a caller of `migrate_unstamped` can tell without making the stamped call too.
-		- All 4 bindings get the same field.
-	- Reproduced: 20261120, on dev `07fa68a1` in Python, with `from` 2.0 and with none. `current`, `ambiguous` and `lost` are false, 0 and 0, and the text comes back as it went in.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Decisions:
-		- JC, 20261120: a bug, fixed before the next cut.
-		- me, 20261120: the field is `unfinished` (Go `Unfinished`, C `int unfinished` at the end of `shcl_migration`, C++ `bool unfinished`). It's set exactly when `migrate` leaves its stamp off: `ambiguous` is nonzero, or a raw block never closes under either rule set. So one check answers whether a caller may write the Format line. Logged as a `Check:` in questions.md.
-	- Cause: `migrate_text` dropped the stamp for an open raw block without telling the caller, and the counts it returns don't cover it.
-	- Fixed: `Migration` carries `unfinished` in all 4 bindings and the C++ veneer, computed once beside the stamp test, which now reads it. Doc comments, spec.md, design.md and the changelog say so.
-	- Verified: `dfj8c` fails with `unfinished` held false, on the issue's text with `from` 2.0, and passes with the fix; so does `dfj8e`. `dd2kj` and its Go, Python and C twins compare `unfinished` between `migrate` and `migrate_unstamped` over the corpus. `--backlog-run-quick rust go python c cli` (all 5 steps), check-docs, check-veneer, `test-ids.py check`, `lint-report.bash --check --no-mark`, the markdown check and markdownlint (only lines already there) passed.
-	- Note: cppcheck and analyze-c, which `shcl.h` changes call for, are left to the round's gate step.
-	- Swept: every `Migration` built in each binding (`convert`, `migrate_text`'s current return and its end, C's `migration_as_is` and `upgrade_into`'s zeroed one), and C++'s `migration()`. `Upgrade` has no such field and reports an open block as `E005`, so it's left as it is.
-	- Test case: `migrate_says_when_it_could_not_finish` (Rust `dfj8c`, Go `dfj8d`, Python `dfj8e`, C `dfj8f`, veneer `dfj8g`), with `dd2kj` and its twins.
-	- Branch: `nov20b-2026111014552300`
-	- Commit: `b0ccf9bd`
-	- Acceptance signoff: Self-closed: the new test was seen to fail without the fix, and the named gates passed.
-	- Closed reason: Done
-	- Closed: 20261120-072440
-
-- Make sure testing covers exhaustively, mismatched file format stamps, mtime, and content
-	- ID: 2026112007004374
-	- Type: Task
-	- Status: Closed
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261120-070043
-	- Opened by: JC
-	- Related IDs: 2026111907075423, 2026111907080400, 2026111907080466
-	- Requirements:
-		- Both that should be expected to barely figure it out and pass, and fail.
-		- Tests to start from: `dfgvd` to `dfgvh` (stamp and mtime), `dfgwc` to `dfgwf` (tells), `dfgyc` to `dfgyf` (load by mtime), and `dfh89` to `dfh8c` (beta1's stamp in `upgrade`).
-	- Estimated effort: Avg
-	- Note: split into 2026112007272893 (`find_format` over every pairing) and 2026112007272912 (the load and `upgrade`), both closed.
-	- Test case: `a_file_format_reads_through_a_stamp_mtime_and_body_that_disagree` (`dfj90` to `dfj93`) and `a_file_whose_stamp_mtime_and_content_disagree_loads_and_upgrades_by_its_read` (`dfj9k` to `dfj9p`).
-	- Acceptance signoff: Self-closed: both children closed, each test seen to fail with the read broken.
-	- Closed reason: Done
-	- Closed: 20261120-080201
-
-- Format versions: test find_format over every pairing of a stamp, an mtime and tells that disagree
-	- ID: 2026112007272893
-	- Type: Task
-	- Status: Closed
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261120-072728
-	- Opened by: me
-	- Parent ID: 2026112007004374
-	- Requirements: a cross of stamps, mtimes on each side of every format day, and contents with each tell, in all 4 runners, with rows where the read just gets the writer right and rows where it reads another format by design.
-	- Estimated effort: Avg
-	- Actual effort: Avg
-	- Decisions:
-		- me, 20261120: the expected format comes from tables the test writes itself: the formats each stamp leaves, the newest format each mtime leaves, and how many of each body's lines each format refuses or reads as binding nothing. So a drift in `FORMAT_DAYS` or `TELL_RUNS` fails it rather than moving the answer with the code. The cross is 13 stamps, 22 mtimes and 14 bodies.
-		- me, 20261120: the mtimes sit one second each side of the day before each format's, which is where the mtime rule turns. The bodies include ties and one-line wins between 2 tells.
-		- me, 20261120: 13 more rows give a writer's file and the format that wrote it. 7 read as another format, by design: no tells, a stamp that settles it, or an mtime that is wrong or ignored.
-		- me, 20261120: no veneer row, since C++'s `find_format` only wraps C's and `dfgvh` already covers the wrap.
-	- Verified: the new test fails in the Rust, Go and C runners with the day before taken out of the mtime rule, and in Rust with a tie going to the oldest, and with the apostrophe's run moved to 3.0-a65. Python's runner stops at `dfgvf` on that fault, and its new test fails with a body's count changed. `--backlog-run-quick rust go python c cli`, cargo clippy and rustfmt, gofmt, `test-ids.py check` and `lint-report.bash --check --no-mark` passed. The cppcheck line from `LINT_EXTRA` didn't finish in 4 minutes. Its one note, an index read before its bound check in the new C loop, is fixed, and the C runner passes after it.
-	- Swept: the 4 conformance runners. No library code changed.
-	- Test case: `a_file_format_reads_through_a_stamp_mtime_and_body_that_disagree` (Rust `dfj90`, Go `dfj91`, Python `dfj92`, C `dfj93`).
-	- Branch: `nov20b-2026112007004374`
-	- Acceptance signoff: Self-closed: each new test was seen to fail with the read broken, and the named gates passed.
-	- Closed reason: Done
-	- Closed: 20261120-074411
-
-- Format versions: test the load and upgrade on files whose stamp, mtime and content disagree
-	- ID: 2026112007272912
-	- Type: Task
-	- Status: Closed
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261120-072729
-	- Opened by: me
-	- Parent ID: 2026112007004374
-	- Requirements: files with touch -d mtimes where 2 of stamp, mtime and content disagree, through load_file_opts with migrate, upgrade_dated and upgrade_file, in all 4 runners, asserting the text and the errors that come back.
-	- Estimated effort: Avg
-	- Prereq IDs: 2026112007272893
-	- Actual effort: Avg
-	- Decisions:
-		- me, 20261120: 15 rows, each run through `upgrade_dated`, then the load with migrate and keep_lines on a file with that mtime, then `upgrade_file` on the same file. Each row says what upgrade gives, what the load keeps, and its errors.
-		- me, 20261120: the rows pin a second or a line that flips a file from one format's conversion to another's: 2.0 to 3.0-1f8, where unstamped text with an escape reads 2 ways and `upgrade` refuses it, 3.0-a37 to 3.0-9ef under beta1's stamp, and a tie between a comma list and a `-` item that one more comma list breaks.
-		- me, 20261120: they also pin where the read misses the writer and what that costs: a whole stamp over the content, so `3.0` keeps an `E026` line, brackets that read as 3.0 so a 3.0-a37 tab stays a backslash, and an mtime older than beta1's stamp or before any format, which is ignored.
-		- me, 20261120: `upgrade` leaves a file that loads clean alone, stamp and all, as `Upgrade::current` says, even when its stamp names 2.0 or a pin. The load restamps it. The rows pin both.
-	- Verified: the new test fails in the Rust, Go and C runners with the load passing no mtime to `find_format`, and in Rust with the day before taken out of the mtime rule. Python's runner stops at `dfgye` on that fault, and its new test fails with a row's load text or upgrade text changed. `--backlog-run-quick rust go python c cli`, cargo clippy and rustfmt, gofmt, `test-ids.py check` and `lint-report.bash --check --no-mark` passed.
-	- Swept: the 4 conformance runners. No library code changed. The C++ interface's `load_file_opts`, `upgrade_dated` and `upgrade_file` only wrap C's, so no veneer row.
-	- Test case: `a_file_whose_stamp_mtime_and_content_disagree_loads_and_upgrades_by_its_read` (Rust `dfj9k`, Go `dfj9m`, Python `dfj9n`, C `dfj9p`).
-	- Branch: `nov20b-2026112007004374`
-	- Acceptance signoff: Self-closed: each new test was seen to fail with the read broken, and the named gates passed.
-	- Closed reason: Done
-	- Closed: 20261120-080201
-
-- Format versions: every file stamped, and every published format read and converted
-	- ID: 2026111018212700
-	- Type: Feature
-	- Status: Closed
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261110-182127
-	- Opened by: JC
-	- Related IDs: 2026100115403385, 2026101407100010, 2026111016205702, 2026111016205703, 2026111014552300
-	- Problem description: no release before beta1 wrote a stamp, and beta1 writes the same `##    Format   3` that earlier dev builds with other syntax wrote. gitsby and slodworld1 have files that say `Format 3` and read differently under beta1.
-	- Requirements:
-		- The format gets its own `MAJOR.MINOR` version, apart from the program's semver. The current format is 3.0.
-		- Every save writes the stamp. A plain save writes `## SHCL format 3.0`, and the info block's row is `##    Format   3.0`.
-		- An unstamped file's format comes from a content scan and its mtime. When the content says newer, it wins. When it can't tell, the mtime decides.
-			- 20261117: replaced by 2026111707384944's order (JC). The stamp comes first, then the mtime, then the tells, then the most legal reading, and content that looks newer than the mtime no longer beats it.
-		- The stamp names the newest format the file reads the same under.
-		- Every release and pre-release on GitHub, plus the dev snapshots consumers pinned, is read and converted. A pre-release folds into its release's format. A pin gets a short commit name, such as `3.0-a37`.
-		- A load never writes. A save, `upgrade_file` and `shcl upgrade` do.
-		- The change goes into all 4 bindings and the 4 CLIs.
-	- Decisions:
-		- 20261110: all of the above (JC). Design: `project/design_docs/20261110-182127_format-versions.md`.
-		- 20261110: it replaces 2026100115403385's "pre-release files are on their own", and 2026111016205706 (JC).
-		- 20261110: part of the next release, beta2 (JC).
-	- Estimated effort: High
-	- Test case: its children's: 2026111018212703: its children's: 2026111907080466: check-formats `dfjac` (1.0), `dfjad` (1.1), `dfjae` (2.0), `dfjaf` (3.0-1f8), `dfjag` (3.0-30d), `dfjah` (3.0-b10), `dfjaj` (3.0-f8e), `dfjak` (3.0-a37), `dfjam` (3.0-9ef), `dfjan` (3.0-a65) and `dfjap` (3.0).; 2026111907080423: its children's: 2026111908444534: its children's: 2026111917071578: `a_load_converts_from_a_1x_or_2x_format` (Rust `dfhe6`).; 2026111917072123: `TestALoadConvertsFromA1xOr2xFormat` (Go `dfhes`, twin of Rust `dfhe6`).; 2026111917072255: `a_load_converts_from_a_1x_or_2x_format` (Python `dfhf2`, twin of Rust `dfhe6`).; 2026111917072385: `a_load_converts_from_a_1x_or_2x_format` (C `dfhfn`, twin of Rust `dfhe6`).; 2026111908444515: its children's: 2026111912004261: `a_load_converts_from_a_pinned_dev_format` (Rust `dfh4s`).; 2026111912004789: `TestALoadConvertsFromAPinnedDevFormat` (Go `dfh64`, twin of Rust `dfh4s`).; 2026111912004810: `a_load_converts_from_a_pinned_dev_format` (Python `dfh6n`, twin of Rust `dfh4s`).; 2026111912004831: `a_load_converts_from_a_pinned_dev_format` (C `dfh7e`, twin of Rust `dfh4s`).; 2026111908443663: `a_load_converts_from_the_format_its_mtime_gives` (Rust `dfgyc`, Go `dfgyd`, Python `dfgye`, C `dfgyf`).; 2026111908444554: `an_upgrade_converts_from_the_format_its_mtime_gives` (Rust `dfh0e`, Go `dfh0f`, Python `dfh0g`, C `dfh0h`, veneer `dfh0j`).; 2026111912330681: `an_upgrade_reads_a_beta1_stamp_as_the_load_does` (Rust `dfh89`, Go `dfh8a`, Python `dfh8b`, C `dfh8c`), fuzz `de116`, and check-migrate `ddmp8`.; 2026111907080445: its children's: 2026111918111481: `a_caller_names_the_format_with_from` (Rust `dfhgc`), and fuzz `de116`'s pin arm.; 2026111918112329: `TestACallerNamesTheFormatWithFrom` (Go `dfhh0`, twin of Rust `dfhgc`).; 2026111918112450: `a_caller_names_the_format_with_from` (Python `dfhhb`, twin of Rust `dfhgc`).; 2026111918112570: `a_caller_names_the_format_with_from` (C `dfhhv`, C++ veneer `dfhhw`, twin of Rust `dfhgc`).; 2026111918113344: its children's: 2026111919213927: `migrate_reads_from_as_upgrade_does` (Rust `dfhjc`, Go `dfhjd`, Python `dfhje`, C `dfhjf`, veneer `dfhjg`), `de60h` and its twins, corpus `dcns3`, cli-regress `de60s`, `de60t`, `dfhk1` and `dfhk2`.; 2026111919213947: cli-regress `dfhkt`, `dfhkv`, `dfhkw`, `dfhkx`, `dfhky`, `dfhkz`, `dfhm0`, with `ddqhf`, `ddqhk` and `ddmhk` for the hint and refusal text.; 2026111907075423: `a_file_format_comes_from_its_stamp_and_mtime` (Rust `dfgvd`, Go `dfgve`, Python `dfgvf`, C `dfgvg`, veneer `dfgvh`).; 2026111907080400: `a_file_format_comes_from_its_tells` (Rust `dfgwc`, Go `dfgwd`, Python `dfgwe`, C `dfgwf`).; 2026112008173348: `upgrade_from_1x_or_2x_keeps_a_raw_body_and_an_open_quote_as_read` (Rust `dfjbg`, Go `dfjbh`, Python `dfjbj`, C `dfjbk`), corpus `124-migrate-crlf-fence`'s migrate golden, check-migrate `dfjbm`, and check-formats `dfjac`.; 2026112008173368: `upgrade_from_1x_to_a37_folds_a_scalar_with_a_list_of_it` (Rust `dfjcy`, Go `dfjcz`, Python `dfjd0`, C `dfjd1`), and check-formats `dfjad` to `dfjak`.; 2026112008173388: corpus `210-migrate-mid-quote-comma`'s migrate golden, through `migrate_matches_expected` in all 4 runners, the `dfjbg` test and its twins, and check-migrate `dej4h`.; 2026111018212702: its children's: 2026111702033137: its children's: 2026111708125373: `a_stamp_goes_where_a_format_line_goes` (Rust `dfe3m`, Go `dfe3n`, Python `dfe3p`, C `dfe3q`), and the corpus `expected-*` files and cli-regress rows above.; 2026111708130702: `a_save_names_this_format` (Rust `dfe62`; Go `dfe63`, Python `dfe64`, C `dfe65` and veneer `dfe66` with the child), plus the corpus files and the fuzz's no-edit save property in `keeping_lines_reloads_as_the_document`.; 2026111708125354: new rows in `stamp_reads_say_why` (`ddqh8`, `ddqh9`, `ddqha`, `ddqhb`), `stamp_hints_quote_digits` (`de0zn`, `de0zp`, `de0zq`, `de0zr`), new asserts in `a_newer_format_document_saves_nowhere` (`dekvt`, `dekvv`, `dekvw`, `dekvx`), and cli-regress `dfe2v`, `dfe2w`, `dfe2x`, `dfe2y`.; 2026111702033119: `format_names_read` (Rust `dfdqv`, Go `dfdqw`, Python `dfdqx`, C `dfdqy`), and the new rows of `stamp_reads_say_why` (`ddqh8`, `ddqh9`, `ddqha`, `ddqhb`).; 2026111016205704: its children's: 2026111708542868: `a_newer_format_document_gives_no_text` in Rust (`dffvy`), Python (`dffvz`), Go `TestANewerFormatDocumentGivesNoText` (`dffw0`), the C runner (`dffw1`) and the veneer smoke (`dffw2`).; 2026111708542849: `a_load_that_migrates_saves_through_the_guards` in Rust (`dfe4q`), Go `TestALoadThatMigratesSavesThroughTheGuards` (`dfe4r`), Python (`dfe4s`), the C runner (`dfe4t`) and the veneer smoke (`dfe4v`), plus a `load_file_opts` row in `devwa`.; 2026111016205705: `a_save_can_add_the_info_block` (Rust `dffwt`, Go `dffwv`, Python `dffww`, C `dffwx`, veneer `dffwy`), and the child's.; 2026111707384944: none, a design change. 2026111018212703's `touch -d` cases pin it once the scan is built.; 2026111018212701: none, a research task. The tools are `private/claude_simple/tools/format-reads.py` and `format-tells.py` beside it, and 2026111018212703's round-trip gate tests the findings.
-	- Closed: 20261120-104247
-	- Closed reason: Done
-
-- Format versions: find an unstamped file's format, and convert any older one
-	- ID: 2026111018212703
-	- Type: Feature
-	- Status: Closed
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261110-182127
-	- Opened by: JC
-	- Parent ID: 2026111018212700
-	- Prereq IDs: 2026111018212701, 2026111018212702
-	- Requirements:
-		- Add the content scan and the mtime rule from the design doc.
-			- 20261117: the rule is the 4 steps under the design doc's Finding a file's format (2026111707384944). They apply to a major-only stamp too, such as beta1's `Format 3`.
-		- Add one table-driven step per format, run in order in memory on load.
-		- `from` and `--from=FORMAT` replace `from_v2` and `--from-2x`.
-		- Each published format and pin round-trips against its own tag's CLI in a gate.
-	- Estimated effort: High
-	- Note: split for its time cap into 2026111907075423 (the stamp and mtime steps), 2026111907080400 (the tells and the most legal reading), 2026111907080423 (the conversion steps on load), 2026111907080445 (`from`) and 2026111907080466 (the round-trip gate).
-	- Test case: its children's: 2026111907080466: check-formats `dfjac` (1.0), `dfjad` (1.1), `dfjae` (2.0), `dfjaf` (3.0-1f8), `dfjag` (3.0-30d), `dfjah` (3.0-b10), `dfjaj` (3.0-f8e), `dfjak` (3.0-a37), `dfjam` (3.0-9ef), `dfjan` (3.0-a65) and `dfjap` (3.0).; 2026111907080423: its children's: 2026111908444534: its children's: 2026111917071578: `a_load_converts_from_a_1x_or_2x_format` (Rust `dfhe6`).; 2026111917072123: `TestALoadConvertsFromA1xOr2xFormat` (Go `dfhes`, twin of Rust `dfhe6`).; 2026111917072255: `a_load_converts_from_a_1x_or_2x_format` (Python `dfhf2`, twin of Rust `dfhe6`).; 2026111917072385: `a_load_converts_from_a_1x_or_2x_format` (C `dfhfn`, twin of Rust `dfhe6`).; 2026111908444515: its children's: 2026111912004261: `a_load_converts_from_a_pinned_dev_format` (Rust `dfh4s`).; 2026111912004789: `TestALoadConvertsFromAPinnedDevFormat` (Go `dfh64`, twin of Rust `dfh4s`).; 2026111912004810: `a_load_converts_from_a_pinned_dev_format` (Python `dfh6n`, twin of Rust `dfh4s`).; 2026111912004831: `a_load_converts_from_a_pinned_dev_format` (C `dfh7e`, twin of Rust `dfh4s`).; 2026111908443663: `a_load_converts_from_the_format_its_mtime_gives` (Rust `dfgyc`, Go `dfgyd`, Python `dfgye`, C `dfgyf`).; 2026111908444554: `an_upgrade_converts_from_the_format_its_mtime_gives` (Rust `dfh0e`, Go `dfh0f`, Python `dfh0g`, C `dfh0h`, veneer `dfh0j`).; 2026111912330681: `an_upgrade_reads_a_beta1_stamp_as_the_load_does` (Rust `dfh89`, Go `dfh8a`, Python `dfh8b`, C `dfh8c`), fuzz `de116`, and check-migrate `ddmp8`.; 2026111907080445: its children's: 2026111918111481: `a_caller_names_the_format_with_from` (Rust `dfhgc`), and fuzz `de116`'s pin arm.; 2026111918112329: `TestACallerNamesTheFormatWithFrom` (Go `dfhh0`, twin of Rust `dfhgc`).; 2026111918112450: `a_caller_names_the_format_with_from` (Python `dfhhb`, twin of Rust `dfhgc`).; 2026111918112570: `a_caller_names_the_format_with_from` (C `dfhhv`, C++ veneer `dfhhw`, twin of Rust `dfhgc`).; 2026111918113344: its children's: 2026111919213927: `migrate_reads_from_as_upgrade_does` (Rust `dfhjc`, Go `dfhjd`, Python `dfhje`, C `dfhjf`, veneer `dfhjg`), `de60h` and its twins, corpus `dcns3`, cli-regress `de60s`, `de60t`, `dfhk1` and `dfhk2`.; 2026111919213947: cli-regress `dfhkt`, `dfhkv`, `dfhkw`, `dfhkx`, `dfhky`, `dfhkz`, `dfhm0`, with `ddqhf`, `ddqhk` and `ddmhk` for the hint and refusal text.; 2026111907075423: `a_file_format_comes_from_its_stamp_and_mtime` (Rust `dfgvd`, Go `dfgve`, Python `dfgvf`, C `dfgvg`, veneer `dfgvh`).; 2026111907080400: `a_file_format_comes_from_its_tells` (Rust `dfgwc`, Go `dfgwd`, Python `dfgwe`, C `dfgwf`).; 2026112008173348: `upgrade_from_1x_or_2x_keeps_a_raw_body_and_an_open_quote_as_read` (Rust `dfjbg`, Go `dfjbh`, Python `dfjbj`, C `dfjbk`), corpus `124-migrate-crlf-fence`'s migrate golden, check-migrate `dfjbm`, and check-formats `dfjac`.; 2026112008173368: `upgrade_from_1x_to_a37_folds_a_scalar_with_a_list_of_it` (Rust `dfjcy`, Go `dfjcz`, Python `dfjd0`, C `dfjd1`), and check-formats `dfjad` to `dfjak`.; 2026112008173388: corpus `210-migrate-mid-quote-comma`'s migrate golden, through `migrate_matches_expected` in all 4 runners, the `dfjbg` test and its twins, and check-migrate `dej4h`.
-	- Closed: 20261120-100354
-	- Closed reason: Done
-
-- Format versions: each published format and pin round-trips against its own tag's CLI in a gate
-	- ID: 2026111907080466
-	- Type: Feature
-	- Status: Closed
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261119-070804
-	- Opened by: me
-	- Parent ID: 2026111018212703
-	- Prereq IDs: 2026111907080423, 2026111907080445
-	- Requirements: a gate reads the corpus and fuzz documents with the CLI built at each tag and pin, and the converted reading matches, as check-migrate does for 2.0.
-	- Estimated effort: High
-	- Actual effort: Avg
-	- Decisions:
-		- me, 20261120: one commit stands for each of the 11 formats, the release that starts it or its earliest pin, since pins of one format read every document the same (2026111018212701). Each is built once into `source/rust/target-formats/`, keyed by its hash.
-		- me, 20261120: the conversion is `upgrade --from=FORMAT`, so each step is checked on its own, apart from `find_format`, which has its own tests.
-		- me, 20261120: a refusal at exit 7 is counted and shown but doesn't fail, since that's how a step reports a line it isn't sure of. 6 corpus cases are refused today, mostly a selector with a comma in it.
-		- me, 20261120: 1.0 to 2.0 have no `paths` command, so they're asked the paths of the converted file and of the original under the current rules. A path with a quoted name is left out there, since the 2 CLIs spell it differently. With the pins, such a path's name isn't compared, but its reads are.
-		- me, 20261120: corpus 141 under 1.0 is excused by name, since the step out of 1.0 folds those 2 instances by decision.
-		- me, 20261120: it's in the full run and the merge gate, and 8 of its 11 tests fail until 2026112008173348, 2026112008173368 and 2026112008173388 close. A `Check:` entry in questions.md has it.
-	- Verified: `check-formats.bash` ran over the 11 formats: 3.0-9ef, 3.0-a65 and 3.0 pass, and the other 8 fail only on the 3 bugs above. 3.0-9ef fails with its conversion swapped for `--from=2.0` (14 documents differ), and a format fails under `--min 500`. shellcheck, ruff, `test-ids.py check`, check-push-gate, shell-regress (bar the known `dcvej`, `de1a8` and `dc0b5`), the markdown check and markdownlint passed.
-	- Swept: config.bash's SHELLCHECK_TARGETS, TEST_EXTRA, QUICK_SKIP, the `cli` area, Alpine's skip list, the ruff list, CTR_PRIVATE and CARGO_CACHE_DIRS, plus `.gitignore` and test-ids.py's CALLS, each beside check-migrate's entry. Not FROZEN_LINKS, since the 11 CLIs build in about 25 seconds.
-	- Note: it adds about 30 seconds to the full run, and about 25 more the first time, to build the 11 CLIs (56 s cold, 31 s warm, at a load of 4 to 6).
-	- Test case: check-formats `dfjac` (1.0), `dfjad` (1.1), `dfjae` (2.0), `dfjaf` (3.0-1f8), `dfjag` (3.0-30d), `dfjah` (3.0-b10), `dfjaj` (3.0-f8e), `dfjak` (3.0-a37), `dfjam` (3.0-9ef), `dfjan` (3.0-a65) and `dfjap` (3.0).
-	- Acceptance signoff: Self-closed: the gate runs every format and was seen to fail on a broken conversion. What it found is filed as 3 Bugs.
-	- Branch: `nov20b-2026111907080466`
-	- Commit: `7a199778`
-	- Closed: 20261120-083000
-	- Closed reason: Done
-	- 2026-11-20: all 11 formats pass check-formats since Bugs 2026112008173348, 2026112008173368 and 2026112008173388 closed, so the failing rows above are out of date (me).
-
-- Format versions: find_format doesn't count a quote in a bare value as a tell
-	- ID: 2026111910270033
-	- Type: Bug
-	- Status: Closed
-	- Severity: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261119-102700
-	- Opened by: me
-	- Related IDs: 2026111907080400, 2026111908444554
-	- Problem description: `a: x"y` and `b: "q` are E025 or an open quote under the current rules, and the 2.x migration quotes them, so 2.0 read them as text. find_format counts E025 only on a CR, so a file with only such a line and a recent mtime reads as 3.0, and neither a load with migrate nor upgrade converts it.
-	- Origin: Confirmed (2026111908444554). The CLIs built at v1.0.0, v1.1.0, v2.0.0 and every pin from 3.0-1f8 to 3.0-a37 read `a: x"y` clean as text, and 3.0-9ef on refuse it with `E025`.
-	- Reproduced: the new test failed in all 4 runners with the new tell turned off.
-	- Actual cause: find_format counted `E025` only on a line with a CR, and `E017` never.
-	- Actual effort: Avg
-	- Actual fix: `E025` on any trouble in a bare field value is a tell against 3.0-9ef on, and so is `E017` on a value a backtick opens. A load with migrate or upgrade then finds such a file to be 3.0-a37, and the pin step quotes the value.
-	- Branch: `nov20b-2026111910270033`
-	- Commit: `1ced0fb7`
-	- Test case: `a_value_the_format_3_syntax_refuses_is_a_tell` (Rust `dfje4`, Go `dfje5`, Python `dfje6`, C `dfje7`).
-	- Acceptance signoff: Self-closed: the new test was seen to fail without the fix in all 4 runners, and the named gates passed.
-	- Closed: 20261120-104200
-	- Closed reason: Done
-	- Decisions:
-		- me, 20261120: every `E025` in a bare field value is the tell, not only a quote: a tab, a bracket, a loose colon and a blank other than a space too. The CLIs at every format to 3.0-a37 read each of those clean as text, and 3.0-9ef on refuse them. So is `E017` on a value a backtick opens, which older formats read as text.
-		- me, 20261120: departs from the wording. `b: "q`, a value a quote or an apostrophe opens and never closes, isn't a tell. Every format refuses it with `E017`. 1.0 to 3.0-a37 still bind its text, and 3.0-9ef on bind nothing. It reads as the newest format the stamp and mtime leave, as before, and stays as typed unless the mtime or `from` gives 2.x. A 2.x rewrite quotes it.
-		- me, 20261120: a line with a bracketed value or a selector isn't counted, since 1.0 to 3.0-a37 refuse those too (`E015`, `E019`, `E014`).
-	- Verified: the new test fails in all 4 runners with the new tell turned off, and in Rust with every open quote counted, and passes with the fix. `--backlog-run-quick rust go python c cli`, cli-regress over the 4 CLIs, crosscheck over the corpus, fuzz `de116` at 200,000 in release, the C runner under ASan and UBSan with `SHCL_ARENA_MALLOC`, `test-ids.py check`, `lint-report.bash --check --no-mark`, the markdown check and markdownlint passed. The corpus inputs naming format 3 still upgrade as before. analyze-c and check-migrate did not finish in 4 minutes, and cppcheck was not run.
-	- Swept: `line_tells` and the new `value_told` in Rust, Go (`lineTells`, `valueTold`), Python (`_line_tells`, `_value_told`) and C (`line_tells`, `value_told`, with an `E017` bit). C++ `find_format` wraps C. The TELL_RUNS comment in all 4. Docs: the design doc's Tells table and a dated note under its tells step, and the changelog's `find_format` entry.
-	- Note: `a: "x" "y"`, which only 1.0 to 2.0 read clean, is filed apart as 2026112010395941.
-	- 20261120: `a_load_converts_from_the_format_its_mtime_gives` (`dfgyc` to `dfgyf`) and `an_upgrade_converts_from_the_format_its_mtime_gives` (`dfh0e` to `dfh0j`) used `a: x"y` as text with no tells, which is a tell now. They use `a: "q` instead, which every format refuses and the 2.x rewrite makes `a: '"q'`. Each assert is as it was.
-
-- `set_comment` making a field after a kept last line puts its blank above the kept line's comments
-	- ID: 2026111021153725
-	- Type: Bug
-	- Status: Waiting on automated testing
-	- Severity: Avg
-	- Target version: v3.0.0
-	- Opened: 20261110-211537
-	- Opened by: found while working 2026111012160121
-	- Related IDs: 2026111012160121, 2026111021095858
-	- Version and build: r1111 at `cddbda9f`
-	- Steps to reproduce: `printf 'a: 1\n# c: 3\nb: 1, , 2\n' > f.shcl`, then `printf 'comment\tz0\tadded\n' | shcl set f.shcl`.
-	- Incorrect behavior: the output is `a: 1`, a blank, `# c: 3`, `b: 1, , 2`, `# added`, `z0:`. The blank that should set off the new `z0` goes above the comment on the kept `E026` line instead.
-	- Expected behavior: the output is `a: 1`, `# c: 3`, `b: 1, , 2`, a blank, `# added`, `z0:`, as when the last line is a field (`b: 2`), and as `int z0 7` gives.
-	- Reproduced: 20261111, the Rust, Go, and C CLIs.
-	- Estimated effort: Low
-	- Note: the placement property in `dd3t9` excuses this class with a check keyed by this ID. The fix takes it out.
-	- 20261111: the property that excuses this is now in dev's `fuzz_smoke.rs`, on b2bits. The CLI reproduction stands.
-	- 20261119: the fix for 2026111022100191 (`push_comment` puts the blank on the new comment) gives this item's expected output through all 4 CLIs. What's left: take the `made` excuse out of `placement_slips`, add a placement row, and close against that fix.
-	- Reproduced: 20261120, nov20b at `68017351`: the issue's commands give the expected text through all 4 CLIs, so the 2026111022100191 fix covers it.
-	- Actual cause [Bug]: the same as 2026111022100191. `push_comment` moved the node's blank onto the first of its leading lines, which sat above the kept line's comments.
-	- Actual fix [Bug]: none in the library, since 2026111022100191's fix covers it. The `made` excuse keyed by this ID is out of `placement_slips`, and placement row `2026111021153725-1` pins the case.
-	- Actual effort: Low
-	- Swept: `placement_slips` has one other excuse keyed by an ID, 2026111021095858's, which is still open.
-	- Test case: placement row `2026111021153725-1` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dd3t9`, `dderx`.
-	- Verified: the row fails on the Python library at `6a983d87` with the issue's incorrect text, canonical and kept, and passes now (`placement-watch.py`). `df4g0`, `df4g2`, the Python conformance runner, `df50j`, `dd3t9` and `dderx` at 200,000 in release, then `dd3t9` and `dderx` at 800,000 each in release, `--backlog-run-quick rust go python c cli`, lint-report and rustfmt.
-	- Needs local test suite run?: `dd3t9` and `dderx` at 1,000,000 in release, since the property is checked up to `PLACEMENT_ITERS` and only 800,000 ran with the excuse out.
-	- Branch: `nov20b-2026111021153725`
 
 - `clear_comments` takes a comment on the far side of a kept line above its target
 	- ID: 2026111021095858
@@ -476,6 +222,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Add a read that gives every value across repeats and arrays, in file order.
 		- The `_or` doc says a repeat gives the default, and points to that read.
 	- Estimated effort: Avg
+
+- Format versions: find_format doesn't count a value of 2 quoted runs, `a: "x" "y"`, as a tell
+	- ID: 2026112010395941
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261120-103959
+	- Opened by: me
+	- Related IDs: 2026111910270033
+	- Problem description: 1.0 to 2.0 read `a: "x" "y"` clean, as `x" "y`. 3.0-1f8 on refuse it with `E017`, the pins binding the text as typed and 3.0-9ef on binding nothing. find_format counts no tell for it, so a 2.0 file with only such a line and a recent mtime reads as 3.0 and isn't converted.
+	- Origin: Confirmed against the v2.0.0 and 3.0-1f8 to 3.0 CLIs (2026111910270033).
 
 - `shcl migrate --from=3.0` on a file with no stamp says the file already names its format
 	- ID: 2026111920301167
@@ -1250,6 +1008,252 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- spec.md and the `upgrade` docs say 2.x includes 1.x, and that a 1.x file's backup is named `format-v2`.
 		- The next changelog's upgrading notes say C's `SHCL_SET_OK` is 0, so old code testing a setter `!= 0` reads every success as a failure, and that a string read of an array gives its bracket text. The released beta1 section stays as it is.
 	- Estimated effort: Low
+
+- `migrate_unstamped` can't say a migration didn't finish
+	- ID: 2026111014552300
+	- Type: Bug
+	- Status: Closed
+	- Severity: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261110-145523
+	- Opened by: silkterm feedback
+	- Related IDs: silkterm's 2026100315553545
+	- Version and build: `3.0.0-beta1` from crates.io, and dev at `4901ecac`
+	- Steps to reproduce: `migrate_unstamped("notes: ```\nnever closed\n", Some("2.0"))`, or with no `from`.
+	- Incorrect behavior: it returns `current: false`, `ambiguous: 0`, and `lost: 0`, the same as a migration that finished. A program that writes `GEN_BANNER` itself, which is what `migrate_unstamped` is for, then puts the Format line inside the open raw block, so the file never reads as current. Only the stamped `migrate` shows it, by leaving its Format line off. SilkTerm calls both on every 2.x file to tell. `upgrade()` closes the block and reports `E005`, but it writes its own stamp.
+	- Expected behavior:
+		- `Migration` says when the migration couldn't finish, as for a raw block that never closes, so a caller of `migrate_unstamped` can tell without making the stamped call too.
+		- All 4 bindings get the same field.
+	- Reproduced: 20261120, on dev `07fa68a1` in Python, with `from` 2.0 and with none. `current`, `ambiguous` and `lost` are false, 0 and 0, and the text comes back as it went in.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Decisions:
+		- JC, 20261120: a bug, fixed before the next cut.
+		- me, 20261120: the field is `unfinished` (Go `Unfinished`, C `int unfinished` at the end of `shcl_migration`, C++ `bool unfinished`). It's set exactly when `migrate` leaves its stamp off: `ambiguous` is nonzero, or a raw block never closes under either rule set. So one check answers whether a caller may write the Format line. Logged as a `Check:` in questions.md.
+	- Cause: `migrate_text` dropped the stamp for an open raw block without telling the caller, and the counts it returns don't cover it.
+	- Fixed: `Migration` carries `unfinished` in all 4 bindings and the C++ veneer, computed once beside the stamp test, which now reads it. Doc comments, spec.md, design.md and the changelog say so.
+	- Verified: `dfj8c` fails with `unfinished` held false, on the issue's text with `from` 2.0, and passes with the fix; so does `dfj8e`. `dd2kj` and its Go, Python and C twins compare `unfinished` between `migrate` and `migrate_unstamped` over the corpus. `--backlog-run-quick rust go python c cli` (all 5 steps), check-docs, check-veneer, `test-ids.py check`, `lint-report.bash --check --no-mark`, the markdown check and markdownlint (only lines already there) passed.
+	- Note: cppcheck and analyze-c, which `shcl.h` changes call for, are left to the round's gate step.
+	- Swept: every `Migration` built in each binding (`convert`, `migrate_text`'s current return and its end, C's `migration_as_is` and `upgrade_into`'s zeroed one), and C++'s `migration()`. `Upgrade` has no such field and reports an open block as `E005`, so it's left as it is.
+	- Test case: `migrate_says_when_it_could_not_finish` (Rust `dfj8c`, Go `dfj8d`, Python `dfj8e`, C `dfj8f`, veneer `dfj8g`), with `dd2kj` and its twins.
+	- Branch: `nov20b-2026111014552300`
+	- Commit: `b0ccf9bd`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the fix, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261120-072440
+
+- Make sure testing covers exhaustively, mismatched file format stamps, mtime, and content
+	- ID: 2026112007004374
+	- Type: Task
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261120-070043
+	- Opened by: JC
+	- Related IDs: 2026111907075423, 2026111907080400, 2026111907080466
+	- Requirements:
+		- Both that should be expected to barely figure it out and pass, and fail.
+		- Tests to start from: `dfgvd` to `dfgvh` (stamp and mtime), `dfgwc` to `dfgwf` (tells), `dfgyc` to `dfgyf` (load by mtime), and `dfh89` to `dfh8c` (beta1's stamp in `upgrade`).
+	- Estimated effort: Avg
+	- Note: split into 2026112007272893 (`find_format` over every pairing) and 2026112007272912 (the load and `upgrade`), both closed.
+	- Test case: `a_file_format_reads_through_a_stamp_mtime_and_body_that_disagree` (`dfj90` to `dfj93`) and `a_file_whose_stamp_mtime_and_content_disagree_loads_and_upgrades_by_its_read` (`dfj9k` to `dfj9p`).
+	- Acceptance signoff: Self-closed: both children closed, each test seen to fail with the read broken.
+	- Closed reason: Done
+	- Closed: 20261120-080201
+
+- Format versions: test find_format over every pairing of a stamp, an mtime and tells that disagree
+	- ID: 2026112007272893
+	- Type: Task
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261120-072728
+	- Opened by: me
+	- Parent ID: 2026112007004374
+	- Requirements: a cross of stamps, mtimes on each side of every format day, and contents with each tell, in all 4 runners, with rows where the read just gets the writer right and rows where it reads another format by design.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261120: the expected format comes from tables the test writes itself: the formats each stamp leaves, the newest format each mtime leaves, and how many of each body's lines each format refuses or reads as binding nothing. So a drift in `FORMAT_DAYS` or `TELL_RUNS` fails it rather than moving the answer with the code. The cross is 13 stamps, 22 mtimes and 14 bodies.
+		- me, 20261120: the mtimes sit one second each side of the day before each format's, which is where the mtime rule turns. The bodies include ties and one-line wins between 2 tells.
+		- me, 20261120: 13 more rows give a writer's file and the format that wrote it. 7 read as another format, by design: no tells, a stamp that settles it, or an mtime that is wrong or ignored.
+		- me, 20261120: no veneer row, since C++'s `find_format` only wraps C's and `dfgvh` already covers the wrap.
+	- Verified: the new test fails in the Rust, Go and C runners with the day before taken out of the mtime rule, and in Rust with a tie going to the oldest, and with the apostrophe's run moved to 3.0-a65. Python's runner stops at `dfgvf` on that fault, and its new test fails with a body's count changed. `--backlog-run-quick rust go python c cli`, cargo clippy and rustfmt, gofmt, `test-ids.py check` and `lint-report.bash --check --no-mark` passed. The cppcheck line from `LINT_EXTRA` didn't finish in 4 minutes. Its one note, an index read before its bound check in the new C loop, is fixed, and the C runner passes after it.
+	- Swept: the 4 conformance runners. No library code changed.
+	- Test case: `a_file_format_reads_through_a_stamp_mtime_and_body_that_disagree` (Rust `dfj90`, Go `dfj91`, Python `dfj92`, C `dfj93`).
+	- Branch: `nov20b-2026112007004374`
+	- Acceptance signoff: Self-closed: each new test was seen to fail with the read broken, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261120-074411
+
+- Format versions: test the load and upgrade on files whose stamp, mtime and content disagree
+	- ID: 2026112007272912
+	- Type: Task
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261120-072729
+	- Opened by: me
+	- Parent ID: 2026112007004374
+	- Requirements: files with touch -d mtimes where 2 of stamp, mtime and content disagree, through load_file_opts with migrate, upgrade_dated and upgrade_file, in all 4 runners, asserting the text and the errors that come back.
+	- Estimated effort: Avg
+	- Prereq IDs: 2026112007272893
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261120: 15 rows, each run through `upgrade_dated`, then the load with migrate and keep_lines on a file with that mtime, then `upgrade_file` on the same file. Each row says what upgrade gives, what the load keeps, and its errors.
+		- me, 20261120: the rows pin a second or a line that flips a file from one format's conversion to another's: 2.0 to 3.0-1f8, where unstamped text with an escape reads 2 ways and `upgrade` refuses it, 3.0-a37 to 3.0-9ef under beta1's stamp, and a tie between a comma list and a `-` item that one more comma list breaks.
+		- me, 20261120: they also pin where the read misses the writer and what that costs: a whole stamp over the content, so `3.0` keeps an `E026` line, brackets that read as 3.0 so a 3.0-a37 tab stays a backslash, and an mtime older than beta1's stamp or before any format, which is ignored.
+		- me, 20261120: `upgrade` leaves a file that loads clean alone, stamp and all, as `Upgrade::current` says, even when its stamp names 2.0 or a pin. The load restamps it. The rows pin both.
+	- Verified: the new test fails in the Rust, Go and C runners with the load passing no mtime to `find_format`, and in Rust with the day before taken out of the mtime rule. Python's runner stops at `dfgye` on that fault, and its new test fails with a row's load text or upgrade text changed. `--backlog-run-quick rust go python c cli`, cargo clippy and rustfmt, gofmt, `test-ids.py check` and `lint-report.bash --check --no-mark` passed.
+	- Swept: the 4 conformance runners. No library code changed. The C++ interface's `load_file_opts`, `upgrade_dated` and `upgrade_file` only wrap C's, so no veneer row.
+	- Test case: `a_file_whose_stamp_mtime_and_content_disagree_loads_and_upgrades_by_its_read` (Rust `dfj9k`, Go `dfj9m`, Python `dfj9n`, C `dfj9p`).
+	- Branch: `nov20b-2026112007004374`
+	- Acceptance signoff: Self-closed: each new test was seen to fail with the read broken, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261120-080201
+
+- Format versions: every file stamped, and every published format read and converted
+	- ID: 2026111018212700
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261110-182127
+	- Opened by: JC
+	- Related IDs: 2026100115403385, 2026101407100010, 2026111016205702, 2026111016205703, 2026111014552300
+	- Problem description: no release before beta1 wrote a stamp, and beta1 writes the same `##    Format   3` that earlier dev builds with other syntax wrote. gitsby and slodworld1 have files that say `Format 3` and read differently under beta1.
+	- Requirements:
+		- The format gets its own `MAJOR.MINOR` version, apart from the program's semver. The current format is 3.0.
+		- Every save writes the stamp. A plain save writes `## SHCL format 3.0`, and the info block's row is `##    Format   3.0`.
+		- An unstamped file's format comes from a content scan and its mtime. When the content says newer, it wins. When it can't tell, the mtime decides.
+			- 20261117: replaced by 2026111707384944's order (JC). The stamp comes first, then the mtime, then the tells, then the most legal reading, and content that looks newer than the mtime no longer beats it.
+		- The stamp names the newest format the file reads the same under.
+		- Every release and pre-release on GitHub, plus the dev snapshots consumers pinned, is read and converted. A pre-release folds into its release's format. A pin gets a short commit name, such as `3.0-a37`.
+		- A load never writes. A save, `upgrade_file` and `shcl upgrade` do.
+		- The change goes into all 4 bindings and the 4 CLIs.
+	- Decisions:
+		- 20261110: all of the above (JC). Design: `project/design_docs/20261110-182127_format-versions.md`.
+		- 20261110: it replaces 2026100115403385's "pre-release files are on their own", and 2026111016205706 (JC).
+		- 20261110: part of the next release, beta2 (JC).
+	- Estimated effort: High
+	- Test case: its children's: 2026111018212703: its children's: 2026111907080466: check-formats `dfjac` (1.0), `dfjad` (1.1), `dfjae` (2.0), `dfjaf` (3.0-1f8), `dfjag` (3.0-30d), `dfjah` (3.0-b10), `dfjaj` (3.0-f8e), `dfjak` (3.0-a37), `dfjam` (3.0-9ef), `dfjan` (3.0-a65) and `dfjap` (3.0).; 2026111907080423: its children's: 2026111908444534: its children's: 2026111917071578: `a_load_converts_from_a_1x_or_2x_format` (Rust `dfhe6`).; 2026111917072123: `TestALoadConvertsFromA1xOr2xFormat` (Go `dfhes`, twin of Rust `dfhe6`).; 2026111917072255: `a_load_converts_from_a_1x_or_2x_format` (Python `dfhf2`, twin of Rust `dfhe6`).; 2026111917072385: `a_load_converts_from_a_1x_or_2x_format` (C `dfhfn`, twin of Rust `dfhe6`).; 2026111908444515: its children's: 2026111912004261: `a_load_converts_from_a_pinned_dev_format` (Rust `dfh4s`).; 2026111912004789: `TestALoadConvertsFromAPinnedDevFormat` (Go `dfh64`, twin of Rust `dfh4s`).; 2026111912004810: `a_load_converts_from_a_pinned_dev_format` (Python `dfh6n`, twin of Rust `dfh4s`).; 2026111912004831: `a_load_converts_from_a_pinned_dev_format` (C `dfh7e`, twin of Rust `dfh4s`).; 2026111908443663: `a_load_converts_from_the_format_its_mtime_gives` (Rust `dfgyc`, Go `dfgyd`, Python `dfgye`, C `dfgyf`).; 2026111908444554: `an_upgrade_converts_from_the_format_its_mtime_gives` (Rust `dfh0e`, Go `dfh0f`, Python `dfh0g`, C `dfh0h`, veneer `dfh0j`).; 2026111912330681: `an_upgrade_reads_a_beta1_stamp_as_the_load_does` (Rust `dfh89`, Go `dfh8a`, Python `dfh8b`, C `dfh8c`), fuzz `de116`, and check-migrate `ddmp8`.; 2026111907080445: its children's: 2026111918111481: `a_caller_names_the_format_with_from` (Rust `dfhgc`), and fuzz `de116`'s pin arm.; 2026111918112329: `TestACallerNamesTheFormatWithFrom` (Go `dfhh0`, twin of Rust `dfhgc`).; 2026111918112450: `a_caller_names_the_format_with_from` (Python `dfhhb`, twin of Rust `dfhgc`).; 2026111918112570: `a_caller_names_the_format_with_from` (C `dfhhv`, C++ veneer `dfhhw`, twin of Rust `dfhgc`).; 2026111918113344: its children's: 2026111919213927: `migrate_reads_from_as_upgrade_does` (Rust `dfhjc`, Go `dfhjd`, Python `dfhje`, C `dfhjf`, veneer `dfhjg`), `de60h` and its twins, corpus `dcns3`, cli-regress `de60s`, `de60t`, `dfhk1` and `dfhk2`.; 2026111919213947: cli-regress `dfhkt`, `dfhkv`, `dfhkw`, `dfhkx`, `dfhky`, `dfhkz`, `dfhm0`, with `ddqhf`, `ddqhk` and `ddmhk` for the hint and refusal text.; 2026111907075423: `a_file_format_comes_from_its_stamp_and_mtime` (Rust `dfgvd`, Go `dfgve`, Python `dfgvf`, C `dfgvg`, veneer `dfgvh`).; 2026111907080400: `a_file_format_comes_from_its_tells` (Rust `dfgwc`, Go `dfgwd`, Python `dfgwe`, C `dfgwf`).; 2026112008173348: `upgrade_from_1x_or_2x_keeps_a_raw_body_and_an_open_quote_as_read` (Rust `dfjbg`, Go `dfjbh`, Python `dfjbj`, C `dfjbk`), corpus `124-migrate-crlf-fence`'s migrate golden, check-migrate `dfjbm`, and check-formats `dfjac`.; 2026112008173368: `upgrade_from_1x_to_a37_folds_a_scalar_with_a_list_of_it` (Rust `dfjcy`, Go `dfjcz`, Python `dfjd0`, C `dfjd1`), and check-formats `dfjad` to `dfjak`.; 2026112008173388: corpus `210-migrate-mid-quote-comma`'s migrate golden, through `migrate_matches_expected` in all 4 runners, the `dfjbg` test and its twins, and check-migrate `dej4h`.; 2026111018212702: its children's: 2026111702033137: its children's: 2026111708125373: `a_stamp_goes_where_a_format_line_goes` (Rust `dfe3m`, Go `dfe3n`, Python `dfe3p`, C `dfe3q`), and the corpus `expected-*` files and cli-regress rows above.; 2026111708130702: `a_save_names_this_format` (Rust `dfe62`; Go `dfe63`, Python `dfe64`, C `dfe65` and veneer `dfe66` with the child), plus the corpus files and the fuzz's no-edit save property in `keeping_lines_reloads_as_the_document`.; 2026111708125354: new rows in `stamp_reads_say_why` (`ddqh8`, `ddqh9`, `ddqha`, `ddqhb`), `stamp_hints_quote_digits` (`de0zn`, `de0zp`, `de0zq`, `de0zr`), new asserts in `a_newer_format_document_saves_nowhere` (`dekvt`, `dekvv`, `dekvw`, `dekvx`), and cli-regress `dfe2v`, `dfe2w`, `dfe2x`, `dfe2y`.; 2026111702033119: `format_names_read` (Rust `dfdqv`, Go `dfdqw`, Python `dfdqx`, C `dfdqy`), and the new rows of `stamp_reads_say_why` (`ddqh8`, `ddqh9`, `ddqha`, `ddqhb`).; 2026111016205704: its children's: 2026111708542868: `a_newer_format_document_gives_no_text` in Rust (`dffvy`), Python (`dffvz`), Go `TestANewerFormatDocumentGivesNoText` (`dffw0`), the C runner (`dffw1`) and the veneer smoke (`dffw2`).; 2026111708542849: `a_load_that_migrates_saves_through_the_guards` in Rust (`dfe4q`), Go `TestALoadThatMigratesSavesThroughTheGuards` (`dfe4r`), Python (`dfe4s`), the C runner (`dfe4t`) and the veneer smoke (`dfe4v`), plus a `load_file_opts` row in `devwa`.; 2026111016205705: `a_save_can_add_the_info_block` (Rust `dffwt`, Go `dffwv`, Python `dffww`, C `dffwx`, veneer `dffwy`), and the child's.; 2026111707384944: none, a design change. 2026111018212703's `touch -d` cases pin it once the scan is built.; 2026111018212701: none, a research task. The tools are `private/claude_simple/tools/format-reads.py` and `format-tells.py` beside it, and 2026111018212703's round-trip gate tests the findings.
+	- Closed: 20261120-104247
+	- Closed reason: Done
+
+- Format versions: find an unstamped file's format, and convert any older one
+	- ID: 2026111018212703
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261110-182127
+	- Opened by: JC
+	- Parent ID: 2026111018212700
+	- Prereq IDs: 2026111018212701, 2026111018212702
+	- Requirements:
+		- Add the content scan and the mtime rule from the design doc.
+			- 20261117: the rule is the 4 steps under the design doc's Finding a file's format (2026111707384944). They apply to a major-only stamp too, such as beta1's `Format 3`.
+		- Add one table-driven step per format, run in order in memory on load.
+		- `from` and `--from=FORMAT` replace `from_v2` and `--from-2x`.
+		- Each published format and pin round-trips against its own tag's CLI in a gate.
+	- Estimated effort: High
+	- Note: split for its time cap into 2026111907075423 (the stamp and mtime steps), 2026111907080400 (the tells and the most legal reading), 2026111907080423 (the conversion steps on load), 2026111907080445 (`from`) and 2026111907080466 (the round-trip gate).
+	- Test case: its children's: 2026111907080466: check-formats `dfjac` (1.0), `dfjad` (1.1), `dfjae` (2.0), `dfjaf` (3.0-1f8), `dfjag` (3.0-30d), `dfjah` (3.0-b10), `dfjaj` (3.0-f8e), `dfjak` (3.0-a37), `dfjam` (3.0-9ef), `dfjan` (3.0-a65) and `dfjap` (3.0).; 2026111907080423: its children's: 2026111908444534: its children's: 2026111917071578: `a_load_converts_from_a_1x_or_2x_format` (Rust `dfhe6`).; 2026111917072123: `TestALoadConvertsFromA1xOr2xFormat` (Go `dfhes`, twin of Rust `dfhe6`).; 2026111917072255: `a_load_converts_from_a_1x_or_2x_format` (Python `dfhf2`, twin of Rust `dfhe6`).; 2026111917072385: `a_load_converts_from_a_1x_or_2x_format` (C `dfhfn`, twin of Rust `dfhe6`).; 2026111908444515: its children's: 2026111912004261: `a_load_converts_from_a_pinned_dev_format` (Rust `dfh4s`).; 2026111912004789: `TestALoadConvertsFromAPinnedDevFormat` (Go `dfh64`, twin of Rust `dfh4s`).; 2026111912004810: `a_load_converts_from_a_pinned_dev_format` (Python `dfh6n`, twin of Rust `dfh4s`).; 2026111912004831: `a_load_converts_from_a_pinned_dev_format` (C `dfh7e`, twin of Rust `dfh4s`).; 2026111908443663: `a_load_converts_from_the_format_its_mtime_gives` (Rust `dfgyc`, Go `dfgyd`, Python `dfgye`, C `dfgyf`).; 2026111908444554: `an_upgrade_converts_from_the_format_its_mtime_gives` (Rust `dfh0e`, Go `dfh0f`, Python `dfh0g`, C `dfh0h`, veneer `dfh0j`).; 2026111912330681: `an_upgrade_reads_a_beta1_stamp_as_the_load_does` (Rust `dfh89`, Go `dfh8a`, Python `dfh8b`, C `dfh8c`), fuzz `de116`, and check-migrate `ddmp8`.; 2026111907080445: its children's: 2026111918111481: `a_caller_names_the_format_with_from` (Rust `dfhgc`), and fuzz `de116`'s pin arm.; 2026111918112329: `TestACallerNamesTheFormatWithFrom` (Go `dfhh0`, twin of Rust `dfhgc`).; 2026111918112450: `a_caller_names_the_format_with_from` (Python `dfhhb`, twin of Rust `dfhgc`).; 2026111918112570: `a_caller_names_the_format_with_from` (C `dfhhv`, C++ veneer `dfhhw`, twin of Rust `dfhgc`).; 2026111918113344: its children's: 2026111919213927: `migrate_reads_from_as_upgrade_does` (Rust `dfhjc`, Go `dfhjd`, Python `dfhje`, C `dfhjf`, veneer `dfhjg`), `de60h` and its twins, corpus `dcns3`, cli-regress `de60s`, `de60t`, `dfhk1` and `dfhk2`.; 2026111919213947: cli-regress `dfhkt`, `dfhkv`, `dfhkw`, `dfhkx`, `dfhky`, `dfhkz`, `dfhm0`, with `ddqhf`, `ddqhk` and `ddmhk` for the hint and refusal text.; 2026111907075423: `a_file_format_comes_from_its_stamp_and_mtime` (Rust `dfgvd`, Go `dfgve`, Python `dfgvf`, C `dfgvg`, veneer `dfgvh`).; 2026111907080400: `a_file_format_comes_from_its_tells` (Rust `dfgwc`, Go `dfgwd`, Python `dfgwe`, C `dfgwf`).; 2026112008173348: `upgrade_from_1x_or_2x_keeps_a_raw_body_and_an_open_quote_as_read` (Rust `dfjbg`, Go `dfjbh`, Python `dfjbj`, C `dfjbk`), corpus `124-migrate-crlf-fence`'s migrate golden, check-migrate `dfjbm`, and check-formats `dfjac`.; 2026112008173368: `upgrade_from_1x_to_a37_folds_a_scalar_with_a_list_of_it` (Rust `dfjcy`, Go `dfjcz`, Python `dfjd0`, C `dfjd1`), and check-formats `dfjad` to `dfjak`.; 2026112008173388: corpus `210-migrate-mid-quote-comma`'s migrate golden, through `migrate_matches_expected` in all 4 runners, the `dfjbg` test and its twins, and check-migrate `dej4h`.
+	- Closed: 20261120-100354
+	- Closed reason: Done
+
+- Format versions: each published format and pin round-trips against its own tag's CLI in a gate
+	- ID: 2026111907080466
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-070804
+	- Opened by: me
+	- Parent ID: 2026111018212703
+	- Prereq IDs: 2026111907080423, 2026111907080445
+	- Requirements: a gate reads the corpus and fuzz documents with the CLI built at each tag and pin, and the converted reading matches, as check-migrate does for 2.0.
+	- Estimated effort: High
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261120: one commit stands for each of the 11 formats, the release that starts it or its earliest pin, since pins of one format read every document the same (2026111018212701). Each is built once into `source/rust/target-formats/`, keyed by its hash.
+		- me, 20261120: the conversion is `upgrade --from=FORMAT`, so each step is checked on its own, apart from `find_format`, which has its own tests.
+		- me, 20261120: a refusal at exit 7 is counted and shown but doesn't fail, since that's how a step reports a line it isn't sure of. 6 corpus cases are refused today, mostly a selector with a comma in it.
+		- me, 20261120: 1.0 to 2.0 have no `paths` command, so they're asked the paths of the converted file and of the original under the current rules. A path with a quoted name is left out there, since the 2 CLIs spell it differently. With the pins, such a path's name isn't compared, but its reads are.
+		- me, 20261120: corpus 141 under 1.0 is excused by name, since the step out of 1.0 folds those 2 instances by decision.
+		- me, 20261120: it's in the full run and the merge gate, and 8 of its 11 tests fail until 2026112008173348, 2026112008173368 and 2026112008173388 close. A `Check:` entry in questions.md has it.
+	- Verified: `check-formats.bash` ran over the 11 formats: 3.0-9ef, 3.0-a65 and 3.0 pass, and the other 8 fail only on the 3 bugs above. 3.0-9ef fails with its conversion swapped for `--from=2.0` (14 documents differ), and a format fails under `--min 500`. shellcheck, ruff, `test-ids.py check`, check-push-gate, shell-regress (bar the known `dcvej`, `de1a8` and `dc0b5`), the markdown check and markdownlint passed.
+	- Swept: config.bash's SHELLCHECK_TARGETS, TEST_EXTRA, QUICK_SKIP, the `cli` area, Alpine's skip list, the ruff list, CTR_PRIVATE and CARGO_CACHE_DIRS, plus `.gitignore` and test-ids.py's CALLS, each beside check-migrate's entry. Not FROZEN_LINKS, since the 11 CLIs build in about 25 seconds.
+	- Note: it adds about 30 seconds to the full run, and about 25 more the first time, to build the 11 CLIs (56 s cold, 31 s warm, at a load of 4 to 6).
+	- Test case: check-formats `dfjac` (1.0), `dfjad` (1.1), `dfjae` (2.0), `dfjaf` (3.0-1f8), `dfjag` (3.0-30d), `dfjah` (3.0-b10), `dfjaj` (3.0-f8e), `dfjak` (3.0-a37), `dfjam` (3.0-9ef), `dfjan` (3.0-a65) and `dfjap` (3.0).
+	- Acceptance signoff: Self-closed: the gate runs every format and was seen to fail on a broken conversion. What it found is filed as 3 Bugs.
+	- Branch: `nov20b-2026111907080466`
+	- Commit: `7a199778`
+	- Closed: 20261120-083000
+	- Closed reason: Done
+	- 2026-11-20: all 11 formats pass check-formats since Bugs 2026112008173348, 2026112008173368 and 2026112008173388 closed, so the failing rows above are out of date (me).
+
+- Format versions: find_format doesn't count a quote in a bare value as a tell
+	- ID: 2026111910270033
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-102700
+	- Opened by: me
+	- Related IDs: 2026111907080400, 2026111908444554
+	- Problem description: `a: x"y` and `b: "q` are E025 or an open quote under the current rules, and the 2.x migration quotes them, so 2.0 read them as text. find_format counts E025 only on a CR, so a file with only such a line and a recent mtime reads as 3.0, and neither a load with migrate nor upgrade converts it.
+	- Origin: Confirmed (2026111908444554). The CLIs built at v1.0.0, v1.1.0, v2.0.0 and every pin from 3.0-1f8 to 3.0-a37 read `a: x"y` clean as text, and 3.0-9ef on refuse it with `E025`.
+	- Reproduced: the new test failed in all 4 runners with the new tell turned off.
+	- Actual cause: find_format counted `E025` only on a line with a CR, and `E017` never.
+	- Actual effort: Avg
+	- Actual fix: `E025` on any trouble in a bare field value is a tell against 3.0-9ef on, and so is `E017` on a value a backtick opens. A load with migrate or upgrade then finds such a file to be 3.0-a37, and the pin step quotes the value.
+	- Branch: `nov20b-2026111910270033`
+	- Commit: `1ced0fb7`
+	- Test case: `a_value_the_format_3_syntax_refuses_is_a_tell` (Rust `dfje4`, Go `dfje5`, Python `dfje6`, C `dfje7`).
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the fix in all 4 runners, and the named gates passed.
+	- Closed: 20261120-104200
+	- Closed reason: Done
+	- Decisions:
+		- me, 20261120: every `E025` in a bare field value is the tell, not only a quote: a tab, a bracket, a loose colon and a blank other than a space too. The CLIs at every format to 3.0-a37 read each of those clean as text, and 3.0-9ef on refuse them. So is `E017` on a value a backtick opens, which older formats read as text.
+		- me, 20261120: departs from the wording. `b: "q`, a value a quote or an apostrophe opens and never closes, isn't a tell. Every format refuses it with `E017`. 1.0 to 3.0-a37 still bind its text, and 3.0-9ef on bind nothing. It reads as the newest format the stamp and mtime leave, as before, and stays as typed unless the mtime or `from` gives 2.x. A 2.x rewrite quotes it.
+		- me, 20261120: a line with a bracketed value or a selector isn't counted, since 1.0 to 3.0-a37 refuse those too (`E015`, `E019`, `E014`).
+	- Verified: the new test fails in all 4 runners with the new tell turned off, and in Rust with every open quote counted, and passes with the fix. `--backlog-run-quick rust go python c cli`, cli-regress over the 4 CLIs, crosscheck over the corpus, fuzz `de116` at 200,000 in release, the C runner under ASan and UBSan with `SHCL_ARENA_MALLOC`, `test-ids.py check`, `lint-report.bash --check --no-mark`, the markdown check and markdownlint passed. The corpus inputs naming format 3 still upgrade as before. analyze-c and check-migrate did not finish in 4 minutes, and cppcheck was not run.
+	- Swept: `line_tells` and the new `value_told` in Rust, Go (`lineTells`, `valueTold`), Python (`_line_tells`, `_value_told`) and C (`line_tells`, `value_told`, with an `E017` bit). C++ `find_format` wraps C. The TELL_RUNS comment in all 4. Docs: the design doc's Tells table and a dated note under its tells step, and the changelog's `find_format` entry.
+	- Note: `a: "x" "y"`, which only 1.0 to 2.0 read clean, is filed apart as 2026112010395941.
+	- 20261120: `a_load_converts_from_the_format_its_mtime_gives` (`dfgyc` to `dfgyf`) and `an_upgrade_converts_from_the_format_its_mtime_gives` (`dfh0e` to `dfh0j`) used `a: x"y` as text with no tells, which is a tell now. They use `a: "q` instead, which every format refuses and the 2.x rewrite makes `a: '"q'`. Each assert is as it was.
+
+- `set_comment` making a field after a kept last line puts its blank above the kept line's comments
+	- ID: 2026111021153725
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261110-211537
+	- Opened by: found while working 2026111012160121
+	- Related IDs: 2026111012160121, 2026111021095858
+	- Version and build: r1111 at `cddbda9f`
+	- Steps to reproduce: `printf 'a: 1\n# c: 3\nb: 1, , 2\n' > f.shcl`, then `printf 'comment\tz0\tadded\n' | shcl set f.shcl`.
+	- Incorrect behavior: the output is `a: 1`, a blank, `# c: 3`, `b: 1, , 2`, `# added`, `z0:`. The blank that should set off the new `z0` goes above the comment on the kept `E026` line instead.
+	- Expected behavior: the output is `a: 1`, `# c: 3`, `b: 1, , 2`, a blank, `# added`, `z0:`, as when the last line is a field (`b: 2`), and as `int z0 7` gives.
+	- Reproduced: 20261111, the Rust, Go, and C CLIs.
+	- Estimated effort: Low
+	- Note: the placement property in `dd3t9` excuses this class with a check keyed by this ID. The fix takes it out.
+	- 20261111: the property that excuses this is now in dev's `fuzz_smoke.rs`, on b2bits. The CLI reproduction stands.
+	- 20261119: the fix for 2026111022100191 (`push_comment` puts the blank on the new comment) gives this item's expected output through all 4 CLIs. What's left: take the `made` excuse out of `placement_slips`, add a placement row, and close against that fix.
+	- Reproduced: 20261120, nov20b at `68017351`: the issue's commands give the expected text through all 4 CLIs, so the 2026111022100191 fix covers it.
+	- Actual cause [Bug]: the same as 2026111022100191. `push_comment` moved the node's blank onto the first of its leading lines, which sat above the kept line's comments.
+	- Actual fix [Bug]: none in the library, since 2026111022100191's fix covers it. The `made` excuse keyed by this ID is out of `placement_slips`, and placement row `2026111021153725-1` pins the case.
+	- Actual effort: Low
+	- Swept: `placement_slips` has one other excuse keyed by an ID, 2026111021095858's, which is still open.
+	- Test case: placement row `2026111021153725-1` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dd3t9`, `dderx`.
+	- Verified: the row fails on the Python library at `6a983d87` with the issue's incorrect text, canonical and kept, and passes now (`placement-watch.py`). `df4g0`, `df4g2`, the Python conformance runner, `df50j`, `dd3t9` and `dderx` at 200,000 in release, then `dd3t9` and `dderx` at 800,000 each in release, `--backlog-run-quick rust go python c cli`, lint-report and rustfmt.
+	- Needs local test suite run?: No
+	- Branch: `nov20b-2026111021153725`
+	- Closed reason: Done
+	- Acceptance signoff: me, 2026-11-20, on the 2M release fuzz
+	- Closed: 20261120-112125
+	- Verified: 2026-11-20, `dd3t9` and `dderx` passed in the round's 2M release fuzz_smoke run on nov20b `5e680d9e` (34 passed, 718 s).
 
 - The veneer smoke test does not compile with `SHCL_NO_FILE_IO`
 	- ID: 2026111919581254
