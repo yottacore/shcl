@@ -7629,6 +7629,41 @@ fn upgrade_from_1x_or_2x_keeps_a_raw_body_and_an_open_quote_as_read() {
 	);
 }
 
+/// 1.0 to 3.0-a37 keyed an instance by its strings alone, so `k: x` and a
+/// stacked list of `x` alone were one instance. The step out of each writes
+/// such a scalar as an array of one, and one with lines under it is E028 and
+/// counts as lost (2026112008173368). Same rows in every runner.
+#[test]
+fn upgrade_from_1x_to_a37_folds_a_scalar_with_a_list_of_it() {
+	let _id = test_id("dfjcy");
+	let text = "d: x\nd: x # c\nd:\n\t* x\nb:\n\t* \"y,z\"\nb: \"y,z\"\nc: x\nc:\n\t* y\n";
+	let want = "d: [x]\nd: [x] # c\nd:\n\t- x\nb:\n\t- \"y,z\"\nb: [\"y,z\"]\nc: x\nc:\n\t- y\n";
+	for from in ["1.0", "1.1", "2.0", "3.0-1f8", "3.0-a37"] {
+		let up = shcl::upgrade(text, Some(from), false);
+		assert_eq!(
+			(up.text.as_str(), up.lost, up.ambiguous),
+			(with_stamp(want).as_str(), 0, 0),
+			"from {from}"
+		);
+		let doc = Document::parse(&up.text);
+		assert_eq!(
+			(doc.count("d"), doc.count("b"), doc.count("c")),
+			(1, 1, 2),
+			"from {from}"
+		);
+	}
+	let m = shcl::migrate("p: a\n\tq: y\np:\n\t* a\n", Some("1.1"));
+	assert_eq!(
+		(m.lost, m.text.starts_with("p: [a]\n")),
+		(1, true),
+		"{}",
+		m.text
+	);
+	// migrate's own read of a file that may be 3.0 leaves it.
+	let m = shcl::migrate("d: x\nd:\n\t- x\n", None);
+	assert!(m.text.starts_with("d: x\n"), "{}", m.text);
+}
+
 /// `upgrade` and `upgrade_file` find the format as the load does, with the
 /// file's mtime, and make over only a file whose steps to this format rewrite
 /// anything. One from 3.0-9ef on is current, its error kept as typed

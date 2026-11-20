@@ -3878,7 +3878,10 @@ fn opens_raw(rest: &str, tok: &mut Tokens) -> Option<(u8, usize)> {
 /// reads as `from`'s format read it, and without `from` stays as written and
 /// counts in `lost`, since 1.2 read it as typed and 2.0 resolved it. With
 /// `from` naming 1.0, 1.1 or 2.0, a raw body is written to read as that
-/// format read it, with the indent its lines shared taken off.
+/// format read it, with the indent its lines shared taken off. A file taken
+/// as 3.0-a37 or older, by `from` or its Format line, gets `[x]` for a
+/// scalar `x` beside a stacked list of `x` alone, since those were one
+/// instance then and a list isn't a scalar now.
 ///
 /// Which file this is cannot always be read off the text: `p: a,b` is an
 /// array under 2.x and one string under these rules, and a raw block can
@@ -4020,6 +4023,86 @@ fn v2_raw_body(lines: &[&str], ch: u8, len: usize, v2: V2Read) -> Vec<Option<Str
 		.collect()
 }
 
+/// 1.0 to 3.0-a37 keyed an instance by its strings alone, so `k: x` and a
+/// list of `x` alone under the same parent were one instance, which a fold
+/// made where the list closed. A list isn't a scalar now, so they read as 2.
+/// Each such scalar is written as an array of one, and the text read again,
+/// since a line of the same scalar that folded into it reads apart then. None
+/// when nothing changes, else the text and the lines written.
+fn v2_fold_scalars(text: &str) -> Option<(String, Vec<usize>)> {
+	// Only a stacked list or brackets make an array.
+	if !text.contains('-') && !text.contains('[') {
+		return None;
+	}
+	let mut lines: Vec<String> = lines_of(text).map(str::to_string).collect();
+	let mut tok = Tokens::default();
+	let mut wrote_at: Vec<usize> = Vec::new();
+	// Each pass writes at least one scalar, which is then an array, so the
+	// passes are fewer than the lines.
+	for _ in 0..lines.len() {
+		let doc = Document::parse(&lines.join("\n"));
+		let mut hits: Vec<(usize, String)> = Vec::new();
+		let mut stack = vec![ROOT];
+		while let Some(p) = stack.pop() {
+			let kids = &doc.arena[p].children;
+			stack.extend(kids.iter().copied());
+			let lists: HashSet<(&str, &str)> = kids
+				.iter()
+				.filter_map(|&c| match &doc.arena[c].value {
+					Value::Array(els) if els.len() == 1 => {
+						Some((doc.arena[c].name.as_str(), els[0].text.as_str()))
+					}
+					_ => None,
+				})
+				.collect();
+			if lists.is_empty() {
+				continue;
+			}
+			for &c in kids {
+				let nd = &doc.arena[c];
+				if let Value::Cell(e) = &nd.value
+					&& nd.line > 0 && lists.contains(&(nd.name.as_str(), e.text.as_str()))
+				{
+					hits.push((nd.line - 1, emit_array(std::slice::from_ref(e))));
+				}
+			}
+		}
+		let before = wrote_at.len();
+		for (i, with) in hits {
+			let Some(line) = lines.get(i) else {
+				continue;
+			};
+			let bom = if i == 0 && line.starts_with('\u{feff}') {
+				"\u{feff}"
+			} else {
+				""
+			};
+			let body = line[bom.len()..].trim_end_matches('\r');
+			let indent = leading_ws(body);
+			let rest = trim_wsp_end(&body[indent.len()..]);
+			lex_line(rest, b':', false, Lex::Current, &mut tok);
+			if tok.fault.is_some()
+				|| tok.sep.is_none()
+				|| tok.array.is_some()
+				|| tok.elements.len() != 1
+			{
+				continue;
+			}
+			let at = bom.len() + indent.len();
+			lines[i] = format!(
+				"{}{with}{}",
+				&line[..at + tok.value.0],
+				&line[at + tok.value.1..]
+			);
+			wrote_at.push(i + 1);
+		}
+		if wrote_at.len() == before {
+			break;
+		}
+	}
+	(!wrote_at.is_empty()).then(|| (lines.join("\n"), wrote_at))
+}
+
 /// `beta` takes a file naming this format as 2.x too, which only `upgrade`
 /// asks for, once the caller has said so. `step` is the one the text's format
 /// starts with, and says which rules it was written by: a pin's, for a file
@@ -4147,6 +4230,18 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool, step: Step) 
 		{
 			raw_body = v2_raw_body(&lines[i + 1..], ch, len, st.v2).into_iter();
 		}
+	}
+	// A scalar written as an array to fold as it did is E028 too where it
+	// heads lines of its own.
+	if st.from_v2
+		&& let Some((t, at)) = v2_fold_scalars(&out)
+	{
+		out = t;
+		// It can put back what the line's own rewrite took off.
+		changed = out != text;
+		bracketed.extend(at);
+		bracketed.sort_unstable();
+		bracketed.dedup();
 	}
 	// 2.x let a comma list head lines of its own, and nothing spells that
 	// now: in brackets it is E028, and as one string it reads as another

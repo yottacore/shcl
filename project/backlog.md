@@ -1898,7 +1898,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: upgrade from 1.1 to 3.0-a37 splits a value that a later stacked list closes onto
 	- ID: 2026112008173368
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261120-081733
@@ -1907,6 +1907,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Related IDs: 2026111907080466
 	- Problem description: `dup: x` followed by `dup:` with a stacked `* x` item is one instance under 1.1 to 3.0-a37. `upgrade` writes `dup: x` and a `- x` list, which read as 2 instances now. `dup: [x]` with the same list reads as one.
 	- Origin: Confirmed by check-formats `dfjad` to `dfjak`, on corpus 042-late-merge as each of those tags has it.
+	- Reproduced: the v1.1.0 and 3.0-a37 CLIs count 1 for `dup: x` then a stacked `* x`, in either order, and 2 for `dup: x` then `* y`. The converted text counted 2 for both orders.
+	- Actual cause: 1.0 to 3.0-a37 keyed an instance by its strings alone, so a scalar and a list of that one string were one instance. 3.0-9ef keyed a list apart from a scalar, and the steps rewrite a line at a time, so they couldn't see the pair.
+	- Actual fix: once the lines are rewritten, the step reads the text with the current rules and writes each scalar that has a sibling list of its one string, by name, as `[x]`, then reads it again until nothing changes. It runs wherever the text is taken as 2.x or a pin, by `from` or a Format line, in all 4 bindings (`v2_fold_scalars`, Go `v2FoldScalars`, Python `_v2_fold_scalars`), from the end of `migrate_text`.
+	- Decisions:
+		- me, 20261120: the scalar becomes `[x]`, not the list a scalar, since a stacked list has no one-line scalar form and the edit stays on the scalar's line.
+		- me, 20261120: a scalar with lines under it is still written as `[x]`, which is `E028`, and counts as lost, as a bracketed 2.x comma list with lines under it does. Leaving it would read as 2 instances at exit 0. `upgrade` then refuses at 7. The CLIs' lost message is as it was.
+		- me, 20261120: `migrate` without `from` or a Format line leaves the pair, since `k: x` beside `- x` is 2 instances in a 3.0 file.
+		- me, 20261120: a one-element array from brackets pairs too, not only a stacked one. The steps out of 1.0 to 2.0 write 2.x's `[x]` as `x`, and a pin refused `[x]`, so such a line stays as typed there and its CLI read the scalar alone.
+		- me, 20261120: the line note is added only where the text differs from the input. The step out of 2.x writes 3.0's `dup: [x]` as `dup: x`, and the fold puts it back.
+	- Verified: check-formats over all 11 formats passed, with 1.1 to 3.0-a37 now clean on corpus 042 and the refused counts as before. The new test in each runner fails with the fold switched off and passes with it. cargo test, clippy and rustfmt, the Go tests, the Python and C conformance runners, `--backlog-run-quick rust go python c cli`, `lint-report.bash --check --no-mark`, cli-regress, crosscheck, check-migrate, `test-ids.py check` and the markdown check passed. Go, Python and C `upgrade --from=1.1` and `--from=3.0-a37` gave the same output and exit as Rust on every corpus input.
+	- Swept: `convert`, `migrate`, `migrate_unstamped`, `upgrade`, `upgrade_dated` and a load with `migrate` all reach `migrate_text`. The C++ veneer calls the C one. Docs: spec.md's migrate section, the format versions design doc, `migrate`'s doc comment in all 4, and the changelog.
+	- Test case: `upgrade_from_1x_to_a37_folds_a_scalar_with_a_list_of_it` (Rust `dfjcy`, Go `dfjcz`, Python `dfjd0`, C `dfjd1`), and check-formats `dfjad` to `dfjak`.
+	- Branch: `nov20b-2026112008173368`
+	- Commit: `df19e6bb`
+	- Acceptance signoff: Self-closed: the tests were seen to fail on the old code, and the converted reads match each format's own CLI.
+	- Closed: 20261120-100140
+	- Closed reason: Done
 
 - Format versions: upgrade from 1.0, 1.1 or 2.0 cuts a value at a comma after a quote that never closes
 	- ID: 2026112008173388

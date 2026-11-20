@@ -62,6 +62,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `upgrade()`, `upgrade_file()` and `load_file_opts()` with `migrate` keep a raw body from 1.0, 1.1 or 2.0 reading as it did. Those formats took the indent shared by the body's lines off each line, so a body under `~~~sql` whose lines all sat 2 spaces past the fence read without those 2 spaces, and it read with them after the conversion. Such a body is now written under its closing fence's indent with the shared indent taken off. A fence run with a blank other than a space or a tab at its edge, which closed the block then, comes without that blank. `migrate()` without `from` leaves raw bodies as they are, since the 2.x builds after 2.0 read them as they read now.
 
+- `upgrade()`, `upgrade_file()` and `load_file_opts()` with `migrate` keep `k: x` and a stacked list of `x` alone as one instance in a file from 1.0 to 3.0-a37. Those formats read the 2 as one, and the conversion read them as 2. The scalar is now written as `[x]`.
+
 - A quote in the middle of a value that never closes kept the rest of the line in the value under 2.x, commas and a `#` included, so `open: don't, stop` was one string. `migrate()` and the conversion from 1.0, 1.1 or 2.0 wrote it as 2, `["don't", stop]`. They write `"don't, stop"` now.
 
 - A comment added above a field, by `set_comment` or as the note a default form leaves on the value it replaced, went above the field's blank line when a line kept for an error sat above the field. So the blank went above that kept line's comments, away from the field. The new comment goes under the blank now, right above the field, in every binding.

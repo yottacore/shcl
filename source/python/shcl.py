@@ -3510,7 +3510,10 @@ def migrate(text: str, from_: str | None) -> Migration:
 	reads as from_'s format read it, and without from_ stays as written and
 	counts in lost, since 1.2 read it as typed and 2.0 resolved it. With
 	from_ naming 1.0, 1.1 or 2.0, a raw body is written to read as that
-	format read it, with the indent its lines shared taken off.
+	format read it, with the indent its lines shared taken off. A file taken
+	as 3.0-a37 or older, by from_ or its Format line, gets `[x]` for a
+	scalar `x` beside a stacked list of `x` alone, since those were one
+	instance then and a list isn't a scalar now.
 
 	Which file this is cannot always be read off the text: `p: a,b` is an
 	array under 2.x and one string under these rules, and a raw block can open
@@ -3623,6 +3626,61 @@ def _v2_raw_body(lines, ch, length, v2):
 	return out
 
 
+def _v2_fold_scalars(text):
+	"""1.0 to 3.0-a37 keyed an instance by its strings alone, so `k: x` and a
+	list of `x` alone under the same parent were one instance, which a fold made
+	where the list closed. A list isn't a scalar now, so they read as 2. Each
+	such scalar is written as an array of one, and the text read again, since a
+	line of the same scalar that folded into it reads apart then. None when
+	nothing changes, else the text and the lines written."""
+	# Only a stacked list or brackets make an array.
+	if "-" not in text and "[" not in text:
+		return None
+	lines = text.split("\n")
+	tok = Tokens()
+	wrote_at: list[int] = []
+	# Each pass writes at least one scalar, which is then an array, so the
+	# passes are fewer than the lines.
+	for _ in range(len(lines)):
+		arena = Document.parse("\n".join(lines)).arena
+		hits = []
+		stack = [_ROOT]
+		while stack:
+			kids = arena[stack.pop()].children
+			stack.extend(kids)
+			lists = {
+				(arena[c].name, arena[c].value.els[0].text)
+				for c in kids
+				if arena[c].value.kind == "array" and len(arena[c].value.els) == 1
+			}
+			if not lists:
+				continue
+			for c in kids:
+				nd = arena[c]
+				if nd.value.kind == "cell" and nd.line > 0 and (nd.name, nd.value.els[0].text) in lists:
+					hits.append((nd.line - 1, _emit_array(nd.value.els[:1])))
+		before = len(wrote_at)
+		for i, with_ in hits:
+			if i >= len(lines):
+				continue
+			line = lines[i]
+			bom = "\ufeff" if i == 0 and line.startswith("\ufeff") else ""
+			body = line[len(bom):].rstrip("\r")
+			indent = _leading_ws(body)
+			rest = _trim_wsp_end(body[len(indent):])
+			_lex_line(rest, ":", False, _Lex.Current, tok)
+			if tok.fault is not None or tok.sep is None or tok.array is not None or len(tok.elements) != 1:
+				continue
+			b = rest.encode("utf-8", "surrogatepass")
+			new = b[:tok.value[0]] + with_.encode("utf-8", "surrogatepass") + b[tok.value[1]:]
+			at = len(bom) + len(indent) + len(rest)
+			lines[i] = bom + indent + new.decode("utf-8", "surrogatepass") + line[at:]
+			wrote_at.append(i + 1)
+		if len(wrote_at) == before:
+			break
+	return ("\n".join(lines), wrote_at) if wrote_at else None
+
+
 def _migrate_text(text, from_v2, stamp, beta, step):
 	"""beta takes a file naming this format as 2.x too, which only upgrade()
 	asks for, once the caller has said so. step is the one the text's format
@@ -3709,6 +3767,15 @@ def _migrate_text(text, from_v2, stamp, beta, step):
 		# open the same block on the same line.
 		if fence is not None and not raw_then and now.fence == fence:
 			raw_body = iter(_v2_raw_body(lines[i + 1:], fence[0], fence[1], st.v2))
+	# A scalar written as an array to fold as it did is E028 too where it
+	# heads lines of its own.
+	if st.from_v2:
+		folded = _v2_fold_scalars("".join(out))
+		if folded is not None:
+			out = [folded[0]]
+			# It can put back what the line's own rewrite took off.
+			changed = folded[0] != whole
+			bracketed.extend(folded[1])
 	# 2.x let a comma list head lines of its own, and nothing spells that
 	# now: in brackets it is E028, and as one string it reads as another
 	# value.

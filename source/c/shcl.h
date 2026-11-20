@@ -4415,6 +4415,94 @@ static ShclStr *v2_raw_body(ShclArena *a, ShclStr rest, unsigned char ch, size_t
 	return out;
 }
 
+/* 1.0 to 3.0-a37 keyed an instance by its strings alone, so `k: x` and a list
+   of `x` alone under the same parent were one instance, which a fold made
+   where the list closed. A list isn't a scalar now, so they read as 2. Each
+   such scalar is written as an array of one, and the text read again, since a
+   line of the same scalar that folded into it reads apart then. 0 when nothing
+   changes, else 1 with the text in *out and each line written marked 2 in
+   flags, as a bracketed comma list is. */
+static int v2_fold_scalars(ShclMigrateOwn *own, ShclStr text, ShclTokens *tok, unsigned char *flags, size_t nlines, ShclStr *out) { // NOLINT(bugprone-easily-swappable-parameters): flags and nlines go together
+	ShclArena *a = &own->a;
+	/* Only a stacked list or brackets make an array. */
+	if (!memchr(text.p, '-', text.n) && !memchr(text.p, '[', text.n)) return 0;
+	size_t n = 1;
+	for (size_t i = 0; i < text.n; i++) n += text.p[i] == '\n';
+	ShclStr *lines = (ShclStr *)arena_alloc(a, n * sizeof *lines);
+	for (size_t i = 0, k = 0, start = 0; i <= text.n; i++) {
+		if (i < text.n && text.p[i] != '\n') continue;
+		lines[k++] = s_slice(text, start, i);
+		start = i + 1;
+	}
+	int wrote = 0;
+	ShclSB joined = {0, 0, 0};
+	/* Each pass writes at least one scalar, which is then an array, so the
+	   passes are fewer than the lines. */
+	for (size_t pass = 0; pass < n; pass++) {
+		joined.len = 0;
+		for (size_t k = 0; k < n; k++) {
+			if (k) sb_putc(a, &joined, '\n');
+			sb_putS(a, &joined, lines[k]);
+		}
+		migrate_load(own, sb_S(&joined));
+		const shcl_doc *d = own->doc;
+		size_t *stack = (size_t *)arena_alloc(a, (d->nodes.len + 1) * sizeof *stack);
+		size_t *lists = (size_t *)arena_alloc(a, (d->nodes.len + 1) * sizeof *lists);
+		size_t top = 0;
+		stack[top++] = ROOT;
+		int wrote_now = 0;
+		while (top) {
+			const ShclNode *p = &d->nodes.data[stack[--top]];
+			size_t nl = 0;
+			for (size_t j = 0; j < p->children.len; j++) {
+				size_t c = p->children.data[j];
+				stack[top++] = c;
+				const ShclValue *v = &d->nodes.data[c].value;
+				if (v->kind == V_ARRAY && v->nels == 1) lists[nl++] = c;
+			}
+			for (size_t j = 0; nl && j < p->children.len; j++) {
+				const ShclNode *nd = &d->nodes.data[p->children.data[j]];
+				if (nd->value.kind != V_CELL || nd->line == 0 || nd->line > n) continue;
+				int hit = 0;
+				for (size_t q = 0; q < nl && !hit; q++) {
+					const ShclNode *l = &d->nodes.data[lists[q]];
+					hit = s_eq(l->name, nd->name) && s_eq(l->value.els[0].text, nd->value.els[0].text);
+				}
+				if (!hit) continue;
+				size_t i = nd->line - 1;
+				ShclStr line = lines[i];
+				size_t bom = i == 0 && line.n >= 3 && (unsigned char)line.p[0] == 0xEF && (unsigned char)line.p[1] == 0xBB && (unsigned char)line.p[2] == 0xBF ? 3 : 0;
+				size_t bn = line.n;
+				while (bn > bom && line.p[bn - 1] == '\r') bn--;
+				ShclStr body = s_slice(line, bom, bn);
+				ShclStr indent = leading_ws(body);
+				ShclStr rest = trim_wsp_end(s_slice(body, indent.n, body.n));
+				lex_line(a, rest, ':', 0, SHCL_LEX_CURRENT, tok);
+				if (tok->has_fault || !tok->has_sep || tok->has_array || tok->nelem != 1) continue;
+				size_t at = bom + indent.n;
+				ShclSB nw = {0, 0, 0};
+				sb_putS(a, &nw, s_slice(line, 0, at + tok->value_start));
+				sb_putS(a, &nw, emit_array(a, nd->value.els, 1));
+				sb_putS(a, &nw, s_slice(line, at + tok->value_end, line.n));
+				lines[i] = sb_S(&nw);
+				if (nd->line <= nlines) flags[nd->line] |= 2;
+				wrote_now = 1;
+			}
+		}
+		migrate_unload(own);
+		if (!wrote_now) break;
+		wrote = 1;
+	}
+	if (!wrote) return 0;
+	joined.len = 0;
+	for (size_t k = 0; k < n; k++) {
+		if (k) sb_putc(a, &joined, '\n');
+		sb_putS(a, &joined, lines[k]);
+	}
+	*out = sb_S(&joined);
+	return 1;
+}
+
 /* Which file this is cannot always be read off the text: `p: a,b` is an array
    under 2.x and one string under these rules, and a raw block can open where
    only one rule set sees it, so rewriting a 3.0 file changes what it says. So
@@ -4534,6 +4622,16 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
 		}
 		start = i + 1;
 	}
+	/* A scalar written as an array to fold as it did is E028 too where it
+	   heads lines of its own. */
+	ShclStr folded;
+	if (st->from_v2 && v2_fold_scalars(own, sb_S(&out), &tok, flags, nlines, &folded)) {
+		out.len = 0;
+		sb_putS(a, &out, folded);
+		/* It can put back what the line's own rewrite took off. */
+		changed = !s_eq(folded, whole);
+		bracketed = 1;
+	}
 	/* 2.x let a comma list head lines of its own, and nothing spells that
 	   now: in brackets it is E028, and as one string it reads as another
 	   value. */
@@ -4581,7 +4679,10 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
    and which now ends at the `#`. A quoted name with a backslash pair stays as
    written and counts in lost, since 1.2 read it as typed and 2.0 resolved it.
    A step out of 1.0, 1.1 or 2.0 writes a raw body to read as that format
-   read it, with the indent its lines shared taken off.
+   read it, with the indent its lines shared taken off. A file taken as
+   3.0-a37 or older, by from or its Format line, gets `[x]` for a scalar `x`
+   beside a stacked list of `x` alone, since those were one instance then and
+   a list isn't a scalar now.
    The output and the reused tokens live in `a`; the per-line temporaries go
    to `sc`, reset per line, so a large document costs its own size and not
    every line's scratch on top. An allocation failure goes to outer when it is

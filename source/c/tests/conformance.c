@@ -8937,6 +8937,36 @@ int main(int argc, char **argv) {
 		if (mm.len < strlen(typed) || memcmp(mm.text, typed, strlen(typed)) != 0) fail("upgrade_raw_body", mm.text);
 		free(mm.text);
 	}
+	test_id("dfjd1", "upgrade_from_1x_to_a37_folds_a_scalar_with_a_list_of_it");
+	/* 1.0 to 3.0-a37 keyed an instance by its strings alone, so `k: x` and a
+	   stacked list of `x` alone were one instance. The step out of each
+	   writes such a scalar as an array of one, and one with lines under it is
+	   E028 and counts as lost (2026112008173368). Same rows in every runner. */
+	{
+		const char *text = "d: x\nd: x # c\nd:\n\t* x\nb:\n\t* \"y,z\"\nb: \"y,z\"\nc: x\nc:\n\t* y\n";
+		const char *want = "d: [x]\nd: [x] # c\nd:\n\t- x\nb:\n\t- \"y,z\"\nb: [\"y,z\"]\nc: x\nc:\n\t- y\n" SHCL_STAMP_LINE "\n";
+		const char *froms[] = {"1.0", "1.1", "2.0", "3.0-1f8", "3.0-a37"};
+		for (size_t i = 0; i < sizeof froms / sizeof froms[0]; i++) {
+			shcl_upgraded up = shcl_upgrade(text, strlen(text), froms[i], 0);
+			if (!up_is(&up, want) || up.lost != 0 || up.ambiguous != 0) {
+				fprintf(stderr, "from %s: lost %zu ambiguous %zu\n%s\n", froms[i], up.lost, up.ambiguous, up.text ? up.text : "no text");
+				fail("upgrade_fold_scalar", froms[i]);
+			}
+			shcl_doc *fd = up.text ? shcl_parse(up.text, strlen(up.text)) : NULL;
+			if (!fd || shcl_count(fd, "d", 1) != 1 || shcl_count(fd, "b", 1) != 1 || shcl_count(fd, "c", 1) != 2) fail("upgrade_fold_scalar counts", froms[i]);
+			shcl_free(fd);
+			shcl_upgraded_free(&up);
+		}
+		const char *kids = "p: a\n\tq: y\np:\n\t* a\n";
+		shcl_migration mk = shcl_migrate(kids, strlen(kids), "1.1");
+		if (mk.lost != 1 || strncmp(mk.text, "p: [a]\n", 7) != 0) fail("upgrade_fold_scalar lines under it", mk.text);
+		free(mk.text);
+		/* shcl_migrate's own read of a file that may be 3.0 leaves it. */
+		const char *may = "d: x\nd:\n\t- x\n";
+		shcl_migration mm = shcl_migrate(may, strlen(may), NULL);
+		if (strncmp(mm.text, "d: x\n", 5) != 0) fail("upgrade_fold_scalar migrate", mm.text);
+		free(mm.text);
+	}
 	test_id("dfhjf", "migrate_reads_from_as_upgrade_does");
 	/* shcl_migrate reads a caller's from as shcl_upgrade does, with no mtime,
 	   and takes that format's step. A format whose steps rewrite nothing, and

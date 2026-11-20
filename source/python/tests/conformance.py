@@ -6806,6 +6806,28 @@ def main():
 	if not rm.text.startswith("r:\n\t```\n\t  line1\n\t   \n\n\t \n\t  line2\n"):
 		raise SystemExit(f"migrate: {rm.text!r}")
 
+	test_id("dfjd0", "upgrade_from_1x_to_a37_folds_a_scalar_with_a_list_of_it")
+	# 1.0 to 3.0-a37 keyed an instance by its strings alone, so `k: x` and a
+	# stacked list of `x` alone were one instance. The step out of each writes
+	# such a scalar as an array of one, and one with lines under it is E028
+	# and counts as lost (2026112008173368). Same rows in every runner.
+	sftext = "d: x\nd: x # c\nd:\n\t* x\nb:\n\t* \"y,z\"\nb: \"y,z\"\nc: x\nc:\n\t* y\n"
+	sfwant = with_stamp("d: [x]\nd: [x] # c\nd:\n\t- x\nb:\n\t- \"y,z\"\nb: [\"y,z\"]\nc: x\nc:\n\t- y\n")
+	for sffrom in ("1.0", "1.1", "2.0", "3.0-1f8", "3.0-a37"):
+		sfup = shcl.upgrade(sftext, sffrom, False)
+		if (sfup.text, sfup.lost, sfup.ambiguous) != (sfwant, 0, 0):
+			raise SystemExit(f"from {sffrom}: {sfup.text!r} lost {sfup.lost} ambiguous {sfup.ambiguous}, want {sfwant!r}")
+		sfdoc = shcl.Document.parse(sfup.text)
+		if (sfdoc.count("d"), sfdoc.count("b"), sfdoc.count("c")) != (1, 1, 2):
+			raise SystemExit(f"from {sffrom}: counts {sfdoc.count('d')} {sfdoc.count('b')} {sfdoc.count('c')}, want 1 1 2")
+	sfm = shcl.migrate("p: a\n\tq: y\np:\n\t* a\n", "1.1")
+	if sfm.lost != 1 or not sfm.text.startswith("p: [a]\n"):
+		raise SystemExit(f"lines under it: lost {sfm.lost}, {sfm.text!r}")
+	# migrate's own read of a file that may be 3.0 leaves it.
+	sfm = shcl.migrate("d: x\nd:\n\t- x\n", None)
+	if not sfm.text.startswith("d: x\n"):
+		raise SystemExit(f"migrate: {sfm.text!r}")
+
 	test_id("dfhf2", "a_load_converts_from_a_1x_or_2x_format")
 	# A file from 1.0, 1.1 or 2.0 goes through the 2.x rewrite on load, with
 	# each format's own reads where they differ. 1.x keyed a quoted name by

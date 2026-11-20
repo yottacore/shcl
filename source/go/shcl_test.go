@@ -8756,6 +8756,34 @@ func TestUpgradeFrom1xOr2xKeepsARawBodyAndAnOpenQuoteAsRead(t *testing.T) {
 	}
 }
 
+// TestUpgradeFrom1xToA37FoldsAScalarWithAListOfIt: 1.0 to 3.0-a37 keyed an
+// instance by its strings alone, so `k: x` and a stacked list of `x` alone
+// were one instance. The step out of each writes such a scalar as an array of
+// one, and one with lines under it is E028 and counts as lost
+// (2026112008173368). Same rows in every runner.
+func TestUpgradeFrom1xToA37FoldsAScalarWithAListOfIt(t *testing.T) {
+	defer testID(t, "dfjcz")
+	text := "d: x\nd: x # c\nd:\n\t* x\nb:\n\t* \"y,z\"\nb: \"y,z\"\nc: x\nc:\n\t* y\n"
+	want := withStamp("d: [x]\nd: [x] # c\nd:\n\t- x\nb:\n\t- \"y,z\"\nb: [\"y,z\"]\nc: x\nc:\n\t- y\n")
+	for _, from := range []string{"1.0", "1.1", "2.0", "3.0-1f8", "3.0-a37"} {
+		up := Upgrade(text, from, false)
+		if up.Text != want || up.Lost != 0 || up.Ambiguous != 0 {
+			t.Errorf("from %s: got %q lost %d ambiguous %d, want %q", from, up.Text, up.Lost, up.Ambiguous, want)
+		}
+		doc := Parse(up.Text)
+		if d, b, c := doc.Count("d"), doc.Count("b"), doc.Count("c"); d != 1 || b != 1 || c != 2 {
+			t.Errorf("from %s: counts %d %d %d, want 1 1 2", from, d, b, c)
+		}
+	}
+	if m := Migrate("p: a\n\tq: y\np:\n\t* a\n", "1.1"); m.Lost != 1 || !strings.HasPrefix(m.Text, "p: [a]\n") {
+		t.Errorf("lines under it: lost %d, %q", m.Lost, m.Text)
+	}
+	// Migrate's own read of a file that may be 3.0 leaves it.
+	if m := Migrate("d: x\nd:\n\t- x\n", ""); !strings.HasPrefix(m.Text, "d: x\n") {
+		t.Errorf("migrate: %q", m.Text)
+	}
+}
+
 // TestALoadConvertsFromA1xOr2xFormat: a file from 1.0, 1.1 or 2.0 goes
 // through the 2.x rewrite on load, with each format's own reads where they
 // differ. 1.x keyed a quoted name by its text as typed and 2.0 resolved it,

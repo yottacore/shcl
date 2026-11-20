@@ -4173,7 +4173,9 @@ func stampHint(stamp Read[int]) (Diagnostic, bool) {
 // from's format read it, and without from stays as written and counts in
 // Lost, since 1.2 read it as typed and 2.0 resolved it. With from naming 1.0,
 // 1.1 or 2.0, a raw body is written to read as that format read it, with the
-// indent its lines shared taken off.
+// indent its lines shared taken off. A file taken as 3.0-a37 or older, by from
+// or its Format line, gets `[x]` for a scalar `x` beside a stacked list of `x`
+// alone, since those were one instance then and a list isn't a scalar now.
 // Which file this is cannot always be read off the text: `p: a,b` is an array
 // under 2.x and one string under these rules, and a raw block can open where
 // only one rule set sees it, so rewriting a 3.0 file changes what it says. So
@@ -4330,6 +4332,84 @@ func v2RawBody(lines []string, ch byte, length int, v2 v2Read) []rawLine {
 	return out
 }
 
+// v2FoldScalars: 1.0 to 3.0-a37 keyed an instance by its strings alone, so
+// `k: x` and a list of `x` alone under the same parent were one instance,
+// which a fold made where the list closed. A list isn't a scalar now, so they
+// read as 2. Each such scalar is written as an array of one, and the text read
+// again, since a line of the same scalar that folded into it reads apart then.
+// ok is false when nothing changes, else it gives the text and the lines
+// written.
+func v2FoldScalars(text string) (string, []int, bool) {
+	// Only a stacked list or brackets make an array.
+	if !strings.ContainsAny(text, "-[") {
+		return "", nil, false
+	}
+	lines := strings.Split(text, "\n")
+	var tok Tokens
+	var wroteAt []int
+	type key struct{ name, text string }
+	// Each pass writes at least one scalar, which is then an array, so the
+	// passes are fewer than the lines.
+	for range lines {
+		doc := Parse(strings.Join(lines, "\n"))
+		type hit struct {
+			at   int
+			with string
+		}
+		var hits []hit
+		stack := []int{root}
+		for len(stack) > 0 {
+			p := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			kids := doc.arena[p].children
+			stack = append(stack, kids...)
+			lists := map[key]bool{}
+			for _, c := range kids {
+				if v := &doc.arena[c].value; v.kind == vArray && len(v.els) == 1 {
+					lists[key{doc.arena[c].name, v.els[0].text}] = true
+				}
+			}
+			if len(lists) == 0 {
+				continue
+			}
+			for _, c := range kids {
+				nd := &doc.arena[c]
+				if nd.value.kind == vCell && nd.line > 0 && lists[key{nd.name, nd.value.els[0].text}] {
+					hits = append(hits, hit{nd.line - 1, emitArray(nd.value.els[:1])})
+				}
+			}
+		}
+		before := len(wroteAt)
+		for _, h := range hits {
+			if h.at >= len(lines) {
+				continue
+			}
+			line := lines[h.at]
+			bom := ""
+			if h.at == 0 && strings.HasPrefix(line, "\ufeff") {
+				bom = "\ufeff"
+			}
+			body := strings.TrimRight(line[len(bom):], "\r")
+			indent := leadingWS(body)
+			rest := trimEndWS(body[len(indent):])
+			lexLine(rest, ':', false, lexCurrent, &tok)
+			if tok.Fault >= 0 || tok.Sep < 0 || tok.Array >= 0 || len(tok.Elements) != 1 {
+				continue
+			}
+			at := len(bom) + len(indent)
+			lines[h.at] = line[:at+tok.Value[0]] + h.with + line[at+tok.Value[1]:]
+			wroteAt = append(wroteAt, h.at+1)
+		}
+		if len(wroteAt) == before {
+			break
+		}
+	}
+	if len(wroteAt) == 0 {
+		return "", nil, false
+	}
+	return strings.Join(lines, "\n"), wroteAt, true
+}
+
 // migrateText: beta takes a file naming this format as 2.x too, which only
 // Upgrade asks for, once the caller has said so. s is the step the text's
 // format starts with, and says which rules it was written by: a pin's, for a
@@ -4450,6 +4530,19 @@ func migrateText(text string, fromV2, stamp, beta bool, s step) Migration {
 		// open the same block on the same line.
 		if fence.open && !rawThen && now.fence == fence {
 			rawBody = v2RawBody(lines[i+1:], fence.ch, fence.length, st.v2)
+		}
+	}
+	// A scalar written as an array to fold as it did is E028 too where it
+	// heads lines of its own.
+	if st.fromV2 {
+		if t, at, ok := v2FoldScalars(out.String()); ok {
+			out.Reset()
+			out.WriteString(t)
+			// It can put back what the line's own rewrite took off.
+			changed = t != whole
+			// sortedHas only asks, so a line twice does no harm.
+			bracketed = append(bracketed, at...)
+			sort.Ints(bracketed)
 		}
 	}
 	// 2.x let a comma list head lines of its own, and nothing spells that
