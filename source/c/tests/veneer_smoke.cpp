@@ -256,10 +256,27 @@ static int a_file_format_comes_from_its_stamp_and_mtime() {
 static int an_upgrade_converts_from_the_format_its_mtime_gives() {
 	test_id("dfh0j", "an_upgrade_converts_from_the_format_its_mtime_gives");
 	const std::string quote = "a: x\"y\n";
-	CHECK(shcl::upgrade(quote, false, false).current);
-	CHECK(shcl::upgrade_dated(quote, 1794268800, false, false).current);
-	const auto up = shcl::upgrade_dated(quote, 1785974400, false, false);
+	CHECK(shcl::upgrade(quote, std::nullopt, false).current);
+	CHECK(shcl::upgrade_dated(quote, 1794268800, std::nullopt, false).current);
+	const auto up = shcl::upgrade_dated(quote, 1785974400, std::nullopt, false);
 	CHECK(!up.current && up.text == "a: 'x\"y'\n" + std::string(shcl::STAMP_LINE) + "\n");
+	return test_id_end(fails);
+}
+
+// from names the format in place of the stamp and what find_format reads off
+// it (2026111918111481). Some of the C runner's rows, through the veneer. A
+// name holding a NUL names no format, as in the other bindings.
+static int a_caller_names_the_format_with_from() {
+	test_id("dfhhw", "a_caller_names_the_format_with_from");
+	const std::int64_t nov10 = 1794268800;
+	const std::string tab = "a: \"x\\ty\"\n";
+	const std::string made = "a: \"x\xe2\x97\x89TAB\xe2\x97\x89y\"\n" + std::string(shcl::STAMP_LINE) + "\n";
+	CHECK(shcl::upgrade_dated(tab, nov10, std::nullopt, false).current);
+	const auto up = shcl::upgrade_dated(tab, nov10, "3.0-a37", false);
+	CHECK(!up.current && up.text == made);
+	CHECK(shcl::upgrade_dated(made, nov10, "3.0-a37", false).current);
+	CHECK(shcl::upgrade_dated(tab, nov10, "4", false).current);
+	CHECK(shcl::upgrade_dated(tab, nov10, std::string_view("3.0-a37\0", 8), false).current);
 	return test_id_end(fails);
 }
 
@@ -644,10 +661,10 @@ static int a_save_can_add_the_info_block() {
 // veneer.
 static int upgrade_can_leave_the_info_block_off() {
 	test_id("dffxe", "upgrade_can_leave_the_info_block_off");
-	const auto up = shcl::upgrade("p: a,b\n", true, false);
+	const auto up = shcl::upgrade("p: a,b\n", "2.0", false);
 	CHECK(!up.current && up.text == "p: [a, b]\n" + std::string(shcl::STAMP_LINE) + "\n");
-	CHECK(shcl::upgrade(up.text, false, false).current && shcl::upgrade(up.text, true, false).current);
-	CHECK(shcl::upgrade("p: a,b\n", true, true).text.find("## This config file format is SHCL.") != std::string::npos);
+	CHECK(shcl::upgrade(up.text, std::nullopt, false).current && shcl::upgrade(up.text, "2.0", false).current);
+	CHECK(shcl::upgrade("p: a,b\n", "2.0", true).text.find("## This config file format is SHCL.") != std::string::npos);
 	const char *tmp = std::getenv("TMPDIR");
 	if (!tmp || !*tmp) tmp = std::getenv("TEMP");
 	if (!tmp || !*tmp) tmp = std::getenv("TMP");
@@ -659,7 +676,7 @@ static int upgrade_can_leave_the_info_block_off() {
 #endif
 	const std::string f = dir + "/f.shcl";
 	CHECK(shcl::write_file_atomic(f, "p: a,b\n") == shcl::WriteStatus::Ok);
-	auto [fu, err] = shcl::upgrade_file(f, true, false);
+	auto [fu, err] = shcl::upgrade_file(f, "2.0", false);
 	CHECK(!err && shcl::read_file(f).first == up.text && shcl::read_file(fu.backup).first == "p: a,b\n");
 	std::remove(f.c_str());
 	std::remove(fu.backup.c_str());
@@ -686,7 +703,8 @@ static int a_load_that_migrates_saves_through_the_guards() {
 	const std::string f = dir + "/f.shcl", gone = dir + "/gone.shcl";
 	const std::string old = "p: a,b\n# kept\nq: 1\n";
 	shcl::LoadOptions opts;
-	opts.keep_lines = opts.migrate = opts.from_v2 = true;
+	opts.keep_lines = opts.migrate = true;
+	opts.from = "2.0";
 	const std::string migrated = shcl::migrate_unstamped(old, true).text;
 	CHECK(migrated != old);
 	// The document is the migrated text's, and the load writes nothing.
@@ -775,10 +793,10 @@ static int a_path_holding_a_nul_is_refused() {
 	CHECK(shcl::read_file(cut) == std::make_pair(std::string(), F::Unreadable));
 	for (const auto &loaded : {shcl::Document::load_file(cut), shcl::Document::load_file_with(cut, shcl::Strictness::Strict),
 		     shcl::Document::load_file_keep_lines(cut, shcl::Strictness::Standard),
-		     shcl::Document::load_file_opts(cut, shcl::Strictness::Standard, shcl::LoadOptions{true, true, true})}) {
+		     shcl::Document::load_file_opts(cut, shcl::Strictness::Standard, shcl::LoadOptions{true, true, "2.0"})}) {
 		CHECK(loaded.second == F::Unreadable && loaded.first.read_int("b").status == shcl::Status::NotFound);
 	}
-	auto up = shcl::upgrade_file(cut, true, true).second;
+	auto up = shcl::upgrade_file(cut, "2.0", true).second;
 	CHECK(up && up->kind == shcl::UpgradeErrorKind::Io && up->status == W::Other);
 	auto kept = shcl::write_backup(cut, "b: 2\n", 2).second;
 	CHECK(kept && kept->kind == shcl::UpgradeErrorKind::Io && kept->status == W::Other);
@@ -1145,16 +1163,16 @@ int main() {
 	CHECK(shcl::read_schema_ref("a: 1\n").status == shcl::Status::NotFound && !shcl::schema_ref("##    Schema\n"));
 	// upgrade makes over text that does not load clean, with the info block,
 	// and leaves the result alone the next time.
-	auto up = shcl::upgrade("tags: a, b\n", false, true);
+	auto up = shcl::upgrade("tags: a, b\n", std::nullopt, true);
 	CHECK(!up.current && up.format == 2u && up.lost == 0 && up.backup.empty());
 	CHECK(up.text == "tags: [a, b]\n\n" + std::string(shcl::GEN_BANNER));
 	CHECK(up.diagnostics.size() == 1 && up.diagnostics[0].code == "E026");
-	CHECK(shcl::upgrade(up.text, false, true).current && shcl::upgrade(up.text, false, true).diagnostics.empty());
+	CHECK(shcl::upgrade(up.text, std::nullopt, true).current && shcl::upgrade(up.text, std::nullopt, true).diagnostics.empty());
 	// 2026-09-01 leaves 2.0 the newest format. Without it, a text with no
 	// tells reads as this format, which keeps its errors (2026111908444554).
-	CHECK(shcl::upgrade_dated("a: x,y\nb: \"q\n", 1788220800, false, true).ambiguous == 1);
+	CHECK(shcl::upgrade_dated("a: x,y\nb: \"q\n", 1788220800, std::nullopt, true).ambiguous == 1);
 	// With from_v2, a fresh text that would keep an error is not made.
-	auto left = shcl::upgrade("a: 1\nb 2\n##    Format   3\n", true, true);
+	auto left = shcl::upgrade("a: 1\nb 2\n##    Format   3\n", "2.0", true);
 	CHECK(!left.current && left.errors_left == std::vector<std::size_t>{2} && left.text == "a: 1\nb 2\n##    Format   3\n");
 	// Durations and sizes: the name's unit, the caller's, and base 10.
 	{
@@ -1453,16 +1471,16 @@ int main() {
 		CHECK(shcl::write_file_atomic(f, "not: a save\n") == shcl::WriteStatus::Ok && shcl::read_file(f).first == "not: a save\n");
 		CHECK(shcl::write_file_atomic(f, "") == shcl::WriteStatus::Ok && shcl::read_file(f) == std::make_pair(std::string(), shcl::FileStatus::Clean));
 		CHECK(shcl::write_file_atomic(dir + "/nope/t.shcl", "x") == shcl::WriteStatus::NotFound);
-		auto dirUp = shcl::upgrade_file(dir, false, true).second;
+		auto dirUp = shcl::upgrade_file(dir, std::nullopt, true).second;
 		CHECK(dirUp && dirUp->kind == shcl::UpgradeErrorKind::Io && dirUp->status == shcl::WriteStatus::IsDirectory);
 		// upgrade_file keeps the original under the timestamped name and
 		// writes the fresh text; the name is never written over.
 		CHECK(shcl::write_file_atomic(f, "tags: a, b\n") == shcl::WriteStatus::Ok);
 		std::string bk = dir + "/t_backup_20261004-001500_format-v2.shcl";
 		CHECK(shcl::backup_file_name(f, 2) == bk);
-		auto [upf, upErr] = shcl::upgrade_file(f, false, true);
+		auto [upf, upErr] = shcl::upgrade_file(f, std::nullopt, true);
 		CHECK(!upErr && upf.backup == bk && shcl::read_file(bk).first == "tags: a, b\n" && shcl::read_file(f).first == upf.text);
-		auto [upAgain, upAgainErr] = shcl::upgrade_file(f, false, true);
+		auto [upAgain, upAgainErr] = shcl::upgrade_file(f, std::nullopt, true);
 		CHECK(!upAgainErr && upAgain.current && upAgain.backup.empty());
 		auto [taken, takenErr] = shcl::write_backup(f, "x\n", 2);
 		CHECK(taken.empty() && takenErr && takenErr->kind == shcl::UpgradeErrorKind::BackupTaken && takenErr->message.rfind(bk, 0) == 0);
@@ -1483,7 +1501,7 @@ int main() {
 		CHECK(swappedErr && swappedErr->kind == shcl::UpgradeErrorKind::NotFound);
 #endif
 		CHECK(rmdir(swapDir.c_str()) == 0);
-		CHECK(shcl::upgrade_file(dir + "/none.shcl", false, true).second->kind == shcl::UpgradeErrorKind::NotFound);
+		CHECK(shcl::upgrade_file(dir + "/none.shcl", std::nullopt, true).second->kind == shcl::UpgradeErrorKind::NotFound);
 		CHECK(shcl::write_file_atomic(f, "a: x,y\nb: \"q\n") == shcl::WriteStatus::Ok);
 #ifdef _WIN32
 		struct _utimbuf sep1 = {1788220800, 1788220800};
@@ -1492,10 +1510,10 @@ int main() {
 		struct utimbuf sep1 = {1788220800, 1788220800};
 		CHECK(utime(f.c_str(), &sep1) == 0);
 #endif
-		auto [amb2, amb2Err] = shcl::upgrade_file(f, false, true);
+		auto [amb2, amb2Err] = shcl::upgrade_file(f, std::nullopt, true);
 		CHECK(amb2Err && amb2Err->kind == shcl::UpgradeErrorKind::Ambiguous && amb2Err->count == 1 && amb2.text.empty());
 		CHECK(shcl::write_file_atomic(f, "a: 1\nb 2\n##    Format   3\n") == shcl::WriteStatus::Ok);
-		auto [left2, left2Err] = shcl::upgrade_file(f, true, true);
+		auto [left2, left2Err] = shcl::upgrade_file(f, "2.0", true);
 		CHECK(left2Err && left2Err->kind == shcl::UpgradeErrorKind::ErrorsLeft && left2Err->lines == std::vector<std::size_t>{2} && left2.text.empty());
 		CHECK(left2Err && left2Err->message == f + ": line(s) 2 would still have an error once converted from 2.x; nothing written");
 		CHECK(shcl::read_file(f).first == "a: 1\nb 2\n##    Format   3\n");
@@ -1583,6 +1601,8 @@ int main() {
 	fails = 0;
 	const int upconv = an_upgrade_converts_from_the_format_its_mtime_gives();
 	fails = 0;
+	const int told = a_caller_names_the_format_with_from();
+	fails = 0;
 #ifndef SHCL_NO_FILE_IO
 	const int changed = a_save_over_a_file_changed_since_the_load_is_refused();
 	fails = 0;
@@ -1598,8 +1618,8 @@ int main() {
 	fails = 0;
 	const int no_banner = upgrade_can_leave_the_info_block_off();
 	fails = 0;
-	return changed | spellings | created | newer | migrating | with_banner | no_banner | a_path_holding_a_nul_is_refused() | threads | stamped | no_text | found | upconv | smoke;
+	return changed | spellings | created | newer | migrating | with_banner | no_banner | a_path_holding_a_nul_is_refused() | threads | stamped | no_text | found | upconv | told | smoke;
 #else
-	return threads | stamped | no_text | found | upconv | smoke;
+	return threads | stamped | no_text | found | upconv | told | smoke;
 #endif
 }

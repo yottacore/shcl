@@ -332,7 +332,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: port `from` to C and the C++ interface
 	- ID: 2026111918112570
 	- Type: Feature
-	- Status: Queued
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261119-181125
@@ -342,6 +342,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: mirror 2026111918111481's `from` and its tests in C and `shcl.hpp`, by parity over idiom. The C CLI maps `--from-2x` to `from` 2.0 until the CLI child.
 	- Estimated effort: Avg
 	- Note: the docs and the changelog already say what the ports build. The test is a twin of Rust's `a_caller_names_the_format_with_from` (`dfhgc`), same rows. `migrate` keeps `from_v2` until 2026111918113344.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261120: C's `from` is a NUL-terminated `const char *`, with NULL as none, in `shcl_upgrade`, `shcl_upgrade_dated`, `shcl_upgrade_file` and `shcl_load_options`, so `{0}` is still `shcl_load_file_with`. A format name is a short token, and the file calls take their path the same way. C++ takes `std::optional<std::string_view>`, as Rust's `Option<&str>`.
+		- me, 20261120: a C++ `from` holding a NUL goes to C as none. Rust, Go and Python read such a name as no format, so the result is the same, where cutting it at the NUL would name a format.
+		- me, 20261120: Rust's `from_format` is C's `from_format`, which returns whether `from` was taken, with the format in an out parameter, NULL for a newer one. `named_formats` and `pick_format` keep their names. `s_load_file_any` takes `migrate` and `from` apart, for Rust's `Option<Option<&str>>`. The tests pass what was `from_v2` through a `v2_from` helper, as Go's do.
+	- Verified: `dfhhv` fails with `from` ignored, and with the guard on a clean file stamped `3.0` taken out, where a second run turned `◉TAB◉` into `◉ESCAPE_CHAR◉TAB◉ESCAPE_CHAR◉`, and passes with both. The C runner, the veneer smoke, `--backlog-run-quick rust go python c cli`, check-veneer, cli-regress over the C CLI (675 rows), crosscheck over the corpus with the Rust and C CLIs (7954 comparisons), `test-ids.py check` and `lint-report.bash --check --no-mark` passed. analyze-c and cppcheck were not run here, and wait for the round's gate step.
+	- Swept: every C and C++ caller of `shcl_upgrade`, `shcl_upgrade_dated`, `shcl_upgrade_file`, `shcl_load_options` and their C++ spellings, in `shcl.h`, `shcl.hpp`, the C runner, the veneer smoke and the C CLI, which passes `"2.0"` for `--from-2x`. No other C test file or cicd script calls them. `upgrade_into` and `s_load_file_any` are the only readers of `from`, both through `from_format`. The doc comments on `shcl_load_options.from`, `shcl_upgraded`, `shcl_upgrade`, `shcl_upgrade_error` and their C++ twins follow Rust's. `migrate` and `migrate_unstamped` keep `from_v2`.
+	- Test case: `a_caller_names_the_format_with_from` (C `dfhhv`, C++ veneer `dfhhw`, twin of Rust `dfhgc`).
+	- Branch: `nov20-2026111918112570`
+	- Commit: `d4967bb8`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the change, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261119-191821
 
 - Format versions: `--from=FORMAT` in the 4 CLIs, in place of `--from-2x`
 	- ID: 2026111918113344

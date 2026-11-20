@@ -367,7 +367,7 @@ typedef struct {
 typedef struct {
 	int keep_lines; /* keep the text for shcl_to_text_keep_lines, as shcl_load_file_keep_lines; with migrate, the migrated text */
 	int migrate;    /* parse the file converted to this format, from the format its text and mtime give; the file is not written, and a save checks the path against the bytes the load read */
-	int from_v2;    /* migrate's from_v2: the file can only have been written for 2.x, so it converts from 2.0; ignored without migrate */
+	const char *from; /* the format the file was written in, by a name in shcl_format_names or a major alone, as shcl_upgrade's from; it overrides the file's stamp and what shcl_find_format reads off it; NULL for none; ignored without migrate */
 } shcl_load_options;
 /* Why a write failed, so a program can tell a missing folder from no
    permission or a full disk without reading errno itself. NOT_FOUND and
@@ -919,10 +919,11 @@ shcl_read_str shcl_read_schema_ref(const char *text, size_t len);
 // shcl_upgraded_free gives back all of it. text is malloc'd and
 // NUL-terminated, len its length: the fresh file's text, or the input when
 // current, ambiguous or errors_left. current: the input loads with no error
-// under these rules and, with from_v2, migrates to the same text, or its stamp
-// names this format whole, so it is left as it is. A file stamped beta1's
-// `Format 3` is current when shcl_find_format finds it to be 3.0-9ef or later,
-// unless from_v2 says a 2.x build wrote it and it loads with an error.
+// under these rules and, with from, migrates to the same text and names no
+// older format, or its stamp names this format whole, so it is left as it is.
+// A file stamped beta1's `Format 3` is current when shcl_find_format finds it
+// to be 3.0-9ef or later, unless from names an older format and it loads with
+// an error.
 // format: the format the input was written for, which goes in the backup's
 // name: what its Format line names, else 2. ambiguous: as shcl_migration's;
 // nonzero means the text reads two ways and nothing is written. lost: lines
@@ -930,12 +931,12 @@ shcl_read_str shcl_read_schema_ref(const char *text, size_t len);
 // bound that nothing binds now and the ones the load of the migrated text
 // drops. The backup still has them. diagnostics: the input's load, whose
 // shcl_diag_* calls give what it found, which is why it needed the upgrade
-// unless it loaded clean and from_v2 said it reads as 2.x; NULL when current.
+// unless it loaded clean and from said it reads otherwise; NULL when current.
 // backup: where shcl_upgrade_file put the original, malloc'd; NULL from
 // shcl_upgrade, and when nothing was written. errors_left, errors_left_n:
-// with from_v2, the input's lines still in error once converted, malloc'd
-// (NULL when none); any means nothing is written and text is the input, since
-// the next run with from_v2 would take the fresh text for 2.x again.
+// with from, the input's lines still in error once converted, malloc'd (NULL
+// when none); any means nothing is written and text is the input, since the
+// next run with from would take the fresh text for that format again.
 typedef struct {
 	char *text; size_t len;
 	int current;
@@ -959,32 +960,39 @@ typedef struct {
 // whose stamp names this format whole comes back current
 // and untouched, and so does one that loads with no error under these rules,
 // since a program calling this on every start must never rewrite a good file.
-// from_v2 is shcl_migrate's: the file can only have been written for 2.x. Then
-// a file that loads clean is still made over when migrate would change it, as
-// it would `p: a,b`, an array under 2.x and one string now. A file naming this
-// format that loads with an error is taken as 2.x when from_v2 says a 2.x
-// build wrote it, as with a beta of 3.0 that wrote 2.x lines. With from_v2,
-// any file is made over only when the fresh text
-// loads clean; when it wouldn't, errors_left names the lines still in error.
-// Pass from_v2 only for a file known to be old, never on every start: a file
-// this format wrote that picks up an error later would be read by 2.x rules
-// too.
+// from names the format the file was written in, by a name in
+// shcl_format_names or a major alone, NUL-terminated, read as a stamp naming
+// it would be, in place of the file's stamp and what shcl_find_format reads
+// off it; NULL for none. A name no format has, such as `1.2`, is no from, and
+// a newer format's leaves the file alone, as does a stamp naming a newer one.
+// With a 2.x or older format, a file that loads clean is still made over when
+// migrate would change it, as it would `p: a,b`, an array under 2.x and one
+// string now. One it would not change that names an older format gets this
+// format on that Format line, and nothing else. A file naming this major that
+// loads with an error is taken as that format, as with a beta of 3.0 that
+// wrote 2.x lines, and one that loads clean is left alone. With a pin, a file
+// that loads clean is made over too, unless its stamp names this format whole,
+// which is what the made-over file names. With from, any file is made over
+// only when the fresh text loads clean; when it wouldn't, errors_left names
+// the lines still in error. Pass from only for a file known to be old, never
+// on every start: a file this format wrote that picks up an error later would
+// be read by the old rules too.
 //
-// Without from_v2, the file's format is shcl_find_format's, from the text
+// Without from, the file's format is shcl_find_format's, from the text
 // alone, and only a format whose steps to this one rewrite anything gets made
 // over: one from 3.0-9ef on is current, its errors kept as typed, as a load
 // with migrate keeps them. One from 3.0-1f8 to 3.0-a37 goes through that
 // format's step rather than shcl_migrate_unstamped, and is made over even when
 // it loads clean, since `"x\ty"` loads clean now and held a tab then. One from
 // 1.0 to 2.0 goes through the 2.x rewrite with that format's reads of a quoted
-// name and a selector, and from_v2 takes it as 2.0. A file stamped beta1's
+// name and a selector. A file stamped beta1's
 // `Format 3` or a pin is read the same way, and the made-over file's Format
 // line names this format whole.
 // shcl_upgrade_dated takes the file's mtime too.
-shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2, int banner);
+shcl_upgraded shcl_upgrade(const char *text, size_t len, const char *from, int banner);
 // shcl_upgrade, with mtime for shcl_find_format: the file's, in Unix seconds,
 // or NULL for text from no file. shcl_upgrade_file passes the file's.
-shcl_upgraded shcl_upgrade_dated(const char *text, size_t len, const int64_t *mtime, int from_v2, int banner);
+shcl_upgraded shcl_upgrade_dated(const char *text, size_t len, const int64_t *mtime, const char *from, int banner);
 // Frees what an shcl_upgraded holds and zeroes it, so a second call is
 // harmless.
 void shcl_upgraded_free(shcl_upgraded *up);
@@ -1002,10 +1010,10 @@ char *shcl_backup_file_name(const char *file, uint32_t format);
 typedef enum {
 	SHCL_UPGRADE_OK,
 	SHCL_UPGRADE_NOT_FOUND,    // nothing at the path
-	SHCL_UPGRADE_AMBIGUOUS,    // the file does not say which rules it was written for, and some of it reads two ways; from_v2 settles it
+	SHCL_UPGRADE_AMBIGUOUS,    // the file does not say which rules it was written for, and some of it reads two ways; from settles it
 	SHCL_UPGRADE_BACKUP_TAKEN, // something is already at the backup's name; it is never written over
 	SHCL_UPGRADE_IO,           // a read or write failed; the message names the file, and *why says why
-	SHCL_UPGRADE_ERRORS_LEFT   // with from_v2, the fresh text would still have an error on the lines errors_left names
+	SHCL_UPGRADE_ERRORS_LEFT   // with from, the fresh text would still have an error on the lines errors_left names
 } shcl_upgrade_error;
 // Keep text, the bytes last read from file, under shcl_backup_file_name,
 // before something replaces them. The create is exclusive, so an earlier
@@ -1030,7 +1038,7 @@ shcl_upgrade_error shcl_write_backup(const char *file, const char *text, size_t 
 // SHCL_UPGRADE_AMBIGUOUS, and errors_left for SHCL_UPGRADE_ERRORS_LEFT, and
 // *message (when not NULL) gets why. Either way shcl_upgraded_free(out) is
 // safe, and the caller frees the message.
-shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, int banner, shcl_upgraded *out, char **message, shcl_write_status *why);
+shcl_upgrade_error shcl_upgrade_file(const char *path, const char *from, int banner, shcl_upgraded *out, char **message, shcl_write_status *why);
 #endif
 
 // --- Writer: typed emit, defaults, comments, structural edits ---------------
@@ -4565,6 +4573,8 @@ static shcl_str upgrade_text(shcl_doc *fresh, int banner, jmp_buf *panic) {
 
 /* Defined beside shcl_format_days. */
 static ShclStep s_first_rewrite(const char *format);
+/* Defined beside shcl_find_format. */
+static int from_format(const char *text, size_t len, const int64_t *mtime, const char *from, const char **format);
 
 /* The lines with an error on them, in order, each once, into *out (malloc'd).
    Returns how many. */
@@ -4582,12 +4592,12 @@ static size_t error_lines(const shcl_doc *d, size_t **out, jmp_buf *panic) {
 	return u;
 }
 
-static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, size_t len, const int64_t *mtime, int from_v2, int banner, shcl_upgraded *up) { // NOLINT(bugprone-easily-swappable-parameters): shcl_upgrade_dated's order, as in the Rust twin
+static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, size_t len, const int64_t *mtime, const char *from, int banner, shcl_upgraded *up) { // NOLINT(bugprone-easily-swappable-parameters): shcl_upgrade_dated's order, as in the Rust twin
 	if (!text) { text = ""; len = 0; }
 	/* Read here rather than before the setjmp, where -Wclobbered guesses
 	   they could be lost. */
-	int newer = 0;
-	shcl_read_i64 named = stamp_read(text, len, &newer);
+	ShclStamp named = stamp_of(text, len);
+	int newer = names_newer(named);
 	int64_t version = named.status == SHCL_GOOD ? named.value : -1;
 	up->current = 1;
 	up->format = version < 0 ? 2 : (uint32_t)version;
@@ -4598,8 +4608,12 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 	   shcl_find_format reads it as the load does, with the mtime and the
 	   tells. */
 	ShclStep step = {SHCL_STEP_SAME, SHCL_PIN_FROM_30D, SHCL_V2_EITHER};
-	if (!newer)
-		step = s_first_rewrite(from_v2 ? "2.0" : shcl_find_format(text, len, mtime));
+	int told = 0;
+	if (!newer) {
+		const char *format = NULL;
+		told = from_format(text, len, mtime, from, &format);
+		step = s_first_rewrite(told ? format : shcl_find_format(text, len, mtime));
+	}
 	if (step.kind != SHCL_STEP_SAME) {
 		int pinned = step.kind == SHCL_STEP_PIN;
 		own->before = shcl_parse(text, len);
@@ -4611,9 +4625,11 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 		   upgrade leaves, so a second run over its output leaves it alone. A
 		   file found to be from 3.0-1f8 to 3.0-a37 can load clean and still
 		   read otherwise, as `"x\ty"` does, so it is made over as the load
-		   makes it over. */
-		if (!clean || pinned || (from_v2 && version != SHCL_FORMAT_MAJOR)) {
-			m = migrate_text(text, len, from_v2, 0, 1, step, panic);
+		   makes it over. One stamped this format whole is what a told
+		   upgrade writes, so a second run over it with the same from leaves
+		   it alone. */
+		if (!clean || ((pinned || (told && version != SHCL_FORMAT_MAJOR)) && !(told && names_this(named)))) {
+			m = migrate_text(text, len, told, 0, 1, step, panic);
 			own->migrated = m.text;
 			/* A 2.x file can load clean and still read differently now, as
 			   `a,b` does. One migrate leaves as it was has nothing to do, but an
@@ -4654,11 +4670,11 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 			size_t ns = 0;
 			own->stamped = restamp_text(keep.p, keep.n, &ns, 1, panic);
 			if (own->stamped) { keep.p = own->stamped; keep.n = ns; }
-			/* With from_v2 it goes only when that leaves it loading clean, or
-			   the next run with it would read the result by 2.x rules again
-			   (2026101515372401). Without, a line in error stays as typed, as
-			   on load. */
-			if (from_v2) {
+			/* With from it goes only when that leaves it loading clean, or
+			   the next run with it would read the result by the old rules
+			   again (2026101515372401). Without, a line in error stays as
+			   typed, as on load. */
+			if (told) {
 				own->made = shcl_parse(keep.p, keep.n);
 				if (!own->made) longjmp(*panic, 1);
 				if (shcl_error_count(own->made)) {
@@ -4681,11 +4697,11 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 	if (!up->current) { up->diagnostics = own->before; own->before = NULL; }
 }
 
-shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2, int banner) {
-	return shcl_upgrade_dated(text, len, NULL, from_v2, banner);
+shcl_upgraded shcl_upgrade(const char *text, size_t len, const char *from, int banner) {
+	return shcl_upgrade_dated(text, len, NULL, from, banner);
 }
 
-shcl_upgraded shcl_upgrade_dated(const char *text, size_t len, const int64_t *mtime, int from_v2, int banner) {
+shcl_upgraded shcl_upgrade_dated(const char *text, size_t len, const int64_t *mtime, const char *from, int banner) {
 	shcl_upgraded up; memset(&up, 0, sizeof up);
 	SHCL_VOLATILE_OWNER_BEGIN
 	ShclUpgradeOwn *volatile own = (ShclUpgradeOwn *)calloc(1, sizeof *own);
@@ -4698,7 +4714,7 @@ shcl_upgraded shcl_upgrade_dated(const char *text, size_t len, const int64_t *mt
 		SHCL_OOM();
 		abort();
 	}
-	upgrade_into(own, &panic, text, len, mtime, from_v2, banner, &up);
+	upgrade_into(own, &panic, text, len, mtime, from, banner, &up);
 	ShclUpgradeOwn *done = own;
 	shcl_free(done->before); shcl_free(done->fresh); shcl_free(done->made); free(done->migrated); free(done->stamped); free(done->left); free(done);
 	return up;
@@ -4945,25 +4961,62 @@ static uint32_t most_legal(ShclStr in, uint32_t left) {
 	return best == count ? left : (uint32_t)1 << best;
 }
 
+static uint32_t named_formats(ShclStr name);
+static const char *pick_format(const char *text, size_t len, const int64_t *mtime, uint32_t by_stamp);
+
 const char *shcl_find_format(const char *text, size_t len, const int64_t *mtime) {
 	ShclStamp st = stamp_of(text, len);
 	if (names_newer(st)) return NULL;
+	return pick_format(text, len, mtime, st.status == SHCL_GOOD ? named_formats(st.digits) : 0);
+}
+
+/* The formats of shcl_format_days a stamp naming name leaves, as bits: the
+   one a whole format's or a pin's name gives, or every format of a major
+   named alone, or of a minor whose pin no row has. 0 for a name no format
+   has, such as `1.2`. */
+static uint32_t named_formats(ShclStr name) {
+	size_t count = sizeof shcl_format_days / sizeof shcl_format_days[0];
+	for (size_t k = 0; k < SHCL_FORMAT_NAME_COUNT; k++) {
+		if (!s_eq(name, s_lit(shcl_format_names[k][0]))) continue;
+		for (size_t i = 0; i < count; i++)
+			if (strcmp(shcl_format_days[i].name, shcl_format_names[k][1]) == 0) return (uint32_t)1 << i;
+		break;
+	}
+	int64_t minor, fminor;
+	int64_t major = stamp_format(name, &minor);
+	int whole = name.n && memchr(name.p, '.', name.n) != NULL;
+	uint32_t left = 0;
+	for (size_t k = 0; k < count; k++) {
+		int64_t fmajor = stamp_format(s_lit(shcl_format_days[k].name), &fminor);
+		if (major >= 0 && fmajor == major && (!whole || fminor == minor)) left |= (uint32_t)1 << k;
+	}
+	return left;
+}
+
+/* What a caller's from names, read as a stamp naming it would be, in place
+   of the text's own stamp: 0 when there's no from, or it names no format
+   shcl knows, so the text's stamp and the scan decide. Else 1, with the
+   format in *format, NULL for a newer format than this reader's, which leaves
+   nothing to do. A major alone, such as `1`, leaves its formats to the mtime
+   and the tells. */
+static int from_format(const char *text, size_t len, const int64_t *mtime, const char *from, const char **format) {
+	if (!from) return 0;
+	ShclStr name = s_lit(from);
+	int64_t minor;
+	int64_t major = stamp_format(name, &minor);
+	if (major > SHCL_FORMAT_MAJOR || (major == SHCL_FORMAT_MAJOR && minor > SHCL_FORMAT_MINOR)) { *format = NULL; return 1; }
+	uint32_t left = named_formats(name);
+	if (!left) return 0;
+	*format = pick_format(text, len, mtime, left);
+	return 1;
+}
+
+/* shcl_find_format's last 3 steps over the formats by_stamp leaves, every
+   one when it's 0. */
+static const char *pick_format(const char *text, size_t len, const int64_t *mtime, uint32_t by_stamp) {
 	size_t count = sizeof shcl_format_days / sizeof shcl_format_days[0];
 	uint32_t left = ((uint32_t)1 << count) - 1;
-	if (st.status == SHCL_GOOD) {
-		for (size_t k = 0; k < SHCL_FORMAT_NAME_COUNT; k++) {
-			if (s_eq(st.digits, s_lit(shcl_format_names[k][0]))) return shcl_format_names[k][1];
-		}
-		int64_t minor, fminor;
-		int64_t major = stamp_format(st.digits, &minor);
-		int whole = memchr(st.digits.p, '.', st.digits.n) != NULL;
-		uint32_t by_stamp = 0;
-		for (size_t k = 0; k < count; k++) {
-			int64_t fmajor = stamp_format(s_lit(shcl_format_days[k].name), &fminor);
-			if (major >= 0 && fmajor == major && (!whole || fminor == minor)) by_stamp |= (uint32_t)1 << k;
-		}
-		if (by_stamp) left = by_stamp;
-	}
+	if (by_stamp) left = by_stamp;
 	if (mtime) {
 		uint32_t by_mtime = 0;
 		for (size_t k = 0; k < count; k++) {
@@ -16418,10 +16471,11 @@ static int s_something_at(const char *path) {
 
 /* The text, written in format, as the current format reads it, one step per
    format in order, in memory. NULL, a newer format's, comes back as it is.
-   from_v2 is migrate's. The text is malloc'd, and the caller frees it. */
-static shcl_migration s_convert(const char *text, size_t len, const char *format, int from_v2) {
+   told says a caller named the format, so every rewrite is made. The text is
+   malloc'd, and the caller frees it. */
+static shcl_migration s_convert(const char *text, size_t len, const char *format, int told) {
 	ShclStep step = s_first_rewrite(format);
-	if (step.kind != SHCL_STEP_SAME) return migrate_text(text, len, from_v2, 0, 0, step, NULL);
+	if (step.kind != SHCL_STEP_SAME) return migrate_text(text, len, told, 0, 0, step, NULL);
 	shcl_migration m; memset(&m, 0, sizeof m);
 	m.current = 1; m.len = len;
 	m.text = (char *)malloc(len + 1);
@@ -16452,18 +16506,22 @@ static int s_file_mtime(const char *path, int64_t *out) {
 /* Every load that reads a file comes here, as the reference's load_file_any:
    read, parse, and keep the text for a save's changed check. A file that could
    not be read gives a save nothing to compare, so its bytes are as unread as a
-   parsed document's. migrate is from_v2 to parse the migrated text, or -1. */
-static shcl_doc *s_load_file_any(const char *path, shcl_strictness s, int keep, int migrate, shcl_file_status *status) { // NOLINT(bugprone-easily-swappable-parameters): migrate is -1, 0 or 1, and the 3 callers sit below
+   parsed document's. migrate says to parse the migrated text, with from the
+   caller's format or NULL. */
+static shcl_doc *s_load_file_any(const char *path, shcl_strictness s, int keep, int migrate, const char *from, shcl_file_status *status) { // NOLINT(bugprone-easily-swappable-parameters): the reference's order, and the 3 callers sit below
 	size_t len = 0;
 	shcl_file_status st = SHCL_FILE_UNREADABLE;
 	char *buf = shcl_read_file(path, 0, &len, &st);
 	if (status) *status = st;
 	shcl_doc *d;
-	if (buf && migrate >= 0) {
-		// from_v2 says the file is 2.x, whatever its stamp and mtime say.
+	if (buf && migrate) {
+		// from names the format, whatever the stamp and the mtime say.
 		int64_t mtime = 0;
-		const char *format = migrate ? "2.0" : shcl_find_format(buf, len, s_file_mtime(path, &mtime) ? &mtime : NULL);
-		shcl_migration mig = s_convert(buf, len, format, migrate);
+		const int64_t *mt = s_file_mtime(path, &mtime) ? &mtime : NULL;
+		const char *format = NULL;
+		int told = from_format(buf, len, mt, from, &format);
+		if (!told) format = shcl_find_format(buf, len, mt);
+		shcl_migration mig = s_convert(buf, len, format, told);
 		if (!mig.text) { free(buf); return NULL; }
 		d = keep ? shcl_parse_keep_lines(mig.text, mig.len, s) : shcl_parse_with(mig.text, mig.len, s);
 		free(mig.text);
@@ -16487,7 +16545,7 @@ static shcl_doc *s_load_file_any(const char *path, shcl_strictness s, int keep, 
 // status out-param separates the four cases consumers otherwise confuse:
 // absent, present-but-unreadable, parsed with errors, clean.
 shcl_doc *shcl_load_file_with(const char *path, shcl_strictness s, shcl_file_status *status) {
-	return s_load_file_any(path, s, 0, -1, status);
+	return s_load_file_any(path, s, 0, 0, NULL, status);
 }
 
 const char *shcl_file_status_name(shcl_file_status s) {
@@ -16501,11 +16559,11 @@ shcl_doc *shcl_load_file(const char *path, shcl_file_status *status) {
 
 // shcl_load_file_with, keeping the text for shcl_to_text_keep_lines.
 shcl_doc *shcl_load_file_keep_lines(const char *path, shcl_strictness s, shcl_file_status *status) {
-	return s_load_file_any(path, s, 1, -1, status);
+	return s_load_file_any(path, s, 1, 0, NULL, status);
 }
 
 shcl_doc *shcl_load_file_opts(const char *path, shcl_strictness s, shcl_load_options opts, shcl_file_status *status) {
-	return s_load_file_any(path, s, opts.keep_lines != 0, opts.migrate ? (opts.from_v2 != 0) : -1, status);
+	return s_load_file_any(path, s, opts.keep_lines != 0, opts.migrate != 0, opts.from, status);
 }
 
 // File tier, save half: write the document's canonical text to PATH through
@@ -16770,7 +16828,7 @@ shcl_upgrade_error shcl_write_backup(const char *file, const char *text, size_t 
 	return SHCL_UPGRADE_OK;
 }
 
-shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, int banner, shcl_upgraded *out, char **message, shcl_write_status *why) {
+shcl_upgrade_error shcl_upgrade_file(const char *path, const char *from, int banner, shcl_upgraded *out, char **message, shcl_write_status *why) {
 	if (message) *message = NULL;
 	if (why) *why = SHCL_WRITE_OK;
 	memset(out, 0, sizeof *out);
@@ -16788,7 +16846,7 @@ shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, int banner, 
 		return upgrade_why(why, SHCL_WRITE_UNREADABLE, upgrade_fail(message, SHCL_UPGRADE_IO, "%s: can't be read as UTF-8 text", path));
 	}
 	int64_t mtime = 0;
-	shcl_upgraded up = shcl_upgrade_dated(text, len, s_file_mtime(path, &mtime) ? &mtime : NULL, from_v2, banner);
+	shcl_upgraded up = shcl_upgrade_dated(text, len, s_file_mtime(path, &mtime) ? &mtime : NULL, from, banner);
 	shcl_upgrade_error r = SHCL_UPGRADE_OK;
 	if (up.current) { // NOLINT(bugprone-branch-clone): already current and just written both hand the result back
 		*out = up;

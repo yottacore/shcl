@@ -1648,6 +1648,8 @@ static shcl_doc *mig_load(const shcl_migration *m, const char *at) {
 	return d;
 }
 
+/* The from that was from_v2. */
+static const char *v2_from(int v2) { return v2 ? "2.0" : NULL; }
 /* An upgrade's text is exactly want. */
 static int up_is(const shcl_upgraded *u, const char *want) {
 	size_t n = strlen(want);
@@ -4787,7 +4789,7 @@ int main(int argc, char **argv) {
 		if (shcl_write_file_atomic(wp, "a: 1\n", 5, &why) || why != SHCL_WRITE_IS_DIRECTORY) fail("write_status", "over a directory");
 		shcl_upgraded wup;
 		why = SHCL_WRITE_OK;
-		if (shcl_upgrade_file(wp, 0, 1, &wup, NULL, &why) != SHCL_UPGRADE_IO || why != SHCL_WRITE_IS_DIRECTORY) fail("write_status", "upgrade of a directory");
+		if (shcl_upgrade_file(wp, NULL, 1, &wup, NULL, &why) != SHCL_UPGRADE_IO || why != SHCL_WRITE_IS_DIRECTORY) fail("write_status", "upgrade of a directory");
 		shcl_upgraded_free(&wup);
 		snprintf(wp, sizeof wp, "%s/ok.shcl/", wdir);
 		why = SHCL_WRITE_OK;
@@ -4796,7 +4798,7 @@ int main(int argc, char **argv) {
 		if (!shcl_write_file_atomic(wp, "a: \xff\n", 5, NULL)) fail("write_status", "seed write failed");
 		why = SHCL_WRITE_OK;
 		char *bmsg = NULL;
-		if (shcl_upgrade_file(wp, 0, 1, &wup, &bmsg, &why) != SHCL_UPGRADE_IO || why != SHCL_WRITE_UNREADABLE || !bmsg || !strstr(bmsg, "UTF-8")) fail("write_status", "upgrade of a file that is not UTF-8");
+		if (shcl_upgrade_file(wp, NULL, 1, &wup, &bmsg, &why) != SHCL_UPGRADE_IO || why != SHCL_WRITE_UNREADABLE || !bmsg || !strstr(bmsg, "UTF-8")) fail("write_status", "upgrade of a file that is not UTF-8");
 		free(bmsg);
 		shcl_upgraded_free(&wup);
 		remove(wp);
@@ -4810,7 +4812,7 @@ int main(int argc, char **argv) {
 		why = SHCL_WRITE_OK;
 		if (shcl_write_file_atomic(wp, "a: 1\n", 5, &why) || why != SHCL_WRITE_NOT_REGULAR) fail("write_status", "over a FIFO");
 		why = SHCL_WRITE_OK;
-		if (shcl_upgrade_file(wp, 0, 1, &wup, NULL, &why) != SHCL_UPGRADE_IO || why != SHCL_WRITE_NOT_REGULAR) fail("write_status", "upgrade of a FIFO");
+		if (shcl_upgrade_file(wp, NULL, 1, &wup, NULL, &why) != SHCL_UPGRADE_IO || why != SHCL_WRITE_NOT_REGULAR) fail("write_status", "upgrade of a FIFO");
 		shcl_upgraded_free(&wup);
 		remove(wp);
 		/* root writes anyway, so the rows wait for a probe that is refused. */
@@ -4833,7 +4835,7 @@ int main(int argc, char **argv) {
 			why = SHCL_WRITE_OK;
 			if (shcl_write_backup(v2, "x: a,b\n", 7, 2, NULL, NULL, &why) != SHCL_UPGRADE_IO || why != SHCL_WRITE_PERMISSION_DENIED) fail("write_status", "backup into a shut folder");
 			why = SHCL_WRITE_OK;
-			if (shcl_upgrade_file(v2, 1, 1, &wup, NULL, &why) != SHCL_UPGRADE_IO || why != SHCL_WRITE_PERMISSION_DENIED) fail("write_status", "upgrade in a shut folder");
+			if (shcl_upgrade_file(v2, "2.0", 1, &wup, NULL, &why) != SHCL_UPGRADE_IO || why != SHCL_WRITE_PERMISSION_DENIED) fail("write_status", "upgrade in a shut folder");
 			shcl_upgraded_free(&wup);
 			/* A file it may not read says so, not that it isn't UTF-8
 			   (2026101514324707). */
@@ -4842,7 +4844,7 @@ int main(int argc, char **argv) {
 			if (!shcl_write_file_atomic(locked, "a: 1\nb 2\n", 9, NULL) || chmod(locked, 0) != 0) fail("write_status", "seed write failed");
 			char *lmsg = NULL;
 			why = SHCL_WRITE_OK;
-			if (shcl_upgrade_file(locked, 0, 1, &wup, &lmsg, &why) != SHCL_UPGRADE_IO || why != SHCL_WRITE_PERMISSION_DENIED || !lmsg || strstr(lmsg, "UTF-8"))
+			if (shcl_upgrade_file(locked, NULL, 1, &wup, &lmsg, &why) != SHCL_UPGRADE_IO || why != SHCL_WRITE_PERMISSION_DENIED || !lmsg || strstr(lmsg, "UTF-8"))
 				fail("write_status", "upgrade of a file it may not read");
 			free(lmsg);
 			shcl_upgraded_free(&wup);
@@ -6433,10 +6435,10 @@ int main(int argc, char **argv) {
 		   it's found to be 2.0 rather than 3.0-a37, which reads the comma
 		   list too. */
 		t = "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\n";
-		shcl_upgraded up = shcl_upgrade_dated(t, strlen(t), &up_sep1, 0, 1);
+		shcl_upgraded up = shcl_upgrade_dated(t, strlen(t), &up_sep1, NULL, 1);
 		if (up.current || up.ambiguous != 2 || !up_is(&up, t)) fail("migrate_2x_read", "upgrade without from_v2");
 		shcl_upgraded_free(&up);
-		up = shcl_upgrade(t, strlen(t), 1, 1);
+		up = shcl_upgrade(t, strlen(t), "2.0", 1);
 		if (up.current || up.ambiguous != 0 || up.lost != 0) fail("migrate_2x_read", "upgrade with from_v2");
 		d = shcl_parse(up.text, up.len);
 		shcl_read_str r = shcl_read_string(d, "p", 1);
@@ -6484,7 +6486,7 @@ int main(int argc, char **argv) {
 		free(mm.text);
 		/* upgrade's from_v2 takes the file as 2.0, whose step reads the names
 		   as 2.0 did (2026111917071578). */
-		shcl_upgraded up = shcl_upgrade(t, strlen(t), 1, 1);
+		shcl_upgraded up = shcl_upgrade(t, strlen(t), "2.0", 1);
 		if (up.lost != 0) fail("migrate_lost_name", "upgrade lost not 0");
 		shcl_upgraded_free(&up);
 	}
@@ -6501,11 +6503,11 @@ int main(int argc, char **argv) {
 		/* a,b is one string now and an array under 2.x, but it loads clean,
 		   and nothing says the file is 2.x. */
 		const char *clean = "a: 1\nb: x,y\n";
-		shcl_upgraded up = shcl_upgrade(clean, strlen(clean), 0, 1);
+		shcl_upgraded up = shcl_upgrade(clean, strlen(clean), NULL, 1);
 		if (!up.current || !up_is(&up, clean) || up.diagnostics) fail("upgrade_clean", "clean");
 		shcl_upgraded_free(&up);
 		const char *stamped = "p: a,b\n\n" SHCL_GEN_BANNER;
-		up = shcl_upgrade(stamped, strlen(stamped), 1, 1);
+		up = shcl_upgrade(stamped, strlen(stamped), "2.0", 1);
 		if (!up.current) fail("upgrade_clean", "stamped");
 		shcl_upgraded_free(&up);
 		/* Old claim below, wrong since 2026101407100010: a beta Format 3 file
@@ -6516,7 +6518,7 @@ int main(int argc, char **argv) {
 		   too. */
 		// codeql[cpp/commented-out-code] a test commented out with its reason above, since old tests aren't deleted
 		/* const char *beta = "tags: a, b\n\n" SHCL_GEN_BANNER;
-		up = shcl_upgrade(beta, strlen(beta), 1, 1);
+		up = shcl_upgrade(beta, strlen(beta), "2.0", 1);
 		if (!up.current || !up_is(&up, beta) || up.format != 3) fail("upgrade_clean", "beta");
 		shcl_upgraded_free(&up); */
 	}
@@ -6526,22 +6528,22 @@ int main(int argc, char **argv) {
 		   (2026101407100010). The backup name keeps the format the line
 		   names. */
 		const char *beta = "tags: a, b\n\n" SHCL_GEN_BANNER;
-		shcl_upgraded up = shcl_upgrade(beta, strlen(beta), 1, 1);
+		shcl_upgraded up = shcl_upgrade(beta, strlen(beta), "2.0", 1);
 		if (up.current || up.format != 3 || up.lost != 0 || !up_is(&up, "tags: [a, b]\n\n" SHCL_GEN_BANNER)) fail("upgrade_beta", up.text);
 		int e026 = 0;
 		for (size_t i = 0; up.diagnostics && i < shcl_diag_count(up.diagnostics); i++) e026 |= !strcmp(shcl_diag_code(up.diagnostics, i), "E026");
 		if (!e026) fail("upgrade_beta", "no E026");
 		/* What it leaves loads clean, so the next start leaves it alone. */
-		shcl_upgraded again = shcl_upgrade(up.text, up.len, 1, 1);
+		shcl_upgraded again = shcl_upgrade(up.text, up.len, "2.0", 1);
 		if (!again.current) fail("upgrade_beta", "the fresh text is not current");
 		shcl_upgraded_free(&again);
 		shcl_upgraded_free(&up);
 		/* Without from_v2, or when it loads clean, nothing changes. */
-		up = shcl_upgrade(beta, strlen(beta), 0, 1);
+		up = shcl_upgrade(beta, strlen(beta), NULL, 1);
 		if (!up.current || !up_is(&up, beta)) fail("upgrade_beta", "without from_v2");
 		shcl_upgraded_free(&up);
 		const char *stamped = "p: a,b\n\n" SHCL_GEN_BANNER;
-		up = shcl_upgrade(stamped, strlen(stamped), 1, 1);
+		up = shcl_upgrade(stamped, strlen(stamped), "2.0", 1);
 		if (!up.current) fail("upgrade_beta", "a clean stamped file");
 		shcl_upgraded_free(&up);
 		/* Old claim below, wrong since 2026101515372401: a fresh text that
@@ -6552,12 +6554,12 @@ int main(int argc, char **argv) {
 		   would take as 2.x again. */
 		// codeql[cpp/commented-out-code] a test commented out with its reason above, since old tests aren't deleted
 		/* const char *stuck = "a: 1\nb 2\n##    Format   3\n";
-		up = shcl_upgrade(stuck, strlen(stuck), 1, 1);
+		up = shcl_upgrade(stuck, strlen(stuck), "2.0", 1);
 		if (!up.current || !up_is(&up, stuck) || up.diagnostics) fail("upgrade_beta", "stuck");
 		shcl_upgraded_free(&up); */
 		/* A lone stamp at the top goes too. */
 		const char *top = "##    Format   3\nname: x\nrange: 0, 100\n";
-		up = shcl_upgrade(top, strlen(top), 1, 1);
+		up = shcl_upgrade(top, strlen(top), "2.0", 1);
 		if (!up_is(&up, "name: x\nrange: [0, 100]\n\n" SHCL_GEN_BANNER)) fail("upgrade_beta", up.text);
 		shcl_upgraded_free(&up);
 		/* migrate keeps leaving it alone: its text can keep a line with an
@@ -6569,13 +6571,13 @@ int main(int argc, char **argv) {
 	test_id("ddmmh", "upgrade_from_v2_rewrites_a_clean_file_that_reads_differently");
 	{
 		/* The caller says it is 2.x, where a,b was an array. */
-		shcl_upgraded up = shcl_upgrade("p: a,b\n", 7, 1, 1);
+		shcl_upgraded up = shcl_upgrade("p: a,b\n", 7, "2.0", 1);
 		if (up.current || up.lost != 0 || (up.diagnostics && shcl_diag_count(up.diagnostics) != 0)) fail("upgrade_from_v2", "a,b");
 		if (!up_is(&up, "p: [a, b]\n\n" SHCL_GEN_BANNER)) fail("upgrade_from_v2", up.text);
 		shcl_upgraded_free(&up);
 		/* Nothing reads differently, so there is nothing to do. */
 		const char *same = "a: 1\nb: x\n";
-		up = shcl_upgrade(same, strlen(same), 1, 1);
+		up = shcl_upgrade(same, strlen(same), "2.0", 1);
 		if (!up.current || !up_is(&up, same)) fail("upgrade_from_v2", "same");
 		shcl_upgraded_free(&up);
 	}
@@ -6584,21 +6586,21 @@ int main(int argc, char **argv) {
 		/* Nothing else changes, so only the stamp does, and only with from_v2
 		   (2026100717500017). */
 		const char *old = "port: 80\n##    Format   2\n";
-		shcl_upgraded up = shcl_upgrade(old, strlen(old), 1, 1);
+		shcl_upgraded up = shcl_upgrade(old, strlen(old), "2.0", 1);
 		if (up.current || up.format != 2 || up.lost != 0 || !up_is(&up, "port: 80\n##    Format   3.0\n")) fail("upgrade_restamp", up.text);
 		int h007 = 0;
 		for (size_t i = 0; up.diagnostics && i < shcl_diag_count(up.diagnostics); i++) h007 |= !strcmp(shcl_diag_code(up.diagnostics, i), "H007");
 		if (!h007) fail("upgrade_restamp", "no H007");
-		shcl_upgraded again = shcl_upgrade(up.text, up.len, 1, 1);
+		shcl_upgraded again = shcl_upgrade(up.text, up.len, "2.0", 1);
 		if (!again.current) fail("upgrade_restamp", "the restamped text is not current");
 		shcl_upgraded_free(&again);
 		shcl_upgraded_free(&up);
-		up = shcl_upgrade(old, strlen(old), 0, 1);
+		up = shcl_upgrade(old, strlen(old), NULL, 1);
 		if (!up.current || !up_is(&up, old)) fail("upgrade_restamp", "without from_v2");
 		shcl_upgraded_free(&up);
 		/* Indent, trailing blanks, line end and BOM stay as they were. */
 		const char *laid = "\xEF\xBB\xBFp: 1\r\n\t##    Format   1  \r\nq: 2";
-		up = shcl_upgrade(laid, strlen(laid), 1, 1);
+		up = shcl_upgrade(laid, strlen(laid), "2.0", 1);
 		if (!up_is(&up, "\xEF\xBB\xBFp: 1\r\n\t##    Format   3.0  \r\nq: 2")) fail("upgrade_restamp", up.text);
 		shcl_upgraded_free(&up);
 		/* migrate writes its stamp there too, and adds one only to a file with
@@ -6618,7 +6620,7 @@ int main(int argc, char **argv) {
 	{
 		/* The block names the format, so the file names one (2026101407100001). */
 		const char *top = "##    Format   2\nname: x\nq: a,b\n";
-		shcl_upgraded up = shcl_upgrade(top, strlen(top), 1, 1);
+		shcl_upgraded up = shcl_upgrade(top, strlen(top), "2.0", 1);
 		if (!up_is(&up, "name: x\nq: [a, b]\n\n" SHCL_GEN_BANNER)) fail("top_format_line", up.text);
 		shcl_upgraded_free(&up);
 		static const struct { const char *in; int on; size_t gone; const char *want; } bc[] = {
@@ -6696,7 +6698,7 @@ int main(int argc, char **argv) {
 	{
 		/* Dated, so it's found to be 2.0 rather than 3.0-a37, which reads the
 		   comma list too and wrote no `#` block. */
-		shcl_upgraded up = shcl_upgrade_dated(UP_V2, strlen(UP_V2), &up_sep1, 0, 1);
+		shcl_upgraded up = shcl_upgrade_dated(UP_V2, strlen(UP_V2), &up_sep1, NULL, 1);
 		if (up.current || up.ambiguous != 0 || up.lost != 0 || up.format != 2) fail("upgrade_fresh", "counts");
 		int e026 = 0;
 		for (size_t i = 0; up.diagnostics && i < shcl_diag_count(up.diagnostics); i++) e026 |= !strcmp(shcl_diag_code(up.diagnostics, i), "E026");
@@ -6707,7 +6709,7 @@ int main(int argc, char **argv) {
 		   uncomment.
 		   if (!up_is(&up, "name: 'say \\\"hi\\\"'\ntags: [a, b]\n\n" SHCL_GEN_BANNER)) fail("upgrade_fresh", up.text); */
 		if (!up_is(&up, "name: 'say \"hi\"'\ntags: [a, b]\n\n" SHCL_GEN_BANNER)) fail("upgrade_fresh", up.text);
-		shcl_upgraded again = shcl_upgrade(up.text, up.len, 0, 1);
+		shcl_upgraded again = shcl_upgrade(up.text, up.len, NULL, 1);
 		if (!again.current) fail("upgrade_fresh", "the fresh text is not current");
 		shcl_upgraded_free(&again);
 		shcl_upgraded_free(&up);
@@ -6715,10 +6717,10 @@ int main(int argc, char **argv) {
 	test_id("ddmmk", "upgrade_refuses_text_that_reads_two_ways");
 	{
 		const char *amb = "a: x,y\nb: \"q\n";
-		shcl_upgraded up = shcl_upgrade_dated(amb, strlen(amb), &up_sep1, 0, 1);
+		shcl_upgraded up = shcl_upgrade_dated(amb, strlen(amb), &up_sep1, NULL, 1);
 		if (up.current || up.ambiguous != 1 || !up_is(&up, amb)) fail("upgrade_ambiguous", "without from_v2");
 		shcl_upgraded_free(&up);
-		up = shcl_upgrade(amb, strlen(amb), 1, 1);
+		up = shcl_upgrade(amb, strlen(amb), "2.0", 1);
 		const char *head = "a: [x, y]\nb: '\"q'\n\n##\n";
 		if (up.ambiguous != 0 || up.len < strlen(head) || memcmp(up.text, head, strlen(head)) != 0) fail("upgrade_ambiguous", up.text);
 		shcl_upgraded_free(&up);
@@ -6749,7 +6751,7 @@ int main(int argc, char **argv) {
 		if (chmod(file, 0640) != 0) fail("upgrade_file", "chmod failed");
 #endif
 		shcl_upgraded up; char *why = NULL;
-		if (shcl_upgrade_file(file, 0, 1, &up, &why, NULL) != SHCL_UPGRADE_OK) fail("upgrade_file", why ? why : "failed");
+		if (shcl_upgrade_file(file, NULL, 1, &up, &why, NULL) != SHCL_UPGRADE_OK) fail("upgrade_file", why ? why : "failed");
 		free(why); why = NULL;
 		if (!up.backup || strcmp(up.backup, backup) != 0) fail("upgrade_file", up.backup ? up.backup : "no backup");
 		if (!file_is(backup, UP_V2)) fail("upgrade_file", "the backup is not the original");
@@ -6762,7 +6764,7 @@ int main(int argc, char **argv) {
 #endif
 		shcl_upgraded_free(&up);
 		/* The second start finds a current file and writes nothing. */
-		if (shcl_upgrade_file(file, 0, 1, &up, &why, NULL) != SHCL_UPGRADE_OK || !up.current || up.backup) fail("upgrade_file", "again");
+		if (shcl_upgrade_file(file, NULL, 1, &up, &why, NULL) != SHCL_UPGRADE_OK || !up.current || up.backup) fail("upgrade_file", "again");
 		free(why);
 		shcl_upgraded_free(&up);
 		if (dir_entries(udir) != 2) fail("upgrade_file", "entries");
@@ -6780,16 +6782,16 @@ int main(int argc, char **argv) {
 			{"a: 1\r\nb: \"q\r\n", 0, "a: 1\r\nb: '\"q'\r\n## SHCL format 3.0\r\n"},
 		};
 		for (size_t i = 0; i < sizeof rows / sizeof rows[0]; i++) {
-			shcl_upgraded up = shcl_upgrade_dated(rows[i].text, strlen(rows[i].text), &up_sep1, rows[i].v2, 0);
+			shcl_upgraded up = shcl_upgrade_dated(rows[i].text, strlen(rows[i].text), &up_sep1, v2_from(rows[i].v2), 0);
 			if (up.current || up.len != strlen(rows[i].want) || memcmp(up.text, rows[i].want, up.len) != 0) fail(at, rows[i].text);
 			for (int v2 = 0; v2 < 2; v2++) {
-				shcl_upgraded again = shcl_upgrade(up.text, up.len, v2, 0);
+				shcl_upgraded again = shcl_upgrade(up.text, up.len, v2_from(v2), 0);
 				if (!again.current) fail(at, "not current on the next run");
 				shcl_upgraded_free(&again);
 			}
 			shcl_upgraded_free(&up);
 			/* With the block, for the same file. */
-			up = shcl_upgrade_dated(rows[i].text, strlen(rows[i].text), &up_sep1, rows[i].v2, 1);
+			up = shcl_upgrade_dated(rows[i].text, strlen(rows[i].text), &up_sep1, v2_from(rows[i].v2), 1);
 			if (!up.text || !strstr(up.text, "## This config file format is SHCL.")) fail(at, "none with it");
 			shcl_upgraded_free(&up);
 		}
@@ -6799,13 +6801,13 @@ int main(int argc, char **argv) {
 		snprintf(file, sizeof file, "%s/f.shcl", udir);
 		put_file(file, UP_V2);
 		shcl_upgraded up;
-		if (shcl_upgrade_file(file, 0, 0, &up, NULL, NULL) != SHCL_UPGRADE_OK) fail(at, "upgrade_file");
+		if (shcl_upgrade_file(file, NULL, 0, &up, NULL, NULL) != SHCL_UPGRADE_OK) fail(at, "upgrade_file");
 		if (!up.backup || !file_is(up.backup, UP_V2)) fail(at, "backup");
 		shcl_upgraded_free(&up);
-		up = shcl_upgrade(UP_V2, strlen(UP_V2), 0, 0);
+		up = shcl_upgrade(UP_V2, strlen(UP_V2), NULL, 0);
 		if (!file_is(file, up.text)) fail(at, "file text");
 		shcl_upgraded_free(&up);
-		if (shcl_upgrade_file(file, 0, 0, &up, NULL, NULL) != SHCL_UPGRADE_OK || !up.current) fail(at, "again");
+		if (shcl_upgrade_file(file, NULL, 0, &up, NULL, NULL) != SHCL_UPGRADE_OK || !up.current) fail(at, "again");
 		shcl_upgraded_free(&up);
 		dir_clear(udir);
 	}
@@ -6818,19 +6820,19 @@ int main(int argc, char **argv) {
 		put_file(file, UP_V2);
 		put_file(backup, "x\n");
 		shcl_upgraded up; char *why = NULL;
-		if (shcl_upgrade_file(file, 0, 1, &up, &why, NULL) != SHCL_UPGRADE_BACKUP_TAKEN || !why || strncmp(why, backup, strlen(backup)) != 0) fail("upgrade_taken", why ? why : "not refused");
+		if (shcl_upgrade_file(file, NULL, 1, &up, &why, NULL) != SHCL_UPGRADE_BACKUP_TAKEN || !why || strncmp(why, backup, strlen(backup)) != 0) fail("upgrade_taken", why ? why : "not refused");
 		free(why); why = NULL;
 		shcl_upgraded_free(&up);
 		if (!file_is(file, UP_V2)) fail("upgrade_taken", "the file changed");
 		if (!file_is(backup, "x\n")) fail("upgrade_taken", "the backup changed");
 		/* Nothing at the path, and text that reads two ways, write nothing. */
 		snprintf(none, sizeof none, "%s/none.shcl", udir);
-		if (shcl_upgrade_file(none, 0, 1, &up, NULL, NULL) != SHCL_UPGRADE_NOT_FOUND) fail("upgrade_taken", "none");
+		if (shcl_upgrade_file(none, NULL, 1, &up, NULL, NULL) != SHCL_UPGRADE_NOT_FOUND) fail("upgrade_taken", "none");
 		shcl_upgraded_free(&up);
 		snprintf(amb, sizeof amb, "%s/amb.shcl", udir);
 		put_file(amb, "a: x,y\nb: \"q\n");
 		pin_mtime(amb, up_sep1);
-		if (shcl_upgrade_file(amb, 0, 1, &up, NULL, NULL) != SHCL_UPGRADE_AMBIGUOUS || up.ambiguous != 1) fail("upgrade_taken", "amb");
+		if (shcl_upgrade_file(amb, NULL, 1, &up, NULL, NULL) != SHCL_UPGRADE_AMBIGUOUS || up.ambiguous != 1) fail("upgrade_taken", "amb");
 		shcl_upgraded_free(&up);
 		if (dir_entries(udir) != 3) fail("upgrade_taken", "entries");
 		dir_clear(udir);
@@ -6881,7 +6883,7 @@ int main(int argc, char **argv) {
 		   again, and the 2.x escape on line 1 would grow each time
 		   (2026101515372401). So nothing is made, with a Format line or not. */
 		const char *v2 = "\"k\xe2\x97\x89Q\xe2\x97\x89\": 1\n'C:\\': ~~~\n\tx\n\t~~~\nport: 8\xe3\x80\x80" "080\n";
-		shcl_upgraded up = shcl_upgrade(v2, strlen(v2), 1, 1);
+		shcl_upgraded up = shcl_upgrade(v2, strlen(v2), "2.0", 1);
 		if (up.current || !up_is(&up, v2) || up.lost != 0 || up.errors_left_n != 1 || up.errors_left[0] != 5) fail("upgrade_left", "2.x file");
 		int e025 = 0;
 		for (size_t i = 0; up.diagnostics && i < shcl_diag_count(up.diagnostics); i++)
@@ -6889,21 +6891,21 @@ int main(int argc, char **argv) {
 		if (!e025) fail("upgrade_left", "no E025 on line 5");
 		shcl_upgraded_free(&up);
 		const char *stuck = "a: 1\nb 2\n##    Format   3\n";
-		up = shcl_upgrade(stuck, strlen(stuck), 1, 1);
+		up = shcl_upgrade(stuck, strlen(stuck), "2.0", 1);
 		if (up.current || !up_is(&up, stuck) || up.errors_left_n != 1 || up.errors_left[0] != 2 || !up.diagnostics) fail("upgrade_left", "stuck");
 		shcl_upgraded_free(&up);
 		/* Without from_v2 a stamped file is current, and nothing would read
 		   the fresh text as 2.x again. */
-		up = shcl_upgrade(stuck, strlen(stuck), 0, 1);
+		up = shcl_upgrade(stuck, strlen(stuck), NULL, 1);
 		if (!up.current || up.errors_left) fail("upgrade_left", "stuck without from_v2");
 		shcl_upgraded_free(&up);
 		/* With the line fixed it converts, and the second run leaves it alone. */
 		const char *fixed = "\"k\xe2\x97\x89Q\xe2\x97\x89\": 1\n'C:\\': ~~~\n\tx\n\t~~~\nport: \"8\xe3\x80\x80" "080\"\n";
-		up = shcl_upgrade(fixed, strlen(fixed), 1, 1);
+		up = shcl_upgrade(fixed, strlen(fixed), "2.0", 1);
 		shcl_doc *fresh = shcl_parse(up.text, up.len);
 		if (up.current || up.errors_left || !fresh || shcl_error_count(fresh) != 0) fail("upgrade_left", "fixed");
 		shcl_free(fresh);
-		shcl_upgraded again = shcl_upgrade(up.text, up.len, 1, 1);
+		shcl_upgraded again = shcl_upgrade(up.text, up.len, "2.0", 1);
 		if (!again.current) fail("upgrade_left", "fixed: the fresh text is not current");
 		shcl_upgraded_free(&again);
 		shcl_upgraded_free(&up);
@@ -6914,7 +6916,7 @@ int main(int argc, char **argv) {
 		put_file(file, v2);
 		char *why = NULL;
 		const char *want = ": line(s) 5 would still have an error once converted from 2.x; nothing written";
-		if (shcl_upgrade_file(file, 1, 1, &up, &why, NULL) != SHCL_UPGRADE_ERRORS_LEFT || up.errors_left_n != 1 || up.errors_left[0] != 5
+		if (shcl_upgrade_file(file, "2.0", 1, &up, &why, NULL) != SHCL_UPGRADE_ERRORS_LEFT || up.errors_left_n != 1 || up.errors_left[0] != 5
 			|| !why || strlen(why) < strlen(want) || strcmp(why + strlen(why) - strlen(want), want) != 0 || strncmp(why, file, strlen(file)) != 0)
 			fail("upgrade_left", why ? why : "not refused");
 		free(why);
@@ -6931,7 +6933,7 @@ int main(int argc, char **argv) {
 		   decides, so this file names format 4 and is left alone. */
 		const char *top = "a: 1\n##    Format   3\n##\n## This config file format is SHCL.\n##    Format   4\n   b\n";
 		if (shcl_format_version(top, strlen(top)) != 4) fail("upgrade_kept_top", "input");
-		shcl_upgraded up = shcl_upgrade(top, strlen(top), 1, 1);
+		shcl_upgraded up = shcl_upgrade(top, strlen(top), "2.0", 1);
 		if (!up.current || up.errors_left || up.ambiguous) fail("upgrade_kept_top", "made over");
 		else if (up.len != strlen(top) || memcmp(up.text, top, up.len) != 0) fail("upgrade_kept_top", "text changed");
 		shcl_upgraded_free(&up);
@@ -6954,11 +6956,11 @@ int main(int argc, char **argv) {
 		const char *lines = "\n\nt:\n\taliases: a, b\n\n\n\nu: ~~~\nraw\n~~~\nw: 2\n";
 		const char *want = "\n\nt:\n\taliases: [a, b]\n\n\n\nu: ~~~\nraw\n~~~\nw: 2\n";
 		for (int v2 = 1; v2 >= 0; v2--) {
-			shcl_upgraded up = shcl_upgrade(lines, strlen(lines), v2, 1);
+			shcl_upgraded up = shcl_upgrade(lines, strlen(lines), v2_from(v2), 1);
 			if (up.current || up.errors_left_n) fail("upgrade_keeps_lines", "not made over");
 			else if (up.len < strlen(want) || memcmp(up.text, want, strlen(want)) != 0) fail("upgrade_keeps_lines", "lines moved");
 			else {
-				shcl_upgraded again = shcl_upgrade(up.text, up.len, 0, 1);
+				shcl_upgraded again = shcl_upgrade(up.text, up.len, NULL, 1);
 				if (!again.current) fail("upgrade_keeps_lines", "a second run made it over again");
 				shcl_upgraded_free(&again);
 			}
@@ -8236,7 +8238,7 @@ int main(int argc, char **argv) {
 			free(shcl_read_file(other, 0, NULL, &ost));
 			if (ost != SHCL_FILE_NOT_FOUND) fail(at, minors[i]);
 			for (int v2 = 0; v2 < 2; v2++) {
-				shcl_upgraded up = shcl_upgrade(minors[i], strlen(minors[i]), v2, 1);
+				shcl_upgraded up = shcl_upgrade(minors[i], strlen(minors[i]), v2_from(v2), 1);
 				if (!up.current || up.len != strlen(minors[i]) || memcmp(up.text, minors[i], up.len) != 0) fail(at, minors[i]);
 				shcl_upgraded_free(&up);
 			}
@@ -8317,7 +8319,8 @@ int main(int argc, char **argv) {
 		snprintf(f, sizeof f, "%s/f.shcl", mdir);
 		snprintf(gone, sizeof gone, "%s/gone.shcl", mdir);
 		shcl_load_options opts = {0};
-		opts.keep_lines = opts.migrate = opts.from_v2 = 1;
+		opts.keep_lines = opts.migrate = 1;
+		opts.from = "2.0";
 		shcl_migration mig = shcl_migrate_unstamped(old, strlen(old), 1);
 		if (mig.len == strlen(old) && memcmp(mig.text, old, mig.len) == 0) fail(at, "migrate left the 2.x text as it was");
 		/* The document is the migrated text's, and the load writes nothing. */
@@ -8392,7 +8395,7 @@ int main(int argc, char **argv) {
 		const int64_t y2020 = 1577836800; /* before any format, so ignored */
 		const char *quote = "a: x\"y\n", *fresh = "a: 'x\"y'\n## SHCL format 3.0\n";
 		/* Text from no file reads as the newest format its tells leave. */
-		shcl_upgraded up = shcl_upgrade(quote, strlen(quote), 0, 0);
+		shcl_upgraded up = shcl_upgrade(quote, strlen(quote), NULL, 0);
 		if (!up.current) fail(at, "no mtime made it over");
 		shcl_upgraded_free(&up);
 		/* The mtime, from_v2, and whether it's made over. */
@@ -8408,12 +8411,12 @@ int main(int argc, char **argv) {
 		snprintf(f, sizeof f, "%s/f.shcl", udir);
 		for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
 			const char *want = cases[i].made ? fresh : quote;
-			up = shcl_upgrade_dated(quote, strlen(quote), &cases[i].mtime, cases[i].from_v2, 0);
+			up = shcl_upgrade_dated(quote, strlen(quote), &cases[i].mtime, v2_from(cases[i].from_v2), 0);
 			if (up.current == cases[i].made || !up_is(&up, want)) fail(at, up.text ? up.text : "no text");
 			shcl_upgraded_free(&up);
 			put_file(f, quote);
 			pin_mtime(f, cases[i].mtime);
-			if (shcl_upgrade_file(f, cases[i].from_v2, 0, &up, NULL, NULL) != SHCL_UPGRADE_OK || up.current == cases[i].made) fail(at, "upgrade_file");
+			if (shcl_upgrade_file(f, v2_from(cases[i].from_v2), 0, &up, NULL, NULL) != SHCL_UPGRADE_OK || up.current == cases[i].made) fail(at, "upgrade_file");
 			if (!file_is(f, want)) fail(at, "file text");
 			if (cases[i].made && up.backup) remove(up.backup);
 			shcl_upgraded_free(&up);
@@ -8448,7 +8451,7 @@ int main(int argc, char **argv) {
 			{"o: \"open\n##    Format   3\n", &oct10, 0, "o: \"open\n## SHCL format 3.0\n"},
 		};
 		for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
-			shcl_upgraded up = shcl_upgrade_dated(cases[i].text, strlen(cases[i].text), cases[i].mtime, cases[i].from_v2, 0);
+			shcl_upgraded up = shcl_upgrade_dated(cases[i].text, strlen(cases[i].text), cases[i].mtime, v2_from(cases[i].from_v2), 0);
 			if (up.current != (strcmp(cases[i].want, cases[i].text) == 0) || !up_is(&up, cases[i].want)) fail(at, up.text ? up.text : "no text");
 			shcl_upgraded_free(&up);
 		}
@@ -8461,7 +8464,7 @@ int main(int argc, char **argv) {
 			put_file(f, beta);
 			pin_mtime(f, files[i].mtime);
 			int is_beta = files[i].want == beta;
-			if (shcl_upgrade_file(f, 0, 0, &up, NULL, NULL) != SHCL_UPGRADE_OK || up.current != is_beta) fail(at, "upgrade_file");
+			if (shcl_upgrade_file(f, NULL, 0, &up, NULL, NULL) != SHCL_UPGRADE_OK || up.current != is_beta) fail(at, "upgrade_file");
 			if (!file_is(f, files[i].want)) fail(at, "file text");
 			if (!up.current && up.backup) remove(up.backup);
 			shcl_upgraded_free(&up);
@@ -8510,7 +8513,7 @@ int main(int argc, char **argv) {
 #endif
 			shcl_load_options opts = {0};
 			opts.keep_lines = opts.migrate = 1;
-			opts.from_v2 = cases[i].from_v2;
+			opts.from = v2_from(cases[i].from_v2);
 			shcl_doc *doc = shcl_load_file_opts(f, SHCL_STANDARD, opts, NULL);
 			shcl_migration mig = {0};
 			if (cases[i].migrated) mig = shcl_migrate_unstamped(text, strlen(text), cases[i].from_v2);
@@ -8594,7 +8597,7 @@ int main(int argc, char **argv) {
 				fail(at, "kept text");
 			}
 			shcl_free(doc);
-			shcl_upgraded up = shcl_upgrade_dated(text, strlen(text), &cases[i].mtime, 0, 0);
+			shcl_upgraded up = shcl_upgrade_dated(text, strlen(text), &cases[i].mtime, NULL, 0);
 			if (up.current || !up_is(&up, want)) {
 				fprintf(stderr, "upgrade at %lld: %s\n", (long long)cases[i].mtime, up.text ? up.text : "no text");
 				fail(at, "upgrade");
@@ -8645,7 +8648,7 @@ int main(int argc, char **argv) {
 			}
 			shcl_free(doc);
 			/* upgrade writes nothing over the name that reads 2 ways. */
-			shcl_upgraded up = shcl_upgrade_dated(text, strlen(text), &cases[i].mtime, 0, 0);
+			shcl_upgraded up = shcl_upgrade_dated(text, strlen(text), &cases[i].mtime, NULL, 0);
 			int is2 = cases[i].mtime == sep1;
 			if (!up_is(&up, is2 ? text : want) || up.lost != cases[i].lost || up.ambiguous != (size_t)is2) {
 				fprintf(stderr, "upgrade at %lld: lost %zu ambiguous %zu\n%s\n", (long long)cases[i].mtime, up.lost, up.ambiguous, up.text ? up.text : "no text");
@@ -8655,7 +8658,7 @@ int main(int argc, char **argv) {
 			if (!is2) continue;
 			/* from_v2 takes it as 2.0 too, and says it isn't a 3.0 one. */
 			snprintf(want_v2, sizeof want_v2, "%s\"c" MK "TAB" MK "d\": 3\ns: q\n%s" SHCL_STAMP_LINE "\n", cases[i].head, cases[i].tail);
-			up = shcl_upgrade_dated(text, strlen(text), NULL, 1, 0);
+			up = shcl_upgrade_dated(text, strlen(text), NULL, "2.0", 0);
 			if (!up_is(&up, want_v2) || up.lost != 0) {
 				fprintf(stderr, "from_v2: lost %zu\n%s\n", up.lost, up.text ? up.text : "no text");
 				fail(at, "from_v2");
@@ -8663,6 +8666,86 @@ int main(int argc, char **argv) {
 			shcl_upgraded_free(&up);
 		}
 		dir_clear(vdir);
+		#undef MK
+	}
+	test_id("dfhhv", "a_caller_names_the_format_with_from");
+	{
+		/* from names the format, read as a stamp naming it would be, in place
+		   of the file's own stamp and what shcl_find_format reads off it, in
+		   shcl_upgrade and the load. A name no format has is no from, and a
+		   newer format's leaves the file alone. A file stamped this format
+		   whole is what a told upgrade writes, so a second run leaves it alone
+		   (2026111918111481). Same rows in every runner. */
+		#define MK "\xe2\x97\x89"
+		const char *at = "from";
+		const int64_t oct10 = 1791590400; /* 2026-10-10, to 3.0-a37 */
+		const int64_t nov10 = 1794268800; /* 2026-11-10, every format */
+		/* An escape to 2.0, and text from 3.0-1f8 on. */
+		const char *sq = "b: 'C:\\temp'\n";
+		const char *sq_made = "b: \"C:" MK "TAB" MK "emp\"\n" SHCL_STAMP_LINE "\n";
+		/* An escape to 3.0-a37, and text from 3.0-9ef on. */
+		const char *tab = "a: \"x\\ty\"\n";
+		const char *tab_made = "a: \"x" MK "TAB" MK "y\"\n" SHCL_STAMP_LINE "\n";
+		const char *pinned = "a: \"x\\ty\"\n## SHCL format 3.0-9ef\n";
+		/* The text, the mtime, from, and the text shcl_upgrade gives, which
+		   is the input when it's current. */
+		const struct { const char *text; int64_t mtime; const char *from, *want; } cases[] = {
+			{sq, nov10, NULL, sq},
+			{sq, nov10, "2.0", sq_made},
+			{sq, nov10, "1", sq_made},
+			{sq, nov10, "3.0-a37", sq},
+			{tab, nov10, NULL, tab},
+			{tab, nov10, "3.0-a37", tab_made},
+			{tab, nov10, "3.0-231", tab_made},
+			{tab, nov10, "3.0-9ef", tab},
+			{tab, oct10, NULL, tab_made},
+			{tab, oct10, "3.0", tab},
+			{tab, oct10, "3.1", tab},
+			{tab, oct10, "4", tab},
+			{tab, oct10, "1.2", tab_made},
+			{pinned, nov10, NULL, pinned},
+			{pinned, nov10, "3.0-a37", tab_made},
+			{tab_made, nov10, "3.0-a37", tab_made},
+		};
+		for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+			shcl_upgraded up = shcl_upgrade_dated(cases[i].text, strlen(cases[i].text), &cases[i].mtime, cases[i].from, 0);
+			if (up.current != (strcmp(cases[i].want, cases[i].text) == 0) || !up_is(&up, cases[i].want)) {
+				fprintf(stderr, "%s at %lld, from %s: %s\n", cases[i].text, (long long)cases[i].mtime, cases[i].from ? cases[i].from : "none", up.text ? up.text : "no text");
+				fail(at, "upgrade");
+			}
+			shcl_upgraded_free(&up);
+		}
+		shcl_upgraded twice = shcl_upgrade_dated(tab_made, strlen(tab_made), &nov10, "2.0", 0);
+		if (!twice.current) fail(at, "made text with from 2.0");
+		shcl_upgraded_free(&twice);
+		char sq_kept[64];
+		snprintf(sq_kept, sizeof sq_kept, "%s" SHCL_STAMP_LINE "\n", sq);
+		const struct { const char *from, *want; } loads[] = {
+			{NULL, sq_kept},
+			{"2.0", sq_made},
+			{"3.0-a37", sq_kept},
+			{"1.2", sq_kept},
+			{"4", sq_kept},
+		};
+		char fdir[256], f[320];
+		up_dir(fdir, sizeof fdir, "from");
+		snprintf(f, sizeof f, "%s/f.shcl", fdir);
+		for (size_t i = 0; i < sizeof loads / sizeof loads[0]; i++) {
+			put_file(f, sq);
+			pin_mtime(f, nov10);
+			shcl_load_options opts = {0};
+			opts.keep_lines = opts.migrate = 1;
+			opts.from = loads[i].from;
+			shcl_doc *doc = shcl_load_file_opts(f, SHCL_STANDARD, opts, NULL);
+			int k = 0;
+			shcl_str kt = text_kept(doc, &k);
+			if (kt.n != strlen(loads[i].want) || memcmp(kt.p, loads[i].want, kt.n) != 0) {
+				fprintf(stderr, "load, from %s: %.*s\n", loads[i].from ? loads[i].from : "none", (int)kt.n, kt.p);
+				fail(at, "load");
+			}
+			shcl_free(doc);
+		}
+		dir_clear(fdir);
 		#undef MK
 	}
 	/* Every text a save writes names this format: a stamp is rewritten where
