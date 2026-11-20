@@ -1962,16 +1962,16 @@ def do_upgrade(o):
 	mtime = file_mtime(file)
 	if o.write:
 		try:
-			up = shcl.upgrade_file(file, o.from_2x, True)
+			up = shcl.upgrade_file(file, "2.0" if o.from_2x else None, True)
 		except shcl.UpgradeError as e:
-			say_diagnostics_from("", shcl.upgrade_dated(text, mtime, o.from_2x, True).diagnostics)
+			say_diagnostics_from("", shcl.upgrade_dated(text, mtime, "2.0" if o.from_2x else None, True).diagnostics)
 			if isinstance(e, shcl.UpgradeAmbiguous):
 				sys.stderr.write(f"{e} (--from-2x rewrites them)\n")
 				return 7
 			sys.stderr.write(f"{e}\n")
 			return 7 if isinstance(e, shcl.UpgradeErrorsLeft) else EXIT_IO
 	else:
-		up = shcl.upgrade_dated(text, mtime, o.from_2x, True)
+		up = shcl.upgrade_dated(text, mtime, "2.0" if o.from_2x else None, True)
 	if up.current:
 		# diagnostics is empty when current, but the file is still loaded, and
 		# every loading subcommand says what its load found (2026101419280005).

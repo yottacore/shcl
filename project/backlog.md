@@ -305,7 +305,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: port `from` to Python
 	- ID: 2026111918112450
 	- Type: Feature
-	- Status: Queued
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261119-181124
@@ -316,6 +316,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Avg
 	- Note: the docs and the changelog already say what the ports build. The test is a twin of Rust's `a_caller_names_the_format_with_from` (`dfhgc`), same rows. `migrate` keeps `from_v2` until 2026111918113344.
 	- Note: `from` is a keyword in Python, so the parameter needs another name, such as `from_`, as PEP 8 suggests.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261120: the parameter and the `LoadOptions` field are `from_`, `str | None`, with `None` as none. PEP 8 gives a keyword a trailing underscore, `Quote.None_` already has one, and `from_` reads as the reference's `from` where `source` or `from_format` wouldn't. The style guide's deviations list says so.
+		- me, 20261120: Rust's `from_format` is `_from_format`, which returns whether `from_` was taken and the format, in place of Rust's nested `Option`. The load's private `_load_file_any` takes `migrate` as `(from_,)` or `None`, for Rust's `Option<Option<&str>>`. `named_formats` and `pick_format` are `_named_formats` and `_pick_format`. The tests pass what was `from_v2` through a `v2_from` helper, as Go's do.
+	- Verified: `dfhhb` fails with `from_` other than 2.0 ignored, and with the guard on a clean file stamped `3.0` taken out, where a second run turned `◉TAB◉` into `◉ESCAPE_CHAR◉TAB◉ESCAPE_CHAR◉`, and passes with both. With `from_` ignored altogether, `ddqfy` fails first. The Python runner, `--backlog-run-quick rust go python c cli` (ruff and mypy included), cli-regress over the Python CLI (675 rows), crosscheck over the corpus with the Rust and Python CLIs (7954 comparisons), `test-ids.py check` and `lint-report.bash --check --no-mark` passed.
+	- Swept: every Python caller of `upgrade`, `upgrade_dated`, `upgrade_file` and `LoadOptions`, in `shcl.py`, the runner and the Python CLI, which passes `"2.0"` for `--from-2x`. No other Python test file calls them. `upgrade_dated` and `_load_file_any` are the only readers of `from_`, both through `_from_format`. The docstrings of `LoadOptions`, `Upgrade`, `upgrade`, `UpgradeAmbiguous` and `UpgradeErrorsLeft` follow Rust's. No public name was added, so `__all__` is as it was.
+	- Test case: `a_caller_names_the_format_with_from` (Python `dfhhb`, twin of Rust `dfhgc`).
+	- Branch: `nov20-2026111918112450`
+	- Commit: `cdf8a2ff`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the change, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261119-190344
 
 - Format versions: port `from` to C and the C++ interface
 	- ID: 2026111918112570

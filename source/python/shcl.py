@@ -444,15 +444,16 @@ class LoadOptions:
 	converted to this format, from the format its text and mtime give, rather
 	than the file itself. Only the document changes: the file is not written,
 	and a save checks the path against the bytes the load read, so a save over
-	the file gets every check a plain load's does. from_v2 is migrate's: the
-	file can only have been written for 2.x, so it converts from 2.0. It is
-	ignored without migrate."""
-	__slots__ = ("keep_lines", "migrate", "from_v2")
+	the file gets every check a plain load's does. from_ is the format the
+	file was written in, by a name in FORMAT_NAMES or a major alone, as
+	upgrade()'s from_. It overrides the file's stamp and what find_format()
+	reads off it. It is ignored without migrate."""
+	__slots__ = ("keep_lines", "migrate", "from_")
 
-	def __init__(self, keep_lines: bool = False, migrate: bool = False, from_v2: bool = False) -> None:
+	def __init__(self, keep_lines: bool = False, migrate: bool = False, from_: str | None = None) -> None:
 		self.keep_lines = keep_lines
 		self.migrate = migrate
-		self.from_v2 = from_v2
+		self.from_ = from_
 
 
 class _Seen:
@@ -2830,6 +2831,8 @@ class _Migrating:
 		self.pin = _Pin.FROM_A37 if pin is None else pin
 		# Under V2, which of 1.0 to 2.0, if the format was found.
 		self.v2 = _V2Read.EITHER if v2 is None else v2
+		# Which rules wrote the text is known, from a caller's from_, the
+		# file's Format line or its format, so every rewrite is made.
 		self.from_v2 = from_v2
 		self.ambiguous = 0
 		self.lost = 0
@@ -2950,21 +2953,55 @@ def find_format(text: str, mtime: float | None = None) -> str | None:
 	stamp = read_format_version(text)
 	if _names_newer(stamp):
 		return None
+	by_stamp = _named_formats(stamp.raw or "") if stamp.status is Status.Good else 0
+	return _pick_format(text, mtime, by_stamp)
+
+
+def _named_formats(name: str) -> int:
+	"""The formats of _FORMAT_DAYS a stamp naming name leaves, as bits: the
+	one a whole format's or a pin's name gives, or every format of a major
+	named alone, or of a minor whose pin no row has. 0 for a name no format
+	has, such as `1.2`."""
+	for fname, fformat in FORMAT_NAMES:
+		if fname == name:
+			at = next((i for i, (d, _) in enumerate(_FORMAT_DAYS) if d == fformat), None)
+			if at is not None:
+				return 1 << at
+			break
+	named = _stamp_format(name)
+	whole = "." in name
+	left = 0
+	for i, (f, _) in enumerate(_FORMAT_DAYS):
+		fv = _stamp_format(f)
+		if fv is not None and named is not None and fv[0] == named[0] and (not whole or fv[1] == named[1]):
+			left |= 1 << i
+	return left
+
+
+def _from_format(text: str, mtime: float | None, from_: str | None) -> tuple[bool, str | None]:
+	"""What a caller's from_ names, read as a stamp naming it would be, in
+	place of the text's own stamp, and whether it was taken. Not taken when
+	there's no from_, or it names no format shcl knows, so the text's stamp
+	and the scan decide. None for a newer format than this reader's, which
+	leaves nothing to do. A major alone, such as `1`, leaves its formats to
+	the mtime and the tells."""
+	if from_ is None:
+		return False, None
+	f = _stamp_format(from_)
+	if f is not None and f > (FORMAT_MAJOR, FORMAT_MINOR):
+		return True, None
+	left = _named_formats(from_)
+	if left == 0:
+		return False, None
+	return True, _pick_format(text, mtime, left)
+
+
+def _pick_format(text: str, mtime: float | None, by_stamp: int) -> str:
+	"""find_format()'s last 3 steps over the formats by_stamp leaves, every
+	one when it's 0."""
 	left = (1 << len(_FORMAT_DAYS)) - 1
-	if stamp.status is Status.Good:
-		raw = stamp.raw or ""
-		for fname, fformat in FORMAT_NAMES:
-			if fname == raw:
-				return fformat
-		named = _stamp_format(raw)
-		whole = "." in raw
-		by_stamp = 0
-		for i, (f, _) in enumerate(_FORMAT_DAYS):
-			fv = _stamp_format(f)
-			if fv is not None and named is not None and fv[0] == named[0] and (not whole or fv[1] == named[1]):
-				by_stamp |= 1 << i
-		if by_stamp:
-			left = by_stamp
+	if by_stamp:
+		left = by_stamp
 	if mtime is not None:
 		by_mtime = 0
 		for i, (_, day) in enumerate(_FORMAT_DAYS):
@@ -3176,13 +3213,13 @@ def _first_rewrite(fmt: str | None) -> _Step | None:
 	return next((s for s in _FORMAT_STEPS[at:] if s.kind is not _StepKind.SAME), None)
 
 
-def _convert(text: str, fmt: str | None, from_v2: bool) -> Migration:
+def _convert(text: str, fmt: str | None, told: bool) -> Migration:
 	"""The text, written in fmt, as the current format reads it, one step per
 	format in order, in memory. None, a newer format's, comes back as it is.
-	from_v2 is migrate's."""
+	told says a caller named the format, so every rewrite is made."""
 	step = _first_rewrite(fmt)
 	if step is not None:
-		return _migrate_text(text, from_v2, False, False, step)
+		return _migrate_text(text, told, False, False, step)
 	return Migration(text, True, 0, 0)
 
 
@@ -3583,11 +3620,11 @@ class Upgrade:
 
 	text: the fresh file's text, or the input when current, ambiguous or
 	errors_left. current: the input loads with no error under these rules
-	and, with from_v2, migrates to the same text and names no older format,
+	and, with from_, migrates to the same text and names no older format,
 	or its stamp names this format whole, so it is left as it is. A file
 	stamped beta1's `Format 3` is current when find_format() finds it to be
-	3.0-9ef or later, unless from_v2 says a 2.x build wrote it and it loads
-	with an error.
+	3.0-9ef or later, unless from_ names an older format and it loads with
+	an error.
 	format: the format the input was written for, which goes
 	in the backup's name: what its Format line names,
 	else 2. ambiguous: as Migration.ambiguous; nonzero means the text reads
@@ -3595,12 +3632,12 @@ class Upgrade:
 	fresh text does not carry over, the ones 2.x bound that nothing binds now
 	and the ones the load of the migrated text drops. The backup still has
 	them. diagnostics: what loading the input found, which is why it needed
-	the upgrade unless it loaded clean and from_v2 said it reads as 2.x; empty
-	when current. backup: where upgrade_file() put the original; empty from
-	upgrade(), and when nothing was written. errors_left: with from_v2, the
+	the upgrade unless it loaded clean and from_ said it reads otherwise;
+	empty when current. backup: where upgrade_file() put the original; empty
+	from upgrade(), and when nothing was written. errors_left: with from_, the
 	input's lines still in error once converted; nonempty means nothing is
-	written and text is the input, since the next run with from_v2 would take
-	the fresh text for 2.x again."""
+	written and text is the input, since the next run with from_ would take
+	the fresh text for that format again."""
 
 	__slots__ = ("text", "current", "format", "ambiguous", "lost", "diagnostics", "backup", "errors_left")
 
@@ -3615,7 +3652,7 @@ class Upgrade:
 		self.errors_left: list[int] = []
 
 
-def upgrade(text: str, from_v2: bool, banner: bool) -> Upgrade:
+def upgrade(text: str, from_: str | None, banner: bool) -> Upgrade:
 	"""A config file written for an older format, made over for this one: the
 	input run through migrate_unstamped(), then saved keeping its lines, so
 	each line, blank ones included, stays where it was. With banner, the info
@@ -3629,33 +3666,39 @@ def upgrade(text: str, from_v2: bool, banner: bool) -> Upgrade:
 	stamp names this format whole comes back
 	current and untouched, and so does one that loads with no error under these
 	rules, since a program calling this on every start must never rewrite a good
-	file. from_v2 is migrate's: the file can only have been written for 2.x.
-	Then a file that loads clean is still made over when migrate would change
-	it, as it would `p: a,b`, an array under 2.x and one string now. One it
-	would not change that names an older format gets this format on that Format
-	line, and nothing else. A file naming this format that loads with an error
-	is taken as 2.x when from_v2 says a 2.x build wrote it, as with a beta of
-	3.0 that wrote 2.x lines. With from_v2, any
-	file is made over only when the fresh text loads clean; when it wouldn't,
-	errors_left names the lines still in error. Pass from_v2 only for a file
-	known to be old, never on every start: a file this format wrote that picks
-	up an error later would be read by 2.x rules too.
+	file. from_ names the format the file was written in, by a name in
+	FORMAT_NAMES or a major alone, read as a stamp naming it would be, in place
+	of the file's stamp and what find_format() reads off it. `from` is a
+	keyword, hence the underscore. A name no format has, such as `1.2`, is no
+	from_, and a newer format's leaves the file alone, as does a stamp naming a
+	newer one. With a 2.x or older format, a file that loads clean is still
+	made over when migrate would change it, as it would `p: a,b`, an array
+	under 2.x and one string now. One it would not change that names an older
+	format gets this format on that Format line, and nothing else. A file
+	naming this major that loads with an error is taken as that format, as
+	with a beta of 3.0 that wrote 2.x lines, and one that loads clean is left
+	alone. With a pin, a file that loads clean is made over too, unless its
+	stamp names this format whole, which is what the made-over file names.
+	With from_, any file is made over only when the fresh text loads clean;
+	when it wouldn't, errors_left names the lines still in error. Pass from_
+	only for a file known to be old, never on every start: a file this format
+	wrote that picks up an error later would be read by the old rules too.
 
-	Without from_v2, the file's format is find_format()'s, from the text alone,
+	Without from_, the file's format is find_format()'s, from the text alone,
 	and only a format whose steps to this one rewrite anything gets made over:
 	one from 3.0-9ef on is current, its errors kept as typed, as a load with
 	migrate keeps them. One from 3.0-1f8 to 3.0-a37 goes through that format's
 	step rather than migrate_unstamped(), and is made over even when it loads
 	clean, since `"x\\ty"` loads clean now and held a tab then. One from 1.0
 	to 2.0 goes through the 2.x rewrite with that format's reads of a quoted
-	name and a selector, and from_v2 takes it as 2.0. A file stamped
+	name and a selector. A file stamped
 	beta1's `Format 3` or a pin is read the same way, and the made-over file's
 	Format line names this format whole.
 	upgrade_dated() takes the file's mtime too."""
-	return upgrade_dated(text, None, from_v2, banner)
+	return upgrade_dated(text, None, from_, banner)
 
 
-def upgrade_dated(text: str, mtime: float | None, from_v2: bool, banner: bool) -> Upgrade:
+def upgrade_dated(text: str, mtime: float | None, from_: str | None, banner: bool) -> Upgrade:
 	"""upgrade(), with mtime for find_format(): the file's, in Unix seconds, or
 	None for text from no file. upgrade_file() passes the file's."""
 	named = read_format_version(text)
@@ -3666,7 +3709,9 @@ def upgrade_dated(text: str, mtime: float | None, from_v2: bool, banner: bool) -
 	# The load's step table, in its upgrade form, so a format whose run is
 	# all SAME has nothing to do. beta1's `Format 3` names only a major, so
 	# find_format reads it as the load does, with the mtime and the tells.
-	fmt = "2.0" if from_v2 else find_format(text, mtime)
+	told, fmt = _from_format(text, mtime, from_)
+	if not told:
+		fmt = find_format(text, mtime)
 	step = _first_rewrite(fmt)
 	if step is None or step.kind is _StepKind.SAME:
 		return up
@@ -3677,10 +3722,12 @@ def upgrade_dated(text: str, mtime: float | None, from_v2: bool, banner: bool) -
 	# a 2.x build wrote the file. One that loads clean is what an upgrade
 	# leaves, so a second run over its output leaves it alone. A file found
 	# to be from 3.0-1f8 to 3.0-a37 can load clean and still read otherwise,
-	# as `"x\ty"` does, so it is made over as the load makes it over.
-	if clean and pin is None and (not from_v2 or version == FORMAT_MAJOR):
+	# as `"x\ty"` does, so it is made over as the load makes it over. One
+	# stamped this format whole is what a told upgrade writes, so a second
+	# run over it with the same from_ leaves it alone.
+	if clean and ((pin is None and (not told or version == FORMAT_MAJOR)) or (told and _names_this(named))):
 		return up
-	m = _migrate_text(text, from_v2, False, True, step)
+	m = _migrate_text(text, told, False, True, step)
 	# A 2.x file can load clean and still read differently now, as `a,b`
 	# does. One migrate leaves as it was has nothing to do, but an older
 	# Format line, which would keep the load's H007 hint, becomes this one.
@@ -3712,10 +3759,10 @@ def upgrade_dated(text: str, mtime: float | None, from_v2: bool, banner: bool) -
 	read = read_format_version(made)
 	if read.status is Status.Good and not _names_this(read) and not _names_newer(read):
 		made = _restamp(made, read.line) or made
-	# With from_v2 it goes only when that leaves it loading clean, or the next
-	# run with it would read the result by 2.x rules again
+	# With from_ it goes only when that leaves it loading clean, or the next
+	# run with it would read the result by the old rules again
 	# (2026101515372401). Without, a line in error stays as typed, as on load.
-	if from_v2:
+	if told:
 		check = Document.parse(made)
 		if check.error_count() != 0:
 			# Empty only if a clean text formats to one with an error, and then
@@ -7616,7 +7663,7 @@ class Document:
 		that would write them canonical refuses as for any lost line. A file
 		naming a newer format is parsed as it is, so its save raises
 		SaveTooNew."""
-		migrate = opts.from_v2 if opts.migrate else None
+		migrate = (opts.from_,) if opts.migrate else None
 		doc, st = Document._load_file_any(path, strictness, opts.keep_lines, migrate)
 		return doc._strict_gate(), st
 
@@ -7629,9 +7676,9 @@ class Document:
 
 	@staticmethod
 	def _load_file_any(
-		path: str | os.PathLike[str], strictness: Strictness, keep: bool, migrate: bool | None
+		path: str | os.PathLike[str], strictness: Strictness, keep: bool, migrate: tuple[str | None] | None
 	) -> tuple[Document, FileStatus]:
-		"""migrate is from_v2, to parse the migrated text, or None."""
+		"""migrate is (from_,), to parse the migrated text, or None."""
 		text, st = read_file(path, 0)
 		if text is None:
 			doc = _Parser().parse("", strictness)
@@ -7640,9 +7687,12 @@ class Document:
 			return doc, st
 		parsed, mig = text, None
 		if migrate is not None:
-			# from_v2 says the file is 2.x, whatever its stamp and mtime say.
-			fmt = "2.0" if migrate else find_format(text, _file_mtime(path))
-			mig = _convert(text, fmt, migrate)
+			# from_ names the format, whatever the stamp and the mtime say.
+			mtime = _file_mtime(path)
+			told, fmt = _from_format(text, mtime, migrate[0])
+			if not told:
+				fmt = find_format(text, mtime)
+			mig = _convert(text, fmt, told)
 			parsed = mig.text
 		doc = _Parser().parse(parsed, strictness)
 		# migrate's count, summed as a merge sums a layer's. Its lines are gone
@@ -11983,7 +12033,7 @@ class UpgradeNotFound(UpgradeError):
 
 class UpgradeAmbiguous(UpgradeError):
 	"""The file does not say which rules it was written for, and some of it
-	reads two ways (Upgrade.ambiguous); from_v2 settles it."""
+	reads two ways (Upgrade.ambiguous); from_ settles it."""
 	path: str
 	count: int
 
@@ -12003,7 +12053,7 @@ class UpgradeBackupTaken(UpgradeError):
 
 
 class UpgradeErrorsLeft(UpgradeError):
-	"""With from_v2, the fresh text would still have an error on these lines
+	"""With from_, the fresh text would still have an error on these lines
 	of the input (Upgrade.errors_left)."""
 	path: str
 	lines: list[int]
@@ -12129,7 +12179,7 @@ def _create_backup(file, name):
 	return _create_like(file, name)
 
 
-def upgrade_file(path: str | os.PathLike[str], from_v2: bool, banner: bool) -> Upgrade:
+def upgrade_file(path: str | os.PathLike[str], from_: str | None, banner: bool) -> Upgrade:
 	"""upgrade() on a file, for a program to call when it starts, before its
 	load. A file that needs it is kept under backup_file_name() by
 	write_backup(), then the fresh text replaces it through
@@ -12155,7 +12205,7 @@ def upgrade_file(path: str | os.PathLike[str], from_v2: bool, banner: bool) -> U
 		text = data.decode("utf-8")
 	except UnicodeDecodeError:
 		raise UpgradeFailed(f"{path}: can't be read as UTF-8 text", WriteStatus.Unreadable) from None
-	up = upgrade_dated(text, _file_mtime(path), from_v2, banner)
+	up = upgrade_dated(text, _file_mtime(path), from_, banner)
 	if up.current:
 		return up
 	if up.ambiguous != 0:
