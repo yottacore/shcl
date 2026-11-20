@@ -79,7 +79,7 @@ static int lookup_under(shcl_doc *d, long b, size_t want) {
 static int migrate_under(const char *text, size_t len, long b) {
 	if (SHCL_SETJMP(oom_jmp)) return 0;
 	budget = b;
-	shcl_migration m = shcl_migrate(text, len, 1);
+	shcl_migration m = shcl_migrate(text, len, "2.0");
 	budget = 1L << 30;
 	tracked_free(m.text);
 	return 1;

@@ -35,6 +35,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- The veneer smoke test does not compile with `SHCL_NO_FILE_IO`
+	- ID: 2026111919581254
+	- Type: Bug
+	- Status: Queued
+	- Priority: Low
+	- Target version: v3.0.0
+	- Opened: 20261119-195812
+	- Opened by: me
+	- Steps to reproduce: `g++ -std=c++17 -DSHCL_NO_FILE_IO -fsyntax-only -Isource/c source/c/tests/veneer_smoke.cpp`
+	- Incorrect behavior: 4 errors. `main`'s `#else` arm calls `a_save_names_this_format` and others that sit inside `#ifndef SHCL_NO_FILE_IO`. Seen on `f7a1dff5`, before 2026111919213927.
+	- Expected behavior: it compiles and runs the checks that need no file I/O, or no gate builds it that way and the `#else` arm goes.
+
 - Format versions: the demo gif and its golden text show fmt output without the stamp
 	- ID: 2026111710564808
 	- Type: Feature
@@ -367,6 +379,47 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Parent ID: 2026111907080445
 	- Prereq IDs: 2026111918111481, 2026111918112329, 2026111918112450, 2026111918112570
 	- Requirements: `migrate` and `upgrade` take `--from=FORMAT` in place of `--from-2x` in the 4 CLIs, passed to the library's `from`. `migrate` and `migrate_unstamped` take `from` in place of `from_v2` in all 4 bindings and the C++ interface, read as `upgrade`'s is, with each format's step, so corpus case `118-migrate-backslash-spelling`'s golden and `de60h` and its twins change with it. A name no format has is a usage error. The help text, the completions, the `H007` hint's message, cli-regress, check-migrate, examples.md and spec.md's CLI parts follow.
+	- Estimated effort: Avg
+	- Note: split for its time cap into 2026111919213927 (`from` in the libraries' `migrate`) and 2026111919213947 (the CLIs' `--from=FORMAT` and its docs).
+
+- Format versions: `from` in `migrate` and `migrate_unstamped`, in place of `from_v2`
+	- ID: 2026111919213927
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-192139
+	- Opened by: me
+	- Parent ID: 2026111918113344
+	- Requirements: `migrate` and `migrate_unstamped` take `from` in place of `from_v2` in all 4 bindings and the C++ interface, read as `upgrade`'s is, with each format's step. Corpus case `118-migrate-backslash-spelling`'s golden and `de60h` and its twins change with it. The 4 CLIs map `--from-2x` to `from` 2.0 until 2026111918113344's CLI child.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261120: `from` is read by `from_format` with no mtime, as `upgrade` reads it, through a new private `migrate_from` (Go `migrateFrom`, Python `_migrate_from`, C `migrate_from`), and the rewrite takes that format's step from `first_rewrite`. Without `from`, or with a name no format has, it's what `from_v2` false was, with `V2Read::Either`. A format whose steps are all `Same`, such as `3.0` or `3.0-9ef`, and a newer one, such as `3.1` or `4`, give the text back `current`.
+		- me, 20261120: with a pin's `from`, a text whose stamp names `3.0` whole is `current`, as `upgrade` does, since that's what the pin's rewrite stamps. Without it a second run turned `◉TAB◉` into `◉ESCAPE_CHAR◉TAB◉ESCAPE_CHAR◉`.
+		- me, 20261120: a pin's rewrite leaves off `MIGRATED_LINE`, since that note names 2.x. It still gets the Format line.
+		- me, 20261120: C takes `from` as a NUL-terminated `const char *`, NULL as none, and C++ as `std::optional<std::string_view>`, as `shcl_upgrade` and `upgrade` do. C's untouched copy is a new `migration_as_is`, which `s_convert` shares, since `s_convert` is compiled out with `SHCL_NO_FILE_IO`.
+	- 20261120: `de60h` (Go `de61c`, Python `de61f`, C `de61j`) wanted `lost` 2 with and without `from_v2`, and now wants 2 without `from` and 0 with `from` 2.0, 1.1 and 1.0, with each format's spelling of the names. corpus `dcns3` (`118-migrate-backslash-spelling`) wanted `'n\\tm': 1` and `'n\tm': 2` kept as typed, and now wants `"n\tm": 1` and `"n◉TAB◉m": 2`. cli-regress `de60s` wanted exit 7 and the name kept, and now wants exit 0 with `"n◉TAB◉y"`, and `de60t` wants the same name with the migrated note. check-migrate no longer counts a quoted name with a backslash pair as lost under `--from-2x`.
+	- Verified: `dfhjc` fails with the pin guard taken out, where a second run turned `◉TAB◉` into `◉ESCAPE_CHAR◉TAB◉ESCAPE_CHAR◉`, and `de60h` and the corpus case fail with `from` 2.0 read as `Either`, and all pass with the change. `--backlog-run-quick rust go python c cli` (all 5 steps passed), cli-regress over the 4 CLIs (677 rows), crosscheck over the corpus with the 4 CLIs (23862 comparisons), the C runner, the veneer smoke, the C library compiled with `SHCL_NO_FILE_IO`, check-migrate (it diverged on corpus 118 before its lost count was changed), `test-ids.py check` and `lint-report.bash --check --no-mark` passed.
+	- Swept: every caller of `migrate` and `migrate_unstamped` in the 4 bindings, the C++ interface, the 4 CLIs (which pass 2.0 for `--from-2x`), the Rust upgrade and fuzz tests, the Go upgrade tests, the C OOM hook test, the 4 runners and the veneer smoke. No cicd script calls the library's `migrate`. Docs: the doc comments on `migrate` and `migrate_unstamped` in all 4 and C++, `shcl_migration`'s `ambiguous`, spec.md's stamping bullet, design.md's `from` bullet and the changelog. The `from_v2` field inside each binding's `Migrating` stays, since it's what a known format sets.
+	- Test case: `migrate_reads_from_as_upgrade_does` (Rust `dfhjc`, Go `dfhjd`, Python `dfhje`, C `dfhjf`, veneer `dfhjg`), `de60h` and its twins, corpus `dcns3`, cli-regress `de60s`, `de60t`, `dfhk1` and `dfhk2`.
+	- Branch: `nov20-2026111918113344`
+	- Commit: `af5dd518`
+	- Acceptance signoff: Self-closed: the new tests were seen to fail without the change, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261119-200100
+
+- Format versions: `--from=FORMAT` in the 4 CLIs, in place of `--from-2x`, with help, completions and docs
+	- ID: 2026111919213947
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-192139
+	- Opened by: me
+	- Parent ID: 2026111918113344
+	- Prereq IDs: 2026111919213927
+	- Requirements: `migrate` and `upgrade` take `--from=FORMAT` in place of `--from-2x` in the 4 CLIs, passed to the library's `from`. A name no format has is a usage error. The help text, the completions, the man page, the `H007` hint's message, cli-regress, check-migrate, crosscheck, check-readme, examples.md and spec.md's CLI parts follow.
 	- Estimated effort: Avg
 
 - Format versions: each published format and pin round-trips against its own tag's CLI in a gate

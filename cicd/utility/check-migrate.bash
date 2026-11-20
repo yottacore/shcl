@@ -339,12 +339,12 @@ fUnplaced(){
 
 ##	Lines 2.x read cleanly that nothing spells now, so migrate counts them
 ##	lost and refuses: a selector holding a bare comma, which 2.x matched
-##	against an array value by its display form; a quoted name with a
-##	backslash pair, which 1.2 read as typed and 2.0 resolved; and a comma
-##	list on a field with lines under it, which is E028 in brackets and
-##	another value as one string. The first two are found in the 2.x text,
-##	read the way 2.x reads a path: a backslash shields the next character,
-##	and `name:[x]` is a selector too. A raw body is passed over, its block
+##	against an array value by its display form, and a comma list on a field
+##	with lines under it, which is E028 in brackets and another value as one
+##	string. A quoted name with a backslash pair, which 1.2 read as typed and
+##	2.0 resolved, isn't one, since --from-2x reads it as 2.0 did. The first is
+##	found in the 2.x text, read the way 2.x reads a path: a backslash shields
+##	the next character, and `name:[x]` is a selector too. A raw body is passed over, its block
 ##	opened by a fence run after the path's colon or at the start of a line.
 ##	The third is asked of the current parser on migrate's output, and kept
 ##	only where the 2.x line has a comma.
@@ -368,9 +368,6 @@ for n, line in enumerate(text.split("\n"), 1):
 			q, j = s[i], i + 1
 			while j < len(s) and s[j] != q:
 				j += 2 if s[j] == "\\" else 1
-			if re.search(r"\\[tn\\\x27\"]", s[i + 1:j]):
-				print(n)
-				break
 			i = j + 1
 		else:
 			m = re.match(r"[A-Za-z0-9_-]+", s[i:])
@@ -932,3 +929,5 @@ echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, 
 ##		            piece's edges, as 2.0 did, so a line with one there the
 ##		            pinned build keeps comes out of the comparison. An info
 ##		            block is counted at the line start only.
+##		2026-11-20  migrate --from-2x reads a quoted name with a backslash pair
+##		            as 2.0 did, so it isn't lost.

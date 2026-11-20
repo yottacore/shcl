@@ -1811,7 +1811,7 @@ def do_migrate(o):
 	except (OSError, ValueError) as e:
 		sys.stderr.write(str(e) + "\n")
 		return EXIT_IO
-	m = shcl.migrate(text, o.from_2x)
+	m = shcl.migrate(text, "2.0" if o.from_2x else None)
 	doc, code = load_doc_from("", m.text, o.strictness)
 	if doc is None:
 		return code

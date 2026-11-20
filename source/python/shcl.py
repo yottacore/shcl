@@ -3474,7 +3474,7 @@ def _opens_raw(rest: str, tok: Tokens) -> tuple[str, int] | None:
 	return None if fence is None else (fence[0], fence[1])
 
 
-def migrate(text: str, from_v2: bool) -> Migration:
+def migrate(text: str, from_: str | None) -> Migration:
 	r"""Rewrite a document written under the 2.x rules so this parser reads the
 	same tree. Each line is read with the 2.x tokenizer and rewritten only
 	where the two rule sets disagree (value-syntax.md, Migration). A piece
@@ -3491,27 +3491,51 @@ def migrate(text: str, from_v2: bool) -> Migration:
 	could not read - comes through as written. One shape has no spelling
 	here at all: a fence label holding a `#`, which 2.x ran to the end of the
 	line and which now ends at the `#`. A quoted name with a backslash pair
-	stays as written and counts in lost, since 1.2 read it as typed and 2.0
-	resolved it.
+	reads as from_'s format read it, and without from_ stays as written and
+	counts in lost, since 1.2 read it as typed and 2.0 resolved it.
 
 	Which file this is cannot always be read off the text: `p: a,b` is an
 	array under 2.x and one string under these rules, and a raw block can open
 	where only one rule set sees it, so rewriting a 3.0 file changes what it
 	says. So the version line decides. A file that names this format is
 	returned untouched; one that names an older format, or a caller passing
-	from_v2, gets every rewrite. Anything else leaves those pieces alone where
+	from_, gets every rewrite. Anything else leaves those pieces alone where
 	these rules read the line cleanly, counted in ambiguous for the caller to
 	refuse over. A rewritten file is stamped with the version line, so the
 	second run has an answer the first one did not. An older Format line
-	becomes that line where it is; a file with none gets it at the end."""
-	return _migrate_text(text, from_v2, True, False, _Step(_StepKind.V2, v2=_V2Read.EITHER))
+	becomes that line where it is; a file with none gets it at the end.
+
+	from_ names the format the file was written in, read as upgrade() reads
+	it, and the rewrite is that format's step: from 1.0 to 2.0, the 2.x
+	rewrite with that format's reads of a quoted name and a selector, and from
+	3.0-1f8 to 3.0-a37, that pin's. Without it, a quoted name with a backslash
+	pair stays as typed and counts in lost. A name no format has, such as
+	`1.2`, is no from_. A format whose steps rewrite nothing, and a newer one,
+	leave the file untouched, and so does a pin's when the file's stamp names
+	this format whole, which is what a rewrite from a pin names."""
+	return _migrate_from(text, from_, True)
 
 
-def migrate_unstamped(text: str, from_v2: bool) -> Migration:
+def migrate_unstamped(text: str, from_: str | None) -> Migration:
 	"""migrate() without the version line or the migrated note, for a program
 	that writes GEN_BANNER itself, which includes the version line. The next
 	run can tell the result is current only once that is written."""
-	return _migrate_text(text, from_v2, False, False, _Step(_StepKind.V2, v2=_V2Read.EITHER))
+	return _migrate_from(text, from_, False)
+
+
+def _migrate_from(text: str, from_: str | None, stamp: bool) -> Migration:
+	"""migrate's reading of from_, as upgrade's with no mtime, into the step
+	the rewrite takes."""
+	told, fmt = _from_format(text, None, from_)
+	step: _Step | None = _Step(_StepKind.V2, v2=_V2Read.EITHER)
+	if told:
+		step = _first_rewrite(fmt)
+		if step is None:
+			return _convert(text, None, True)
+	assert step is not None
+	if step.kind is _StepKind.PIN and _names_this(read_format_version(text)):
+		return _convert(text, None, True)
+	return _migrate_text(text, told, stamp, False, step)
 
 
 def _majority_eol(text):
@@ -3609,7 +3633,8 @@ def _migrate_text(text, from_v2, stamp, beta, step):
 		if add_format:
 			out.append(FORMAT_LINE)
 			out.append(eol)
-		if changed:
+		# The note names 2.x, so a pin's rewrite goes without it.
+		if changed and pin is None:
 			out.append(MIGRATED_LINE)
 			out.append(eol)
 	return Migration("".join(out), ambiguous=st.ambiguous, lost=st.lost)

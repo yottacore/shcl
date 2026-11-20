@@ -19,6 +19,11 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+/// The `from` that says a text was written for 2.x, as `--from-2x` does.
+fn v2_from(from_v2: bool) -> Option<&'static str> {
+	from_v2.then_some("2.0")
+}
+
 /// What a save writes for `s`, which names no format.
 fn with_stamp(s: &str) -> String {
 	format!("{s}{STAMP_LINE}\n")
@@ -1166,7 +1171,7 @@ fn migrate_matches_expected() {
 				case.name
 			),
 		};
-		let got = migrate(&case.input, true).text;
+		let got = migrate(&case.input, Some("2.0")).text;
 		assert_eq!(
 			&got, want,
 			"{}: migrate output differs from expected-migrate.shcl",
@@ -1189,9 +1194,9 @@ fn migrate_matches_expected() {
 fn migrate_is_a_fixpoint() {
 	let _id = test_id("dcns5");
 	each_case(|case| {
-		let once = migrate(&case.input, true).text;
+		let once = migrate(&case.input, Some("2.0")).text;
 		assert_eq!(
-			migrate(&once, true).text,
+			migrate(&once, Some("2.0")).text,
 			once,
 			"{}: migrate changes its own output",
 			case.name
@@ -1234,8 +1239,8 @@ fn migrate_unstamped_is_migrate_without_the_stamp() {
 	// difference, and a file is current exactly when its Format line says so.
 	each_case(|case| {
 		for from_v2 in [true, false] {
-			let full = migrate(&case.input, from_v2);
-			let bare = migrate_unstamped(&case.input, from_v2);
+			let full = migrate(&case.input, v2_from(from_v2));
+			let bare = migrate_unstamped(&case.input, v2_from(from_v2));
 			assert_eq!(
 				(bare.current, bare.ambiguous, bare.lost),
 				(full.current, full.ambiguous, full.lost),
@@ -5660,7 +5665,7 @@ fn migrate_brackets_a_2x_comma_list() {
 	let _id = test_id("ddjya");
 	let m = migrate(
 		"x: a, b\ny: a,b\nz: \"q\", r\nw: New York,,b\nv: done:\nu: rw,noatime\n",
-		true,
+		Some("2.0"),
 	);
 	assert_eq!(m.ambiguous, 0);
 	assert!(
@@ -5672,7 +5677,7 @@ fn migrate_brackets_a_2x_comma_list() {
 	);
 	let back = Document::parse(&m.text);
 	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
-	let m = migrate("x: a, b\ny: a,b\n", false);
+	let m = migrate("x: a, b\ny: a,b\n", None);
 	assert_eq!(m.ambiguous, 1);
 	assert!(m.text.starts_with("x: [a, b]\ny: a,b\n"), "{:?}", m.text);
 }
@@ -5683,7 +5688,7 @@ fn migrate_brackets_a_2x_comma_list() {
 #[test]
 fn migrate_writes_a_lone_2x_element_plain() {
 	let _id = test_id("ddrgf");
-	let m = migrate("k: s,\nk: s\nq: , \"a b\"\nc: x,\n\td: 1\n", true);
+	let m = migrate("k: s,\nk: s\nq: , \"a b\"\nc: x,\n\td: 1\n", Some("2.0"));
 	assert_eq!((m.ambiguous, m.lost), (0, 0));
 	assert!(
 		m.text.starts_with("k: s\nk: s\nq: \"a b\"\nc: x\n\td: 1\n"),
@@ -5701,7 +5706,10 @@ fn migrate_writes_a_lone_2x_element_plain() {
 #[test]
 fn migrate_writes_star_items_as_dashes() {
 	let _id = test_id("ddk4w");
-	let m = migrate("list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n", true);
+	let m = migrate(
+		"list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n",
+		Some("2.0"),
+	);
 	assert!(
 		m.text
 			.starts_with("list:\n\t- a\n\t- \"key: value\"\n\t- 'c'\n\t- O'Brien\n"),
@@ -5721,7 +5729,7 @@ fn migrate_writes_star_items_as_dashes() {
 #[test]
 fn migrate_quotes_a_name_not_led_by_a_letter() {
 	let _id = test_id("ddk4x");
-	let m = migrate("404: a\n-x: y\nl:\n\t- :0\na.9b: 2\n_id: 7\n", true);
+	let m = migrate("404: a\n-x: y\nl:\n\t- :0\na.9b: 2\n_id: 7\n", Some("2.0"));
 	assert!(
 		m.text
 			.starts_with("\"404\": a\n\"-x\": y\nl:\n\t\"-\" :0\na.\"9b\": 2\n\"_id\": 7\n"),
@@ -5742,7 +5750,7 @@ fn migrate_escapes_a_real_mark() {
 	let _id = test_id("ddk4y");
 	let m = migrate(
 		"\"a\u{25C9}q\u{25C9}\": 1\nbare: My\u{25C9}SPACE\u{25C9}App\ns[x\u{25C9}y].p: 2\n",
-		true,
+		Some("2.0"),
 	);
 	let back = Document::parse(&m.text);
 	assert!(
@@ -5773,7 +5781,7 @@ fn migrate_escapes_a_real_mark() {
 #[test]
 fn migrate_quotes_a_bare_selector_these_rules_refuse() {
 	let _id = test_id("ddk4z");
-	let m = migrate("srv[O'Brien].port: 1\nsrv[New York].port: 2\n", true);
+	let m = migrate("srv[O'Brien].port: 1\nsrv[New York].port: 2\n", Some("2.0"));
 	assert!(
 		m.text
 			.starts_with("srv(\"O'Brien\").port: 1\nsrv(\"New York\").port: 2\n"),
@@ -5795,11 +5803,11 @@ fn migrate_writes_selectors_in_parens() {
 	let text = "a[x].k: 1\nb: y\nb[0].k: 2\nc[a(b)].k: 3\ne:[f].g: 4\nr[\"x\"]:\n\ts: 1\n";
 	let want = "a(x).k: 1\nb: y\nb(0).k: 2\nc(\"a(b)\").k: 3\ne(f).g: 4\nr(\"x\"):\n\ts: 1\n";
 	for from_v2 in [true, false] {
-		let m = migrate(text, from_v2);
+		let m = migrate(text, v2_from(from_v2));
 		assert_eq!((m.ambiguous, m.lost), (0, 0), "{}", m.text);
 		assert!(m.text.starts_with(want), "{:?}", m.text);
 	}
-	let back = Document::parse(&migrate(text, true).text);
+	let back = Document::parse(&migrate(text, Some("2.0")).text);
 	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
 	assert_eq!(back.get_int("c(\"a(b)\").k").unwrap(), 3);
 	assert_eq!(back.get_int("e(f).g").unwrap(), 4);
@@ -5814,11 +5822,11 @@ fn migrate_writes_selectors_in_parens() {
 #[test]
 fn migrate_counts_what_nothing_spells() {
 	let _id = test_id("ddk50");
-	let m = migrate("a[x, y].b: 1\n", true);
+	let m = migrate("a[x, y].b: 1\n", Some("2.0"));
 	assert_eq!(m.lost, 1);
-	let m = migrate("a: 1, 2\n\tb: 1\nc: 3, 4\n", true);
+	let m = migrate("a: 1, 2\n\tb: 1\nc: 3, 4\n", Some("2.0"));
 	assert_eq!(m.lost, 1, "{}", m.text);
-	let m = migrate("e: ,\nf: , # c\n", true);
+	let m = migrate("e: ,\nf: , # c\n", Some("2.0"));
 	assert_eq!(m.lost, 0);
 	assert!(m.text.starts_with("e:\nf: # c\n"), "{:?}", m.text);
 	let back = Document::parse(&m.text);
@@ -5835,7 +5843,7 @@ fn migrate_counts_what_nothing_spells() {
 fn migrate_leaves_what_reads_clean_now() {
 	let _id = test_id("ddk51");
 	let text = "x: \"a\u{25C9}TAB\u{25C9}b\"\n\"n\u{25C9}TAB\u{25C9}\": 1\nl:\n\t- :0\ns[\"\u{25C9}TAB\u{25C9}\"].p: 1\nb: `abc`\nc: [a]\n";
-	let m = migrate(text, false);
+	let m = migrate(text, None);
 	assert_eq!(m.ambiguous, 5, "{}", m.text);
 	assert_eq!(
 		m.text,
@@ -5844,7 +5852,7 @@ fn migrate_leaves_what_reads_clean_now() {
 			"s(\"\u{25C9}ESCAPE_CHAR\u{25C9}TAB\u{25C9}ESCAPE_CHAR\u{25C9}\")"
 		)
 	);
-	assert!(migrate(text, true).text.contains("ESCAPE_CHAR"));
+	assert!(migrate(text, Some("2.0")).text.contains("ESCAPE_CHAR"));
 }
 
 // 2.x resolved a backslash pair in a value, an element, a `*` item, a
@@ -5854,7 +5862,7 @@ fn migrate_leaves_what_reads_clean_now() {
 fn migrate_writes_the_text_2x_read() {
 	let _id = test_id("de60f");
 	let text = "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\ns: 'it\\'s'\nl: \"C:\\\\a\", x\\ty\nw: C:\\work\nsrv[a\\tb].port: 1\nn:['C:\\\\x']\nlist:\n\t* C:\\new\n";
-	let m = migrate(text, true);
+	let m = migrate(text, Some("2.0"));
 	assert_eq!((m.ambiguous, m.lost), (0, 0), "{}", m.text);
 	assert!(
 		m.text.starts_with(
@@ -5897,13 +5905,13 @@ fn migrate_writes_the_text_2x_read() {
 fn migrate_counts_a_backslash_pair_in_an_unstamped_file() {
 	let _id = test_id("de60g");
 	let text = "p: \"C:\\\\new\"\nt: C:\\temp\nw: C:\\work\nb: \"say \\\"hi\\\"\"\nl: a\\tb, c\n";
-	let m = migrate(text, false);
+	let m = migrate(text, None);
 	assert_eq!((m.ambiguous, m.lost), (2, 0), "{}", m.text);
 	assert_eq!(
 		m.text,
 		"p: \"C:\\\\new\"\nt: C:\\temp\nw: C:\\work\nb: 'say \"hi\"'\nl: [\"a\u{25C9}TAB\u{25C9}b\", c]\n"
 	);
-	let m = migrate(&format!("{text}##    Format   2\n"), false);
+	let m = migrate(&format!("{text}##    Format   2\n"), None);
 	assert_eq!((m.ambiguous, m.lost), (0, 0), "{}", m.text);
 	assert!(
 		m.text
@@ -5914,28 +5922,41 @@ fn migrate_counts_a_backslash_pair_in_an_unstamped_file() {
 }
 
 // 1.2 read a quoted name as typed and 2.0 resolved its backslash pairs, so
-// a name with one reads two ways across 2.x. It stays as written and counts
-// as lost, with from_v2 or without, and the rest of its line still
-// converts. Any other backslash in a name was text under both.
+// a name with one reads two ways across 2.x. Without `from` it stays as
+// written and counts as lost, and the rest of its line still converts. With
+// `from`, the format's step reads it as that format did, so it isn't lost
+// (2026111919213927). Any other backslash in a name was text under both.
 #[test]
 fn migrate_counts_a_quoted_name_with_a_backslash_pair_lost() {
 	let _id = test_id("de60h");
 	let text = "'k\\\\x': C:\\temp\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n";
-	for from_v2 in [true, false] {
-		let m = migrate(text, from_v2);
-		assert_eq!(m.lost, 2, "from_v2 {from_v2}: {}", m.text);
-		assert_eq!(m.ambiguous, usize::from(!from_v2), "{}", m.text);
+	let m = migrate(text, None);
+	assert_eq!(m.lost, 2, "{}", m.text);
+	assert_eq!(m.ambiguous, 1, "{}", m.text);
+	for from in ["2.0", "1.1", "1.0"] {
+		let m = migrate(text, Some(from));
+		assert_eq!(m.lost, 0, "from {from}: {}", m.text);
+		assert_eq!(m.ambiguous, 0, "from {from}: {}", m.text);
 	}
-	let m = migrate(text, true);
-	assert!(
-		m.text.starts_with(
-			"'k\\\\x': \"C:\u{25C9}TAB\u{25C9}emp\"\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n"
+	// 2.0 resolved a name's backslash pairs, and 1.1 keyed it as typed.
+	for (from, names) in [
+		(
+			"2.0",
+			"\"k\\x\": \"C:\u{25C9}TAB\u{25C9}emp\"\n\"n\u{25C9}TAB\u{25C9}y\".z: 1\n",
 		),
-		"{:?}",
-		m.text
-	);
-	// upgrade's from_v2 takes the file as 2.0, whose step reads the names as
-	// 2.0 did (2026111917071578).
+		(
+			"1.1",
+			"'k\\\\x': \"C:\u{25C9}TAB\u{25C9}emp\"\n\"n\\ty\".z: 1\n",
+		),
+	] {
+		let m = migrate(text, Some(from));
+		assert!(
+			m.text.starts_with(&format!("{names}\"a\\b\": 2\nr: 3\n")),
+			"from {from}: {:?}",
+			m.text
+		);
+	}
+	// upgrade's `from` takes the file as 2.0 the same way (2026111917071578).
 	let up = shcl::upgrade(text, Some("2.0"), true);
 	assert_eq!(up.lost, 0, "{up:?}");
 }
@@ -7099,7 +7120,7 @@ fn a_load_that_migrates_saves_through_the_guards() {
 		migrate: true,
 		from: Some("2.0"),
 	};
-	let migrated = migrate_unstamped(old, true).text;
+	let migrated = migrate_unstamped(old, Some("2.0")).text;
 	assert_ne!(migrated, old);
 
 	// The document is the migrated text's, and the load writes nothing.
@@ -7136,7 +7157,7 @@ fn a_load_that_migrates_saves_through_the_guards() {
 
 	// What migrate counts lost is lost to a canonical save.
 	let lossy = "k: [x, y]\n";
-	let m = migrate_unstamped(lossy, true);
+	let m = migrate_unstamped(lossy, Some("2.0"));
 	assert!(m.lost > 0);
 	std::fs::write(&f, lossy).unwrap();
 	let canon = LoadOptions {
@@ -7212,7 +7233,7 @@ fn a_load_converts_from_the_format_its_mtime_gives() {
 		};
 		let (doc, _) = Document::load_file_opts(&f, Strictness::Standard, &opts).unwrap();
 		let (want, lost) = if migrated {
-			let m = migrate_unstamped(text, from_v2);
+			let m = migrate_unstamped(text, v2_from(from_v2));
 			(m.text, m.lost)
 		} else {
 			(text.to_string(), 0)
@@ -7550,6 +7571,53 @@ fn an_upgrade_reads_a_beta1_stamp_as_the_load_does() {
 /// has is no `from`, and a newer format's leaves the file alone. A file
 /// stamped this format whole is what a told upgrade writes, so a second run
 /// leaves it alone (2026111918111481). Same rows in every runner.
+// migrate reads a caller's `from` as upgrade does, with no mtime, and takes
+// that format's step. A format whose steps rewrite nothing, and a newer one,
+// leave the text alone, and a name no format has is no `from`. A pin's
+// rewrite names this format whole, so a second run with the same pin leaves
+// it alone (2026111919213927). Same table in every runner.
+#[test]
+fn migrate_reads_from_as_upgrade_does() {
+	let _id = test_id("dfhjc");
+	let note = "##    Format   3.0\n##    Migrated from SHCL 2.x.\n";
+	let sq = "b: 'C:\\temp'\n";
+	let sq_made = format!("b: \"C:\u{25c9}TAB\u{25c9}emp\"\n{note}");
+	let tab = "a: \"x\\ty\"\n";
+	let tab_made = "a: \"x\u{25c9}TAB\u{25c9}y\"\n##    Format   3.0\n";
+	// The text, from, and the text migrate gives, which is the input when
+	// it's current.
+	let cases: [(&str, &str, &str); 10] = [
+		(sq, "2.0", &sq_made),
+		(sq, "1", &sq_made),
+		(sq, "3.0", sq),
+		(sq, "3.0-9ef", sq),
+		(sq, "3.1", sq),
+		(sq, "4", sq),
+		(tab, "3.0-a37", tab_made),
+		(tab, "3.0-231", tab_made),
+		(tab_made, "3.0-a37", tab_made),
+		(&sq_made, "2.0", &sq_made),
+	];
+	for (text, from, want) in cases {
+		let m = migrate(text, Some(from));
+		assert_eq!(
+			(m.current, m.text.as_str()),
+			(want == text, want),
+			"{text:?}, from {from}"
+		);
+	}
+	let none = migrate(sq, None);
+	let unknown = migrate(sq, Some("1.2"));
+	assert_eq!(
+		(unknown.text, unknown.ambiguous, unknown.lost),
+		(none.text, none.ambiguous, none.lost)
+	);
+	assert_eq!(
+		migrate_unstamped(tab, Some("3.0-a37")).text,
+		"a: \"x\u{25c9}TAB\u{25c9}y\"\n"
+	);
+}
+
 #[test]
 fn a_caller_names_the_format_with_from() {
 	let _id = test_id("dfhgc");

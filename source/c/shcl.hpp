@@ -257,13 +257,18 @@ struct Migration {
 	std::size_t lost = 0;
 };
 // A document written under the 2.x lexical rules, rewritten so this parser
-// reads the same tree; text to text, no document involved. from_v2 says the
-// file really was written for 2.x, which is the only thing that can settle the
-// spellings the two rule sets read differently.
-Migration migrate(std::string_view text, bool from_v2);
+// reads the same tree; text to text, no document involved. from names the
+// format the file was written in, read as upgrade() reads it, which is the
+// only thing that can settle the spellings the two rule sets read
+// differently, and the rewrite is that format's step. Without it, a quoted
+// name with a backslash pair stays as written and counts in lost. A name no
+// format has, such as `1.2`, is no from. A format whose steps rewrite
+// nothing, and a newer one, leave the text untouched, and so does a pin's
+// when the text's stamp names this format whole.
+Migration migrate(std::string_view text, std::optional<std::string_view> from);
 // migrate() without the version line or the migrated note, for a program that
 // writes GEN_BANNER itself, which includes the version line.
-Migration migrate_unstamped(std::string_view text, bool from_v2);
+Migration migrate_unstamped(std::string_view text, std::optional<std::string_view> from);
 // The format major a document's Format line names, read the way migrate reads
 // it; none when no line names one, or when it names no number. migrate hands a
 // file back untouched exactly when this is FORMAT_MAJOR or more.
@@ -1152,8 +1157,6 @@ void tokenize_value(std::string_view text, std::size_t from, Rules rules, Tokens
 	detail::copy_tokens(t, out);
 }
 
-Migration migrate(std::string_view text, bool from_v2) { return detail::migration(shcl_migrate(text.data(), text.size(), from_v2 ? 1 : 0)); }
-Migration migrate_unstamped(std::string_view text, bool from_v2) { return detail::migration(shcl_migrate_unstamped(text.data(), text.size(), from_v2 ? 1 : 0)); }
 
 std::optional<std::uint32_t> format_version(std::string_view text) {
 	std::int64_t v = shcl_format_version(text.data(), text.size());
@@ -1205,6 +1208,14 @@ static const char *from_c(std::optional<std::string_view> from, std::string &buf
 }
 } // namespace detail
 
+Migration migrate(std::string_view text, std::optional<std::string_view> from) {
+	std::string buf;
+	return detail::migration(shcl_migrate(text.data(), text.size(), detail::from_c(from, buf)));
+}
+Migration migrate_unstamped(std::string_view text, std::optional<std::string_view> from) {
+	std::string buf;
+	return detail::migration(shcl_migrate_unstamped(text.data(), text.size(), detail::from_c(from, buf)));
+}
 Upgrade upgrade(std::string_view text, std::optional<std::string_view> from, bool banner) {
 	detail::UpgradedOwn own;
 	std::string buf;

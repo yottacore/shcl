@@ -4154,27 +4154,54 @@ func stampHint(stamp Read[int]) (Diagnostic, bool) {
 // Everything else - comments, blank lines, raw bodies, layout, a line 2.x
 // could not read - comes through as written. One shape has no spelling here
 // at all: a fence label holding a `#`, which 2.x ran to the end of the line
-// and which now ends at the `#`. A quoted name with a backslash pair stays as
-// written and counts in Lost, since 1.2 read it as typed and 2.0 resolved it.
+// and which now ends at the `#`. A quoted name with a backslash pair reads as
+// from's format read it, and without from stays as written and counts in
+// Lost, since 1.2 read it as typed and 2.0 resolved it.
 // Which file this is cannot always be read off the text: `p: a,b` is an array
 // under 2.x and one string under these rules, and a raw block can open where
 // only one rule set sees it, so rewriting a 3.0 file changes what it says. So
 // the version line decides. A file that names this format is returned
-// untouched; one that names an older format, or a caller passing fromV2, gets
+// untouched; one that names an older format, or a caller passing from, gets
 // every rewrite. Anything else leaves those pieces alone where these rules
 // read the line cleanly, counted in Ambiguous for the caller to refuse over.
 // A rewritten file is stamped with the version line, so the second run has an
 // answer the first one did not. An older Format line becomes that line where
 // it is; a file with none gets it at the end.
-func Migrate(text string, fromV2 bool) Migration {
-	return migrateText(text, fromV2, true, false, step{kind: stepV2})
+//
+// from names the format the file was written in, read as Upgrade reads it,
+// and the rewrite is that format's step: from 1.0 to 2.0, the 2.x rewrite with
+// that format's reads of a quoted name and a selector, and from 3.0-1f8 to
+// 3.0-a37, that pin's. Without it, "" here, a quoted name with a backslash
+// pair stays as typed and counts in Lost. A name no format has, such as `1.2`,
+// is no from. A format whose steps rewrite nothing, and a newer one, leave the
+// file untouched, and so does a pin's when the file's stamp names this format
+// whole, which is what a rewrite from a pin names.
+func Migrate(text string, from string) Migration {
+	return migrateFrom(text, from, true)
 }
 
 // MigrateUnstamped is Migrate without the version line or the migrated note,
 // for a program that writes GenBanner itself, which includes the version line.
 // The next run can tell the result is current only once that is written.
-func MigrateUnstamped(text string, fromV2 bool) Migration {
-	return migrateText(text, fromV2, false, false, step{kind: stepV2})
+func MigrateUnstamped(text string, from string) Migration {
+	return migrateFrom(text, from, false)
+}
+
+// migrateFrom is Migrate's reading of from, as Upgrade's with no mtime, into
+// the step the rewrite takes.
+func migrateFrom(text, from string, stamp bool) Migration {
+	format, ok, told := fromFormat(text, nil, from)
+	s := step{kind: stepV2}
+	if told {
+		var found bool
+		if s, found = firstRewrite(format, ok); !found {
+			return convert(text, "", false, true)
+		}
+	}
+	if s.kind == stepPin && namesThis(ReadFormatVersion(text)) {
+		return convert(text, "", false, true)
+	}
+	return migrateText(text, told, stamp, false, s)
 }
 
 // majorityEol is the line ending most of the text's lines end with. A tie
@@ -4312,7 +4339,8 @@ func migrateText(text string, fromV2, stamp, beta bool, s step) Migration {
 			out.WriteString(FormatLine)
 			out.WriteString(eol)
 		}
-		if changed {
+		// The note names 2.x, so a pin's rewrite goes without it.
+		if changed && !pin {
 			out.WriteString(MigratedLine)
 			out.WriteString(eol)
 		}

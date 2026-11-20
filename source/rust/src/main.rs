@@ -2594,7 +2594,7 @@ fn do_migrate(o: &Opts) -> u8 {
 			return EXIT_IO;
 		}
 	};
-	let m = migrate(&text, o.from_2x);
+	let m = migrate(&text, o.from_2x.then_some("2.0"));
 	let doc = match load_from("", &m.text, o.strictness, false) {
 		Ok(d) => d,
 		Err(code) => return code,

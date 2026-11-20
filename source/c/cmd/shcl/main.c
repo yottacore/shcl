@@ -1503,7 +1503,7 @@ static int do_migrate(const Opts *o) {
 	if (o->write && !write_target_ok(file)) return EXIT_IO;
 	size_t len; char *text = read_input(file, &len);
 	if (!text) return EXIT_IO;
-	shcl_migration m = shcl_migrate(text, len, o->from_2x);
+	shcl_migration m = shcl_migrate(text, len, o->from_2x ? "2.0" : NULL);
 	shcl_doc *d = xdoc(shcl_parse_with(m.text, m.len, o->strictness));
 	int rc = strict_gate(d);
 	if (rc) { shcl_free(d); free(m.text); free(text); return rc; }

@@ -845,8 +845,8 @@ extern const char *const shcl_format_names[SHCL_FORMAT_NAME_COUNT][2];
 // so there was nothing to migrate and text is the input. ambiguous: pieces
 // both rule sets read cleanly and differently, such as `a,b` or an escape, and
 // runs of lines one rule set reads as a raw body and the other as fields,
-// which nothing can decide between, left as written; always 0 when from_v2
-// said the file is 2.x. A backslash pair 2.x resolved is one of them, as in
+// which nothing can decide between, left as written; always 0 when from
+// named the file's format. A backslash pair 2.x resolved is one of them, as in
 // `"C:\\new"`. lost: lines 2.x bound a value on that nothing binds now, since
 // there is no 3.0 spelling to move to: bracket text after the colon, a
 // selector holding a comma, which matched an array value, and a comma list
@@ -858,17 +858,24 @@ typedef struct { char *text; size_t len; int current; size_t ambiguous; size_t l
 
 // Rewrite a document written under the 2.x lexical rules so this parser reads
 // the same tree; everything the two rule sets agree on comes through as
-// written. from_v2 says the file really is 2.x, which is the only thing that
-// can settle the spellings the two rule sets read differently. A backslash
-// pair 2.x resolved is written as the text 2.x read, and a quoted name with
-// one stays as written and counts in lost.
+// written. from, a NUL-terminated format name or NULL for none, names the
+// format the file was written in, read as shcl_upgrade reads it, which is the
+// only thing that can settle the spellings the two rule sets read
+// differently. The rewrite is that format's step: from 1.0 to 2.0, the 2.x
+// rewrite with that format's reads of a quoted name and a selector, and from
+// 3.0-1f8 to 3.0-a37, that pin's. A backslash pair 2.x resolved is written as
+// the text 2.x read. Without from, a quoted name with one stays as written
+// and counts in lost. A name no format has, such as `1.2`, is no from. A
+// format whose steps rewrite nothing, and a newer one, leave the file
+// untouched, and so does a pin's when the file's stamp names this format
+// whole, which is what a rewrite from a pin names.
 // An allocation failure inside it frees its own working memory before SHCL_OOM
 // runs, so a hook that longjmps out is not left holding the two arenas.
-shcl_migration shcl_migrate(const char *text, size_t len, int from_v2);
+shcl_migration shcl_migrate(const char *text, size_t len, const char *from);
 // shcl_migrate without the version line or the migrated note, for a program
 // that writes SHCL_GEN_BANNER itself, which includes the version line. The
 // next run can tell the result is current only once that is written.
-shcl_migration shcl_migrate_unstamped(const char *text, size_t len, int from_v2);
+shcl_migration shcl_migrate_unstamped(const char *text, size_t len, const char *from);
 // The format major a document's `##    Format   N` line names, read the way
 // shcl_migrate reads it, or -1 when no line names one, which is every 2.x file
 // and a current one written without the info block, and when the line names
@@ -4420,7 +4427,8 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
 		if (!add_format) out = re;
 		if ((add_format || changed) && out.len && out.data[out.len - 1] != '\n') sb_puts(a, &out, eol);
 		if (add_format) { sb_puts(a, &out, SHCL_FORMAT_LINE); sb_puts(a, &out, eol); }
-		if (changed) { sb_puts(a, &out, SHCL_MIGRATED_LINE); sb_puts(a, &out, eol); }
+		/* The note names 2.x, so a pin's rewrite goes without it. */
+		if (changed && st->rules != SHCL_LEX_PIN) { sb_puts(a, &out, SHCL_MIGRATED_LINE); sb_puts(a, &out, eol); }
 	}
 	return sb_S(&out);
 }
@@ -4525,14 +4533,41 @@ static char *restamp_text(const char *text, size_t len, size_t *out_len, int who
 	return r;
 }
 
-shcl_migration shcl_migrate(const char *text, size_t len, int from_v2) {
-	ShclStep either = {SHCL_STEP_V2, SHCL_PIN_FROM_30D, SHCL_V2_EITHER};
-	return migrate_text(text, len, from_v2, 1, 0, either, NULL);
+/* The text as it is, current, in a malloc'd copy the caller frees. */
+static shcl_migration migration_as_is(const char *text, size_t len) {
+	shcl_migration m; memset(&m, 0, sizeof m);
+	m.current = 1; m.len = len;
+	m.text = (char *)malloc(len + 1);
+	if (!m.text) arena_panic(NULL);
+	if (len) memcpy(m.text, text, len);
+	m.text[len] = 0;
+	return m;
 }
 
-shcl_migration shcl_migrate_unstamped(const char *text, size_t len, int from_v2) {
-	ShclStep either = {SHCL_STEP_V2, SHCL_PIN_FROM_30D, SHCL_V2_EITHER};
-	return migrate_text(text, len, from_v2, 0, 0, either, NULL);
+static ShclStep s_first_rewrite(const char *format);
+static int from_format(const char *text, size_t len, const int64_t *mtime, const char *from, const char **format);
+
+/* shcl_migrate's reading of from, as shcl_upgrade's with no mtime, into the
+   step the rewrite takes. */
+static shcl_migration migrate_from(const char *text, size_t len, const char *from, int stamp) {
+	if (!text) { text = ""; len = 0; }
+	const char *format = NULL;
+	int told = from_format(text, len, NULL, from, &format);
+	ShclStep step = {SHCL_STEP_V2, SHCL_PIN_FROM_30D, SHCL_V2_EITHER};
+	if (told) {
+		step = s_first_rewrite(format);
+		if (step.kind == SHCL_STEP_SAME) return migration_as_is(text, len);
+	}
+	if (step.kind == SHCL_STEP_PIN && names_this(stamp_of(text, len))) return migration_as_is(text, len);
+	return migrate_text(text, len, told, stamp, 0, step, NULL);
+}
+
+shcl_migration shcl_migrate(const char *text, size_t len, const char *from) {
+	return migrate_from(text, len, from, 1);
+}
+
+shcl_migration shcl_migrate_unstamped(const char *text, size_t len, const char *from) {
+	return migrate_from(text, len, from, 0);
 }
 
 static size_t swap_banner(shcl_doc *d, int on, int v2);
@@ -16476,13 +16511,7 @@ static int s_something_at(const char *path) {
 static shcl_migration s_convert(const char *text, size_t len, const char *format, int told) {
 	ShclStep step = s_first_rewrite(format);
 	if (step.kind != SHCL_STEP_SAME) return migrate_text(text, len, told, 0, 0, step, NULL);
-	shcl_migration m; memset(&m, 0, sizeof m);
-	m.current = 1; m.len = len;
-	m.text = (char *)malloc(len + 1);
-	if (!m.text) arena_panic(NULL);
-	if (len) memcpy(m.text, text, len);
-	m.text[len] = 0;
-	return m;
+	return migration_as_is(text, len);
 }
 
 /* 1 with path's mtime in Unix seconds in *out, or 0 when it can't be read or

@@ -2457,7 +2457,11 @@ func doMigrate(o *opts) int {
 		fmt.Fprintln(os.Stderr, err)
 		return exitIO
 	}
-	m := shcl.Migrate(text, o.from2x)
+	from := ""
+	if o.from2x {
+		from = "2.0"
+	}
+	m := shcl.Migrate(text, from)
 	doc, code := loadDocFrom("", m.Text, o.strictness, false)
 	if doc == nil {
 		return code

@@ -93,7 +93,7 @@ func TestWithFromV2AStampedFileWithAnErrorIsTakenAs2x(t *testing.T) {
 	}
 	// Migrate keeps leaving it alone: its text can keep a line with an error,
 	// and a second run would take that as 2.x again.
-	if m := Migrate(beta, true); !m.Current || m.Text != beta {
+	if m := Migrate(beta, "2.0"); !m.Current || m.Text != beta {
 		t.Fatalf("migrate: %+v", m)
 	}
 }
@@ -247,7 +247,7 @@ func TestAnOlderFormatLineBecomesThisOneInPlace(t *testing.T) {
 		{"x: a,b\n##    Format   2\ny: 1\n", "x: [a, b]\n##    Format   3.0\ny: 1\n##    Migrated from SHCL 2.x.\n"},
 		{"port: 80\n", "port: 80\n##    Format   3.0\n"},
 	} {
-		if got := Migrate(c[0], false).Text; got != c[1] {
+		if got := Migrate(c[0], "").Text; got != c[1] {
 			t.Fatalf("migrate %q: got %q, want %q", c[0], got, c[1])
 		}
 	}

@@ -2235,7 +2235,7 @@ int main(int argc, char **argv) {
 		snprintf(path, sizeof path, "%s/%s/expected-migrate-diags.txt", corpus, names[ci]); size_t mgdlen; char *emigd = read_file(path, &mgdlen);
 		if (!emig != !emigd) fail(names[ci], "expected-migrate.shcl and expected-migrate-diags.txt must come as a pair");
 		else if (emig) {
-			shcl_migration mm = shcl_migrate(input, ilen, 1);
+			shcl_migration mm = shcl_migrate(input, ilen, "2.0");
 			size_t mn = mm.len; char *mt = mm.text;
 			if (mn != mglen || (mglen && memcmp(mt, emig, mglen) != 0)) fail(names[ci], "migrate output differs from expected-migrate.shcl");
 			shcl_doc *md = shcl_parse(mt, mn);
@@ -2245,7 +2245,7 @@ int main(int argc, char **argv) {
 		}
 		free(emig); free(emigd);
 		{
-			shcl_migration m1 = shcl_migrate(input, ilen, 1), m2 = shcl_migrate(m1.text, m1.len, 1);
+			shcl_migration m1 = shcl_migrate(input, ilen, "2.0"), m2 = shcl_migrate(m1.text, m1.len, "2.0");
 			size_t on = m1.len, tn = m2.len;
 			char *once = m1.text, *twice = m2.text;
 			if (tn != on || (on && memcmp(once, twice, on) != 0)) fail(names[ci], "migrate changes its own output");
@@ -2254,8 +2254,8 @@ int main(int argc, char **argv) {
 		// Over every input, not only the migrate cases: the stamp is the one
 		// difference, and a file is current exactly when its Format line says so.
 		for (int from_v2 = 1; from_v2 >= 0; from_v2--) {
-			shcl_migration full = shcl_migrate(input, ilen, from_v2);
-			shcl_migration bare = shcl_migrate_unstamped(input, ilen, from_v2);
+			shcl_migration full = shcl_migrate(input, ilen, v2_from(from_v2));
+			shcl_migration bare = shcl_migrate_unstamped(input, ilen, v2_from(from_v2));
 			if (bare.current != full.current || bare.ambiguous != full.ambiguous || bare.lost != full.lost) fail(names[ci], "counts differ without the stamp");
 			if (contains(bare.text, bare.len, SHCL_FORMAT_LINE_HEAD) && !contains(input, ilen, SHCL_FORMAT_LINE_HEAD)) fail(names[ci], "migrate_unstamped wrote a Format line");
 			// The stamp's lines end the way most of the input's lines do.
@@ -6253,13 +6253,13 @@ int main(int argc, char **argv) {
 	   value these rules refuse is quoted. */
 	{
 		const char *t = "x: a, b\ny: a,b\nz: \"q\", r\nw: New York,,b\nv: done:\nu: rw,noatime\n";
-		shcl_migration mm = shcl_migrate(t, strlen(t), 1);
+		shcl_migration mm = shcl_migrate(t, strlen(t), "2.0");
 		if (mm.ambiguous != 0) fail("migrate_comma_list", "ambiguous with from_v2");
 		if (!mig_starts(&mm, "x: [a, b]\ny: [a, b]\nz: [\"q\", r]\nw: [\"New York\", b]\nv: \"done:\"\nu: [rw, noatime]\n")) fail("migrate_comma_list", mm.text);
 		shcl_free(mig_load(&mm, "migrate_comma_list"));
 		free(mm.text);
 		t = "x: a, b\ny: a,b\n";
-		mm = shcl_migrate(t, strlen(t), 0);
+		mm = shcl_migrate(t, strlen(t), NULL);
 		if (mm.ambiguous != 1) fail("migrate_comma_list", "ambiguous not 1 without from_v2");
 		if (!mig_starts(&mm, "x: [a, b]\ny: a,b\n")) fail("migrate_comma_list", mm.text);
 		free(mm.text);
@@ -6270,7 +6270,7 @@ int main(int argc, char **argv) {
 	   would be two, and `[s]` reads as that string too. */
 	{
 		const char *t = "k: s,\nk: s\nq: , \"a b\"\nc: x,\n\td: 1\n";
-		shcl_migration mm = shcl_migrate(t, strlen(t), 1);
+		shcl_migration mm = shcl_migrate(t, strlen(t), "2.0");
 		if (mm.ambiguous != 0 || mm.lost != 0) fail("migrate_lone_element", "ambiguous or lost");
 		if (!mig_starts(&mm, "k: s\nk: s\nq: \"a b\"\nc: x\n\td: 1\n")) fail("migrate_lone_element", mm.text);
 		shcl_doc *d = mig_load(&mm, "migrate_lone_element");
@@ -6284,7 +6284,7 @@ int main(int argc, char **argv) {
 	   something else is quoted, such as one that looks like `- name: value`. */
 	{
 		const char *t = "list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n";
-		shcl_migration mm = shcl_migrate(t, strlen(t), 1);
+		shcl_migration mm = shcl_migrate(t, strlen(t), "2.0");
 		if (!mig_starts(&mm, "list:\n\t- a\n\t- \"key: value\"\n\t- 'c'\n\t- O'Brien\n")) fail("migrate_star_items", mm.text);
 		shcl_doc *d = mig_load(&mm, "migrate_star_items");
 		shcl_read_str_arr r = shcl_read_string_array(d, "list", 4);
@@ -6298,7 +6298,7 @@ int main(int argc, char **argv) {
 	   stay fields rather than reading as list items, and `404` stays a name. */
 	{
 		const char *t = "404: a\n-x: y\nl:\n\t- :0\na.9b: 2\n_id: 7\n";
-		shcl_migration mm = shcl_migrate(t, strlen(t), 1);
+		shcl_migration mm = shcl_migrate(t, strlen(t), "2.0");
 		if (!mig_starts(&mm, "\"404\": a\n\"-x\": y\nl:\n\t\"-\" :0\na.\"9b\": 2\n\"_id\": 7\n")) fail("migrate_name_lead", mm.text);
 		shcl_doc *d = mig_load(&mm, "migrate_name_lead");
 		shcl_read_str r = shcl_read_string(d, "\"-x\"", 4);
@@ -6317,7 +6317,7 @@ int main(int argc, char **argv) {
 	{
 		#define MK "\xe2\x97\x89"
 		const char *t = "\"a" MK "q" MK "\": 1\nbare: My" MK "SPACE" MK "App\ns[x" MK "y].p: 2\n";
-		shcl_migration mm = shcl_migrate(t, strlen(t), 1);
+		shcl_migration mm = shcl_migrate(t, strlen(t), "2.0");
 		shcl_doc *d = mig_load(&mm, "migrate_real_mark");
 		shcl_str *ps; size_t np = shcl_paths(d, &ps);
 		if (np < 2 || !str_is(ps[0], "\"a" MK "ESCAPE_CHAR" MK "q" MK "ESCAPE_CHAR" MK "\"") || !str_is(ps[1], "bare")) fail("migrate_real_mark", mm.text);
@@ -6334,7 +6334,7 @@ int main(int argc, char **argv) {
 	   as one with a quote or a space, is quoted, so its block still loads. */
 	{
 		const char *t = "srv[O'Brien].port: 1\nsrv[New York].port: 2\n";
-		shcl_migration mm = shcl_migrate(t, strlen(t), 1);
+		shcl_migration mm = shcl_migrate(t, strlen(t), "2.0");
 		if (!mig_starts(&mm, "srv(\"O'Brien\").port: 1\nsrv(\"New York\").port: 2\n")) fail("migrate_bare_selector", mm.text);
 		shcl_doc *d = mig_load(&mm, "migrate_bare_selector");
 		if (shcl_count(d, "srv", 3) != 2) fail("migrate_bare_selector", "count srv");
@@ -6350,12 +6350,12 @@ int main(int argc, char **argv) {
 		const char *t = "a[x].k: 1\nb: y\nb[0].k: 2\nc[a(b)].k: 3\ne:[f].g: 4\nr[\"x\"]:\n\ts: 1\n";
 		const char *want = "a(x).k: 1\nb: y\nb(0).k: 2\nc(\"a(b)\").k: 3\ne(f).g: 4\nr(\"x\"):\n\ts: 1\n";
 		for (int from = 1; from >= 0; from--) {
-			shcl_migration mm = shcl_migrate(t, strlen(t), from);
+			shcl_migration mm = shcl_migrate(t, strlen(t), v2_from(from));
 			if (mm.ambiguous != 0 || mm.lost != 0) fail("migrate_parens", from ? "counted with from_v2" : "counted without from_v2");
 			if (!mig_starts(&mm, want)) fail("migrate_parens", mm.text);
 			free(mm.text);
 		}
-		shcl_migration mm = shcl_migrate(t, strlen(t), 1);
+		shcl_migration mm = shcl_migrate(t, strlen(t), "2.0");
 		shcl_doc *d = mig_load(&mm, "migrate_parens");
 		static const struct { const char *path; int64_t want; } reads[] = {
 			{"c(\"a(b)\").k", 3}, {"e(f).g", 4}, {"b(y).k", 2}, {"r(x).s", 1},
@@ -6374,15 +6374,15 @@ int main(int argc, char **argv) {
 	   read as empty, is an empty value. */
 	{
 		const char *t = "a[x, y].b: 1\n";
-		shcl_migration mm = shcl_migrate(t, strlen(t), 1);
+		shcl_migration mm = shcl_migrate(t, strlen(t), "2.0");
 		if (mm.lost != 1) fail("migrate_lost", "a selector with a comma");
 		free(mm.text);
 		t = "a: 1, 2\n\tb: 1\nc: 3, 4\n";
-		mm = shcl_migrate(t, strlen(t), 1);
+		mm = shcl_migrate(t, strlen(t), "2.0");
 		if (mm.lost != 1) fail("migrate_lost", "a comma list with lines under it");
 		free(mm.text);
 		t = "e: ,\nf: , # c\n";
-		mm = shcl_migrate(t, strlen(t), 1);
+		mm = shcl_migrate(t, strlen(t), "2.0");
 		if (mm.lost != 0) fail("migrate_lost", "empty slots");
 		if (!mig_starts(&mm, "e:\nf: # c\n")) fail("migrate_lost", mm.text);
 		shcl_doc *d = mig_load(&mm, "migrate_lost");
@@ -6399,11 +6399,11 @@ int main(int argc, char **argv) {
 	{
 		const char *t = "x: \"a" MK "TAB" MK "b\"\n\"n" MK "TAB" MK "\": 1\nl:\n\t- :0\ns[\"" MK "TAB" MK "\"].p: 1\nb: `abc`\nc: [a]\n";
 		const char *want = "x: \"a" MK "TAB" MK "b\"\n\"n" MK "TAB" MK "\": 1\nl:\n\t- :0\ns(\"" MK "ESCAPE_CHAR" MK "TAB" MK "ESCAPE_CHAR" MK "\").p: 1\nb: `abc`\nc: [a]\n";
-		shcl_migration mm = shcl_migrate(t, strlen(t), 0);
+		shcl_migration mm = shcl_migrate(t, strlen(t), NULL);
 		if (mm.ambiguous != 5) fail("migrate_reads_clean", "ambiguous not 5");
 		if (mm.len != strlen(want) || memcmp(mm.text, want, mm.len) != 0) fail("migrate_reads_clean", mm.text);
 		free(mm.text);
-		mm = shcl_migrate(t, strlen(t), 1);
+		mm = shcl_migrate(t, strlen(t), "2.0");
 		if (!contains(mm.text, mm.len, "ESCAPE_CHAR")) fail("migrate_reads_clean", "no ESCAPE_CHAR with from_v2");
 		free(mm.text);
 		#undef MK
@@ -6415,7 +6415,7 @@ int main(int argc, char **argv) {
 	   2.x read (2026101911300000). Any other backslash was text in 2.x too. */
 	{
 		const char *t = "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\ns: 'it\\'s'\nl: \"C:\\\\a\", x\\ty\nw: C:\\work\nsrv[a\\tb].port: 1\nn:['C:\\\\x']\nlist:\n\t* C:\\new\n";
-		shcl_migration mm = shcl_migrate(t, strlen(t), 1);
+		shcl_migration mm = shcl_migrate(t, strlen(t), "2.0");
 		if (mm.ambiguous != 0 || mm.lost != 0) fail("migrate_2x_read", mm.text);
 		if (!mig_starts(&mm, "p: \"C:\\new\"\nt: \"C:" MK "TAB" MK "emp\"\nq: [a, b]\ns: \"it's\"\nl: [\"C:\\a\", \"x" MK "TAB" MK "y\"]\nw: C:\\work\nsrv(\"a" MK "TAB" MK "b\").port: 1\nn: \"C:\\x\"\nlist:\n\t- \"C:" MK "NEWLINE" MK "ew\"\n")) fail("migrate_2x_read", mm.text);
 		shcl_doc *d = mig_load(&mm, "migrate_2x_read");
@@ -6458,34 +6458,44 @@ int main(int argc, char **argv) {
 		#define BS_UNSTAMPED "p: \"C:\\\\new\"\nt: C:\\temp\nw: C:\\work\nb: \"say \\\"hi\\\"\"\nl: a\\tb, c\n"
 		const char *t = BS_UNSTAMPED;
 		const char *want = "p: \"C:\\\\new\"\nt: C:\\temp\nw: C:\\work\nb: 'say \"hi\"'\nl: [\"a" MK "TAB" MK "b\", c]\n";
-		shcl_migration mm = shcl_migrate(t, strlen(t), 0);
+		shcl_migration mm = shcl_migrate(t, strlen(t), NULL);
 		if (mm.ambiguous != 2 || mm.lost != 0) fail("migrate_unstamped_pair", "counts");
 		if (mm.len != strlen(want) || memcmp(mm.text, want, mm.len) != 0) fail("migrate_unstamped_pair", mm.text);
 		free(mm.text);
 		t = BS_UNSTAMPED "##    Format   2\n";
 		#undef BS_UNSTAMPED
-		mm = shcl_migrate(t, strlen(t), 0);
+		mm = shcl_migrate(t, strlen(t), NULL);
 		if (mm.ambiguous != 0 || mm.lost != 0) fail("migrate_unstamped_pair", "format 2 counts");
 		if (!mig_starts(&mm, "p: \"C:\\new\"\nt: \"C:" MK "TAB" MK "emp\"\n")) fail("migrate_unstamped_pair", mm.text);
 		free(mm.text);
 	}
 	test_id("de61j", "migrate_counts_a_quoted_name_with_a_backslash_pair_lost");
 	/* 1.2 read a quoted name as typed and 2.0 resolved its backslash pairs,
-	   so a name with one reads two ways across 2.x. It stays as written and
-	   counts as lost, with from_v2 or without, and the rest of its line still
-	   converts. Any other backslash in a name was text under both. */
+	   so a name with one reads two ways across 2.x. Without from it stays as
+	   written and counts as lost, and the rest of its line still converts.
+	   With from, the format's step reads it as that format did, so it isn't
+	   lost (2026111919213927). Any other backslash in a name was text under
+	   both. */
 	{
 		const char *t = "'k\\\\x': C:\\temp\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n";
-		for (int from_v2 = 0; from_v2 < 2; from_v2++) {
-			shcl_migration mm = shcl_migrate(t, strlen(t), from_v2);
-			if (mm.lost != 2 || mm.ambiguous != (size_t)!from_v2) fail("migrate_lost_name", mm.text);
+		shcl_migration mm = shcl_migrate(t, strlen(t), NULL);
+		if (mm.lost != 2 || mm.ambiguous != 1) fail("migrate_lost_name", mm.text);
+		free(mm.text);
+		const char *froms[] = {"2.0", "1.1", "1.0"};
+		for (size_t k = 0; k < sizeof froms / sizeof froms[0]; k++) {
+			mm = shcl_migrate(t, strlen(t), froms[k]);
+			if (mm.lost != 0 || mm.ambiguous != 0) fail("migrate_lost_name", mm.text);
 			free(mm.text);
 		}
-		shcl_migration mm = shcl_migrate(t, strlen(t), 1);
+		/* 2.0 resolved a name's backslash pairs, and 1.1 keyed it as typed. */
+		mm = shcl_migrate(t, strlen(t), "2.0");
+		if (!mig_starts(&mm, "\"k\\x\": \"C:" MK "TAB" MK "emp\"\n\"n" MK "TAB" MK "y\".z: 1\n\"a\\b\": 2\nr: 3\n")) fail("migrate_lost_name", mm.text);
+		free(mm.text);
+		mm = shcl_migrate(t, strlen(t), "1.1");
 		if (!mig_starts(&mm, "'k\\\\x': \"C:" MK "TAB" MK "emp\"\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n")) fail("migrate_lost_name", mm.text);
 		free(mm.text);
-		/* upgrade's from_v2 takes the file as 2.0, whose step reads the names
-		   as 2.0 did (2026111917071578). */
+		/* upgrade's from takes the file as 2.0 the same way
+		   (2026111917071578). */
 		shcl_upgraded up = shcl_upgrade(t, strlen(t), "2.0", 1);
 		if (up.lost != 0) fail("migrate_lost_name", "upgrade lost not 0");
 		shcl_upgraded_free(&up);
@@ -6564,7 +6574,7 @@ int main(int argc, char **argv) {
 		shcl_upgraded_free(&up);
 		/* migrate keeps leaving it alone: its text can keep a line with an
 		   error, and a second run would take that as 2.x again. */
-		shcl_migration m = shcl_migrate(beta, strlen(beta), 1);
+		shcl_migration m = shcl_migrate(beta, strlen(beta), "2.0");
 		if (!m.current || m.len != strlen(beta) || memcmp(m.text, beta, m.len) != 0) fail("upgrade_beta", "migrate");
 		free(m.text);
 	}
@@ -6611,7 +6621,7 @@ int main(int argc, char **argv) {
 			{"port: 80\n", "port: 80\n##    Format   3.0\n"},
 		};
 		for (size_t i = 0; i < sizeof mig / sizeof mig[0]; i++) {
-			shcl_migration m = shcl_migrate(mig[i][0], strlen(mig[i][0]), 0);
+			shcl_migration m = shcl_migrate(mig[i][0], strlen(mig[i][0]), NULL);
 			if (m.len != strlen(mig[i][1]) || memcmp(m.text, mig[i][1], m.len) != 0) fail("migrate_restamp", m.text);
 			free(m.text);
 		}
@@ -8321,7 +8331,7 @@ int main(int argc, char **argv) {
 		shcl_load_options opts = {0};
 		opts.keep_lines = opts.migrate = 1;
 		opts.from = "2.0";
-		shcl_migration mig = shcl_migrate_unstamped(old, strlen(old), 1);
+		shcl_migration mig = shcl_migrate_unstamped(old, strlen(old), "2.0");
 		if (mig.len == strlen(old) && memcmp(mig.text, old, mig.len) == 0) fail(at, "migrate left the 2.x text as it was");
 		/* The document is the migrated text's, and the load writes nothing. */
 		put_file(f, old);
@@ -8356,7 +8366,7 @@ int main(int argc, char **argv) {
 		shcl_free(doc);
 		/* What the migration counts lost is lost to a canonical save. */
 		const char *lossy = "k: [x, y]\n";
-		shcl_migration lm = shcl_migrate_unstamped(lossy, strlen(lossy), 1);
+		shcl_migration lm = shcl_migrate_unstamped(lossy, strlen(lossy), "2.0");
 		if (lm.lost == 0) fail(at, "migrate lost nothing");
 		put_file(f, lossy);
 		shcl_load_options canon = opts;
@@ -8516,7 +8526,7 @@ int main(int argc, char **argv) {
 			opts.from = v2_from(cases[i].from_v2);
 			shcl_doc *doc = shcl_load_file_opts(f, SHCL_STANDARD, opts, NULL);
 			shcl_migration mig = {0};
-			if (cases[i].migrated) mig = shcl_migrate_unstamped(text, strlen(text), cases[i].from_v2);
+			if (cases[i].migrated) mig = shcl_migrate_unstamped(text, strlen(text), v2_from(cases[i].from_v2));
 			const char *want = cases[i].migrated ? mig.text : text;
 			size_t want_len = strlen(want);
 			int k = 0;
@@ -8666,6 +8676,47 @@ int main(int argc, char **argv) {
 			shcl_upgraded_free(&up);
 		}
 		dir_clear(vdir);
+		#undef MK
+	}
+	test_id("dfhjf", "migrate_reads_from_as_upgrade_does");
+	/* shcl_migrate reads a caller's from as shcl_upgrade does, with no mtime,
+	   and takes that format's step. A format whose steps rewrite nothing, and
+	   a newer one, leave the text alone, and a name no format has is no from.
+	   A pin's rewrite names this format whole, so a second run with the same
+	   pin leaves it alone (2026111919213927). Same table in every runner. */
+	{
+		#define MK "\xe2\x97\x89"
+		const char *sq = "b: 'C:\\temp'\n";
+		const char *sq_made = "b: \"C:" MK "TAB" MK "emp\"\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n";
+		const char *tab = "a: \"x\\ty\"\n";
+		const char *tab_made = "a: \"x" MK "TAB" MK "y\"\n##    Format   3.0\n";
+		/* The text, from, and the text shcl_migrate gives, which is the input
+		   when it's current. */
+		const struct { const char *text, *from, *want; } rows[] = {
+			{sq, "2.0", sq_made},
+			{sq, "1", sq_made},
+			{sq, "3.0", sq},
+			{sq, "3.0-9ef", sq},
+			{sq, "3.1", sq},
+			{sq, "4", sq},
+			{tab, "3.0-a37", tab_made},
+			{tab, "3.0-231", tab_made},
+			{tab_made, "3.0-a37", tab_made},
+			{sq_made, "2.0", sq_made},
+		};
+		for (size_t i = 0; i < sizeof rows / sizeof rows[0]; i++) {
+			shcl_migration mm = shcl_migrate(rows[i].text, strlen(rows[i].text), rows[i].from);
+			int want_current = rows[i].want == rows[i].text;
+			if (mm.current != want_current || mm.len != strlen(rows[i].want) || memcmp(mm.text, rows[i].want, mm.len) != 0) fail("migrate_from", mm.text);
+			free(mm.text);
+		}
+		shcl_migration none = shcl_migrate(sq, strlen(sq), NULL), unknown = shcl_migrate(sq, strlen(sq), "1.2");
+		if (none.len != unknown.len || memcmp(none.text, unknown.text, none.len) != 0 || none.ambiguous != unknown.ambiguous || none.lost != unknown.lost) fail("migrate_from", unknown.text);
+		free(none.text);
+		free(unknown.text);
+		shcl_migration bare = shcl_migrate_unstamped(tab, strlen(tab), "3.0-a37");
+		if (strcmp(bare.text, "a: \"x" MK "TAB" MK "y\"\n") != 0) fail("migrate_from", bare.text);
+		free(bare.text);
 		#undef MK
 	}
 	test_id("dfhhv", "a_caller_names_the_format_with_from");

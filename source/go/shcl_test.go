@@ -849,7 +849,7 @@ func TestMigrateMatchesExpected(t *testing.T) {
 		if !c.hasMigrate {
 			return
 		}
-		got := Migrate(c.input, true).Text
+		got := Migrate(c.input, "2.0").Text
 		if got != c.expectedMigrate {
 			t.Errorf("%s: migrate output differs from expected-migrate.shcl\ngot:\n%s\nwant:\n%s", c.name, got, c.expectedMigrate)
 		}
@@ -862,8 +862,8 @@ func TestMigrateMatchesExpected(t *testing.T) {
 func TestMigrateIsAFixpoint(t *testing.T) {
 	defer testID(t, "dcns6")
 	eachCase(t, func(t *testing.T, c corpusCase) {
-		once := Migrate(c.input, true).Text
-		if again := Migrate(once, true).Text; again != once {
+		once := Migrate(c.input, "2.0").Text
+		if again := Migrate(once, "2.0").Text; again != once {
 			t.Errorf("%s: migrate changes its own output\ngot:\n%s\nwant:\n%s", c.name, again, once)
 		}
 	})
@@ -896,8 +896,8 @@ func TestMigrateUnstampedIsMigrateWithoutTheStamp(t *testing.T) {
 	// difference, and a file is current exactly when its Format line says so.
 	eachCase(t, func(t *testing.T, c corpusCase) {
 		for _, fromV2 := range []bool{true, false} {
-			full := Migrate(c.input, fromV2)
-			bare := MigrateUnstamped(c.input, fromV2)
+			full := Migrate(c.input, v2From(fromV2))
+			bare := MigrateUnstamped(c.input, v2From(fromV2))
 			if bare.Current != full.Current || bare.Ambiguous != full.Ambiguous || bare.Lost != full.Lost {
 				t.Errorf("%s: counts differ without the stamp", c.name)
 			}
@@ -6201,7 +6201,7 @@ func TestLooseReadsAQuotedThousandsNumberWithATrailingDot(t *testing.T) {
 // value these rules refuse is quoted.
 func TestMigrateBracketsA2xCommaList(t *testing.T) {
 	defer testID(t, "ddkn0")
-	m := Migrate("x: a, b\ny: a,b\nz: \"q\", r\nw: New York,,b\nv: done:\nu: rw,noatime\n", true)
+	m := Migrate("x: a, b\ny: a,b\nz: \"q\", r\nw: New York,,b\nv: done:\nu: rw,noatime\n", "2.0")
 	if m.Ambiguous != 0 {
 		t.Fatalf("ambiguous %d", m.Ambiguous)
 	}
@@ -6211,7 +6211,7 @@ func TestMigrateBracketsA2xCommaList(t *testing.T) {
 	if d := Parse(m.Text).Diagnostics(); len(d) != 0 {
 		t.Fatalf("%v", d)
 	}
-	m = Migrate("x: a, b\ny: a,b\n", false)
+	m = Migrate("x: a, b\ny: a,b\n", "")
 	if m.Ambiguous != 1 {
 		t.Fatalf("ambiguous %d", m.Ambiguous)
 	}
@@ -6225,7 +6225,7 @@ func TestMigrateBracketsA2xCommaList(t *testing.T) {
 // would be two, and `[s]` reads as that string too.
 func TestMigrateWritesALone2xElementPlain(t *testing.T) {
 	defer testID(t, "ddrgg")
-	m := Migrate("k: s,\nk: s\nq: , \"a b\"\nc: x,\n\td: 1\n", true)
+	m := Migrate("k: s,\nk: s\nq: , \"a b\"\nc: x,\n\td: 1\n", "2.0")
 	if m.Ambiguous != 0 || m.Lost != 0 {
 		t.Fatalf("ambiguous %d, lost %d", m.Ambiguous, m.Lost)
 	}
@@ -6248,7 +6248,7 @@ func TestMigrateWritesALone2xElementPlain(t *testing.T) {
 // something else is quoted, such as one that looks like `- name: value`.
 func TestMigrateWritesStarItemsAsDashes(t *testing.T) {
 	defer testID(t, "ddkn1")
-	m := Migrate("list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n", true)
+	m := Migrate("list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n", "2.0")
 	if !strings.HasPrefix(m.Text, "list:\n\t- a\n\t- \"key: value\"\n\t- 'c'\n\t- O'Brien\n") {
 		t.Fatalf("%q", m.Text)
 	}
@@ -6265,7 +6265,7 @@ func TestMigrateWritesStarItemsAsDashes(t *testing.T) {
 // fields rather than reading as list items, and `404` stays a name.
 func TestMigrateQuotesANameNotLedByALetter(t *testing.T) {
 	defer testID(t, "ddkn2")
-	m := Migrate("404: a\n-x: y\nl:\n\t- :0\na.9b: 2\n_id: 7\n", true)
+	m := Migrate("404: a\n-x: y\nl:\n\t- :0\na.9b: 2\n_id: 7\n", "2.0")
 	if !strings.HasPrefix(m.Text, "\"404\": a\n\"-x\": y\nl:\n\t\"-\" :0\na.\"9b\": 2\n\"_id\": 7\n") {
 		t.Fatalf("%q", m.Text)
 	}
@@ -6288,7 +6288,7 @@ func TestMigrateQuotesANameNotLedByALetter(t *testing.T) {
 // one get the escape for a real mark, so they still read as that text.
 func TestMigrateEscapesARealMark(t *testing.T) {
 	defer testID(t, "ddkn3")
-	m := Migrate("\"a\u25C9q\u25C9\": 1\nbare: My\u25C9SPACE\u25C9App\ns[x\u25C9y].p: 2\n", true)
+	m := Migrate("\"a\u25C9q\u25C9\": 1\nbare: My\u25C9SPACE\u25C9App\ns[x\u25C9y].p: 2\n", "2.0")
 	back := Parse(m.Text)
 	if d := back.Diagnostics(); len(d) != 0 {
 		t.Fatalf("%v\n%s", d, m.Text)
@@ -6311,7 +6311,7 @@ func TestMigrateEscapesARealMark(t *testing.T) {
 // as one with a quote or a space, is quoted, so its block still loads.
 func TestMigrateQuotesABareSelectorTheseRulesRefuse(t *testing.T) {
 	defer testID(t, "ddkn4")
-	m := Migrate("srv[O'Brien].port: 1\nsrv[New York].port: 2\n", true)
+	m := Migrate("srv[O'Brien].port: 1\nsrv[New York].port: 2\n", "2.0")
 	if !strings.HasPrefix(m.Text, "srv(\"O'Brien\").port: 1\nsrv(\"New York\").port: 2\n") {
 		t.Fatalf("%q", m.Text)
 	}
@@ -6333,7 +6333,7 @@ func TestMigrateWritesSelectorsInParens(t *testing.T) {
 	text := "a[x].k: 1\nb: y\nb[0].k: 2\nc[a(b)].k: 3\ne:[f].g: 4\nr[\"x\"]:\n\ts: 1\n"
 	want := "a(x).k: 1\nb: y\nb(0).k: 2\nc(\"a(b)\").k: 3\ne(f).g: 4\nr(\"x\"):\n\ts: 1\n"
 	for _, fromV2 := range []bool{true, false} {
-		m := Migrate(text, fromV2)
+		m := Migrate(text, v2From(fromV2))
 		if m.Ambiguous != 0 || m.Lost != 0 {
 			t.Fatalf("fromV2 %v: ambiguous %d, lost %d\n%s", fromV2, m.Ambiguous, m.Lost, m.Text)
 		}
@@ -6341,7 +6341,7 @@ func TestMigrateWritesSelectorsInParens(t *testing.T) {
 			t.Fatalf("fromV2 %v: %q", fromV2, m.Text)
 		}
 	}
-	back := Parse(Migrate(text, true).Text)
+	back := Parse(Migrate(text, "2.0").Text)
 	if d := back.Diagnostics(); len(d) != 0 {
 		t.Fatalf("%v", d)
 	}
@@ -6358,13 +6358,13 @@ func TestMigrateWritesSelectorsInParens(t *testing.T) {
 // read as empty, is an empty value.
 func TestMigrateCountsWhatNothingSpells(t *testing.T) {
 	defer testID(t, "ddkn6")
-	if m := Migrate("a[x, y].b: 1\n", true); m.Lost != 1 {
+	if m := Migrate("a[x, y].b: 1\n", "2.0"); m.Lost != 1 {
 		t.Fatalf("lost %d", m.Lost)
 	}
-	if m := Migrate("a: 1, 2\n\tb: 1\nc: 3, 4\n", true); m.Lost != 1 {
+	if m := Migrate("a: 1, 2\n\tb: 1\nc: 3, 4\n", "2.0"); m.Lost != 1 {
 		t.Fatalf("lost %d\n%s", m.Lost, m.Text)
 	}
-	m := Migrate("e: ,\nf: , # c\n", true)
+	m := Migrate("e: ,\nf: , # c\n", "2.0")
 	if m.Lost != 0 {
 		t.Fatalf("lost %d", m.Lost)
 	}
@@ -6388,7 +6388,7 @@ func TestMigrateCountsWhatNothingSpells(t *testing.T) {
 func TestMigrateLeavesWhatReadsCleanNow(t *testing.T) {
 	defer testID(t, "ddkn7")
 	text := "x: \"a\u25C9TAB\u25C9b\"\n\"n\u25C9TAB\u25C9\": 1\nl:\n\t- :0\ns[\"\u25C9TAB\u25C9\"].p: 1\nb: `abc`\nc: [a]\n"
-	m := Migrate(text, false)
+	m := Migrate(text, "")
 	if m.Ambiguous != 5 {
 		t.Fatalf("ambiguous %d\n%s", m.Ambiguous, m.Text)
 	}
@@ -6396,7 +6396,7 @@ func TestMigrateLeavesWhatReadsCleanNow(t *testing.T) {
 	if m.Text != want {
 		t.Fatalf("got %q\nwant %q", m.Text, want)
 	}
-	if !strings.Contains(Migrate(text, true).Text, "ESCAPE_CHAR") {
+	if !strings.Contains(Migrate(text, "2.0").Text, "ESCAPE_CHAR") {
 		t.Fatal("no ESCAPE_CHAR with fromV2")
 	}
 }
@@ -6407,7 +6407,7 @@ func TestMigrateLeavesWhatReadsCleanNow(t *testing.T) {
 func TestMigrateWritesTheText2xRead(t *testing.T) {
 	defer testID(t, "de61a")
 	text := "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\ns: 'it\\'s'\nl: \"C:\\\\a\", x\\ty\nw: C:\\work\nsrv[a\\tb].port: 1\nn:['C:\\\\x']\nlist:\n\t* C:\\new\n"
-	m := Migrate(text, true)
+	m := Migrate(text, "2.0")
 	if m.Ambiguous != 0 || m.Lost != 0 {
 		t.Fatalf("ambiguous %d lost %d\n%s", m.Ambiguous, m.Lost, m.Text)
 	}
@@ -6458,14 +6458,14 @@ func TestMigrateWritesTheText2xRead(t *testing.T) {
 func TestMigrateCountsABackslashPairInAnUnstampedFile(t *testing.T) {
 	defer testID(t, "de61b")
 	text := "p: \"C:\\\\new\"\nt: C:\\temp\nw: C:\\work\nb: \"say \\\"hi\\\"\"\nl: a\\tb, c\n"
-	m := Migrate(text, false)
+	m := Migrate(text, "")
 	if m.Ambiguous != 2 || m.Lost != 0 {
 		t.Fatalf("ambiguous %d lost %d\n%s", m.Ambiguous, m.Lost, m.Text)
 	}
 	if want := "p: \"C:\\\\new\"\nt: C:\\temp\nw: C:\\work\nb: 'say \"hi\"'\nl: [\"a\u25C9TAB\u25C9b\", c]\n"; m.Text != want {
 		t.Fatalf("got %q\nwant %q", m.Text, want)
 	}
-	m = Migrate(text+"##    Format   2\n", false)
+	m = Migrate(text+"##    Format   2\n", "")
 	if m.Ambiguous != 0 || m.Lost != 0 {
 		t.Fatalf("ambiguous %d lost %d\n%s", m.Ambiguous, m.Lost, m.Text)
 	}
@@ -6475,27 +6475,32 @@ func TestMigrateCountsABackslashPairInAnUnstampedFile(t *testing.T) {
 }
 
 // 1.2 read a quoted name as typed and 2.0 resolved its backslash pairs, so
-// a name with one reads two ways across 2.x. It stays as written and counts
-// as lost, with fromV2 or without, and the rest of its line still
-// converts. Any other backslash in a name was text under both.
+// a name with one reads two ways across 2.x. Without from it stays as written
+// and counts as lost, and the rest of its line still converts. With from, the
+// format's step reads it as that format did, so it isn't lost
+// (2026111919213927). Any other backslash in a name was text under both.
 func TestMigrateCountsAQuotedNameWithABackslashPairLost(t *testing.T) {
 	defer testID(t, "de61c")
 	text := "'k\\\\x': C:\\temp\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n"
-	for _, fromV2 := range []bool{true, false} {
-		m := Migrate(text, fromV2)
-		if m.Lost != 2 {
-			t.Fatalf("fromV2 %v: lost %d\n%s", fromV2, m.Lost, m.Text)
-		}
-		if want := map[bool]int{true: 0, false: 1}[fromV2]; m.Ambiguous != want {
-			t.Fatalf("fromV2 %v: ambiguous %d\n%s", fromV2, m.Ambiguous, m.Text)
+	if m := Migrate(text, ""); m.Lost != 2 || m.Ambiguous != 1 {
+		t.Fatalf("lost %d, ambiguous %d\n%s", m.Lost, m.Ambiguous, m.Text)
+	}
+	for _, from := range []string{"2.0", "1.1", "1.0"} {
+		if m := Migrate(text, from); m.Lost != 0 || m.Ambiguous != 0 {
+			t.Fatalf("from %s: lost %d, ambiguous %d\n%s", from, m.Lost, m.Ambiguous, m.Text)
 		}
 	}
-	m := Migrate(text, true)
-	if want := "'k\\\\x': \"C:\u25C9TAB\u25C9emp\"\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n"; !strings.HasPrefix(m.Text, want) {
-		t.Fatalf("got %q\nwant %q", m.Text, want)
+	// 2.0 resolved a name's backslash pairs, and 1.1 keyed it as typed.
+	for _, c := range [][2]string{
+		{"2.0", "\"k\\x\": \"C:\u25C9TAB\u25C9emp\"\n\"n\u25C9TAB\u25C9y\".z: 1\n"},
+		{"1.1", "'k\\\\x': \"C:\u25C9TAB\u25C9emp\"\n\"n\\ty\".z: 1\n"},
+	} {
+		m := Migrate(text, c[0])
+		if want := c[1] + "\"a\\b\": 2\nr: 3\n"; !strings.HasPrefix(m.Text, want) {
+			t.Fatalf("from %s: got %q\nwant %q", c[0], m.Text, want)
+		}
 	}
-	// Upgrade's fromV2 takes the file as 2.0, whose step reads the names as
-	// 2.0 did (2026111917071578).
+	// Upgrade's from takes the file as 2.0 the same way (2026111917071578).
 	if up := Upgrade(text, "2.0", true); up.Lost != 0 {
 		t.Fatalf("%+v", up)
 	}
@@ -8488,7 +8493,7 @@ func TestALoadConvertsFromTheFormatItsMtimeGives(t *testing.T) {
 		doc, _, _ := LoadFileOpts(f, Standard, opts)
 		want, lost := c.text, 0
 		if c.migrated {
-			m := MigrateUnstamped(c.text, c.fromV2)
+			m := MigrateUnstamped(c.text, v2From(c.fromV2))
 			want, lost = m.Text, m.Lost
 		}
 		got, _, err := doc.ToTextKeepLines()
@@ -8776,6 +8781,47 @@ func TestAnUpgradeReadsABeta1StampAsTheLoadDoes(t *testing.T) {
 	}
 }
 
+// TestMigrateReadsFromAsUpgradeDoes: Migrate reads a caller's from as
+// Upgrade does, with no mtime, and takes that format's step. A format whose steps rewrite nothing, and a newer one,
+// leave the text alone, and a name no format has is no from. A pin's rewrite
+// names this format whole, so a second run with the same pin leaves it alone
+// (2026111919213927). Same table in every runner.
+func TestMigrateReadsFromAsUpgradeDoes(t *testing.T) {
+	defer testID(t, "dfhjd")
+	note := "##    Format   3.0\n##    Migrated from SHCL 2.x.\n"
+	sq := "b: 'C:\\temp'\n"
+	sqMade := "b: \"C:\u25c9TAB\u25c9emp\"\n" + note
+	tab := "a: \"x\\ty\"\n"
+	tabMade := "a: \"x\u25c9TAB\u25c9y\"\n##    Format   3.0\n"
+	// The text, from, and the text Migrate gives, which is the input when
+	// it's current.
+	cases := [][3]string{
+		{sq, "2.0", sqMade},
+		{sq, "1", sqMade},
+		{sq, "3.0", sq},
+		{sq, "3.0-9ef", sq},
+		{sq, "3.1", sq},
+		{sq, "4", sq},
+		{tab, "3.0-a37", tabMade},
+		{tab, "3.0-231", tabMade},
+		{tabMade, "3.0-a37", tabMade},
+		{sqMade, "2.0", sqMade},
+	}
+	for _, c := range cases {
+		m := Migrate(c[0], c[1])
+		if m.Current != (c[2] == c[0]) || m.Text != c[2] {
+			t.Errorf("%q, from %s: current %v, got %q, want %q", c[0], c[1], m.Current, m.Text, c[2])
+		}
+	}
+	none, unknown := Migrate(sq, ""), Migrate(sq, "1.2")
+	if unknown.Text != none.Text || unknown.Ambiguous != none.Ambiguous || unknown.Lost != none.Lost {
+		t.Errorf("from 1.2 %+v, none %+v", unknown, none)
+	}
+	if got, want := MigrateUnstamped(tab, "3.0-a37").Text, "a: \"x\u25c9TAB\u25c9y\"\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
 // TestACallerNamesTheFormatWithFrom: a caller's from names the format a file
 // was written in, by a name in FormatNames or a major alone, in place of its
 // stamp and what FindFormat reads off it, in Upgrade and the load. A name no
@@ -8884,7 +8930,7 @@ func TestALoadThatMigratesSavesThroughTheGuards(t *testing.T) {
 	}
 	old := "p: a,b\n# kept\nq: 1\n"
 	opts := LoadOptions{KeepLines: true, Migrate: true, From: "2.0"}
-	migrated := MigrateUnstamped(old, true).Text
+	migrated := MigrateUnstamped(old, "2.0").Text
 	if migrated == old {
 		t.Fatalf("migrate left %q as it was", old)
 	}
@@ -8941,7 +8987,7 @@ func TestALoadThatMigratesSavesThroughTheGuards(t *testing.T) {
 
 	// What Migrate counts lost is lost to a canonical save.
 	lossy := "k: [x, y]\n"
-	m := MigrateUnstamped(lossy, true)
+	m := MigrateUnstamped(lossy, "2.0")
 	if m.Lost == 0 {
 		t.Fatalf("migrate lost nothing of %q", lossy)
 	}

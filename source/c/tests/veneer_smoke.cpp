@@ -280,6 +280,24 @@ static int a_caller_names_the_format_with_from() {
 	return test_id_end(fails);
 }
 
+// migrate reads a caller's from as upgrade does, with no mtime, and takes that
+// format's step; a pin's rewrite names this format whole, so a second run with
+// the same pin leaves it alone (2026111919213927). Some of the C runner's rows,
+// through the veneer.
+static int migrate_reads_from_as_upgrade_does() {
+	test_id("dfhjg", "migrate_reads_from_as_upgrade_does");
+	const std::string tab = "a: \"x\\ty\"\n";
+	const std::string made = "a: \"x\xe2\x97\x89TAB\xe2\x97\x89y\"\n" + std::string(shcl::FORMAT_LINE) + "\n";
+	const auto m = shcl::migrate(tab, "3.0-a37");
+	CHECK(!m.current && m.text == made);
+	CHECK(shcl::migrate(made, "3.0-a37").current);
+	CHECK(shcl::migrate(tab, "4").current);
+	CHECK(shcl::migrate(tab, "3.0").current);
+	CHECK(shcl::migrate_unstamped(tab, "3.0-a37").text == "a: \"x\xe2\x97\x89TAB\xe2\x97\x89y\"\n");
+	CHECK(shcl::migrate(tab, std::string_view("3.0-a37\0", 8)).text == shcl::migrate(tab, std::nullopt).text);
+	return test_id_end(fails);
+}
+
 #ifndef SHCL_NO_FILE_IO
 // A save over the file a load read refuses when another program changed
 // it since, writes nothing, and writes with force. A save over a file the
@@ -705,7 +723,7 @@ static int a_load_that_migrates_saves_through_the_guards() {
 	shcl::LoadOptions opts;
 	opts.keep_lines = opts.migrate = true;
 	opts.from = "2.0";
-	const std::string migrated = shcl::migrate_unstamped(old, true).text;
+	const std::string migrated = shcl::migrate_unstamped(old, "2.0").text;
 	CHECK(migrated != old);
 	// The document is the migrated text's, and the load writes nothing.
 	CHECK(shcl::write_file_atomic(f, old) == shcl::WriteStatus::Ok);
@@ -739,7 +757,7 @@ static int a_load_that_migrates_saves_through_the_guards() {
 	}
 	// What the migration counts lost is lost to a canonical save.
 	const std::string lossy = "k: [x, y]\n";
-	CHECK(shcl::migrate_unstamped(lossy, true).lost > 0);
+	CHECK(shcl::migrate_unstamped(lossy, "2.0").lost > 0);
 	CHECK(shcl::write_file_atomic(f, lossy) == shcl::WriteStatus::Ok);
 	{
 		shcl::LoadOptions canon = opts;
@@ -1129,18 +1147,18 @@ int main() {
 	// its colon and a comma list goes in brackets.
 	// Told the file is 2.x, the list is rewritten and the result is stamped
 	// with the format line, which is what makes a second run a no-op.
-	auto mig = shcl::migrate("base:[Boston]\n\tlat: 42\nnote: a,b\n", true);
+	auto mig = shcl::migrate("base:[Boston]\n\tlat: 42\nnote: a,b\n", "2.0");
 	CHECK(mig.text == "base: Boston\n\tlat: 42\nnote: [a, b]\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n");
 	CHECK(!mig.current && mig.ambiguous == 0 && mig.lost == 0);
-	CHECK(shcl::migrate(mig.text, true).current);
+	CHECK(shcl::migrate(mig.text, "2.0").current);
 	// Not told, and the file does not say: `a,b` reads as an array under 2.x
 	// and one string here, so it is left as written and counted rather than
 	// guessed at.
-	auto amb = shcl::migrate("note: a,b\n", false);
+	auto amb = shcl::migrate("note: a,b\n", std::nullopt);
 	CHECK(amb.ambiguous == 1 && amb.text == "note: a,b\n");
 	// Without the stamp, for a program that writes the info block itself; the
 	// Format line is what format_version reads.
-	auto unst = shcl::migrate_unstamped("base:[Boston]\n\tlat: 42\nnote: a,b\n", true);
+	auto unst = shcl::migrate_unstamped("base:[Boston]\n\tlat: 42\nnote: a,b\n", "2.0");
 	CHECK(unst.text == "base: Boston\n\tlat: 42\nnote: [a, b]\n" && !unst.current);
 	CHECK(shcl::format_version(mig.text) == 3u && !shcl::format_version(unst.text));
 	// The status forms tell an unstamped file from a damaged line, and the
@@ -1603,6 +1621,8 @@ int main() {
 	fails = 0;
 	const int told = a_caller_names_the_format_with_from();
 	fails = 0;
+	const int mig_from = migrate_reads_from_as_upgrade_does();
+	fails = 0;
 #ifndef SHCL_NO_FILE_IO
 	const int changed = a_save_over_a_file_changed_since_the_load_is_refused();
 	fails = 0;
@@ -1618,8 +1638,8 @@ int main() {
 	fails = 0;
 	const int no_banner = upgrade_can_leave_the_info_block_off();
 	fails = 0;
-	return changed | spellings | created | newer | migrating | with_banner | no_banner | a_path_holding_a_nul_is_refused() | threads | stamped | no_text | found | upconv | told | smoke;
+	return changed | spellings | created | newer | migrating | with_banner | no_banner | a_path_holding_a_nul_is_refused() | threads | stamped | no_text | found | upconv | told | mig_from | smoke;
 #else
-	return threads | stamped | no_text | found | upconv | told | smoke;
+	return threads | stamped | no_text | found | upconv | told | mig_from | smoke;
 #endif
 }

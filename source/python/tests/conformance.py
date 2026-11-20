@@ -1568,21 +1568,21 @@ def main():
 	for case in cases:
 		if case["expected_migrate"] is None:
 			continue
-		got = shcl.migrate(case["input"], True).text
+		got = shcl.migrate(case["input"], "2.0").text
 		if got != case["expected_migrate"]:
 			fails.append(f"{case['name']}: migrate output differs from expected-migrate.shcl")
 		if _diag_text(got) != case["expected_migrate_diags"]:
 			fails.append(f"{case['name']}: migrated text's diagnostics differ from expected-migrate-diags.txt")
 	for case in cases:
-		once = shcl.migrate(case["input"], True).text
-		if shcl.migrate(once, True).text != once:
+		once = shcl.migrate(case["input"], "2.0").text
+		if shcl.migrate(once, "2.0").text != once:
 			fails.append(f"{case['name']}: migrate changes its own output")
 	# Over every input, not only the migrate cases: the stamp is the one
 	# difference, and a file is current exactly when its Format line says so.
 	for case in cases:
 		for from_v2 in (True, False):
-			stamped = shcl.migrate(case["input"], from_v2)
-			unstamped = shcl.migrate_unstamped(case["input"], from_v2)
+			stamped = shcl.migrate(case["input"], v2_from(from_v2))
+			unstamped = shcl.migrate_unstamped(case["input"], v2_from(from_v2))
 			if (unstamped.current, unstamped.ambiguous, unstamped.lost) != (stamped.current, stamped.ambiguous, stamped.lost):
 				fails.append(f"{case['name']}: counts differ without the stamp")
 			if shcl.FORMAT_LINE_HEAD in unstamped.text and shcl.FORMAT_LINE_HEAD not in case["input"]:
@@ -5321,14 +5321,14 @@ def main():
 	# say it is 2.x, `a,b` is a string under these rules, so it is left and
 	# counted; `a, b` is an error here, so it converts either way. A lone bare
 	# value these rules refuse is quoted.
-	mm = shcl.migrate("x: a, b\ny: a,b\nz: \"q\", r\nw: New York,,b\nv: done:\nu: rw,noatime\n", True)
+	mm = shcl.migrate("x: a, b\ny: a,b\nz: \"q\", r\nw: New York,,b\nv: done:\nu: rw,noatime\n", "2.0")
 	if mm.ambiguous != 0:
 		raise SystemExit(f"ambiguous {mm.ambiguous}")
 	if not mm.text.startswith("x: [a, b]\ny: [a, b]\nz: [\"q\", r]\nw: [\"New York\", b]\nv: \"done:\"\nu: [rw, noatime]\n"):
 		raise SystemExit(repr(mm.text))
 	if shcl.Document.parse(mm.text).diagnostics():
 		raise SystemExit(f"{shcl.Document.parse(mm.text).diagnostics()}")
-	mm = shcl.migrate("x: a, b\ny: a,b\n", False)
+	mm = shcl.migrate("x: a, b\ny: a,b\n", None)
 	if mm.ambiguous != 1:
 		raise SystemExit(f"ambiguous {mm.ambiguous}")
 	if not mm.text.startswith("x: [a, b]\ny: a,b\n"):
@@ -5338,7 +5338,7 @@ def main():
 	# A 2.x comma list with one element left once the empty slots go was the
 	# plain value to 2.x, so `k: s,` and `k: s` were one field. In brackets they
 	# would be two, and `[s]` reads as that string too.
-	mm = shcl.migrate("k: s,\nk: s\nq: , \"a b\"\nc: x,\n\td: 1\n", True)
+	mm = shcl.migrate("k: s,\nk: s\nq: , \"a b\"\nc: x,\n\td: 1\n", "2.0")
 	if (mm.ambiguous, mm.lost) != (0, 0):
 		raise SystemExit(f"ambiguous {mm.ambiguous}, lost {mm.lost}")
 	if not mm.text.startswith("k: s\nk: s\nq: \"a b\"\nc: x\n\td: 1\n"):
@@ -5350,7 +5350,7 @@ def main():
 	test_id("ddmbb", "migrate_writes_star_items_as_dashes")
 	# A 2.x `*` item becomes `- `, and an item these rules would read as
 	# something else is quoted, such as one that looks like `- name: value`.
-	mm = shcl.migrate("list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n", True)
+	mm = shcl.migrate("list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n", "2.0")
 	if not mm.text.startswith("list:\n\t- a\n\t- \"key: value\"\n\t- 'c'\n\t- O'Brien\n"):
 		raise SystemExit(repr(mm.text))
 	mback = shcl.Document.parse(mm.text)
@@ -5363,7 +5363,7 @@ def main():
 	test_id("ddmbc", "migrate_quotes_a_name_not_led_by_a_letter")
 	# A bare 2.x name not led by a letter is quoted, so `-x: y` and `- :0`
 	# stay fields rather than reading as list items, and `404` stays a name.
-	mm = shcl.migrate("404: a\n-x: y\nl:\n\t- :0\na.9b: 2\n_id: 7\n", True)
+	mm = shcl.migrate("404: a\n-x: y\nl:\n\t- :0\na.9b: 2\n_id: 7\n", "2.0")
 	if not mm.text.startswith("\"404\": a\n\"-x\": y\nl:\n\t\"-\" :0\na.\"9b\": 2\n\"_id\": 7\n"):
 		raise SystemExit(repr(mm.text))
 	mback = shcl.Document.parse(mm.text)
@@ -5381,7 +5381,7 @@ def main():
 	# 2.x read a `◉` as text. A name, a bare value and a selector body
 	# holding one get the escape for a real mark, so they still read as that
 	# text.
-	mm = shcl.migrate("\"a\u25c9q\u25c9\": 1\nbare: My\u25c9SPACE\u25c9App\ns[x\u25c9y].p: 2\n", True)
+	mm = shcl.migrate("\"a\u25c9q\u25c9\": 1\nbare: My\u25c9SPACE\u25c9App\ns[x\u25c9y].p: 2\n", "2.0")
 	mback = shcl.Document.parse(mm.text)
 	if mback.diagnostics():
 		raise SystemExit(f"{mback.diagnostics()}\n{mm.text}")
@@ -5400,7 +5400,7 @@ def main():
 	test_id("ddmbe", "migrate_quotes_a_bare_selector_these_rules_refuse")
 	# A 2.x selector goes in parens, and a bare body these rules refuse, such
 	# as one with a quote or a space, is quoted, so its block still loads.
-	mm = shcl.migrate("srv[O'Brien].port: 1\nsrv[New York].port: 2\n", True)
+	mm = shcl.migrate("srv[O'Brien].port: 1\nsrv[New York].port: 2\n", "2.0")
 	if not mm.text.startswith("srv(\"O'Brien\").port: 1\nsrv(\"New York\").port: 2\n"):
 		raise SystemExit(repr(mm.text))
 	mback = shcl.Document.parse(mm.text)
@@ -5417,12 +5417,12 @@ def main():
 	mtext = "a[x].k: 1\nb: y\nb[0].k: 2\nc[a(b)].k: 3\ne:[f].g: 4\nr[\"x\"]:\n\ts: 1\n"
 	mwant_text = "a(x).k: 1\nb: y\nb(0).k: 2\nc(\"a(b)\").k: 3\ne(f).g: 4\nr(\"x\"):\n\ts: 1\n"
 	for mfrom in (True, False):
-		mm = shcl.migrate(mtext, mfrom)
+		mm = shcl.migrate(mtext, v2_from(mfrom))
 		if mm.ambiguous != 0 or mm.lost != 0:
 			raise SystemExit(f"from_v2 {mfrom}: ambiguous {mm.ambiguous}, lost {mm.lost}\n{mm.text}")
 		if not mm.text.startswith(mwant_text):
 			raise SystemExit(f"from_v2 {mfrom}: {mm.text!r}")
-	mback = shcl.Document.parse(shcl.migrate(mtext, True).text)
+	mback = shcl.Document.parse(shcl.migrate(mtext, "2.0").text)
 	if mback.diagnostics():
 		raise SystemExit(f"{mback.diagnostics()}")
 	for mpath, mwant_int in (("c(\"a(b)\").k", 3), ("e(f).g", 4), ("b(y).k", 2), ("r(x).s", 1)):
@@ -5435,13 +5435,13 @@ def main():
 	# refuses at 7: a selector with a comma, which matched an array value, and
 	# a comma list with lines under it. A list of only empty slots, which 2.x
 	# read as empty, is an empty value.
-	mm = shcl.migrate("a[x, y].b: 1\n", True)
+	mm = shcl.migrate("a[x, y].b: 1\n", "2.0")
 	if mm.lost != 1:
 		raise SystemExit(f"lost {mm.lost}")
-	mm = shcl.migrate("a: 1, 2\n\tb: 1\nc: 3, 4\n", True)
+	mm = shcl.migrate("a: 1, 2\n\tb: 1\nc: 3, 4\n", "2.0")
 	if mm.lost != 1:
 		raise SystemExit(f"lost {mm.lost}\n{mm.text}")
-	mm = shcl.migrate("e: ,\nf: , # c\n", True)
+	mm = shcl.migrate("e: ,\nf: , # c\n", "2.0")
 	if mm.lost != 0:
 		raise SystemExit(f"lost {mm.lost}")
 	if not mm.text.startswith("e:\nf: # c\n"):
@@ -5459,13 +5459,13 @@ def main():
 	# for --from-2x rather than changing a correct file at exit 0. A selector
 	# in brackets is E029 now, so its line is rewritten the 2.x way.
 	mtext = "x: \"a\u25c9TAB\u25c9b\"\n\"n\u25c9TAB\u25c9\": 1\nl:\n\t- :0\ns[\"\u25c9TAB\u25c9\"].p: 1\nb: `abc`\nc: [a]\n"
-	mm = shcl.migrate(mtext, False)
+	mm = shcl.migrate(mtext, None)
 	if mm.ambiguous != 5:
 		raise SystemExit(f"ambiguous {mm.ambiguous}\n{mm.text}")
 	mwant_text = mtext.replace("s[\"\u25c9TAB\u25c9\"]", "s(\"\u25c9ESCAPE_CHAR\u25c9TAB\u25c9ESCAPE_CHAR\u25c9\")", 1)
 	if mm.text != mwant_text:
 		raise SystemExit(f"got {mm.text!r}\nwant {mwant_text!r}")
-	if "ESCAPE_CHAR" not in shcl.migrate(mtext, True).text:
+	if "ESCAPE_CHAR" not in shcl.migrate(mtext, "2.0").text:
 		raise SystemExit("no ESCAPE_CHAR with from_v2")
 
 	test_id("de61d", "migrate_writes_the_text_2x_read")
@@ -5473,7 +5473,7 @@ def main():
 	# selector body and the sugar, bare or quoted, so migrate writes the text
 	# 2.x read (2026101911300000). Any other backslash was text in 2.x too.
 	mtext = "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\ns: 'it\\'s'\nl: \"C:\\\\a\", x\\ty\nw: C:\\work\nsrv[a\\tb].port: 1\nn:['C:\\\\x']\nlist:\n\t* C:\\new\n"
-	mm = shcl.migrate(mtext, True)
+	mm = shcl.migrate(mtext, "2.0")
 	if (mm.ambiguous, mm.lost) != (0, 0):
 		raise SystemExit(f"ambiguous {mm.ambiguous} lost {mm.lost}\n{mm.text}")
 	mwant_text = "p: \"C:\\new\"\nt: \"C:\u25c9TAB\u25c9emp\"\nq: [a, b]\ns: \"it's\"\nl: [\"C:\\a\", \"x\u25c9TAB\u25c9y\"]\nw: C:\\work\nsrv(\"a\u25c9TAB\u25c9b\").port: 1\nn: \"C:\\x\"\nlist:\n\t- \"C:\u25c9NEWLINE\u25c9ew\"\n"
@@ -5509,13 +5509,13 @@ def main():
 	# counted, so the CLI asks for --from-2x. A line these rules refuse is 2.x
 	# either way, and converts, and a file that names format 2 converts whole.
 	mtext = "p: \"C:\\\\new\"\nt: C:\\temp\nw: C:\\work\nb: \"say \\\"hi\\\"\"\nl: a\\tb, c\n"
-	mm = shcl.migrate(mtext, False)
+	mm = shcl.migrate(mtext, None)
 	if (mm.ambiguous, mm.lost) != (2, 0):
 		raise SystemExit(f"ambiguous {mm.ambiguous} lost {mm.lost}\n{mm.text}")
 	mwant_text = "p: \"C:\\\\new\"\nt: C:\\temp\nw: C:\\work\nb: 'say \"hi\"'\nl: [\"a\u25c9TAB\u25c9b\", c]\n"
 	if mm.text != mwant_text:
 		raise SystemExit(f"got {mm.text!r}\nwant {mwant_text!r}")
-	mm = shcl.migrate(f"{mtext}##    Format   2\n", False)
+	mm = shcl.migrate(f"{mtext}##    Format   2\n", None)
 	if (mm.ambiguous, mm.lost) != (0, 0):
 		raise SystemExit(f"ambiguous {mm.ambiguous} lost {mm.lost}\n{mm.text}")
 	if not mm.text.startswith("p: \"C:\\new\"\nt: \"C:\u25c9TAB\u25c9emp\"\n"):
@@ -5523,19 +5523,27 @@ def main():
 
 	test_id("de61f", "migrate_counts_a_quoted_name_with_a_backslash_pair_lost")
 	# 1.2 read a quoted name as typed and 2.0 resolved its backslash pairs, so
-	# a name with one reads two ways across 2.x. It stays as written and counts
-	# as lost, with from_v2 or without, and the rest of its line still
-	# converts. Any other backslash in a name was text under both.
+	# a name with one reads two ways across 2.x. Without from_ it stays as
+	# written and counts as lost, and the rest of its line still converts. With
+	# from_, the format's step reads it as that format did, so it isn't lost
+	# (2026111919213927). Any other backslash in a name was text under both.
 	mtext = "'k\\\\x': C:\\temp\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n"
-	for mfrom_v2 in (True, False):
-		mm = shcl.migrate(mtext, mfrom_v2)
-		if mm.lost != 2 or mm.ambiguous != int(not mfrom_v2):
-			raise SystemExit(f"from_v2 {mfrom_v2}: lost {mm.lost} ambiguous {mm.ambiguous}\n{mm.text}")
-	mm = shcl.migrate(mtext, True)
-	if not mm.text.startswith("'k\\\\x': \"C:\u25c9TAB\u25c9emp\"\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n"):
-		raise SystemExit(repr(mm.text))
-	# upgrade's from_v2 takes the file as 2.0, whose step reads the names as
-	# 2.0 did (2026111917071578).
+	mm = shcl.migrate(mtext, None)
+	if mm.lost != 2 or mm.ambiguous != 1:
+		raise SystemExit(f"lost {mm.lost} ambiguous {mm.ambiguous}\n{mm.text}")
+	for mfrom in ("2.0", "1.1", "1.0"):
+		mm = shcl.migrate(mtext, mfrom)
+		if mm.lost != 0 or mm.ambiguous != 0:
+			raise SystemExit(f"from_ {mfrom}: lost {mm.lost} ambiguous {mm.ambiguous}\n{mm.text}")
+	# 2.0 resolved a name's backslash pairs, and 1.1 keyed it as typed.
+	for mfrom, mnames in (
+		("2.0", "\"k\\x\": \"C:\u25c9TAB\u25c9emp\"\n\"n\u25c9TAB\u25c9y\".z: 1\n"),
+		("1.1", "'k\\\\x': \"C:\u25c9TAB\u25c9emp\"\n\"n\\ty\".z: 1\n"),
+	):
+		mm = shcl.migrate(mtext, mfrom)
+		if not mm.text.startswith(mnames + "\"a\\b\": 2\nr: 3\n"):
+			raise SystemExit(f"from_ {mfrom}: {mm.text!r}")
+	# upgrade's from_ takes the file as 2.0 the same way (2026111917071578).
 	if shcl.upgrade(mtext, "2.0", True).lost != 0:
 		raise SystemExit("upgrade: lost not 0")
 
@@ -5598,7 +5606,7 @@ def main():
 		raise SystemExit(f"beta top stamp: {up.text!r}")
 	# migrate keeps leaving it alone: its text can keep a line with an error,
 	# and a second run would take that as 2.x again.
-	up_m = shcl.migrate(up_beta, True)
+	up_m = shcl.migrate(up_beta, "2.0")
 	if not up_m.current or up_m.text != up_beta:
 		raise SystemExit(f"beta migrate: {up_m.current} {up_m.text!r}")
 
@@ -5711,8 +5719,8 @@ def main():
 		("x: a,b\n##    Format   2\ny: 1\n", "x: [a, b]\n##    Format   3.0\ny: 1\n##    Migrated from SHCL 2.x.\n"),
 		("port: 80\n", "port: 80\n##    Format   3.0\n"),
 	):
-		if shcl.migrate(up_in, False).text != up_want:
-			raise SystemExit(f"migrate {up_in!r}: {shcl.migrate(up_in, False).text!r}")
+		if shcl.migrate(up_in, None).text != up_want:
+			raise SystemExit(f"migrate {up_in!r}: {shcl.migrate(up_in, None).text!r}")
 
 	test_id("ddy7v", "a_format_line_at_the_top_goes_when_the_block_goes_on")
 	# The block names the format, so the file names one (2026101407100001).
@@ -6515,7 +6523,7 @@ def main():
 
 		mold = "p: a,b\n# kept\nq: 1\n"
 		mopts = shcl.LoadOptions(keep_lines=True, migrate=True, from_="2.0")
-		migrated = shcl.migrate_unstamped(mold, True).text
+		migrated = shcl.migrate_unstamped(mold, "2.0").text
 		if migrated == mold:
 			raise SystemExit("migrate left the 2.x text as it was")
 		# The document is the migrated text's, and the load writes nothing.
@@ -6545,7 +6553,7 @@ def main():
 		msame("newer left", mread(), mnewer)
 		# What migrate counts lost is lost to a canonical save.
 		mlossy = "k: [x, y]\n"
-		mm = shcl.migrate_unstamped(mlossy, True)
+		mm = shcl.migrate_unstamped(mlossy, "2.0")
 		if mm.lost == 0:
 			raise SystemExit("migrate lost nothing")
 		mwrite(mlossy)
@@ -6594,7 +6602,7 @@ def main():
 			cdoc, _ = shcl.Document.load_file_opts(cf, shcl.Strictness.Standard, shcl.LoadOptions(keep_lines=True, migrate=True, from_=v2_from(cv2)))
 			cwant, clost = ctext, 0
 			if cmigrated:
-				cm = shcl.migrate_unstamped(ctext, cv2)
+				cm = shcl.migrate_unstamped(ctext, v2_from(cv2))
 				cwant, clost = cm.text, cm.lost
 			cgot = (cdoc.to_text_keep_lines()[0], cdoc.lost_count())
 			if cgot != (with_stamp(cwant), clost):
@@ -6779,6 +6787,40 @@ def main():
 				raise SystemExit(f"file at {bmtime}: holds {bgot!r}, want {bwant!r}")
 			if not up.current:
 				os.remove(up.backup)
+
+	test_id("dfhje", "migrate_reads_from_as_upgrade_does")
+	# migrate reads a caller's from_ as upgrade does, with no mtime, and takes
+	# that format's step. A format whose steps rewrite nothing, and a newer
+	# one, leave the text alone, and a name no format has is no from_. A pin's
+	# rewrite names this format whole, so a second run with the same pin
+	# leaves it alone (2026111919213927). Same table in every runner.
+	mnote = "##    Format   3.0\n##    Migrated from SHCL 2.x.\n"
+	msq = "b: 'C:\\temp'\n"
+	msq_made = "b: \"C:\u25c9TAB\u25c9emp\"\n" + mnote
+	mtab = "a: \"x\\ty\"\n"
+	mtab_made = "a: \"x\u25c9TAB\u25c9y\"\n##    Format   3.0\n"
+	# The text, from_, and the text migrate gives, which is the input when
+	# it's current.
+	for mt, mfrom, mwant in (
+		(msq, "2.0", msq_made),
+		(msq, "1", msq_made),
+		(msq, "3.0", msq),
+		(msq, "3.0-9ef", msq),
+		(msq, "3.1", msq),
+		(msq, "4", msq),
+		(mtab, "3.0-a37", mtab_made),
+		(mtab, "3.0-231", mtab_made),
+		(mtab_made, "3.0-a37", mtab_made),
+		(msq_made, "2.0", msq_made),
+	):
+		mm = shcl.migrate(mt, mfrom)
+		if (mm.current, mm.text) != (mwant == mt, mwant):
+			raise SystemExit(f"{mt!r}, from_ {mfrom}: current {mm.current}, {mm.text!r}")
+	mnone, munknown = shcl.migrate(msq, None), shcl.migrate(msq, "1.2")
+	if (munknown.text, munknown.ambiguous, munknown.lost) != (mnone.text, mnone.ambiguous, mnone.lost):
+		raise SystemExit(f"from_ 1.2 {munknown!r}, none {mnone!r}")
+	if shcl.migrate_unstamped(mtab, "3.0-a37").text != "a: \"x\u25c9TAB\u25c9y\"\n":
+		raise SystemExit("migrate_unstamped from_ 3.0-a37")
 
 	test_id("dfhhb", "a_caller_names_the_format_with_from")
 	# A caller's from_ names the format a file was written in, by a name in

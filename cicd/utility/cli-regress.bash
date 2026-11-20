@@ -1179,9 +1179,13 @@ rows=(
 	'de60n|migrate-2x-read|migrate --from-2x -|p: "C:\\\\new"\nt: C:\\temp\nq: a, b\n|0|p: "C:\\new"\nt: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\nq: [a, b]\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
 	'de60p|upgrade-2x-read-ambiguous|upgrade %U2R%|-|7||2 value\(s\) read one way under 2\.x'
 	## A quoted name with a backslash pair read as typed under 1.2 and resolved
-	## under 2.0, so it is kept and counted lost, and the rest still converts.
-	'de60s|migrate-lost-quoted-name|migrate --from-2x -|"n\\ty": 1\nt: C:\\temp\n|7|"n\\ty": 1\nt: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|1 line\(s\) bound a value under 2\.x.*quoted name'
-	'de60t|migrate-lost-quoted-name-lossy|migrate --from-2x --lossy -|"n\\ty": 1\n|0|"n\\ty": 1\n##    Format   3.0\n|bound a value under 2\.x'
+	## under 2.0, so where the file doesn't say which, it is kept and counted
+	## lost, and the rest still converts. --from-2x reads it as 2.0 did
+	## (2026111919213927).
+	'de60s|migrate-lost-quoted-name|migrate --from-2x -|"n\\ty": 1\nt: C:\\temp\n|0|"n\xe2\x97\x89TAB\xe2\x97\x89y": 1\nt: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|!bound a value under 2\.x'
+	'de60t|migrate-lost-quoted-name-lossy|migrate --from-2x --lossy -|"n\\ty": 1\n|0|"n\xe2\x97\x89TAB\xe2\x97\x89y": 1\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|!bound a value under 2\.x'
+	'dfhk1|migrate-lost-quoted-name-unsaid|migrate -|"n\\ty": 1\n|7|"n\\ty": 1\n##    Format   3.0\n|1 line\(s\) bound a value under 2\.x.*quoted name'
+	'dfhk2|migrate-lost-quoted-name-unsaid-lossy|migrate --lossy -|"n\\ty": 1\n|0|"n\\ty": 1\n##    Format   3.0\n|bound a value under 2\.x'
 	## The 2.x tab went in as it was, since "C:\temp" was E024 (2026100115323227).
 	## It is the TAB escape since 2026100207032800.
 	#'dcq6r|migrate-from-2x|migrate --from-2x %BS%|-|0|p: "C:\\temp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'

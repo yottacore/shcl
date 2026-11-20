@@ -974,7 +974,7 @@ Here's what `migrate` promises, and what it doesn't:
 
 - A file it can't convert is left alone. It never rewrites part of a file and reports success, and it never damages a file that was already correct. `--lossy` is the one way to accept a loss, and it has to be asked for.
 
-- It adds the `Format` line and a note saying the file came from 2.x to a file it rewrote, and nothing else. Where the file had an older `Format` line, the new one takes its place. It never writes the whole info block into a file that had none. A file with no `Format` line and nothing to rewrite gets the `Format` line alone, at the end, so `Migrate(text, false)` is how a program stamps the format without the info block. `FORMAT_LINE` (each binding's spelling) is that line.
+- It adds the `Format` line and a note saying the file came from 2.x to a file it rewrote, and nothing else. Where the file had an older `Format` line, the new one takes its place. It never writes the whole info block into a file that had none. A file with no `Format` line and nothing to rewrite gets the `Format` line alone, at the end, so `Migrate` with no `from` is how a program stamps the format without the info block. `FORMAT_LINE` (each binding's spelling) is that line.
 
 - It is not a formatter. Layout, comments, blank lines, and raw bodies come through as written, so `migrate` output isn't a `fmt` fixpoint and isn't meant to be.
 

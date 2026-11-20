@@ -92,7 +92,7 @@ fn with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x() {
 	);
 	// migrate keeps leaving it alone: its text can keep a line with an error,
 	// and a second run would take that as 2.x again.
-	let m = migrate(&beta, true);
+	let m = migrate(&beta, Some("2.0"));
 	assert!(m.current && m.text == beta);
 }
 
@@ -225,13 +225,13 @@ fn an_older_format_line_becomes_this_one_in_place() {
 	assert_eq!(up.text, "\u{feff}p: 1\r\n\t##    Format   3.0  \r\nq: 2");
 	// migrate writes its stamp there too, and adds one only to a file with
 	// none (2026100916475300).
-	assert_eq!(migrate(old, false).text, "port: 80\n##    Format   3.0\n");
+	assert_eq!(migrate(old, None).text, "port: 80\n##    Format   3.0\n");
 	assert_eq!(
-		migrate("x: a,b\n##    Format   2\ny: 1\n", false).text,
+		migrate("x: a,b\n##    Format   2\ny: 1\n", None).text,
 		"x: [a, b]\n##    Format   3.0\ny: 1\n##    Migrated from SHCL 2.x.\n"
 	);
 	assert_eq!(
-		migrate("port: 80\n", false).text,
+		migrate("port: 80\n", None).text,
 		"port: 80\n##    Format   3.0\n"
 	);
 }

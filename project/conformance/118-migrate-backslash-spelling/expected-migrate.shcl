@@ -11,8 +11,8 @@ users: "C:\Users\me"
 open: '"00:30\'
 quote: "it's"
 end: "x\"
-'n\\tm': 1
-'n\tm': 2
+"n\tm": 1
+"n◉TAB◉m": 2
 k("a\tb").v: 1
 j("a\tb").v: 1
 srv("a\tb").name: 1
