@@ -6,6 +6,8 @@ source/rust/target-gate/
 source/rust/target
 ## And a frozen run copy links these two in the same way (FROZEN_LINKS).
 source/rust/target-migrate
+## check-formats.bash builds the CLI of each format here, one folder each.
+source/rust/target-formats/
 cicd/artifacts
 source/go/shcl
 source/c/shcl

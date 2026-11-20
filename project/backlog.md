@@ -199,7 +199,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: each published format and pin round-trips against its own tag's CLI in a gate
 	- ID: 2026111907080466
 	- Type: Feature
-	- Status: Queued
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261119-070804
@@ -208,6 +208,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Prereq IDs: 2026111907080423, 2026111907080445
 	- Requirements: a gate reads the corpus and fuzz documents with the CLI built at each tag and pin, and the converted reading matches, as check-migrate does for 2.0.
 	- Estimated effort: High
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261120: one commit stands for each of the 11 formats, the release that starts it or its earliest pin, since pins of one format read every document the same (2026111018212701). Each is built once into `source/rust/target-formats/`, keyed by its hash.
+		- me, 20261120: the conversion is `upgrade --from=FORMAT`, so each step is checked on its own, apart from `find_format`, which has its own tests.
+		- me, 20261120: a refusal at exit 7 is counted and shown but doesn't fail, since that's how a step reports a line it isn't sure of. 6 corpus cases are refused today, mostly a selector with a comma in it.
+		- me, 20261120: 1.0 to 2.0 have no `paths` command, so they're asked the paths of the converted file and of the original under the current rules. A path with a quoted name is left out there, since the 2 CLIs spell it differently. With the pins, such a path's name isn't compared, but its reads are.
+		- me, 20261120: corpus 141 under 1.0 is excused by name, since the step out of 1.0 folds those 2 instances by decision.
+		- me, 20261120: it's in the full run and the merge gate, and 8 of its 11 tests fail until 2026112008173348, 2026112008173368 and 2026112008173388 close. A `Check:` entry in questions.md has it.
+	- Verified: `check-formats.bash` ran over the 11 formats: 3.0-9ef, 3.0-a65 and 3.0 pass, and the other 8 fail only on the 3 bugs above. 3.0-9ef fails with its conversion swapped for `--from=2.0` (14 documents differ), and a format fails under `--min 500`. shellcheck, ruff, `test-ids.py check`, check-push-gate, shell-regress (bar the known `dcvej`, `de1a8` and `dc0b5`), the markdown check and markdownlint passed.
+	- Swept: config.bash's SHELLCHECK_TARGETS, TEST_EXTRA, QUICK_SKIP, the `cli` area, Alpine's skip list, the ruff list, CTR_PRIVATE and CARGO_CACHE_DIRS, plus `.gitignore` and test-ids.py's CALLS, each beside check-migrate's entry. Not FROZEN_LINKS, since the 11 CLIs build in about 25 seconds.
+	- Note: it adds about 30 seconds to the full run, and about 25 more the first time, to build the 11 CLIs (56 s cold, 31 s warm, at a load of 4 to 6).
+	- Test case: check-formats `dfjac` (1.0), `dfjad` (1.1), `dfjae` (2.0), `dfjaf` (3.0-1f8), `dfjag` (3.0-30d), `dfjah` (3.0-b10), `dfjaj` (3.0-f8e), `dfjak` (3.0-a37), `dfjam` (3.0-9ef), `dfjan` (3.0-a65) and `dfjap` (3.0).
+	- Acceptance signoff: Self-closed: the gate runs every format and was seen to fail on a broken conversion. What it found is filed as 3 Bugs.
+	- Branch: `nov20b-2026111907080466`
+	- Commit: `7a199778`
+	- Closed: 20261120-083000
+	- Closed reason: Done
 
 - Format versions: find_format doesn't count a quote in a bare value as a tell
 	- ID: 2026111910270033
@@ -1848,6 +1865,45 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Acceptance signoff: Self-closed: each tell row is pinned in all 4 runners, by the memory.md close policy.
 	- Closed: 20261119-084012
 	- Closed reason: Done
+
+- Format versions: upgrade from 1.0, 1.1 or 2.0 keeps the indent those formats took off a raw body
+	- ID: 2026112008173348
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261120-081733
+	- Opened by: me
+	- Parent ID: 2026111018212703
+	- Related IDs: 2026111907080466, 2026111917071578
+	- Problem description: 1.0 to 2.0 took the indent shared by a raw body's lines off each line, so a body under `~~~sql` written as `  SELECT 1` read as `SELECT 1`. 3.0-1f8 and later take off only the fence's own indent. `upgrade --from=2.0` leaves the body as typed, so it reads with the 2 spaces now.
+	- Origin: Confirmed by check-formats `dfjac`, `dfjad` and `dfjae`, on corpus 053, 055 and 058 and 2 fuzz documents, against the v1.0.0, v1.1.0 and v2.0.0 CLIs.
+
+- Format versions: upgrade from 1.1 to 3.0-a37 splits a value that a later stacked list closes onto
+	- ID: 2026112008173368
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261120-081733
+	- Opened by: me
+	- Parent ID: 2026111018212703
+	- Related IDs: 2026111907080466
+	- Problem description: `dup: x` followed by `dup:` with a stacked `* x` item is one instance under 1.1 to 3.0-a37. `upgrade` writes `dup: x` and a `- x` list, which read as 2 instances now. `dup: [x]` with the same list reads as one.
+	- Origin: Confirmed by check-formats `dfjad` to `dfjak`, on corpus 042-late-merge as each of those tags has it.
+
+- Format versions: upgrade from 1.0, 1.1 or 2.0 cuts a value at a comma after a quote that never closes
+	- ID: 2026112008173388
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261120-081733
+	- Opened by: me
+	- Parent ID: 2026111018212703
+	- Related IDs: 2026111907080466, 2026111917071578
+	- Problem description: 1.0 to 2.0 read `open: don't, stop` as one element, `don't, stop`. `upgrade` writes `["don't", stop]`, which is 2. A quote that closes past the comma, as in `it's, they're`, converts right.
+	- Origin: Confirmed by check-formats `dfjac`, `dfjad` and `dfjae`, on corpus 210 line 6 and a fuzz document, against the v1.0.0, v1.1.0 and v2.0.0 CLIs. check-migrate misses it, since its pinned build reads the line as 2 elements too.
 
 - Format versions: the load finds a file's format with its mtime, and converts it by a table of steps
 	- ID: 2026111908443663
