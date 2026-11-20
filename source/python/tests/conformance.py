@@ -6842,6 +6842,32 @@ def main():
 	if not rm.text.startswith("r:\n\t```\n\t  line1\n\t   \n\n\t \n\t  line2\n"):
 		raise SystemExit(f"migrate: {rm.text!r}")
 
+	test_id("dfjne", "migrate_counts_a_raw_body_2x_read_otherwise")
+	# Without from_ or a Format line, a raw body that 1.0, 1.1 or 2.0 read
+	# otherwise, with its shared indent taken off or closed on a fence run with
+	# a Unicode blank at its edge, reads two ways, since the 2.x builds after
+	# 2.0 read it as these rules do. It stays as typed, counts as ambiguous,
+	# and the file is unfinished. A body every format read alike, as 2.0's fmt
+	# wrote it, doesn't count, and from_ still rewrites it (2026112013244228).
+	# Same rows in every runner.
+	rbindented = "q: ~~~sql\n  SELECT 1\n    FROM t\n~~~\nport: 80\n"
+	rbflush = "q: ~~~sql\nSELECT 1\n  FROM t\n~~~\nport: 80\n"
+	# Each comes back as typed, and only one that counts nothing is stamped.
+	for rbtext, rbamb in (
+		(rbindented, 1),
+		("a:\n\t```\n\t\tx\n\t```\nb: ~~~\n y\n~~~\n", 2),
+		("u: ~~~\n\tx\n~~~\u2028\nport: 80\n", 1),
+		(rbflush, 0),
+	):
+		rbstamped = rbtext + "##    Format   3.0\n" if rbamb == 0 else rbtext
+		for rbm, rbwant in ((shcl.migrate(rbtext, None), rbstamped), (shcl.migrate_unstamped(rbtext, None), rbtext)):
+			rbgot = (rbm.text, rbm.ambiguous, rbm.unfinished, rbm.lost)
+			if rbgot != (rbwant, rbamb, rbamb != 0, 0):
+				raise SystemExit(f"{rbtext!r}: {rbgot!r}, want {(rbwant, rbamb, rbamb != 0, 0)!r}")
+	rbm = shcl.migrate(rbindented, "2.0")
+	if rbm.ambiguous != 0 or rbm.unfinished or not rbm.text.startswith(rbflush):
+		raise SystemExit(f"from 2.0: {rbm.ambiguous} {rbm.unfinished} {rbm.text!r}")
+
 	test_id("dfjd0", "upgrade_from_1x_to_a37_folds_a_scalar_with_a_list_of_it")
 	# 1.0 to 3.0-a37 keyed an instance by its strings alone, so `k: x` and a
 	# stacked list of `x` alone were one instance. The step out of each writes

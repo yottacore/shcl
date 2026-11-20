@@ -3039,8 +3039,10 @@ pub struct Migration {
 	/// `text` is the input.
 	pub current: bool,
 	/// Pieces both rule sets read cleanly and differently, such as `a,b` or
-	/// an escape, and runs of lines one rule set reads as a raw body and the
-	/// other as fields, which nothing can decide between, left as written.
+	/// an escape, runs of lines one rule set reads as a raw body and the
+	/// other as fields, and a raw body 1.0 to 2.0 read with its shared indent
+	/// taken off or closed early, which nothing can decide between, left as
+	/// written.
 	/// Always 0 when the caller said the file is 2.x. A backslash pair 2.x
 	/// resolved is one of them, as in `"C:\\new"`.
 	pub ambiguous: usize,
@@ -3898,10 +3900,12 @@ fn opens_raw(rest: &str, tok: &mut Tokens) -> Option<(u8, usize)> {
 /// reads as `from`'s format read it, and without `from` stays as written and
 /// counts in `lost`, since 1.2 read it as typed and 2.0 resolved it. With
 /// `from` naming 1.0, 1.1 or 2.0, a raw body is written to read as that
-/// format read it, with the indent its lines shared taken off. A file taken
-/// as 3.0-a37 or older, by `from` or its Format line, gets `[x]` for a
-/// scalar `x` beside a stacked list of `x` alone, since those were one
-/// instance then and a list isn't a scalar now.
+/// format read it, with the indent its lines shared taken off. Without
+/// `from` or a Format line, a body any of those formats read otherwise
+/// stays as typed and counts in `ambiguous`. A file taken as 3.0-a37 or
+/// older, by `from` or its Format line, gets `[x]` for a scalar `x` beside a
+/// stacked list of `x` alone, since those were one instance then and a list
+/// isn't a scalar now.
 ///
 /// Which file this is cannot always be read off the text: `p: a,b` is an
 /// array under 2.x and one string under these rules, and a raw block can
@@ -3973,7 +3977,8 @@ fn v2_fence_close(line: &str, ch: u8, len: usize) -> Option<&str> {
 /// it reads otherwise. The rest stay as typed (None). A block that never
 /// closes stays as typed, since 2.x read it with an error and it is
 /// unfinished here. `migrate`'s own read, with no format found, keeps them
-/// all too: the 2.x dev builds after 2.0 read a body as it reads now.
+/// all too, since the 2.x dev builds after 2.0 read a body as it reads now,
+/// and counts a body 1.0 to 2.0 read otherwise as ambiguous.
 fn v2_raw_body(lines: &[&str], ch: u8, len: usize, v2: V2Read) -> Vec<Option<String>> {
 	if v2 == V2Read::Either {
 		return Vec::new();
@@ -4041,6 +4046,20 @@ fn v2_raw_body(lines: &[&str], ch: u8, len: usize, v2: V2Read) -> Vec<Option<Str
 			(!keep).then_some(want)
 		})
 		.collect()
+}
+
+/// Whether 1.0, 1.1 or 2.0 read a raw body, for the lines after its opening
+/// fence, otherwise than these rules do: with the indent its lines shared
+/// taken off, or closed on a line only they took as its closing fence.
+fn v2_reads_body_otherwise(lines: &[&str], ch: u8, len: usize) -> bool {
+	let close = lines
+		.iter()
+		.map(|l| l.trim_end_matches('\r'))
+		.find(|b| v2_fence_close(b, ch, len).is_some());
+	close.is_some_and(|b| !is_fence_close(b, ch, len))
+		|| [V2Read::From11, V2Read::From20]
+			.into_iter()
+			.any(|v| v2_raw_body(lines, ch, len, v).iter().any(Option::is_some))
 }
 
 /// 1.0 to 3.0-a37 keyed an instance by its strings alone, so `k: x` and a
@@ -4249,6 +4268,14 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool, step: Step) 
 			&& now.fence == fence
 		{
 			raw_body = v2_raw_body(&lines[i + 1..], ch, len, st.v2).into_iter();
+			// A file that may be 3.0 keeps the body as typed, and one 1.0 to
+			// 2.0 read otherwise reads two ways.
+			if st.v2 == V2Read::Either
+				&& !st.from_v2
+				&& v2_reads_body_otherwise(&lines[i + 1..], ch, len)
+			{
+				st.ambiguous += 1;
+			}
 		}
 	}
 	// A scalar written as an array to fold as it did is E028 too where it

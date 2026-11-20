@@ -52,7 +52,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `migrate` without `--from` stamps a file whose raw body 2.x read differently
 	- ID: 2026112013244228
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261120-132442
@@ -72,7 +72,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- me, 20261120: this reverses 2026112008173348's call to leave such a body as typed at exit 0. `help` says `migrate` refuses a file that doesn't say which rules it was written for when the 2.x and current readings differ, and this is that case. `upgrade` isn't affected, since it finds the format first.
 		- JC, 20261120: fixed before beta.2. It was filed as Avg for 3.0.0, since beta1 did the same and `upgrade` is the documented way to convert.
+		- me, 20261120: a body counts once per block, as one more value in the CLI's "value(s) read one way under 2.x" message, so no CLI wording changed.
+		- me, 20261120: a closing fence run with a Unicode blank at its edge, which only 1.0 to 2.0 took as the close, counts too, since the block then reads 2 ways as well.
+		- me, 20261120: a file whose Format line names an older format isn't counted, as for every other ambiguous piece, since the line says it's 2.x.
 	- Note: check-migrate's `rawindent` mode already leaves such a block out, and corpus 053, 055, 058 and 124 have bodies of this kind.
+	- Actual cause: `migrate_text` read a raw body only for the named format's step. Without `from`, it passed the body through and never asked whether 1.0 to 2.0 read it otherwise.
+	- Actual fix: where the current rules open the same block on the same line, and there is no `from` or Format line, a body that 1.0, 1.1 or 2.0 read otherwise adds 1 to `ambiguous`. So the file is unstamped and `unfinished`, and the CLIs exit 7 naming `--from=FORMAT`. In all 4 bindings (`v2_reads_body_otherwise`, Go `v2ReadsBodyOtherwise`, Python `_v2_reads_body_otherwise`), with the doc comments, spec.md, design.md, the format versions doc and the changelog.
+	- Verified: the new tests fail with the count held at 0 in Rust, Go, Python and C, and pass with the fix. cargo test, rustfmt and clippy, Go in both modules with vet, the Python and C conformance runners, ruff, cli-regress (685 rows), crosscheck, check-migrate (642 documents), `test-ids.py check`, `lint-report.bash --check --no-mark`, the markdown check and markdownlint (only lines already there) passed. `--backlog-run-quick rust go python c cli` passed all 5 steps; the call timed out in its wrap-up after step 5.
+	- Swept: each binding's `migrate_text` call site of the raw body step, and `Migration`'s `ambiguous` doc and `migrate`'s doc comment in all 4. C++ `Migration`'s comment is general and still holds. `upgrade` finds the format first, so it's unchanged.
+	- Test case: `migrate_counts_a_raw_body_2x_read_otherwise` (Rust `dfjnc`, Go `dfjnd`, Python `dfjne`, C `dfjnf`), and cli-regress `dfjng` (`migrate-raw-body-ambiguous`).
+	- Branch: `nov20c-2026112013244228`
+	- Commit: `9fc7fac1`
+	- Acceptance signoff: Self-closed: the tests were seen to fail on the old code, and the named gates passed.
+	- Closed: 20261120-142900
+	- Closed reason: Done
 
 - `clear_comments` takes a comment on the far side of a kept line above its target
 	- ID: 2026111021095858

@@ -7676,6 +7676,48 @@ fn upgrade_from_1x_or_2x_keeps_a_raw_body_and_an_open_quote_as_read() {
 	);
 }
 
+/// Without `from` or a Format line, a raw body that 1.0, 1.1 or 2.0 read
+/// otherwise, with its shared indent taken off or closed on a fence run with
+/// a Unicode blank at its edge, reads two ways, since the 2.x builds after
+/// 2.0 read it as these rules do. It stays as typed, counts as ambiguous, and
+/// the file is unfinished. A body every format read alike, as 2.0's fmt wrote
+/// it, doesn't count, and `from` still rewrites it (2026112013244228). Same
+/// rows in every runner.
+#[test]
+fn migrate_counts_a_raw_body_2x_read_otherwise() {
+	let _id = test_id("dfjnc");
+	let indented = "q: ~~~sql\n  SELECT 1\n    FROM t\n~~~\nport: 80\n";
+	let flush = "q: ~~~sql\nSELECT 1\n  FROM t\n~~~\nport: 80\n";
+	// text and ambiguous. Each comes back as typed, and only one that
+	// counts nothing is stamped.
+	let rows = [
+		(indented, 1),
+		("a:\n\t```\n\t\tx\n\t```\nb: ~~~\n y\n~~~\n", 2),
+		("u: ~~~\n\tx\n~~~\u{2028}\nport: 80\n", 1),
+		(flush, 0),
+	];
+	for (text, ambiguous) in rows {
+		let stamped = if ambiguous == 0 {
+			format!("{text}##    Format   3.0\n")
+		} else {
+			text.to_string()
+		};
+		for (m, want) in [
+			(migrate(text, None), stamped.as_str()),
+			(migrate_unstamped(text, None), text),
+		] {
+			assert_eq!(
+				(m.text.as_str(), m.ambiguous, m.unfinished, m.lost),
+				(want, ambiguous, ambiguous != 0, 0),
+				"{text:?}"
+			);
+		}
+	}
+	let m = migrate(indented, Some("2.0"));
+	assert_eq!((m.ambiguous, m.unfinished), (0, false), "{}", m.text);
+	assert!(m.text.starts_with(flush), "{}", m.text);
+}
+
 /// 1.0 to 3.0-a37 keyed an instance by its strings alone, so `k: x` and a
 /// stacked list of `x` alone were one instance. The step out of each writes
 /// such a scalar as an array of one, and one with lines under it is E028 and

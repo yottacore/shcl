@@ -3289,9 +3289,10 @@ type Migration struct {
 	// migrate and Text is the input.
 	Current bool
 	// Ambiguous: pieces both rule sets read cleanly and differently, such as
-	// `a,b` or an escape, and runs of lines one rule set reads as a raw body
-	// and the other as fields, which nothing can decide between, left as
-	// written. Always 0 when the caller said the file is 2.x. A backslash pair
+	// `a,b` or an escape, runs of lines one rule set reads as a raw body and
+	// the other as fields, and a raw body 1.0 to 2.0 read with its shared
+	// indent taken off or closed early, which nothing can decide between, left
+	// as written. Always 0 when the caller said the file is 2.x. A backslash pair
 	// 2.x resolved is one of them, as in `"C:\\new"`.
 	Ambiguous int
 	// Lost: lines 2.x bound a value on that nothing binds now, since there is
@@ -4204,9 +4205,11 @@ func stampHint(stamp Read[int]) (Diagnostic, bool) {
 // from's format read it, and without from stays as written and counts in
 // Lost, since 1.2 read it as typed and 2.0 resolved it. With from naming 1.0,
 // 1.1 or 2.0, a raw body is written to read as that format read it, with the
-// indent its lines shared taken off. A file taken as 3.0-a37 or older, by from
-// or its Format line, gets `[x]` for a scalar `x` beside a stacked list of `x`
-// alone, since those were one instance then and a list isn't a scalar now.
+// indent its lines shared taken off. Without from or a Format line, a body any
+// of those formats read otherwise stays as typed and counts in Ambiguous. A
+// file taken as 3.0-a37 or older, by from or its Format line, gets `[x]` for a
+// scalar `x` beside a stacked list of `x` alone, since those were one instance
+// then and a list isn't a scalar now.
 // Which file this is cannot always be read off the text: `p: a,b` is an array
 // under 2.x and one string under these rules, and a raw block can open where
 // only one rule set sees it, so rewriting a 3.0 file changes what it says. So
@@ -4296,8 +4299,9 @@ type rawLine struct {
 // read then, which a second run reads the same, and a line of blanks only
 // where it reads otherwise. The rest stay as typed. A block that never closes
 // stays as typed, since 2.x read it with an error and it is unfinished here.
-// Migrate's own read, with no format found, keeps them all too: the 2.x dev
-// builds after 2.0 read a body as it reads now.
+// Migrate's own read, with no format found, keeps them all too, since the 2.x
+// dev builds after 2.0 read a body as it reads now, and counts a body 1.0 to
+// 2.0 read otherwise as ambiguous.
 func v2RawBody(lines []string, ch byte, length int, v2 v2Read) []rawLine {
 	if v2 == v2Either {
 		return nil
@@ -4361,6 +4365,30 @@ func v2RawBody(lines []string, ch byte, length int, v2 v2Read) []rawLine {
 		out[k] = rawLine{text: want, set: !keep}
 	}
 	return out
+}
+
+// v2ReadsBodyOtherwise says whether 1.0, 1.1 or 2.0 read a raw body, for the
+// lines after its opening fence, otherwise than these rules do: with the indent
+// its lines shared taken off, or closed on a line only they took as its closing
+// fence.
+func v2ReadsBodyOtherwise(lines []string, ch byte, length int) bool {
+	for _, l := range lines {
+		b := strings.TrimRight(l, "\r")
+		if _, ok := v2FenceClose(b, ch, length); ok {
+			if !isFenceClose(b, ch, length) {
+				return true
+			}
+			break
+		}
+	}
+	for _, v := range []v2Read{v2From11, v2From20} {
+		for _, r := range v2RawBody(lines, ch, length, v) {
+			if r.set {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // v2FoldScalars: 1.0 to 3.0-a37 keyed an instance by its strings alone, so
@@ -4561,6 +4589,11 @@ func migrateText(text string, fromV2, stamp, beta bool, s step) Migration {
 		// open the same block on the same line.
 		if fence.open && !rawThen && now.fence == fence {
 			rawBody = v2RawBody(lines[i+1:], fence.ch, fence.length, st.v2)
+			// A file that may be 3.0 keeps the body as typed, and one 1.0 to
+			// 2.0 read otherwise reads two ways.
+			if st.v2 == v2Either && !st.fromV2 && v2ReadsBodyOtherwise(lines[i+1:], fence.ch, fence.length) {
+				st.ambiguous++
+			}
 		}
 	}
 	// A scalar written as an array to fold as it did is E028 too where it

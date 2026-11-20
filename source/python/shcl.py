@@ -2805,8 +2805,9 @@ class Migration:
 
 	current: the file already names its format, so there was nothing to migrate
 	and text is the input. ambiguous: pieces both rule sets read cleanly and
-	differently, such as `a,b` or an escape, and runs of lines one rule set
-	reads as a raw body and the other as fields, which nothing can decide
+	differently, such as `a,b` or an escape, runs of lines one rule set reads
+	as a raw body and the other as fields, and a raw body 1.0 to 2.0 read with
+	its shared indent taken off or closed early, which nothing can decide
 	between, left as written; always 0 when the caller said the file is 2.x.
 	A backslash pair 2.x resolved is one of them, as in `"C:\\new"`. lost:
 	lines 2.x bound a value on that nothing binds now, since there is no 3.0
@@ -3531,10 +3532,12 @@ def migrate(text: str, from_: str | None) -> Migration:
 	reads as from_'s format read it, and without from_ stays as written and
 	counts in lost, since 1.2 read it as typed and 2.0 resolved it. With
 	from_ naming 1.0, 1.1 or 2.0, a raw body is written to read as that
-	format read it, with the indent its lines shared taken off. A file taken
-	as 3.0-a37 or older, by from_ or its Format line, gets `[x]` for a
-	scalar `x` beside a stacked list of `x` alone, since those were one
-	instance then and a list isn't a scalar now.
+	format read it, with the indent its lines shared taken off. Without from_
+	or a Format line, a body any of those formats read otherwise stays as
+	typed and counts in ambiguous. A file taken as 3.0-a37 or older, by from_
+	or its Format line, gets `[x]` for a scalar `x` beside a stacked list of
+	`x` alone, since those were one instance then and a list isn't a scalar
+	now.
 
 	Which file this is cannot always be read off the text: `p: a,b` is an
 	array under 2.x and one string under these rules, and a raw block can open
@@ -3606,7 +3609,8 @@ def _v2_raw_body(lines, ch, length, v2):
 	it reads otherwise. The rest stay as typed (None). A block that never
 	closes stays as typed, since 2.x read it with an error and it is
 	unfinished here. migrate's own read, with no format found, keeps them all
-	too: the 2.x dev builds after 2.0 read a body as it reads now."""
+	too, since the 2.x dev builds after 2.0 read a body as it reads now, and
+	counts a body 1.0 to 2.0 read otherwise as ambiguous."""
 	if v2 is _V2Read.EITHER:
 		return []
 	body = []
@@ -3645,6 +3649,24 @@ def _v2_raw_body(lines, ch, length, v2):
 		keep = _strip_common(b, nest) == t if not _trim(b) else b == want
 		out.append(None if keep else want)
 	return out
+
+
+def _v2_reads_body_otherwise(lines, ch, length):
+	"""Whether 1.0, 1.1 or 2.0 read a raw body, for the lines after its
+	opening fence, otherwise than these rules do: with the indent its lines
+	shared taken off, or closed on a line only they took as its closing
+	fence."""
+	for line in lines:
+		b = line.rstrip("\r")
+		if _v2_fence_close(b, ch, length) is not None:
+			if not _is_fence_close(b, ch, length):
+				return True
+			break
+	return any(
+		r is not None
+		for v in (_V2Read.FROM_11, _V2Read.FROM_20)
+		for r in _v2_raw_body(lines, ch, length, v)
+	)
 
 
 def _v2_fold_scalars(text):
@@ -3788,6 +3810,14 @@ def _migrate_text(text, from_v2, stamp, beta, step):
 		# open the same block on the same line.
 		if fence is not None and not raw_then and now.fence == fence:
 			raw_body = iter(_v2_raw_body(lines[i + 1:], fence[0], fence[1], st.v2))
+			# A file that may be 3.0 keeps the body as typed, and one 1.0 to
+			# 2.0 read otherwise reads two ways.
+			if (
+				st.v2 is _V2Read.EITHER
+				and not st.from_v2
+				and _v2_reads_body_otherwise(lines[i + 1:], fence[0], fence[1])
+			):
+				st.ambiguous += 1
 	# A scalar written as an array to fold as it did is E028 too where it
 	# heads lines of its own.
 	if st.from_v2:

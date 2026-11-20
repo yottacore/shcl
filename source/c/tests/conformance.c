@@ -8976,6 +8976,44 @@ int main(int argc, char **argv) {
 		if (mm.len < strlen(typed) || memcmp(mm.text, typed, strlen(typed)) != 0) fail("upgrade_raw_body", mm.text);
 		free(mm.text);
 	}
+	test_id("dfjnf", "migrate_counts_a_raw_body_2x_read_otherwise");
+	/* Without from or a Format line, a raw body that 1.0, 1.1 or 2.0 read
+	   otherwise, with its shared indent taken off or closed on a fence run
+	   with a Unicode blank at its edge, reads two ways, since the 2.x builds
+	   after 2.0 read it as these rules do. It stays as typed, counts as
+	   ambiguous, and the file is unfinished. A body every format read alike,
+	   as 2.0's fmt wrote it, doesn't count, and from still rewrites it
+	   (2026112013244228). Same rows in every runner. */
+	{
+		const char *indented = "q: ~~~sql\n  SELECT 1\n    FROM t\n~~~\nport: 80\n";
+		const char *flush = "q: ~~~sql\nSELECT 1\n  FROM t\n~~~\nport: 80\n";
+		/* Each comes back as typed, and only one that counts nothing is
+		   stamped. */
+		const struct { const char *text; size_t ambiguous; } rows[] = {
+			{indented, 1},
+			{"a:\n\t```\n\t\tx\n\t```\nb: ~~~\n y\n~~~\n", 2},
+			{"u: ~~~\n\tx\n~~~\xe2\x80\xa8\nport: 80\n", 1},
+			{flush, 0},
+		};
+		for (size_t i = 0; i < sizeof rows / sizeof rows[0]; i++) {
+			char stamped[256];
+			snprintf(stamped, sizeof stamped, "%s%s", rows[i].text, rows[i].ambiguous ? "" : "##    Format   3.0\n");
+			for (int bare = 0; bare < 2; bare++) {
+				const char *t = rows[i].text;
+				shcl_migration m = bare ? shcl_migrate_unstamped(t, strlen(t), NULL) : shcl_migrate(t, strlen(t), NULL);
+				const char *want = bare ? t : stamped;
+				if (!m.text || m.len != strlen(want) || memcmp(m.text, want, m.len) != 0 || m.ambiguous != rows[i].ambiguous
+					|| m.unfinished != (rows[i].ambiguous != 0) || m.lost != 0) {
+					fprintf(stderr, "ambiguous %zu unfinished %d lost %zu\n%s\n", m.ambiguous, m.unfinished, m.lost, m.text ? m.text : "no text");
+					fail("migrate_raw_body_2x", t);
+				}
+				free(m.text);
+			}
+		}
+		shcl_migration m = shcl_migrate(indented, strlen(indented), "2.0");
+		if (!m.text || m.ambiguous != 0 || m.unfinished || strncmp(m.text, flush, strlen(flush)) != 0) fail("migrate_raw_body_2x", "from 2.0");
+		free(m.text);
+	}
 	test_id("dfjd1", "upgrade_from_1x_to_a37_folds_a_scalar_with_a_list_of_it");
 	/* 1.0 to 3.0-a37 keyed an instance by its strings alone, so `k: x` and a
 	   stacked list of `x` alone were one instance. The step out of each

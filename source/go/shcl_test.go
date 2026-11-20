@@ -8802,6 +8802,45 @@ func TestUpgradeFrom1xOr2xKeepsARawBodyAndAnOpenQuoteAsRead(t *testing.T) {
 	}
 }
 
+// TestMigrateCountsARawBody2xReadOtherwise: without from or a Format line, a
+// raw body that 1.0, 1.1 or 2.0 read otherwise, with its shared indent taken
+// off or closed on a fence run with a Unicode blank at its edge, reads two
+// ways, since the 2.x builds after 2.0 read it as these rules do. It stays as
+// typed, counts as ambiguous, and the file is unfinished. A body every format
+// read alike, as 2.0's fmt wrote it, doesn't count, and from still rewrites it
+// (2026112013244228). Same rows in every runner.
+func TestMigrateCountsARawBody2xReadOtherwise(t *testing.T) {
+	defer testID(t, "dfjnd")
+	indented := "q: ~~~sql\n  SELECT 1\n    FROM t\n~~~\nport: 80\n"
+	flush := "q: ~~~sql\nSELECT 1\n  FROM t\n~~~\nport: 80\n"
+	// Each comes back as typed, and only one that counts nothing is stamped.
+	for _, c := range []struct {
+		text      string
+		ambiguous int
+	}{
+		{indented, 1},
+		{"a:\n\t```\n\t\tx\n\t```\nb: ~~~\n y\n~~~\n", 2},
+		{"u: ~~~\n\tx\n~~~\u2028\nport: 80\n", 1},
+		{flush, 0},
+	} {
+		stamped := c.text
+		if c.ambiguous == 0 {
+			stamped += "##    Format   3.0\n"
+		}
+		for _, r := range []struct {
+			m    Migration
+			want string
+		}{{Migrate(c.text, ""), stamped}, {MigrateUnstamped(c.text, ""), c.text}} {
+			if r.m.Text != r.want || r.m.Ambiguous != c.ambiguous || r.m.Unfinished != (c.ambiguous != 0) || r.m.Lost != 0 {
+				t.Errorf("%q: got %q ambiguous %d unfinished %v lost %d, want %q", c.text, r.m.Text, r.m.Ambiguous, r.m.Unfinished, r.m.Lost, r.want)
+			}
+		}
+	}
+	if m := Migrate(indented, "2.0"); m.Ambiguous != 0 || m.Unfinished || !strings.HasPrefix(m.Text, flush) {
+		t.Errorf("from 2.0: ambiguous %d unfinished %v %q", m.Ambiguous, m.Unfinished, m.Text)
+	}
+}
+
 // TestUpgradeFrom1xToA37FoldsAScalarWithAListOfIt: 1.0 to 3.0-a37 keyed an
 // instance by its strings alone, so `k: x` and a stacked list of `x` alone
 // were one instance. The step out of each writes such a scalar as an array of

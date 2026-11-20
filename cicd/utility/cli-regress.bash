@@ -845,6 +845,10 @@ rows=(
 	'ddjyp|set-literal-comma-text|set --set-literal=o=rw,noatime --set=e=a, -|o: 1\n|0|o: "rw,noatime"\n\ne: "a,"\n## SHCL format 3.0\n|-'
 	'ddjyq|migrate-comma-list|migrate --from=2.0 -|x: a,b\ny: a, b\n|0|x: [a, b]\ny: [a, b]\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
 	'ddjyr|migrate-comma-ambiguous|migrate -|y: a,b\n|7|y: a,b\n|read one way under 2.x and another'
+	## 1.0 to 2.0 took a raw body's shared indent off, and the 2.x builds after
+	## 2.0 read it as typed, so without --from the body reads two ways
+	## (2026112013244228).
+	'dfjng|migrate-raw-body-ambiguous|migrate -|q: ~~~sql\n  SELECT 1\n    FROM t\n~~~\nport: 80\n|7|q: ~~~sql\n  SELECT 1\n    FROM t\n~~~\nport: 80\n|doesn.t say which it was written for.*--from=FORMAT'
 	## 2.x read `k: s,` as `k: s`, one field with the line after it.
 	'ddrgk|migrate-lone-element|migrate --from=2.0 -|k: s,\nk: s\n|0|k: s\nk: s\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
 	## A comment on a stacked item stays on it, and one among the items stays

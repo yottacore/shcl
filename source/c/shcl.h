@@ -843,8 +843,9 @@ extern const char *const shcl_format_names[SHCL_FORMAT_NAME_COUNT][2];
 // malloc'd and NUL-terminated, the caller frees it, len is its length, and it
 // may hold NUL if the input did. current: the file already names its format,
 // so there was nothing to migrate and text is the input. ambiguous: pieces
-// both rule sets read cleanly and differently, such as `a,b` or an escape, and
-// runs of lines one rule set reads as a raw body and the other as fields,
+// both rule sets read cleanly and differently, such as `a,b` or an escape,
+// runs of lines one rule set reads as a raw body and the other as fields, and
+// a raw body 1.0 to 2.0 read with its shared indent taken off or closed early,
 // which nothing can decide between, left as written; always 0 when from
 // named the file's format. A backslash pair 2.x resolved is one of them, as in
 // `"C:\\new"`. lost: lines 2.x bound a value on that nothing binds now, since
@@ -870,7 +871,9 @@ typedef struct { char *text; size_t len; int current; size_t ambiguous; size_t l
 // rewrite with that format's reads of a quoted name and a selector, and from
 // 3.0-1f8 to 3.0-a37, that pin's. A backslash pair 2.x resolved is written as
 // the text 2.x read. Without from, a quoted name with one stays as written
-// and counts in lost. A name no format has, such as `1.2`, is no from. A
+// and counts in lost, and without from or a Format line, a raw body 1.0 to
+// 2.0 read otherwise stays as typed and counts in ambiguous. A name no format
+// has, such as `1.2`, is no from. A
 // format whose steps rewrite nothing, and a newer one, leave the file
 // untouched, and so does a pin's when the file's stamp names this format
 // whole, which is what a rewrite from a pin names.
@@ -4360,8 +4363,9 @@ static ShclStr raw_body_line(ShclStr rest, size_t pos, size_t *next) {
    a line of blanks only where it reads otherwise. The rest stay as typed, a
    NULL p. A block that never closes stays as typed, since 2.x read it with
    an error and it is unfinished here. migrate's own read, with no format
-   found, keeps them all too: the 2.x dev builds after 2.0 read a body as it
-   reads now. *count gets the number of lines, 0 with NULL when none
+   found, keeps them all too, since the 2.x dev builds after 2.0 read a body
+   as it reads now, and counts a body 1.0 to 2.0 read otherwise as
+   ambiguous. *count gets the number of lines, 0 with NULL when none
    change. In a. */
 static ShclStr *v2_raw_body(ShclArena *a, ShclStr rest, unsigned char ch, size_t len, ShclV2Read v2, size_t *count) {
 	*count = 0;
@@ -4413,6 +4417,27 @@ static ShclStr *v2_raw_body(ShclArena *a, ShclStr rest, unsigned char ch, size_t
 	}
 	*count = nb;
 	return out;
+}
+
+/* Whether 1.0, 1.1 or 2.0 read a raw body, for the lines in rest, the text
+   after its opening line's '\n', otherwise than these rules do: with the
+   indent its lines shared taken off, or closed on a line only they took as
+   its closing fence. Scratch in a. */
+static int v2_reads_body_otherwise(ShclArena *a, ShclStr rest, unsigned char ch, size_t len) { // NOLINT(bugprone-easily-swappable-parameters): fence char, then run length, as the fence reader gives them
+	for (size_t pos = 0, next = 0; pos <= rest.n; pos = next) {
+		ShclStr b = raw_body_line(rest, pos, &next);
+		if (v2_fence_close(b, ch, len, NULL)) {
+			if (!is_fence_close(b, ch, len)) return 1;
+			break;
+		}
+	}
+	static const ShclV2Read reads[] = {SHCL_V2_FROM_11, SHCL_V2_FROM_20};
+	for (size_t r = 0; r < sizeof reads / sizeof reads[0]; r++) {
+		size_t n = 0;
+		ShclStr *body = v2_raw_body(a, rest, ch, len, reads[r], &n);
+		for (size_t k = 0; body && k < n; k++) if (body[k].p) return 1;
+	}
+	return 0;
 }
 
 /* 1.0 to 3.0-a37 keyed an instance by its strings alone, so `k: x` and a list
@@ -4619,6 +4644,11 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
 		if (fence_on && !raw_then && now.fence_on && now.fence_ch == fence_ch && now.fence_len == fence_len) {
 			raw_at = 0; raw_n = 0;
 			raw_body = i < text.n ? v2_raw_body(a, s_slice(text, i + 1, text.n), fence_ch, fence_len, st->v2, &raw_n) : NULL;
+			/* A file that may be 3.0 keeps the body as typed, and one 1.0 to
+			   2.0 read otherwise reads two ways. */
+			if (st->v2 == SHCL_V2_EITHER && !st->from_v2 && i < text.n
+				&& v2_reads_body_otherwise(sc, s_slice(text, i + 1, text.n), fence_ch, fence_len))
+				st->ambiguous++;
 		}
 		start = i + 1;
 	}
@@ -4679,7 +4709,8 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
    and which now ends at the `#`. A quoted name with a backslash pair stays as
    written and counts in lost, since 1.2 read it as typed and 2.0 resolved it.
    A step out of 1.0, 1.1 or 2.0 writes a raw body to read as that format
-   read it, with the indent its lines shared taken off. A file taken as
+   read it, with the indent its lines shared taken off, and migrate's own
+   read counts one they read otherwise in ambiguous. A file taken as
    3.0-a37 or older, by from or its Format line, gets `[x]` for a scalar `x`
    beside a stacked list of `x` alone, since those were one instance then and
    a list isn't a scalar now.
