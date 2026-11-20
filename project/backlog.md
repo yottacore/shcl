@@ -49,6 +49,40 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Note: until then shell-regress dcvej fails, since every fmt now ends with the stamp.
 
+- `migrate_unstamped` can't say a migration didn't finish
+	- ID: 2026111014552300
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261110-145523
+	- Opened by: silkterm feedback
+	- Related IDs: silkterm's 2026100315553545
+	- Version and build: `3.0.0-beta1` from crates.io, and dev at `4901ecac`
+	- Steps to reproduce: `migrate_unstamped("notes: ```\nnever closed\n", Some("2.0"))`, or with no `from`.
+	- Incorrect behavior: it returns `current: false`, `ambiguous: 0`, and `lost: 0`, the same as a migration that finished. A program that writes `GEN_BANNER` itself, which is what `migrate_unstamped` is for, then puts the Format line inside the open raw block, so the file never reads as current. Only the stamped `migrate` shows it, by leaving its Format line off. SilkTerm calls both on every 2.x file to tell. `upgrade()` closes the block and reports `E005`, but it writes its own stamp.
+	- Expected behavior:
+		- `Migration` says when the migration couldn't finish, as for a raw block that never closes, so a caller of `migrate_unstamped` can tell without making the stamped call too.
+		- All 4 bindings get the same field.
+	- Reproduced: 20261120, on dev `07fa68a1` in Python, with `from` 2.0 and with none. `current`, `ambiguous` and `lost` are false, 0 and 0, and the text comes back as it went in.
+	- Estimated effort: Low
+	- Decisions:
+		- JC, 20261120: a bug, fixed before the next cut.
+
+- Make sure testing covers exhaustively, mismatched file format stamps, mtime, and content
+	- ID: 2026112007004374
+	- Type: Task
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261120-070043
+	- Opened by: JC
+	- Related IDs: 2026111907075423, 2026111907080400, 2026111907080466
+	- Requirements:
+		- Both that should be expected to barely figure it out and pass, and fail.
+		- Tests to start from: `dfgvd` to `dfgvh` (stamp and mtime), `dfgwc` to `dfgwf` (tells), `dfgyc` to `dfgyf` (load by mtime), and `dfh89` to `dfh8c` (beta1's stamp in `upgrade`).
+	- Estimated effort: Avg
+
 - Format versions: every file stamped, and every published format read and converted
 	- ID: 2026111018212700
 	- Type: Feature
@@ -976,22 +1010,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The released beta1 changelog section stays as it is.
 	- Estimated effort: Low
 
-- `Migration` can't say a migration didn't finish
-	- ID: 2026111014552300
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Low
-	- Target version: v3.0.0
-	- Opened: 20261110-145523
-	- Opened by: silkterm feedback
-	- Related IDs: silkterm's 2026100315553545
-	- Version and build: `3.0.0-beta1` from crates.io, and dev at `4901ecac`
-	- Problem description: `migrate_unstamped("notes: ```\nnever closed\n", true)` returns `current: false`, `ambiguous: 0`, and `lost: 0`, the same as a migration that finished. A program that writes `GEN_BANNER` itself, which is what `migrate_unstamped` is for, then puts the Format line inside the open raw block, so the file never reads as current. Only the stamped `migrate` shows it, by leaving its Format line off. SilkTerm calls both on every 2.x file to tell. `upgrade()` closes the block and reports `E005`, but it writes its own stamp.
-	- Requirements:
-		- `Migration` says when the migration couldn't finish, as for a raw block that never closes, so a caller of `migrate_unstamped` can tell without making the stamped call too.
-		- All 4 bindings get the same field.
-	- Estimated effort: Low
-
 - A string read of an array gives its bracket text at Good
 	- ID: 2026111014552301
 	- Type: Enhancement
@@ -1171,6 +1189,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 20261119: a selector 1.x may have matched otherwise stays as typed and counts as lost: a quoted one holding a comma and a space, and from 1.0 one with a backslash pair. The step reads a line at a time, so it can't see whether another instance would have matched, and calls them all unsure. A 1.0 value with a backslash pair that a selector without one matched by its resolved text isn't caught, for the same reason.
 		- me, 20261119: 1.0 kept 2 instances where a late block or stacked list closed onto an earlier one, and 1.1 folds them. No later format spells 2 instances of one value, and no text tells it, so the step out of 1.0 reads such a file as 1.1 does.
 		- me, 20261119: `from_v2` in the load and `upgrade` takes the file as 2.0, so a quoted name with a backslash pair now gets its 2.0 spelling there, where it used to stay as typed and count lost. Without `from_v2`, a name found to be 2.0's that reads clean now, as `"c\td"` does, counts as reading 2 ways, as a value does. Logged as a `Check:` in questions.md.
+		- me, 20261120: kept as built after the `Check:` in questions.md. The caller said 2.0, so 2.0's spelling is the faithful one, and `migrate` takes the same steps since 2026111919213927.
 	- 20261119: `migrate_counts_a_quoted_name_with_a_backslash_pair_lost` (`de60h`) now wants `upgrade(text, true, true).lost` 0, where it was 2, since `from_v2` takes the text as 2.0. Its `migrate` asserts are as they were.
 	- Verified: `dfhe6` fails with each of the 3 rows set back to `V2Read::Either`, and passes with them. cargo test, clippy and rustfmt, `--backlog-run-quick rust go python c cli`, cli-regress over the Rust CLI, crosscheck over the corpus (Rust and Go), check-migrate, check-docs, `test-ids.py check`, `lint-report.bash --check --no-mark`, the markdown check and markdownlint passed. On probe files dated to 1.0, 1.1 and 2.0, `shcl upgrade` gave the names and selectors the v1.0.0, v1.2.0 and v2.0.0 CLIs read, or kept the line as typed and counted it lost.
 	- Swept: `convert` and `upgrade_dated` are the only users of `first_rewrite`, and both pass the `Step` on. `migrate` and `migrate_unstamped` pass `Either`, so their output is as it was, which check-migrate, cli-regress and crosscheck confirm. Docs: the design doc's Reading and converting, design.md's `load_file_opts` bullet, the changelog, `upgrade`'s doc comment and `Migration::lost`. The ports are 2026111917072123, 2026111917072255 and 2026111917072385.
@@ -1295,6 +1314,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 20261120: a stamp naming a newer format still leaves the file alone whatever `from` says, since these rules can't read that format's lines and its save is refused anyway.
 		- me, 20261120: with `from`, a clean file naming this major stays when the step is a 2.x one, as with `from_v2`, and stays with a pin only when its stamp names `3.0` whole, which is what the made-over file names. Without that, a second run with the same pin made its own output over again, since `◉TAB◉` was text in a pin (fuzz `de116`).
 		- me, 20261120: `migrate` and `migrate_unstamped` keep `from_v2` here. Taking `from` 2.0 there reads a quoted name with a backslash pair as 2.0 did, which changes corpus case `118-migrate-backslash-spelling`'s golden and `de60h`, shared with the other 3 bindings, so it goes with the CLIs' `--from=FORMAT` in 2026111918113344.
+		- me, 20261120: kept as built after the `Check:` in questions.md. A name no format has falls back to `find_format`, the path a program takes on every start, which never rewrites a file that loads clean.
 	- Verified: `dfhgc` fails with `from` ignored, and with the guard on a clean file stamped `3.0` taken out, and passes with both. `de116` fails its second run with a pin's `from` with that guard taken out, and passes at 300 and at 200,000 in release. cargo test, clippy and rustfmt, `--backlog-run-quick rust go python c cli` (all 5 steps passed), cli-regress over the Rust CLI, crosscheck over the corpus with the Rust, Go and C CLIs, check-docs, `test-ids.py check`, `lint-report.bash --check --no-mark`, the markdown check and markdownlint passed.
 	- Swept: every Rust caller of `upgrade`, `upgrade_dated`, `upgrade_file` and `LoadOptions`, in `src/`, `tests/` and the Rust CLI, which passes `from` 2.0 for `--from-2x`. `convert` and `upgrade_dated` are the only places that read `from`, both through `from_format`. Docs: `LoadOptions::from`, `upgrade`'s and `Upgrade`'s doc comments, spec.md's `UpgradeFile` and `LoadFileOpts` bullets, design.md's `upgrade_file` and `load_file_opts` bullets, the format versions design doc and the changelog. The ports are 2026111918112329, 2026111918112450 and 2026111918112570.
 	- Test case: `a_caller_names_the_format_with_from` (Rust `dfhgc`), and fuzz `de116`'s pin arm.
@@ -1445,6 +1465,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 20261120: `--from-2x` is gone with no alias, as the item asks. It's an unknown option now.
 		- me, 20261120: the `H007` hint and `explain H007` name `--from=FORMAT` rather than the stamp's own number, since a stamp such as `Format 02` or `2.5` isn't a name `--from` takes.
 		- me, 20261120: the ambiguous refusal's pointer reads `(--from=FORMAT rewrites them)`. Test scripts pass `--from=2.0` where they passed `--from-2x`. cli-regress's option-scopes probe gives `FORMAT` the value `2.0`.
+		- me, 20261120: kept as built after the `Check:` in questions.md.
 	- Verified: the 7 new cli-regress rows, `ddqhf`, `ddqhk` and `ddmhk` fail on the old C CLI and pass on all 4 new ones. cli-regress over the 4 CLIs (684 rows, 4007 checks), check-migrate (647 documents), crosscheck over the corpus with the 4 CLIs (23862 comparisons), and steps 1 to 4 of `--backlog-run-quick rust go python c cli` passed, which take in check-completions, check-readme, check-docs, check-doc-examples, test-ids, shellcheck, markdownlint, clippy, go vet, staticcheck, ruff and mypy. The mingw C CLI build passed on its own. The help from the 4 CLIs has one checksum and no line over 80.
 	- Swept: every `--from-2x` in the 4 CLIs (parse, the 2 value-option lists, `allowed_opts`, the 3 refusal pointers, help and explain), the `H007` message in the 4 libraries, both completion files, the man page, spec.md, design.md, examples.md, the conformance README, the format versions design doc, changelog, cli-regress, check-migrate, crosscheck, check-readme, doc-tables.py, sanitize-c and the test comments. Left as written: the beta1 changelog section, dated History lines, row names and the older design docs.
 	- Test case: cli-regress `dfhkt`, `dfhkv`, `dfhkw`, `dfhkx`, `dfhky`, `dfhkz`, `dfhm0`, with `ddqhf`, `ddqhk` and `ddmhk` for the hint and refusal text.
