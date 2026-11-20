@@ -108,6 +108,31 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Without a schema, a repeated block whose children repeat as bare leaves is a warning rather than a hint.
 	- Estimated effort: Avg
 
+- `migrate` without `--from` stamps a file whose raw body 2.x read differently
+	- ID: 2026112013244228
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261120-132442
+	- Opened by: me
+	- Related IDs: 2026112008173348, 2026112008173388, 2026111014552300
+	- Steps to reproduce:
+		- A file with no Format line: `q: ~~~sql`, then `SELECT 1` indented 2 spaces and `FROM t` indented 4, then `~~~` at column 0, then `port: 80`.
+		- `shcl migrate FILE`, then `shcl get` of `q` on the output.
+	- Incorrect behavior: exit 0, the body as typed, and `##    Format   3.0` at the end. 1.0, 1.1 and 2.0 read `q` with `SELECT 1` at column 0 and `FROM t` indented 2, and the stamped file reads it with 2 more spaces on each line. Nothing is counted or said.
+	- Expected behavior:
+		- A raw body that 1.0, 1.1 or 2.0 read differently from these rules counts as a value that reads 2 ways, as `note: don't panic  # keep this` does. The body stays as typed, the file gets no stamp, `unfinished` is true, and the CLI exits 7 and names `--from`.
+		- A body every format read the same isn't counted. That's every body 2.0's own `fmt` wrote, since it put the body at the fence's indent.
+		- `--from` naming 1.0, 1.1 or 2.0 still rewrites the body, as now.
+		- All 4 bindings, with spec.md's migrate section and `migrate`'s doc comments.
+	- Reproduced: 20261120, the debug CLI on dev `ba733399` against the v2.0.0 CLI.
+	- Estimated effort: Avg
+	- Decisions:
+		- me, 20261120: this reverses 2026112008173348's call to leave such a body as typed at exit 0. `help` says `migrate` refuses a file that doesn't say which rules it was written for when the 2.x and current readings differ, and this is that case. `upgrade` isn't affected, since it finds the format first.
+		- me, 20261120: Avg, so beta.2 doesn't wait for it. beta1 did the same, and `upgrade` is the documented way to convert.
+	- Note: check-migrate's `rawindent` mode already leaves such a block out, and corpus 053, 055, 058 and 124 have bodies of this kind.
+
 - `Document::merge` drops the base file's comments on every leaf the upper layer names
 	- ID: 2026111217560140
 	- Type: Enhancement
@@ -683,6 +708,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Question: keep the windows, linux-arm, winarm and setup jobs? winarm has no test box, and the setup jobs test the installer on a clean Windows.
 		- Yes, keep. vmDebARM64 has wine. Might be painfully slow. If too slow for a normal cicd run, put on `--slow`.
 	- Estimated effort: Low
+	- Decisions:
+		- JC: the windows, linux-arm, winarm and setup jobs stay.
+		- me, 20261120: go-floor stays too. It's the only run on the Go release go.mod names, and no local step has that toolchain.
+		- me, 20261120: the winarm build also gets a try under wine on vmDebARM64, as a row word for that box. If it's too slow for a default run it goes under `--long`, since cicd.bash has no `--slow`.
 
 - No dependabot config for the Go toolchain and the Actions pins
 	- ID: 2026110215285711
@@ -741,6 +770,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Question: move the macOS pool to `~/Applications`, or keep `~/.local/bin` as on Linux?
 		- Whichever makes the most sense for a CLI utility.
 	- Estimated effort: Low
+	- Decisions:
+		- me, 20261120: the macOS pool stays in `~/.local/bin`, as on Linux. `~/Applications` is where app bundles go and isn't on PATH, and the installer's own link on macOS is `~/.local/bin/shcl`. So the shared rule's `~/Applications` rows don't apply to shcl, and nothing moves.
 
 - Some install paths differ from the shared install table
 	- ID: 2026110215285717
@@ -756,6 +787,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Question: move them to the table's paths, or keep today's?
 		- Use your best judgement that makes sense for each platform.
 	- Estimated effort: Low
+	- Decisions:
+		- me, 20261120: FreeBSD moves to `/usr/local/shcl/`. FreeBSD keeps everything outside the base system under `/usr/local`, it has no `/opt` until something makes one, and shcl's own FreeBSD package already installs there. The move requirement above covers an old `/opt/shcl`.
+		- me, 20261120: macOS stays at `~/.local/share/shcl`. The folder has a binary, a man page and completions, which shell tools on macOS keep under `~/.local` too, and a path with a space in it breaks unquoted shell use. Staying also means no move. This differs from the shared table's macOS row for that reason.
 
 - User-facing text skips contractions and has a few words from the style list
 	- ID: 2026110215285720
@@ -1030,6 +1064,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- JC, 20261120: a bug, fixed before the next cut.
 		- me, 20261120: the field is `unfinished` (Go `Unfinished`, C `int unfinished` at the end of `shcl_migration`, C++ `bool unfinished`). It's set exactly when `migrate` leaves its stamp off: `ambiguous` is nonzero, or a raw block never closes under either rule set. So one check answers whether a caller may write the Format line. Logged as a `Check:` in questions.md.
+			- me, 20261120: kept. `ambiguous` still says why, and a reason enum would add a type to every binding for a question no caller asked.
 	- Cause: `migrate_text` dropped the stamp for an open raw block without telling the caller, and the counts it returns don't cover it.
 	- Fixed: `Migration` carries `unfinished` in all 4 bindings and the C++ veneer, computed once beside the stamp test, which now reads it. Doc comments, spec.md, design.md and the changelog say so.
 	- Verified: `dfj8c` fails with `unfinished` held false, on the issue's text with `from` 2.0, and passes with the fix; so does `dfj8e`. `dd2kj` and its Go, Python and C twins compare `unfinished` between `migrate` and `migrate_unstamped` over the corpus. `--backlog-run-quick rust go python c cli` (all 5 steps), check-docs, check-veneer, `test-ids.py check`, `lint-report.bash --check --no-mark`, the markdown check and markdownlint (only lines already there) passed.
@@ -1182,6 +1217,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 20261120: 1.0 to 2.0 have no `paths` command, so they're asked the paths of the converted file and of the original under the current rules. A path with a quoted name is left out there, since the 2 CLIs spell it differently. With the pins, such a path's name isn't compared, but its reads are.
 		- me, 20261120: corpus 141 under 1.0 is excused by name, since the step out of 1.0 folds those 2 instances by decision.
 		- me, 20261120: it's in the full run and the merge gate, and 8 of its 11 tests fail until 2026112008173348, 2026112008173368 and 2026112008173388 close. A `Check:` entry in questions.md has it.
+			- me, 20261120: kept in both. A refusal at exit 7 still doesn't fail it, and `--min` catches a step that refuses too much.
 	- Verified: `check-formats.bash` ran over the 11 formats: 3.0-9ef, 3.0-a65 and 3.0 pass, and the other 8 fail only on the 3 bugs above. 3.0-9ef fails with its conversion swapped for `--from=2.0` (14 documents differ), and a format fails under `--min 500`. shellcheck, ruff, `test-ids.py check`, check-push-gate, shell-regress (bar the known `dcvej`, `de1a8` and `dc0b5`), the markdown check and markdownlint passed.
 	- Swept: config.bash's SHELLCHECK_TARGETS, TEST_EXTRA, QUICK_SKIP, the `cli` area, Alpine's skip list, the ruff list, CTR_PRIVATE and CARGO_CACHE_DIRS, plus `.gitignore` and test-ids.py's CALLS, each beside check-migrate's entry. Not FROZEN_LINKS, since the 11 CLIs build in about 25 seconds.
 	- Note: it adds about 30 seconds to the full run, and about 25 more the first time, to build the 11 CLIs (56 s cold, 31 s warm, at a load of 4 to 6).
@@ -1932,6 +1968,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: where a line would read otherwise, the step writes each line that holds more than blanks under the closing fence's indent with the text the format read, and a line of blanks only where it differs, in all 4 bindings (`v2_raw_body`, Go `v2RawBody`, Python `_v2_raw_body`). A closing fence run only 2.x read loses its blanks (`v2_fence_close`). Both happen only where the current rules open the same block on the same line. check-migrate leaves out a raw block that 2.0 and its pinned build read apart.
 	- Decisions:
 		- 20261120: `migrate` without `from` leaves raw bodies as typed, since the 2.x dev builds after 2.0 read them as now, and check-migrate's pinned build stands for those. A `Check:` entry in questions.md has it.
+			- me, 20261120: reversed for a body 2.x read differently, which should count as reading 2 ways. Filed as 2026112013244228.
 		- 20261120: a block that never closes stays as typed. 2.x read it with an error, the file is left unstamped, and a rewrite there wasn't a fixpoint.
 		- 20261120: once a block has a line that reads otherwise, every line that holds more than blanks is written under the closing fence's indent, not only the ones that differ, so a second run reads it the same.
 		- 20261120: the closing fence rule is fixed here too, since a fuzz document needed both and it's the same step's reading of a raw block.
@@ -1991,6 +2028,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: a quote inside a 2.x value piece that never closes takes the rest of the line into the piece, in `scan_piece` (Rust and C), `scanPiece` (Go) and `_scan_piece` (Python). That's every 2.x step and `migrate`. check-migrate's mid-quote finder also flags such a line when a comma or a `#` follows it.
 	- Decisions:
 		- 20261120: `migrate` without `from` reads it as 2.0 did too, as it already did for a quote that closes past a comma (2026102620591100). So `note: don't panic  # keep this` keeps the comment as text. A `Check:` entry in questions.md has it.
+			- me, 20261120: kept. Without `from` that line reads clean both ways, so it counts as reading 2 ways and `migrate` exits 7. It gets the comment as text only with `--from`. `open: don't, stop`, which these rules refuse, converts without it.
 	- 20261120: check-migrate `dej4h` wants lines `1 2 3 4 5 6` of corpus 210, where it was `1 2 3 4 5`, since line 6's quote never closes. Corpus 210's `expected-migrate.shcl` wants `open: "don't, stop"`, where it had `open: ["don't", stop]`.
 	- Verified: corpus 210's migrate golden fails on the unfixed library, and the gates under 2026112008173348 passed on the same commit. check-formats `dfjac` to `dfjae` no longer show it.
 	- Swept: the arm for an open quote at the start of a piece already took the rest of the line. A selector body isn't shielded, since 2.x's ran to its `]`. All 4 bindings' scan.
@@ -16208,6 +16246,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- An index selector on a binding line is refused and kept, as a wildcard is (`E004`). Lookups keep `(2)`.
 		- A hint where a bare number selects by index and some instance's value is that number, on a binding line or a lookup.
 	- Question: the first 2 change what a 3.0 file means, which v4's goals rule out (no Format 4, every clean 3.0 file reads the same). Make it a Format 4 change, or take the hint?
+		- me, 20261120: the hint. A bare number as an index and a quoted one as a value is settled in value-syntax.md, and a second index spelling is under its Rejected list. The hint changes no file's reading, so it needs no new format.
+		- The load reports it on a binding line where a bare number picks by index and an instance of that name has that number as its value. It names both spellings, such as `node("2")` for the value.
+		- The CLI says the same on stderr for a lookup path. A library lookup has nowhere to report it, so the docs say it (2026111011285705).
 	- Estimated effort: Avg
 	- Note: with v4 (JC).
 
@@ -16224,6 +16265,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: the default `--on-bad=flag` prints nothing when the read isn't `Good`. `--default=0` is how a script asks for a zero, the same rule as the library's `_or` reads.
 	- Reproduced: 20261102, release CLI on dev `3828fa60`.
 	- Question: `get` on an empty field exits 2, where spec.md calls `Empty` informational and not a failure, so a `set -e` script stops on a field left empty on purpose. Exit 0 with an empty line, or keep 2 and say so in the spec?
+		- me, 20261120: keep 2, and say so in the spec. The exit code is how a script tells `x:` from `x: ""`, which exits 0, and from a missing line, and scripts already test for it. `--default=` is the way to get exit 0 on an empty field, and the spec and `help get` name it for `set -e` scripts.
 	- Estimated effort: Low
 	- Note: with v4 (JC).
 
