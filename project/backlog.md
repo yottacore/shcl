@@ -96,7 +96,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: one table-driven conversion step per format, run in order on load
 	- ID: 2026111907080423
 	- Type: Feature
-	- Status: Queued
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261119-070804
@@ -108,11 +108,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: likely splits by the design doc's runs, 1.0 to 2.0, 3.0-1f8 to 3.0-a37, and 3.0-9ef to 3.0, since 2.0 to 3.0 is what migrate does now.
 	- 20261119: the load passes the file's mtime to find_format here, so this item also adds the touch -d mtime cases that 2026111907080400 left out (no file was read there).
 	- Note: split for its time cap into 2026111908443663 (the step table, the mtime on load, and the 3.0-9ef to 3.0 run), 2026111908444515 (3.0-1f8 to 3.0-a37), 2026111908444534 (1.0 to 2.0) and 2026111908444554 (`upgrade`).
+	- Test case: its children's: 2026111908444534: its children's: 2026111917071578: `a_load_converts_from_a_1x_or_2x_format` (Rust `dfhe6`).; 2026111917072123: `TestALoadConvertsFromA1xOr2xFormat` (Go `dfhes`, twin of Rust `dfhe6`).; 2026111917072255: `a_load_converts_from_a_1x_or_2x_format` (Python `dfhf2`, twin of Rust `dfhe6`).; 2026111917072385: `a_load_converts_from_a_1x_or_2x_format` (C `dfhfn`, twin of Rust `dfhe6`).; 2026111908444515: its children's: 2026111912004261: `a_load_converts_from_a_pinned_dev_format` (Rust `dfh4s`).; 2026111912004789: `TestALoadConvertsFromAPinnedDevFormat` (Go `dfh64`, twin of Rust `dfh4s`).; 2026111912004810: `a_load_converts_from_a_pinned_dev_format` (Python `dfh6n`, twin of Rust `dfh4s`).; 2026111912004831: `a_load_converts_from_a_pinned_dev_format` (C `dfh7e`, twin of Rust `dfh4s`).; 2026111908443663: `a_load_converts_from_the_format_its_mtime_gives` (Rust `dfgyc`, Go `dfgyd`, Python `dfgye`, C `dfgyf`).; 2026111908444554: `an_upgrade_converts_from_the_format_its_mtime_gives` (Rust `dfh0e`, Go `dfh0f`, Python `dfh0g`, C `dfh0h`, veneer `dfh0j`).; 2026111912330681: `an_upgrade_reads_a_beta1_stamp_as_the_load_does` (Rust `dfh89`, Go `dfh8a`, Python `dfh8b`, C `dfh8c`), fuzz `de116`, and check-migrate `ddmp8`.
+	- Closed: 20261119-180720
+	- Closed reason: Done
 
 - Format versions: conversion steps for 1.0 to 2.0, and from 2.0 to 3.0-1f8
 	- ID: 2026111908444534
 	- Type: Feature
-	- Status: Queued
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261119-084445
@@ -122,6 +125,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: rows and steps in the load's step table for 1.0, 1.1 and 2.0, per the design doc's Format numbers and Tells, in place of the 2.x migration that stands in for them. In all 4 bindings. A line a step isn't sure of stays as typed and is reported.
 	- Estimated effort: High
 	- Note: split for its time cap into 2026111917071578 (the Rust reference), then the ports 2026111917072123 (Go), 2026111917072255 (Python) and 2026111917072385 (C).
+	- Test case: its children's: 2026111917071578: `a_load_converts_from_a_1x_or_2x_format` (Rust `dfhe6`).; 2026111917072123: `TestALoadConvertsFromA1xOr2xFormat` (Go `dfhes`, twin of Rust `dfhe6`).; 2026111917072255: `a_load_converts_from_a_1x_or_2x_format` (Python `dfhf2`, twin of Rust `dfhe6`).; 2026111917072385: `a_load_converts_from_a_1x_or_2x_format` (C `dfhfn`, twin of Rust `dfhe6`).
+	- Closed: 20261119-180719
+	- Closed reason: Done
 
 - Format versions: the Rust steps out of 1.0 and 1.1
 	- ID: 2026111917071578
