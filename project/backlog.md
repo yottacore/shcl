@@ -278,7 +278,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `set_comment` making a field after a kept last line puts its blank above the kept line's comments
 	- ID: 2026111021153725
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Severity: Avg
 	- Target version: v3.0.0
 	- Opened: 20261110-211537
@@ -293,6 +293,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: the placement property in `dd3t9` excuses this class with a check keyed by this ID. The fix takes it out.
 	- 20261111: the property that excuses this is now in dev's `fuzz_smoke.rs`, on b2bits. The CLI reproduction stands.
 	- 20261119: the fix for 2026111022100191 (`push_comment` puts the blank on the new comment) gives this item's expected output through all 4 CLIs. What's left: take the `made` excuse out of `placement_slips`, add a placement row, and close against that fix.
+	- Reproduced: 20261120, nov20b at `68017351`: the issue's commands give the expected text through all 4 CLIs, so the 2026111022100191 fix covers it.
+	- Actual cause [Bug]: the same as 2026111022100191. `push_comment` moved the node's blank onto the first of its leading lines, which sat above the kept line's comments.
+	- Actual fix [Bug]: none in the library, since 2026111022100191's fix covers it. The `made` excuse keyed by this ID is out of `placement_slips`, and placement row `2026111021153725-1` pins the case.
+	- Actual effort: Low
+	- Swept: `placement_slips` has one other excuse keyed by an ID, 2026111021095858's, which is still open.
+	- Test case: placement row `2026111021153725-1` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dd3t9`, `dderx`.
+	- Verified: the row fails on the Python library at `6a983d87` with the issue's incorrect text, canonical and kept, and passes now (`placement-watch.py`). `df4g0`, `df4g2`, the Python conformance runner, `df50j`, `dd3t9` and `dderx` at 200,000 in release, then `dd3t9` and `dderx` at 800,000 each in release, `--backlog-run-quick rust go python c cli`, lint-report and rustfmt.
+	- Needs local test suite run?: `dd3t9` and `dderx` at 1,000,000 in release, since the property is checked up to `PLACEMENT_ITERS` and only 800,000 ran with the excuse out.
+	- Branch: `nov20b-2026111021153725`
 
 - `clear_comments` takes a comment on the far side of a kept line above its target
 	- ID: 2026111021095858
