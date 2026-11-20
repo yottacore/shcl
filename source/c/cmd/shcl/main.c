@@ -2812,21 +2812,21 @@ static void suggest(char *out, size_t outsz, const char **cands, size_t ncands, 
 	// Every candidate is ASCII, and this counts distance in bytes where the
 	// other three count characters, so a word that is not ASCII gets no
 	// suggestion rather than one the four bindings could disagree on.
+	// Each copy stops at the NUL it reads rather than at a strlen() taken
+	// first: the clang analyzer can't tie strlen() to a buffer the caller
+	// just terminated, and reports a read past it.
 	char w[64] = {0};
-	size_t wl = strlen(word);
-	if (wl >= sizeof w) return;
-	for (size_t i = 0; i < wl; i++) {
-		if ((unsigned char)word[i] >= 0x80) return;
+	for (size_t i = 0; word[i]; i++) {
+		if (i >= sizeof w - 1 || (unsigned char)word[i] >= 0x80) return;
 		w[i] = lower_byte(word[i]);
 	}
-	w[wl] = '\0';
 	const char *best = NULL;
 	size_t bestd = 3;
 	for (size_t i = 0; i < ncands; i++) {
 		char c[64] = {0};
-		size_t cl = strlen(cands[i]);
-		if (cl >= sizeof c) continue;
-		for (size_t j = 0; j <= cl; j++) c[j] = lower_byte(cands[i][j]);
+		size_t cl = 0;
+		for (; cands[i][cl] && cl < sizeof c - 1; cl++) c[cl] = lower_byte(cands[i][cl]);
+		if (cands[i][cl]) continue;
 		size_t d = edit_distance(w, c, 2);
 		if (d <= 2 && d < bestd) { best = cands[i]; bestd = d; }
 	}
