@@ -3036,7 +3036,8 @@ def _pick_format(text: str, mtime: float | None, by_stamp: int) -> str:
 # both read clean, such as an escape, isn't a tell here.
 _TELL_RUNS = (
 	# Refused from the format 3 value syntax on: a comma list, `*` items, a
-	# bracket selector, a bare name led by a digit, a CR in a bare value.
+	# bracket selector, a bare name led by a digit, a quote, a tab, a CR, a
+	# bracket or a loose colon in a bare value, an open backtick.
 	("3.0-9ef", "3.0"),
 	# A bracketed value, which binds nothing.
 	("3.0-1f8", "3.0-a37"),
@@ -3130,6 +3131,7 @@ def _line_tells(rest: str, codes: list[str], tok: Tokens) -> int:
 		or "E029" in codes
 		or ("E025" in codes and "\r" in rest)
 		or ("E014" in codes and led_by_digit)
+		or _value_told(codes, tok)
 	):
 		return _tell_run(_TELL_REFUSED_NOW)
 	if codes:
@@ -3149,6 +3151,25 @@ def _line_tells(rest: str, codes: list[str], tok: Tokens) -> int:
 	if any(inner(p) for p in tok.elements):
 		run |= _tell_run(_TELL_APOSTROPHE)
 	return run
+
+
+def _value_told(codes: list[str], tok: Tokens) -> bool:
+	"""A field value the format 3 value syntax refuses and every format before
+	it read clean as text: a bare value with a quote, a tab, a bracket or a
+	loose colon inside it (E025), or one a backtick opens and doesn't close
+	(E017). A quote or an apostrophe that opens a value and never closes is
+	E017 in every format, so it isn't one. A bracketed value or a selector in
+	the line is refused by the older formats too."""
+	if tok.array is not None or any(s.selector is not None for s in tok.segments):
+		return False
+	src = tok.src
+	for p in tok.elements:
+		if p.quote is Quote.None_:
+			if "E025" in codes and _bare_trouble(src[p.start : p.end].decode("utf-8", "surrogatepass"), _BARE_VALUE) is not None:
+				return True
+		elif p.quote is Quote.Open and "E017" in codes and src[p.start : p.start + 1] == b"`":
+			return True
+	return False
 
 
 class _StepKind(Enum):

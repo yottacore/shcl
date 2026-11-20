@@ -4442,6 +4442,42 @@ def main():
 		if shcl.find_format(fttext, ftmtime) != ftwant:
 			raise SystemExit(f"find_format {fttext!r} at {ftmtime}: {shcl.find_format(fttext, ftmtime)!r}, want {ftwant!r}")
 
+	test_id("dfje6", "a_value_the_format_3_syntax_refuses_is_a_tell")
+	# A bare value the format 3 value syntax refuses with E025, or one a
+	# backtick opens and doesn't close, read clean as text in every format to
+	# 3.0-a37, so it tells those apart from 3.0-9ef on. Rust's
+	# a_value_the_format_3_syntax_refuses_is_a_tell has the same rows. The
+	# mtimes are Unix seconds at UTC.
+	vtsep1 = 1788220800  # 2026-09-01, 1.0 to 2.0
+	vtoct20 = 1792454400  # 2026-10-20, to 3.0-9ef
+	vtnov10 = 1794268800  # 2026-11-10, every format
+	for vttext, vtmtime, vtwant in (
+		('a: x"y\n', vtnov10, "3.0-a37"),
+		('a: x"y\n', None, "3.0-a37"),
+		('a: x"y\n', vtsep1, "2.0"),
+		("a: O' Brien\n", vtnov10, "3.0-a37"),
+		("a: x\ty\n", vtnov10, "3.0-a37"),
+		("a: x]y\n", vtnov10, "3.0-a37"),
+		("a: b c: d\n", vtnov10, "3.0-a37"),
+		("a: x`y\n", vtnov10, "3.0-a37"),
+		("a: `q\n", vtnov10, "3.0-a37"),
+		('s:\n\ta: x"y # c\n', vtnov10, "3.0-a37"),
+		('a: z, x"y\n', vtnov10, "3.0-a37"),
+		('a: x"y\nb: it\'s\n', vtoct20, "3.0-a37"),
+		# One tell each way ties, and the tie goes to the newest.
+		('a: x"y\nb:\n\t- z\n', vtnov10, "3.0"),
+		# Not tells.
+		('a: "q\n', vtnov10, "3.0"),
+		("a: 'q\n", vtnov10, "3.0"),
+		('a: "x" y\n', vtnov10, "3.0"),
+		('a: [x"y, z]\n', vtnov10, "3.0"),
+		('s: p\ns(p).h: x"y\n', vtnov10, "3.0"),
+		('a:\n\t- x"y\n', vtnov10, "3.0"),
+		('x"y: 1\n', vtnov10, "3.0"),
+	):
+		if shcl.find_format(vttext, vtmtime) != vtwant:
+			raise SystemExit(f"find_format {vttext!r} at {vtmtime}: {shcl.find_format(vttext, vtmtime)!r}, want {vtwant!r}")
+
 	test_id("dfj92", "a_file_format_reads_through_a_stamp_mtime_and_body_that_disagree")
 	# Every pairing of a stamp, an mtime and a body whose tells disagree reads
 	# as the design doc's 4 steps give it, from tables written here rather
@@ -6708,7 +6744,7 @@ def main():
 		oct30 = 1793318400  # 2026-10-30, to 3.0-a65
 		nov10 = 1794268800  # 2026-11-10, every format
 		y2020 = 1577836800  # before any format, so ignored
-		cquote, cbrackets = 'a: x"y\n', "a: [1, 2]\n"
+		cquote, cbrackets = 'a: "q\n', "a: [1, 2]\n"
 		# The text, the mtime, from_v2, and whether it goes through migrate.
 		for ctext, cmtime, cv2, cmigrated in (
 			(cquote, nov10, False, False),
@@ -6881,7 +6917,7 @@ def main():
 		oct20 = 1792454400  # 2026-10-20, to 3.0-9ef
 		nov10 = 1794268800  # 2026-11-10, every format
 		y2020 = 1577836800  # before any format, so ignored
-		uquote, ufresh = 'a: x"y\n', "a: 'x\"y'\n## SHCL format 3.0\n"
+		uquote, ufresh = 'a: "q\n', "a: '\"q'\n## SHCL format 3.0\n"
 		# Text from no file reads as the newest format its tells leave.
 		if not shcl.upgrade(uquote, None, False).current:
 			raise SystemExit("upgrade with no mtime made it over")

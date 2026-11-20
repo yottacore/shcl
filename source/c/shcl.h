@@ -5088,7 +5088,8 @@ static ShclStep s_first_rewrite(const char *format) {
    both read clean, such as an escape, isn't a tell here. */
 static const char *const shcl_tell_runs[7][2] = {
 	/* Refused from the format 3 value syntax on: a comma list, `*` items, a
-	   bracket selector, a bare name led by a digit, a CR in a bare value. */
+	   bracket selector, a bare name led by a digit, a quote, a tab, a CR, a
+	   bracket or a loose colon in a bare value, an open backtick. */
 	{"3.0-9ef", "3.0"},
 	/* A bracketed value, which binds nothing. */
 	{"3.0-1f8", "3.0-a37"},
@@ -5122,7 +5123,27 @@ static uint32_t tell_run(int tell) {
 }
 
 /* The errors these rules give a line, as bits, for line_tells. */
-enum { TELL_ERR_ANY = 1, TELL_ERR_E013 = 2, TELL_ERR_E014 = 4, TELL_ERR_E025 = 8, TELL_ERR_E026 = 16, TELL_ERR_E029 = 32 };
+enum { TELL_ERR_ANY = 1, TELL_ERR_E013 = 2, TELL_ERR_E014 = 4, TELL_ERR_E025 = 8, TELL_ERR_E026 = 16, TELL_ERR_E029 = 32, TELL_ERR_E017 = 64 };
+
+/* A field value the format 3 value syntax refuses and every format before it
+   read clean as text: a bare value with a quote, a tab, a bracket or a loose
+   colon inside it (E025), or one a backtick opens and doesn't close (E017). A
+   quote or an apostrophe that opens a value and never closes is E017 in every
+   format, so it isn't one. A bracketed value or a selector in the line is
+   refused by the older formats too. */
+static int value_told(ShclArena *ta, ShclStr rest, unsigned errs, const ShclTokens *tok) {
+	if (tok->has_array) return 0;
+	for (size_t k = 0; k < tok->nseg; k++) {
+		if (tok->segments[k].has_selector) return 0;
+	}
+	for (size_t e = 0; e < tok->nelem; e++) {
+		const shcl_piece *p = &tok->elements[e];
+		ShclStr why;
+		if (p->quote == SHCL_QUOTE_NONE && (errs & TELL_ERR_E025) && bare_trouble(ta, s_slice(rest, p->start, p->end), BARE_VALUE, &why)) return 1;
+		if (p->quote == SHCL_QUOTE_OPEN && (errs & TELL_ERR_E017) && p->start < rest.n && rest.p[p->start] == '`') return 1;
+	}
+	return 0;
+}
 
 /* The formats a line's tells count against, as bits of shcl_format_days.
    errs are the errors these rules give the line. What these rules refuse is
@@ -5134,7 +5155,7 @@ static uint32_t line_tells(ShclArena *ta, ShclStr rest, unsigned errs, ShclToken
 	if (is_item(rest)) return errs ? 0 : tell_run(TELL_NEW_SPELLING);
 	tokenize(ta, rest, ':', 0, SHCL_RULES_CURRENT, tok);
 	int led_by_digit = tok->has_misspelled && tok->misspelled < rest.n && rest.p[tok->misspelled] >= '0' && rest.p[tok->misspelled] <= '9';
-	if ((errs & (TELL_ERR_E026 | TELL_ERR_E029)) || ((errs & TELL_ERR_E025) && memchr(rest.p, '\r', rest.n)) || ((errs & TELL_ERR_E014) && led_by_digit))
+	if ((errs & (TELL_ERR_E026 | TELL_ERR_E029)) || ((errs & TELL_ERR_E025) && memchr(rest.p, '\r', rest.n)) || ((errs & TELL_ERR_E014) && led_by_digit) || value_told(ta, rest, errs, tok))
 		return tell_run(TELL_REFUSED_NOW);
 	if (errs) return 0;
 	uint32_t run = 0;
@@ -5188,6 +5209,7 @@ static uint32_t most_legal(ShclStr in, uint32_t left) {
 		else if (strcmp(dg->code, "E025") == 0) bit |= TELL_ERR_E025;
 		else if (strcmp(dg->code, "E026") == 0) bit |= TELL_ERR_E026;
 		else if (strcmp(dg->code, "E029") == 0) bit |= TELL_ERR_E029;
+		else if (strcmp(dg->code, "E017") == 0) bit |= TELL_ERR_E017;
 		errs[dg->line] |= (unsigned char)bit;
 	}
 	migrate_unload(own);

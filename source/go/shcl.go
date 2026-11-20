@@ -3543,7 +3543,8 @@ func pickFormat(text string, mtime *int64, byStamp uint32) string {
 // formats both read clean, such as an escape, isn't a tell here.
 var tellRuns = [...][2]string{
 	// Refused from the format 3 value syntax on: a comma list, `*` items, a
-	// bracket selector, a bare name led by a digit, a CR in a bare value.
+	// bracket selector, a bare name led by a digit, a quote, a tab, a CR, a
+	// bracket or a loose colon in a bare value, an open backtick.
 	{"3.0-9ef", "3.0"},
 	// A bracketed value, which binds nothing.
 	{"3.0-1f8", "3.0-a37"},
@@ -3673,7 +3674,7 @@ func lineTells(rest string, codes []string, tok *Tokens) uint32 {
 	}
 	Tokenize(rest, ':', false, RulesCurrent, tok)
 	ledByDigit := tok.Misspelled >= 0 && tok.Misspelled < len(rest) && rest[tok.Misspelled] >= '0' && rest[tok.Misspelled] <= '9'
-	if has("E026") || has("E029") || (has("E025") && strings.Contains(rest, "\r")) || (has("E014") && ledByDigit) {
+	if has("E026") || has("E029") || (has("E025") && strings.Contains(rest, "\r")) || (has("E014") && ledByDigit) || valueTold(rest, has, tok) {
 		return tellRun(tellRefusedNow)
 	}
 	if len(codes) > 0 {
@@ -3707,6 +3708,36 @@ func lineTells(rest string, codes []string, tok *Tokens) uint32 {
 		}
 	}
 	return run
+}
+
+// valueTold is a field value the format 3 value syntax refuses and every
+// format before it read clean as text: a bare value with a quote, a tab, a
+// bracket or a loose colon inside it (E025), or one a backtick opens and
+// doesn't close (E017). A quote or an apostrophe that opens a value and never
+// closes is E017 in every format, so it isn't one. A bracketed value or a
+// selector in the line is refused by the older formats too.
+func valueTold(rest string, has func(string) bool, tok *Tokens) bool {
+	if tok.Array >= 0 {
+		return false
+	}
+	for _, seg := range tok.Segments {
+		if seg.Selector != nil {
+			return false
+		}
+	}
+	for _, p := range tok.Elements {
+		switch p.Quote {
+		case QuoteNone:
+			if _, bad := bareTrouble(rest[p.Start:p.End], bareValue); bad && has("E025") {
+				return true
+			}
+		case QuoteOpen:
+			if p.Start < len(rest) && rest[p.Start] == '`' && has("E017") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // SchemaRef is the schema a document's `##    Schema   REF` line names: a

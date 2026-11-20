@@ -3264,7 +3264,8 @@ fn pick_format(text: &str, mtime: Option<i64>, by_stamp: u32) -> &'static str {
 /// formats both read clean, such as an escape, isn't a tell here.
 const TELL_RUNS: [(&str, &str); 7] = [
 	// Refused from the format 3 value syntax on: a comma list, `*` items, a
-	// bracket selector, a bare name led by a digit, a CR in a bare value.
+	// bracket selector, a bare name led by a digit, a quote, a tab, a CR, a
+	// bracket or a loose colon in a bare value, an open backtick.
 	("3.0-9ef", "3.0"),
 	// A bracketed value, which binds nothing.
 	("3.0-1f8", "3.0-a37"),
@@ -3383,6 +3384,7 @@ fn line_tells(rest: &str, codes: &[(usize, &str)], tok: &mut Tokens) -> u32 {
 		|| has("E029")
 		|| (has("E025") && rest.contains('\r'))
 		|| (has("E014") && led_by_digit)
+		|| value_told(rest, codes, tok)
 	{
 		return tell_run(TELL_REFUSED_NOW);
 	}
@@ -3406,6 +3408,24 @@ fn line_tells(rest: &str, codes: &[(usize, &str)], tok: &mut Tokens) -> u32 {
 		run |= tell_run(TELL_APOSTROPHE);
 	}
 	run
+}
+
+/// A field value the format 3 value syntax refuses and every format before it
+/// read clean as text: a bare value with a quote, a tab, a bracket or a loose
+/// colon inside it (`E025`), or one a backtick opens and doesn't close
+/// (`E017`). A quote or an apostrophe that opens a value and never closes is
+/// `E017` in every format, so it isn't one. A bracketed value or a selector
+/// in the line is refused by the older formats too.
+fn value_told(rest: &str, codes: &[(usize, &str)], tok: &Tokens) -> bool {
+	let has = |c: &str| codes.iter().any(|r| r.1 == c);
+	if tok.array.is_some() || tok.segments.iter().any(|s| s.selector.is_some()) {
+		return false;
+	}
+	tok.elements.iter().any(|p| match p.quote {
+		Quote::None => has("E025") && bare_trouble(&rest[p.start..p.end], Bare::Value).is_some(),
+		Quote::Open => has("E017") && rest.as_bytes().get(p.start) == Some(&b'`'),
+		_ => false,
+	})
 }
 
 /// What turns a text in one format of `FORMAT_DAYS` into the next one's, as

@@ -4865,6 +4865,53 @@ fn a_file_format_comes_from_its_tells() {
 	}
 }
 
+/// A bare value the format 3 value syntax refuses with `E025`, or one a
+/// backtick opens and doesn't close, read clean as text in every format to
+/// 3.0-a37, so it tells those apart from 3.0-9ef on. An open quote or
+/// apostrophe is `E017` in every format, and a bracketed value or a selector
+/// in the line is refused by the older ones too, so those aren't tells
+/// (2026111910270033). The same rows are in every binding's runner.
+#[test]
+fn a_value_the_format_3_syntax_refuses_is_a_tell() {
+	let _id = test_id("dfje4");
+	let sep1 = Some(1788220800); // 2026-09-01, 1.0 to 2.0
+	let oct20 = Some(1792454400); // 2026-10-20, to 3.0-9ef
+	let nov10 = Some(1794268800); // 2026-11-10, every format
+	let cases: [(&str, Option<i64>, &str); 20] = [
+		("a: x\"y\n", nov10, "3.0-a37"),
+		("a: x\"y\n", None, "3.0-a37"),
+		("a: x\"y\n", sep1, "2.0"),
+		("a: O' Brien\n", nov10, "3.0-a37"),
+		("a: x\ty\n", nov10, "3.0-a37"),
+		("a: x]y\n", nov10, "3.0-a37"),
+		("a: b c: d\n", nov10, "3.0-a37"),
+		("a: x`y\n", nov10, "3.0-a37"),
+		("a: `q\n", nov10, "3.0-a37"),
+		("s:\n\ta: x\"y # c\n", nov10, "3.0-a37"),
+		("a: z, x\"y\n", nov10, "3.0-a37"),
+		("a: x\"y\nb: it's\n", oct20, "3.0-a37"),
+		// One tell each way ties, and the tie goes to the newest.
+		("a: x\"y\nb:\n\t- z\n", nov10, "3.0"),
+		// Not tells.
+		("a: \"q\n", nov10, "3.0"),
+		("a: 'q\n", nov10, "3.0"),
+		("a: \"x\" y\n", nov10, "3.0"),
+		("a: [x\"y, z]\n", nov10, "3.0"),
+		("s: p\ns(p).h: x\"y\n", nov10, "3.0"),
+		("a:\n\t- x\"y\n", nov10, "3.0"),
+		("x\"y: 1\n", nov10, "3.0"),
+	];
+	for (text, mtime, want) in cases {
+		assert_eq!(
+			find_format(text, mtime),
+			Some(want),
+			"{:?} at {:?}",
+			text,
+			mtime
+		);
+	}
+}
+
 /// Every pairing of a stamp, an mtime and a body whose tells disagree reads
 /// as the design doc's 4 steps give it, from tables written here rather than
 /// the library's: what each stamp leaves, the newest format each mtime
@@ -7373,7 +7420,7 @@ fn a_load_converts_from_the_format_its_mtime_gives() {
 	let oct30 = 1793318400; // 2026-10-30, to 3.0-a65
 	let nov10 = 1794268800; // 2026-11-10, every format
 	let y2020 = 1577836800; // before any format, so ignored
-	let quote = "a: x\"y\n";
+	let quote = "a: \"q\n";
 	let brackets = "a: [1, 2]\n";
 	// The text, the mtime, from_v2, and whether it goes through migrate.
 	let cases: [(&str, u64, bool, bool); 8] = [
@@ -7680,8 +7727,8 @@ fn an_upgrade_converts_from_the_format_its_mtime_gives() {
 	let oct20 = 1792454400; // 2026-10-20, to 3.0-9ef
 	let nov10 = 1794268800; // 2026-11-10, every format
 	let y2020 = 1577836800; // before any format, so ignored
-	let quote = "a: x\"y\n";
-	let fresh = "a: 'x\"y'\n## SHCL format 3.0\n";
+	let quote = "a: \"q\n";
+	let fresh = "a: '\"q'\n## SHCL format 3.0\n";
 	// Text from no file reads as the newest format its tells leave.
 	assert!(upgrade(quote, None, false).current);
 	// The mtime, from_v2, and whether it's made over.

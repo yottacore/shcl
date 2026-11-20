@@ -5187,6 +5187,45 @@ int main(int argc, char **argv) {
 			if (!got || strcmp(got, ft[k].want)) fail("a_file_format_comes_from_its_tells", ft[k].text);
 		}
 	}
+	test_id("dfje7", "a_value_the_format_3_syntax_refuses_is_a_tell");
+	/* A bare value the format 3 value syntax refuses with E025, or one a
+	   backtick opens and doesn't close, read clean as text in every format to
+	   3.0-a37, so it tells those apart from 3.0-9ef on. Rust's
+	   a_value_the_format_3_syntax_refuses_is_a_tell has the same rows. The
+	   mtimes are Unix seconds at UTC, and has_mtime 0 passes none. */
+	{
+		const int64_t sep1 = 1788220800;  /* 2026-09-01, 1.0 to 2.0 */
+		const int64_t oct20 = 1792454400; /* 2026-10-20, to 3.0-9ef */
+		const int64_t nov10 = 1794268800; /* 2026-11-10, every format */
+		const struct { const char *text; int has_mtime; int64_t mtime; const char *want; } vt[] = {
+			{"a: x\"y\n", 1, nov10, "3.0-a37"},
+			{"a: x\"y\n", 0, 0, "3.0-a37"},
+			{"a: x\"y\n", 1, sep1, "2.0"},
+			{"a: O' Brien\n", 1, nov10, "3.0-a37"},
+			{"a: x\ty\n", 1, nov10, "3.0-a37"},
+			{"a: x]y\n", 1, nov10, "3.0-a37"},
+			{"a: b c: d\n", 1, nov10, "3.0-a37"},
+			{"a: x`y\n", 1, nov10, "3.0-a37"},
+			{"a: `q\n", 1, nov10, "3.0-a37"},
+			{"s:\n\ta: x\"y # c\n", 1, nov10, "3.0-a37"},
+			{"a: z, x\"y\n", 1, nov10, "3.0-a37"},
+			{"a: x\"y\nb: it's\n", 1, oct20, "3.0-a37"},
+			/* One tell each way ties, and the tie goes to the newest. */
+			{"a: x\"y\nb:\n\t- z\n", 1, nov10, "3.0"},
+			/* Not tells. */
+			{"a: \"q\n", 1, nov10, "3.0"},
+			{"a: 'q\n", 1, nov10, "3.0"},
+			{"a: \"x\" y\n", 1, nov10, "3.0"},
+			{"a: [x\"y, z]\n", 1, nov10, "3.0"},
+			{"s: p\ns(p).h: x\"y\n", 1, nov10, "3.0"},
+			{"a:\n\t- x\"y\n", 1, nov10, "3.0"},
+			{"x\"y: 1\n", 1, nov10, "3.0"},
+		};
+		for (size_t k = 0; k < sizeof vt / sizeof vt[0]; k++) {
+			const char *got = shcl_find_format(vt[k].text, strlen(vt[k].text), vt[k].has_mtime ? &vt[k].mtime : NULL);
+			if (!got || strcmp(got, vt[k].want)) fail("a_value_the_format_3_syntax_refuses_is_a_tell", vt[k].text);
+		}
+	}
 	test_id("dfj93", "a_file_format_reads_through_a_stamp_mtime_and_body_that_disagree");
 	/* Every pairing of a stamp, an mtime and a body whose tells disagree reads
 	   as the design doc's 4 steps give it, from tables written here rather
@@ -8537,7 +8576,7 @@ int main(int argc, char **argv) {
 		const int64_t oct20 = 1792454400; /* 2026-10-20, to 3.0-9ef */
 		const int64_t nov10 = 1794268800; /* 2026-11-10, every format */
 		const int64_t y2020 = 1577836800; /* before any format, so ignored */
-		const char *quote = "a: x\"y\n", *fresh = "a: 'x\"y'\n## SHCL format 3.0\n";
+		const char *quote = "a: \"q\n", *fresh = "a: '\"q'\n## SHCL format 3.0\n";
 		/* Text from no file reads as the newest format its tells leave. */
 		shcl_upgraded up = shcl_upgrade(quote, strlen(quote), NULL, 0);
 		if (!up.current) fail(at, "no mtime made it over");
@@ -8726,7 +8765,7 @@ int main(int argc, char **argv) {
 		const int64_t oct30 = 1793318400; /* 2026-10-30, to 3.0-a65 */
 		const int64_t nov10 = 1794268800; /* 2026-11-10, every format */
 		const int64_t y2020 = 1577836800; /* before any format, so ignored */
-		const char *quote = "a: x\"y\n", *brackets = "a: [1, 2]\n";
+		const char *quote = "a: \"q\n", *brackets = "a: [1, 2]\n";
 		/* The text, the mtime, from_v2, and whether it goes through migrate. */
 		const struct { const char *text; int64_t mtime; int from_v2, migrated; } cases[] = {
 			{quote, nov10, 0, 0},

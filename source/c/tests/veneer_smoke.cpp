@@ -255,11 +255,11 @@ static int a_file_format_comes_from_its_stamp_and_mtime() {
 // runner's rows, through the veneer.
 static int an_upgrade_converts_from_the_format_its_mtime_gives() {
 	test_id("dfh0j", "an_upgrade_converts_from_the_format_its_mtime_gives");
-	const std::string quote = "a: x\"y\n";
+	const std::string quote = "a: \"q\n";
 	CHECK(shcl::upgrade(quote, std::nullopt, false).current);
 	CHECK(shcl::upgrade_dated(quote, 1794268800, std::nullopt, false).current);
 	const auto up = shcl::upgrade_dated(quote, 1785974400, std::nullopt, false);
-	CHECK(!up.current && up.text == "a: 'x\"y'\n" + std::string(shcl::STAMP_LINE) + "\n");
+	CHECK(!up.current && up.text == "a: '\"q'\n" + std::string(shcl::STAMP_LINE) + "\n");
 	return test_id_end(fails);
 }
 

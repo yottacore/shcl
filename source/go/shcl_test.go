@@ -4705,6 +4705,52 @@ func TestAFileFormatComesFromItsTells(t *testing.T) {
 	}
 }
 
+// TestAValueTheFormat3SyntaxRefusesIsATell: a bare value the format 3 value
+// syntax refuses with E025, or one a backtick opens and doesn't close, read
+// clean as text in every format to 3.0-a37, so it tells those apart from
+// 3.0-9ef on. Rust's a_value_the_format_3_syntax_refuses_is_a_tell has the
+// same rows. The mtimes are Unix seconds at UTC.
+func TestAValueTheFormat3SyntaxRefusesIsATell(t *testing.T) {
+	defer testID(t, "dfje5")
+	at := func(n int64) *int64 { return &n }
+	sep1 := at(1788220800)  // 2026-09-01, 1.0 to 2.0
+	oct20 := at(1792454400) // 2026-10-20, to 3.0-9ef
+	nov10 := at(1794268800) // 2026-11-10, every format
+	cases := []struct {
+		text  string
+		mtime *int64
+		want  string
+	}{
+		{"a: x\"y\n", nov10, "3.0-a37"},
+		{"a: x\"y\n", nil, "3.0-a37"},
+		{"a: x\"y\n", sep1, "2.0"},
+		{"a: O' Brien\n", nov10, "3.0-a37"},
+		{"a: x\ty\n", nov10, "3.0-a37"},
+		{"a: x]y\n", nov10, "3.0-a37"},
+		{"a: b c: d\n", nov10, "3.0-a37"},
+		{"a: x`y\n", nov10, "3.0-a37"},
+		{"a: `q\n", nov10, "3.0-a37"},
+		{"s:\n\ta: x\"y # c\n", nov10, "3.0-a37"},
+		{"a: z, x\"y\n", nov10, "3.0-a37"},
+		{"a: x\"y\nb: it's\n", oct20, "3.0-a37"},
+		// One tell each way ties, and the tie goes to the newest.
+		{"a: x\"y\nb:\n\t- z\n", nov10, "3.0"},
+		// Not tells.
+		{"a: \"q\n", nov10, "3.0"},
+		{"a: 'q\n", nov10, "3.0"},
+		{"a: \"x\" y\n", nov10, "3.0"},
+		{"a: [x\"y, z]\n", nov10, "3.0"},
+		{"s: p\ns(p).h: x\"y\n", nov10, "3.0"},
+		{"a:\n\t- x\"y\n", nov10, "3.0"},
+		{"x\"y: 1\n", nov10, "3.0"},
+	}
+	for _, c := range cases {
+		if got, ok := FindFormat(c.text, c.mtime); !ok || got != c.want {
+			t.Errorf("%q at %v: %q, want %q", c.text, c.mtime, got, c.want)
+		}
+	}
+}
+
 // TestAFileFormatReadsThroughAStampMtimeAndBodyThatDisagree: every pairing of
 // a stamp, an mtime and a body whose tells disagree reads as the design doc's
 // 4 steps give it, from tables written here rather than the library's. Then
@@ -8614,7 +8660,7 @@ func TestALoadConvertsFromTheFormatItsMtimeGives(t *testing.T) {
 		nov10 = 1794268800 // 2026-11-10, every format
 		y2020 = 1577836800 // before any format, so ignored
 	)
-	quote, brackets := "a: x\"y\n", "a: [1, 2]\n"
+	quote, brackets := "a: \"q\n", "a: [1, 2]\n"
 	cases := []struct {
 		text     string
 		mtime    int64
@@ -8872,7 +8918,7 @@ func TestAnUpgradeConvertsFromTheFormatItsMtimeGives(t *testing.T) {
 		nov10 = 1794268800 // 2026-11-10, every format
 		y2020 = 1577836800 // before any format, so ignored
 	)
-	quote, fresh := "a: x\"y\n", "a: 'x\"y'\n## SHCL format 3.0\n"
+	quote, fresh := "a: \"q\n", "a: '\"q'\n## SHCL format 3.0\n"
 	// Text from no file reads as the newest format its tells leave.
 	if !Upgrade(quote, "", false).Current {
 		t.Errorf("Upgrade with no mtime made over %q", quote)

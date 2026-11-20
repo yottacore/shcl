@@ -35,6 +35,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Format versions: find_format doesn't count a value of 2 quoted runs, `a: "x" "y"`, as a tell
+	- ID: 2026112010395941
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261120-103959
+	- Opened by: me
+	- Related IDs: 2026111910270033
+	- Problem description: 1.0 to 2.0 read `a: "x" "y"` clean, as `x" "y`. 3.0-1f8 on refuse it with `E017`, the pins binding the text as typed and 3.0-9ef on binding nothing. find_format counts no tell for it, so a 2.0 file with only such a line and a recent mtime reads as 3.0 and isn't converted.
+	- Origin: Confirmed against the v2.0.0 and 3.0-1f8 to 3.0 CLIs (2026111910270033).
+
 - Format versions: the demo gif and its golden text show fmt output without the stamp
 	- ID: 2026111710564808
 	- Type: Feature
@@ -233,14 +245,32 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: find_format doesn't count a quote in a bare value as a tell
 	- ID: 2026111910270033
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261119-102700
 	- Opened by: me
 	- Related IDs: 2026111907080400, 2026111908444554
 	- Problem description: `a: x"y` and `b: "q` are E025 or an open quote under the current rules, and the 2.x migration quotes them, so 2.0 read them as text. find_format counts E025 only on a CR, so a file with only such a line and a recent mtime reads as 3.0, and neither a load with migrate nor upgrade converts it.
-	- Origin: Plausible, read only (2026111908444554). Which formats from 3.0-1f8 to 3.0-a37 read these lines clean isn't checked against their CLIs.
+	- Origin: Confirmed (2026111908444554). The CLIs built at v1.0.0, v1.1.0, v2.0.0 and every pin from 3.0-1f8 to 3.0-a37 read `a: x"y` clean as text, and 3.0-9ef on refuse it with `E025`.
+	- Reproduced: the new test failed in all 4 runners with the new tell turned off.
+	- Actual cause: find_format counted `E025` only on a line with a CR, and `E017` never.
+	- Actual effort: Avg
+	- Actual fix: `E025` on any trouble in a bare field value is a tell against 3.0-9ef on, and so is `E017` on a value a backtick opens. A load with migrate or upgrade then finds such a file to be 3.0-a37, and the pin step quotes the value.
+	- Branch: `nov20b-2026111910270033`
+	- Commit: `1ced0fb7`
+	- Test case: `a_value_the_format_3_syntax_refuses_is_a_tell` (Rust `dfje4`, Go `dfje5`, Python `dfje6`, C `dfje7`).
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the fix in all 4 runners, and the named gates passed.
+	- Closed: 20261120-104200
+	- Closed reason: Done
+	- Decisions:
+		- me, 20261120: every `E025` in a bare field value is the tell, not only a quote: a tab, a bracket, a loose colon and a blank other than a space too. The CLIs at every format to 3.0-a37 read each of those clean as text, and 3.0-9ef on refuse them. So is `E017` on a value a backtick opens, which older formats read as text.
+		- me, 20261120: departs from the wording. `b: "q`, a value a quote or an apostrophe opens and never closes, isn't a tell. Every format refuses it with `E017`. 1.0 to 3.0-a37 still bind its text, and 3.0-9ef on bind nothing. It reads as the newest format the stamp and mtime leave, as before, and stays as typed unless the mtime or `from` gives 2.x. A 2.x rewrite quotes it.
+		- me, 20261120: a line with a bracketed value or a selector isn't counted, since 1.0 to 3.0-a37 refuse those too (`E015`, `E019`, `E014`).
+	- Verified: the new test fails in all 4 runners with the new tell turned off, and in Rust with every open quote counted, and passes with the fix. `--backlog-run-quick rust go python c cli`, cli-regress over the 4 CLIs, crosscheck over the corpus, fuzz `de116` at 200,000 in release, the C runner under ASan and UBSan with `SHCL_ARENA_MALLOC`, `test-ids.py check`, `lint-report.bash --check --no-mark`, the markdown check and markdownlint passed. The corpus inputs naming format 3 still upgrade as before. analyze-c and check-migrate did not finish in 4 minutes, and cppcheck was not run.
+	- Swept: `line_tells` and the new `value_told` in Rust, Go (`lineTells`, `valueTold`), Python (`_line_tells`, `_value_told`) and C (`line_tells`, `value_told`, with an `E017` bit). C++ `find_format` wraps C. The TELL_RUNS comment in all 4. Docs: the design doc's Tells table and a dated note under its tells step, and the changelog's `find_format` entry.
+	- Note: `a: "x" "y"`, which only 1.0 to 2.0 read clean, is filed apart as 2026112010395941.
+	- 20261120: `a_load_converts_from_the_format_its_mtime_gives` (`dfgyc` to `dfgyf`) and `an_upgrade_converts_from_the_format_its_mtime_gives` (`dfh0e` to `dfh0j`) used `a: x"y` as text with no tells, which is a tell now. They use `a: "q` instead, which every format refuses and the 2.x rewrite makes `a: '"q'`. Each assert is as it was.
 
 - `set_comment` making a field after a kept last line puts its blank above the kept line's comments
 	- ID: 2026111021153725
