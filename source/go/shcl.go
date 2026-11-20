@@ -4133,7 +4133,7 @@ func stampHint(stamp Read[int]) (Diagnostic, bool) {
 	if !newer {
 		d.Code = "H007"
 		d.Message = fmt.Sprintf(
-			"the file names format %s, older than this reader's format %d.%d, so some lines may read differently than written; shcl upgrade --from-2x rewrites it",
+			"the file names format %s, older than this reader's format %d.%d, so some lines may read differently than written; shcl upgrade --from=FORMAT rewrites it",
 			written, FormatMajor, FormatMinor)
 	}
 	return d, true

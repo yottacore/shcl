@@ -60,13 +60,13 @@ shcl \- read, edit, validate and format Simple Hierarchical Config Language file
 .B migrate
 .RB [ \-\-write | \-w | \-\-check ]
 .RB [ \-\-lossy ]
-.RB [ \-\-from\-2x ]
+.RB [ \-\-from=\fIFORMAT\fP ]
 .I FILE
 .YS
 .SY shcl
 .B upgrade
 .RB [ \-\-write | \-w ]
-.RB [ \-\-from\-2x ]
+.RB [ \-\-from=\fIFORMAT\fP ]
 .I FILE
 .YS
 .SY shcl
@@ -251,8 +251,8 @@ Which file it is looking at cannot be read off the text, so the info block's
 .B Format
 line decides: a file that has it is left alone, and one without it keeps the
 spellings the two rule sets read differently and exits 7 unless
-.B \-\-from\-2x
-says it really is 2.x. A rewritten file is stamped with that line, written
+.B \-\-from
+names the format it was written for. A rewritten file is stamped with that line, written
 over an older one where the file has it, and
 .B \-\-write
 says how many lines it rewrote.
@@ -293,28 +293,31 @@ A file whose
 line names this format is left alone at exit 0, and so is one that loads with
 no error, so it is safe to run on every start. That includes a file a beta
 build of 3.0 wrote, since it has the same Format line. With
-.BR \-\-from\-2x ,
-which says the file is 2.x, a file that loads clean is still made over when
+.BR \-\-from ,
+which names the format the file was written for, such as
+.BR 2.0 ,
+a file that loads clean is still made over when
 .B migrate
 would change it, as it would
 .BR "p: a,b" ,
 an array under 2.x and one string now, and one it would not change whose
 .B Format
 line names an older format gets only that line rewritten to name this one.
-A file naming this format that loads with an error is taken as 2.x too, so give
-.B \-\-from\-2x
+A file naming this format that loads with an error is taken as that format too,
+so give
+.B \-\-from
 only for a file known to be old: a file this format wrote that picks up an
-error later would be read by 2.x rules too.
+error later would be read by the old rules too.
 With
-.BR \-\-from\-2x ,
+.BR \-\-from ,
 a file is made over only when the fresh file loads clean. Otherwise it is
 exit 7, nothing is written, and the lines still in error are named, since a
-later run with the flag would read the fresh file by 2.x rules again.
+later run with the flag would read the fresh file by the old rules again.
 Values that read two ways, as for
 .BR migrate ,
 are exit 7 unless
-.B \-\-from\-2x
-says the file is 2.x, and nothing is written. Unlike
+.B \-\-from
+names the format, and nothing is written. Unlike
 .BR migrate ,
 a value or line that the fresh file can't contain doesn't stop the write, since
 the backup has it. It's counted on stderr. A taken backup name is exit 8.
@@ -520,18 +523,30 @@ still prints its text, which loses nothing until it is loaded. On
 it is taken only with
 .BR \-\-write .
 .TP
-.B \-\-from\-2x
+.BI \-\-from= FORMAT
 .RB ( migrate ", " upgrade )
-Say the file really was written for 2.x, and rewrite the spellings the two
-rule sets read differently. Without it, those are left as written and the
+Say which format the file was written for, and rewrite the spellings that
+format and these rules read differently.
+.I FORMAT
+is a name from the library's format list, such as
+.BR 1.0 ,
+.BR 1.1 ,
+.BR 2.0 ,
+.BR 3.0\-a37 ,
+or
+.BR 3.0 ,
+or a major alone, such as
+.BR 2 ,
+which leaves the formats of that major to the file's date and content.
+A name no format has is a usage error, exit 1. Without it, those are left as written and the
 command exits 7, because the same bytes mean one thing under each rule set and
 nothing in the file says which one it was written for.
 With it,
 .B upgrade
 writes nothing and exits 7 when the fresh file would still have an error, and
 names those lines.
-On a file that wasn't written for 2.x it can change good lines, since it reads
-them by 2.x rules. With
+On a file that wasn't written for that format it can change good lines, since
+it reads them by that format's rules. With
 .B \-\-write
 the backup has the original.
 .TP
@@ -975,8 +990,8 @@ so rewriting a 3.0 file would change what it says. The info block has a
 line naming the format's major, and that decides. A file with it has
 nothing to migrate. A file without it keeps those spellings as written and
 exits 7, unless
-.B \-\-from\-2x
-says it really is 2.x. A line the current rules already refuse, such as one
+.B \-\-from
+names the format it was written for. A line the current rules already refuse, such as one
 with a selector in brackets, is rewritten either way. A file
 .B migrate
 rewrites is stamped with the line, so a second run has the answer the first
@@ -1049,12 +1064,12 @@ overrides), or because the file names a newer format than this shcl reads
 which nothing overrides), or
 .B migrate
 left something behind: values it cannot decide between the two rule sets
-.RB ( \-\-from\-2x
+.RB ( \-\-from
 decides them), a 2.x binding with no spelling here, a line whose indent
 matches no open level, or a raw block that never closes.
 .B upgrade
 exits 7 on the first of those, and with
-.B \-\-from\-2x
+.B \-\-from
 when the fresh file would still have an error.
 .TP
 .B 8

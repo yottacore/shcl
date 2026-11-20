@@ -18,6 +18,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `migrate()` and `migrate_unstamped()` take `from` in place of `from_v2` too, and convert by the named format's step, so `from` `2.0` gives a quoted name with a backslash pair its 2.0 reading, where `from_v2` kept it as typed and counted it lost.
 
+- `shcl migrate` and `shcl upgrade` take `--from=FORMAT` in place of `--from-2x`, and pass it to the library's `from`. `--from-2x` was `--from=2.0`. A name no format has is a usage error, exit 1. The `H007` hint names `--from=FORMAT` too.
+
 - `upgrade()` and `upgrade_file()` take a `banner` argument after `from` (each binding's spelling). With it they write the info block as before. Without it, an old block comes off and the fresh text ends with the stamp a save writes. `shcl upgrade` still writes the block.
 
 - `to_text_keep_lines()` refuses a document from a newer format, as its save does, so a program that saves through that text can't write a newer format's file back by this reader's rules. Its return type changes in every binding: Rust gives `Result<(String, bool), SaveError>`, Go adds an `error`, Python raises `SaveTooNew`, C returns `shcl_save_result` with the text in an out-parameter, and C++ gives a `SaveResult` first in a tuple.

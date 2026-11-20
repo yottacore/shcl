@@ -843,10 +843,10 @@ rows=(
 	'debpb|e025-apostrophe-element-check|check -|a: [O\x27Brien]\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a quote in a bare array element; quote it$'
 	'ddjyn|array-tight-comma-splits|set --set-literal=t=[a,b] -|t: 1\n|0|t: [a, b]\n## SHCL format 3.0\n|-'
 	'ddjyp|set-literal-comma-text|set --set-literal=o=rw,noatime --set=e=a, -|o: 1\n|0|o: "rw,noatime"\n\ne: "a,"\n## SHCL format 3.0\n|-'
-	'ddjyq|migrate-comma-list|migrate --from-2x -|x: a,b\ny: a, b\n|0|x: [a, b]\ny: [a, b]\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
+	'ddjyq|migrate-comma-list|migrate --from=2.0 -|x: a,b\ny: a, b\n|0|x: [a, b]\ny: [a, b]\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
 	'ddjyr|migrate-comma-ambiguous|migrate -|y: a,b\n|7|y: a,b\n|read one way under 2.x and another'
 	## 2.x read `k: s,` as `k: s`, one field with the line after it.
-	'ddrgk|migrate-lone-element|migrate --from-2x -|k: s,\nk: s\n|0|k: s\nk: s\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
+	'ddrgk|migrate-lone-element|migrate --from=2.0 -|k: s,\nk: s\n|0|k: s\nk: s\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
 	## A comment on a stacked item stays on it, and one among the items stays
 	## among them.
 	'ddhx2|list-item-comment-fmt|fmt -|l:\n\t# first\n\t- a  # one\n\t- b\n|0|l:\n\t# first\n\t- a  # one\n\t- b\n## SHCL format 3.0\n|-'
@@ -950,7 +950,7 @@ rows=(
 	'dd5qc|escape-unicode-fmt|fmt -|a: x\xe2\x80\x8by\n|0|a: "x\xe2\x97\x89U+200B\xe2\x97\x89y"\n## SHCL format 3.0\n|-'
 	#'dd5qf|escape-unicode-name|paths -|"a\\u202Eb": 1\n|0|"a\\u202Eb"\n|-'
 	#'dd5qg|escape-unicode-migrate-refused|migrate -|q: "\\u0041"\n|7|q: "\\u0041"\n|doesn.t say which it was written for'
-	#'dd5qh|escape-unicode-migrate-2x|migrate --from-2x -|q: "\\u0041"\n|0|q: "\\\\u0041"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	#'dd5qh|escape-unicode-migrate-2x|migrate --from=2.0 -|q: "\\u0041"\n|0|q: "\\\\u0041"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	'ddheh|escape-mark-code-read|get - a|a: "caf\xe2\x97\x89U+00E9\xe2\x97\x89 \xe2\x97\x89u+1f600\xe2\x97\x89"\n|0|caf\xc3\xa9 \xf0\x9f\x98\x80\n|-'
 	'ddhej|escape-mark-surrogate|check -|a: "\xe2\x97\x89U+D800\xe2\x97\x89"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 escape .* names no Unicode character'
 	'ddhek|escape-mark-code-name|paths -|"a\xe2\x97\x89U+202E\xe2\x97\x89b": 1\n|0|"a\xe2\x97\x89U+202E\xe2\x97\x89b"\n|-'
@@ -994,7 +994,7 @@ rows=(
 	'de60r|backslash-migrate-ambiguous|migrate -|q: "C:\\\\work"\n|7|q: "C:\\\\work"\n|doesn.t say which it was written for'
 	## 2026102016593100: a value ending in a backslash is written as \" before
 	## the closing quote. The backslash is text, so it reads back as written.
-	'de79q|backslash-before-quote-migrate|migrate --from-2x -|a: x\\ty\\\\z\\q\\\n|0|a: "x\xe2\x97\x89TAB\xe2\x97\x89y\\z\\q\\"\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
+	'de79q|backslash-before-quote-migrate|migrate --from=2.0 -|a: x\\ty\\\\z\\q\\\n|0|a: "x\xe2\x97\x89TAB\xe2\x97\x89y\\z\\q\\"\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
 	'de79r|backslash-before-quote-read|get - a|a: "C:\\temp\\"\n|0|C:\\temp\\\n|-'
 	'de79s|backslash-before-quote-fmt|fmt -|a: "C:\\temp\\"\n|0|a: "C:\\temp\\"\n## SHCL format 3.0\n|-'
 	## 2026100717500002: an op value reads the file's escape names, a tab or a
@@ -1056,35 +1056,35 @@ rows=(
 	## changes no outcome, so Strict still passes. A line whose number does
 	## not read gets none (2026100912352401 gives it a status instead).
 	"ddqhe|stamp-newer-hint|check -|a: 1\n##    Format   4\n|0|line 2: Hint: H006\nok (1 diagnostic(s))\n|=line 2: Hint: H006 the file names format 4, newer than this reader's format 3.0, so some lines may read differently than written\n(run 'shcl explain CODE' for the rule behind a code)\n"
-	'ddqhf|stamp-older-hint|get - p|p: a,b\n##    Format   2\n|0|a,b\n|^line 2: Hint: H007 .*; shcl upgrade --from-2x rewrites it$'
-	## 2026100717500017: with --from-2x, a file whose only change is its stamp
+	'ddqhf|stamp-older-hint|get - p|p: a,b\n##    Format   2\n|0|a,b\n|^line 2: Hint: H007 .*; shcl upgrade --from=FORMAT rewrites it$'
+	## 2026100717500017: with --from=2.0, a file whose only change is its stamp
 	## gets this format on that line, so H007's advice does something. Without
 	## it nothing changes. 2026100916475300: migrate writes its stamp there too.
-	'ddqrv|upgrade-restamp|upgrade --from-2x -|p: 1\n##    Format   2\n|0|p: 1\n##    Format   3.0\n|!nothing to upgrade'
+	'ddqrv|upgrade-restamp|upgrade --from=2.0 -|p: 1\n##    Format   2\n|0|p: 1\n##    Format   3.0\n|!nothing to upgrade'
 	'ddqrw|upgrade-restamp-unsaid|upgrade -|p: 1\n##    Format   2\n|0|p: 1\n##    Format   2\n|nothing to upgrade'
 	'ddqrt|migrate-restamp|migrate -|port: 80\n##    Format   2\n|0|port: 80\n##    Format   3.0\n|-'
 	'ddqrz|migrate-restamp-changed|migrate -|x: a,b\n##    Format   2\ny: 1\n|0|x: [a, b]\n##    Format   3.0\ny: 1\n##    Migrated from SHCL 2.x.\n|-'
 	## 2026101407100010: a file naming this format is taken as 2.x only by an
-	## upgrade told --from-2x, and only when it loads with an error. migrate
+	## upgrade told --from=2.0, and only when it loads with an error. migrate
 	## leaves it, since its text can keep such a line and a second run would
 	## convert it again. 2026111912330681: upgrade reads beta1's `Format 3` by
 	## the mtime and the tells, as the load does, so the comma list, a tell of
-	## 3.0-a37 and older, makes it over without --from-2x.
+	## 3.0-a37 and older, makes it over without --from=2.0.
 	'ddy87|upgrade-beta-unsaid|upgrade -|tags: a, b\n##    Format   3\n|0|tags: [a, b]\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3.0\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n|E026'
-	'ddy88|migrate-beta-left|migrate --from-2x -|tags: a, b\n##    Format   3\n|0|tags: a, b\n##    Format   3\n|nothing to migrate'
+	'ddy88|migrate-beta-left|migrate --from=2.0 -|tags: a, b\n##    Format   3\n|0|tags: a, b\n##    Format   3\n|nothing to migrate'
 	## 2026101419280005: a file upgrade leaves alone was still loaded, so its
-	## diagnostics are printed once, with or without --from-2x, and for a file
+	## diagnostics are printed once, with or without --from=2.0, and for a file
 	## naming a newer format.
 	'ddzwd|upgrade-left-diags|upgrade -|a: 1\nb 2\n##    Format   3\n|0|a: 1\nb 2\n##    Format   3\n|=line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\n-: nothing to upgrade, left as is\n'
-	## Wrong since 2026101515372401: with --from-2x a fresh text that keeps an
+	## Wrong since 2026101515372401: with --from=2.0 a fresh text that keeps an
 	## error is refused at 7, not left at 0. de031 has the new rule. Don't
 	## uncomment.
-	# 'ddzwf|upgrade-left-diags-from-2x|upgrade --from-2x -|a: 1\nb 2\n##    Format   3\n|0|a: 1\nb 2\n##    Format   3\n|=line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\n-: nothing to upgrade, left as is\n'
-	'de031|upgrade-left-diags-from-2x|upgrade --from-2x -|a: 1\nb 2\n##    Format   3\n|7||=line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\n-: line(s) 2 would still have an error once converted from 2.x; nothing written\n'
-	## 2026101515372401: --from-2x converts a file with no Format line only
+	# 'ddzwf|upgrade-left-diags-from-2x|upgrade --from=2.0 -|a: 1\nb 2\n##    Format   3\n|0|a: 1\nb 2\n##    Format   3\n|=line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\n-: nothing to upgrade, left as is\n'
+	'de031|upgrade-left-diags-from-2x|upgrade --from=2.0 -|a: 1\nb 2\n##    Format   3\n|7||=line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\n-: line(s) 2 would still have an error once converted from 2.x; nothing written\n'
+	## 2026101515372401: --from=2.0 converts a file with no Format line only
 	## when the fresh text loads clean, as for a beta file, so a later run
 	## never reads its own output by 2.x rules.
-	'de02y|upgrade-from-2x-left|upgrade --from-2x -|a: 1\nb 2\n|7||=line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\n-: line(s) 2 would still have an error once converted from 2.x; nothing written\n'
+	'de02y|upgrade-from-2x-left|upgrade --from=2.0 -|a: 1\nb 2\n|7||=line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\n-: line(s) 2 would still have an error once converted from 2.x; nothing written\n'
 	'ddzwe|upgrade-newer-diags|upgrade -|a: 1\n##    Format   4\n|0|a: 1\n##    Format   4\n|=line 2: Hint: H006 the file names format 4, newer than this reader\x27s format 3.0, so some lines may read differently than written\n-: nothing to upgrade, left as is\n'
 	## 2026101514324701: a refused line led by a tilde or backtick still takes
 	## its raw block, so the Format and Schema reads find the lines after the
@@ -1094,12 +1094,12 @@ rows=(
 	'de02q|check-odd-name-newer|check -|~x: \x60\x60\x60\n\tbody\n\t\x60\x60\x60\n##    Format   4\n|6|line 1: Error: E014\nline 4: Hint: H006\nfailed: 2 diagnostic(s), 1 error(s)\n|-'
 	'de02r|check-backtick-schema-body|check -|\x60y: \x60\x60\x60\n\t##    Schema   mark.shcl\n\t\x60\x60\x60\n|6|line 1: Error: E014\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
 	## 2026101514324705: a Format number too big for 32 bits names a newer
-	## format, not this one, so --from-2x doesn't take it for a beta file.
+	## format, not this one, so --from=2.0 doesn't take it for a beta file.
 	## Wrong since JC's signoff on 2026-10-16: the hint quotes the digits as
 	## written, not the 32-bit cap the read gives. de0zj has the new text.
 	## Don't uncomment.
-	# 'de035|upgrade-format-overflow|upgrade --from-2x -|##    Format   99999999999\nname: x\nrange: 0, 100\n|0|##    Format   99999999999\nname: x\nrange: 0, 100\n|^line 1: Hint: H006 the file names format 4294967295, newer'
-	'de0zj|upgrade-format-overflow|upgrade --from-2x -|##    Format   99999999999\nname: x\nrange: 0, 100\n|0|##    Format   99999999999\nname: x\nrange: 0, 100\n|^line 1: Hint: H006 the file names format 99999999999, newer'
+	# 'de035|upgrade-format-overflow|upgrade --from=2.0 -|##    Format   99999999999\nname: x\nrange: 0, 100\n|0|##    Format   99999999999\nname: x\nrange: 0, 100\n|^line 1: Hint: H006 the file names format 4294967295, newer'
+	'de0zj|upgrade-format-overflow|upgrade --from=2.0 -|##    Format   99999999999\nname: x\nrange: 0, 100\n|0|##    Format   99999999999\nname: x\nrange: 0, 100\n|^line 1: Hint: H006 the file names format 99999999999, newer'
 	## H006 and H007 quote the number as written, leading zeros too, and cut a
 	## long one the way any value in a message is cut.
 	'de0zk|stamp-hint-leading-zeros|check -|a: 1\n##    Format   0002\n|0|line 2: Hint: H007\nok (1 diagnostic(s))\n|^line 2: Hint: H007 the file names format 0002, older'
@@ -1107,7 +1107,7 @@ rows=(
 	'ddqhg|stamp-garbled-quiet|check -|a: 1\n##    Format   3x\n|0|ok (0 diagnostic(s))\n|-'
 	'ddqhh|stamp-hint-strict-passes|check --strictness=strict -|a: 1\n##    Format   4\n|0|line 2: Hint: H006\nok (1 diagnostic(s))\n|-'
 	"ddqhj|explain-h006|explain H006|-|0|\nH006  hint        the file names a newer format than this reader\n  The info block's Format line names a format past the one this shcl reads,\n  so the file may use rules it doesn't know, and a line can read\n  differently than its author meant. The load goes on as usual, but a save\n  is refused, since it would write each line by these rules. A shcl made\n  for that format reads it as written.\n\n|-"
-	"ddqhk|explain-h007|explain H007|-|0|\nH007  hint        the file names an older format than this reader\n  The info block's Format line names a format before the one this shcl\n  reads, and some lines read differently now. For example, p: a,b was an\n  array in 2.x and is one string here.\n  'shcl upgrade FILE --from-2x --write' rewrites the file for these rules and\n  saves the original beside it. A file with nothing else to change gets this\n  format on its Format line.\n\n|-"
+	"ddqhk|explain-h007|explain H007|-|0|\nH007  hint        the file names an older format than this reader\n  The info block's Format line names a format before the one this shcl\n  reads, and some lines read differently now. For example, p: a,b was an\n  array in 2.x and is one string here.\n  'shcl upgrade FILE --from=FORMAT --write', with the format the Format line\n  names, rewrites the file for these rules and saves the original beside\n  it. A file with nothing else to change gets this format on its Format\n  line.\n\n|-"
 	## 2026102910482344: a file naming a newer format reads as usual, and
 	## nothing writes it back. --write and set's print refuse at 7, --lossy
 	## or not, and fmt --check says so. fmt still prints. A newer layer under
@@ -1124,13 +1124,13 @@ rows=(
 	'detr1|check-newer-after-current|check -|##    Format   3\np: x\n##    Format   4\n|0|line 3: Hint: H006\nok (1 diagnostic(s))\n|-'
 	'detr2|set-print-newer-after-current|set --set=p=y -|##    Format   3\np: x\n##    Format   4\n|7||refusing to print: the document has lines from a newer format'
 	'detr3|fmt-check-newer-after-current|fmt --check -|##    Format   3\np: x\n##    Format   4\n|7||fmt --write would refuse: the document has lines from a newer format'
-	'detr4|upgrade-newer-after-current|upgrade --from-2x -|##    Format   3\np: a, b\n##    Format   4\n|0|##    Format   3\np: a, b\n##    Format   4\n|^line 3: Hint: H006 the file names format 4, newer'
+	'detr4|upgrade-newer-after-current|upgrade --from=2.0 -|##    Format   3\np: a, b\n##    Format   4\n|0|##    Format   3\np: a, b\n##    Format   4\n|^line 3: Hint: H006 the file names format 4, newer'
 	## 2026111702033137: a newer minor of this major is a newer format: the
 	## load hints H006, and every write and print that would save refuses.
 	"dfe2v|check-newer-minor|check -|a: 1\n## SHCL format 3.1\n|0|line 2: Hint: H006\nok (1 diagnostic(s))\n|=line 2: Hint: H006 the file names format 3.1, newer than this reader's format 3.0, so some lines may read differently than written\n(run 'shcl explain CODE' for the rule behind a code)\n"
 	'dfe2w|set-print-newer-minor|set --set=a=2 -|a: 1\n## SHCL format 3.1\n|7||refusing to print: the document has lines from a newer format'
 	'dfe2x|fmt-check-newer-minor|fmt --check -|a: 1\n##    Format   3.1\n|7||fmt --write would refuse: the document has lines from a newer format'
-	'dfe2y|upgrade-newer-minor|upgrade --from-2x -|p: a, b\n## SHCL format 3.1\n|0|p: a, b\n## SHCL format 3.1\n|^line 2: Hint: H006 the file names format 3.1, newer'
+	'dfe2y|upgrade-newer-minor|upgrade --from=2.0 -|p: a, b\n## SHCL format 3.1\n|0|p: a, b\n## SHCL format 3.1\n|^line 2: Hint: H006 the file names format 3.1, newer'
 	## 2026102307035776: a '#' against text opens a comment as any other does,
 	## and the load hints H008 so the cut is not silent. A blank before it gets
 	## none, and Strict still passes. The prose is the same in all four.
@@ -1173,27 +1173,37 @@ rows=(
 	#'ddj1m|migrate-backslash-as-text|migrate %BS%|-|0|p: \x27C:\\temp\x27\n##    Format   3\n|!.'
 	#'ddj1n|migrate-backslash-write|migrate --write %BS%|-|0|-|migrated, 0 line\(s\) rewritten'
 	#'ddj1p|migrate-backslash-pairs|migrate -|a: "C:\\\\work"\nb: "say \\"hi\\""\nc: C:\\new\n|0|a: "C:\\\\work"\nb: \x27say \\"hi\\"\x27\nc: C:\\new\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
-	'de60q|migrate-backslash-pairs-2x|migrate --from-2x -|a: "C:\\\\work"\nb: "say \\"hi\\""\nc: C:\\new\n|0|a: "C:\\work"\nb: \x27say "hi"\x27\nc: "C:\xe2\x97\x89NEWLINE\xe2\x97\x89ew"\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
+	'de60q|migrate-backslash-pairs-2x|migrate --from=2.0 -|a: "C:\\\\work"\nb: "say \\"hi\\""\nc: C:\\new\n|0|a: "C:\\work"\nb: \x27say "hi"\x27\nc: "C:\xe2\x97\x89NEWLINE\xe2\x97\x89ew"\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
 	## 2026101911300000: the two lines of the report, as 2.x read them, and the
-	## same file refused without --from-2x, since it could be a 3.0 one.
-	'de60n|migrate-2x-read|migrate --from-2x -|p: "C:\\\\new"\nt: C:\\temp\nq: a, b\n|0|p: "C:\\new"\nt: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\nq: [a, b]\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
+	## same file refused without --from=2.0, since it could be a 3.0 one.
+	'de60n|migrate-2x-read|migrate --from=2.0 -|p: "C:\\\\new"\nt: C:\\temp\nq: a, b\n|0|p: "C:\\new"\nt: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\nq: [a, b]\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
 	'de60p|upgrade-2x-read-ambiguous|upgrade %U2R%|-|7||2 value\(s\) read one way under 2\.x'
 	## A quoted name with a backslash pair read as typed under 1.2 and resolved
 	## under 2.0, so where the file doesn't say which, it is kept and counted
-	## lost, and the rest still converts. --from-2x reads it as 2.0 did
+	## lost, and the rest still converts. --from=2.0 reads it as 2.0 did
 	## (2026111919213927).
-	'de60s|migrate-lost-quoted-name|migrate --from-2x -|"n\\ty": 1\nt: C:\\temp\n|0|"n\xe2\x97\x89TAB\xe2\x97\x89y": 1\nt: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|!bound a value under 2\.x'
-	'de60t|migrate-lost-quoted-name-lossy|migrate --from-2x --lossy -|"n\\ty": 1\n|0|"n\xe2\x97\x89TAB\xe2\x97\x89y": 1\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|!bound a value under 2\.x'
+	'de60s|migrate-lost-quoted-name|migrate --from=2.0 -|"n\\ty": 1\nt: C:\\temp\n|0|"n\xe2\x97\x89TAB\xe2\x97\x89y": 1\nt: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|!bound a value under 2\.x'
+	'de60t|migrate-lost-quoted-name-lossy|migrate --from=2.0 --lossy -|"n\\ty": 1\n|0|"n\xe2\x97\x89TAB\xe2\x97\x89y": 1\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|!bound a value under 2\.x'
 	'dfhk1|migrate-lost-quoted-name-unsaid|migrate -|"n\\ty": 1\n|7|"n\\ty": 1\n##    Format   3.0\n|1 line\(s\) bound a value under 2\.x.*quoted name'
 	'dfhk2|migrate-lost-quoted-name-unsaid-lossy|migrate --lossy -|"n\\ty": 1\n|0|"n\\ty": 1\n##    Format   3.0\n|bound a value under 2\.x'
+	## 2026111919213947: --from=FORMAT takes a name from the format list or a
+	## major alone, in either spelling, and anything else is a usage error.
+	## --from=2.0 is gone. A pin's rewrite gets the Format line and no 2.x note.
+	'dfhkt|migrate-from-unknown|migrate --from=1.2 -|p: 1\n|1||^bad --from value \(no format has that name\): 1\.2 \(see --help\)$'
+	'dfhkv|upgrade-from-empty|upgrade --from= -|p: 1\n|1||^bad --from value \(no format has that name\):  \(see --help\)$'
+	'dfhkw|migrate-from-clash|migrate --from=2.0 --from=1.1 -|p: 1\n|1||--from=2\.0 cannot be combined with --from=1\.1'
+	'dfhkx|get-from-refused|get --from=2.0 - p|p: 1\n|1||^option --from not valid for get'
+	'dfhky|migrate-from-2x-gone|migrate --from-2x -|p: 1\n|1||^unknown option: --from-2x'
+	'dfhkz|migrate-from-major|migrate --from 2 -|x: a,b\n|0|x: [a, b]\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
+	'dfhm0|migrate-from-pin|migrate --from=3.0-a37 -|x: "a\\tb"\n|0|x: "a\xe2\x97\x89TAB\xe2\x97\x89b"\n##    Format   3.0\n|-'
 	## The 2.x tab went in as it was, since "C:\temp" was E024 (2026100115323227).
 	## It is the TAB escape since 2026100207032800.
-	#'dcq6r|migrate-from-2x|migrate --from-2x %BS%|-|0|p: "C:\\temp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	#'dcq6r|migrate-from-2x|migrate --from=2.0 %BS%|-|0|p: "C:\\temp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	## 2026-10-05: the backslash stays, and reads as text.
 	## Back since 2026101911300000: the tab 2.x read is written.
-	'ddcef|migrate-from-2x-tab|migrate --from-2x %BS%|-|0|p: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
+	'ddcef|migrate-from-2x-tab|migrate --from=2.0 %BS%|-|0|p: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
 	## Wrong since 2026101911300000. Don't uncomment.
-	#'ddj1q|migrate-from-2x-backslash|migrate --from-2x %BS%|-|0|p: \x27C:\\temp\x27\n##    Format   3\n|-'
+	#'ddj1q|migrate-from-2x-backslash|migrate --from=2.0 %BS%|-|0|p: \x27C:\\temp\x27\n##    Format   3\n|-'
 	## A file that names its format has nothing to migrate, which is what stops
 	## the second run from rewriting the first run's output.
 	'dcq6m|migrate-stamped-noop|migrate %V3%|-|0|p: 1\n##    Format   3\n|nothing to migrate'
@@ -1209,7 +1219,7 @@ rows=(
 	'ddf43|migrate-format-in-raw-after-backslash|migrate %RFQ%|-|7|-|doesn.t say which it was written for'
 	## 20260918 item 2: C looked for the version line before taking off a BOM.
 	'dct39|migrate-bom-stamped|migrate %V3B%|-|0|-|nothing to migrate'
-	'dct3a|migrate-bom-stamped-from-2x|migrate --from-2x %V3B%|-|0|-|nothing to migrate'
+	'dct3a|migrate-bom-stamped-from-2x|migrate --from=2.0 %V3B%|-|0|-|nothing to migrate'
 	## Found by the fuzz in the 20260918 fix round: the first Format line decided,
 	## so a file naming an older format was stamped again on every run.
 	'dct3j|migrate-two-stamps|migrate %V03%|-|0|-|nothing to migrate'
@@ -1225,15 +1235,15 @@ rows=(
 	## A line break in a Windows path has a spelling since 2026100207032800, so
 	## only the bracket line is lost and the count can no longer tell lines
 	## from values.
-	#'ddg9e|migrate-lost-counts-lines|migrate --from-2x %MV%|-|7|-|: 2 line\(s\) bound a value under 2\.x'
-	'ddhet|migrate-lost-one-line|migrate --from-2x %MV%|-|7|-|: 1 line\(s\) bound a value under 2\.x'
+	#'ddg9e|migrate-lost-counts-lines|migrate --from=2.0 %MV%|-|7|-|: 2 line\(s\) bound a value under 2\.x'
+	'ddhet|migrate-lost-one-line|migrate --from=2.0 %MV%|-|7|-|: 1 line\(s\) bound a value under 2\.x'
 	## 2026100207032800: 2.x matched a selector with a comma against an array
 	## value, and let a comma list head lines of its own. Neither has a
 	## spelling now, so both are lost, not rewritten at exit 0.
-	'ddk52|migrate-lost-array-selector|migrate --from-2x -|a[x, y].b: 1\n|7|-|: 1 line\(s\) bound a value under 2\.x'
-	'ddk53|migrate-lost-list-over-lines|migrate --from-2x -|a: 1, 2\n\tb: 1\n|7|-|: 1 line\(s\) bound a value under 2\.x'
+	'ddk52|migrate-lost-array-selector|migrate --from=2.0 -|a[x, y].b: 1\n|7|-|: 1 line\(s\) bound a value under 2\.x'
+	'ddk53|migrate-lost-list-over-lines|migrate --from=2.0 -|a: 1, 2\n\tb: 1\n|7|-|: 1 line\(s\) bound a value under 2\.x'
 	## 2026100610073400: a selector goes in parens. One in brackets is E029, so
-	## the line is rewritten without --from-2x too.
+	## the line is rewritten without --from=2.0 too.
 	'ddkep|migrate-selector-parens|migrate -|a[x].k: 1\nb[New York].k: 2\n|0|a(x).k: 1\nb("New York").k: 2\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
 	## 20260909 item 41: telling a file that needs migrating from one that does
 	## not took a diff of the output, and --write said nothing either way.
@@ -1273,8 +1283,8 @@ rows=(
 	## Back since 2026101911300000: the tab 2.x read is written. The row after
 	## them is wrong since then. Don't uncomment it.
 	'dcqad|migrate-check-ambiguous|migrate --check %BS%|-|7||doesn.t say which it was written for'
-	'dcqae|migrate-check-from-2x|migrate --check --from-2x %BS%|-|6||bs\.shcl:1: migrate would rewrite'
-	#'ddj1s|migrate-check-backslash|migrate --check --from-2x %BS%|-|0||!.'
+	'dcqae|migrate-check-from-2x|migrate --check --from=2.0 %BS%|-|6||bs\.shcl:1: migrate would rewrite'
+	#'ddj1s|migrate-check-backslash|migrate --check --from=2.0 %BS%|-|0||!.'
 	'dcqaf|migrate-check-write|migrate --check --write %W%|-|1|-|--check cannot be combined with --write'
 	'dcqag|migrate-write-says|migrate --write %W%|-|0||migrated, 1 line\(s\) rewritten'
 	## The Format and Migrated lines end the way most of the file's lines do.
@@ -1289,8 +1299,8 @@ rows=(
 	'ddg8d|migrate-check-lone-cr-crlf|migrate --check %MY%|-|0||!.'
 	## 2026100316275800: a raw block that never closes left the file
 	## unstamped at exit 0, so the next run could not tell it was migrated.
-	'ddg87|migrate-check-raw-open|migrate --check --from-2x %MR%|-|7||nowhere to put the Format line'
-	"ddg88|migrate-write-raw-open|migrate --write --from-2x %MRW%|-|7|-|nowhere to put the Format line|a: 'x\\\\ty'\nb: ~~~\n\tline\n"
+	'ddg87|migrate-check-raw-open|migrate --check --from=2.0 %MR%|-|7||nowhere to put the Format line'
+	"ddg88|migrate-write-raw-open|migrate --write --from=2.0 %MRW%|-|7|-|nowhere to put the Format line|a: 'x\\\\ty'\nb: ~~~\n\tline\n"
 	## The kept original, named. The save cases below check the file itself,
 	## but they are POSIX fixtures, so this is the one windows runs.
 	'dd6ee|migrate-write-keeps|migrate --write %W%|-|0||migrated, 1 line\(s\) rewritten; the original is .*w_backup_20261004-001500_format-v2\.shcl$'
@@ -1299,14 +1309,14 @@ rows=(
 	## alone. Text that reads two ways is refused at 7 with nothing written.
 	'ddmhh|upgrade-print|upgrade %U2%|-|0|tags: [a, b]\nport: 80\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3.0\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n|E026'
 	'ddmhj|upgrade-write|upgrade --write %U2W%|-|0|-|upgraded; the original is .*created_backup_20261004-001500_format-v2\.shcl$|tags: [a, b]\nport: 80\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3.0\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n'
-	'ddmhk|upgrade-write-ambiguous|upgrade --write %UAW%|-|7|-|read one way under 2\.x and another.*--from-2x|a: x,y\nb: "q\n'
+	'ddmhk|upgrade-write-ambiguous|upgrade --write %UAW%|-|7|-|read one way under 2\.x and another.*--from=FORMAT|a: x,y\nb: "q\n'
 	'ddmhm|upgrade-clean|upgrade --write %NC%|-|0|-|nothing to upgrade'
 	'ddmhn|upgrade-usage-line|upgrade|-|1||^usage: shcl upgrade \[options\] FILE \(see --help\)$'
 	'ddmhp|upgrade-stdin-write|upgrade --write -|-|1||cannot rewrite stdin'
 	'ddmhq|upgrade-check-refused|upgrade --check %UA%|-|1||--check'
-	## With --from-2x a clean file that reads differently once migrated is
+	## With --from=2.0 a clean file that reads differently once migrated is
 	## made over too; without it, it is left alone.
-	'ddmjg|upgrade-from-2x-clean|upgrade --from-2x %UC%|-|0|p: [a, b]\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3.0\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n|!.'
+	'ddmjg|upgrade-from-2x-clean|upgrade --from=2.0 %UC%|-|0|p: [a, b]\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3.0\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n|!.'
 	'ddmjh|upgrade-clean-unsaid|upgrade %UC%|-|0|p: a,b\n|nothing to upgrade'
 	## 20260918 item 18: the usage line said [--write|-w] where the help line
 	## says [options].
@@ -2804,25 +2814,25 @@ saveCases=(
 	'ddmhw|upgrade-rodir|upgrade --write ro/g.shcl|8|grep -qx "base:\[Boston\]" ro/g.shcl && grep -qiE "^ro/g_backup_20261004-001500_format-v2\.shcl: permission denied" "${tmpDir}/err"'
 	## An older Format line becomes this one, backed up like any upgrade
 	## (2026100717500017) and any migrate that rewrites a line (2026100916475300).
-	'ddqrx|upgrade-restamp|upgrade --write --from-2x f.shcl|0|cmp -s f.shcl <(printf "p: 1\n##    Format   3.0\n") && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "p: 1\n##    Format   2\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
+	'ddqrx|upgrade-restamp|upgrade --write --from=2.0 f.shcl|0|cmp -s f.shcl <(printf "p: 1\n##    Format   3.0\n") && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "p: 1\n##    Format   2\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	## The fresh file names one format, and the old line goes even from the top
 	## of the file (2026101407100001).
-	'ddy7x|upgrade-top-format|upgrade --write --from-2x f.shcl|0|[[ "$(grep -c "^##    Format" f.shcl)" == 1 ]] && grep -qx "##    Format   3.0" f.shcl && grep -qx "q: \[a, b\]" f.shcl && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "##    Format   2\nname: x\nq: a,b\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
+	'ddy7x|upgrade-top-format|upgrade --write --from=2.0 f.shcl|0|[[ "$(grep -c "^##    Format" f.shcl)" == 1 ]] && grep -qx "##    Format   3.0" f.shcl && grep -qx "q: \[a, b\]" f.shcl && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "##    Format   2\nname: x\nq: a,b\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	## A file naming this format that loads with an error is taken as 2.x when
 	## the caller says so, backed up under the format it names, and a second
 	## run leaves the fresh file alone (2026101407100010).
-	'ddy89|upgrade-beta|upgrade --write --from-2x f.shcl|0|[[ "$(grep -c "^##    Format" f.shcl)" == 1 ]] && grep -qx "tags: \[a, b\]" f.shcl && cmp -s f_backup_20261004-001500_format-v3.shcl <(printf "tags: a, b\n##    Format   3\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]] && cp f.shcl ../beta-again.shcl && "${cli}" upgrade --write --from-2x f.shcl 2>/dev/null && cmp -s f.shcl ../beta-again.shcl && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
+	'ddy89|upgrade-beta|upgrade --write --from=2.0 f.shcl|0|[[ "$(grep -c "^##    Format" f.shcl)" == 1 ]] && grep -qx "tags: \[a, b\]" f.shcl && cmp -s f_backup_20261004-001500_format-v3.shcl <(printf "tags: a, b\n##    Format   3\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]] && cp f.shcl ../beta-again.shcl && "${cli}" upgrade --write --from=2.0 f.shcl 2>/dev/null && cmp -s f.shcl ../beta-again.shcl && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	## A file it leaves alone still has its load's diagnostics said once, and
 	## nothing is written (2026101419280005).
 	## Wrong since 2026101515372401: a fresh text that keeps an error is
 	## refused at 7, not left at 0. de030 has the new rule. Don't uncomment.
-	# 'ddzwg|upgrade-beta-left|upgrade --write --from-2x f.shcl|0|cmp -s f.shcl <(printf "a: 1\nb 2\n##    Format   3\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 1 ]] && cmp -s "${tmpDir}/err" <(printf "line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\nf.shcl: nothing to upgrade, left as is\n")'
-	## With --from-2x a fresh text that would keep an error is refused, for a
+	# 'ddzwg|upgrade-beta-left|upgrade --write --from=2.0 f.shcl|0|cmp -s f.shcl <(printf "a: 1\nb 2\n##    Format   3\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 1 ]] && cmp -s "${tmpDir}/err" <(printf "line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 3\nf.shcl: nothing to upgrade, left as is\n")'
+	## With --from=2.0 a fresh text that would keep an error is refused, for a
 	## file with no Format line as for a beta file, and nothing is written. The
 	## 2.x escape on line 1 grew on each run before (2026101515372401). With
 	## line 5 quoted it converts, and the next run leaves it alone.
-	'de030|upgrade-beta-left|upgrade --write --from-2x f.shcl|7|cmp -s f.shcl <(printf "a: 1\nb 2\n##    Format   3\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 1 ]] && grep -qxF "f.shcl: line(s) 2 would still have an error once converted from 2.x; nothing written" "${tmpDir}/err"'
-	'de02z|upgrade-from-2x-left|upgrade --write --from-2x f.shcl|7|cmp -s f.shcl ../left.shcl && [[ "$(ls -A | wc -l | tr -d " ")" == 1 ]] && grep -qxF "f.shcl: line(s) 5 would still have an error once converted from 2.x; nothing written" "${tmpDir}/err" && sed "s/^port: \(.*\)\$/port: \"\1\"/" ../left.shcl > f.shcl && "${cli}" upgrade --write --from-2x f.shcl 2>/dev/null && "${cli}" check f.shcl >/dev/null 2>&1 && cp f.shcl ../left-again.shcl && "${cli}" upgrade --write --from-2x f.shcl 2>/dev/null && cmp -s f.shcl ../left-again.shcl && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
+	'de030|upgrade-beta-left|upgrade --write --from=2.0 f.shcl|7|cmp -s f.shcl <(printf "a: 1\nb 2\n##    Format   3\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 1 ]] && grep -qxF "f.shcl: line(s) 2 would still have an error once converted from 2.x; nothing written" "${tmpDir}/err"'
+	'de02z|upgrade-from-2x-left|upgrade --write --from=2.0 f.shcl|7|cmp -s f.shcl ../left.shcl && [[ "$(ls -A | wc -l | tr -d " ")" == 1 ]] && grep -qxF "f.shcl: line(s) 5 would still have an error once converted from 2.x; nothing written" "${tmpDir}/err" && sed "s/^port: \(.*\)\$/port: \"\1\"/" ../left.shcl > f.shcl && "${cli}" upgrade --write --from=2.0 f.shcl 2>/dev/null && "${cli}" check f.shcl >/dev/null 2>&1 && cp f.shcl ../left-again.shcl && "${cli}" upgrade --write --from=2.0 f.shcl 2>/dev/null && cmp -s f.shcl ../left-again.shcl && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	## The Format line after the block of a refused line led by a tilde is
 	## found, so upgrade leaves the file alone rather than back it up again on
 	## every run (2026101514324701).
@@ -2897,12 +2907,12 @@ diagExits=(
 	'de11q|migrate-two-way|twoway|-|migrate f.shcl|7'
 	'de11r|migrate-write-two-way|twoway|-|migrate --write f.shcl|7'
 	'de11s|migrate-check-lost|lost|-|migrate --check f.shcl|7'
-	'de11t|migrate-write-taken|old|taken|migrate --write --from-2x f.shcl|8'
-	'de11v|migrate-write-rodir|old|ro|migrate --write --from-2x ro/f.shcl|8'
+	'de11t|migrate-write-taken|old|taken|migrate --write --from=2.0 f.shcl|8'
+	'de11v|migrate-write-rodir|old|ro|migrate --write --from=2.0 ro/f.shcl|8'
 	'de11w|upgrade-two-way|twoway|-|upgrade f.shcl|7'
 	'de11x|upgrade-write-two-way|twoway|-|upgrade --write f.shcl|7'
-	'de11y|upgrade-errors-left|left|-|upgrade --from-2x f.shcl|7'
-	'de11z|upgrade-write-errors-left|left|-|upgrade --write --from-2x f.shcl|7'
+	'de11y|upgrade-errors-left|left|-|upgrade --from=2.0 f.shcl|7'
+	'de11z|upgrade-write-errors-left|left|-|upgrade --write --from=2.0 f.shcl|7'
 	'de120|upgrade-write-taken|old|taken|upgrade --write f.shcl|8'
 	'de121|upgrade-write-rodir|old|ro|upgrade --write ro/f.shcl|8'
 )
@@ -2963,7 +2973,7 @@ for bc in 'ddf5t|stamp|p: 1\n## Owner: ops team\n' 'ddf5v|stamp-note|base:[Bosto
 		fSafeRmUnder_IfThere "${tmpDir}" "${banDir}"; mkdir -p "${banDir}"
 		printf '%b' "${text}" > "${banDir}/f.shcl"
 		rc=0
-		"${cli}" migrate --from-2x --write "${banDir}/f.shcl" >/dev/null 2>"${tmpDir}/err" </dev/null || rc=$?
+		"${cli}" migrate --from=2.0 --write "${banDir}/f.shcl" >/dev/null 2>"${tmpDir}/err" </dev/null || rc=$?
 		if ((rc == 0)); then
 			printf 'banner\ton\n' | "${cli}" set --write "${banDir}/f.shcl" >/dev/null 2>"${tmpDir}/err" || rc=$?
 		fi
@@ -2985,7 +2995,7 @@ for b in "${bindings[@]}"; do
 	fSafeRmUnder_IfThere "${tmpDir}" "${banDir}"; mkdir -p "${banDir}"
 	printf '%b' "${upText}" > "${banDir}/f.shcl"
 	rc=0
-	"${cli}" upgrade --from-2x --write "${banDir}/f.shcl" >/dev/null 2>"${tmpDir}/err" </dev/null || rc=$?
+	"${cli}" upgrade --from=2.0 --write "${banDir}/f.shcl" >/dev/null 2>"${tmpDir}/err" </dev/null || rc=$?
 	nRun+=1
 	if ((rc != 0)); then
 		echo "cli-regress: upgrade-keeps-author-line [${name}]: exit ${rc}: $(head -c 200 "${tmpDir}/err")" >&2; nBad+=1
@@ -3291,6 +3301,7 @@ for b in "${bindings[@]}"; do
 			case "${v}" in
 				*'|'*) v="${v%%|*}" ;;
 				*=*)   v="a=1" ;;
+				FORMAT) v="2.0" ;;
 				*)     v="x" ;;
 			esac
 			probe="${opt}=${v}"
@@ -3451,3 +3462,4 @@ echo "cli-regress: OK: ${#rows[@]} row(s) across ${#bindings[@]} binding(s), ${n
 ##		2026-11-01  --version is the version line, then the copyright line.
 ##		2026-11-01  version-then-copyright counts lines on BSD wc, which pads.
 ##		2026-11-07  @dir, and set --write to a folder or a directory-shaped path.
+##		2026-11-20  --from=FORMAT, in place of --from-2x, which is a usage error now.

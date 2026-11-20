@@ -19,7 +19,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-/// The `from` that says a text was written for 2.x, as `--from-2x` does.
+/// The `from` that says a text was written for 2.x, as `--from=2.0` does.
 fn v2_from(from_v2: bool) -> Option<&'static str> {
 	from_v2.then_some("2.0")
 }
@@ -4672,7 +4672,7 @@ fn format_version_caps_at_32_bits() {
 		Some(4294967295)
 	);
 	// Read as this major until 2026101514324705, which made a file naming
-	// one too big a beta file to `upgrade --from-2x`.
+	// one too big a beta file to `upgrade --from=2.0`.
 	// assert_eq!(
 	// 	format_version("##    Format   4294967296\na: 1\n"),
 	// 	Some(FORMAT_MAJOR)
@@ -5837,7 +5837,7 @@ fn migrate_counts_what_nothing_spells() {
 // A file that does not say it is 2.x could be a 3.0 one. A piece that reads
 // clean under these rules too, such as an escape, a backtick value, `[a]` or
 // a `- ` item, is left as written and counted, so the CLI asks for
-// --from-2x rather than changing a correct file at exit 0. A selector in
+// --from=2.0 rather than changing a correct file at exit 0. A selector in
 // brackets is `E029` now, so its line is rewritten the 2.x way.
 #[test]
 fn migrate_leaves_what_reads_clean_now() {
@@ -5899,7 +5899,7 @@ fn migrate_writes_the_text_2x_read() {
 
 // A file that does not say it is 2.x could be a 3.0 one, where a backslash
 // is text. A piece that reads clean under these rules too is left and
-// counted, so the CLI asks for --from-2x. A line these rules refuse is 2.x
+// counted, so the CLI asks for --from=2.0. A line these rules refuse is 2.x
 // either way, and converts, and a file that names format 2 converts whole.
 #[test]
 fn migrate_counts_a_backslash_pair_in_an_unstamped_file() {

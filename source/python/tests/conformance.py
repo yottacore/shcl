@@ -4305,7 +4305,7 @@ def main():
 	if shcl.format_version("##    Format   4294967295\na: 1\n") != 4294967295:
 		raise SystemExit("format_version: 4294967295 did not read as itself")
 	# Read as this major until 2026101514324705, which made a file naming one
-	# too big a beta file to `upgrade --from-2x`.
+	# too big a beta file to `upgrade --from=2.0`.
 	# Kept commented out, since old tests aren't deleted.
 	# if shcl.format_version("##    Format   4294967296\na: 1\n") != shcl.FORMAT_MAJOR:
 	# 	raise SystemExit("format_version: 4294967296 did not read as the current major")
@@ -5456,7 +5456,7 @@ def main():
 	# A file that does not say it is 2.x could be a 3.0 one. A piece that
 	# reads clean under these rules too, such as an escape, a backtick value,
 	# `[a]` or a `- ` item, is left as written and counted, so the CLI asks
-	# for --from-2x rather than changing a correct file at exit 0. A selector
+	# for --from=2.0 rather than changing a correct file at exit 0. A selector
 	# in brackets is E029 now, so its line is rewritten the 2.x way.
 	mtext = "x: \"a\u25c9TAB\u25c9b\"\n\"n\u25c9TAB\u25c9\": 1\nl:\n\t- :0\ns[\"\u25c9TAB\u25c9\"].p: 1\nb: `abc`\nc: [a]\n"
 	mm = shcl.migrate(mtext, None)
@@ -5506,7 +5506,7 @@ def main():
 	test_id("de61e", "migrate_counts_a_backslash_pair_in_an_unstamped_file")
 	# A file that does not say it is 2.x could be a 3.0 one, where a backslash
 	# is text. A piece that reads clean under these rules too is left and
-	# counted, so the CLI asks for --from-2x. A line these rules refuse is 2.x
+	# counted, so the CLI asks for --from=2.0. A line these rules refuse is 2.x
 	# either way, and converts, and a file that names format 2 converts whole.
 	mtext = "p: \"C:\\\\new\"\nt: C:\\temp\nw: C:\\work\nb: \"say \\\"hi\\\"\"\nl: a\\tb, c\n"
 	mm = shcl.migrate(mtext, None)

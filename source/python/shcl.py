@@ -2900,7 +2900,7 @@ def _stamp_number(digits: str) -> int:
 	"""A stamp's number, capped at 32 bits. A number too long for int() -
 	CPython refuses past 4300 digits - is one no format will ever have
 	(20260918b item 30). Read as this major, a number that doesn't fit would
-	make a file `upgrade --from-2x` takes for a beta one."""
+	make a file `upgrade --from=2.0` takes for a beta one."""
 	v = digits.lstrip("0") or "0"
 	return 0xFFFFFFFF if len(v) > 10 or int(v) > 0xFFFFFFFF else int(v)
 
@@ -3376,7 +3376,7 @@ def _stamp_hint(stamp: Read[int]) -> Diagnostic | None:
 			"so some lines may read differently than written", "H006")
 	return Diagnostic(stamp.line, Severity.Hint,
 		f"the file names format {written}, older than this reader's format {FORMAT_MAJOR}.{FORMAT_MINOR}, "
-		"so some lines may read differently than written; shcl upgrade --from-2x rewrites it", "H007")
+		"so some lines may read differently than written; shcl upgrade --from=FORMAT rewrites it", "H007")
 
 
 def schema_ref(text: str) -> str | None:

@@ -24,7 +24,7 @@ _shcl_types='--int --float --bool --datetime --string --raw --rawinfo --duration
 
 ## Options that take a value, in either spelling. Mirrors the list asked_for()
 ## steps over in the CLI; check-completions.bash diffs the two.
-_shcl_valopts='--default --on-bad --strictness --schema --unit --layer --set --set-literal --set-default --set-literal-default --remove'
+_shcl_valopts='--default --on-bad --strictness --schema --from --unit --layer --set --set-literal --set-default --set-literal-default --remove'
 
 ## Options each subcommand accepts. Anything else is a usage error to the CLI,
 ## so offering it here would be a lie.
@@ -35,8 +35,8 @@ _shcl_opts() {
 		fmt)             echo '--write --lossy --check --strictness --layer --set --set-literal --set-default --set-literal-default --remove' ;;
 		check)           echo '--strictness --schema' ;;
 		init)            echo '--schema --no-banner' ;;
-		migrate)         echo '--write --lossy --from-2x --check' ;;
-		upgrade)         echo '--write --from-2x' ;;
+		migrate)         echo '--write --lossy --from --check' ;;
+		upgrade)         echo '--write --from' ;;
 		tokens|explain)  echo '' ;;
 		count)           echo '--strictness --layer --set --set-literal --set-default --set-literal-default --remove' ;;
 		instances)       echo '--paths --json --strictness --layer --set --set-literal --set-default --set-literal-default --remove' ;;
@@ -83,6 +83,7 @@ _shcl() {
 		--strictness)     mapfile -t COMPREPLY < <(compgen -W 'loose standard strict 1 2 3' -- "${cur}"); return ;;
 		--on-bad)         mapfile -t COMPREPLY < <(compgen -W 'error default flag' -- "${cur}"); return ;;
 		--unit)           mapfile -t COMPREPLY < <(compgen -W 'ms s m h d B kB KB MB GB TB KiB MiB GiB TiB' -- "${cur}"); return ;;
+		--from)           mapfile -t COMPREPLY < <(compgen -W '1.0 1.1 2.0 3.0-1f8 3.0-871 3.0-30d 3.0-0c9 3.0-00f 3.0-f2a 3.0-b10 3.0-f8e 3.0-a37 3.0-231 3.0-9ef 3.0-ea0 3.0-a65 3.0-217 3.0-a01 3.0 1 2 3' -- "${cur}"); return ;;
 		--schema|--layer) _shcl_files "${cur}"; return ;;
 	esac
 	## The rest take a PATH, or a value nothing here can enumerate.

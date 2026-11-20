@@ -3702,7 +3702,7 @@ fn stamp_hint(stamp: &Read<u32>) -> Option<Diagnostic> {
 		(
 			"H007",
 			format!(
-				"the file names format {}, older than this reader's format {}.{}, so some lines may read differently than written; shcl upgrade --from-2x rewrites it",
+				"the file names format {}, older than this reader's format {}.{}, so some lines may read differently than written; shcl upgrade --from=FORMAT rewrites it",
 				written, FORMAT_MAJOR, FORMAT_MINOR
 			),
 		)

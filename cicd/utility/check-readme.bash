@@ -440,7 +440,7 @@ done
 fTestEnd
 
 ##	The paragraph on 2.x files names a comma value and a backslash value that
-##	each need --from-2x, and what the second becomes with it. It went stale
+##	each need --from=2.0, and what the second becomes with it. It went stale
 ##	twice already, on backslashes.
 fTest ddp6g migrate-claims
 migPara="$(awk '/^If you have files written for 2.x/' "${docs[@]}")"
@@ -462,13 +462,13 @@ if [[ "${migRc}" != 7 || "${migOut}" != "${migSlash}" ]]; then
 	echo "check-readme: migrate on '${migSlash}' exits ${migRc} and prints '${migOut}'; the examples doc says it is left alone at exit 7" >&2
 	exit 1
 fi
-##	The second spelling of the same field is what --from-2x writes.
+##	The second spelling of the same field is what --from=2.0 writes.
 migSlashKey="${migSlash%%:*}"
 # shellcheck disable=SC2016  ## the backticks are markdown, not expansions
 migSlash2x="$(grep -oE '`'"${migSlashKey}"': [^`\\]*`' <<< "${migPara}" | head -n1 | tr -d '`' || true)"
-migRc=0; migOut="$("${cli}" migrate --from-2x "${tmpDir}/mig.shcl" 2>/dev/null)" || migRc=$?
+migRc=0; migOut="$("${cli}" migrate --from=2.0 "${tmpDir}/mig.shcl" 2>/dev/null)" || migRc=$?
 if [[ -z "${migSlash2x}" || "${migRc}" != 0 || "${migOut%%$'\n'*}" != "${migSlash2x}" ]]; then
-	echo "check-readme: migrate --from-2x on '${migSlash}' exits ${migRc} and prints '${migOut%%$'\n'*}'; the examples doc says '${migSlash2x}'" >&2
+	echo "check-readme: migrate --from=2.0 on '${migSlash}' exits ${migRc} and prints '${migOut%%$'\n'*}'; the examples doc says '${migSlash2x}'" >&2
 	exit 1
 fi
 fTestEnd

@@ -35,6 +35,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- `shcl migrate --from=3.0` on a file with no stamp says the file already names its format
+	- ID: 2026111920301167
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261119-203011
+	- Opened by: me
+	- Related IDs: 2026111919213947
+	- Steps to reproduce: `printf 'x: "a\\tb"\n' | shcl migrate --from=3.0 -`, or `--from=3.0-9ef`, or any format whose steps are all the same as this one's.
+	- Incorrect behavior: exit 0 with `nothing to migrate: the file already names its format`, though the file has no stamp. It's `--from` that named the format. All 4 CLIs say it.
+	- Expected behavior: the message says the named format reads the same under these rules, or names `--from`.
+
 - The veneer smoke test does not compile with `SHCL_NO_FILE_IO`
 	- ID: 2026111919581254
 	- Type: Bug
@@ -416,7 +429,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: `--from=FORMAT` in the 4 CLIs, in place of `--from-2x`, with help, completions and docs
 	- ID: 2026111919213947
 	- Type: Feature
-	- Status: Queued
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261119-192139
@@ -425,6 +438,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Prereq IDs: 2026111919213927
 	- Requirements: `migrate` and `upgrade` take `--from=FORMAT` in place of `--from-2x` in the 4 CLIs, passed to the library's `from`. A name no format has is a usage error. The help text, the completions, the man page, the `H007` hint's message, cli-regress, check-migrate, crosscheck, check-readme, examples.md and spec.md's CLI parts follow.
 	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261120: the CLI takes a name in `FORMAT_NAMES` or the major of one alone (`1`, `2`, `3`), in both spellings, and refuses anything else at exit 1 with `bad --from value (no format has that name)`. That includes a newer format such as `4` or `3.1`, and a pin no row has, which the library would take. A mistyped name read as no `from` would quietly do something else. A `Check:` entry in questions.md has it.
+		- me, 20261120: `--from-2x` is gone with no alias, as the item asks. It's an unknown option now.
+		- me, 20261120: the `H007` hint and `explain H007` name `--from=FORMAT` rather than the stamp's own number, since a stamp such as `Format 02` or `2.5` isn't a name `--from` takes.
+		- me, 20261120: the ambiguous refusal's pointer reads `(--from=FORMAT rewrites them)`. Test scripts pass `--from=2.0` where they passed `--from-2x`. cli-regress's option-scopes probe gives `FORMAT` the value `2.0`.
+	- Verified: the 7 new cli-regress rows, `ddqhf`, `ddqhk` and `ddmhk` fail on the old C CLI and pass on all 4 new ones. cli-regress over the 4 CLIs (684 rows, 4007 checks), check-migrate (647 documents), crosscheck over the corpus with the 4 CLIs (23862 comparisons), and steps 1 to 4 of `--backlog-run-quick rust go python c cli` passed, which take in check-completions, check-readme, check-docs, check-doc-examples, test-ids, shellcheck, markdownlint, clippy, go vet, staticcheck, ruff and mypy. The mingw C CLI build passed on its own. The help from the 4 CLIs has one checksum and no line over 80.
+	- Swept: every `--from-2x` in the 4 CLIs (parse, the 2 value-option lists, `allowed_opts`, the 3 refusal pointers, help and explain), the `H007` message in the 4 libraries, both completion files, the man page, spec.md, design.md, examples.md, the conformance README, the format versions design doc, changelog, cli-regress, check-migrate, crosscheck, check-readme, doc-tables.py, sanitize-c and the test comments. Left as written: the beta1 changelog section, dated History lines, row names and the older design docs.
+	- Test case: cli-regress `dfhkt`, `dfhkv`, `dfhkw`, `dfhkx`, `dfhky`, `dfhkz`, `dfhm0`, with `ddqhf`, `ddqhk` and `ddmhk` for the hint and refusal text.
+	- Branch: `nov20-2026111919213947`
+	- Commit: `e88edb41`
+	- Acceptance signoff: Self-closed: the new rows were seen to fail on the old CLI, and the named gates passed. What the flag takes is a `Check:` entry in questions.md.
+	- Closed: 20261119-203300
+	- Closed reason: Done
 
 - Format versions: each published format and pin round-trips against its own tag's CLI in a gate
 	- ID: 2026111907080466

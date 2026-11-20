@@ -4528,7 +4528,7 @@ func TestFormatVersionCapsAt32Bits(t *testing.T) {
 		t.Errorf("4294967295 read as %d", v)
 	}
 	// Read as this major until 2026101514324705, which made a file naming one
-	// too big a beta file to `upgrade --from-2x`.
+	// too big a beta file to `upgrade --from=2.0`.
 	// if v, ok := FormatVersion("##    Format   4294967296\na: 1\n"); !ok || v != FormatMajor {
 	// 	t.Errorf("4294967296 read as %d", v)
 	// }
@@ -6383,7 +6383,7 @@ func TestMigrateCountsWhatNothingSpells(t *testing.T) {
 // A file that does not say it is 2.x could be a 3.0 one. A piece that reads
 // clean under these rules too, such as an escape, a backtick value, `[a]` or
 // a `- ` item, is left as written and counted, so the CLI asks for
-// --from-2x rather than changing a correct file at exit 0. A selector in
+// --from=2.0 rather than changing a correct file at exit 0. A selector in
 // brackets is E029 now, so its line is rewritten the 2.x way.
 func TestMigrateLeavesWhatReadsCleanNow(t *testing.T) {
 	defer testID(t, "ddkn7")
@@ -6453,7 +6453,7 @@ func TestMigrateWritesTheText2xRead(t *testing.T) {
 
 // A file that does not say it is 2.x could be a 3.0 one, where a backslash
 // is text. A piece that reads clean under these rules too is left and
-// counted, so the CLI asks for --from-2x. A line these rules refuse is 2.x
+// counted, so the CLI asks for --from=2.0. A line these rules refuse is 2.x
 // either way, and converts, and a file that names format 2 converts whole.
 func TestMigrateCountsABackslashPairInAnUnstampedFile(t *testing.T) {
 	defer testID(t, "de61b")

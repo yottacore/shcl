@@ -7551,7 +7551,7 @@ static void stamp_hint(ShclParser *P, ShclStr text) {
 		sb_puts(P->line, &m, ".");
 		sb_put_u64(P->line, &m, SHCL_FORMAT_MINOR);
 		sb_puts(P->line, &m, ", so some lines may read differently than written");
-		if (!newer) sb_puts(P->line, &m, "; shcl upgrade --from-2x rewrites it");
+		if (!newer) sb_puts(P->line, &m, "; shcl upgrade --from=FORMAT rewrites it");
 		p_diag(P, st.line, SHCL_SEV_HINT, newer ? "H006" : "H007", sb_S(&m));
 	}
 	arena_reset(P->line);

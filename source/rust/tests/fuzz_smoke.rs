@@ -16,7 +16,7 @@ use shcl::{
 	tokenize_value, upgrade,
 };
 
-/// The `from` that says a text was written for 2.x, as `--from-2x` does.
+/// The `from` that says a text was written for 2.x, as `--from=2.0` does.
 fn v2_from(from_v2: bool) -> Option<&'static str> {
 	from_v2.then_some("2.0")
 }
