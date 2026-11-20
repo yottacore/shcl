@@ -38,7 +38,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The veneer smoke test does not compile with `SHCL_NO_FILE_IO`
 	- ID: 2026111919581254
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Priority: Low
 	- Target version: v3.0.0
 	- Opened: 20261119-195812
@@ -46,6 +46,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Steps to reproduce: `g++ -std=c++17 -DSHCL_NO_FILE_IO -fsyntax-only -Isource/c source/c/tests/veneer_smoke.cpp`
 	- Incorrect behavior: 4 errors. `main`'s `#else` arm calls `a_save_names_this_format` and others that sit inside `#ifndef SHCL_NO_FILE_IO`. Seen on `f7a1dff5`, before 2026111919213927.
 	- Expected behavior: it compiles and runs the checks that need no file I/O, or no gate builds it that way and the `#else` arm goes.
+	- Closed reason: Duplicate
+	- Superseded by ID: 2026111814490325
+	- Test case: none, duplicate
+	- Closed: 20261119-200159
 
 - Format versions: the demo gif and its golden text show fmt output without the stamp
 	- ID: 2026111710564808
