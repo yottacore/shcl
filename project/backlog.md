@@ -206,7 +206,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: port the steps out of 1.0 and 1.1 to C
 	- ID: 2026111917072385
 	- Type: Feature
-	- Status: Queued
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261119-170723
@@ -216,6 +216,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: mirror 2026111917071578's step kinds, rules and test in C, by parity over idiom.
 	- Estimated effort: Avg
 	- Note: the docs and the changelog already say what the ports build. Each binding's twin of `de60h` (Go `TestMigrateCountsAQuotedNameWithABackslashPairLost`, Python `de61f`, C `de61j`) needs `upgrade`'s lost count at 0, as the Rust one got. The old v1.0.0, v1.2.0 and v2.0.0 CLIs build from `git archive <tag> source/rust` in a few seconds each.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261119: Rust's `Step::V2(V2Read)` is a `v2` field of a new private `ShclV2Read` on the `ShclStep` struct, set only for `SHCL_STEP_V2`, with `SHCL_V2_EITHER` as its zero value. `ShclStep` and `ShclStepKind` moved up beside `ShclPin`, since `migrate_text` now takes the `ShclStep` in place of its `const ShclPin *`, and `ShclMigrating` gets a `v2` field. `shcl_migrate` and `shcl_migrate_unstamped` pass a V2 step with `SHCL_V2_EITHER`, and `s_convert` passes every rewriting step to `migrate_text`.
+	- 20261119: `migrate_counts_a_quoted_name_with_a_backslash_pair_lost` (`de61j`) now wants `shcl_upgrade(t, len, 1, 1).lost` 0, where it was 2, as Rust's `de60h` does. Its `shcl_migrate` asserts are as they were.
+	- Verified: `dfhfn` fails with each of the 3 rows set back to `SHCL_V2_EITHER`, and passes with them. With the 2.0 row set back, `de61j` fails too. The C runner, `--backlog-run-quick rust go python c cli` (all 5 steps passed), cli-regress for Rust and C after rebuilding the C CLI, crosscheck over the corpus with the 4 CLIs, check-docs, check-veneer, `test-ids.py check`, `lint-report.bash --check --no-mark`, the markdown check and markdownlint passed. The C CLI's `upgrade` printed the same stdout, stderr and exit code as the Rust CLI's on every corpus document with its stamp taken off, dated into 1.0, 1.1 and 2.0, with and without `--from-2x` (4116 pairs, `v2-port-diff.bash`), and on 12 hand-written name and selector files at 5 dates, with and without `--from-2x` (120 pairs, `v2-probe-diff.bash`), where a build with the 1.0 row set back differed on 4.
+	- Note: cppcheck and analyze-c, which `shcl.h` changes call for, are left to the round's gate step.
+	- Swept: every Rust function the step touched has its C twin changed: `ShclMigrating`, `ShclStepKind`, `ShclStep`, `shcl_format_steps`, `s_convert`, `shcl_migrate`, `shcl_migrate_unstamped`, `migrate_text`, `upgrade_into` and `migrate_line`, with `ShclV2Read` new. `raw_lines_init` sets `SHCL_V2_EITHER`, as Rust's `RawLines` does. `s_first_rewrite`'s none step names all 3 fields. The doc comments on `shcl_migration`, `shcl_upgrade` and the C++ `upgrade` say so; the C++ calls wrap the C ones with nothing else to change. design.md and the format-versions design doc say all 4 bindings.
+	- Test case: `a_load_converts_from_a_1x_or_2x_format` (C `dfhfn`, twin of Rust `dfhe6`).
+	- Branch: `nov20-2026111917072385`
+	- Commit: `97d8dbfb`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the steps, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261119-180613
 
 - Format versions: `from` and `--from=FORMAT` replace `from_v2` and `--from-2x`
 	- ID: 2026111907080445

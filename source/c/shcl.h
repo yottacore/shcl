@@ -851,7 +851,9 @@ extern const char *const shcl_format_names[SHCL_FORMAT_NAME_COUNT][2];
 // there is no 3.0 spelling to move to: bracket text after the colon, a
 // selector holding a comma, which matched an array value, and a comma list
 // with lines under it (E028 in brackets). Also a quoted name with a backslash
-// pair, which 1.2 read as typed and 2.0 resolved, so it is kept as written.
+// pair, which 1.2 read as typed and 2.0 resolved, so it is kept as written
+// where the format isn't found, as in shcl_migrate, and a selector 1.0 or 1.1
+// matched otherwise.
 typedef struct { char *text; size_t len; int current; size_t ambiguous; size_t lost; } shcl_migration;
 
 // Rewrite a document written under the 2.x lexical rules so this parser reads
@@ -973,9 +975,11 @@ typedef struct {
 // over: one from 3.0-9ef on is current, its errors kept as typed, as a load
 // with migrate keeps them. One from 3.0-1f8 to 3.0-a37 goes through that
 // format's step rather than shcl_migrate_unstamped, and is made over even when
-// it loads clean, since `"x\ty"` loads clean now and held a tab then. A file
-// stamped beta1's `Format 3` or a pin is read the same way, and the made-over
-// file's Format line names this format whole.
+// it loads clean, since `"x\ty"` loads clean now and held a tab then. One from
+// 1.0 to 2.0 goes through the 2.x rewrite with that format's reads of a quoted
+// name and a selector, and from_v2 takes it as 2.0. A file stamped beta1's
+// `Format 3` or a pin is read the same way, and the made-over file's Format
+// line names this format whole.
 // shcl_upgrade_dated takes the file's mtime too.
 shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2, int banner);
 // shcl_upgrade, with mtime for shcl_find_format: the file's, in Unix seconds,
@@ -3535,13 +3539,44 @@ static int v2_bracket_array(ShclArena *a, ShclStr body, ShclLex rules) {
    Windows path, a drive or a share, and holds `\t` or `\n` (E024). */
 typedef enum { SHCL_PIN_FROM_30D, SHCL_PIN_FROM_B10, SHCL_PIN_FROM_A37 } ShclPin;
 
+/* Which of 1.0 to 2.0 a text read by the 2.x rules was written in, where they
+   read a line otherwise. Their values and line syntax are the same.
+   EITHER: migrate's own, with no format found: 1.2 keyed a quoted name by its
+   text as typed, and 2.0 resolved its backslash pairs, so a name with one
+   stays as typed and counts as lost.
+   FROM_10: 1.0: as 1.1, and it also matched a selector by its text as typed,
+   so one with a backslash pair could miss the instance 1.1 finds.
+   FROM_11: 1.1 and 1.2 keyed a quoted name by its text as typed, so `"a\"b"`
+   and `'a"b'` were 2 fields, and matched a quoted selector against an array's
+   display form too, so `x["a, b"]` found `x: a, b`.
+   FROM_20: 2.0 resolved a quoted name's backslash pairs. */
+typedef enum { SHCL_V2_EITHER, SHCL_V2_FROM_10, SHCL_V2_FROM_11, SHCL_V2_FROM_20 } ShclV2Read;
+
+/* What turns a text in one format of shcl_format_days into the next one's, as
+   the design doc's Reading and converting says. A new format adds a row to
+   shcl_format_steps, and a kind here only when no step yet does what it
+   needs. SAME: the 2 formats read every line the same, but for lines the
+   older one refuses, which stay as typed. Nothing changes. V2: migrate's
+   rewrite from the 2.x rules, which lands on the current format, with the
+   reads of the format of 1.0 to 2.0 it starts from. PIN: the rewrite from the
+   rules of a pin from 3.0-1f8 to 3.0-a37 into the format 3 value syntax,
+   where a backslash is text. It ends at the current format. A line those
+   rules refused stays as typed. */
+typedef enum { SHCL_STEP_SAME, SHCL_STEP_V2, SHCL_STEP_PIN } ShclStepKind;
+
+/* A step: its kind, for PIN which pin's rules, and for V2 which format's
+   reads. Other kinds leave pin and v2 at their first values, which nothing
+   reads. */
+typedef struct { ShclStepKind kind; ShclPin pin; ShclV2Read v2; } ShclStep;
+
 /* The counters a line rewrite reports back, and the one thing it asks.
    rules: the old rules the text is read by, V2 or PIN. pin: under PIN, which
-   pinned rules, so which escapes they read and refused.
+   pinned rules, so which escapes they read and refused. v2: under V2, which
+   of 1.0 to 2.0, if the format was found.
    bracketed: the line just rewritten put a 2.x comma list in brackets.
    refused_now: these rules refuse the line about to be rewritten, so it is
    not a correct 3.0 line, whatever the file is. */
-typedef struct { ShclLex rules; ShclPin pin; int from_v2; size_t ambiguous; size_t lost; int bracketed; int refused_now; } ShclMigrating;
+typedef struct { ShclLex rules; ShclPin pin; ShclV2Read v2; int from_v2; size_t ambiguous; size_t lost; int bracketed; int refused_now; } ShclMigrating;
 
 /* The character a `\u` or `\U` escape names under 3.0-b10 to 3.0-a37 in *cp,
    and how many hex digits it takes in *len: 4 after `u`, 8 after `U`. 0 for a
@@ -3744,6 +3779,9 @@ static int quoted_name_now(ShclArena *a, ShclStr spelled, ShclStr *out) {
 	return resolve_marks(a, s_slice(line, seg->name.start, seg->name.end), out, &why);
 }
 
+/* Defined below, beside the stamp reads. */
+static int s_has(ShclStr text, ShclStr needle);
+
 /* fence_on/ch/len: the block a child-indent or same-line fence opened, which
    the caller copies through until its close. */
 static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclTokens *tok, int *fence_on, unsigned char *fence_ch, size_t *fence_len, ShclMigrating *st) {
@@ -3773,21 +3811,25 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 			const ShclSegTok *seg = &tok->segments[i];
 			ShclStr name = s_slice(rest, seg->name.start, seg->name.end);
 			/* A quoted name with a backslash pair read as typed under 1.2 and
-			   resolved under 2.0, so the file can't say which name it meant.
-			   It stays as written and counts as lost. Any other backslash is
-			   text either way. Only a real escape mark needs another
-			   spelling. A bare name not led by a letter goes in quotes, since
-			   `-` then a blank would start a list item now.
+			   resolved under 2.0, so unless the format was found the file
+			   can't say which name it meant. It stays as written and counts
+			   as lost. Any other backslash is text either way. Only a real
+			   escape mark needs another spelling. A bare name not led by a
+			   letter goes in quotes, since `-` then a blank would start a list
+			   item now.
 			   A file that does not say it is 2.x could be a 3.0 one. Where it
 			   reads clean under these rules as well, it is left and counted.
 			   Under the rules of 3.0-1f8 to 3.0-a37 a double-quoted name
 			   resolved its escapes, and 2 spellings of one name were one, so it
-			   gets the spelling of the name it read. */
+			   gets the spelling of the name it read, as under 2.0. 1.x keyed it
+			   by its text as typed, so it gets a spelling of that. */
 			int respell = 0, clean_now = 0;
 			ShclStr logical_name = name;
-			if (st->rules == SHCL_LEX_PIN && seg->name.quote != SHCL_QUOTE_NONE) {
+			int found = st->rules == SHCL_LEX_PIN || (st->v2 != SHCL_V2_EITHER && piece_quoted(seg->name.quote));
+			if (found && seg->name.quote != SHCL_QUOTE_NONE) {
 				if ((name.n && memchr(name.p, '\\', name.n)) || has_mark(name)) {
-					logical_name = old_text(a, name, seg->name.quote, st);
+					if (st->v2 != SHCL_V2_FROM_10 && st->v2 != SHCL_V2_FROM_11)
+						logical_name = old_text(a, name, seg->name.quote, st);
 					ShclStr now;
 					clean_now = quoted_name_now(a, s_slice(rest, seg->name.start - 1, seg->name.end + 1), &now);
 					respell = !clean_now || !s_eq(now, logical_name);
@@ -3866,8 +3908,16 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 			}
 			int index = !quoted && (index_shape(body) || (body.n == 1 && body.p[0] == '*'));
 			/* 2.x matched an array value by its display form, and a selector
-			   matches one plain value now, so nothing spells this. */
-			if (!index && !quoted && v2_bracket_array(a, body, st->rules)) { st->lost++; return rest; }
+			   matches one plain value now, so nothing spells this. 1.x did
+			   that for a quoted one too, and 1.0 matched a backslash pair as
+			   typed, so the line can't say which instance it meant. */
+			int v1_miss = 0;
+			if (!index) {
+				int comma = quoted && s_has(logical, s_lit(", "));
+				if (st->v2 == SHCL_V2_FROM_10) v1_miss = comma || !s_eq(logical, body);
+				else if (st->v2 == SHCL_V2_FROM_11) v1_miss = comma;
+			}
+			if (v1_miss || (!index && !quoted && v2_bracket_array(a, body, st->rules))) { st->lost++; return rest; }
 			edit_push(a, &edits, open, open + 1, s_lit("("));
 			edit_push(a, &edits, close, close + 1, s_lit(")"));
 			/* A backslash pair 2.x resolved, a quote or a blank the body has
@@ -3935,6 +3985,7 @@ static void raw_lines_init(ShclRawLines *w, ShclLex rules) {
 	w->rules = rules;
 	w->dry.rules = rules;
 	w->dry.pin = SHCL_PIN_FROM_A37;
+	w->dry.v2 = SHCL_V2_EITHER;
 	w->dry.from_v2 = 1;
 }
 
@@ -4388,9 +4439,10 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
    every line's scratch on top. An allocation failure goes to outer when it is
    not NULL, the recovery point of a call that holds memory of its own around
    this one, else to SHCL_OOM.
-   pin, when not NULL, reads the text by that pin's rules rather than 2.x, for
-   a file found to be in one of those formats, whatever its Format line says. */
-static shcl_migration migrate_text(const char *text, size_t len, int from_v2, int stamp, int beta, const ShclPin *pin, jmp_buf *outer) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order; each caller is a named wrapper
+   step is the one the text's format starts with, and says which rules it was
+   written by: a pin's, for a file found to be in one of those formats,
+   whatever its Format line says, or 2.x's. SAME doesn't come here. */
+static shcl_migration migrate_text(const char *text, size_t len, int from_v2, int stamp, int beta, ShclStep step, jmp_buf *outer) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order; each caller is a named wrapper
 	SHCL_VOLATILE_OWNER_BEGIN
 	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
 	if (!own) arena_panic(outer);
@@ -4407,9 +4459,11 @@ static shcl_migration migrate_text(const char *text, size_t len, int from_v2, in
 	arena_guard(&own->a, &panic); arena_guard(&own->sc, &panic);
 	ShclStr in; in.p = text ? text : ""; in.n = len;
 	ShclMigrating st; memset(&st, 0, sizeof st);
-	st.rules = pin ? SHCL_LEX_PIN : SHCL_LEX_V2;
-	st.pin = pin ? *pin : SHCL_PIN_FROM_A37;
-	st.from_v2 = from_v2 || pin;
+	int pinned = step.kind == SHCL_STEP_PIN;
+	st.rules = pinned ? SHCL_LEX_PIN : SHCL_LEX_V2;
+	st.pin = pinned ? step.pin : SHCL_PIN_FROM_A37;
+	st.v2 = step.kind == SHCL_STEP_V2 ? step.v2 : SHCL_V2_EITHER;
+	st.from_v2 = from_v2 || pinned;
 	shcl_migration m; m.current = 0;
 	ShclStr r = migrate(own, in, &st, &m.current, stamp, beta);
 	m.ambiguous = st.ambiguous; m.lost = st.lost; m.len = r.n;
@@ -4464,11 +4518,13 @@ static char *restamp_text(const char *text, size_t len, size_t *out_len, int who
 }
 
 shcl_migration shcl_migrate(const char *text, size_t len, int from_v2) {
-	return migrate_text(text, len, from_v2, 1, 0, NULL, NULL);
+	ShclStep either = {SHCL_STEP_V2, SHCL_PIN_FROM_30D, SHCL_V2_EITHER};
+	return migrate_text(text, len, from_v2, 1, 0, either, NULL);
 }
 
 shcl_migration shcl_migrate_unstamped(const char *text, size_t len, int from_v2) {
-	return migrate_text(text, len, from_v2, 0, 0, NULL, NULL);
+	ShclStep either = {SHCL_STEP_V2, SHCL_PIN_FROM_30D, SHCL_V2_EITHER};
+	return migrate_text(text, len, from_v2, 0, 0, either, NULL);
 }
 
 static size_t swap_banner(shcl_doc *d, int on, int v2);
@@ -4507,22 +4563,6 @@ static shcl_str upgrade_text(shcl_doc *fresh, int banner, jmp_buf *panic) {
 	return better ? lines : canonical;
 }
 
-/* What turns a text in one format of shcl_format_days into the next one's, as
-   the design doc's Reading and converting says. A new format adds a row to
-   shcl_format_steps, and a kind here only when no step yet does what it
-   needs. SAME: the 2 formats read every line the same, but for lines the
-   older one refuses, which stay as typed. Nothing changes. V2: migrate's
-   rewrite from the 2.x rules, which lands on the current format. It stands in
-   for the steps from 1.0 to 2.0 until they're built (2026111908444534). PIN:
-   the rewrite from the rules of a pin from 3.0-1f8 to 3.0-a37 into the format
-   3 value syntax, where a backslash is text. It ends at the current format. A
-   line those rules refused stays as typed. */
-typedef enum { SHCL_STEP_SAME, SHCL_STEP_V2, SHCL_STEP_PIN } ShclStepKind;
-
-/* A step: its kind, and for PIN which pin's rules. Other kinds leave pin at
-   its first value, which nothing reads. */
-typedef struct { ShclStepKind kind; ShclPin pin; } ShclStep;
-
 /* Defined beside shcl_format_days. */
 static ShclStep s_first_rewrite(const char *format);
 
@@ -4557,7 +4597,7 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 	   all SAME has nothing to do. beta1's `Format 3` names only a major, so
 	   shcl_find_format reads it as the load does, with the mtime and the
 	   tells. */
-	ShclStep step = {SHCL_STEP_SAME, SHCL_PIN_FROM_30D};
+	ShclStep step = {SHCL_STEP_SAME, SHCL_PIN_FROM_30D, SHCL_V2_EITHER};
 	if (!newer)
 		step = s_first_rewrite(from_v2 ? "2.0" : shcl_find_format(text, len, mtime));
 	if (step.kind != SHCL_STEP_SAME) {
@@ -4573,7 +4613,7 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 		   read otherwise, as `"x\ty"` does, so it is made over as the load
 		   makes it over. */
 		if (!clean || pinned || (from_v2 && version != SHCL_FORMAT_MAJOR)) {
-			m = migrate_text(text, len, from_v2, 0, 1, pinned ? &step.pin : NULL, panic);
+			m = migrate_text(text, len, from_v2, 0, 1, step, panic);
 			own->migrated = m.text;
 			/* A 2.x file can load clean and still read differently now, as
 			   `a,b` does. One migrate leaves as it was has nothing to do, but an
@@ -4731,16 +4771,16 @@ static const struct { const char *name; int64_t day; } shcl_format_days[11] = {
 /* The step out of each format of shcl_format_days but the current one, in the
    same order. */
 static const ShclStep shcl_format_steps[sizeof shcl_format_days / sizeof shcl_format_days[0] - 1] = {
-	{SHCL_STEP_V2, SHCL_PIN_FROM_30D},   /* 1.0 */
-	{SHCL_STEP_V2, SHCL_PIN_FROM_30D},   /* 1.1 */
-	{SHCL_STEP_V2, SHCL_PIN_FROM_30D},   /* 2.0 */
-	{SHCL_STEP_PIN, SHCL_PIN_FROM_30D},  /* 3.0-1f8, read as 3.0-30d but where a line has an error */
-	{SHCL_STEP_PIN, SHCL_PIN_FROM_30D},  /* 3.0-30d */
-	{SHCL_STEP_PIN, SHCL_PIN_FROM_B10},  /* 3.0-b10 */
-	{SHCL_STEP_SAME, SHCL_PIN_FROM_30D}, /* 3.0-f8e, read as 3.0-a37 but where a line has an error */
-	{SHCL_STEP_PIN, SHCL_PIN_FROM_A37},  /* 3.0-a37 */
-	{SHCL_STEP_SAME, SHCL_PIN_FROM_30D}, /* 3.0-9ef, which refused an apostrophe inside a bare word */
-	{SHCL_STEP_SAME, SHCL_PIN_FROM_30D}, /* 3.0-a65 */
+	{SHCL_STEP_V2, SHCL_PIN_FROM_30D, SHCL_V2_FROM_10},  /* 1.0, read as 1.1 but where a fold was late */
+	{SHCL_STEP_V2, SHCL_PIN_FROM_30D, SHCL_V2_FROM_11},  /* 1.1 */
+	{SHCL_STEP_V2, SHCL_PIN_FROM_30D, SHCL_V2_FROM_20},  /* 2.0 */
+	{SHCL_STEP_PIN, SHCL_PIN_FROM_30D, SHCL_V2_EITHER},  /* 3.0-1f8, read as 3.0-30d but where a line has an error */
+	{SHCL_STEP_PIN, SHCL_PIN_FROM_30D, SHCL_V2_EITHER},  /* 3.0-30d */
+	{SHCL_STEP_PIN, SHCL_PIN_FROM_B10, SHCL_V2_EITHER},  /* 3.0-b10 */
+	{SHCL_STEP_SAME, SHCL_PIN_FROM_30D, SHCL_V2_EITHER}, /* 3.0-f8e, read as 3.0-a37 but where a line has an error */
+	{SHCL_STEP_PIN, SHCL_PIN_FROM_A37, SHCL_V2_EITHER},  /* 3.0-a37 */
+	{SHCL_STEP_SAME, SHCL_PIN_FROM_30D, SHCL_V2_EITHER}, /* 3.0-9ef, which refused an apostrophe inside a bare word */
+	{SHCL_STEP_SAME, SHCL_PIN_FROM_30D, SHCL_V2_EITHER}, /* 3.0-a65 */
 };
 
 /* The first step of the run from format to the current one that changes
@@ -4754,7 +4794,7 @@ static ShclStep s_first_rewrite(const char *format) {
 	for (; at < steps; at++) {
 		if (shcl_format_steps[at].kind != SHCL_STEP_SAME) return shcl_format_steps[at];
 	}
-	ShclStep none = {SHCL_STEP_SAME, SHCL_PIN_FROM_30D};
+	ShclStep none = {SHCL_STEP_SAME, SHCL_PIN_FROM_30D, SHCL_V2_EITHER};
 	return none;
 }
 
@@ -16381,8 +16421,7 @@ static int s_something_at(const char *path) {
    from_v2 is migrate's. The text is malloc'd, and the caller frees it. */
 static shcl_migration s_convert(const char *text, size_t len, const char *format, int from_v2) {
 	ShclStep step = s_first_rewrite(format);
-	if (step.kind == SHCL_STEP_V2) return shcl_migrate_unstamped(text, len, from_v2);
-	if (step.kind == SHCL_STEP_PIN) return migrate_text(text, len, from_v2, 0, 0, &step.pin, NULL);
+	if (step.kind != SHCL_STEP_SAME) return migrate_text(text, len, from_v2, 0, 0, step, NULL);
 	shcl_migration m; memset(&m, 0, sizeof m);
 	m.current = 1; m.len = len;
 	m.text = (char *)malloc(len + 1);

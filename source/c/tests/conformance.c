@@ -6482,8 +6482,10 @@ int main(int argc, char **argv) {
 		shcl_migration mm = shcl_migrate(t, strlen(t), 1);
 		if (!mig_starts(&mm, "'k\\\\x': \"C:" MK "TAB" MK "emp\"\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n")) fail("migrate_lost_name", mm.text);
 		free(mm.text);
+		/* upgrade's from_v2 takes the file as 2.0, whose step reads the names
+		   as 2.0 did (2026111917071578). */
 		shcl_upgraded up = shcl_upgrade(t, strlen(t), 1, 1);
-		if (up.lost != 2) fail("migrate_lost_name", "upgrade lost not 2");
+		if (up.lost != 0) fail("migrate_lost_name", "upgrade lost not 0");
 		shcl_upgraded_free(&up);
 	}
 	#undef MK
@@ -8600,6 +8602,67 @@ int main(int argc, char **argv) {
 			shcl_upgraded_free(&up);
 		}
 		dir_clear(pdir);
+		#undef MK
+	}
+	test_id("dfhfn", "a_load_converts_from_a_1x_or_2x_format");
+	{
+		/* A file from 1.0, 1.1 or 2.0 goes through the 2.x rewrite on load,
+		   with each format's own reads where they differ. 1.x keyed a quoted
+		   name by its text as typed and 2.0 resolved it, 1.x matched a quoted
+		   selector against an array's display form too, and 1.0 matched a
+		   selector's backslash pair as typed. A line the step can't be sure of
+		   stays as typed and counts as lost (2026111917071578). Same rows in
+		   every runner. */
+		#define MK "\xe2\x97\x89"
+		const char *at = "1x convert";
+		const int64_t jul20 = 1784505600; /* 2026-07-20, to 1.0 */
+		const int64_t aug6 = 1785974400;  /* 2026-08-06, to 1.1 */
+		const int64_t sep1 = 1788220800;  /* 2026-09-01, to 2.0 */
+		const char *text = "\"a\\\"b\": 1\n'a\"b': 2\n\"c\\td\": 3\ns: q\ns[\"q\\\"r\"].h: 1\nx: a, b\nx[\"a, b\"].h: 1\n";
+		const char *mid = "\"c\\td\": 3\ns: q\n";
+		/* 2.0 read `"c\td"` with a tab, which reads clean as text now, so the
+		   file could be a 3.0 one, and it stays. */
+		const struct { int64_t mtime; const char *head, *tail; size_t lost; } cases[] = {
+			{jul20, "'a\\\"b': 1\n'a\"b': 2\n", "s[\"q\\\"r\"].h: 1\nx: [a, b]\nx[\"a, b\"].h: 1\n", 2},
+			{aug6, "'a\\\"b': 1\n'a\"b': 2\n", "s('q\"r').h: 1\nx: [a, b]\nx[\"a, b\"].h: 1\n", 1},
+			{sep1, "'a\"b': 1\n'a\"b': 2\n", "s('q\"r').h: 1\nx: [a, b]\nx(\"a, b\").h: 1\n", 0},
+		};
+		char vdir[256], f[320], want[1024], want_v2[1024];
+		up_dir(vdir, sizeof vdir, "v1conv");
+		snprintf(f, sizeof f, "%s/f.shcl", vdir);
+		for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+			snprintf(want, sizeof want, "%s%s%s" SHCL_STAMP_LINE "\n", cases[i].head, mid, cases[i].tail);
+			put_file(f, text);
+			pin_mtime(f, cases[i].mtime);
+			shcl_load_options opts = {0};
+			opts.keep_lines = opts.migrate = 1;
+			shcl_doc *doc = shcl_load_file_opts(f, SHCL_STANDARD, opts, NULL);
+			int k = 0;
+			shcl_str kt = text_kept(doc, &k);
+			if (kt.n != strlen(want) || memcmp(kt.p, want, kt.n) != 0 || shcl_lost_count(doc) != cases[i].lost) {
+				fprintf(stderr, "at %lld: lost %zu\n%.*s\n", (long long)cases[i].mtime, shcl_lost_count(doc), (int)kt.n, kt.p);
+				fail(at, "kept text");
+			}
+			shcl_free(doc);
+			/* upgrade writes nothing over the name that reads 2 ways. */
+			shcl_upgraded up = shcl_upgrade_dated(text, strlen(text), &cases[i].mtime, 0, 0);
+			int is2 = cases[i].mtime == sep1;
+			if (!up_is(&up, is2 ? text : want) || up.lost != cases[i].lost || up.ambiguous != (size_t)is2) {
+				fprintf(stderr, "upgrade at %lld: lost %zu ambiguous %zu\n%s\n", (long long)cases[i].mtime, up.lost, up.ambiguous, up.text ? up.text : "no text");
+				fail(at, "upgrade");
+			}
+			shcl_upgraded_free(&up);
+			if (!is2) continue;
+			/* from_v2 takes it as 2.0 too, and says it isn't a 3.0 one. */
+			snprintf(want_v2, sizeof want_v2, "%s\"c" MK "TAB" MK "d\": 3\ns: q\n%s" SHCL_STAMP_LINE "\n", cases[i].head, cases[i].tail);
+			up = shcl_upgrade_dated(text, strlen(text), NULL, 1, 0);
+			if (!up_is(&up, want_v2) || up.lost != 0) {
+				fprintf(stderr, "from_v2: lost %zu\n%s\n", up.lost, up.text ? up.text : "no text");
+				fail(at, "from_v2");
+			}
+			shcl_upgraded_free(&up);
+		}
+		dir_clear(vdir);
 		#undef MK
 	}
 	/* Every text a save writes names this format: a stamp is rewritten where
