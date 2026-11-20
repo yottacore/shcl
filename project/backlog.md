@@ -248,6 +248,101 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Prereq IDs: 2026111907075423, 2026111907080423
 	- Requirements: a caller names the format with `from`, which overrides the stamp and the scan, in all 4 bindings, the C++ interface and the 4 CLIs. It replaces `from_v2` and `--from-2x`.
 	- Estimated effort: High
+	- Note: split for its time cap into 2026111918111481 (Rust), the ports 2026111918112329 (Go), 2026111918112450 (Python) and 2026111918112570 (C and C++), and 2026111918113344 (the 4 CLIs).
+
+- Format versions: `from` in the Rust library, in place of `from_v2`
+	- ID: 2026111918111481
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-181114
+	- Opened by: me
+	- Parent ID: 2026111907080445
+	- Requirements: `upgrade`, `upgrade_dated`, `upgrade_file`, `migrate`, `migrate_unstamped` and `LoadOptions` take `from`, a format name read as a stamp naming it is, in place of `from_v2`, in the Rust reference. The Rust CLI maps `--from-2x` to `from` 2.0 until the CLI child. The ports follow it.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261120: `from` is `Option<&str>`, and `LoadOptions` takes a lifetime for it. It's read as a stamp naming it would be, in place of the file's own stamp and what `find_format` reads off it, by the same table walk (`named_formats`), so a pin's alias such as `3.0-231` gives its format, and a major alone, such as `1` or `3`, leaves its formats to the mtime and the tells. `from` 2.0 is what `from_v2` was, so every caller that passed it gets the same result.
+		- me, 20261120: a name no format has, such as `1.2` or an empty one, is no `from`, as for a stamp, since `upgrade` and the load have no error for a caller's input. The CLI child refuses such a name as a usage error. A newer format's `from`, such as `3.1` or `4`, leaves the file alone. Logged as a `Check:` in questions.md.
+		- me, 20261120: a stamp naming a newer format still leaves the file alone whatever `from` says, since these rules can't read that format's lines and its save is refused anyway.
+		- me, 20261120: with `from`, a clean file naming this major stays when the step is a 2.x one, as with `from_v2`, and stays with a pin only when its stamp names `3.0` whole, which is what the made-over file names. Without that, a second run with the same pin made its own output over again, since `◉TAB◉` was text in a pin (fuzz `de116`).
+		- me, 20261120: `migrate` and `migrate_unstamped` keep `from_v2` here. Taking `from` 2.0 there reads a quoted name with a backslash pair as 2.0 did, which changes corpus case `118-migrate-backslash-spelling`'s golden and `de60h`, shared with the other 3 bindings, so it goes with the CLIs' `--from=FORMAT` in 2026111918113344.
+	- Verified: `dfhgc` fails with `from` ignored, and with the guard on a clean file stamped `3.0` taken out, and passes with both. `de116` fails its second run with a pin's `from` with that guard taken out, and passes at 300 and at 200,000 in release. cargo test, clippy and rustfmt, `--backlog-run-quick rust go python c cli` (all 5 steps passed), cli-regress over the Rust CLI, crosscheck over the corpus with the Rust, Go and C CLIs, check-docs, `test-ids.py check`, `lint-report.bash --check --no-mark`, the markdown check and markdownlint passed.
+	- Swept: every Rust caller of `upgrade`, `upgrade_dated`, `upgrade_file` and `LoadOptions`, in `src/`, `tests/` and the Rust CLI, which passes `from` 2.0 for `--from-2x`. `convert` and `upgrade_dated` are the only places that read `from`, both through `from_format`. Docs: `LoadOptions::from`, `upgrade`'s and `Upgrade`'s doc comments, spec.md's `UpgradeFile` and `LoadFileOpts` bullets, design.md's `upgrade_file` and `load_file_opts` bullets, the format versions design doc and the changelog. The ports are 2026111918112329, 2026111918112450 and 2026111918112570.
+	- Test case: `a_caller_names_the_format_with_from` (Rust `dfhgc`), and fuzz `de116`'s pin arm.
+	- Branch: `nov20-2026111907080445`
+	- Commit: `7577e2fb`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the change, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261119-183600
+
+- Format versions: port `from` to Go
+	- ID: 2026111918112329
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-181123
+	- Opened by: me
+	- Parent ID: 2026111907080445
+	- Prereq IDs: 2026111918111481
+	- Requirements: mirror 2026111918111481's `from` and its tests in Go, by parity over idiom. The Go CLI maps `--from-2x` to `from` 2.0 until the CLI child.
+	- Estimated effort: Avg
+	- Note: the docs and the changelog already say what the ports build. The test is a twin of Rust's `a_caller_names_the_format_with_from` (`dfhgc`), same rows. `migrate` keeps `from_v2` until 2026111918113344.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261120: Rust's `Option<&str>` is a `string` in Go, with `""` as none, so `LoadOptions{}` is still `LoadFileWith`. Rust's `from_format` is `fromFormat`, which returns the format, whether it's one this reader knows, and whether `from` was taken. The tests pass what was `fromV2` through a `v2From` helper.
+	- Verified: `dfhh0` fails with `from` ignored, and with the guard on a clean file stamped `3.0` taken out, where a second run turned `◉TAB◉` into `◉ESCAPE_CHAR◉TAB◉ESCAPE_CHAR◉`, and passes with both. `go test -count=1` in both modules, gofmt and go vet, cli-regress over the Go CLI, crosscheck over the corpus with the Rust and Go CLIs, and `--backlog-run-quick rust go python c cli` passed. The Go CLI's `upgrade` printed the same as the Rust CLI's on every corpus document dated to 2.0 with `--from-2x` (686 pairs, `v2-port-diff.bash`) and on the 120 hand-written probe pairs (`v2-probe-diff.bash`).
+	- Swept: every Go caller of `Upgrade`, `UpgradeDated`, `UpgradeFile` and `LoadOptions`, in `shcl.go`, the tests and the Go CLI, which passes `"2.0"` for `--from-2x`. `FindFormat`, `fromFormat`, `namedFormats` and `pickFormat` mirror Rust's split. `convert` and `UpgradeDated` are the only readers of `from`. The doc comments on `LoadOptions.From`, `Upgrade`, `Upgraded` and `UpgradeError` follow Rust's.
+	- Test case: `TestACallerNamesTheFormatWithFrom` (Go `dfhh0`, twin of Rust `dfhgc`).
+	- Branch: `nov20-2026111918112329`
+	- Commit: `22abbbf4`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the change, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261119-185000
+
+- Format versions: port `from` to Python
+	- ID: 2026111918112450
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-181124
+	- Opened by: me
+	- Parent ID: 2026111907080445
+	- Prereq IDs: 2026111918111481
+	- Requirements: mirror 2026111918111481's `from` and its tests in Python, by parity over idiom. The Python CLI maps `--from-2x` to `from` 2.0 until the CLI child.
+	- Estimated effort: Avg
+	- Note: the docs and the changelog already say what the ports build. The test is a twin of Rust's `a_caller_names_the_format_with_from` (`dfhgc`), same rows. `migrate` keeps `from_v2` until 2026111918113344.
+	- Note: `from` is a keyword in Python, so the parameter needs another name, such as `from_`, as PEP 8 suggests.
+
+- Format versions: port `from` to C and the C++ interface
+	- ID: 2026111918112570
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-181125
+	- Opened by: me
+	- Parent ID: 2026111907080445
+	- Prereq IDs: 2026111918111481
+	- Requirements: mirror 2026111918111481's `from` and its tests in C and `shcl.hpp`, by parity over idiom. The C CLI maps `--from-2x` to `from` 2.0 until the CLI child.
+	- Estimated effort: Avg
+	- Note: the docs and the changelog already say what the ports build. The test is a twin of Rust's `a_caller_names_the_format_with_from` (`dfhgc`), same rows. `migrate` keeps `from_v2` until 2026111918113344.
+
+- Format versions: `--from=FORMAT` in the 4 CLIs, in place of `--from-2x`
+	- ID: 2026111918113344
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-181133
+	- Opened by: me
+	- Parent ID: 2026111907080445
+	- Prereq IDs: 2026111918111481, 2026111918112329, 2026111918112450, 2026111918112570
+	- Requirements: `migrate` and `upgrade` take `--from=FORMAT` in place of `--from-2x` in the 4 CLIs, passed to the library's `from`. `migrate` and `migrate_unstamped` take `from` in place of `from_v2` in all 4 bindings and the C++ interface, read as `upgrade`'s is, with each format's step, so corpus case `118-migrate-backslash-spelling`'s golden and `de60h` and its twins change with it. A name no format has is a usage error. The help text, the completions, the `H007` hint's message, cli-regress, check-migrate, examples.md and spec.md's CLI parts follow.
+	- Estimated effort: Avg
 
 - Format versions: each published format and pin round-trips against its own tag's CLI in a gate
 	- ID: 2026111907080466

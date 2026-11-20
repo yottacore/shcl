@@ -3304,7 +3304,9 @@ type migrating struct {
 	// refused.
 	pin pinRules
 	// Under lexV2, which of 1.0 to 2.0, if the format was found.
-	v2        v2Read
+	v2 v2Read
+	// Which rules wrote the text is known, from a caller's from, the file's
+	// Format line or its format, so every rewrite is made.
 	fromV2    bool
 	ambiguous int
 	lost      int
@@ -3444,26 +3446,64 @@ func FindFormat(text string, mtime *int64) (string, bool) {
 	if namesNewer(stamp) {
 		return "", false
 	}
-	left := uint32(1)<<len(formatDays) - 1
+	byStamp := uint32(0)
 	if stamp.Status == Good && stamp.Raw != nil {
-		raw := *stamp.Raw
-		for _, row := range FormatNames {
-			if row[0] == raw {
-				return row[1], true
+		byStamp = namedFormats(*stamp.Raw)
+	}
+	return pickFormat(text, mtime, byStamp), true
+}
+
+// namedFormats is the formats of formatDays a stamp naming name leaves, as
+// bits: the one a whole format's or a pin's name gives, or every format of a
+// major named alone, or of a minor whose pin no row has. 0 for a name no
+// format has, such as `1.2`.
+func namedFormats(name string) uint32 {
+	for _, row := range FormatNames {
+		if row[0] == name {
+			for i, f := range formatDays {
+				if f.name == row[1] {
+					return 1 << i
+				}
 			}
 		}
-		major, minor, ok := stampFormat(raw)
-		whole := strings.Contains(raw, ".")
-		byStamp := uint32(0)
-		for i, f := range formatDays {
-			fmaj, fmin, fok := stampFormat(f.name)
-			if ok && fok && fmaj == major && (!whole || fmin == minor) {
-				byStamp |= 1 << i
-			}
+	}
+	major, minor, ok := stampFormat(name)
+	whole := strings.Contains(name, ".")
+	left := uint32(0)
+	for i, f := range formatDays {
+		fmaj, fmin, fok := stampFormat(f.name)
+		if ok && fok && fmaj == major && (!whole || fmin == minor) {
+			left |= 1 << i
 		}
-		if byStamp != 0 {
-			left = byStamp
-		}
+	}
+	return left
+}
+
+// fromFormat is what a caller's from names, read as a stamp naming it would
+// be, in place of the text's own stamp. told is false when from is "" or
+// names no format shcl knows, so the text's stamp and the scan decide. ok is
+// false for a newer format than this reader's, which leaves nothing to do. A
+// major alone, such as `1`, leaves its formats to the mtime and the tells.
+func fromFormat(text string, mtime *int64, from string) (format string, ok, told bool) {
+	if from == "" {
+		return "", false, false
+	}
+	if major, minor, sok := stampFormat(from); sok && (major > FormatMajor || (major == FormatMajor && minor > FormatMinor)) {
+		return "", false, true
+	}
+	left := namedFormats(from)
+	if left == 0 {
+		return "", false, false
+	}
+	return pickFormat(text, mtime, left), true, true
+}
+
+// pickFormat is FindFormat's last 3 steps over the formats byStamp leaves,
+// every one when it's 0.
+func pickFormat(text string, mtime *int64, byStamp uint32) string {
+	left := uint32(1)<<len(formatDays) - 1
+	if byStamp != 0 {
+		left = byStamp
 	}
 	if mtime != nil {
 		byMtime := uint32(0)
@@ -3479,7 +3519,7 @@ func FindFormat(text string, mtime *int64) (string, bool) {
 	if left&(left-1) != 0 {
 		left = mostLegal(strings.TrimPrefix(text, "\ufeff"), left)
 	}
-	return formatDays[bits.Len32(left)-1].name, true
+	return formatDays[bits.Len32(left)-1].name
 }
 
 // tellRuns are the runs of formatDays the design doc's Tells table counts
@@ -3866,10 +3906,10 @@ func firstRewrite(format string, ok bool) (step, bool) {
 
 // convert is the text, written in format, as the current format reads it, one
 // step per format in order, in memory. ok false, a newer format's, comes back
-// as it is. fromV2 is Migrate's.
-func convert(text, format string, ok, fromV2 bool) Migration {
+// as it is. told says a caller named the format, so every rewrite is made.
+func convert(text, format string, ok, told bool) Migration {
 	if s, found := firstRewrite(format, ok); found {
-		return migrateText(text, fromV2, false, false, s)
+		return migrateText(text, told, false, false, s)
 	}
 	return Migration{Text: text, Current: true}
 }
@@ -4286,10 +4326,10 @@ type Upgraded struct {
 	// ErrorsLeft.
 	Text string
 	// Current: the input loads with no error under these rules and, with
-	// fromV2, migrates to the same text and names no older format, or its
+	// from, migrates to the same text and names no older format, or its
 	// stamp names this format whole, so it is left as it is. A file stamped
 	// beta1's `Format 3` is current when FindFormat finds it to be 3.0-9ef or
-	// later, unless fromV2 says a 2.x build wrote it and it loads with an
+	// later, unless from names an older format and it loads with an
 	// error.
 	Current bool
 	// Format is the format the input was written for, which goes in the
@@ -4303,15 +4343,16 @@ type Upgraded struct {
 	// load of the migrated text drops. The backup still has them.
 	Lost int
 	// Diagnostics is what loading the input found, which is why it needed the
-	// upgrade unless it loaded clean and fromV2 said it reads as 2.x. Empty
+	// upgrade unless it loaded clean and from said it reads otherwise. Empty
 	// when Current.
 	Diagnostics []Diagnostic
 	// Backup is where UpgradeFile put the original. Empty from Upgrade, and
 	// when nothing was written.
 	Backup string
-	// ErrorsLeft is, with fromV2, the input's lines still in error once
+	// ErrorsLeft is, with from, the input's lines still in error once
 	// converted. Nonempty means nothing is written and Text is the input,
-	// since the next run with fromV2 would take the fresh text for 2.x again.
+	// since the next run with from would take the fresh text for that format
+	// again.
 	ErrorsLeft []int
 }
 
@@ -4328,36 +4369,42 @@ type Upgraded struct {
 // whose stamp names this format whole comes back
 // Current and untouched, and so does one that loads with no error under these
 // rules, since a program calling this on every start must never rewrite a good
-// file. fromV2 is Migrate's: the file can only have been written for 2.x. Then
-// a file that loads clean is still made over when Migrate would change it, as
+// file. from names the format the file was written in, by a name in
+// FormatNames or a major alone, read as a stamp naming it would be, in place
+// of the file's stamp and what FindFormat reads off it. "" is none, and so is
+// a name no format has, such as `1.2`, and a newer format's leaves the file
+// alone, as does a stamp naming a newer one. With a 2.x or older format, a
+// file that loads clean is still made over when Migrate would change it, as
 // it would `p: a,b`, an array under 2.x and one string now. One it would not
 // change that names an older format gets this format on that Format line, and
-// nothing else. A file naming this format that loads with an error is taken as
-// 2.x when fromV2 says a 2.x build wrote it, as with a beta of 3.0 that wrote
-// 2.x lines. With fromV2, any file is made
+// nothing else. A file naming this major that loads with an error is taken as
+// that format, as with a beta of 3.0 that wrote 2.x lines, and one that loads
+// clean is left alone. With a pin, a file that loads clean is made over too,
+// unless its stamp names this format whole, which is what the made-over file
+// names. With from, any file is made
 // over only when the fresh text loads clean; when it wouldn't, ErrorsLeft names
-// the lines still in error. Pass fromV2 only for a file known to be old, never
+// the lines still in error. Pass from only for a file known to be old, never
 // on every start: a file this format wrote that picks up an error later would
-// be read by 2.x rules too.
+// be read by the old rules too.
 //
-// Without fromV2, the file's format is FindFormat's, from the text alone, and
+// Without from, the file's format is FindFormat's, from the text alone, and
 // only a format whose steps to this one rewrite anything gets made over: one
 // from 3.0-9ef on is Current, its errors kept as typed, as a load with Migrate
 // keeps them. One from 3.0-1f8 to 3.0-a37 goes through that format's step
 // rather than MigrateUnstamped, and is made over even when it loads clean,
 // since `"x\ty"` loads clean now and held a tab then. One from 1.0 to 2.0
 // goes through the 2.x rewrite with that format's reads of a quoted name and a
-// selector, and fromV2 takes it as 2.0. A file stamped beta1's
+// selector. A file stamped beta1's
 // `Format 3` or a pin is read the same way, and the made-over file's Format
 // line names this format whole. UpgradeDated takes the
 // file's mtime too.
-func Upgrade(text string, fromV2, banner bool) Upgraded {
-	return UpgradeDated(text, nil, fromV2, banner)
+func Upgrade(text, from string, banner bool) Upgraded {
+	return UpgradeDated(text, nil, from, banner)
 }
 
 // UpgradeDated is Upgrade, with mtime for FindFormat: the file's, in Unix
 // seconds, or nil for text from no file. UpgradeFile passes the file's.
-func UpgradeDated(text string, mtime *int64, fromV2, banner bool) Upgraded {
+func UpgradeDated(text string, mtime *int64, from string, banner bool) Upgraded {
 	named := ReadFormatVersion(text)
 	version, hasVersion := named.Value, named.Status == Good
 	up := Upgraded{Text: text, Current: true, Format: 2}
@@ -4370,8 +4417,8 @@ func UpgradeDated(text string, mtime *int64, fromV2, banner bool) Upgraded {
 	// The load's step table, in its upgrade form, so a format whose run is
 	// all stepSame has nothing to do. beta1's `Format 3` names only a major,
 	// so FindFormat reads it as the load does, with the mtime and the tells.
-	format, ok := "2.0", true
-	if !fromV2 {
+	format, ok, told := fromFormat(text, mtime, from)
+	if !told {
 		format, ok = FindFormat(text, mtime)
 	}
 	s, found := firstRewrite(format, ok)
@@ -4385,11 +4432,13 @@ func UpgradeDated(text string, mtime *int64, fromV2, banner bool) Upgraded {
 	// a 2.x build wrote the file. One that loads clean is what an upgrade
 	// leaves, so a second run over its output leaves it alone. A file found
 	// to be from 3.0-1f8 to 3.0-a37 can load clean and still read otherwise,
-	// as `"x\ty"` does, so it is made over as the load makes it over.
-	if clean && !pin && (!fromV2 || (hasVersion && version == FormatMajor)) {
+	// as `"x\ty"` does, so it is made over as the load makes it over. One
+	// stamped this format whole is what a told upgrade writes, so a second
+	// run over it with the same from leaves it alone.
+	if clean && ((!pin && (!told || (hasVersion && version == FormatMajor))) || (told && namesThis(named))) {
 		return up
 	}
-	m := migrateText(text, fromV2, false, true, s)
+	m := migrateText(text, told, false, true, s)
 	// A 2.x file can load clean and still read differently now, as `a,b`
 	// does. One migrate leaves as it was has nothing to do, but an older
 	// Format line, which would keep the load's H007 hint, becomes this one.
@@ -4426,10 +4475,10 @@ func UpgradeDated(text string, mtime *int64, fromV2, banner bool) Upgraded {
 			made = t
 		}
 	}
-	// With fromV2 it goes only when that leaves it loading clean, or the next
-	// run with it would read the result by 2.x rules again
+	// With from it goes only when that leaves it loading clean, or the next
+	// run with it would read the result by the old rules again
 	// (2026101515372401). Without, a line in error stays as typed, as on load.
-	if fromV2 {
+	if told {
 		if check := Parse(made); check.ErrorCount() != 0 {
 			// Empty only if a clean text formats to one with an error, and then
 			// the fresh text's own lines are better than none.
@@ -10959,14 +11008,14 @@ const (
 	// UpgradeNotFound: nothing at the path.
 	UpgradeNotFound UpgradeErrorKind = iota
 	// UpgradeAmbiguous: the file does not say which rules it was written for,
-	// and some of it reads two ways (Upgraded.Ambiguous); fromV2 settles it.
+	// and some of it reads two ways (Upgraded.Ambiguous); from settles it.
 	UpgradeAmbiguous
 	// UpgradeBackupTaken: something is already at the backup's name. It is
 	// never written over.
 	UpgradeBackupTaken
 	// UpgradeIO: a read or write failed; Err is a *WriteError saying why.
 	UpgradeIO
-	// UpgradeErrorsLeft: with fromV2, the fresh text would still have an
+	// UpgradeErrorsLeft: with from, the fresh text would still have an
 	// error on the input's Lines (Upgraded.ErrorsLeft).
 	UpgradeErrorsLeft
 )
@@ -11135,7 +11184,7 @@ func checkKeptFile(path string) error {
 // Opt-in on purpose: a program that keeps its own backups has no need of it.
 // On success Backup names the copy when one was made, and Text is what the
 // path now holds. A failure is an *UpgradeError.
-func UpgradeFile(path string, fromV2, banner bool) (Upgraded, error) {
+func UpgradeFile(path, from string, banner bool) (Upgraded, error) {
 	if err := checkKeptFile(path); err != nil {
 		return Upgraded{}, err
 	}
@@ -11151,7 +11200,7 @@ func UpgradeFile(path string, fromV2, banner bool) (Upgraded, error) {
 		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: &WriteError{Status: WriteUnreadable, Err: fmt.Errorf("%s: can't be read as UTF-8 text", path)}}
 	}
 	text := string(data)
-	up := UpgradeDated(text, fileMtime(path), fromV2, banner)
+	up := UpgradeDated(text, fileMtime(path), from, banner)
 	if up.Current {
 		return up, nil
 	}
@@ -11414,7 +11463,7 @@ func (s FileStatus) String() string {
 // otherwise confuse: absent, present-but-unreadable, parsed with errors,
 // clean.
 func LoadFile(path string) (*Document, FileStatus) {
-	return loadFileAny(path, Standard, false, false, false)
+	return loadFileAny(path, Standard, false, false, "")
 }
 
 // LoadFileWith is LoadFile at a chosen strictness. As ParseWith, only Strict
@@ -11438,9 +11487,10 @@ type LoadOptions struct {
 	// save checks the path against the bytes the load read, so a save over
 	// the file gets every check a plain load's does.
 	Migrate bool
-	// FromV2 is Migrate's fromV2: the file can only have been written for
-	// 2.x, so it converts from 2.0. Ignored without Migrate.
-	FromV2 bool
+	// From is the format the file was written in, by a name in FormatNames
+	// or a major alone, as Upgrade's from. It overrides the file's stamp and
+	// what FindFormat reads off it. "" is none. Ignored without Migrate.
+	From string
 }
 
 // LoadFileOpts is LoadFileWith, as the options describe. With Migrate, the
@@ -11453,19 +11503,19 @@ type LoadOptions struct {
 // them canonical refuses as for any lost line. A file naming a newer format is
 // parsed as it is, so its save is *SaveTooNew.
 func LoadFileOpts(path string, level Strictness, opts LoadOptions) (*Document, FileStatus, error) {
-	doc, st := loadFileAny(path, level, opts.KeepLines, opts.Migrate, opts.FromV2)
+	doc, st := loadFileAny(path, level, opts.KeepLines, opts.Migrate, opts.From)
 	_, err := doc.strictGate()
 	return doc, st, err
 }
 
 func loadFileGated(path string, level Strictness, keep bool) (*Document, FileStatus, error) {
-	doc, st := loadFileAny(path, level, keep, false, false)
+	doc, st := loadFileAny(path, level, keep, false, "")
 	_, err := doc.strictGate()
 	return doc, st, err
 }
 
 // loadFileAny parses the migrated text when migrate is set.
-func loadFileAny(path string, level Strictness, keep, migrate, fromV2 bool) (*Document, FileStatus) {
+func loadFileAny(path string, level Strictness, keep, migrate bool, from string) (*Document, FileStatus) {
 	text, st := ReadFile(path, 0)
 	if st != FileClean {
 		doc := newParser().parse("", level)
@@ -11475,12 +11525,13 @@ func loadFileAny(path string, level Strictness, keep, migrate, fromV2 bool) (*Do
 	}
 	parsed, mig := text, Migration{}
 	if migrate {
-		// fromV2 says the file is 2.x, whatever its stamp and mtime say.
-		format, ok := "2.0", true
-		if !fromV2 {
-			format, ok = FindFormat(text, fileMtime(path))
+		// from names the format, whatever the stamp and the mtime say.
+		mtime := fileMtime(path)
+		format, ok, told := fromFormat(text, mtime, from)
+		if !told {
+			format, ok = FindFormat(text, mtime)
 		}
-		mig = convert(text, format, ok, fromV2)
+		mig = convert(text, format, ok, told)
 		parsed = mig.Text
 	}
 	doc := newParser().parse(parsed, level)

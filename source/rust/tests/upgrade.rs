@@ -41,9 +41,9 @@ fn upgrade_leaves_a_clean_or_stamped_file() {
 	// a,b is one string now and an array under 2.x, but it loads clean, and
 	// nothing says the file is 2.x.
 	let clean = "a: 1\nb: x,y\n";
-	let up = upgrade(clean, false, true);
+	let up = upgrade(clean, None, true);
 	assert!(up.current && up.text == clean && up.diagnostics.is_empty());
-	let up = upgrade(&stamped_comma_list(), true, true);
+	let up = upgrade(&stamped_comma_list(), Some("2.0"), true);
 	assert!(up.current);
 	// Old claim below, wrong since 2026101407100010: a beta Format 3 file that
 	// loads with an error now converts with from_v2, so it isn't always
@@ -61,16 +61,16 @@ fn with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x() {
 	// The caller says a 2.x build wrote it, as a beta of 3.0 could have
 	// (2026101407100010). The backup name keeps the format the line names.
 	let beta = format!("tags: a, b\n\n{}", GEN_BANNER);
-	let up = upgrade(&beta, true, true);
+	let up = upgrade(&beta, Some("2.0"), true);
 	assert!(!up.current && up.format == 3 && up.lost == 0);
 	assert!(up.diagnostics.iter().any(|d| d.code == "E026"));
 	assert_eq!(up.text, format!("tags: [a, b]\n\n{}", GEN_BANNER));
 	// What it leaves loads clean, so the next start leaves it alone.
-	assert!(upgrade(&up.text, true, true).current);
+	assert!(upgrade(&up.text, Some("2.0"), true).current);
 	// Without from_v2, or when it loads clean, nothing changes.
-	let up = upgrade(&beta, false, true);
+	let up = upgrade(&beta, None, true);
 	assert!(up.current && up.text == beta);
-	assert!(upgrade(&stamped_comma_list(), true, true).current);
+	assert!(upgrade(&stamped_comma_list(), Some("2.0"), true).current);
 	// Old claim below, wrong since 2026101515372401: a fresh text that would
 	// keep an error is refused, not current, and names its lines. Don't
 	// uncomment. The new rule's test is
@@ -81,7 +81,11 @@ fn with_from_v2_a_stamped_file_with_an_error_is_taken_as_2x() {
 	// let up = upgrade(stuck, true);
 	// assert!(up.current && up.text == stuck && up.diagnostics.is_empty());
 	// A lone stamp at the top goes too.
-	let up = upgrade("##    Format   3\nname: x\nrange: 0, 100\n", true, true);
+	let up = upgrade(
+		"##    Format   3\nname: x\nrange: 0, 100\n",
+		Some("2.0"),
+		true,
+	);
 	assert_eq!(
 		up.text,
 		format!("name: x\nrange: [0, 100]\n\n{}", GEN_BANNER)
@@ -99,7 +103,7 @@ fn from_v2_refuses_a_conversion_that_keeps_an_error() {
 	// and the 2.x escape on line 1 would grow each time (2026101515372401).
 	// So nothing is made, with a Format line or not.
 	let v2 = "\"k\u{25c9}Q\u{25c9}\": 1\n'C:\\': ~~~\n\tx\n\t~~~\nport: 8\u{3000}080\n";
-	let up = upgrade(v2, true, true);
+	let up = upgrade(v2, Some("2.0"), true);
 	assert!(!up.current && up.text == v2 && up.lost == 0);
 	assert_eq!(up.errors_left, vec![5]);
 	assert!(
@@ -108,24 +112,24 @@ fn from_v2_refuses_a_conversion_that_keeps_an_error() {
 			.any(|d| d.code == "E025" && d.line == 5)
 	);
 	let stuck = "a: 1\nb 2\n##    Format   3\n";
-	let up = upgrade(stuck, true, true);
+	let up = upgrade(stuck, Some("2.0"), true);
 	assert!(!up.current && up.text == stuck && up.errors_left == vec![2]);
 	assert!(up.diagnostics.iter().any(|d| d.code == "E014"));
 	// Without from_v2 a stamped file is current, and nothing would read the
 	// fresh text as 2.x again.
-	assert!(upgrade(stuck, false, true).current);
+	assert!(upgrade(stuck, None, true).current);
 	// With the line fixed it converts, and the second run leaves it alone.
 	let fixed = v2.replace("8\u{3000}080", "\"8\u{3000}080\"");
-	let up = upgrade(&fixed, true, true);
+	let up = upgrade(&fixed, Some("2.0"), true);
 	assert!(!up.current && up.errors_left.is_empty());
 	assert_eq!(Document::parse(&up.text).error_count(), 0);
-	assert!(upgrade(&up.text, true, true).current);
+	assert!(upgrade(&up.text, Some("2.0"), true).current);
 	// upgrade_file writes nothing, no backup either.
 	let dir = scratch("left");
 	let file = dir.join("f.shcl");
 	let path = file.to_str().unwrap();
 	std::fs::write(&file, v2).unwrap();
-	let got = upgrade_file(path, true, true).unwrap_err();
+	let got = upgrade_file(path, Some("2.0"), true).unwrap_err();
 	assert_eq!(
 		got,
 		UpgradeError::ErrorsLeft {
@@ -151,7 +155,7 @@ fn a_block_kept_at_the_top_names_this_format_too() {
 	let text =
 		"a: 1\n##    Format   3\n##\n## This config file format is SHCL.\n##    Format   4\n   b\n";
 	assert_eq!(shcl::format_version(text), Some(4));
-	let up = upgrade(text, true, true);
+	let up = upgrade(text, Some("2.0"), true);
 	assert!(up.current && up.errors_left.is_empty() && up.ambiguous == 0);
 	assert_eq!(up.text, text);
 	// set_banner takes the same path.
@@ -170,7 +174,7 @@ fn upgrade_keeps_each_line_where_it_was() {
 	// (2026102620591101).
 	let text = "\n\nt:\n\taliases: a, b\n\n\n\nu: ~~~\nraw\n~~~\nw: 2\n";
 	for from_v2 in [true, false] {
-		let up = upgrade(text, from_v2, true);
+		let up = upgrade(text, from_v2.then_some("2.0"), true);
 		assert!(!up.current && up.errors_left.is_empty(), "{from_v2}");
 		assert!(
 			up.text
@@ -178,7 +182,7 @@ fn upgrade_keeps_each_line_where_it_was() {
 			"{from_v2}: {:?}",
 			up.text
 		);
-		assert!(upgrade(&up.text, false, true).current);
+		assert!(upgrade(&up.text, None, true).current);
 	}
 }
 
@@ -190,12 +194,12 @@ fn stamped_comma_list() -> String {
 fn upgrade_from_v2_rewrites_a_clean_file_that_reads_differently() {
 	let _id = test_id("ddmjf");
 	// The caller says it is 2.x, where a,b was an array.
-	let up = upgrade("p: a,b\n", true, true);
+	let up = upgrade("p: a,b\n", Some("2.0"), true);
 	assert!(!up.current && up.lost == 0 && up.diagnostics.is_empty());
 	assert_eq!(up.text, format!("p: [a, b]\n\n{}", GEN_BANNER));
 	// Nothing reads differently, so there is nothing to do.
 	let same = "a: 1\nb: x\n";
-	let up = upgrade(same, true, true);
+	let up = upgrade(same, Some("2.0"), true);
 	assert!(up.current && up.text == same);
 }
 
@@ -205,15 +209,19 @@ fn an_older_format_line_becomes_this_one_in_place() {
 	// Nothing else changes, so only the stamp does, and only with from_v2
 	// (2026100717500017).
 	let old = "port: 80\n##    Format   2\n";
-	let up = upgrade(old, true, true);
+	let up = upgrade(old, Some("2.0"), true);
 	assert!(!up.current && up.format == 2 && up.lost == 0);
 	assert_eq!(up.text, "port: 80\n##    Format   3.0\n");
 	assert!(up.diagnostics.iter().any(|d| d.code == "H007"));
-	assert!(upgrade(&up.text, true, true).current);
-	let up = upgrade(old, false, true);
+	assert!(upgrade(&up.text, Some("2.0"), true).current);
+	let up = upgrade(old, None, true);
 	assert!(up.current && up.text == old);
 	// Indent, trailing blanks, line end and BOM stay as they were.
-	let up = upgrade("\u{feff}p: 1\r\n\t##    Format   1  \r\nq: 2", true, true);
+	let up = upgrade(
+		"\u{feff}p: 1\r\n\t##    Format   1  \r\nq: 2",
+		Some("2.0"),
+		true,
+	);
 	assert_eq!(up.text, "\u{feff}p: 1\r\n\t##    Format   3.0  \r\nq: 2");
 	// migrate writes its stamp there too, and adds one only to a file with
 	// none (2026100916475300).
@@ -232,7 +240,7 @@ fn an_older_format_line_becomes_this_one_in_place() {
 fn a_format_line_at_the_top_goes_when_the_block_goes_on() {
 	let _id = test_id("ddy7s");
 	// The block names the format, so the file names one (2026101407100001).
-	let up = upgrade("##    Format   2\nname: x\nq: a,b\n", true, true);
+	let up = upgrade("##    Format   2\nname: x\nq: a,b\n", Some("2.0"), true);
 	assert_eq!(up.text, format!("name: x\nq: [a, b]\n\n{}", GEN_BANNER));
 	let mut doc = Document::parse("##    Format   2\nname: x\n");
 	assert_eq!(doc.set_banner(true), 1);
@@ -341,7 +349,7 @@ fn upgrade_writes_a_fresh_file_with_the_info_block() {
 	let _id = test_id("ddmhc");
 	// Dated, so it's found to be 2.0 rather than 3.0-a37, which reads the
 	// comma list too and wrote no `#` block.
-	let up = upgrade_dated(V2_FILE, Some(SEP1), false, true);
+	let up = upgrade_dated(V2_FILE, Some(SEP1), None, true);
 	assert!(!up.current && up.ambiguous == 0 && up.lost == 0);
 	assert_eq!(up.format, 2);
 	assert!(up.diagnostics.iter().any(|d| d.code == "E026"));
@@ -352,16 +360,16 @@ fn upgrade_writes_a_fresh_file_with_the_info_block() {
 	// let want = format!("name: 'say \\\"hi\\\"'\ntags: [a, b]\n\n{}", GEN_BANNER);
 	let want = format!("name: 'say \"hi\"'\ntags: [a, b]\n\n{}", GEN_BANNER);
 	assert_eq!(up.text, want);
-	assert!(upgrade(&up.text, false, true).current);
+	assert!(upgrade(&up.text, None, true).current);
 }
 
 #[test]
 fn upgrade_refuses_text_that_reads_two_ways() {
 	let _id = test_id("ddmhd");
 	let text = "a: x,y\nb: \"q\n";
-	let up = upgrade_dated(text, Some(SEP1), false, true);
+	let up = upgrade_dated(text, Some(SEP1), None, true);
 	assert!(!up.current && up.ambiguous == 1 && up.text == text);
-	let up = upgrade(text, true, true);
+	let up = upgrade(text, Some("2.0"), true);
 	assert!(up.ambiguous == 0 && up.text.starts_with("a: [x, y]\nb: '\"q'\n\n##\n"));
 }
 
@@ -398,7 +406,7 @@ fn upgrade_file_backs_up_then_rewrites() {
 		use std::os::unix::fs::PermissionsExt;
 		std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o640)).unwrap();
 	}
-	let up = upgrade_file(path, false, true).unwrap();
+	let up = upgrade_file(path, None, true).unwrap();
 	let backup = dir.join("f_backup_20261004-001500_format-v2.shcl");
 	assert_eq!(up.backup, backup.to_str().unwrap());
 	assert_eq!(std::fs::read_to_string(&backup).unwrap(), V2_FILE);
@@ -410,7 +418,7 @@ fn upgrade_file_backs_up_then_rewrites() {
 		assert_eq!(mode & 0o7777, 0o640);
 	}
 	// The second start finds a current file and writes nothing.
-	let again = upgrade_file(path, false, true).unwrap();
+	let again = upgrade_file(path, None, true).unwrap();
 	assert!(again.current && again.backup.is_empty());
 	assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
 	let _ = std::fs::remove_dir_all(&dir);
@@ -435,13 +443,13 @@ fn upgrade_can_leave_the_info_block_off() {
 			"a: 1\r\nb: '\"q'\r\n## SHCL format 3.0\r\n",
 		),
 	] {
-		let up = upgrade_dated(text, Some(SEP1), from_v2, false);
+		let up = upgrade_dated(text, Some(SEP1), from_v2.then_some("2.0"), false);
 		assert!(!up.current, "{text:?}");
 		assert_eq!(up.text, want, "{text:?}");
-		assert!(upgrade(&up.text, false, false).current, "{text:?}");
-		assert!(upgrade(&up.text, true, false).current, "{text:?}");
+		assert!(upgrade(&up.text, None, false).current, "{text:?}");
+		assert!(upgrade(&up.text, Some("2.0"), false).current, "{text:?}");
 		// With the block, for the same file.
-		let with = upgrade_dated(text, Some(SEP1), from_v2, true).text;
+		let with = upgrade_dated(text, Some(SEP1), from_v2.then_some("2.0"), true).text;
 		assert!(
 			with.contains("## This config file format is SHCL."),
 			"{with:?}"
@@ -452,13 +460,13 @@ fn upgrade_can_leave_the_info_block_off() {
 	let file = dir.join("f.shcl");
 	let path = file.to_str().unwrap();
 	std::fs::write(&file, V2_FILE).unwrap();
-	let up = upgrade_file(path, false, false).unwrap();
+	let up = upgrade_file(path, None, false).unwrap();
 	assert_eq!(
 		std::fs::read_to_string(&file).unwrap(),
-		upgrade(V2_FILE, false, false).text
+		upgrade(V2_FILE, None, false).text
 	);
 	assert_eq!(std::fs::read_to_string(&up.backup).unwrap(), V2_FILE);
-	assert!(upgrade_file(path, false, false).unwrap().current);
+	assert!(upgrade_file(path, None, false).unwrap().current);
 	let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -471,7 +479,7 @@ fn upgrade_file_never_writes_over_a_backup() {
 	std::fs::write(&file, V2_FILE).unwrap();
 	let backup = dir.join("f_backup_20261004-001500_format-v2.shcl");
 	std::fs::write(&backup, "x\n").unwrap();
-	let got = upgrade_file(path, false, true);
+	let got = upgrade_file(path, None, true);
 	assert_eq!(
 		got.unwrap_err(),
 		UpgradeError::BackupTaken(backup.to_str().unwrap().to_string())
@@ -481,14 +489,14 @@ fn upgrade_file_never_writes_over_a_backup() {
 	// Nothing at the path, and text that reads two ways, write nothing.
 	let none = dir.join("none.shcl");
 	assert!(matches!(
-		upgrade_file(none.to_str().unwrap(), false, true),
+		upgrade_file(none.to_str().unwrap(), None, true),
 		Err(UpgradeError::NotFound(_))
 	));
 	let amb = dir.join("amb.shcl");
 	std::fs::write(&amb, "a: x,y\nb: \"q\n").unwrap();
 	pin_mtime(&amb, SEP1);
 	assert!(matches!(
-		upgrade_file(amb.to_str().unwrap(), false, true),
+		upgrade_file(amb.to_str().unwrap(), None, true),
 		Err(UpgradeError::Ambiguous { count: 1, .. })
 	));
 	assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 3);

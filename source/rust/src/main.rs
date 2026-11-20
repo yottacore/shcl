@@ -2796,12 +2796,12 @@ fn do_upgrade(o: &Opts) -> u8 {
 	// The mtime upgrade_file reads, so the text half finds the same format.
 	let mtime = file_mtime(file);
 	let up = if o.write {
-		match upgrade_file(file, o.from_2x, true) {
+		match upgrade_file(file, o.from_2x.then_some("2.0"), true) {
 			Ok(up) => up,
 			Err(e) => {
 				say_diagnostics_from(
 					"",
-					&upgrade_dated(&text, mtime, o.from_2x, true).diagnostics,
+					&upgrade_dated(&text, mtime, o.from_2x.then_some("2.0"), true).diagnostics,
 				);
 				return match e {
 					UpgradeError::Ambiguous { .. } => {
@@ -2820,7 +2820,7 @@ fn do_upgrade(o: &Opts) -> u8 {
 			}
 		}
 	} else {
-		upgrade_dated(&text, mtime, o.from_2x, true)
+		upgrade_dated(&text, mtime, o.from_2x.then_some("2.0"), true)
 	};
 	if up.current {
 		// `diagnostics` is empty when current, but the file is still loaded,

@@ -2647,10 +2647,14 @@ func doUpgrade(o *opts) int {
 	}
 	// The mtime UpgradeFile reads, so the text half finds the same format.
 	mtime := fileMtime(file)
+	from := ""
+	if o.from2x {
+		from = "2.0"
+	}
 	var up shcl.Upgraded
 	if o.write {
-		if up, err = shcl.UpgradeFile(file, o.from2x, true); err != nil {
-			sayDiagnosticsFrom("", shcl.UpgradeDated(text, mtime, o.from2x, true).Diagnostics)
+		if up, err = shcl.UpgradeFile(file, from, true); err != nil {
+			sayDiagnosticsFrom("", shcl.UpgradeDated(text, mtime, from, true).Diagnostics)
 			var ue *shcl.UpgradeError
 			if errors.As(err, &ue) && ue.Kind == shcl.UpgradeAmbiguous {
 				fmt.Fprintf(os.Stderr, "%v (--from-2x rewrites them)\n", err)
@@ -2664,7 +2668,7 @@ func doUpgrade(o *opts) int {
 			return exitIO
 		}
 	} else {
-		up = shcl.UpgradeDated(text, mtime, o.from2x, true)
+		up = shcl.UpgradeDated(text, mtime, from, true)
 	}
 	if up.Current {
 		// Diagnostics is empty when current, but the file is still loaded, and

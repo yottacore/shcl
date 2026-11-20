@@ -14,7 +14,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `upgrade()` and `upgrade_file()` work out the format of a file stamped beta1's `##    Format   3`, or a dev pin such as `3.0-a37`, as the load does, and convert it by that format's steps. They used to leave such a file alone, where a load with `migrate` converted it. A file stamped `3.0` is still left alone.
 
-- `upgrade()` and `upgrade_file()` take a `banner` argument after `from_v2` (each binding's spelling). With it they write the info block as before. Without it, an old block comes off and the fresh text ends with the stamp a save writes. `shcl upgrade` still writes the block.
+- `upgrade()`, `upgrade_dated()`, `upgrade_file()` and `LoadOptions` take `from` in place of `from_v2` (each binding's spelling), naming the format the file was written in, such as `2.0`, `3.0-a37` or a major alone, `1`. It overrides the file's stamp and what `find_format()` reads off it. `from_v2` was `from` `2.0`. A name no format has is no `from`, and a newer format's leaves the file alone.
+
+- `upgrade()` and `upgrade_file()` take a `banner` argument after `from` (each binding's spelling). With it they write the info block as before. Without it, an old block comes off and the fresh text ends with the stamp a save writes. `shcl upgrade` still writes the block.
 
 - `to_text_keep_lines()` refuses a document from a newer format, as its save does, so a program that saves through that text can't write a newer format's file back by this reader's rules. Its return type changes in every binding: Rust gives `Result<(String, bool), SaveError>`, Go adds an `error`, Python raises `SaveTooNew`, C returns `shcl_save_result` with the text in an out-parameter, and C++ gives a `SaveResult` first in a tuple.
 

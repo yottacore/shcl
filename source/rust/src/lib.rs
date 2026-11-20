@@ -234,7 +234,7 @@ pub struct SaveOptions {
 /// its own argument, since it is the one choice every load makes, and an
 /// all-zero options struct in Go and C would be Loose.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct LoadOptions {
+pub struct LoadOptions<'a> {
 	/// Keep the text for `to_text_keep_lines`, as `load_file_keep_lines`
 	/// does. With `migrate`, the text kept is the migrated one.
 	pub keep_lines: bool,
@@ -243,9 +243,10 @@ pub struct LoadOptions {
 	/// save checks the path against the bytes the load read, so a save over
 	/// the file gets every check a plain load's does.
 	pub migrate: bool,
-	/// migrate's `from_v2`: the file can only have been written for 2.x, so
-	/// it converts from 2.0. Ignored without `migrate`.
-	pub from_v2: bool,
+	/// The format the file was written in, by a name in `FORMAT_NAMES` or a
+	/// major alone, as `upgrade`'s `from`. It overrides the file's stamp and
+	/// what `find_format` reads off it. Ignored without `migrate`.
+	pub from: Option<&'a str>,
 }
 
 /// What a save checks the bytes at its path against: what the load read, and
@@ -3052,6 +3053,8 @@ struct Migrating {
 	pin: Pin,
 	// Under `V2`, which of 1.0 to 2.0, if the format was found.
 	v2: V2Read,
+	// Which rules wrote the text is known, from a caller's `from`, the
+	// file's Format line or its format, so every rewrite is made.
 	from_v2: bool,
 	ambiguous: usize,
 	lost: usize,
@@ -3166,24 +3169,61 @@ pub fn find_format(text: &str, mtime: Option<i64>) -> Option<&'static str> {
 	if names_newer(&stamp) {
 		return None;
 	}
+	let by_stamp = if stamp.status == Status::Good {
+		named_formats(stamp.raw.as_deref().unwrap_or_default())
+	} else {
+		0
+	};
+	Some(pick_format(text, mtime, by_stamp))
+}
+
+/// The formats of `FORMAT_DAYS` a stamp naming `name` leaves, as bits: the
+/// one a whole format's or a pin's name gives, or every format of a major
+/// named alone, or of a minor whose pin no row has. 0 for a name no format
+/// has, such as `1.2`.
+fn named_formats(name: &str) -> u32 {
+	let at = |f: &str| FORMAT_DAYS.iter().position(|(d, _)| *d == f);
+	if let Some(i) = FORMAT_NAMES
+		.iter()
+		.find(|(n, _)| *n == name)
+		.and_then(|(_, f)| at(f))
+	{
+		return 1 << i;
+	}
+	let named = stamp_format(name);
+	let whole = name.contains('.');
+	let mut left = 0;
+	for (i, (f, _)) in FORMAT_DAYS.iter().enumerate() {
+		let fv = stamp_format(f);
+		if fv.is_some_and(|v| named.is_some_and(|s| v.0 == s.0 && (!whole || v.1 == s.1))) {
+			left |= 1 << i;
+		}
+	}
+	left
+}
+
+/// What a caller's `from` names, read as a stamp naming it would be, in
+/// place of the text's own stamp: None when there's no `from`, or it names
+/// no format shcl knows, so the text's stamp and the scan decide. Some(None)
+/// for a newer format than this reader's, which leaves nothing to do. A
+/// major alone, such as `1`, leaves its formats to the mtime and the tells.
+fn from_format(text: &str, mtime: Option<i64>, from: Option<&str>) -> Option<Option<&'static str>> {
+	let from = from?;
+	if stamp_format(from).is_some_and(|f| f > (FORMAT_MAJOR, FORMAT_MINOR)) {
+		return Some(None);
+	}
+	match named_formats(from) {
+		0 => None,
+		left => Some(Some(pick_format(text, mtime, left))),
+	}
+}
+
+/// find_format's last 3 steps over the formats `by_stamp` leaves, every one
+/// when it's 0.
+fn pick_format(text: &str, mtime: Option<i64>, by_stamp: u32) -> &'static str {
 	let mut left: u32 = (1 << FORMAT_DAYS.len()) - 1;
-	if stamp.status == Status::Good {
-		let raw = stamp.raw.as_deref().unwrap_or_default();
-		if let Some((_, f)) = FORMAT_NAMES.iter().find(|(n, _)| *n == raw) {
-			return Some(f);
-		}
-		let named = stamp_format(raw);
-		let whole = raw.contains('.');
-		let mut by_stamp = 0;
-		for (i, (f, _)) in FORMAT_DAYS.iter().enumerate() {
-			let fv = stamp_format(f);
-			if fv.is_some_and(|v| named.is_some_and(|s| v.0 == s.0 && (!whole || v.1 == s.1))) {
-				by_stamp |= 1 << i;
-			}
-		}
-		if by_stamp != 0 {
-			left = by_stamp;
-		}
+	if by_stamp != 0 {
+		left = by_stamp;
 	}
 	if let Some(t) = mtime {
 		let mut by_mtime = 0;
@@ -3200,7 +3240,7 @@ pub fn find_format(text: &str, mtime: Option<i64>) -> Option<&'static str> {
 		left = most_legal(text.strip_prefix('\u{feff}').unwrap_or(text), left);
 	}
 	let newest = 31 - left.leading_zeros();
-	Some(FORMAT_DAYS[newest as usize].0)
+	FORMAT_DAYS[newest as usize].0
 }
 
 /// The runs of `FORMAT_DAYS` the design doc's Tells table counts each tell
@@ -3434,12 +3474,10 @@ fn first_rewrite(format: Option<&str>) -> Option<Step> {
 
 /// The text, written in `format`, as the current format reads it, one step
 /// per format in order, in memory. None, a newer format's, comes back as it
-/// is. `from_v2` is migrate's.
-fn convert(text: &str, format: Option<&str>, from_v2: bool) -> Migration {
+/// is. `told` says a caller named the format, so every rewrite is made.
+fn convert(text: &str, format: Option<&str>, told: bool) -> Migration {
 	match first_rewrite(format) {
-		Some(step @ (Step::V2(_) | Step::Pin(_))) => {
-			migrate_text(text, from_v2, false, false, step)
-		}
+		Some(step @ (Step::V2(_) | Step::Pin(_))) => migrate_text(text, told, false, false, step),
 		Some(Step::Same) | None => Migration {
 			text: text.to_string(),
 			current: true,
@@ -3997,11 +4035,11 @@ pub struct Upgrade {
 	/// The fresh file's text, or the input when `current`, `ambiguous` or
 	/// `errors_left`.
 	pub text: String,
-	/// The input loads with no error under these rules and, with `from_v2`,
+	/// The input loads with no error under these rules and, with `from`,
 	/// migrates to the same text and names no older format, or its stamp names
 	/// this format whole, so it is left as it is. A file stamped beta1's
 	/// `Format 3` is current when `find_format` finds it to be 3.0-9ef or
-	/// later, unless `from_v2` says a 2.x build wrote it and it loads with an
+	/// later, unless `from` names an older format and it loads with an
 	/// error.
 	pub current: bool,
 	/// The format the input was written for, which goes in the backup's
@@ -4015,15 +4053,15 @@ pub struct Upgrade {
 	/// the migrated text drops. The backup still has them.
 	pub lost: usize,
 	/// What loading the input found, which is why it needed the upgrade
-	/// unless it loaded clean and `from_v2` said it reads as 2.x. Empty when
+	/// unless it loaded clean and `from` said it reads otherwise. Empty when
 	/// `current`.
 	pub diagnostics: Vec<Diagnostic>,
 	/// Where `upgrade_file` put the original. Empty from `upgrade`, and when
 	/// nothing was written.
 	pub backup: String,
-	/// With `from_v2`, the input's lines still in error once converted.
+	/// With `from`, the input's lines still in error once converted.
 	/// Nonempty means nothing is written and `text` is the input, since the
-	/// next run with `from_v2` would take the fresh text for 2.x again.
+	/// next run with `from` would take the fresh text for that format again.
 	pub errors_left: Vec<usize>,
 }
 
@@ -4040,36 +4078,42 @@ pub struct Upgrade {
 /// file whose stamp names this format whole comes back
 /// `current` and untouched, and so does one that loads with no error under
 /// these rules, since a program calling this on every start must never rewrite
-/// a good file. `from_v2` is migrate's: the file can only have been written for
-/// 2.x. Then a file that loads clean is still made over when `migrate` would
+/// a good file. `from` names the format the file was written in, by a name in
+/// `FORMAT_NAMES` or a major alone, read as a stamp naming it would be, in
+/// place of the file's stamp and what `find_format` reads off it. A name no
+/// format has, such as `1.2`, is no `from`, and a newer format's leaves the
+/// file alone, as does a stamp naming a newer one. With a 2.x or older
+/// format, a file that loads clean is still made over when `migrate` would
 /// change it, as it would `p: a,b`, an array under 2.x and one string now. One
 /// it would not change that names an older format gets this format on that
-/// Format line, and nothing else. A file naming this format that loads with an
-/// error is taken as 2.x when `from_v2` says a 2.x build wrote it, as with a
-/// beta of 3.0 that wrote 2.x lines. With
-/// `from_v2`, any file is made over only when the fresh text loads clean; when
-/// it wouldn't, `errors_left` names the lines still in error. Pass `from_v2`
+/// Format line, and nothing else. A file naming this major that loads with an
+/// error is taken as that format, as with a beta of 3.0 that wrote 2.x lines,
+/// and one that loads clean is left alone. With a pin, a file that loads
+/// clean is made over too, unless its stamp names this format whole, which is
+/// what the made-over file names. With
+/// `from`, any file is made over only when the fresh text loads clean; when
+/// it wouldn't, `errors_left` names the lines still in error. Pass `from`
 /// only for a file known to be old, never on every start: a file this format
-/// wrote that picks up an error later would be read by 2.x rules too.
+/// wrote that picks up an error later would be read by the old rules too.
 ///
-/// Without `from_v2`, the file's format is `find_format`'s, from the text
+/// Without `from`, the file's format is `find_format`'s, from the text
 /// alone, and only a format whose steps to this one rewrite anything gets
 /// made over: one from 3.0-9ef on is `current`, its errors kept as typed, as
 /// a load with `migrate` keeps them. One from 3.0-1f8 to 3.0-a37 goes through
 /// that format's step rather than `migrate_unstamped`, and is made over even
 /// when it loads clean, since `"x\ty"` loads clean now and held a tab then.
 /// One from 1.0 to 2.0 goes through the 2.x rewrite with that format's reads
-/// of a quoted name and a selector, and `from_v2` takes it as 2.0. A
+/// of a quoted name and a selector. A
 /// file stamped beta1's `Format 3` or a pin is read the same way, and the
 /// made-over file's Format line names this format whole.
 /// `upgrade_dated` takes the file's mtime too.
-pub fn upgrade(text: &str, from_v2: bool, banner: bool) -> Upgrade {
-	upgrade_dated(text, None, from_v2, banner)
+pub fn upgrade(text: &str, from: Option<&str>, banner: bool) -> Upgrade {
+	upgrade_dated(text, None, from, banner)
 }
 
 /// `upgrade`, with `mtime` for `find_format`: the file's, in Unix seconds, or
 /// None for text from no file. `upgrade_file` passes the file's.
-pub fn upgrade_dated(text: &str, mtime: Option<i64>, from_v2: bool, banner: bool) -> Upgrade {
+pub fn upgrade_dated(text: &str, mtime: Option<i64>, from: Option<&str>, banner: bool) -> Upgrade {
 	let named = read_format_version(text);
 	let version = (named.status == Status::Good).then_some(named.value);
 	let mut up = Upgrade {
@@ -4088,11 +4132,9 @@ pub fn upgrade_dated(text: &str, mtime: Option<i64>, from_v2: bool, banner: bool
 	// The load's step table, in its upgrade form, so a format whose run is
 	// all Same has nothing to do. beta1's `Format 3` names only a major, so
 	// find_format reads it as the load does, with the mtime and the tells.
-	let format = if from_v2 {
-		Some("2.0")
-	} else {
-		find_format(text, mtime)
-	};
+	let told = from_format(text, mtime, from);
+	let format = told.unwrap_or_else(|| find_format(text, mtime));
+	let told = told.is_some();
 	let step = match first_rewrite(format) {
 		Some(Step::Same) | None => return up,
 		Some(s) => s,
@@ -4107,11 +4149,16 @@ pub fn upgrade_dated(text: &str, mtime: Option<i64>, from_v2: bool, banner: bool
 	// a 2.x build wrote the file. One that loads clean is what an upgrade
 	// leaves, so a second run over its output leaves it alone. A file found
 	// to be from 3.0-1f8 to 3.0-a37 can load clean and still read otherwise,
-	// as `"x\ty"` does, so it is made over as the load makes it over.
-	if clean && pin.is_none() && (!from_v2 || version == Some(FORMAT_MAJOR)) {
+	// as `"x\ty"` does, so it is made over as the load makes it over. One
+	// stamped this format whole is what a told upgrade writes, so a second
+	// run over it with the same `from` leaves it alone.
+	if clean
+		&& ((pin.is_none() && (!told || version == Some(FORMAT_MAJOR)))
+			|| (told && names_this(&named)))
+	{
 		return up;
 	}
-	let m = migrate_text(text, from_v2, false, true, step);
+	let m = migrate_text(text, told, false, true, step);
 	// A 2.x file can load clean and still read differently now, as `a,b`
 	// does. One migrate leaves as it was has nothing to do, but an older
 	// Format line, which would keep the load's H007 hint, becomes this one.
@@ -4151,10 +4198,10 @@ pub fn upgrade_dated(text: &str, mtime: Option<i64>, from_v2: bool, banner: bool
 	{
 		made = t;
 	}
-	// With from_v2 it goes only when that leaves it loading clean, or the
-	// next run with it would read the result by 2.x rules again
+	// With `from` it goes only when that leaves it loading clean, or the
+	// next run with it would read the result by the old rules again
 	// (2026101515372401). Without, a line in error stays as typed, as on load.
-	if from_v2 {
+	if told {
 		let check = Document::parse(&made);
 		if check.error_count() != 0 {
 			// Empty only if a clean text formats to one with an error, and
@@ -7873,7 +7920,7 @@ impl Document {
 		level: Strictness,
 		opts: &LoadOptions,
 	) -> Result<(Document, FileStatus), LoadError> {
-		let migrate = opts.migrate.then_some(opts.from_v2);
+		let migrate = opts.migrate.then_some(opts.from);
 		let (doc, st) = Document::load_file_any(path, level, opts.keep_lines, migrate);
 		Ok((doc.strict_gate()?, st))
 	}
@@ -7888,12 +7935,12 @@ impl Document {
 		Ok((doc.strict_gate()?, st))
 	}
 
-	/// `migrate` is Some(from_v2) to parse the migrated text.
+	/// `migrate` is Some(from) to parse the migrated text.
 	fn load_file_any(
 		path: &str,
 		level: Strictness,
 		keep: bool,
-		migrate: Option<bool>,
+		migrate: Option<Option<&str>>,
 	) -> (Document, FileStatus) {
 		let text = match read_file(path, 0) {
 			Ok(t) => t,
@@ -7901,14 +7948,12 @@ impl Document {
 			// so its bytes are as unread as a parsed document's.
 			Err(st) => return (Parser::new().parse("", level), st),
 		};
-		// from_v2 says the file is 2.x, whatever its stamp and mtime say.
-		let mig = migrate.map(|from_v2| {
-			let format = if from_v2 {
-				Some("2.0")
-			} else {
-				find_format(&text, file_mtime(path))
-			};
-			convert(&text, format, from_v2)
+		// `from` names the format, whatever the stamp and the mtime say.
+		let mig = migrate.map(|from| {
+			let mtime = file_mtime(path);
+			let told = from_format(&text, mtime, from);
+			let format = told.unwrap_or_else(|| find_format(&text, mtime));
+			convert(&text, format, told.is_some())
 		});
 		let parsed = mig.as_ref().map_or(text.as_str(), |mig| mig.text.as_str());
 		let mut doc = Parser::new().parse(parsed, level);
@@ -10993,13 +11038,13 @@ pub enum UpgradeError {
 	/// Nothing at the path.
 	NotFound(String),
 	/// The file does not say which rules it was written for, and some of it
-	/// reads two ways (`Upgrade::ambiguous`); `from_v2` settles it.
+	/// reads two ways (`Upgrade::ambiguous`); `from` settles it.
 	Ambiguous { path: String, count: usize },
 	/// Something is already at the backup's name. It is never written over.
 	BackupTaken(String),
 	/// A read or write failed: why, and the message.
 	Io(WriteError),
-	/// With `from_v2`, the fresh text would still have an error on these
+	/// With `from`, the fresh text would still have an error on these
 	/// lines of the input (`Upgrade::errors_left`).
 	ErrorsLeft { path: String, lines: Vec<usize> },
 }
@@ -11174,7 +11219,7 @@ fn create_backup(file: &str, name: &str) -> std::io::Result<std::fs::File> {
 /// have an error. Opt-in on purpose: a program that keeps its own backups
 /// has no need of it. On success `backup` names the copy when one was made,
 /// and `text` is what the path now holds.
-pub fn upgrade_file(path: &str, from_v2: bool, banner: bool) -> Result<Upgrade, UpgradeError> {
+pub fn upgrade_file(path: &str, from: Option<&str>, banner: bool) -> Result<Upgrade, UpgradeError> {
 	check_kept_file(path)?;
 	// Not read_file, whose one status for every failure would hide the
 	// system's reason (2026101514324707).
@@ -11191,7 +11236,7 @@ pub fn upgrade_file(path: &str, from_v2: bool, banner: bool) -> Result<Upgrade, 
 			format!("{}: can't be read as UTF-8 text", path),
 		)));
 	};
-	let mut up = upgrade_dated(&text, file_mtime(path), from_v2, banner);
+	let mut up = upgrade_dated(&text, file_mtime(path), from, banner);
 	if up.current {
 		return Ok(up);
 	}
