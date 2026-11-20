@@ -3594,14 +3594,15 @@ static ShclStr pin_escapes(ShclArena *a, ShclStr raw, int codepoints) {
 static int pin_bad_quoted(ShclStr raw, int value, ShclPin pin) {
 	if (pin == SHCL_PIN_FROM_30D) return 0;
 	int tab = 0;
-	for (size_t i = 0; i < raw.n; i++) {
-		if (raw.p[i] != '\\') continue;
-		if (++i == raw.n) return 1;
-		char c = raw.p[i];
+	size_t i = 0;
+	while (i < raw.n) {
+		if (raw.p[i++] != '\\') continue;
+		if (i == raw.n) return 1;
+		char c = raw.p[i++];
 		uint32_t cp; size_t len;
 		if (c == 't' || c == 'n') tab = 1;
 		else if (c == 'u' || c == 'U') {
-			if (!pin_codepoint(c, s_slice(raw, i + 1, raw.n), &cp, &len)) return 1;
+			if (!pin_codepoint(c, s_slice(raw, i, raw.n), &cp, &len)) return 1;
 			i += len;
 		} else if (c != '\\' && c != '"' && c != '\'') return 1;
 	}
