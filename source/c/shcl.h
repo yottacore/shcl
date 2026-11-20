@@ -4331,7 +4331,7 @@ static void migrate_unload(ShclMigrateOwn *own) { shcl_free(own->doc); own->doc 
 /* The fence run of a line that closed a raw block under 1.0 to 2.0, which
    trimmed every White_Space character off its edges, where now only a space
    or a tab comes off: 1 with the run in *run when run isn't NULL, or 0. */
-static int v2_fence_close(ShclStr line, unsigned char ch, size_t len, ShclStr *run) {
+static int v2_fence_close(ShclStr line, unsigned char ch, size_t len, ShclStr *run) { // NOLINT(bugprone-easily-swappable-parameters): fence char, then run length, as the fence reader gives them
 	ShclStr t = s_trim(line);
 	if (t.n < len) return 0;
 	for (size_t i = 0; i < t.n; i++) if ((unsigned char)t.p[i] != ch) return 0;
