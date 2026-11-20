@@ -4705,6 +4705,155 @@ func TestAFileFormatComesFromItsTells(t *testing.T) {
 	}
 }
 
+// TestAFileFormatReadsThroughAStampMtimeAndBodyThatDisagree: every pairing of
+// a stamp, an mtime and a body whose tells disagree reads as the design doc's
+// 4 steps give it, from tables written here rather than the library's. Then
+// the files a writer could really leave, with the format that wrote each.
+// Rust's a_file_format_reads_through_a_stamp_mtime_and_body_that_disagree has
+// the same rows. The mtimes are Unix seconds at UTC.
+func TestAFileFormatReadsThroughAStampMtimeAndBodyThatDisagree(t *testing.T) {
+	defer testID(t, "dfj91")
+	at := func(n int64) *int64 { return &n }
+	formats := []string{
+		"1.0", "1.1", "2.0", "3.0-1f8", "3.0-30d", "3.0-b10", "3.0-f8e", "3.0-a37", "3.0-9ef",
+		"3.0-a65", "3.0",
+	}
+	f2 := "#    Syntax   https://example.com/shcl/blob/main/project/spec.md\n"
+	f1f8 := "##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0/project/spec.md\n"
+	fb1 := "##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n"
+	// The stamp line, and the formats it leaves, oldest first. Empty for a
+	// newer format's, which reads as none.
+	stamps := [][2]string{
+		{"", "11111111111"},
+		{"##    Format   1\n", "11000000000"},
+		{"##    Format   2\n", "00100000000"},
+		{"##    Format   3\n", "00011111111"},
+		{"## SHCL format 2.0\n", "00100000000"},
+		{"## SHCL format 3.0-871\n", "00010000000"},
+		{"## SHCL format 3.0-a37\n", "00000001000"},
+		{"## SHCL format 3.0-ea0\n", "00000000100"},
+		{"## SHCL format 3.0\n", "00000000001"},
+		{"## SHCL format 3.0-zzz\n", "00011111111"},
+		{"## SHCL format 1.2\n", "11111111111"},
+		{"##    Format   3x\n", "11111111111"},
+		{"## SHCL format 3.1\n", ""},
+	}
+	// The mtime, and the newest format it leaves. One that would leave none
+	// is ignored, so it leaves them all.
+	mtimes := []struct {
+		mtime  *int64
+		newest int
+	}{
+		{nil, 10},
+		{at(-1), 10},
+		{at(1783987199), 10}, // 2026-07-13 23:59:59, before any format
+		{at(1783987200), 0},  // 2026-07-14, the day before 1.0
+		{at(1785715199), 0},
+		{at(1785715200), 1}, // 2026-08-03
+		{at(1787615999), 1},
+		{at(1787616000), 2}, // 2026-08-25
+		{at(1790121599), 2},
+		{at(1790121600), 3}, // 2026-09-23
+		{at(1790207999), 3},
+		{at(1790208000), 4}, // 2026-09-24
+		{at(1790726400), 5}, // 2026-09-30
+		{at(1790899200), 6}, // 2026-10-02
+		{at(1790985600), 7}, // 2026-10-03
+		{at(1791849599), 7},
+		{at(1791849600), 8}, // 2026-10-13
+		{at(1792799999), 8},
+		{at(1792800000), 9}, // 2026-10-24
+		{at(1793750399), 9},
+		{at(1793750400), 10}, // 2026-11-04
+		{at(4102444800), 10}, // 2100-01-01
+	}
+	// The body, and how many of its lines each format refuses or reads as
+	// binding nothing, plus a footer its init didn't write.
+	bodies := [][2]string{
+		{"a: 1\n", "00000000000"},
+		{"a: 1, 2\n", "00000000111"},
+		{"a:\n\t* x\n", "00000000111"},
+		{"a: [1, 2]\n", "00011111000"},
+		{"a:\n\t- x\n", "11111111000"},
+		{"a: it's ok\n", "00000000100"},
+		{"a: 1\n" + f2, "10011111111"},
+		{"a: 1\n" + f1f8, "11101111111"},
+		{"a: 1\n" + fb1, "11110000000"},
+		// A tie goes to the newest, and one line more decides it.
+		{"a: 1, 2\nb:\n\t- x\n", "11111111111"},
+		{"a: 1, 2\nb: 3, 4\nc:\n\t- x\n", "11111111222"},
+		{"a:\n\t- x\nb:\n\t- y\nc: 1, 2\n", "22222222111"},
+		{"a: [1, 2]\nb: it's\n", "00011111100"},
+		{"a: 1, 2\n" + fb1, "11110000111"},
+	}
+	for _, s := range stamps {
+		for _, m := range mtimes {
+			for _, b := range bodies {
+				text := b[0] + s[0]
+				want := ""
+				if s[1] != "" {
+					var byStamp, byMtime []int
+					for f := range formats {
+						if s[1][f] == '1' {
+							byStamp = append(byStamp, f)
+							if f <= m.newest {
+								byMtime = append(byMtime, f)
+							}
+						}
+					}
+					left := byMtime
+					if len(left) == 0 {
+						left = byStamp
+					}
+					best := left[0]
+					for _, f := range left[1:] {
+						if b[1][f] <= b[1][best] {
+							best = f
+						}
+					}
+					want = formats[best]
+				}
+				if got, ok := FindFormat(text, m.mtime); got != want || ok != (want != "") {
+					t.Errorf("%q at %v: %q %v, want %q", text, m.mtime, got, ok, want)
+				}
+			}
+		}
+	}
+	// What a writer could leave: the text, the mtime, the format that wrote
+	// it, and the format it reads as.
+	oct10 := at(1791590400) // 2026-10-10
+	oct20 := at(1792454400) // 2026-10-20
+	nov20 := at(1795132800) // 2026-11-20
+	y2020 := at(1577836800) // before any format
+	real := []struct {
+		text  string
+		mtime *int64
+		wrote string
+		reads string
+	}{
+		// Read right, by one line or one second.
+		{"a: x\nb: 1, 2\nc: y\n", nov20, "3.0-a37", "3.0-a37"},
+		{"a: 1\n", at(1791849599), "3.0-a37", "3.0-a37"},
+		{"a: 1\n", at(1791849600), "3.0-9ef", "3.0-9ef"},
+		{"a: 1\n##    Format   3\n" + fb1, at(1790726399), "3.0-30d", "3.0-30d"},
+		{"a: 1\n##    Format   3\n" + f1f8, nov20, "3.0-1f8", "3.0-1f8"},
+		{"a: [1, 2]\n" + f2, nov20, "2.0", "2.0"},
+		// Read as another format, since nothing in the file tells them apart.
+		{"a: 'C:\\temp'\n", nil, "2.0", "3.0"},
+		{"a: [1, 2]\n", nov20, "3.0-a37", "3.0"},
+		{"a: 1, 2\n", y2020, "2.0", "3.0-a37"},
+		{"a: 1\n##    Format   3\n" + fb1, at(1788220800), "3.0-b10", "3.0"},
+		{"a:\n\t- x\n## SHCL format 2.0\n", nil, "3.0", "2.0"},
+		{"a: it's ok\n", oct20, "3.0", "3.0-a37"},
+		{"a: 1, 2\n", oct10, "2.0", "3.0-a37"},
+	}
+	for _, r := range real {
+		if got, ok := FindFormat(r.text, r.mtime); !ok || got != r.reads {
+			t.Errorf("%q at %v, written in %s: %q, want %q", r.text, r.mtime, r.wrote, got, r.reads)
+		}
+	}
+}
+
 // TestStampReadsSayWhy: the Format and Schema lines read with a status, so an
 // unstamped file and a damaged stamp read apart, and the load's H006 and H007
 // hints say the same as the Format read on every row. Rust's
@@ -8777,6 +8926,101 @@ func TestAnUpgradeReadsABeta1StampAsTheLoadDoes(t *testing.T) {
 		}
 		if !up.Current {
 			_ = os.Remove(up.Backup)
+		}
+	}
+}
+
+// TestAFileWhoseStampMtimeAndContentDisagreeLoadsAndUpgradesByItsRead: a file
+// whose stamp, mtime and content disagree loads and upgrades by the format
+// FindFormat gives it, with the mtime pinned on the file. Rust's
+// a_file_whose_stamp_mtime_and_content_disagree_loads_and_upgrades_by_its_read
+// has the same rows.
+func TestAFileWhoseStampMtimeAndContentDisagreeLoadsAndUpgradesByItsRead(t *testing.T) {
+	defer testID(t, "dfj9m")
+	dir := t.TempDir()
+	const (
+		sep1  = 1788220800 // 2026-09-01
+		oct10 = 1791590400 // 2026-10-10
+		nov20 = 1795132800 // 2026-11-20
+		y2020 = 1577836800 // before any format
+	)
+	ct := "a: 1, 2\nb: \"x\\ty\"\n"
+	tab := "b: \"x\\ty\"\n"
+	made := "a: [1, 2]\nb: \"x\u25c9TAB\u25c9y\"\n"
+	madeTab := "b: \"x\u25c9TAB\u25c9y\"\n"
+	f3 := "##    Format   3\n"
+	f30 := "##    Format   3.0\n"
+	// The text, its mtime, what upgrade gives, which is the text when
+	// current, and empty when it refuses, and what the load keeps, with its
+	// errors.
+	cases := []struct {
+		text     string
+		mtime    int64
+		upgraded string
+		loaded   string
+		errors   string
+	}{
+		// 2.0 by one second, so the escape reads 2 ways and upgrade
+		// refuses, and from 3.0-1f8 on, a pin's escape.
+		{ct, 1790121599, "", "a: [1, 2]\n" + tab + StampLine + "\n", ""},
+		{ct, 1790121600, withStamp(made), withStamp(made), ""},
+		// A whole stamp beats the mtime and the tells.
+		{ct + "## SHCL format 2.0\n", nov20, withStamp(made), withStamp(made), ""},
+		{withStamp(ct), sep1, withStamp(ct), withStamp(ct), "E026@1"},
+		{"a:\n\t- x\n## SHCL format 2.0\n", nov20, "a:\n\t- x\n## SHCL format 2.0\n", withStamp("a:\n\t- x\n"), ""},
+		{"a: [1, 2]\n## SHCL format 3.0-a37\n", nov20, "a: [1, 2]\n## SHCL format 3.0-a37\n", withStamp("a: [1, 2]\n"), ""},
+		// A tie goes to 3.0, and one line more to 3.0-a37.
+		{ct + "c:\n\t- x\n", nov20, ct + "c:\n\t- x\n", withStamp(ct + "c:\n\t- x\n"), "E026@1"},
+		{ct + "c:\n\t- x\nd: 3, 4\n", nov20, withStamp(made + "c:\n\t- x\nd: [3, 4]\n"), withStamp(made + "c:\n\t- x\nd: [3, 4]\n"), ""},
+		// beta1's stamp, then 3.0-a37 or 3.0-9ef by one second, and an mtime
+		// older than the stamp, which is ignored.
+		{tab + f3, 1791849599, withStamp(madeTab), madeTab + f30, ""},
+		{tab + f3, 1791849600, tab + f3, tab + f30, ""},
+		{tab + f3, sep1, tab + f3, tab + f30, ""},
+		// Brackets read as 3.0, so a tab 3.0-a37 wrote stays a backslash.
+		{"a: [1, 2]\n" + tab, nov20, "a: [1, 2]\n" + tab, withStamp("a: [1, 2]\n" + tab), ""},
+		// An mtime before any format is ignored.
+		{tab, y2020, tab, withStamp(tab), ""},
+		{tab, oct10, withStamp(madeTab), withStamp(madeTab), ""},
+		{"a: 1, 2\n##    Format   1\n", nov20, withStamp("a: [1, 2]\n"), "a: [1, 2]\n" + f30, ""},
+	}
+	opts := LoadOptions{KeepLines: true, Migrate: true}
+	for i, c := range cases {
+		mtime := c.mtime
+		want := c.upgraded
+		if want == "" {
+			want = c.text
+		}
+		up := UpgradeDated(c.text, &mtime, "", false)
+		if up.Current != (c.upgraded == c.text) || up.Text != want {
+			t.Errorf("%q at %d: gave %v, %q; want %q", c.text, c.mtime, up.Current, up.Text, want)
+		}
+		f := filepath.Join(dir, fmt.Sprintf("f%d.shcl", i))
+		if err := os.WriteFile(f, []byte(c.text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		tm := time.Unix(mtime, 0)
+		if err := os.Chtimes(f, tm, tm); err != nil {
+			t.Fatal(err)
+		}
+		doc, _, _ := LoadFileOpts(f, Standard, opts)
+		var errs []string
+		for _, d := range doc.Diagnostics() {
+			if d.Severity == SeverityError {
+				errs = append(errs, fmt.Sprintf("%s@%d", d.Code, d.Line))
+			}
+		}
+		got, _, err := doc.ToTextKeepLines()
+		if err != nil || got != c.loaded || strings.Join(errs, " ") != c.errors {
+			t.Errorf("load of %q at %d: %q, %v, %v; want %q, %q", c.text, c.mtime, got, errs, err, c.loaded, c.errors)
+		}
+		// A text that reads 2 ways is refused, and the file stays.
+		fu, err := UpgradeFile(f, "", false)
+		if (err == nil) != (c.upgraded != "") || (err == nil && fu.Current != (c.upgraded == c.text)) {
+			t.Errorf("upgrade_file of %q at %d: current %v, %v", c.text, c.mtime, fu.Current, err)
+		}
+		if b, err := os.ReadFile(f); err != nil || string(b) != want {
+			t.Errorf("upgrade_file of %q at %d: holds %q, %v; want %q", c.text, c.mtime, b, err, want)
 		}
 	}
 }

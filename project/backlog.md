@@ -85,7 +85,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Make sure testing covers exhaustively, mismatched file format stamps, mtime, and content
 	- ID: 2026112007004374
 	- Type: Task
-	- Status: Queued
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261120-070043
@@ -95,6 +95,62 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Both that should be expected to barely figure it out and pass, and fail.
 		- Tests to start from: `dfgvd` to `dfgvh` (stamp and mtime), `dfgwc` to `dfgwf` (tells), `dfgyc` to `dfgyf` (load by mtime), and `dfh89` to `dfh8c` (beta1's stamp in `upgrade`).
 	- Estimated effort: Avg
+	- Note: split into 2026112007272893 (`find_format` over every pairing) and 2026112007272912 (the load and `upgrade`), both closed.
+	- Test case: `a_file_format_reads_through_a_stamp_mtime_and_body_that_disagree` (`dfj90` to `dfj93`) and `a_file_whose_stamp_mtime_and_content_disagree_loads_and_upgrades_by_its_read` (`dfj9k` to `dfj9p`).
+	- Acceptance signoff: Self-closed: both children closed, each test seen to fail with the read broken.
+	- Closed reason: Done
+	- Closed: 20261120-080201
+
+- Format versions: test find_format over every pairing of a stamp, an mtime and tells that disagree
+	- ID: 2026112007272893
+	- Type: Task
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261120-072728
+	- Opened by: me
+	- Parent ID: 2026112007004374
+	- Requirements: a cross of stamps, mtimes on each side of every format day, and contents with each tell, in all 4 runners, with rows where the read just gets the writer right and rows where it reads another format by design.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261120: the expected format comes from tables the test writes itself: the formats each stamp leaves, the newest format each mtime leaves, and how many of each body's lines each format refuses or reads as binding nothing. So a drift in `FORMAT_DAYS` or `TELL_RUNS` fails it rather than moving the answer with the code. The cross is 13 stamps, 22 mtimes and 14 bodies.
+		- me, 20261120: the mtimes sit one second each side of the day before each format's, which is where the mtime rule turns. The bodies include ties and one-line wins between 2 tells.
+		- me, 20261120: 13 more rows give a writer's file and the format that wrote it. 7 read as another format, by design: no tells, a stamp that settles it, or an mtime that is wrong or ignored.
+		- me, 20261120: no veneer row, since C++'s `find_format` only wraps C's and `dfgvh` already covers the wrap.
+	- Verified: the new test fails in the Rust, Go and C runners with the day before taken out of the mtime rule, and in Rust with a tie going to the oldest, and with the apostrophe's run moved to 3.0-a65. Python's runner stops at `dfgvf` on that fault, and its new test fails with a body's count changed. `--backlog-run-quick rust go python c cli`, cargo clippy and rustfmt, gofmt, `test-ids.py check` and `lint-report.bash --check --no-mark` passed. The cppcheck line from `LINT_EXTRA` didn't finish in 4 minutes. Its one note, an index read before its bound check in the new C loop, is fixed, and the C runner passes after it.
+	- Swept: the 4 conformance runners. No library code changed.
+	- Test case: `a_file_format_reads_through_a_stamp_mtime_and_body_that_disagree` (Rust `dfj90`, Go `dfj91`, Python `dfj92`, C `dfj93`).
+	- Branch: `nov20b-2026112007004374`
+	- Acceptance signoff: Self-closed: each new test was seen to fail with the read broken, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261120-074411
+
+- Format versions: test the load and upgrade on files whose stamp, mtime and content disagree
+	- ID: 2026112007272912
+	- Type: Task
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261120-072729
+	- Opened by: me
+	- Parent ID: 2026112007004374
+	- Requirements: files with touch -d mtimes where 2 of stamp, mtime and content disagree, through load_file_opts with migrate, upgrade_dated and upgrade_file, in all 4 runners, asserting the text and the errors that come back.
+	- Estimated effort: Avg
+	- Prereq IDs: 2026112007272893
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261120: 15 rows, each run through `upgrade_dated`, then the load with migrate and keep_lines on a file with that mtime, then `upgrade_file` on the same file. Each row says what upgrade gives, what the load keeps, and its errors.
+		- me, 20261120: the rows pin a second or a line that flips a file from one format's conversion to another's: 2.0 to 3.0-1f8, where unstamped text with an escape reads 2 ways and `upgrade` refuses it, 3.0-a37 to 3.0-9ef under beta1's stamp, and a tie between a comma list and a `-` item that one more comma list breaks.
+		- me, 20261120: they also pin where the read misses the writer and what that costs: a whole stamp over the content, so `3.0` keeps an `E026` line, brackets that read as 3.0 so a 3.0-a37 tab stays a backslash, and an mtime older than beta1's stamp or before any format, which is ignored.
+		- me, 20261120: `upgrade` leaves a file that loads clean alone, stamp and all, as `Upgrade::current` says, even when its stamp names 2.0 or a pin. The load restamps it. The rows pin both.
+	- Verified: the new test fails in the Rust, Go and C runners with the load passing no mtime to `find_format`, and in Rust with the day before taken out of the mtime rule. Python's runner stops at `dfgye` on that fault, and its new test fails with a row's load text or upgrade text changed. `--backlog-run-quick rust go python c cli`, cargo clippy and rustfmt, gofmt, `test-ids.py check` and `lint-report.bash --check --no-mark` passed.
+	- Swept: the 4 conformance runners. No library code changed. The C++ interface's `load_file_opts`, `upgrade_dated` and `upgrade_file` only wrap C's, so no veneer row.
+	- Test case: `a_file_whose_stamp_mtime_and_content_disagree_loads_and_upgrades_by_its_read` (Rust `dfj9k`, Go `dfj9m`, Python `dfj9n`, C `dfj9p`).
+	- Branch: `nov20b-2026112007004374`
+	- Acceptance signoff: Self-closed: each new test was seen to fail with the read broken, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261120-080201
 
 - Format versions: every file stamped, and every published format read and converted
 	- ID: 2026111018212700

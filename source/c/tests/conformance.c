@@ -5187,6 +5187,140 @@ int main(int argc, char **argv) {
 			if (!got || strcmp(got, ft[k].want)) fail("a_file_format_comes_from_its_tells", ft[k].text);
 		}
 	}
+	test_id("dfj93", "a_file_format_reads_through_a_stamp_mtime_and_body_that_disagree");
+	/* Every pairing of a stamp, an mtime and a body whose tells disagree reads
+	   as the design doc's 4 steps give it, from tables written here rather
+	   than the library's. Then the files a writer could really leave, with
+	   the format that wrote each. Rust's
+	   a_file_format_reads_through_a_stamp_mtime_and_body_that_disagree has the
+	   same rows. The mtimes are Unix seconds at UTC, and has_mtime 0 passes
+	   none. */
+	{
+		static const char *const formats[] = {
+			"1.0", "1.1", "2.0", "3.0-1f8", "3.0-30d", "3.0-b10", "3.0-f8e", "3.0-a37", "3.0-9ef",
+			"3.0-a65", "3.0",
+		};
+#define FX_F2 "#    Syntax   https://example.com/shcl/blob/main/project/spec.md\n"
+#define FX_F1F8 "##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0/project/spec.md\n"
+#define FX_FB1 "##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n"
+		/* The stamp line, and the formats it leaves, oldest first. Empty for
+		   a newer format's, which reads as none. */
+		static const struct { const char *line, *leaves; } stamps[] = {
+			{"", "11111111111"},
+			{"##    Format   1\n", "11000000000"},
+			{"##    Format   2\n", "00100000000"},
+			{"##    Format   3\n", "00011111111"},
+			{"## SHCL format 2.0\n", "00100000000"},
+			{"## SHCL format 3.0-871\n", "00010000000"},
+			{"## SHCL format 3.0-a37\n", "00000001000"},
+			{"## SHCL format 3.0-ea0\n", "00000000100"},
+			{"## SHCL format 3.0\n", "00000000001"},
+			{"## SHCL format 3.0-zzz\n", "00011111111"},
+			{"## SHCL format 1.2\n", "11111111111"},
+			{"##    Format   3x\n", "11111111111"},
+			{"## SHCL format 3.1\n", ""},
+		};
+		/* The mtime, and the newest format it leaves. One that would leave
+		   none is ignored, so it leaves them all. */
+		static const struct { int has_mtime; int64_t mtime; size_t newest; } mtimes[] = {
+			{0, 0, 10},
+			{1, -1, 10},
+			{1, 1783987199, 10}, /* 2026-07-13 23:59:59, before any format */
+			{1, 1783987200, 0},  /* 2026-07-14, the day before 1.0 */
+			{1, 1785715199, 0},
+			{1, 1785715200, 1}, /* 2026-08-03 */
+			{1, 1787615999, 1},
+			{1, 1787616000, 2}, /* 2026-08-25 */
+			{1, 1790121599, 2},
+			{1, 1790121600, 3}, /* 2026-09-23 */
+			{1, 1790207999, 3},
+			{1, 1790208000, 4}, /* 2026-09-24 */
+			{1, 1790726400, 5}, /* 2026-09-30 */
+			{1, 1790899200, 6}, /* 2026-10-02 */
+			{1, 1790985600, 7}, /* 2026-10-03 */
+			{1, 1791849599, 7},
+			{1, 1791849600, 8}, /* 2026-10-13 */
+			{1, 1792799999, 8},
+			{1, 1792800000, 9}, /* 2026-10-24 */
+			{1, 1793750399, 9},
+			{1, 1793750400, 10}, /* 2026-11-04 */
+			{1, 4102444800, 10}, /* 2100-01-01 */
+		};
+		/* The body, and how many of its lines each format refuses or reads as
+		   binding nothing, plus a footer its init didn't write. */
+		static const struct { const char *text, *counts; } bodies[] = {
+			{"a: 1\n", "00000000000"},
+			{"a: 1, 2\n", "00000000111"},
+			{"a:\n\t* x\n", "00000000111"},
+			{"a: [1, 2]\n", "00011111000"},
+			{"a:\n\t- x\n", "11111111000"},
+			{"a: it's ok\n", "00000000100"},
+			{"a: 1\n" FX_F2, "10011111111"},
+			{"a: 1\n" FX_F1F8, "11101111111"},
+			{"a: 1\n" FX_FB1, "11110000000"},
+			/* A tie goes to the newest, and one line more decides it. */
+			{"a: 1, 2\nb:\n\t- x\n", "11111111111"},
+			{"a: 1, 2\nb: 3, 4\nc:\n\t- x\n", "11111111222"},
+			{"a:\n\t- x\nb:\n\t- y\nc: 1, 2\n", "22222222111"},
+			{"a: [1, 2]\nb: it's\n", "00011111100"},
+			{"a: 1, 2\n" FX_FB1, "11110000111"},
+		};
+		const size_t nf = sizeof formats / sizeof formats[0];
+		char text[256];
+		for (size_t s = 0; s < sizeof stamps / sizeof stamps[0]; s++) {
+			for (size_t m = 0; m < sizeof mtimes / sizeof mtimes[0]; m++) {
+				for (size_t b = 0; b < sizeof bodies / sizeof bodies[0]; b++) {
+					int n = snprintf(text, sizeof text, "%s%s", bodies[b].text, stamps[s].line);
+					if (n < 0 || (size_t)n >= sizeof text) { fail("a_file_format_reads_through_a_stamp_mtime_and_body_that_disagree", "text too long"); continue; }
+					const char *want = NULL;
+					if (stamps[s].leaves[0]) {
+						const char *leaves = stamps[s].leaves, *counts = bodies[b].counts;
+						int by_mtime = 0;
+						for (size_t f = 0; f < nf; f++) by_mtime |= f <= mtimes[m].newest && leaves[f] == '1';
+						size_t best = nf;
+						for (size_t f = 0; f < nf; f++) {
+							if (leaves[f] != '1' || (by_mtime && f > mtimes[m].newest)) continue;
+							if (best == nf || counts[f] <= counts[best]) best = f;
+						}
+						want = formats[best];
+					}
+					const char *got = shcl_find_format(text, (size_t)n, mtimes[m].has_mtime ? &mtimes[m].mtime : NULL);
+					if (got != want && (!got || !want || strcmp(got, want))) fail("a_file_format_reads_through_a_stamp_mtime_and_body_that_disagree", text);
+				}
+			}
+		}
+		/* What a writer could leave: the text, the mtime, the format that
+		   wrote it, and the format it reads as. */
+		const int64_t oct10 = 1791590400; /* 2026-10-10 */
+		const int64_t oct20 = 1792454400; /* 2026-10-20 */
+		const int64_t nov20 = 1795132800; /* 2026-11-20 */
+		const int64_t y2020 = 1577836800; /* before any format */
+		const struct { const char *text; int has_mtime; int64_t mtime; const char *wrote, *reads; } real[] = {
+			/* Read right, by one line or one second. */
+			{"a: x\nb: 1, 2\nc: y\n", 1, nov20, "3.0-a37", "3.0-a37"},
+			{"a: 1\n", 1, 1791849599, "3.0-a37", "3.0-a37"},
+			{"a: 1\n", 1, 1791849600, "3.0-9ef", "3.0-9ef"},
+			{"a: 1\n##    Format   3\n" FX_FB1, 1, 1790726399, "3.0-30d", "3.0-30d"},
+			{"a: 1\n##    Format   3\n" FX_F1F8, 1, nov20, "3.0-1f8", "3.0-1f8"},
+			{"a: [1, 2]\n" FX_F2, 1, nov20, "2.0", "2.0"},
+			/* Read as another format, since nothing in the file tells them
+			   apart. */
+			{"a: 'C:\\temp'\n", 0, 0, "2.0", "3.0"},
+			{"a: [1, 2]\n", 1, nov20, "3.0-a37", "3.0"},
+			{"a: 1, 2\n", 1, y2020, "2.0", "3.0-a37"},
+			{"a: 1\n##    Format   3\n" FX_FB1, 1, 1788220800, "3.0-b10", "3.0"},
+			{"a:\n\t- x\n## SHCL format 2.0\n", 0, 0, "3.0", "2.0"},
+			{"a: it's ok\n", 1, oct20, "3.0", "3.0-a37"},
+			{"a: 1, 2\n", 1, oct10, "2.0", "3.0-a37"},
+		};
+#undef FX_F2
+#undef FX_F1F8
+#undef FX_FB1
+		for (size_t k = 0; k < sizeof real / sizeof real[0]; k++) {
+			const char *got = shcl_find_format(real[k].text, strlen(real[k].text), real[k].has_mtime ? &real[k].mtime : NULL);
+			if (!got || strcmp(got, real[k].reads)) fail("a_file_format_reads_through_a_stamp_mtime_and_body_that_disagree", real[k].text);
+		}
+	}
 	test_id("ddqhb", "stamp_reads_say_why");
 	/* The Format and Schema lines read with a status, so an unstamped file and
 	   a damaged stamp read apart, and the load's H006 and H007 hints say the
@@ -8480,6 +8614,102 @@ int main(int argc, char **argv) {
 			shcl_upgraded_free(&up);
 		}
 		dir_clear(udir);
+	}
+	test_id("dfj9p", "a_file_whose_stamp_mtime_and_content_disagree_loads_and_upgrades_by_its_read");
+	{
+		/* A file whose stamp, mtime and content disagree loads and upgrades by
+		   the format shcl_find_format gives it, with the mtime pinned on the
+		   file. Rust's
+		   a_file_whose_stamp_mtime_and_content_disagree_loads_and_upgrades_by_its_read
+		   has the same rows. */
+		const char *at = "a_file_whose_stamp_mtime_and_content_disagree_loads_and_upgrades_by_its_read";
+		const int64_t sep1 = 1788220800;  /* 2026-09-01 */
+		const int64_t oct10 = 1791590400; /* 2026-10-10 */
+		const int64_t nov20 = 1795132800; /* 2026-11-20 */
+		const int64_t y2020 = 1577836800; /* before any format */
+#define DX_CT "a: 1, 2\nb: \"x\\ty\"\n"
+#define DX_TAB "b: \"x\\ty\"\n"
+#define DX_MADE "a: [1, 2]\nb: \"x\xe2\x97\x89TAB\xe2\x97\x89y\"\n"
+#define DX_MADE_TAB "b: \"x\xe2\x97\x89TAB\xe2\x97\x89y\"\n"
+#define DX_F3 "##    Format   3\n"
+#define DX_F30 "##    Format   3.0\n"
+#define DX_S SHCL_STAMP_LINE "\n"
+		/* The text, its mtime, what shcl_upgrade gives, which is the text
+		   when current, and NULL when it refuses, and what the load keeps,
+		   with its errors. */
+		const struct { const char *text; int64_t mtime; const char *upgraded, *loaded, *errors; } cases[] = {
+			/* 2.0 by one second, so the escape reads 2 ways and upgrade
+			   refuses, and from 3.0-1f8 on, a pin's escape. */
+			{DX_CT, 1790121599, NULL, "a: [1, 2]\n" DX_TAB DX_S, ""},
+			{DX_CT, 1790121600, DX_MADE DX_S, DX_MADE DX_S, ""},
+			/* A whole stamp beats the mtime and the tells. */
+			{DX_CT "## SHCL format 2.0\n", nov20, DX_MADE DX_S, DX_MADE DX_S, ""},
+			{DX_CT DX_S, sep1, DX_CT DX_S, DX_CT DX_S, "E026@1"},
+			{"a:\n\t- x\n## SHCL format 2.0\n", nov20, "a:\n\t- x\n## SHCL format 2.0\n", "a:\n\t- x\n" DX_S, ""},
+			{"a: [1, 2]\n## SHCL format 3.0-a37\n", nov20, "a: [1, 2]\n## SHCL format 3.0-a37\n", "a: [1, 2]\n" DX_S, ""},
+			/* A tie goes to 3.0, and one line more to 3.0-a37. */
+			{DX_CT "c:\n\t- x\n", nov20, DX_CT "c:\n\t- x\n", DX_CT "c:\n\t- x\n" DX_S, "E026@1"},
+			{DX_CT "c:\n\t- x\nd: 3, 4\n", nov20, DX_MADE "c:\n\t- x\nd: [3, 4]\n" DX_S, DX_MADE "c:\n\t- x\nd: [3, 4]\n" DX_S, ""},
+			/* beta1's stamp, then 3.0-a37 or 3.0-9ef by one second, and an
+			   mtime older than the stamp, which is ignored. */
+			{DX_TAB DX_F3, 1791849599, DX_MADE_TAB DX_S, DX_MADE_TAB DX_F30, ""},
+			{DX_TAB DX_F3, 1791849600, DX_TAB DX_F3, DX_TAB DX_F30, ""},
+			{DX_TAB DX_F3, sep1, DX_TAB DX_F3, DX_TAB DX_F30, ""},
+			/* Brackets read as 3.0, so a tab 3.0-a37 wrote stays a
+			   backslash. */
+			{"a: [1, 2]\n" DX_TAB, nov20, "a: [1, 2]\n" DX_TAB, "a: [1, 2]\n" DX_TAB DX_S, ""},
+			/* An mtime before any format is ignored. */
+			{DX_TAB, y2020, DX_TAB, DX_TAB DX_S, ""},
+			{DX_TAB, oct10, DX_MADE_TAB DX_S, DX_MADE_TAB DX_S, ""},
+			{"a: 1, 2\n##    Format   1\n", nov20, "a: [1, 2]\n" DX_S, "a: [1, 2]\n" DX_F30, ""},
+		};
+#undef DX_CT
+#undef DX_TAB
+#undef DX_MADE
+#undef DX_MADE_TAB
+#undef DX_F3
+#undef DX_F30
+#undef DX_S
+		char xdir[256], f[320], errs[128];
+		up_dir(xdir, sizeof xdir, "disagree");
+		for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+			const char *text = cases[i].text;
+			const char *want = cases[i].upgraded ? cases[i].upgraded : text;
+			int current = cases[i].upgraded && !strcmp(cases[i].upgraded, text);
+			shcl_upgraded up = shcl_upgrade_dated(text, strlen(text), &cases[i].mtime, NULL, 0);
+			if (up.current != current || !up_is(&up, want)) {
+				fprintf(stderr, "%s at %lld: %s\n", text, (long long)cases[i].mtime, up.text ? up.text : "no text");
+				fail(at, "upgrade");
+			}
+			shcl_upgraded_free(&up);
+			snprintf(f, sizeof f, "%s/f%zu.shcl", xdir, i);
+			put_file(f, text);
+			pin_mtime(f, cases[i].mtime);
+			shcl_load_options opts = {0};
+			opts.keep_lines = opts.migrate = 1;
+			shcl_doc *doc = shcl_load_file_opts(f, SHCL_STANDARD, opts, NULL);
+			size_t en = 0;
+			errs[0] = 0;
+			for (size_t d = 0; doc && d < shcl_diag_count(doc); d++) {
+				if (shcl_diag_severity(doc, d) != SHCL_SEV_ERROR) continue;
+				int n = snprintf(errs + en, sizeof errs - en, "%s%s@%zu", en ? " " : "", shcl_diag_code(doc, d), shcl_diag_line(doc, d));
+				if (n < 0 || (size_t)n >= sizeof errs - en) { fail(at, "errors too long"); break; }
+				en += (size_t)n;
+			}
+			shcl_str kt = doc ? text_kept(doc, NULL) : (shcl_str){"", 0};
+			if (!doc || kt.n != strlen(cases[i].loaded) || memcmp(kt.p, cases[i].loaded, kt.n) != 0 || strcmp(errs, cases[i].errors)) {
+				fprintf(stderr, "load of %s at %lld: %.*s [%s]\n", text, (long long)cases[i].mtime, (int)kt.n, kt.p, errs);
+				fail(at, "load");
+			}
+			shcl_free(doc);
+			/* A text that reads 2 ways is refused, and the file stays. */
+			shcl_upgraded fu;
+			shcl_upgrade_error ue = shcl_upgrade_file(f, NULL, 0, &fu, NULL, NULL);
+			if (ue != (cases[i].upgraded ? SHCL_UPGRADE_OK : SHCL_UPGRADE_AMBIGUOUS) || (ue == SHCL_UPGRADE_OK && fu.current != current)) fail(at, "upgrade_file");
+			if (!file_is(f, want)) fail(at, "file text");
+			shcl_upgraded_free(&fu);
+		}
+		dir_clear(xdir);
 	}
 	test_id("dfgyf", "a_load_converts_from_the_format_its_mtime_gives");
 	{

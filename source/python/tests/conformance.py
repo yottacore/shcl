@@ -4442,6 +4442,125 @@ def main():
 		if shcl.find_format(fttext, ftmtime) != ftwant:
 			raise SystemExit(f"find_format {fttext!r} at {ftmtime}: {shcl.find_format(fttext, ftmtime)!r}, want {ftwant!r}")
 
+	test_id("dfj92", "a_file_format_reads_through_a_stamp_mtime_and_body_that_disagree")
+	# Every pairing of a stamp, an mtime and a body whose tells disagree reads
+	# as the design doc's 4 steps give it, from tables written here rather
+	# than the library's. Then the files a writer could really leave, with the
+	# format that wrote each. Rust's
+	# a_file_format_reads_through_a_stamp_mtime_and_body_that_disagree has the
+	# same rows. The mtimes are Unix seconds at UTC.
+	fxformats = (
+		"1.0", "1.1", "2.0", "3.0-1f8", "3.0-30d", "3.0-b10", "3.0-f8e", "3.0-a37", "3.0-9ef",
+		"3.0-a65", "3.0",
+	)
+	fxf2 = "#    Syntax   https://example.com/shcl/blob/main/project/spec.md\n"
+	fxf1f8 = "##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0/project/spec.md\n"
+	fxfb1 = "##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n"
+	# The stamp line, and the formats it leaves, oldest first. Empty for a
+	# newer format's, which reads as none.
+	fxstamps = (
+		("", "11111111111"),
+		("##    Format   1\n", "11000000000"),
+		("##    Format   2\n", "00100000000"),
+		("##    Format   3\n", "00011111111"),
+		("## SHCL format 2.0\n", "00100000000"),
+		("## SHCL format 3.0-871\n", "00010000000"),
+		("## SHCL format 3.0-a37\n", "00000001000"),
+		("## SHCL format 3.0-ea0\n", "00000000100"),
+		("## SHCL format 3.0\n", "00000000001"),
+		("## SHCL format 3.0-zzz\n", "00011111111"),
+		("## SHCL format 1.2\n", "11111111111"),
+		("##    Format   3x\n", "11111111111"),
+		("## SHCL format 3.1\n", ""),
+	)
+	# The mtime, and the newest format it leaves. One that would leave none
+	# is ignored, so it leaves them all.
+	fxmtimes = (
+		(None, 10),
+		(-1, 10),
+		(1783987199, 10),  # 2026-07-13 23:59:59, before any format
+		(1783987200, 0),  # 2026-07-14, the day before 1.0
+		(1785715199, 0),
+		(1785715200, 1),  # 2026-08-03
+		(1787615999, 1),
+		(1787616000, 2),  # 2026-08-25
+		(1790121599, 2),
+		(1790121600, 3),  # 2026-09-23
+		(1790207999, 3),
+		(1790208000, 4),  # 2026-09-24
+		(1790726400, 5),  # 2026-09-30
+		(1790899200, 6),  # 2026-10-02
+		(1790985600, 7),  # 2026-10-03
+		(1791849599, 7),
+		(1791849600, 8),  # 2026-10-13
+		(1792799999, 8),
+		(1792800000, 9),  # 2026-10-24
+		(1793750399, 9),
+		(1793750400, 10),  # 2026-11-04
+		(4102444800, 10),  # 2100-01-01
+	)
+	# The body, and how many of its lines each format refuses or reads as
+	# binding nothing, plus a footer its init didn't write.
+	fxbodies = (
+		("a: 1\n", "00000000000"),
+		("a: 1, 2\n", "00000000111"),
+		("a:\n\t* x\n", "00000000111"),
+		("a: [1, 2]\n", "00011111000"),
+		("a:\n\t- x\n", "11111111000"),
+		("a: it's ok\n", "00000000100"),
+		("a: 1\n" + fxf2, "10011111111"),
+		("a: 1\n" + fxf1f8, "11101111111"),
+		("a: 1\n" + fxfb1, "11110000000"),
+		# A tie goes to the newest, and one line more decides it.
+		("a: 1, 2\nb:\n\t- x\n", "11111111111"),
+		("a: 1, 2\nb: 3, 4\nc:\n\t- x\n", "11111111222"),
+		("a:\n\t- x\nb:\n\t- y\nc: 1, 2\n", "22222222111"),
+		("a: [1, 2]\nb: it's\n", "00011111100"),
+		("a: 1, 2\n" + fxfb1, "11110000111"),
+	)
+	for fxstamp, fxleaves in fxstamps:
+		for fxmtime, fxnewest in fxmtimes:
+			for fxbody, fxcounts in fxbodies:
+				fxtext = fxbody + fxstamp
+				fxwant = None
+				if fxleaves:
+					fxby_stamp = [k for k in range(len(fxformats)) if fxleaves[k] == "1"]
+					fxleft = [k for k in fxby_stamp if k <= fxnewest] or fxby_stamp
+					fxbest = fxleft[0]
+					for fxf in fxleft[1:]:
+						if fxcounts[fxf] <= fxcounts[fxbest]:
+							fxbest = fxf
+					fxwant = fxformats[fxbest]
+				fxgot = shcl.find_format(fxtext, fxmtime)
+				if fxgot != fxwant:
+					raise SystemExit(f"find_format {fxtext!r} at {fxmtime}: {fxgot!r}, want {fxwant!r}")
+	# What a writer could leave: the text, the mtime, the format that wrote
+	# it, and the format it reads as.
+	fxoct10 = 1791590400  # 2026-10-10
+	fxoct20 = 1792454400  # 2026-10-20
+	fxnov20 = 1795132800  # 2026-11-20
+	fxy2020 = 1577836800  # before any format
+	for fxtext, fxmtime, fxwrote, fxreads in (
+		# Read right, by one line or one second.
+		("a: x\nb: 1, 2\nc: y\n", fxnov20, "3.0-a37", "3.0-a37"),
+		("a: 1\n", 1791849599, "3.0-a37", "3.0-a37"),
+		("a: 1\n", 1791849600, "3.0-9ef", "3.0-9ef"),
+		("a: 1\n##    Format   3\n" + fxfb1, 1790726399, "3.0-30d", "3.0-30d"),
+		("a: 1\n##    Format   3\n" + fxf1f8, fxnov20, "3.0-1f8", "3.0-1f8"),
+		("a: [1, 2]\n" + fxf2, fxnov20, "2.0", "2.0"),
+		# Read as another format, since nothing in the file tells them apart.
+		("a: 'C:\\temp'\n", None, "2.0", "3.0"),
+		("a: [1, 2]\n", fxnov20, "3.0-a37", "3.0"),
+		("a: 1, 2\n", fxy2020, "2.0", "3.0-a37"),
+		("a: 1\n##    Format   3\n" + fxfb1, 1788220800, "3.0-b10", "3.0"),
+		("a:\n\t- x\n## SHCL format 2.0\n", None, "3.0", "2.0"),
+		("a: it's ok\n", fxoct20, "3.0", "3.0-a37"),
+		("a: 1, 2\n", fxoct10, "2.0", "3.0-a37"),
+	):
+		fxgot = shcl.find_format(fxtext, fxmtime)
+		if fxgot != fxreads:
+			raise SystemExit(f"find_format {fxtext!r} at {fxmtime}, written in {fxwrote}: {fxgot!r}, want {fxreads!r}")
+
 	test_id("ddqha", "stamp_reads_say_why")
 	# The Format and Schema lines read with a status, so an unstamped file and
 	# a damaged stamp read apart, and the load's H006 and H007 hints say the
@@ -6792,6 +6911,74 @@ def main():
 				raise SystemExit(f"file at {bmtime}: holds {bgot!r}, want {bwant!r}")
 			if not up.current:
 				os.remove(up.backup)
+
+	test_id("dfj9n", "a_file_whose_stamp_mtime_and_content_disagree_loads_and_upgrades_by_its_read")
+	# A file whose stamp, mtime and content disagree loads and upgrades by the
+	# format find_format gives it, with the mtime pinned on the file. Rust's
+	# a_file_whose_stamp_mtime_and_content_disagree_loads_and_upgrades_by_its_read
+	# has the same rows.
+	xsep1 = 1788220800  # 2026-09-01
+	xoct10 = 1791590400  # 2026-10-10
+	xnov20 = 1795132800  # 2026-11-20
+	xy2020 = 1577836800  # before any format
+	xct = "a: 1, 2\nb: \"x\\ty\"\n"
+	xtab = "b: \"x\\ty\"\n"
+	xmade = "a: [1, 2]\nb: \"x\u25c9TAB\u25c9y\"\n"
+	xmade_tab = "b: \"x\u25c9TAB\u25c9y\"\n"
+	xf3 = "##    Format   3\n"
+	xf30 = "##    Format   3.0\n"
+	xopts = shcl.LoadOptions(keep_lines=True, migrate=True)
+	with tempfile.TemporaryDirectory() as xd:
+		# The text, its mtime, what upgrade gives, which is the text when
+		# current, and None when it refuses, and what the load keeps, with its
+		# errors.
+		for xi, (xtext, xmtime, xupgraded, xloaded, xerrors) in enumerate((
+			# 2.0 by one second, so the escape reads 2 ways and upgrade
+			# refuses, and from 3.0-1f8 on, a pin's escape.
+			(xct, 1790121599, None, "a: [1, 2]\n" + xtab + shcl.STAMP_LINE + "\n", ""),
+			(xct, 1790121600, with_stamp(xmade), with_stamp(xmade), ""),
+			# A whole stamp beats the mtime and the tells.
+			(xct + "## SHCL format 2.0\n", xnov20, with_stamp(xmade), with_stamp(xmade), ""),
+			(with_stamp(xct), xsep1, with_stamp(xct), with_stamp(xct), "E026@1"),
+			("a:\n\t- x\n## SHCL format 2.0\n", xnov20, "a:\n\t- x\n## SHCL format 2.0\n", with_stamp("a:\n\t- x\n"), ""),
+			("a: [1, 2]\n## SHCL format 3.0-a37\n", xnov20, "a: [1, 2]\n## SHCL format 3.0-a37\n", with_stamp("a: [1, 2]\n"), ""),
+			# A tie goes to 3.0, and one line more to 3.0-a37.
+			(xct + "c:\n\t- x\n", xnov20, xct + "c:\n\t- x\n", with_stamp(xct + "c:\n\t- x\n"), "E026@1"),
+			(xct + "c:\n\t- x\nd: 3, 4\n", xnov20, with_stamp(xmade + "c:\n\t- x\nd: [3, 4]\n"), with_stamp(xmade + "c:\n\t- x\nd: [3, 4]\n"), ""),
+			# beta1's stamp, then 3.0-a37 or 3.0-9ef by one second, and an
+			# mtime older than the stamp, which is ignored.
+			(xtab + xf3, 1791849599, with_stamp(xmade_tab), xmade_tab + xf30, ""),
+			(xtab + xf3, 1791849600, xtab + xf3, xtab + xf30, ""),
+			(xtab + xf3, xsep1, xtab + xf3, xtab + xf30, ""),
+			# Brackets read as 3.0, so a tab 3.0-a37 wrote stays a backslash.
+			("a: [1, 2]\n" + xtab, xnov20, "a: [1, 2]\n" + xtab, with_stamp("a: [1, 2]\n" + xtab), ""),
+			# An mtime before any format is ignored.
+			(xtab, xy2020, xtab, with_stamp(xtab), ""),
+			(xtab, xoct10, with_stamp(xmade_tab), with_stamp(xmade_tab), ""),
+			("a: 1, 2\n##    Format   1\n", xnov20, with_stamp("a: [1, 2]\n"), "a: [1, 2]\n" + xf30, ""),
+		)):
+			xwant = xtext if xupgraded is None else xupgraded
+			up = shcl.upgrade_dated(xtext, xmtime, None, False)
+			if (up.current, up.text) != (xupgraded == xtext, xwant):
+				raise SystemExit(f"{xtext!r} at {xmtime}: {(up.current, up.text)!r}, want {xwant!r}")
+			xf = os.path.join(xd, f"f{xi}.shcl")
+			with open(xf, "w", encoding="utf-8", newline="") as fh:
+				fh.write(xtext)
+			os.utime(xf, (xmtime, xmtime))
+			xdoc, _ = shcl.Document.load_file_opts(xf, shcl.Strictness.Standard, xopts)
+			xerrs = " ".join(f"{d.code}@{d.line}" for d in xdoc.diagnostics() if d.severity == shcl.Severity.Error)
+			xgot = xdoc.to_text_keep_lines()[0]
+			if (xgot, xerrs) != (xloaded, xerrors):
+				raise SystemExit(f"load of {xtext!r} at {xmtime}: {(xgot, xerrs)!r}, want {(xloaded, xerrors)!r}")
+			# A text that reads 2 ways is refused, and the file stays.
+			try:
+				xcurrent = shcl.upgrade_file(xf, None, False).current
+			except shcl.UpgradeAmbiguous:
+				xcurrent = None
+			with open(xf, encoding="utf-8", newline="") as fh:
+				xheld = fh.read()
+			if (xcurrent, xheld) != (None if xupgraded is None else xupgraded == xtext, xwant):
+				raise SystemExit(f"upgrade_file of {xtext!r} at {xmtime}: {(xcurrent, xheld)!r}, want {xwant!r}")
 
 	test_id("dfhje", "migrate_reads_from_as_upgrade_does")
 	# migrate reads a caller's from_ as upgrade does, with no mtime, and takes

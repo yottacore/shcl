@@ -4865,6 +4865,172 @@ fn a_file_format_comes_from_its_tells() {
 	}
 }
 
+/// Every pairing of a stamp, an mtime and a body whose tells disagree reads
+/// as the design doc's 4 steps give it, from tables written here rather than
+/// the library's: what each stamp leaves, the newest format each mtime
+/// leaves, one second each side of every format's day, and how many of each
+/// body's lines each format refuses or reads as binding nothing. Then the
+/// files a writer could really leave, with the format that wrote each, where
+/// the read gets it right only just, and where it reads another format by
+/// design (2026112007272893). Same rows in every runner. The mtimes are Unix
+/// seconds at UTC.
+#[test]
+fn a_file_format_reads_through_a_stamp_mtime_and_body_that_disagree() {
+	let _id = test_id("dfj90");
+	const FORMATS: [&str; 11] = [
+		"1.0", "1.1", "2.0", "3.0-1f8", "3.0-30d", "3.0-b10", "3.0-f8e", "3.0-a37", "3.0-9ef",
+		"3.0-a65", "3.0",
+	];
+	let f2 = "#    Syntax   https://example.com/shcl/blob/main/project/spec.md\n";
+	let f1f8 = "##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0/project/spec.md\n";
+	let fb1 =
+		"##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n";
+	// The stamp line, and the formats it leaves, oldest first. Empty for a
+	// newer format's, which reads as none.
+	let stamps: [(&str, &str); 13] = [
+		("", "11111111111"),
+		("##    Format   1\n", "11000000000"),
+		("##    Format   2\n", "00100000000"),
+		("##    Format   3\n", "00011111111"),
+		("## SHCL format 2.0\n", "00100000000"),
+		("## SHCL format 3.0-871\n", "00010000000"),
+		("## SHCL format 3.0-a37\n", "00000001000"),
+		("## SHCL format 3.0-ea0\n", "00000000100"),
+		("## SHCL format 3.0\n", "00000000001"),
+		("## SHCL format 3.0-zzz\n", "00011111111"),
+		("## SHCL format 1.2\n", "11111111111"),
+		("##    Format   3x\n", "11111111111"),
+		("## SHCL format 3.1\n", ""),
+	];
+	// The mtime, and the newest format it leaves. One that would leave none
+	// is ignored, so it leaves them all.
+	let mtimes: [(Option<i64>, usize); 22] = [
+		(None, 10),
+		(Some(-1), 10),
+		(Some(1783987199), 10), // 2026-07-13 23:59:59, before any format
+		(Some(1783987200), 0),  // 2026-07-14, the day before 1.0
+		(Some(1785715199), 0),
+		(Some(1785715200), 1), // 2026-08-03
+		(Some(1787615999), 1),
+		(Some(1787616000), 2), // 2026-08-25
+		(Some(1790121599), 2),
+		(Some(1790121600), 3), // 2026-09-23
+		(Some(1790207999), 3),
+		(Some(1790208000), 4), // 2026-09-24
+		(Some(1790726400), 5), // 2026-09-30
+		(Some(1790899200), 6), // 2026-10-02
+		(Some(1790985600), 7), // 2026-10-03
+		(Some(1791849599), 7),
+		(Some(1791849600), 8), // 2026-10-13
+		(Some(1792799999), 8),
+		(Some(1792800000), 9), // 2026-10-24
+		(Some(1793750399), 9),
+		(Some(1793750400), 10), // 2026-11-04
+		(Some(4102444800), 10), // 2100-01-01
+	];
+	// The body, and how many of its lines each format refuses or reads as
+	// binding nothing, plus a footer its init didn't write.
+	let bodies: [(String, &str); 14] = [
+		("a: 1\n".into(), "00000000000"),
+		("a: 1, 2\n".into(), "00000000111"),
+		("a:\n\t* x\n".into(), "00000000111"),
+		("a: [1, 2]\n".into(), "00011111000"),
+		("a:\n\t- x\n".into(), "11111111000"),
+		("a: it's ok\n".into(), "00000000100"),
+		(format!("a: 1\n{f2}"), "10011111111"),
+		(format!("a: 1\n{f1f8}"), "11101111111"),
+		(format!("a: 1\n{fb1}"), "11110000000"),
+		// A tie goes to the newest, and one line more decides it.
+		("a: 1, 2\nb:\n\t- x\n".into(), "11111111111"),
+		("a: 1, 2\nb: 3, 4\nc:\n\t- x\n".into(), "11111111222"),
+		("a:\n\t- x\nb:\n\t- y\nc: 1, 2\n".into(), "22222222111"),
+		("a: [1, 2]\nb: it's\n".into(), "00011111100"),
+		(format!("a: 1, 2\n{fb1}"), "11110000111"),
+	];
+	for (stamp, leaves) in stamps {
+		for (mtime, newest) in mtimes {
+			for (body, counts) in &bodies {
+				let text = format!("{body}{stamp}");
+				let want = (!leaves.is_empty()).then(|| {
+					let by_stamp: Vec<usize> = (0..FORMATS.len())
+						.filter(|&f| leaves.as_bytes()[f] == b'1')
+						.collect();
+					let by_mtime: Vec<usize> =
+						by_stamp.iter().copied().filter(|&f| f <= newest).collect();
+					let left = if by_mtime.is_empty() {
+						by_stamp
+					} else {
+						by_mtime
+					};
+					let n = |f: usize| counts.as_bytes()[f];
+					let best = left
+						.iter()
+						.copied()
+						.reduce(|b, f| if n(f) <= n(b) { f } else { b })
+						.unwrap();
+					FORMATS[best]
+				});
+				assert_eq!(find_format(&text, mtime), want, "{text:?} at {mtime:?}");
+			}
+		}
+	}
+	// What a writer could leave: the text, the mtime, the format that wrote
+	// it, and the format it reads as.
+	let oct10 = Some(1791590400); // 2026-10-10
+	let oct20 = Some(1792454400); // 2026-10-20
+	let nov20 = Some(1795132800); // 2026-11-20
+	let y2020 = Some(1577836800); // before any format
+	let real = [
+		// Read right, by one line or one second.
+		(
+			"a: x\nb: 1, 2\nc: y\n".to_string(),
+			nov20,
+			"3.0-a37",
+			"3.0-a37",
+		),
+		("a: 1\n".to_string(), Some(1791849599), "3.0-a37", "3.0-a37"),
+		("a: 1\n".to_string(), Some(1791849600), "3.0-9ef", "3.0-9ef"),
+		(
+			format!("a: 1\n##    Format   3\n{fb1}"),
+			Some(1790726399),
+			"3.0-30d",
+			"3.0-30d",
+		),
+		(
+			format!("a: 1\n##    Format   3\n{f1f8}"),
+			nov20,
+			"3.0-1f8",
+			"3.0-1f8",
+		),
+		(format!("a: [1, 2]\n{f2}"), nov20, "2.0", "2.0"),
+		// Read as another format, since nothing in the file tells them apart.
+		("a: 'C:\\temp'\n".to_string(), None, "2.0", "3.0"),
+		("a: [1, 2]\n".to_string(), nov20, "3.0-a37", "3.0"),
+		("a: 1, 2\n".to_string(), y2020, "2.0", "3.0-a37"),
+		(
+			format!("a: 1\n##    Format   3\n{fb1}"),
+			Some(1788220800),
+			"3.0-b10",
+			"3.0",
+		),
+		(
+			"a:\n\t- x\n## SHCL format 2.0\n".to_string(),
+			None,
+			"3.0",
+			"2.0",
+		),
+		("a: it's ok\n".to_string(), oct20, "3.0", "3.0-a37"),
+		("a: 1, 2\n".to_string(), oct10, "2.0", "3.0-a37"),
+	];
+	for (text, mtime, wrote, reads) in &real {
+		assert_eq!(
+			find_format(text, *mtime),
+			Some(*reads),
+			"{text:?} at {mtime:?}, written in {wrote}"
+		);
+	}
+}
+
 /// The Format and Schema lines read with a status, so an unstamped file and a
 /// damaged stamp read apart, and the load's H006 and H007 hints say the same
 /// as the Format read on every row (2026100912352401, 2026100717500017). The
@@ -7560,6 +7726,183 @@ fn an_upgrade_reads_a_beta1_stamp_as_the_load_does() {
 			&std::fs::read_to_string(&f).unwrap(),
 			want,
 			"file at {mtime}"
+		);
+	}
+	let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A file whose stamp, mtime and content disagree loads and upgrades by the
+/// format `find_format` gives it, with the mtime pinned on the file. One
+/// second or one line flips a row from one format's conversion to another's,
+/// and where the read misses the writer, the file is kept as typed and an
+/// error stays in it (2026112007272912). Same rows in every runner.
+#[test]
+fn a_file_whose_stamp_mtime_and_content_disagree_loads_and_upgrades_by_its_read() {
+	let _id = test_id("dfj9k");
+	use shcl::LoadOptions;
+	use std::time::{Duration, UNIX_EPOCH};
+	let dir = std::env::temp_dir().join(format!("shcl-disagree-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(&dir).unwrap();
+	let sep1 = 1788220800; // 2026-09-01
+	let oct10 = 1791590400; // 2026-10-10
+	let nov20 = 1795132800; // 2026-11-20
+	let y2020 = 1577836800; // before any format
+	let ct = "a: 1, 2\nb: \"x\\ty\"\n";
+	let tab = "b: \"x\\ty\"\n";
+	let made = "a: [1, 2]\nb: \"x\u{25c9}TAB\u{25c9}y\"\n";
+	let made_tab = "b: \"x\u{25c9}TAB\u{25c9}y\"\n";
+	let f3 = "##    Format   3\n";
+	let f30 = "##    Format   3.0\n";
+	// The text, its mtime, what upgrade gives, which is the text when
+	// current, and what the load keeps, with its errors.
+	let cases: [(String, u64, Option<String>, String, &str); 15] = [
+		// 2.0 by one second, so the escape reads 2 ways and upgrade
+		// refuses, and from 3.0-1f8 on, a pin's escape.
+		(
+			ct.into(),
+			1790121599,
+			None,
+			format!("a: [1, 2]\n{tab}{STAMP_LINE}\n"),
+			"",
+		),
+		(
+			ct.into(),
+			1790121600,
+			Some(with_stamp(made)),
+			with_stamp(made),
+			"",
+		),
+		// A whole stamp beats the mtime and the tells.
+		(
+			format!("{ct}## SHCL format 2.0\n"),
+			nov20,
+			Some(with_stamp(made)),
+			with_stamp(made),
+			"",
+		),
+		(
+			with_stamp(ct),
+			sep1,
+			Some(with_stamp(ct)),
+			with_stamp(ct),
+			"E026@1",
+		),
+		(
+			"a:\n\t- x\n## SHCL format 2.0\n".into(),
+			nov20,
+			Some("a:\n\t- x\n## SHCL format 2.0\n".into()),
+			with_stamp("a:\n\t- x\n"),
+			"",
+		),
+		(
+			"a: [1, 2]\n## SHCL format 3.0-a37\n".into(),
+			nov20,
+			Some("a: [1, 2]\n## SHCL format 3.0-a37\n".into()),
+			with_stamp("a: [1, 2]\n"),
+			"",
+		),
+		// A tie goes to 3.0, and one line more to 3.0-a37.
+		(
+			format!("{ct}c:\n\t- x\n"),
+			nov20,
+			Some(format!("{ct}c:\n\t- x\n")),
+			with_stamp(&format!("{ct}c:\n\t- x\n")),
+			"E026@1",
+		),
+		(
+			format!("{ct}c:\n\t- x\nd: 3, 4\n"),
+			nov20,
+			Some(with_stamp(&format!("{made}c:\n\t- x\nd: [3, 4]\n"))),
+			with_stamp(&format!("{made}c:\n\t- x\nd: [3, 4]\n")),
+			"",
+		),
+		// beta1's stamp, then 3.0-a37 or 3.0-9ef by one second, and an mtime
+		// older than the stamp, which is ignored.
+		(
+			format!("{tab}{f3}"),
+			1791849599,
+			Some(with_stamp(made_tab)),
+			format!("{made_tab}{f30}"),
+			"",
+		),
+		(
+			format!("{tab}{f3}"),
+			1791849600,
+			Some(format!("{tab}{f3}")),
+			format!("{tab}{f30}"),
+			"",
+		),
+		(
+			format!("{tab}{f3}"),
+			sep1,
+			Some(format!("{tab}{f3}")),
+			format!("{tab}{f30}"),
+			"",
+		),
+		// Brackets read as 3.0, so a tab 3.0-a37 wrote stays a backslash.
+		(
+			format!("a: [1, 2]\n{tab}"),
+			nov20,
+			Some(format!("a: [1, 2]\n{tab}")),
+			with_stamp(&format!("a: [1, 2]\n{tab}")),
+			"",
+		),
+		// An mtime before any format is ignored.
+		(tab.into(), y2020, Some(tab.into()), with_stamp(tab), ""),
+		(
+			tab.into(),
+			oct10,
+			Some(with_stamp(made_tab)),
+			with_stamp(made_tab),
+			"",
+		),
+		(
+			"a: 1, 2\n##    Format   1\n".to_string(),
+			nov20,
+			Some(with_stamp("a: [1, 2]\n")),
+			format!("a: [1, 2]\n{f30}"),
+			"",
+		),
+	];
+	let opts = LoadOptions {
+		keep_lines: true,
+		migrate: true,
+		from: None,
+	};
+	for (i, (text, mtime, upgraded, loaded, errors)) in cases.iter().enumerate() {
+		let at = Some(i64::try_from(*mtime).unwrap());
+		let up = upgrade_dated(text, at, None, false);
+		let want = upgraded.as_deref().unwrap_or(text);
+		assert_eq!(
+			(up.current, up.text.as_str()),
+			(upgraded.as_deref() == Some(text.as_str()), want),
+			"{text:?} at {mtime}"
+		);
+		let f = dir.join(format!("f{i}.shcl")).to_str().unwrap().to_string();
+		std::fs::write(&f, text).unwrap();
+		let file = std::fs::File::options().write(true).open(&f).unwrap();
+		file.set_modified(UNIX_EPOCH + Duration::from_secs(*mtime))
+			.unwrap();
+		drop(file);
+		let (doc, _) = Document::load_file_opts(&f, Strictness::Standard, &opts).unwrap();
+		let got: Vec<String> = doc
+			.diagnostics()
+			.iter()
+			.filter(|d| d.severity == shcl::Severity::Error)
+			.map(|d| format!("{}@{}", d.code, d.line))
+			.collect();
+		assert_eq!(
+			(doc.to_text_keep_lines().map(|t| t.0), got.join(" ")),
+			(Ok(loaded.clone()), errors.to_string()),
+			"load of {text:?} at {mtime}"
+		);
+		// A text that reads 2 ways is refused, and the file stays.
+		let up = upgrade_file(&f, None, false).map(|u| u.current);
+		assert_eq!(
+			(up.ok(), std::fs::read_to_string(&f).unwrap().as_str()),
+			(upgraded.as_ref().map(|u| u == text), want),
+			"upgrade_file of {text:?} at {mtime}"
 		);
 	}
 	let _ = std::fs::remove_dir_all(&dir);
