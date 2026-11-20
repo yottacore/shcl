@@ -52,11 +52,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A save can add the info block: the `banner` save option (each binding's spelling) gives the document the block `set_banner(true)` adds, then saves, so the file ends with it and its Format line is the stamp. Without it, a save adds only the stamp.
 
-- `find_format()` (each binding's spelling) gives the format a text was written in, from its stamp and the file's mtime. A stamp that names a whole format settles it. beta1's `Format 3` leaves every 3.0 format, and the mtime takes off those published after it. Of the formats those leave, the one whose rules refuse the fewest of the text's lines with a tell wins, and a tie goes to the newest. A tell is a spelling such as `a: 1, 2`, `-` items or `[1, 2]`, or the info block an older `init` wrote.
+- `find_format()` (each binding's spelling) gives the format a text was written in, from its stamp and the file's mtime. A stamp that names a whole format settles it. beta1's `Format 3` leaves every 3.0 format, and the mtime takes off those published after it. Of the formats those leave, the one whose rules refuse the fewest of the text's lines with a tell wins, and a tie goes to the newest. A tell is a spelling such as `a: 1, 2`, `a: x"y`, `-` items or `[1, 2]`, or the info block an older `init` wrote.
 
 - `load_file_opts()` with `migrate` loads a file that may be older than this format by converting it in memory, from the format `find_format()` gives its text and its mtime. A save of that document over the file gets every check a save does, a newer format's refusal included.
 
 ### Fixed
+
+- `migrate()` and `migrate_unstamped()` say when the migration couldn't finish, in a new `unfinished` field (each binding's spelling). It's set for text that reads 2 ways or a raw block that never closes, which is when `migrate()` leaves its stamp off, so a program that writes the info block itself after `migrate_unstamped()` can leave the Format line off too. It used to get the same result as a migration that finished.
+
+- `upgrade()`, `upgrade_file()` and `load_file_opts()` with `migrate` keep a raw body from 1.0, 1.1 or 2.0 reading as it did. Those formats took the indent shared by the body's lines off each line, so a body under `~~~sql` whose lines all sat 2 spaces past the fence read without those 2 spaces, and it read with them after the conversion. Such a body is now written under its closing fence's indent with the shared indent taken off. A fence run with a blank other than a space or a tab at its edge, which closed the block then, comes without that blank. `migrate()` without `from` leaves raw bodies as they are, since the 2.x builds after 2.0 read them as they read now.
+
+- `upgrade()`, `upgrade_file()` and `load_file_opts()` with `migrate` keep `k: x` and a stacked list of `x` alone as one instance in a file from 1.0 to 3.0-a37. Those formats read the 2 as one, and the conversion read them as 2. The scalar is now written as `[x]`.
+
+- A quote in the middle of a value that never closes kept the rest of the line in the value under 2.x, commas and a `#` included, so `open: don't, stop` was one string. `migrate()` and the conversion from 1.0, 1.1 or 2.0 wrote it as 2, `["don't", stop]`. They write `"don't, stop"` now.
 
 - A comment added above a field, by `set_comment` or as the note a default form leaves on the value it replaced, went above the field's blank line when a line kept for an error sat above the field. So the blank went above that kept line's comments, away from the field. The new comment goes under the blank now, right above the field, in every binding.
 

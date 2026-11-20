@@ -1065,3 +1065,27 @@ q: [1
 # z: "t"  ## replaced by shcl when setting a default for z, 2026-10-04 00:15:00 PDT: not an int
 z: "5"
 ## SHCL format 3.0
+
+:: row 2026111021153725-1 a comment that makes its field after a kept last line goes under the field's blank, below that line's comments
+:: before
+a: 1
+# c: 3
+b: 1, , 2
+:: ops
+comment	z0	added
+:: expected
+a: 1
+# c: 3
+b: 1, , 2
+
+# added
+z0:
+## SHCL format 3.0
+:: keep
+a: 1
+# c: 3
+b: 1, , 2
+
+# added
+z0:
+## SHCL format 3.0

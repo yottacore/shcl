@@ -1583,7 +1583,12 @@ def main():
 		for from_v2 in (True, False):
 			stamped = shcl.migrate(case["input"], v2_from(from_v2))
 			unstamped = shcl.migrate_unstamped(case["input"], v2_from(from_v2))
-			if (unstamped.current, unstamped.ambiguous, unstamped.lost) != (stamped.current, stamped.ambiguous, stamped.lost):
+			if (unstamped.current, unstamped.ambiguous, unstamped.lost, unstamped.unfinished) != (
+				stamped.current,
+				stamped.ambiguous,
+				stamped.lost,
+				stamped.unfinished,
+			):
 				fails.append(f"{case['name']}: counts differ without the stamp")
 			if shcl.FORMAT_LINE_HEAD in unstamped.text and shcl.FORMAT_LINE_HEAD not in case["input"]:
 				fails.append(f"{case['name']}: migrate_unstamped wrote a Format line")
@@ -4437,6 +4442,161 @@ def main():
 		if shcl.find_format(fttext, ftmtime) != ftwant:
 			raise SystemExit(f"find_format {fttext!r} at {ftmtime}: {shcl.find_format(fttext, ftmtime)!r}, want {ftwant!r}")
 
+	test_id("dfje6", "a_value_the_format_3_syntax_refuses_is_a_tell")
+	# A bare value the format 3 value syntax refuses with E025, or one a
+	# backtick opens and doesn't close, read clean as text in every format to
+	# 3.0-a37, so it tells those apart from 3.0-9ef on. Rust's
+	# a_value_the_format_3_syntax_refuses_is_a_tell has the same rows. The
+	# mtimes are Unix seconds at UTC.
+	vtsep1 = 1788220800  # 2026-09-01, 1.0 to 2.0
+	vtoct20 = 1792454400  # 2026-10-20, to 3.0-9ef
+	vtnov10 = 1794268800  # 2026-11-10, every format
+	for vttext, vtmtime, vtwant in (
+		('a: x"y\n', vtnov10, "3.0-a37"),
+		('a: x"y\n', None, "3.0-a37"),
+		('a: x"y\n', vtsep1, "2.0"),
+		("a: O' Brien\n", vtnov10, "3.0-a37"),
+		("a: x\ty\n", vtnov10, "3.0-a37"),
+		("a: x]y\n", vtnov10, "3.0-a37"),
+		("a: b c: d\n", vtnov10, "3.0-a37"),
+		("a: x`y\n", vtnov10, "3.0-a37"),
+		("a: `q\n", vtnov10, "3.0-a37"),
+		('s:\n\ta: x"y # c\n', vtnov10, "3.0-a37"),
+		('a: z, x"y\n', vtnov10, "3.0-a37"),
+		('a: x"y\nb: it\'s\n', vtoct20, "3.0-a37"),
+		# One tell each way ties, and the tie goes to the newest.
+		('a: x"y\nb:\n\t- z\n', vtnov10, "3.0"),
+		# Not tells.
+		('a: "q\n', vtnov10, "3.0"),
+		("a: 'q\n", vtnov10, "3.0"),
+		('a: "x" y\n', vtnov10, "3.0"),
+		('a: [x"y, z]\n', vtnov10, "3.0"),
+		('s: p\ns(p).h: x"y\n', vtnov10, "3.0"),
+		('a:\n\t- x"y\n', vtnov10, "3.0"),
+		('x"y: 1\n', vtnov10, "3.0"),
+	):
+		if shcl.find_format(vttext, vtmtime) != vtwant:
+			raise SystemExit(f"find_format {vttext!r} at {vtmtime}: {shcl.find_format(vttext, vtmtime)!r}, want {vtwant!r}")
+
+	test_id("dfj92", "a_file_format_reads_through_a_stamp_mtime_and_body_that_disagree")
+	# Every pairing of a stamp, an mtime and a body whose tells disagree reads
+	# as the design doc's 4 steps give it, from tables written here rather
+	# than the library's. Then the files a writer could really leave, with the
+	# format that wrote each. Rust's
+	# a_file_format_reads_through_a_stamp_mtime_and_body_that_disagree has the
+	# same rows. The mtimes are Unix seconds at UTC.
+	fxformats = (
+		"1.0", "1.1", "2.0", "3.0-1f8", "3.0-30d", "3.0-b10", "3.0-f8e", "3.0-a37", "3.0-9ef",
+		"3.0-a65", "3.0",
+	)
+	fxf2 = "#    Syntax   https://example.com/shcl/blob/main/project/spec.md\n"
+	fxf1f8 = "##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0/project/spec.md\n"
+	fxfb1 = "##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n"
+	# The stamp line, and the formats it leaves, oldest first. Empty for a
+	# newer format's, which reads as none.
+	fxstamps = (
+		("", "11111111111"),
+		("##    Format   1\n", "11000000000"),
+		("##    Format   2\n", "00100000000"),
+		("##    Format   3\n", "00011111111"),
+		("## SHCL format 2.0\n", "00100000000"),
+		("## SHCL format 3.0-871\n", "00010000000"),
+		("## SHCL format 3.0-a37\n", "00000001000"),
+		("## SHCL format 3.0-ea0\n", "00000000100"),
+		("## SHCL format 3.0\n", "00000000001"),
+		("## SHCL format 3.0-zzz\n", "00011111111"),
+		("## SHCL format 1.2\n", "11111111111"),
+		("##    Format   3x\n", "11111111111"),
+		("## SHCL format 3.1\n", ""),
+	)
+	# The mtime, and the newest format it leaves. One that would leave none
+	# is ignored, so it leaves them all.
+	fxmtimes = (
+		(None, 10),
+		(-1, 10),
+		(1783987199, 10),  # 2026-07-13 23:59:59, before any format
+		(1783987200, 0),  # 2026-07-14, the day before 1.0
+		(1785715199, 0),
+		(1785715200, 1),  # 2026-08-03
+		(1787615999, 1),
+		(1787616000, 2),  # 2026-08-25
+		(1790121599, 2),
+		(1790121600, 3),  # 2026-09-23
+		(1790207999, 3),
+		(1790208000, 4),  # 2026-09-24
+		(1790726400, 5),  # 2026-09-30
+		(1790899200, 6),  # 2026-10-02
+		(1790985600, 7),  # 2026-10-03
+		(1791849599, 7),
+		(1791849600, 8),  # 2026-10-13
+		(1792799999, 8),
+		(1792800000, 9),  # 2026-10-24
+		(1793750399, 9),
+		(1793750400, 10),  # 2026-11-04
+		(4102444800, 10),  # 2100-01-01
+	)
+	# The body, and how many of its lines each format refuses or reads as
+	# binding nothing, plus a footer its init didn't write.
+	fxbodies = (
+		("a: 1\n", "00000000000"),
+		("a: 1, 2\n", "00000000111"),
+		("a:\n\t* x\n", "00000000111"),
+		("a: [1, 2]\n", "00011111000"),
+		("a:\n\t- x\n", "11111111000"),
+		("a: it's ok\n", "00000000100"),
+		("a: 1\n" + fxf2, "10011111111"),
+		("a: 1\n" + fxf1f8, "11101111111"),
+		("a: 1\n" + fxfb1, "11110000000"),
+		# A tie goes to the newest, and one line more decides it.
+		("a: 1, 2\nb:\n\t- x\n", "11111111111"),
+		("a: 1, 2\nb: 3, 4\nc:\n\t- x\n", "11111111222"),
+		("a:\n\t- x\nb:\n\t- y\nc: 1, 2\n", "22222222111"),
+		("a: [1, 2]\nb: it's\n", "00011111100"),
+		("a: 1, 2\n" + fxfb1, "11110000111"),
+	)
+	for fxstamp, fxleaves in fxstamps:
+		for fxmtime, fxnewest in fxmtimes:
+			for fxbody, fxcounts in fxbodies:
+				fxtext = fxbody + fxstamp
+				fxwant = None
+				if fxleaves:
+					fxby_stamp = [k for k in range(len(fxformats)) if fxleaves[k] == "1"]
+					fxleft = [k for k in fxby_stamp if k <= fxnewest] or fxby_stamp
+					fxbest = fxleft[0]
+					for fxf in fxleft[1:]:
+						if fxcounts[fxf] <= fxcounts[fxbest]:
+							fxbest = fxf
+					fxwant = fxformats[fxbest]
+				fxgot = shcl.find_format(fxtext, fxmtime)
+				if fxgot != fxwant:
+					raise SystemExit(f"find_format {fxtext!r} at {fxmtime}: {fxgot!r}, want {fxwant!r}")
+	# What a writer could leave: the text, the mtime, the format that wrote
+	# it, and the format it reads as.
+	fxoct10 = 1791590400  # 2026-10-10
+	fxoct20 = 1792454400  # 2026-10-20
+	fxnov20 = 1795132800  # 2026-11-20
+	fxy2020 = 1577836800  # before any format
+	for fxtext, fxmtime, fxwrote, fxreads in (
+		# Read right, by one line or one second.
+		("a: x\nb: 1, 2\nc: y\n", fxnov20, "3.0-a37", "3.0-a37"),
+		("a: 1\n", 1791849599, "3.0-a37", "3.0-a37"),
+		("a: 1\n", 1791849600, "3.0-9ef", "3.0-9ef"),
+		("a: 1\n##    Format   3\n" + fxfb1, 1790726399, "3.0-30d", "3.0-30d"),
+		("a: 1\n##    Format   3\n" + fxf1f8, fxnov20, "3.0-1f8", "3.0-1f8"),
+		("a: [1, 2]\n" + fxf2, fxnov20, "2.0", "2.0"),
+		# Read as another format, since nothing in the file tells them apart.
+		("a: 'C:\\temp'\n", None, "2.0", "3.0"),
+		("a: [1, 2]\n", fxnov20, "3.0-a37", "3.0"),
+		("a: 1, 2\n", fxy2020, "2.0", "3.0-a37"),
+		("a: 1\n##    Format   3\n" + fxfb1, 1788220800, "3.0-b10", "3.0"),
+		("a:\n\t- x\n## SHCL format 2.0\n", None, "3.0", "2.0"),
+		("a: it's ok\n", fxoct20, "3.0", "3.0-a37"),
+		("a: 1, 2\n", fxoct10, "2.0", "3.0-a37"),
+	):
+		fxgot = shcl.find_format(fxtext, fxmtime)
+		if fxgot != fxreads:
+			raise SystemExit(f"find_format {fxtext!r} at {fxmtime}, written in {fxwrote}: {fxgot!r}, want {fxreads!r}")
+
 	test_id("ddqha", "stamp_reads_say_why")
 	# The Format and Schema lines read with a status, so an unstamped file and
 	# a damaged stamp read apart, and the load's H006 and H007 hints say the
@@ -6584,7 +6744,7 @@ def main():
 		oct30 = 1793318400  # 2026-10-30, to 3.0-a65
 		nov10 = 1794268800  # 2026-11-10, every format
 		y2020 = 1577836800  # before any format, so ignored
-		cquote, cbrackets = 'a: x"y\n', "a: [1, 2]\n"
+		cquote, cbrackets = 'a: "q\n', "a: [1, 2]\n"
 		# The text, the mtime, from_v2, and whether it goes through migrate.
 		for ctext, cmtime, cv2, cmigrated in (
 			(cquote, nov10, False, False),
@@ -6661,6 +6821,49 @@ def main():
 			if up.current or up.text != pwant:
 				raise SystemExit(f"upgrade at {pmtime}: {up.current} {up.text!r}, want {pwant!r}")
 
+	test_id("dfjbj", "upgrade_from_1x_or_2x_keeps_a_raw_body_and_an_open_quote_as_read")
+	# 1.0 to 2.0 took the indent shared by a raw body's lines off each line,
+	# where now only the closing fence's comes off. 1.x blanked a line of
+	# blanks, and 2.0 took off what such a line shares with that indent. They
+	# closed a block on a fence run with any White_Space at its edges, and a
+	# quote in a piece that never closes kept the rest of the line in the
+	# piece. The step out of each writes the text it read (2026112008173348,
+	# 2026112008173388). Same rows in every runner.
+	rtext = "r:\n\t```\n\t  line1\n\t   \n\n\t \n\t  line2\n\t```\nu: ~~~\n\t  x\n\t~~~\u2028\no: don't, stop\n"
+	rtail = "\tline2\n\t```\nu: ~~~\n\tx\n\t~~~\no: \"don't, stop\"\n"
+	for rfrom, rblanks in (("1.0", "\n\n\n"), ("1.1", "\n\n\n"), ("2.0", "\t \n\n\n")):
+		rup = shcl.upgrade(rtext, rfrom, False)
+		rwant = with_stamp("r:\n\t```\n\tline1\n" + rblanks + rtail)
+		if (rup.text, rup.lost, rup.ambiguous) != (rwant, 0, 0):
+			raise SystemExit(f"from {rfrom}: {rup.text!r} lost {rup.lost} ambiguous {rup.ambiguous}, want {rwant!r}")
+	# migrate's own read keeps a body as typed, as the 2.x builds after 2.0
+	# read it.
+	rm = shcl.migrate(rtext, None)
+	if not rm.text.startswith("r:\n\t```\n\t  line1\n\t   \n\n\t \n\t  line2\n"):
+		raise SystemExit(f"migrate: {rm.text!r}")
+
+	test_id("dfjd0", "upgrade_from_1x_to_a37_folds_a_scalar_with_a_list_of_it")
+	# 1.0 to 3.0-a37 keyed an instance by its strings alone, so `k: x` and a
+	# stacked list of `x` alone were one instance. The step out of each writes
+	# such a scalar as an array of one, and one with lines under it is E028
+	# and counts as lost (2026112008173368). Same rows in every runner.
+	sftext = "d: x\nd: x # c\nd:\n\t* x\nb:\n\t* \"y,z\"\nb: \"y,z\"\nc: x\nc:\n\t* y\n"
+	sfwant = with_stamp("d: [x]\nd: [x] # c\nd:\n\t- x\nb:\n\t- \"y,z\"\nb: [\"y,z\"]\nc: x\nc:\n\t- y\n")
+	for sffrom in ("1.0", "1.1", "2.0", "3.0-1f8", "3.0-a37"):
+		sfup = shcl.upgrade(sftext, sffrom, False)
+		if (sfup.text, sfup.lost, sfup.ambiguous) != (sfwant, 0, 0):
+			raise SystemExit(f"from {sffrom}: {sfup.text!r} lost {sfup.lost} ambiguous {sfup.ambiguous}, want {sfwant!r}")
+		sfdoc = shcl.Document.parse(sfup.text)
+		if (sfdoc.count("d"), sfdoc.count("b"), sfdoc.count("c")) != (1, 1, 2):
+			raise SystemExit(f"from {sffrom}: counts {sfdoc.count('d')} {sfdoc.count('b')} {sfdoc.count('c')}, want 1 1 2")
+	sfm = shcl.migrate("p: a\n\tq: y\np:\n\t* a\n", "1.1")
+	if sfm.lost != 1 or not sfm.text.startswith("p: [a]\n"):
+		raise SystemExit(f"lines under it: lost {sfm.lost}, {sfm.text!r}")
+	# migrate's own read of a file that may be 3.0 leaves it.
+	sfm = shcl.migrate("d: x\nd:\n\t- x\n", None)
+	if not sfm.text.startswith("d: x\n"):
+		raise SystemExit(f"migrate: {sfm.text!r}")
+
 	test_id("dfhf2", "a_load_converts_from_a_1x_or_2x_format")
 	# A file from 1.0, 1.1 or 2.0 goes through the 2.x rewrite on load, with
 	# each format's own reads where they differ. 1.x keyed a quoted name by
@@ -6714,7 +6917,7 @@ def main():
 		oct20 = 1792454400  # 2026-10-20, to 3.0-9ef
 		nov10 = 1794268800  # 2026-11-10, every format
 		y2020 = 1577836800  # before any format, so ignored
-		uquote, ufresh = 'a: x"y\n', "a: 'x\"y'\n## SHCL format 3.0\n"
+		uquote, ufresh = 'a: "q\n', "a: '\"q'\n## SHCL format 3.0\n"
 		# Text from no file reads as the newest format its tells leave.
 		if not shcl.upgrade(uquote, None, False).current:
 			raise SystemExit("upgrade with no mtime made it over")
@@ -6788,6 +6991,74 @@ def main():
 			if not up.current:
 				os.remove(up.backup)
 
+	test_id("dfj9n", "a_file_whose_stamp_mtime_and_content_disagree_loads_and_upgrades_by_its_read")
+	# A file whose stamp, mtime and content disagree loads and upgrades by the
+	# format find_format gives it, with the mtime pinned on the file. Rust's
+	# a_file_whose_stamp_mtime_and_content_disagree_loads_and_upgrades_by_its_read
+	# has the same rows.
+	xsep1 = 1788220800  # 2026-09-01
+	xoct10 = 1791590400  # 2026-10-10
+	xnov20 = 1795132800  # 2026-11-20
+	xy2020 = 1577836800  # before any format
+	xct = "a: 1, 2\nb: \"x\\ty\"\n"
+	xtab = "b: \"x\\ty\"\n"
+	xmade = "a: [1, 2]\nb: \"x\u25c9TAB\u25c9y\"\n"
+	xmade_tab = "b: \"x\u25c9TAB\u25c9y\"\n"
+	xf3 = "##    Format   3\n"
+	xf30 = "##    Format   3.0\n"
+	xopts = shcl.LoadOptions(keep_lines=True, migrate=True)
+	with tempfile.TemporaryDirectory() as xd:
+		# The text, its mtime, what upgrade gives, which is the text when
+		# current, and None when it refuses, and what the load keeps, with its
+		# errors.
+		for xi, (xtext, xmtime, xupgraded, xloaded, xerrors) in enumerate((
+			# 2.0 by one second, so the escape reads 2 ways and upgrade
+			# refuses, and from 3.0-1f8 on, a pin's escape.
+			(xct, 1790121599, None, "a: [1, 2]\n" + xtab + shcl.STAMP_LINE + "\n", ""),
+			(xct, 1790121600, with_stamp(xmade), with_stamp(xmade), ""),
+			# A whole stamp beats the mtime and the tells.
+			(xct + "## SHCL format 2.0\n", xnov20, with_stamp(xmade), with_stamp(xmade), ""),
+			(with_stamp(xct), xsep1, with_stamp(xct), with_stamp(xct), "E026@1"),
+			("a:\n\t- x\n## SHCL format 2.0\n", xnov20, "a:\n\t- x\n## SHCL format 2.0\n", with_stamp("a:\n\t- x\n"), ""),
+			("a: [1, 2]\n## SHCL format 3.0-a37\n", xnov20, "a: [1, 2]\n## SHCL format 3.0-a37\n", with_stamp("a: [1, 2]\n"), ""),
+			# A tie goes to 3.0, and one line more to 3.0-a37.
+			(xct + "c:\n\t- x\n", xnov20, xct + "c:\n\t- x\n", with_stamp(xct + "c:\n\t- x\n"), "E026@1"),
+			(xct + "c:\n\t- x\nd: 3, 4\n", xnov20, with_stamp(xmade + "c:\n\t- x\nd: [3, 4]\n"), with_stamp(xmade + "c:\n\t- x\nd: [3, 4]\n"), ""),
+			# beta1's stamp, then 3.0-a37 or 3.0-9ef by one second, and an
+			# mtime older than the stamp, which is ignored.
+			(xtab + xf3, 1791849599, with_stamp(xmade_tab), xmade_tab + xf30, ""),
+			(xtab + xf3, 1791849600, xtab + xf3, xtab + xf30, ""),
+			(xtab + xf3, xsep1, xtab + xf3, xtab + xf30, ""),
+			# Brackets read as 3.0, so a tab 3.0-a37 wrote stays a backslash.
+			("a: [1, 2]\n" + xtab, xnov20, "a: [1, 2]\n" + xtab, with_stamp("a: [1, 2]\n" + xtab), ""),
+			# An mtime before any format is ignored.
+			(xtab, xy2020, xtab, with_stamp(xtab), ""),
+			(xtab, xoct10, with_stamp(xmade_tab), with_stamp(xmade_tab), ""),
+			("a: 1, 2\n##    Format   1\n", xnov20, with_stamp("a: [1, 2]\n"), "a: [1, 2]\n" + xf30, ""),
+		)):
+			xwant = xtext if xupgraded is None else xupgraded
+			up = shcl.upgrade_dated(xtext, xmtime, None, False)
+			if (up.current, up.text) != (xupgraded == xtext, xwant):
+				raise SystemExit(f"{xtext!r} at {xmtime}: {(up.current, up.text)!r}, want {xwant!r}")
+			xf = os.path.join(xd, f"f{xi}.shcl")
+			with open(xf, "w", encoding="utf-8", newline="") as fh:
+				fh.write(xtext)
+			os.utime(xf, (xmtime, xmtime))
+			xdoc, _ = shcl.Document.load_file_opts(xf, shcl.Strictness.Standard, xopts)
+			xerrs = " ".join(f"{d.code}@{d.line}" for d in xdoc.diagnostics() if d.severity == shcl.Severity.Error)
+			xgot = xdoc.to_text_keep_lines()[0]
+			if (xgot, xerrs) != (xloaded, xerrors):
+				raise SystemExit(f"load of {xtext!r} at {xmtime}: {(xgot, xerrs)!r}, want {(xloaded, xerrors)!r}")
+			# A text that reads 2 ways is refused, and the file stays.
+			try:
+				xcurrent = shcl.upgrade_file(xf, None, False).current
+			except shcl.UpgradeAmbiguous:
+				xcurrent = None
+			with open(xf, encoding="utf-8", newline="") as fh:
+				xheld = fh.read()
+			if (xcurrent, xheld) != (None if xupgraded is None else xupgraded == xtext, xwant):
+				raise SystemExit(f"upgrade_file of {xtext!r} at {xmtime}: {(xcurrent, xheld)!r}, want {xwant!r}")
+
 	test_id("dfhje", "migrate_reads_from_as_upgrade_does")
 	# migrate reads a caller's from_ as upgrade does, with no mtime, and takes
 	# that format's step. A format whose steps rewrite nothing, and a newer
@@ -6821,6 +7092,30 @@ def main():
 		raise SystemExit(f"from_ 1.2 {munknown!r}, none {mnone!r}")
 	if shcl.migrate_unstamped(mtab, "3.0-a37").text != "a: \"x\u25c9TAB\u25c9y\"\n":
 		raise SystemExit("migrate_unstamped from_ 3.0-a37")
+
+	test_id("dfj8e", "migrate_says_when_it_could_not_finish")
+	# migrate says when the migration couldn't finish, so a program that
+	# writes the version line itself after migrate_unstamped can leave it off:
+	# a raw block that never closes, or ambiguous pieces, which is when
+	# migrate leaves its own off (2026111014552300). Same rows in every runner.
+	uopen = "notes: ```\nnever closed\n"
+	uclosed = "notes: ```\nclosed\n```\n"
+	usq = "b: 'C:\\temp'\n"
+	# The text, from_, and whether the migration finishes.
+	for ut, ufrom, ufinishes in (
+		(uopen, "2.0", False),
+		(uopen, None, False),
+		("p: a,b\n", None, False),
+		(uclosed, "2.0", True),
+		(uclosed, None, True),
+		(usq, "2.0", True),
+		(usq, "3.0", True),
+	):
+		ubare, ufull = shcl.migrate_unstamped(ut, ufrom), shcl.migrate(ut, ufrom)
+		if (ubare.unfinished, ufull.unfinished) != (not ufinishes, not ufinishes):
+			raise SystemExit(f"{ut!r}, from_ {ufrom}: unfinished {ubare.unfinished}, {ufull.unfinished}")
+		if (shcl.FORMAT_LINE_HEAD in ufull.text) != (ufinishes and not ufull.current):
+			raise SystemExit(f"{ut!r}, from_ {ufrom}: {ufull.text!r}")
 
 	test_id("dfhhb", "a_caller_names_the_format_with_from")
 	# A caller's from_ names the format a file was written in, by a name in

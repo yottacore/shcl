@@ -155,7 +155,7 @@ LINT_EXTRA=(
 	## python utilities: ruff never imports what it checks, so this costs nothing
 	## and the files are covered. cicd/utility/ruff.toml extends the project rule
 	## set for them.
-	'RAYON_NUM_THREADS="${CPU_CAP}" ruff check ${QUIET_FLAG} cicd/utility/flame-report.py cicd/utility/gen-demo-gif.py cicd/utility/check-abnf.py cicd/utility/doc-tables.py cicd/utility/gen-escapes.py cicd/utility/comparison/pyworker.py cicd/utility/test-ids.py'
+	'RAYON_NUM_THREADS="${CPU_CAP}" ruff check ${QUIET_FLAG} cicd/utility/flame-report.py cicd/utility/gen-demo-gif.py cicd/utility/check-abnf.py cicd/utility/check-format-reads.py cicd/utility/doc-tables.py cicd/utility/gen-escapes.py cicd/utility/comparison/pyworker.py cicd/utility/test-ids.py'
 	## Exhaustive over every #ifdef mix of the header is about ten minutes, and
 	## most runs change no C. The build dir keeps each file's result, keyed on its
 	## code, its comments and these options, so an unchanged file replays in well
@@ -214,6 +214,7 @@ SHELLCHECK_TARGETS=(
 	cicd/utility/check-deps.bash
 	cicd/utility/check-doc-examples.bash
 	cicd/utility/check-docs.bash
+	cicd/utility/check-formats.bash
 	cicd/utility/check-install-dev.bash
 	cicd/utility/check-locale.bash
 	cicd/utility/check-migrate.bash
@@ -319,6 +320,9 @@ TEST_EXTRA=(
 	## A 2.x file migrated for the current rules reads as the tree 2.x read,
 	## judged against a build of the last pre-cut commit.
 	'cicd/utility/check-migrate.bash'
+	## Each published format and pin, read by the CLI built at its own commit,
+	## reads the same once the current CLI converts it.
+	'cicd/utility/check-formats.bash'
 	## install-dev's hook setup, through its --hooks-only path on a throwaway
 	## clone - the one piece of that script the toolchain installs used to wall
 	## off from any gate.
@@ -578,6 +582,7 @@ QUICK_SKIP=(
 	'perf-gate.bash'
 	'shell-regress.bash'
 	'check-migrate.bash'
+	'check-formats.bash'
 	'check-c-compilers.bash'
 	'sanitize-c.bash'
 	'sanitize-rust.bash'
@@ -600,7 +605,7 @@ BACKLOG_AREAS=(
 	"go|go -C source/go|fs-property.bash"
 	"python|source/python/tests|fs-property.bash"
 	"c|source/c/tests|check-c-compilers.bash|sanitize-c.bash|fs-property.bash"
-	"cli|cli-regress.bash|check-doc-examples.bash|perf-gate.bash|check-locale.bash|check-migrate.bash|crosscheck.bash"
+	"cli|cli-regress.bash|check-doc-examples.bash|perf-gate.bash|check-locale.bash|check-migrate.bash|check-formats.bash|crosscheck.bash"
 	"cicd|shell-regress.bash|check-install-dev.bash|check-push-gate.bash"
 )
 ## --backlog-run-quick runs the lint and test steps side by side, but not
@@ -716,7 +721,7 @@ CTR_LINKS=(source/rust/target)
 ## Extra images build into their own copy of these, so nothing they build
 ## replaces this box's builds. A trailing / marks a dir. The C CLI built on
 ## musl won't run here.
-CTR_PRIVATE=(source/rust/target/ source/rust/target-migrate/ source/c/shcl source/go/shcl)
+CTR_PRIVATE=(source/rust/target/ source/rust/target-migrate/ source/rust/target-formats/ source/c/shcl source/go/shcl)
 ## Stages 2-6 run from a frozen copy of the tree. These dirs in it link back to
 ## the checkout's own, so its cargo builds start warm, and the release builds,
 ## artifacts and reports land where dogfood, the gif and a release cut look.
@@ -725,11 +730,12 @@ FROZEN_LINKS=(source/rust/target source/rust/target-migrate cicd/artifacts)
 ## Cargo target dirs, as "DIR|FILE...": the files that say what built it.
 ## rust-toolchain.toml counts by its channel lines only. A dir filled under
 ## other ones is emptied before the run builds into it, an extra image's copy
-## of it too. target-migrate builds the pinned 2.x tree, whose lockfile never
-## moves.
+## of it too. target-migrate builds the pinned 2.x tree, and target-formats
+## the tree of each format, whose lockfiles never move.
 CARGO_CACHE_DIRS=(
 	"source/rust/target|rust-toolchain.toml source/rust/Cargo.lock"
 	"source/rust/target-migrate|rust-toolchain.toml"
+	"source/rust/target-formats|rust-toolchain.toml"
 )
 ## The merge gate's profiler check builds offline from the cache, and a new cache dir is
 ## empty. Fetched before the gate, the way a full run here fetches them.
@@ -749,8 +755,8 @@ CTR_ARGS_ubuntu=(--merge-gate --no-lint --no-release --no-remote --no-leakcheck)
 CTR_ARGS_alpine=(--no-fmt --no-lint --no-cross --no-profile --no-release)
 if [[ "${SHCL_CTR_IMAGE:-}" == alpine ]]; then
 	## One gcc, no localedef and no sanitizers on Alpine, and the installer,
-	## hook and 2.x migration gates test nothing the libc changes.
-	ctrSkip='check-c-compilers|check-locale|sanitize-c|sanitize-rust|shell-regress|check-migrate|check-install-dev|check-push-gate'
+	## hook, 2.x migration and format gates test nothing the libc changes.
+	ctrSkip='check-c-compilers|check-locale|sanitize-c|sanitize-rust|shell-regress|check-migrate|check-formats|check-install-dev|check-push-gate'
 	ctrKeep=()
 	for x in "${TEST_EXTRA[@]}"; do
 		if [[ ! "${x}" =~ ${ctrSkip} ]]; then ctrKeep+=("${x}"); fi

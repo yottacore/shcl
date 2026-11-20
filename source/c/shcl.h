@@ -853,8 +853,13 @@ extern const char *const shcl_format_names[SHCL_FORMAT_NAME_COUNT][2];
 // with lines under it (E028 in brackets). Also a quoted name with a backslash
 // pair, which 1.2 read as typed and 2.0 resolved, so it is kept as written
 // where the format isn't found, as in shcl_migrate, and a selector 1.0 or 1.1
-// matched otherwise.
-typedef struct { char *text; size_t len; int current; size_t ambiguous; size_t lost; } shcl_migration;
+// matched otherwise. unfinished: the migration couldn't finish, so
+// shcl_migrate left the version line off: ambiguous is nonzero, or a raw block
+// never closes under either rule set, where the line would be one more line
+// of its content. A program that writes the version line itself after
+// shcl_migrate_unstamped leaves it off too, or the next run takes the file as
+// current.
+typedef struct { char *text; size_t len; int current; size_t ambiguous; size_t lost; int unfinished; } shcl_migration;
 
 // Rewrite a document written under the 2.x lexical rules so this parser reads
 // the same tree; everything the two rule sets agree on comes through as
@@ -2289,10 +2294,16 @@ static size_t scan_piece(ShclStr s, size_t pos, char term, ShclLex rules, int co
 		if (shield && b == '\\' && pos + 1 < s.n) { pos += 1 + utf8_len(s, pos + 1); content_end = min_sz(pos, s.n); continue; }
 		/* 2.0 read a quote inside a piece as text, but a comma or a `#`
 		   before its close did not end the piece. One that never closes is
-		   text, as `don't` is. */
+		   text too, as `don't` is, and so is the rest of the line after it. */
 		if (shield && (b == '"' || b == '\'')) {
 			size_t close;
 			if (quote_close(s, pos, rules, &close)) { pos = close + 1; content_end = pos; continue; }
+			while (pos < s.n) {
+				size_t k = blank_len(s, pos, edges);
+				if (k) pos += k;
+				else { pos += utf8_len(s, pos); content_end = min_sz(pos, s.n); }
+			}
+			break;
 		}
 		if (b == (unsigned char)term) {
 			if (every_comma || loose_comma(s, pos)) break;
@@ -3591,7 +3602,7 @@ typedef struct { ShclStepKind kind; ShclPin pin; ShclV2Read v2; } ShclStep;
    bracketed: the line just rewritten put a 2.x comma list in brackets.
    refused_now: these rules refuse the line about to be rewritten, so it is
    not a correct 3.0 line, whatever the file is. */
-typedef struct { ShclLex rules; ShclPin pin; ShclV2Read v2; int from_v2; size_t ambiguous; size_t lost; int bracketed; int refused_now; } ShclMigrating;
+typedef struct { ShclLex rules; ShclPin pin; ShclV2Read v2; int from_v2; size_t ambiguous; size_t lost; int bracketed; int refused_now; int unfinished; } ShclMigrating;
 
 /* The character a `\u` or `\U` escape names under 3.0-b10 to 3.0-a37 in *cp,
    and how many hex digits it takes in *len: 4 after `u`, 8 after `U`. 0 for a
@@ -4317,6 +4328,181 @@ static const ShclVecDiag *migrate_load(ShclMigrateOwn *own, ShclStr text) {
 }
 static void migrate_unload(ShclMigrateOwn *own) { shcl_free(own->doc); own->doc = NULL; }
 
+/* The fence run of a line that closed a raw block under 1.0 to 2.0, which
+   trimmed every White_Space character off its edges, where now only a space
+   or a tab comes off: 1 with the run in *run when run isn't NULL, or 0. */
+static int v2_fence_close(ShclStr line, unsigned char ch, size_t len, ShclStr *run) { // NOLINT(bugprone-easily-swappable-parameters): fence char, then run length, as the fence reader gives them
+	ShclStr t = s_trim(line);
+	if (t.n < len) return 0;
+	for (size_t i = 0; i < t.n; i++) if ((unsigned char)t.p[i] != ch) return 0;
+	if (run) *run = t;
+	return 1;
+}
+
+/* One line of rest, from pos, its carriage returns off, with *next past its
+   '\n' or past the end. */
+static ShclStr raw_body_line(ShclStr rest, size_t pos, size_t *next) {
+	size_t e = pos;
+	while (e < rest.n && rest.p[e] != '\n') e++;
+	*next = e + 1;
+	size_t bn = e;
+	while (bn > pos && rest.p[bn - 1] == '\r') bn--;
+	return s_slice(rest, pos, bn);
+}
+
+/* A raw body as 1.0 to 2.0 read it, for the lines in rest, the text after
+   its opening line's '\n'. Those formats took the indent shared by the
+   body's lines that hold more than blanks off each line. 1.x blanked a line
+   of blanks, and 2.0 took off what such a line shares with that indent. Now
+   only the closing fence's indent comes off. So when a line would read
+   otherwise now, each line that holds more than blanks is written as that
+   indent and the text it read then, which a second run reads the same, and
+   a line of blanks only where it reads otherwise. The rest stay as typed, a
+   NULL p. A block that never closes stays as typed, since 2.x read it with
+   an error and it is unfinished here. migrate's own read, with no format
+   found, keeps them all too: the 2.x dev builds after 2.0 read a body as it
+   reads now. *count gets the number of lines, 0 with NULL when none
+   change. In a. */
+static ShclStr *v2_raw_body(ShclArena *a, ShclStr rest, unsigned char ch, size_t len, ShclV2Read v2, size_t *count) {
+	*count = 0;
+	if (v2 == SHCL_V2_EITHER) return NULL;
+	size_t nb = 0, pos = 0, next = 0;
+	int closed = 0;
+	ShclStr nest = s_empty();
+	while (pos <= rest.n) {
+		ShclStr b = raw_body_line(rest, pos, &next);
+		if (v2_fence_close(b, ch, len, NULL)) { nest = leading_ws(b); closed = 1; break; }
+		nb++;
+		pos = next;
+	}
+	if (!closed) return NULL;
+	ShclStr *body = (ShclStr *)arena_alloc(a, (nb + 1) * sizeof *body);
+	ShclStr *then = (ShclStr *)arena_alloc(a, (nb + 1) * sizeof *then);
+	pos = 0;
+	for (size_t k = 0; k < nb; k++) { body[k] = raw_body_line(rest, pos, &next); pos = next; }
+	ShclStr common = s_empty();
+	int seen = 0;
+	for (size_t k = 0; k < nb; k++) {
+		if (!s_trim(body[k]).n) continue;
+		ShclStr lead = leading_ws(body[k]);
+		if (!seen) { common = lead; seen = 1; continue; }
+		size_t n = 0;
+		while (n < common.n && n < lead.n && common.p[n] == lead.p[n]) n++;
+		common.n = n;
+	}
+	int same = 1;
+	for (size_t k = 0; k < nb; k++) {
+		if (v2 == SHCL_V2_FROM_20) then[k] = strip_common(body[k], common);
+		else if (!s_trim(body[k]).n) then[k] = s_empty();
+		else then[k] = s_slice(body[k], common.n, body[k].n);
+		if (!s_eq(strip_common(body[k], nest), then[k])) same = 0;
+	}
+	if (same) return NULL;
+	ShclStr *out = (ShclStr *)arena_alloc(a, (nb + 1) * sizeof *out);
+	for (size_t k = 0; k < nb; k++) {
+		ShclStr want = s_empty();
+		if (then[k].n) {
+			char *w = (char *)arena_alloc(a, nest.n + then[k].n);
+			memcpy(w, nest.p, nest.n);
+			memcpy(w + nest.n, then[k].p, then[k].n);
+			want.p = w; want.n = nest.n + then[k].n;
+		}
+		int keep = s_trim(body[k]).n ? s_eq(body[k], want) : s_eq(strip_common(body[k], nest), then[k]);
+		if (keep) { out[k].p = NULL; out[k].n = 0; }
+		else out[k] = want;
+	}
+	*count = nb;
+	return out;
+}
+
+/* 1.0 to 3.0-a37 keyed an instance by its strings alone, so `k: x` and a list
+   of `x` alone under the same parent were one instance, which a fold made
+   where the list closed. A list isn't a scalar now, so they read as 2. Each
+   such scalar is written as an array of one, and the text read again, since a
+   line of the same scalar that folded into it reads apart then. 0 when nothing
+   changes, else 1 with the text in *out and each line written marked 2 in
+   flags, as a bracketed comma list is. */
+static int v2_fold_scalars(ShclMigrateOwn *own, ShclStr text, ShclTokens *tok, unsigned char *flags, size_t nlines, ShclStr *out) { // NOLINT(bugprone-easily-swappable-parameters): flags and nlines go together
+	ShclArena *a = &own->a;
+	/* Only a stacked list or brackets make an array. */
+	if (!memchr(text.p, '-', text.n) && !memchr(text.p, '[', text.n)) return 0;
+	size_t n = 1;
+	for (size_t i = 0; i < text.n; i++) n += text.p[i] == '\n';
+	ShclStr *lines = (ShclStr *)arena_alloc(a, n * sizeof *lines);
+	for (size_t i = 0, k = 0, start = 0; i <= text.n; i++) {
+		if (i < text.n && text.p[i] != '\n') continue;
+		lines[k++] = s_slice(text, start, i);
+		start = i + 1;
+	}
+	int wrote = 0;
+	ShclSB joined = {0, 0, 0};
+	/* Each pass writes at least one scalar, which is then an array, so the
+	   passes are fewer than the lines. */
+	for (size_t pass = 0; pass < n; pass++) {
+		joined.len = 0;
+		for (size_t k = 0; k < n; k++) {
+			if (k) sb_putc(a, &joined, '\n');
+			sb_putS(a, &joined, lines[k]);
+		}
+		migrate_load(own, sb_S(&joined));
+		const shcl_doc *d = own->doc;
+		size_t *stack = (size_t *)arena_alloc(a, (d->nodes.len + 1) * sizeof *stack);
+		size_t *lists = (size_t *)arena_alloc(a, (d->nodes.len + 1) * sizeof *lists);
+		size_t top = 0;
+		stack[top++] = ROOT;
+		int wrote_now = 0;
+		while (top) {
+			const ShclNode *p = &d->nodes.data[stack[--top]];
+			size_t nl = 0;
+			for (size_t j = 0; j < p->children.len; j++) {
+				size_t c = p->children.data[j];
+				stack[top++] = c;
+				const ShclValue *v = &d->nodes.data[c].value;
+				if (v->kind == V_ARRAY && v->nels == 1) lists[nl++] = c;
+			}
+			for (size_t j = 0; nl && j < p->children.len; j++) {
+				const ShclNode *nd = &d->nodes.data[p->children.data[j]];
+				if (nd->value.kind != V_CELL || nd->line == 0 || nd->line > n) continue;
+				int hit = 0;
+				for (size_t q = 0; q < nl && !hit; q++) {
+					const ShclNode *l = &d->nodes.data[lists[q]];
+					hit = s_eq(l->name, nd->name) && s_eq(l->value.els[0].text, nd->value.els[0].text);
+				}
+				if (!hit) continue;
+				size_t i = nd->line - 1;
+				ShclStr line = lines[i];
+				size_t bom = i == 0 && line.n >= 3 && (unsigned char)line.p[0] == 0xEF && (unsigned char)line.p[1] == 0xBB && (unsigned char)line.p[2] == 0xBF ? 3 : 0;
+				size_t bn = line.n;
+				while (bn > bom && line.p[bn - 1] == '\r') bn--;
+				ShclStr body = s_slice(line, bom, bn);
+				ShclStr indent = leading_ws(body);
+				ShclStr rest = trim_wsp_end(s_slice(body, indent.n, body.n));
+				lex_line(a, rest, ':', 0, SHCL_LEX_CURRENT, tok);
+				if (tok->has_fault || !tok->has_sep || tok->has_array || tok->nelem != 1) continue;
+				size_t at = bom + indent.n;
+				ShclSB nw = {0, 0, 0};
+				sb_putS(a, &nw, s_slice(line, 0, at + tok->value_start));
+				sb_putS(a, &nw, emit_array(a, nd->value.els, 1));
+				sb_putS(a, &nw, s_slice(line, at + tok->value_end, line.n));
+				lines[i] = sb_S(&nw);
+				if (nd->line <= nlines) flags[nd->line] |= 2;
+				wrote_now = 1;
+			}
+		}
+		migrate_unload(own);
+		if (!wrote_now) break;
+		wrote = 1;
+	}
+	if (!wrote) return 0;
+	joined.len = 0;
+	for (size_t k = 0; k < n; k++) {
+		if (k) sb_putc(a, &joined, '\n');
+		sb_putS(a, &joined, lines[k]);
+	}
+	*out = sb_S(&joined);
+	return 1;
+}
+
 /* Which file this is cannot always be read off the text: `p: a,b` is an array
    under 2.x and one string under these rules, and a raw block can open where
    only one rule set sees it, so rewriting a 3.0 file changes what it says. So
@@ -4366,6 +4552,9 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
 	raw_lines_init(&now, SHCL_LEX_CURRENT);
 	int split = 0;
 	size_t start = 0, lineno = 0;
+	/* A raw body's lines as the format read them, from its opening line on. */
+	ShclStr *raw_body = NULL;
+	size_t raw_n = 0, raw_at = 0;
 	for (size_t i = 0; i <= text.n; i++) {
 		if (i < text.n && text.p[i] != '\n') continue;
 		ShclStr line = s_slice(text, start, i);
@@ -4376,8 +4565,30 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
 		while (bn > 0 && line.p[bn - 1] == '\r') bn--;
 		ShclStr body = s_slice(line, 0, bn), cr = s_slice(line, bn, line.n);
 		if (fence_on) {
-			if (is_fence_close(body, fence_ch, fence_len)) fence_on = 0;
-			sb_putS(a, &out, line);
+			/* Only where the current rules read the same block. */
+			ShclStr run = s_empty();
+			int closed_then = st->v2 != SHCL_V2_EITHER && now.fence_on && now.fence_ch == fence_ch && now.fence_len == fence_len
+				&& v2_fence_close(body, fence_ch, fence_len, &run);
+			ShclStr then; then.p = NULL; then.n = 0;
+			if (raw_at < raw_n) then = raw_body[raw_at++];
+			if (is_fence_close(body, fence_ch, fence_len)) {
+				fence_on = 0;
+				sb_putS(a, &out, line);
+			} else if (closed_then) {
+				/* A close only 1.0 to 2.0 read goes without the blanks that
+				   hid it now. */
+				fence_on = 0;
+				sb_putS(a, &out, leading_ws(body));
+				sb_putS(a, &out, run);
+				sb_putS(a, &out, cr);
+				changed = 1;
+			} else if (then.p) {
+				sb_putS(a, &out, then);
+				sb_putS(a, &out, cr);
+				changed = 1;
+			} else {
+				sb_putS(a, &out, line);
+			}
 		} else {
 			arena_reset(sc);
 			ShclStr indent = leading_ws(body);
@@ -4403,7 +4614,23 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
 		int differs = (!raw_lines_step(a, sc, &now, written, &ignored)) != raw_then;
 		if (differs && !split && !st->from_v2) st->ambiguous++;
 		split = differs;
+		/* A body is written to read as it did only where the current rules
+		   open the same block on the same line. */
+		if (fence_on && !raw_then && now.fence_on && now.fence_ch == fence_ch && now.fence_len == fence_len) {
+			raw_at = 0; raw_n = 0;
+			raw_body = i < text.n ? v2_raw_body(a, s_slice(text, i + 1, text.n), fence_ch, fence_len, st->v2, &raw_n) : NULL;
+		}
 		start = i + 1;
+	}
+	/* A scalar written as an array to fold as it did is E028 too where it
+	   heads lines of its own. */
+	ShclStr folded;
+	if (st->from_v2 && v2_fold_scalars(own, sb_S(&out), &tok, flags, nlines, &folded)) {
+		out.len = 0;
+		sb_putS(a, &out, folded);
+		/* It can put back what the line's own rewrite took off. */
+		changed = !s_eq(folded, whole);
+		bracketed = 1;
 	}
 	/* 2.x let a comma list head lines of its own, and nothing spells that
 	   now: in brackets it is E028, and as one string it reads as another
@@ -4420,7 +4647,8 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
 	   either, under either rule set: appended, it would be another line of the
 	   block's content. The lines end the way most of the file's do. An older
 	   Format line becomes this one where it is, so the file names one format. */
-	if (stamp && st->ambiguous == 0 && !fence_on && !now.fence_on) {
+	st->unfinished = st->ambiguous > 0 || fence_on || now.fence_on;
+	if (stamp && !st->unfinished) {
 		const char *eol = majority_eol(text);
 		ShclSB re;
 		int add_format = !(version >= 0 && restamp(a, sc, sb_S(&out), named.line, &re));
@@ -4450,6 +4678,11 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
    at all: a fence label holding a `#`, which 2.x ran to the end of the line
    and which now ends at the `#`. A quoted name with a backslash pair stays as
    written and counts in lost, since 1.2 read it as typed and 2.0 resolved it.
+   A step out of 1.0, 1.1 or 2.0 writes a raw body to read as that format
+   read it, with the indent its lines shared taken off. A file taken as
+   3.0-a37 or older, by from or its Format line, gets `[x]` for a scalar `x`
+   beside a stacked list of `x` alone, since those were one instance then and
+   a list isn't a scalar now.
    The output and the reused tokens live in `a`; the per-line temporaries go
    to `sc`, reset per line, so a large document costs its own size and not
    every line's scratch on top. An allocation failure goes to outer when it is
@@ -4482,7 +4715,7 @@ static shcl_migration migrate_text(const char *text, size_t len, int from_v2, in
 	st.from_v2 = from_v2 || pinned;
 	shcl_migration m; m.current = 0;
 	ShclStr r = migrate(own, in, &st, &m.current, stamp, beta);
-	m.ambiguous = st.ambiguous; m.lost = st.lost; m.len = r.n;
+	m.ambiguous = st.ambiguous; m.lost = st.lost; m.unfinished = st.unfinished; m.len = r.n;
 	m.text = (char *)malloc(r.n + 1);
 	if (!m.text) {
 		ShclMigrateOwn *bad = own;
@@ -4855,7 +5088,8 @@ static ShclStep s_first_rewrite(const char *format) {
    both read clean, such as an escape, isn't a tell here. */
 static const char *const shcl_tell_runs[7][2] = {
 	/* Refused from the format 3 value syntax on: a comma list, `*` items, a
-	   bracket selector, a bare name led by a digit, a CR in a bare value. */
+	   bracket selector, a bare name led by a digit, a quote, a tab, a CR, a
+	   bracket or a loose colon in a bare value, an open backtick. */
 	{"3.0-9ef", "3.0"},
 	/* A bracketed value, which binds nothing. */
 	{"3.0-1f8", "3.0-a37"},
@@ -4889,7 +5123,27 @@ static uint32_t tell_run(int tell) {
 }
 
 /* The errors these rules give a line, as bits, for line_tells. */
-enum { TELL_ERR_ANY = 1, TELL_ERR_E013 = 2, TELL_ERR_E014 = 4, TELL_ERR_E025 = 8, TELL_ERR_E026 = 16, TELL_ERR_E029 = 32 };
+enum { TELL_ERR_ANY = 1, TELL_ERR_E013 = 2, TELL_ERR_E014 = 4, TELL_ERR_E025 = 8, TELL_ERR_E026 = 16, TELL_ERR_E029 = 32, TELL_ERR_E017 = 64 };
+
+/* A field value the format 3 value syntax refuses and every format before it
+   read clean as text: a bare value with a quote, a tab, a bracket or a loose
+   colon inside it (E025), or one a backtick opens and doesn't close (E017). A
+   quote or an apostrophe that opens a value and never closes is E017 in every
+   format, so it isn't one. A bracketed value or a selector in the line is
+   refused by the older formats too. */
+static int value_told(ShclArena *ta, ShclStr rest, unsigned errs, const ShclTokens *tok) {
+	if (tok->has_array) return 0;
+	for (size_t k = 0; k < tok->nseg; k++) {
+		if (tok->segments[k].has_selector) return 0;
+	}
+	for (size_t e = 0; e < tok->nelem; e++) {
+		const shcl_piece *p = &tok->elements[e];
+		ShclStr why;
+		if (p->quote == SHCL_QUOTE_NONE && (errs & TELL_ERR_E025) && bare_trouble(ta, s_slice(rest, p->start, p->end), BARE_VALUE, &why)) return 1;
+		if (p->quote == SHCL_QUOTE_OPEN && (errs & TELL_ERR_E017) && p->start < rest.n && rest.p[p->start] == '`') return 1;
+	}
+	return 0;
+}
 
 /* The formats a line's tells count against, as bits of shcl_format_days.
    errs are the errors these rules give the line. What these rules refuse is
@@ -4901,7 +5155,7 @@ static uint32_t line_tells(ShclArena *ta, ShclStr rest, unsigned errs, ShclToken
 	if (is_item(rest)) return errs ? 0 : tell_run(TELL_NEW_SPELLING);
 	tokenize(ta, rest, ':', 0, SHCL_RULES_CURRENT, tok);
 	int led_by_digit = tok->has_misspelled && tok->misspelled < rest.n && rest.p[tok->misspelled] >= '0' && rest.p[tok->misspelled] <= '9';
-	if ((errs & (TELL_ERR_E026 | TELL_ERR_E029)) || ((errs & TELL_ERR_E025) && memchr(rest.p, '\r', rest.n)) || ((errs & TELL_ERR_E014) && led_by_digit))
+	if ((errs & (TELL_ERR_E026 | TELL_ERR_E029)) || ((errs & TELL_ERR_E025) && memchr(rest.p, '\r', rest.n)) || ((errs & TELL_ERR_E014) && led_by_digit) || value_told(ta, rest, errs, tok))
 		return tell_run(TELL_REFUSED_NOW);
 	if (errs) return 0;
 	uint32_t run = 0;
@@ -4955,6 +5209,7 @@ static uint32_t most_legal(ShclStr in, uint32_t left) {
 		else if (strcmp(dg->code, "E025") == 0) bit |= TELL_ERR_E025;
 		else if (strcmp(dg->code, "E026") == 0) bit |= TELL_ERR_E026;
 		else if (strcmp(dg->code, "E029") == 0) bit |= TELL_ERR_E029;
+		else if (strcmp(dg->code, "E017") == 0) bit |= TELL_ERR_E017;
 		errs[dg->line] |= (unsigned char)bit;
 	}
 	migrate_unload(own);

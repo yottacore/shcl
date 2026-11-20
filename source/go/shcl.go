@@ -2000,13 +2000,22 @@ func scanPiece(s string, pos int, term byte, rules lex, comments, array bool) (P
 		}
 		// 2.0 read a quote inside a piece as text, but a comma or a `#`
 		// before its close did not end the piece. One that never closes is
-		// text, as `don't` is.
+		// text too, as `don't` is, and so is the rest of the line after it.
 		if shield && (b == '"' || b == '\'') {
 			if close := quoteClose(s, pos, rules); close >= 0 {
 				pos = close + 1
 				contentEnd = pos
 				continue
 			}
+			for pos < len(s) {
+				if n := blankLen(s, pos, edges); n > 0 {
+					pos += n
+				} else {
+					pos += utf8Len(s, pos)
+					contentEnd = clamp(pos)
+				}
+			}
+			break
 		}
 		if endsAt(pos) || (array && b == ']') || (comments && commentAt(s, pos)) {
 			break
@@ -3293,6 +3302,12 @@ type Migration struct {
 	// where the format isn't found, as in Migrate, and a selector 1.0 or 1.1
 	// matched otherwise.
 	Lost int
+	// Unfinished: the migration couldn't finish, so Migrate left the version
+	// line off: Ambiguous is nonzero, or a raw block never closes under either
+	// rule set, where the line would be one more line of its content. A
+	// program that writes the version line itself after MigrateUnstamped
+	// leaves it off too, or the next run takes the file as current.
+	Unfinished bool
 }
 
 // migrating keeps the counters a line rewrite reports back, and the one
@@ -3528,7 +3543,8 @@ func pickFormat(text string, mtime *int64, byStamp uint32) string {
 // formats both read clean, such as an escape, isn't a tell here.
 var tellRuns = [...][2]string{
 	// Refused from the format 3 value syntax on: a comma list, `*` items, a
-	// bracket selector, a bare name led by a digit, a CR in a bare value.
+	// bracket selector, a bare name led by a digit, a quote, a tab, a CR, a
+	// bracket or a loose colon in a bare value, an open backtick.
 	{"3.0-9ef", "3.0"},
 	// A bracketed value, which binds nothing.
 	{"3.0-1f8", "3.0-a37"},
@@ -3658,7 +3674,7 @@ func lineTells(rest string, codes []string, tok *Tokens) uint32 {
 	}
 	Tokenize(rest, ':', false, RulesCurrent, tok)
 	ledByDigit := tok.Misspelled >= 0 && tok.Misspelled < len(rest) && rest[tok.Misspelled] >= '0' && rest[tok.Misspelled] <= '9'
-	if has("E026") || has("E029") || (has("E025") && strings.Contains(rest, "\r")) || (has("E014") && ledByDigit) {
+	if has("E026") || has("E029") || (has("E025") && strings.Contains(rest, "\r")) || (has("E014") && ledByDigit) || valueTold(rest, has, tok) {
 		return tellRun(tellRefusedNow)
 	}
 	if len(codes) > 0 {
@@ -3692,6 +3708,36 @@ func lineTells(rest string, codes []string, tok *Tokens) uint32 {
 		}
 	}
 	return run
+}
+
+// valueTold is a field value the format 3 value syntax refuses and every
+// format before it read clean as text: a bare value with a quote, a tab, a
+// bracket or a loose colon inside it (E025), or one a backtick opens and
+// doesn't close (E017). A quote or an apostrophe that opens a value and never
+// closes is E017 in every format, so it isn't one. A bracketed value or a
+// selector in the line is refused by the older formats too.
+func valueTold(rest string, has func(string) bool, tok *Tokens) bool {
+	if tok.Array >= 0 {
+		return false
+	}
+	for _, seg := range tok.Segments {
+		if seg.Selector != nil {
+			return false
+		}
+	}
+	for _, p := range tok.Elements {
+		switch p.Quote {
+		case QuoteNone:
+			if _, bad := bareTrouble(rest[p.Start:p.End], bareValue); bad && has("E025") {
+				return true
+			}
+		case QuoteOpen:
+			if p.Start < len(rest) && rest[p.Start] == '`' && has("E017") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // SchemaRef is the schema a document's `##    Schema   REF` line names: a
@@ -4156,7 +4202,11 @@ func stampHint(stamp Read[int]) (Diagnostic, bool) {
 // at all: a fence label holding a `#`, which 2.x ran to the end of the line
 // and which now ends at the `#`. A quoted name with a backslash pair reads as
 // from's format read it, and without from stays as written and counts in
-// Lost, since 1.2 read it as typed and 2.0 resolved it.
+// Lost, since 1.2 read it as typed and 2.0 resolved it. With from naming 1.0,
+// 1.1 or 2.0, a raw body is written to read as that format read it, with the
+// indent its lines shared taken off. A file taken as 3.0-a37 or older, by from
+// or its Format line, gets `[x]` for a scalar `x` beside a stacked list of `x`
+// alone, since those were one instance then and a list isn't a scalar now.
 // Which file this is cannot always be read off the text: `p: a,b` is an array
 // under 2.x and one string under these rules, and a raw block can open where
 // only one rule set sees it, so rewriting a 3.0 file changes what it says. So
@@ -4215,6 +4265,182 @@ func majorityEol(text string) string {
 	return "\n"
 }
 
+// v2FenceClose is the fence run of a line that closed a raw block under 1.0
+// to 2.0, which trimmed every White_Space character off its edges, where now
+// only a space or a tab comes off.
+func v2FenceClose(line string, ch byte, length int) (string, bool) {
+	t := strings.TrimFunc(line, whiteSpace)
+	if len(t) < length {
+		return "", false
+	}
+	for i := 0; i < len(t); i++ {
+		if t[i] != ch {
+			return "", false
+		}
+	}
+	return t, true
+}
+
+// rawLine is one raw body line as v2RawBody would write it: set, or as typed.
+type rawLine struct {
+	text string
+	set  bool
+}
+
+// v2RawBody is a raw body as 1.0 to 2.0 read it, for the lines after its
+// opening fence. Those formats took the indent shared by the body's lines
+// that hold more than blanks off each line. 1.x blanked a line of blanks, and
+// 2.0 took off what such a line shares with that indent. Now only the closing
+// fence's indent comes off. So when a line would read otherwise now, each
+// line that holds more than blanks is written as that indent and the text it
+// read then, which a second run reads the same, and a line of blanks only
+// where it reads otherwise. The rest stay as typed. A block that never closes
+// stays as typed, since 2.x read it with an error and it is unfinished here.
+// Migrate's own read, with no format found, keeps them all too: the 2.x dev
+// builds after 2.0 read a body as it reads now.
+func v2RawBody(lines []string, ch byte, length int, v2 v2Read) []rawLine {
+	if v2 == v2Either {
+		return nil
+	}
+	var body []string
+	nest, closed := "", false
+	for _, l := range lines {
+		b := strings.TrimRight(l, "\r")
+		if _, ok := v2FenceClose(b, ch, length); ok {
+			nest, closed = leadingWS(b), true
+			break
+		}
+		body = append(body, b)
+	}
+	if !closed {
+		return nil
+	}
+	blank := func(b string) bool { return strings.TrimFunc(b, whiteSpace) == "" }
+	common, seen := "", false
+	for _, b := range body {
+		if blank(b) {
+			continue
+		}
+		lead := leadingWS(b)
+		if !seen {
+			common, seen = lead, true
+			continue
+		}
+		n := 0
+		for n < len(common) && n < len(lead) && common[n] == lead[n] {
+			n++
+		}
+		common = common[:n]
+	}
+	then := make([]string, len(body))
+	same := true
+	for k, b := range body {
+		switch {
+		case v2 == v2From20:
+			then[k] = stripCommon(b, common)
+		case blank(b):
+			then[k] = ""
+		default:
+			then[k] = b[len(common):]
+		}
+		same = same && stripCommon(b, nest) == then[k]
+	}
+	if same {
+		return nil
+	}
+	out := make([]rawLine, len(body))
+	for k, b := range body {
+		want := ""
+		if then[k] != "" {
+			want = nest + then[k]
+		}
+		keep := b == want
+		if blank(b) {
+			keep = stripCommon(b, nest) == then[k]
+		}
+		out[k] = rawLine{text: want, set: !keep}
+	}
+	return out
+}
+
+// v2FoldScalars: 1.0 to 3.0-a37 keyed an instance by its strings alone, so
+// `k: x` and a list of `x` alone under the same parent were one instance,
+// which a fold made where the list closed. A list isn't a scalar now, so they
+// read as 2. Each such scalar is written as an array of one, and the text read
+// again, since a line of the same scalar that folded into it reads apart then.
+// ok is false when nothing changes, else it gives the text and the lines
+// written.
+func v2FoldScalars(text string) (string, []int, bool) {
+	// Only a stacked list or brackets make an array.
+	if !strings.ContainsAny(text, "-[") {
+		return "", nil, false
+	}
+	lines := strings.Split(text, "\n")
+	var tok Tokens
+	var wroteAt []int
+	type key struct{ name, text string }
+	// Each pass writes at least one scalar, which is then an array, so the
+	// passes are fewer than the lines.
+	for range lines {
+		doc := Parse(strings.Join(lines, "\n"))
+		type hit struct {
+			at   int
+			with string
+		}
+		var hits []hit
+		stack := []int{root}
+		for len(stack) > 0 {
+			p := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			kids := doc.arena[p].children
+			stack = append(stack, kids...)
+			lists := map[key]bool{}
+			for _, c := range kids {
+				if v := &doc.arena[c].value; v.kind == vArray && len(v.els) == 1 {
+					lists[key{doc.arena[c].name, v.els[0].text}] = true
+				}
+			}
+			if len(lists) == 0 {
+				continue
+			}
+			for _, c := range kids {
+				nd := &doc.arena[c]
+				if nd.value.kind == vCell && nd.line > 0 && lists[key{nd.name, nd.value.els[0].text}] {
+					hits = append(hits, hit{nd.line - 1, emitArray(nd.value.els[:1])})
+				}
+			}
+		}
+		before := len(wroteAt)
+		for _, h := range hits {
+			if h.at >= len(lines) {
+				continue
+			}
+			line := lines[h.at]
+			bom := ""
+			if h.at == 0 && strings.HasPrefix(line, "\ufeff") {
+				bom = "\ufeff"
+			}
+			body := strings.TrimRight(line[len(bom):], "\r")
+			indent := leadingWS(body)
+			rest := trimEndWS(body[len(indent):])
+			lexLine(rest, ':', false, lexCurrent, &tok)
+			if tok.Fault >= 0 || tok.Sep < 0 || tok.Array >= 0 || len(tok.Elements) != 1 {
+				continue
+			}
+			at := len(bom) + len(indent)
+			lines[h.at] = line[:at+tok.Value[0]] + h.with + line[at+tok.Value[1]:]
+			wroteAt = append(wroteAt, h.at+1)
+		}
+		if len(wroteAt) == before {
+			break
+		}
+	}
+	if len(wroteAt) == 0 {
+		return "", nil, false
+	}
+	return strings.Join(lines, "\n"), wroteAt, true
+}
+
 // migrateText: beta takes a file naming this format as 2.x too, which only
 // Upgrade asks for, once the caller has said so. s is the step the text's
 // format starts with, and says which rules it was written by: a pin's, for a
@@ -4260,7 +4486,10 @@ func migrateText(text string, fromV2, stamp, beta bool, s step) Migration {
 	// The output as the parser will read it, for where its raw blocks are.
 	now := newRawLines(lexCurrent)
 	split := false
-	for i, line := range strings.Split(text, "\n") {
+	lines := strings.Split(text, "\n")
+	// A raw body's lines as the format read them, from its opening line on.
+	var rawBody []rawLine
+	for i, line := range lines {
 		if i > 0 {
 			out.WriteByte('\n')
 		}
@@ -4269,10 +4498,34 @@ func migrateText(text string, fromV2, stamp, beta bool, s step) Migration {
 		body := strings.TrimRight(line, "\r")
 		cr := line[len(body):]
 		if fence.open {
-			if isFenceClose(body, fence.ch, fence.length) {
-				fence.open = false
+			// Only where the current rules read the same block.
+			run, closedThen := "", false
+			if st.v2 != v2Either && now.fence == fence {
+				run, closedThen = v2FenceClose(body, fence.ch, fence.length)
 			}
-			out.WriteString(line)
+			var then rawLine
+			if len(rawBody) > 0 {
+				then, rawBody = rawBody[0], rawBody[1:]
+			}
+			switch {
+			case isFenceClose(body, fence.ch, fence.length):
+				fence.open = false
+				out.WriteString(line)
+			case closedThen:
+				// A close only 1.0 to 2.0 read goes without the blanks that
+				// hid it now.
+				fence.open = false
+				out.WriteString(leadingWS(body))
+				out.WriteString(run)
+				out.WriteString(cr)
+				changed = true
+			case then.set:
+				out.WriteString(then.text)
+				out.WriteString(cr)
+				changed = true
+			default:
+				out.WriteString(line)
+			}
 		} else {
 			indent := leadingWS(body)
 			restFull := body[len(indent):]
@@ -4304,6 +4557,24 @@ func migrateText(text string, fromV2, stamp, beta bool, s step) Migration {
 			st.ambiguous++
 		}
 		split = differs
+		// A body is written to read as it did only where the current rules
+		// open the same block on the same line.
+		if fence.open && !rawThen && now.fence == fence {
+			rawBody = v2RawBody(lines[i+1:], fence.ch, fence.length, st.v2)
+		}
+	}
+	// A scalar written as an array to fold as it did is E028 too where it
+	// heads lines of its own.
+	if st.fromV2 {
+		if t, at, ok := v2FoldScalars(out.String()); ok {
+			out.Reset()
+			out.WriteString(t)
+			// It can put back what the line's own rewrite took off.
+			changed = t != whole
+			// sortedHas only asks, so a line twice does no harm.
+			bracketed = append(bracketed, at...)
+			sort.Ints(bracketed)
+		}
 	}
 	// 2.x let a comma list head lines of its own, and nothing spells that
 	// now: in brackets it is E028, and as one string it reads as another
@@ -4321,7 +4592,8 @@ func migrateText(text string, fromV2, stamp, beta bool, s step) Migration {
 	// either, under either rule set: appended, it would be another line of the
 	// block's content. The lines end the way most of the file's do. An older
 	// Format line becomes this one where it is, so the file names one format.
-	if stamp && st.ambiguous == 0 && !fence.open && !now.fence.open {
+	unfinished := st.ambiguous > 0 || fence.open || now.fence.open
+	if stamp && !unfinished {
 		eol := majorityEol(text)
 		addFormat := true
 		if hasVersion {
@@ -4345,7 +4617,7 @@ func migrateText(text string, fromV2, stamp, beta bool, s step) Migration {
 			out.WriteString(eol)
 		}
 	}
-	return Migration{Text: out.String(), Ambiguous: st.ambiguous, Lost: st.lost}
+	return Migration{Text: out.String(), Ambiguous: st.ambiguous, Lost: st.lost, Unfinished: unfinished}
 }
 
 // Upgraded is what Upgrade made of a document, and UpgradeFile of a file.

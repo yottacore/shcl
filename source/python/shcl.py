@@ -1957,13 +1957,21 @@ def _scan_piece(s, pos, term, rules, comments, array=False):
 			continue
 		# 2.0 read a quote inside a piece as text, but a comma or a `#`
 		# before its close did not end the piece. One that never closes is
-		# text, as `don't` is.
+		# text too, as `don't` is, and so is the rest of the line after it.
 		if shield and b in (_B_DQUOTE, _B_SQUOTE):
 			close = _quote_close(s, pos, rules)
 			if close is not None:
 				pos = close + 1
 				content_end = pos
 				continue
+			while pos < n:
+				k = _blank_len(s, pos, edges)
+				if k:
+					pos += k
+				else:
+					pos += 1 if s[pos] < 0x80 else _utf8_len(s[pos])
+					content_end = min(pos, n)
+			break
 		if b == term:
 			if every_comma or _loose_comma(s, pos):
 				break
@@ -2806,15 +2814,23 @@ class Migration:
 	comma, which matched an array value, and a comma list with lines under it
 	(E028 in brackets). Also a quoted name with a backslash pair, which 1.2
 	read as typed and 2.0 resolved, so it is kept as written where the format
-	isn't found, as in migrate, and a selector 1.0 or 1.1 matched otherwise."""
+	isn't found, as in migrate, and a selector 1.0 or 1.1 matched otherwise.
+	unfinished: the migration couldn't finish, so migrate left the version line
+	off: ambiguous is nonzero, or a raw block never closes under either rule
+	set, where the line would be one more line of its content. A program that
+	writes the version line itself after migrate_unstamped leaves it off too,
+	or the next run takes the file as current."""
 
-	__slots__ = ("text", "current", "ambiguous", "lost")
+	__slots__ = ("text", "current", "ambiguous", "lost", "unfinished")
 
-	def __init__(self, text: str, current: bool = False, ambiguous: int = 0, lost: int = 0) -> None:
+	def __init__(
+		self, text: str, current: bool = False, ambiguous: int = 0, lost: int = 0, unfinished: bool = False
+	) -> None:
 		self.text = text
 		self.current = current
 		self.ambiguous = ambiguous
 		self.lost = lost
+		self.unfinished = unfinished
 
 
 class _Migrating:
@@ -3020,7 +3036,8 @@ def _pick_format(text: str, mtime: float | None, by_stamp: int) -> str:
 # both read clean, such as an escape, isn't a tell here.
 _TELL_RUNS = (
 	# Refused from the format 3 value syntax on: a comma list, `*` items, a
-	# bracket selector, a bare name led by a digit, a CR in a bare value.
+	# bracket selector, a bare name led by a digit, a quote, a tab, a CR, a
+	# bracket or a loose colon in a bare value, an open backtick.
 	("3.0-9ef", "3.0"),
 	# A bracketed value, which binds nothing.
 	("3.0-1f8", "3.0-a37"),
@@ -3114,6 +3131,7 @@ def _line_tells(rest: str, codes: list[str], tok: Tokens) -> int:
 		or "E029" in codes
 		or ("E025" in codes and "\r" in rest)
 		or ("E014" in codes and led_by_digit)
+		or _value_told(codes, tok)
 	):
 		return _tell_run(_TELL_REFUSED_NOW)
 	if codes:
@@ -3133,6 +3151,25 @@ def _line_tells(rest: str, codes: list[str], tok: Tokens) -> int:
 	if any(inner(p) for p in tok.elements):
 		run |= _tell_run(_TELL_APOSTROPHE)
 	return run
+
+
+def _value_told(codes: list[str], tok: Tokens) -> bool:
+	"""A field value the format 3 value syntax refuses and every format before
+	it read clean as text: a bare value with a quote, a tab, a bracket or a
+	loose colon inside it (E025), or one a backtick opens and doesn't close
+	(E017). A quote or an apostrophe that opens a value and never closes is
+	E017 in every format, so it isn't one. A bracketed value or a selector in
+	the line is refused by the older formats too."""
+	if tok.array is not None or any(s.selector is not None for s in tok.segments):
+		return False
+	src = tok.src
+	for p in tok.elements:
+		if p.quote is Quote.None_:
+			if "E025" in codes and _bare_trouble(src[p.start : p.end].decode("utf-8", "surrogatepass"), _BARE_VALUE) is not None:
+				return True
+		elif p.quote is Quote.Open and "E017" in codes and src[p.start : p.start + 1] == b"`":
+			return True
+	return False
 
 
 class _StepKind(Enum):
@@ -3492,7 +3529,12 @@ def migrate(text: str, from_: str | None) -> Migration:
 	here at all: a fence label holding a `#`, which 2.x ran to the end of the
 	line and which now ends at the `#`. A quoted name with a backslash pair
 	reads as from_'s format read it, and without from_ stays as written and
-	counts in lost, since 1.2 read it as typed and 2.0 resolved it.
+	counts in lost, since 1.2 read it as typed and 2.0 resolved it. With
+	from_ naming 1.0, 1.1 or 2.0, a raw body is written to read as that
+	format read it, with the indent its lines shared taken off. A file taken
+	as 3.0-a37 or older, by from_ or its Format line, gets `[x]` for a
+	scalar `x` beside a stacked list of `x` alone, since those were one
+	instance then and a list isn't a scalar now.
 
 	Which file this is cannot always be read off the text: `p: a,b` is an
 	array under 2.x and one string under these rules, and a raw block can open
@@ -3545,6 +3587,121 @@ def _majority_eol(text):
 	return "\r\n" if crlf > lf else "\n"
 
 
+def _v2_fence_close(line, ch, length):
+	"""The fence run of a line that closed a raw block under 1.0 to 2.0,
+	which trimmed every White_Space character off its edges, where now only a
+	space or a tab comes off. None when it closed nothing then."""
+	t = _trim(line)
+	return t if len(t) >= length and all(c == ch for c in t) else None
+
+
+def _v2_raw_body(lines, ch, length, v2):
+	"""A raw body as 1.0 to 2.0 read it, for the lines after its opening
+	fence. Those formats took the indent shared by the body's lines that hold
+	more than blanks off each line. 1.x blanked a line of blanks, and 2.0 took
+	off what such a line shares with that indent. Now only the closing fence's
+	indent comes off. So when a line would read otherwise now, each line that
+	holds more than blanks is written as that indent and the text it read
+	then, which a second run reads the same, and a line of blanks only where
+	it reads otherwise. The rest stay as typed (None). A block that never
+	closes stays as typed, since 2.x read it with an error and it is
+	unfinished here. migrate's own read, with no format found, keeps them all
+	too: the 2.x dev builds after 2.0 read a body as it reads now."""
+	if v2 is _V2Read.EITHER:
+		return []
+	body = []
+	nest = None
+	for line in lines:
+		b = line.rstrip("\r")
+		if _v2_fence_close(b, ch, length) is not None:
+			nest = _leading_ws(b)
+			break
+		body.append(b)
+	if nest is None:
+		return []
+	common = None
+	for b in body:
+		if not _trim(b):
+			continue
+		lead = _leading_ws(b)
+		if common is None:
+			common = lead
+		else:
+			k = 0
+			while k < len(common) and k < len(lead) and common[k] == lead[k]:
+				k += 1
+			common = common[:k]
+	common = common or ""
+	if v2 is _V2Read.FROM_20:
+		then = [_strip_common(b, common) for b in body]
+	else:
+		then = [b[len(common):] if _trim(b) else "" for b in body]
+	if all(_strip_common(b, nest) == then[k] for k, b in enumerate(body)):
+		return []
+	out = []
+	for k, b in enumerate(body):
+		t = then[k]
+		want = nest + t if t else ""
+		keep = _strip_common(b, nest) == t if not _trim(b) else b == want
+		out.append(None if keep else want)
+	return out
+
+
+def _v2_fold_scalars(text):
+	"""1.0 to 3.0-a37 keyed an instance by its strings alone, so `k: x` and a
+	list of `x` alone under the same parent were one instance, which a fold made
+	where the list closed. A list isn't a scalar now, so they read as 2. Each
+	such scalar is written as an array of one, and the text read again, since a
+	line of the same scalar that folded into it reads apart then. None when
+	nothing changes, else the text and the lines written."""
+	# Only a stacked list or brackets make an array.
+	if "-" not in text and "[" not in text:
+		return None
+	lines = text.split("\n")
+	tok = Tokens()
+	wrote_at: list[int] = []
+	# Each pass writes at least one scalar, which is then an array, so the
+	# passes are fewer than the lines.
+	for _ in range(len(lines)):
+		arena = Document.parse("\n".join(lines)).arena
+		hits = []
+		stack = [_ROOT]
+		while stack:
+			kids = arena[stack.pop()].children
+			stack.extend(kids)
+			lists = {
+				(arena[c].name, arena[c].value.els[0].text)
+				for c in kids
+				if arena[c].value.kind == "array" and len(arena[c].value.els) == 1
+			}
+			if not lists:
+				continue
+			for c in kids:
+				nd = arena[c]
+				if nd.value.kind == "cell" and nd.line > 0 and (nd.name, nd.value.els[0].text) in lists:
+					hits.append((nd.line - 1, _emit_array(nd.value.els[:1])))
+		before = len(wrote_at)
+		for i, with_ in hits:
+			if i >= len(lines):
+				continue
+			line = lines[i]
+			bom = "\ufeff" if i == 0 and line.startswith("\ufeff") else ""
+			body = line[len(bom):].rstrip("\r")
+			indent = _leading_ws(body)
+			rest = _trim_wsp_end(body[len(indent):])
+			_lex_line(rest, ":", False, _Lex.Current, tok)
+			if tok.fault is not None or tok.sep is None or tok.array is not None or len(tok.elements) != 1:
+				continue
+			b = rest.encode("utf-8", "surrogatepass")
+			new = b[:tok.value[0]] + with_.encode("utf-8", "surrogatepass") + b[tok.value[1]:]
+			at = len(bom) + len(indent) + len(rest)
+			lines[i] = bom + indent + new.decode("utf-8", "surrogatepass") + line[at:]
+			wrote_at.append(i + 1)
+		if len(wrote_at) == before:
+			break
+	return ("\n".join(lines), wrote_at) if wrote_at else None
+
+
 def _migrate_text(text, from_v2, stamp, beta, step):
 	"""beta takes a file naming this format as 2.x too, which only upgrade()
 	asks for, once the caller has said so. step is the one the text's format
@@ -3576,16 +3733,35 @@ def _migrate_text(text, from_v2, stamp, beta, step):
 	# The output as the parser will read it, for where its raw blocks are.
 	now = _RawLines(_Lex.Current)
 	split = False
-	for i, line in enumerate(text.split("\n")):
+	lines = text.split("\n")
+	# A raw body's lines as the format read them, from its opening line on.
+	raw_body = iter(())
+	for i, line in enumerate(lines):
 		if i > 0:
 			out.append("\n")
 		raw_then = fence is not None
 		body = line.rstrip("\r")
 		cr = line[len(body):]
 		if fence is not None:
+			# Only where the current rules read the same block.
+			run = None
+			if st.v2 is not _V2Read.EITHER and now.fence == fence:
+				run = _v2_fence_close(body, fence[0], fence[1])
+			then = next(raw_body, None)
 			if _is_fence_close(body, fence[0], fence[1]):
 				fence = None
-			line_out = line
+				line_out = line
+			elif run is not None:
+				# A close only 1.0 to 2.0 read goes without the blanks that
+				# hid it now.
+				fence = None
+				line_out = _leading_ws(body) + run + cr
+				changed = True
+			elif then is not None:
+				line_out = then + cr
+				changed = True
+			else:
+				line_out = line
 		else:
 			indent = _leading_ws(body)
 			rest_full = body[len(indent):]
@@ -3608,6 +3784,19 @@ def _migrate_text(text, from_v2, stamp, beta, step):
 		if differs and not split and not st.from_v2:
 			st.ambiguous += 1
 		split = differs
+		# A body is written to read as it did only where the current rules
+		# open the same block on the same line.
+		if fence is not None and not raw_then and now.fence == fence:
+			raw_body = iter(_v2_raw_body(lines[i + 1:], fence[0], fence[1], st.v2))
+	# A scalar written as an array to fold as it did is E028 too where it
+	# heads lines of its own.
+	if st.from_v2:
+		folded = _v2_fold_scalars("".join(out))
+		if folded is not None:
+			out = [folded[0]]
+			# It can put back what the line's own rewrite took off.
+			changed = folded[0] != whole
+			bracketed.extend(folded[1])
 	# 2.x let a comma list head lines of its own, and nothing spells that
 	# now: in brackets it is E028, and as one string it reads as another
 	# value.
@@ -3620,7 +3809,8 @@ def _migrate_text(text, from_v2, stamp, beta, step):
 	# either, under either rule set: appended, it would be another line of the
 	# block's content. The lines end the way most of the file's do. An older
 	# Format line becomes this one where it is, so the file names one format.
-	if stamp and st.ambiguous == 0 and fence is None and now.fence is None:
+	unfinished = st.ambiguous > 0 or fence is not None or now.fence is not None
+	if stamp and not unfinished:
 		eol = _majority_eol(text)
 		s = "".join(out)
 		restamped = _restamp(s, named.line) if version is not None else None
@@ -3637,7 +3827,7 @@ def _migrate_text(text, from_v2, stamp, beta, step):
 		if changed and pin is None:
 			out.append(MIGRATED_LINE)
 			out.append(eol)
-	return Migration("".join(out), ambiguous=st.ambiguous, lost=st.lost)
+	return Migration("".join(out), ambiguous=st.ambiguous, lost=st.lost, unfinished=unfinished)
 
 
 class Upgrade:

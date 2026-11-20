@@ -249,12 +249,15 @@ void tokenize_value(std::string_view text, std::size_t from, Rules rules, Tokens
 // file already names its format, ambiguous for pieces both rule sets read
 // cleanly and differently and nothing can decide between, lost for lines 2.x
 // bound a value on that nothing binds now, or with a quoted name 1.2 and 2.0
-// read two ways.
+// read two ways, unfinished when migrate left the version line off, since
+// ambiguous is nonzero or a raw block never closes, so a caller of
+// migrate_unstamped leaves it off too.
 struct Migration {
 	std::string text;
 	bool current = false;
 	std::size_t ambiguous = 0;
 	std::size_t lost = 0;
+	bool unfinished = false;
 };
 // A document written under the 2.x lexical rules, rewritten so this parser
 // reads the same tree; text to text, no document involved. from names the
@@ -1050,7 +1053,7 @@ static Held fresh(const Document &d) {
 static Migration migration(shcl_migration m) {
 	// Owned from the call on, so a throw below cannot leak the C buffer.
 	std::unique_ptr<char, void (*)(void *)> p(m.text, &std::free);
-	return Migration{std::string(p.get(), m.len), m.current != 0, m.ambiguous, m.lost};
+	return Migration{std::string(p.get(), m.len), m.current != 0, m.ambiguous, m.lost, m.unfinished != 0};
 }
 
 static std::vector<Diagnostic> diags(const shcl_doc *d) {

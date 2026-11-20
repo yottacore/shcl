@@ -2811,7 +2811,6 @@ fn placement_slips(
 	// The target's key is the one its line has, since a path spells some
 	// names apart from the text.
 	let base = Document::parse(before);
-	let named = path;
 	let path = base
 		.lines(path)
 		.first()
@@ -3053,13 +3052,10 @@ fn placement_slips(
 		// The banner sets the blank where it takes an info block's lines.
 		let fresh = (!a.lead.is_empty() || want.len() > a.lead.len())
 			&& (edit != Placed::Other || a.lead.iter().all(ours));
-		// 2026111021153725: a comment edit that makes its field after a kept
-		// last line puts the new blank above that line's comments.
-		let made = edit == Placed::Comment && base.lines(named).is_empty();
 		// A remove hands the blank above what it took to the line now in its
 		// place (2026111623191917).
 		let handed = edit == Placed::Remove && blank && !a.blank && by_target(a.above, &was);
-		let unheld = a.first || b.first || noted || made && kept.contains(&a.line) || handed;
+		let unheld = a.first || b.first || noted || handed;
 		if fresh && !unheld && a.blank != blank {
 			slips.push(format!(
 				"{}: blank above its comments {} is now {}",

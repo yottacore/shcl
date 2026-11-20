@@ -898,7 +898,7 @@ func TestMigrateUnstampedIsMigrateWithoutTheStamp(t *testing.T) {
 		for _, fromV2 := range []bool{true, false} {
 			full := Migrate(c.input, v2From(fromV2))
 			bare := MigrateUnstamped(c.input, v2From(fromV2))
-			if bare.Current != full.Current || bare.Ambiguous != full.Ambiguous || bare.Lost != full.Lost {
+			if bare.Current != full.Current || bare.Ambiguous != full.Ambiguous || bare.Lost != full.Lost || bare.Unfinished != full.Unfinished {
 				t.Errorf("%s: counts differ without the stamp", c.name)
 			}
 			if strings.Contains(bare.Text, FormatLineHead) && !strings.Contains(c.input, FormatLineHead) {
@@ -4705,6 +4705,201 @@ func TestAFileFormatComesFromItsTells(t *testing.T) {
 	}
 }
 
+// TestAValueTheFormat3SyntaxRefusesIsATell: a bare value the format 3 value
+// syntax refuses with E025, or one a backtick opens and doesn't close, read
+// clean as text in every format to 3.0-a37, so it tells those apart from
+// 3.0-9ef on. Rust's a_value_the_format_3_syntax_refuses_is_a_tell has the
+// same rows. The mtimes are Unix seconds at UTC.
+func TestAValueTheFormat3SyntaxRefusesIsATell(t *testing.T) {
+	defer testID(t, "dfje5")
+	at := func(n int64) *int64 { return &n }
+	sep1 := at(1788220800)  // 2026-09-01, 1.0 to 2.0
+	oct20 := at(1792454400) // 2026-10-20, to 3.0-9ef
+	nov10 := at(1794268800) // 2026-11-10, every format
+	cases := []struct {
+		text  string
+		mtime *int64
+		want  string
+	}{
+		{"a: x\"y\n", nov10, "3.0-a37"},
+		{"a: x\"y\n", nil, "3.0-a37"},
+		{"a: x\"y\n", sep1, "2.0"},
+		{"a: O' Brien\n", nov10, "3.0-a37"},
+		{"a: x\ty\n", nov10, "3.0-a37"},
+		{"a: x]y\n", nov10, "3.0-a37"},
+		{"a: b c: d\n", nov10, "3.0-a37"},
+		{"a: x`y\n", nov10, "3.0-a37"},
+		{"a: `q\n", nov10, "3.0-a37"},
+		{"s:\n\ta: x\"y # c\n", nov10, "3.0-a37"},
+		{"a: z, x\"y\n", nov10, "3.0-a37"},
+		{"a: x\"y\nb: it's\n", oct20, "3.0-a37"},
+		// One tell each way ties, and the tie goes to the newest.
+		{"a: x\"y\nb:\n\t- z\n", nov10, "3.0"},
+		// Not tells.
+		{"a: \"q\n", nov10, "3.0"},
+		{"a: 'q\n", nov10, "3.0"},
+		{"a: \"x\" y\n", nov10, "3.0"},
+		{"a: [x\"y, z]\n", nov10, "3.0"},
+		{"s: p\ns(p).h: x\"y\n", nov10, "3.0"},
+		{"a:\n\t- x\"y\n", nov10, "3.0"},
+		{"x\"y: 1\n", nov10, "3.0"},
+	}
+	for _, c := range cases {
+		if got, ok := FindFormat(c.text, c.mtime); !ok || got != c.want {
+			t.Errorf("%q at %v: %q, want %q", c.text, c.mtime, got, c.want)
+		}
+	}
+}
+
+// TestAFileFormatReadsThroughAStampMtimeAndBodyThatDisagree: every pairing of
+// a stamp, an mtime and a body whose tells disagree reads as the design doc's
+// 4 steps give it, from tables written here rather than the library's. Then
+// the files a writer could really leave, with the format that wrote each.
+// Rust's a_file_format_reads_through_a_stamp_mtime_and_body_that_disagree has
+// the same rows. The mtimes are Unix seconds at UTC.
+func TestAFileFormatReadsThroughAStampMtimeAndBodyThatDisagree(t *testing.T) {
+	defer testID(t, "dfj91")
+	at := func(n int64) *int64 { return &n }
+	formats := []string{
+		"1.0", "1.1", "2.0", "3.0-1f8", "3.0-30d", "3.0-b10", "3.0-f8e", "3.0-a37", "3.0-9ef",
+		"3.0-a65", "3.0",
+	}
+	f2 := "#    Syntax   https://example.com/shcl/blob/main/project/spec.md\n"
+	f1f8 := "##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0/project/spec.md\n"
+	fb1 := "##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n"
+	// The stamp line, and the formats it leaves, oldest first. Empty for a
+	// newer format's, which reads as none.
+	stamps := [][2]string{
+		{"", "11111111111"},
+		{"##    Format   1\n", "11000000000"},
+		{"##    Format   2\n", "00100000000"},
+		{"##    Format   3\n", "00011111111"},
+		{"## SHCL format 2.0\n", "00100000000"},
+		{"## SHCL format 3.0-871\n", "00010000000"},
+		{"## SHCL format 3.0-a37\n", "00000001000"},
+		{"## SHCL format 3.0-ea0\n", "00000000100"},
+		{"## SHCL format 3.0\n", "00000000001"},
+		{"## SHCL format 3.0-zzz\n", "00011111111"},
+		{"## SHCL format 1.2\n", "11111111111"},
+		{"##    Format   3x\n", "11111111111"},
+		{"## SHCL format 3.1\n", ""},
+	}
+	// The mtime, and the newest format it leaves. One that would leave none
+	// is ignored, so it leaves them all.
+	mtimes := []struct {
+		mtime  *int64
+		newest int
+	}{
+		{nil, 10},
+		{at(-1), 10},
+		{at(1783987199), 10}, // 2026-07-13 23:59:59, before any format
+		{at(1783987200), 0},  // 2026-07-14, the day before 1.0
+		{at(1785715199), 0},
+		{at(1785715200), 1}, // 2026-08-03
+		{at(1787615999), 1},
+		{at(1787616000), 2}, // 2026-08-25
+		{at(1790121599), 2},
+		{at(1790121600), 3}, // 2026-09-23
+		{at(1790207999), 3},
+		{at(1790208000), 4}, // 2026-09-24
+		{at(1790726400), 5}, // 2026-09-30
+		{at(1790899200), 6}, // 2026-10-02
+		{at(1790985600), 7}, // 2026-10-03
+		{at(1791849599), 7},
+		{at(1791849600), 8}, // 2026-10-13
+		{at(1792799999), 8},
+		{at(1792800000), 9}, // 2026-10-24
+		{at(1793750399), 9},
+		{at(1793750400), 10}, // 2026-11-04
+		{at(4102444800), 10}, // 2100-01-01
+	}
+	// The body, and how many of its lines each format refuses or reads as
+	// binding nothing, plus a footer its init didn't write.
+	bodies := [][2]string{
+		{"a: 1\n", "00000000000"},
+		{"a: 1, 2\n", "00000000111"},
+		{"a:\n\t* x\n", "00000000111"},
+		{"a: [1, 2]\n", "00011111000"},
+		{"a:\n\t- x\n", "11111111000"},
+		{"a: it's ok\n", "00000000100"},
+		{"a: 1\n" + f2, "10011111111"},
+		{"a: 1\n" + f1f8, "11101111111"},
+		{"a: 1\n" + fb1, "11110000000"},
+		// A tie goes to the newest, and one line more decides it.
+		{"a: 1, 2\nb:\n\t- x\n", "11111111111"},
+		{"a: 1, 2\nb: 3, 4\nc:\n\t- x\n", "11111111222"},
+		{"a:\n\t- x\nb:\n\t- y\nc: 1, 2\n", "22222222111"},
+		{"a: [1, 2]\nb: it's\n", "00011111100"},
+		{"a: 1, 2\n" + fb1, "11110000111"},
+	}
+	for _, s := range stamps {
+		for _, m := range mtimes {
+			for _, b := range bodies {
+				text := b[0] + s[0]
+				want := ""
+				if s[1] != "" {
+					var byStamp, byMtime []int
+					for f := range formats {
+						if s[1][f] == '1' {
+							byStamp = append(byStamp, f)
+							if f <= m.newest {
+								byMtime = append(byMtime, f)
+							}
+						}
+					}
+					left := byMtime
+					if len(left) == 0 {
+						left = byStamp
+					}
+					best := left[0]
+					for _, f := range left[1:] {
+						if b[1][f] <= b[1][best] {
+							best = f
+						}
+					}
+					want = formats[best]
+				}
+				if got, ok := FindFormat(text, m.mtime); got != want || ok != (want != "") {
+					t.Errorf("%q at %v: %q %v, want %q", text, m.mtime, got, ok, want)
+				}
+			}
+		}
+	}
+	// What a writer could leave: the text, the mtime, the format that wrote
+	// it, and the format it reads as.
+	oct10 := at(1791590400) // 2026-10-10
+	oct20 := at(1792454400) // 2026-10-20
+	nov20 := at(1795132800) // 2026-11-20
+	y2020 := at(1577836800) // before any format
+	real := []struct {
+		text  string
+		mtime *int64
+		wrote string
+		reads string
+	}{
+		// Read right, by one line or one second.
+		{"a: x\nb: 1, 2\nc: y\n", nov20, "3.0-a37", "3.0-a37"},
+		{"a: 1\n", at(1791849599), "3.0-a37", "3.0-a37"},
+		{"a: 1\n", at(1791849600), "3.0-9ef", "3.0-9ef"},
+		{"a: 1\n##    Format   3\n" + fb1, at(1790726399), "3.0-30d", "3.0-30d"},
+		{"a: 1\n##    Format   3\n" + f1f8, nov20, "3.0-1f8", "3.0-1f8"},
+		{"a: [1, 2]\n" + f2, nov20, "2.0", "2.0"},
+		// Read as another format, since nothing in the file tells them apart.
+		{"a: 'C:\\temp'\n", nil, "2.0", "3.0"},
+		{"a: [1, 2]\n", nov20, "3.0-a37", "3.0"},
+		{"a: 1, 2\n", y2020, "2.0", "3.0-a37"},
+		{"a: 1\n##    Format   3\n" + fb1, at(1788220800), "3.0-b10", "3.0"},
+		{"a:\n\t- x\n## SHCL format 2.0\n", nil, "3.0", "2.0"},
+		{"a: it's ok\n", oct20, "3.0", "3.0-a37"},
+		{"a: 1, 2\n", oct10, "2.0", "3.0-a37"},
+	}
+	for _, r := range real {
+		if got, ok := FindFormat(r.text, r.mtime); !ok || got != r.reads {
+			t.Errorf("%q at %v, written in %s: %q, want %q", r.text, r.mtime, r.wrote, got, r.reads)
+		}
+	}
+}
+
 // TestStampReadsSayWhy: the Format and Schema lines read with a status, so an
 // unstamped file and a damaged stamp read apart, and the load's H006 and H007
 // hints say the same as the Format read on every row. Rust's
@@ -8465,7 +8660,7 @@ func TestALoadConvertsFromTheFormatItsMtimeGives(t *testing.T) {
 		nov10 = 1794268800 // 2026-11-10, every format
 		y2020 = 1577836800 // before any format, so ignored
 	)
-	quote, brackets := "a: x\"y\n", "a: [1, 2]\n"
+	quote, brackets := "a: \"q\n", "a: [1, 2]\n"
 	cases := []struct {
 		text     string
 		mtime    int64
@@ -8581,6 +8776,60 @@ func TestALoadConvertsFromAPinnedDevFormat(t *testing.T) {
 	}
 }
 
+// TestUpgradeFrom1xOr2xKeepsARawBodyAndAnOpenQuoteAsRead: 1.0 to 2.0 took
+// the indent shared by a raw body's lines off each line, where now only the
+// closing fence's comes off. 1.x blanked a line of blanks, and 2.0 took off
+// what such a line shares with that indent. They closed a block on a fence
+// run with any White_Space at its edges, and a quote in a piece that never
+// closes kept the rest of the line in the piece. The step out of each writes
+// the text it read (2026112008173348, 2026112008173388). Same rows in every
+// runner.
+func TestUpgradeFrom1xOr2xKeepsARawBodyAndAnOpenQuoteAsRead(t *testing.T) {
+	defer testID(t, "dfjbh")
+	text := "r:\n\t```\n\t  line1\n\t   \n\n\t \n\t  line2\n\t```\nu: ~~~\n\t  x\n\t~~~\u2028\no: don't, stop\n"
+	tail := "\tline2\n\t```\nu: ~~~\n\tx\n\t~~~\no: \"don't, stop\"\n"
+	for _, c := range []struct{ from, blanks string }{{"1.0", "\n\n\n"}, {"1.1", "\n\n\n"}, {"2.0", "\t \n\n\n"}} {
+		up := Upgrade(text, c.from, false)
+		want := withStamp("r:\n\t```\n\tline1\n" + c.blanks + tail)
+		if up.Text != want || up.Lost != 0 || up.Ambiguous != 0 {
+			t.Errorf("from %s: got %q lost %d ambiguous %d, want %q", c.from, up.Text, up.Lost, up.Ambiguous, want)
+		}
+	}
+	// Migrate's own read keeps a body as typed, as the 2.x builds after 2.0
+	// read it.
+	if m := Migrate(text, ""); !strings.HasPrefix(m.Text, "r:\n\t```\n\t  line1\n\t   \n\n\t \n\t  line2\n") {
+		t.Errorf("migrate: %q", m.Text)
+	}
+}
+
+// TestUpgradeFrom1xToA37FoldsAScalarWithAListOfIt: 1.0 to 3.0-a37 keyed an
+// instance by its strings alone, so `k: x` and a stacked list of `x` alone
+// were one instance. The step out of each writes such a scalar as an array of
+// one, and one with lines under it is E028 and counts as lost
+// (2026112008173368). Same rows in every runner.
+func TestUpgradeFrom1xToA37FoldsAScalarWithAListOfIt(t *testing.T) {
+	defer testID(t, "dfjcz")
+	text := "d: x\nd: x # c\nd:\n\t* x\nb:\n\t* \"y,z\"\nb: \"y,z\"\nc: x\nc:\n\t* y\n"
+	want := withStamp("d: [x]\nd: [x] # c\nd:\n\t- x\nb:\n\t- \"y,z\"\nb: [\"y,z\"]\nc: x\nc:\n\t- y\n")
+	for _, from := range []string{"1.0", "1.1", "2.0", "3.0-1f8", "3.0-a37"} {
+		up := Upgrade(text, from, false)
+		if up.Text != want || up.Lost != 0 || up.Ambiguous != 0 {
+			t.Errorf("from %s: got %q lost %d ambiguous %d, want %q", from, up.Text, up.Lost, up.Ambiguous, want)
+		}
+		doc := Parse(up.Text)
+		if d, b, c := doc.Count("d"), doc.Count("b"), doc.Count("c"); d != 1 || b != 1 || c != 2 {
+			t.Errorf("from %s: counts %d %d %d, want 1 1 2", from, d, b, c)
+		}
+	}
+	if m := Migrate("p: a\n\tq: y\np:\n\t* a\n", "1.1"); m.Lost != 1 || !strings.HasPrefix(m.Text, "p: [a]\n") {
+		t.Errorf("lines under it: lost %d, %q", m.Lost, m.Text)
+	}
+	// Migrate's own read of a file that may be 3.0 leaves it.
+	if m := Migrate("d: x\nd:\n\t- x\n", ""); !strings.HasPrefix(m.Text, "d: x\n") {
+		t.Errorf("migrate: %q", m.Text)
+	}
+}
+
 // TestALoadConvertsFromA1xOr2xFormat: a file from 1.0, 1.1 or 2.0 goes
 // through the 2.x rewrite on load, with each format's own reads where they
 // differ. 1.x keyed a quoted name by its text as typed and 2.0 resolved it,
@@ -8669,7 +8918,7 @@ func TestAnUpgradeConvertsFromTheFormatItsMtimeGives(t *testing.T) {
 		nov10 = 1794268800 // 2026-11-10, every format
 		y2020 = 1577836800 // before any format, so ignored
 	)
-	quote, fresh := "a: x\"y\n", "a: 'x\"y'\n## SHCL format 3.0\n"
+	quote, fresh := "a: \"q\n", "a: '\"q'\n## SHCL format 3.0\n"
 	// Text from no file reads as the newest format its tells leave.
 	if !Upgrade(quote, "", false).Current {
 		t.Errorf("Upgrade with no mtime made over %q", quote)
@@ -8781,6 +9030,101 @@ func TestAnUpgradeReadsABeta1StampAsTheLoadDoes(t *testing.T) {
 	}
 }
 
+// TestAFileWhoseStampMtimeAndContentDisagreeLoadsAndUpgradesByItsRead: a file
+// whose stamp, mtime and content disagree loads and upgrades by the format
+// FindFormat gives it, with the mtime pinned on the file. Rust's
+// a_file_whose_stamp_mtime_and_content_disagree_loads_and_upgrades_by_its_read
+// has the same rows.
+func TestAFileWhoseStampMtimeAndContentDisagreeLoadsAndUpgradesByItsRead(t *testing.T) {
+	defer testID(t, "dfj9m")
+	dir := t.TempDir()
+	const (
+		sep1  = 1788220800 // 2026-09-01
+		oct10 = 1791590400 // 2026-10-10
+		nov20 = 1795132800 // 2026-11-20
+		y2020 = 1577836800 // before any format
+	)
+	ct := "a: 1, 2\nb: \"x\\ty\"\n"
+	tab := "b: \"x\\ty\"\n"
+	made := "a: [1, 2]\nb: \"x\u25c9TAB\u25c9y\"\n"
+	madeTab := "b: \"x\u25c9TAB\u25c9y\"\n"
+	f3 := "##    Format   3\n"
+	f30 := "##    Format   3.0\n"
+	// The text, its mtime, what upgrade gives, which is the text when
+	// current, and empty when it refuses, and what the load keeps, with its
+	// errors.
+	cases := []struct {
+		text     string
+		mtime    int64
+		upgraded string
+		loaded   string
+		errors   string
+	}{
+		// 2.0 by one second, so the escape reads 2 ways and upgrade
+		// refuses, and from 3.0-1f8 on, a pin's escape.
+		{ct, 1790121599, "", "a: [1, 2]\n" + tab + StampLine + "\n", ""},
+		{ct, 1790121600, withStamp(made), withStamp(made), ""},
+		// A whole stamp beats the mtime and the tells.
+		{ct + "## SHCL format 2.0\n", nov20, withStamp(made), withStamp(made), ""},
+		{withStamp(ct), sep1, withStamp(ct), withStamp(ct), "E026@1"},
+		{"a:\n\t- x\n## SHCL format 2.0\n", nov20, "a:\n\t- x\n## SHCL format 2.0\n", withStamp("a:\n\t- x\n"), ""},
+		{"a: [1, 2]\n## SHCL format 3.0-a37\n", nov20, "a: [1, 2]\n## SHCL format 3.0-a37\n", withStamp("a: [1, 2]\n"), ""},
+		// A tie goes to 3.0, and one line more to 3.0-a37.
+		{ct + "c:\n\t- x\n", nov20, ct + "c:\n\t- x\n", withStamp(ct + "c:\n\t- x\n"), "E026@1"},
+		{ct + "c:\n\t- x\nd: 3, 4\n", nov20, withStamp(made + "c:\n\t- x\nd: [3, 4]\n"), withStamp(made + "c:\n\t- x\nd: [3, 4]\n"), ""},
+		// beta1's stamp, then 3.0-a37 or 3.0-9ef by one second, and an mtime
+		// older than the stamp, which is ignored.
+		{tab + f3, 1791849599, withStamp(madeTab), madeTab + f30, ""},
+		{tab + f3, 1791849600, tab + f3, tab + f30, ""},
+		{tab + f3, sep1, tab + f3, tab + f30, ""},
+		// Brackets read as 3.0, so a tab 3.0-a37 wrote stays a backslash.
+		{"a: [1, 2]\n" + tab, nov20, "a: [1, 2]\n" + tab, withStamp("a: [1, 2]\n" + tab), ""},
+		// An mtime before any format is ignored.
+		{tab, y2020, tab, withStamp(tab), ""},
+		{tab, oct10, withStamp(madeTab), withStamp(madeTab), ""},
+		{"a: 1, 2\n##    Format   1\n", nov20, withStamp("a: [1, 2]\n"), "a: [1, 2]\n" + f30, ""},
+	}
+	opts := LoadOptions{KeepLines: true, Migrate: true}
+	for i, c := range cases {
+		mtime := c.mtime
+		want := c.upgraded
+		if want == "" {
+			want = c.text
+		}
+		up := UpgradeDated(c.text, &mtime, "", false)
+		if up.Current != (c.upgraded == c.text) || up.Text != want {
+			t.Errorf("%q at %d: gave %v, %q; want %q", c.text, c.mtime, up.Current, up.Text, want)
+		}
+		f := filepath.Join(dir, fmt.Sprintf("f%d.shcl", i))
+		if err := os.WriteFile(f, []byte(c.text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		tm := time.Unix(mtime, 0)
+		if err := os.Chtimes(f, tm, tm); err != nil {
+			t.Fatal(err)
+		}
+		doc, _, _ := LoadFileOpts(f, Standard, opts)
+		var errs []string
+		for _, d := range doc.Diagnostics() {
+			if d.Severity == SeverityError {
+				errs = append(errs, fmt.Sprintf("%s@%d", d.Code, d.Line))
+			}
+		}
+		got, _, err := doc.ToTextKeepLines()
+		if err != nil || got != c.loaded || strings.Join(errs, " ") != c.errors {
+			t.Errorf("load of %q at %d: %q, %v, %v; want %q, %q", c.text, c.mtime, got, errs, err, c.loaded, c.errors)
+		}
+		// A text that reads 2 ways is refused, and the file stays.
+		fu, err := UpgradeFile(f, "", false)
+		if (err == nil) != (c.upgraded != "") || (err == nil && fu.Current != (c.upgraded == c.text)) {
+			t.Errorf("upgrade_file of %q at %d: current %v, %v", c.text, c.mtime, fu.Current, err)
+		}
+		if b, err := os.ReadFile(f); err != nil || string(b) != want {
+			t.Errorf("upgrade_file of %q at %d: holds %q, %v; want %q", c.text, c.mtime, b, err, want)
+		}
+	}
+}
+
 // TestMigrateReadsFromAsUpgradeDoes: Migrate reads a caller's from as
 // Upgrade does, with no mtime, and takes that format's step. A format whose steps rewrite nothing, and a newer one,
 // leave the text alone, and a name no format has is no from. A pin's rewrite
@@ -8819,6 +9163,40 @@ func TestMigrateReadsFromAsUpgradeDoes(t *testing.T) {
 	}
 	if got, want := MigrateUnstamped(tab, "3.0-a37").Text, "a: \"x\u25c9TAB\u25c9y\"\n"; got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// TestMigrateSaysWhenItCouldNotFinish: Migrate says when the migration
+// couldn't finish, so a program that writes the version line itself after
+// MigrateUnstamped can leave it off: a raw block that never closes, or
+// ambiguous pieces, which is when Migrate leaves its own off
+// (2026111014552300). Same rows in every runner.
+func TestMigrateSaysWhenItCouldNotFinish(t *testing.T) {
+	defer testID(t, "dfj8d")
+	open := "notes: ```\nnever closed\n"
+	closed := "notes: ```\nclosed\n```\n"
+	sq := "b: 'C:\\temp'\n"
+	// The text, from, and whether the migration finishes.
+	cases := []struct {
+		text, from string
+		finishes   bool
+	}{
+		{open, "2.0", false},
+		{open, "", false},
+		{"p: a,b\n", "", false},
+		{closed, "2.0", true},
+		{closed, "", true},
+		{sq, "2.0", true},
+		{sq, "3.0", true},
+	}
+	for _, c := range cases {
+		bare, full := MigrateUnstamped(c.text, c.from), Migrate(c.text, c.from)
+		if bare.Unfinished != !c.finishes || full.Unfinished != !c.finishes {
+			t.Errorf("%q, from %q: unfinished %v and %v", c.text, c.from, bare.Unfinished, full.Unfinished)
+		}
+		if strings.Contains(full.Text, FormatLineHead) != (c.finishes && !full.Current) {
+			t.Errorf("%q, from %q: %q", c.text, c.from, full.Text)
+		}
 	}
 }
 

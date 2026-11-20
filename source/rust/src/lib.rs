@@ -1930,14 +1930,23 @@ fn scan_piece(
 		}
 		// 2.0 read a quote inside a piece as text, but a comma or a `#`
 		// before its close did not end the piece. One that never closes is
-		// text, as `don't` is.
-		if shield
-			&& (b == b'"' || b == b'\'')
-			&& let Some(close) = quote_close(s, pos, rules)
-		{
-			pos = close + 1;
-			content_end = pos;
-			continue;
+		// text too, as `don't` is, and so is the rest of the line after it.
+		if shield && (b == b'"' || b == b'\'') {
+			if let Some(close) = quote_close(s, pos, rules) {
+				pos = close + 1;
+				content_end = pos;
+				continue;
+			}
+			while pos < s.len() {
+				match blank_len(s, pos, edges) {
+					0 => {
+						pos += utf8_len(s[pos]);
+						content_end = pos.min(s.len());
+					}
+					n => pos += n,
+				}
+			}
+			break;
 		}
 		if ends_at(s, pos) || (array && b == b']') || (comments && comment_at(s, pos)) {
 			break;
@@ -3043,6 +3052,12 @@ pub struct Migration {
 	/// kept as written where the format isn't found, as in `migrate`, and a
 	/// selector 1.0 or 1.1 matched otherwise.
 	pub lost: usize,
+	/// The migration couldn't finish, so `migrate` left the version line off:
+	/// `ambiguous` is nonzero, or a raw block never closes under either rule
+	/// set, where the line would be one more line of its content. A program
+	/// that writes the version line itself after `migrate_unstamped` leaves it
+	/// off too, or the next run takes the file as current.
+	pub unfinished: bool,
 }
 
 /// The counters a line rewrite reports back, and the one thing it asks.
@@ -3249,7 +3264,8 @@ fn pick_format(text: &str, mtime: Option<i64>, by_stamp: u32) -> &'static str {
 /// formats both read clean, such as an escape, isn't a tell here.
 const TELL_RUNS: [(&str, &str); 7] = [
 	// Refused from the format 3 value syntax on: a comma list, `*` items, a
-	// bracket selector, a bare name led by a digit, a CR in a bare value.
+	// bracket selector, a bare name led by a digit, a quote, a tab, a CR, a
+	// bracket or a loose colon in a bare value, an open backtick.
 	("3.0-9ef", "3.0"),
 	// A bracketed value, which binds nothing.
 	("3.0-1f8", "3.0-a37"),
@@ -3368,6 +3384,7 @@ fn line_tells(rest: &str, codes: &[(usize, &str)], tok: &mut Tokens) -> u32 {
 		|| has("E029")
 		|| (has("E025") && rest.contains('\r'))
 		|| (has("E014") && led_by_digit)
+		|| value_told(rest, codes, tok)
 	{
 		return tell_run(TELL_REFUSED_NOW);
 	}
@@ -3391,6 +3408,24 @@ fn line_tells(rest: &str, codes: &[(usize, &str)], tok: &mut Tokens) -> u32 {
 		run |= tell_run(TELL_APOSTROPHE);
 	}
 	run
+}
+
+/// A field value the format 3 value syntax refuses and every format before it
+/// read clean as text: a bare value with a quote, a tab, a bracket or a loose
+/// colon inside it (`E025`), or one a backtick opens and doesn't close
+/// (`E017`). A quote or an apostrophe that opens a value and never closes is
+/// `E017` in every format, so it isn't one. A bracketed value or a selector
+/// in the line is refused by the older formats too.
+fn value_told(rest: &str, codes: &[(usize, &str)], tok: &Tokens) -> bool {
+	let has = |c: &str| codes.iter().any(|r| r.1 == c);
+	if tok.array.is_some() || tok.segments.iter().any(|s| s.selector.is_some()) {
+		return false;
+	}
+	tok.elements.iter().any(|p| match p.quote {
+		Quote::None => has("E025") && bare_trouble(&rest[p.start..p.end], Bare::Value).is_some(),
+		Quote::Open => has("E017") && rest.as_bytes().get(p.start) == Some(&b'`'),
+		_ => false,
+	})
 }
 
 /// What turns a text in one format of `FORMAT_DAYS` into the next one's, as
@@ -3483,6 +3518,7 @@ fn convert(text: &str, format: Option<&str>, told: bool) -> Migration {
 			current: true,
 			ambiguous: 0,
 			lost: 0,
+			unfinished: false,
 		},
 	}
 }
@@ -3860,7 +3896,12 @@ fn opens_raw(rest: &str, tok: &mut Tokens) -> Option<(u8, usize)> {
 /// here at all: a fence label holding a `#`, which 2.x ran to the end of the
 /// line and which now ends at the `#`. A quoted name with a backslash pair
 /// reads as `from`'s format read it, and without `from` stays as written and
-/// counts in `lost`, since 1.2 read it as typed and 2.0 resolved it.
+/// counts in `lost`, since 1.2 read it as typed and 2.0 resolved it. With
+/// `from` naming 1.0, 1.1 or 2.0, a raw body is written to read as that
+/// format read it, with the indent its lines shared taken off. A file taken
+/// as 3.0-a37 or older, by `from` or its Format line, gets `[x]` for a
+/// scalar `x` beside a stacked list of `x` alone, since those were one
+/// instance then and a list isn't a scalar now.
 ///
 /// Which file this is cannot always be read off the text: `p: a,b` is an
 /// array under 2.x and one string under these rules, and a raw block can
@@ -3914,6 +3955,174 @@ fn majority_eol(text: &str) -> &'static str {
 	if crlf > lf { "\r\n" } else { "\n" }
 }
 
+/// The fence run of a line that closed a raw block under 1.0 to 2.0, which
+/// trimmed every White_Space character off its edges, where now only a space
+/// or a tab comes off.
+fn v2_fence_close(line: &str, ch: u8, len: usize) -> Option<&str> {
+	let t = line.trim_matches(white_space);
+	(t.len() >= len && t.bytes().all(|b| b == ch)).then_some(t)
+}
+
+/// A raw body as 1.0 to 2.0 read it, for the lines after its opening fence.
+/// Those formats took the indent shared by the body's lines that hold more
+/// than blanks off each line. 1.x blanked a line of blanks, and 2.0 took off
+/// what such a line shares with that indent. Now only the closing fence's
+/// indent comes off. So when a line would read otherwise now, each line that
+/// holds more than blanks is written as that indent and the text it read
+/// then, which a second run reads the same, and a line of blanks only where
+/// it reads otherwise. The rest stay as typed (None). A block that never
+/// closes stays as typed, since 2.x read it with an error and it is
+/// unfinished here. `migrate`'s own read, with no format found, keeps them
+/// all too: the 2.x dev builds after 2.0 read a body as it reads now.
+fn v2_raw_body(lines: &[&str], ch: u8, len: usize, v2: V2Read) -> Vec<Option<String>> {
+	if v2 == V2Read::Either {
+		return Vec::new();
+	}
+	let mut body: Vec<&str> = Vec::new();
+	let mut nest = None;
+	for l in lines {
+		let b = l.trim_end_matches('\r');
+		if v2_fence_close(b, ch, len).is_some() {
+			nest = Some(leading_ws(b));
+			break;
+		}
+		body.push(b);
+	}
+	let Some(nest) = nest else {
+		return Vec::new();
+	};
+	let mut common: Option<&str> = None;
+	for b in body
+		.iter()
+		.filter(|b| !b.trim_matches(white_space).is_empty())
+	{
+		let lead = leading_ws(b);
+		common = Some(match common {
+			None => lead,
+			Some(prev) => {
+				let n = prev
+					.bytes()
+					.zip(lead.bytes())
+					.take_while(|(x, y)| x == y)
+					.count();
+				&prev[..n]
+			}
+		});
+	}
+	let common = common.unwrap_or_default();
+	let then: Vec<&str> = body
+		.iter()
+		.map(|b| match v2 {
+			V2Read::From20 => strip_common(b, common),
+			_ if b.trim_matches(white_space).is_empty() => "",
+			_ => &b[common.len()..],
+		})
+		.collect();
+	if body
+		.iter()
+		.zip(&then)
+		.all(|(b, t)| strip_common(b, nest) == *t)
+	{
+		return Vec::new();
+	}
+	body.iter()
+		.zip(&then)
+		.map(|(b, t)| {
+			let want = if t.is_empty() {
+				String::new()
+			} else {
+				format!("{nest}{t}")
+			};
+			let keep = if b.trim_matches(white_space).is_empty() {
+				strip_common(b, nest) == *t
+			} else {
+				*b == want
+			};
+			(!keep).then_some(want)
+		})
+		.collect()
+}
+
+/// 1.0 to 3.0-a37 keyed an instance by its strings alone, so `k: x` and a
+/// list of `x` alone under the same parent were one instance, which a fold
+/// made where the list closed. A list isn't a scalar now, so they read as 2.
+/// Each such scalar is written as an array of one, and the text read again,
+/// since a line of the same scalar that folded into it reads apart then. None
+/// when nothing changes, else the text and the lines written.
+fn v2_fold_scalars(text: &str) -> Option<(String, Vec<usize>)> {
+	// Only a stacked list or brackets make an array.
+	if !text.contains('-') && !text.contains('[') {
+		return None;
+	}
+	let mut lines: Vec<String> = lines_of(text).map(str::to_string).collect();
+	let mut tok = Tokens::default();
+	let mut wrote_at: Vec<usize> = Vec::new();
+	// Each pass writes at least one scalar, which is then an array, so the
+	// passes are fewer than the lines.
+	for _ in 0..lines.len() {
+		let doc = Document::parse(&lines.join("\n"));
+		let mut hits: Vec<(usize, String)> = Vec::new();
+		let mut stack = vec![ROOT];
+		while let Some(p) = stack.pop() {
+			let kids = &doc.arena[p].children;
+			stack.extend(kids.iter().copied());
+			let lists: HashSet<(&str, &str)> = kids
+				.iter()
+				.filter_map(|&c| match &doc.arena[c].value {
+					Value::Array(els) if els.len() == 1 => {
+						Some((doc.arena[c].name.as_str(), els[0].text.as_str()))
+					}
+					_ => None,
+				})
+				.collect();
+			if lists.is_empty() {
+				continue;
+			}
+			for &c in kids {
+				let nd = &doc.arena[c];
+				if let Value::Cell(e) = &nd.value
+					&& nd.line > 0 && lists.contains(&(nd.name.as_str(), e.text.as_str()))
+				{
+					hits.push((nd.line - 1, emit_array(std::slice::from_ref(e))));
+				}
+			}
+		}
+		let before = wrote_at.len();
+		for (i, with) in hits {
+			let Some(line) = lines.get(i) else {
+				continue;
+			};
+			let bom = if i == 0 && line.starts_with('\u{feff}') {
+				"\u{feff}"
+			} else {
+				""
+			};
+			let body = line[bom.len()..].trim_end_matches('\r');
+			let indent = leading_ws(body);
+			let rest = trim_wsp_end(&body[indent.len()..]);
+			lex_line(rest, b':', false, Lex::Current, &mut tok);
+			if tok.fault.is_some()
+				|| tok.sep.is_none()
+				|| tok.array.is_some()
+				|| tok.elements.len() != 1
+			{
+				continue;
+			}
+			let at = bom.len() + indent.len();
+			lines[i] = format!(
+				"{}{with}{}",
+				&line[..at + tok.value.0],
+				&line[at + tok.value.1..]
+			);
+			wrote_at.push(i + 1);
+		}
+		if wrote_at.len() == before {
+			break;
+		}
+	}
+	(!wrote_at.is_empty()).then(|| (lines.join("\n"), wrote_at))
+}
+
 /// `beta` takes a file naming this format as 2.x too, which only `upgrade`
 /// asks for, once the caller has said so. `step` is the one the text's format
 /// starts with, and says which rules it was written by: a pin's, for a file
@@ -3937,6 +4146,7 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool, step: Step) 
 			current: true,
 			ambiguous: 0,
 			lost: 0,
+			unfinished: false,
 		};
 	}
 	let mut st = Migrating {
@@ -3970,7 +4180,10 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool, step: Step) 
 	// The output as the parser will read it, for where its raw blocks are.
 	let mut now = RawLines::new(Lex::Current);
 	let mut split = false;
-	for (i, line) in body_text.split('\n').enumerate() {
+	let lines: Vec<&str> = body_text.split('\n').collect();
+	// A raw body's lines as the format read them, from its opening line on.
+	let mut raw_body = Vec::<Option<String>>::new().into_iter();
+	for (i, &line) in lines.iter().enumerate() {
 		if i > 0 {
 			out.push('\n');
 		}
@@ -3979,10 +4192,30 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool, step: Step) 
 		let body = line.trim_end_matches('\r');
 		let cr = &line[body.len()..];
 		if let Some((ch, len)) = fence {
+			// Only where the current rules read the same block.
+			let closed_then = match st.v2 {
+				V2Read::Either => None,
+				_ if now.fence != fence => None,
+				_ => v2_fence_close(body, ch, len),
+			};
 			if is_fence_close(body, ch, len) {
 				fence = None;
+				out.push_str(line);
+			} else if let Some(run) = closed_then {
+				// A close only 1.0 to 2.0 read goes without the blanks that
+				// hid it now.
+				fence = None;
+				out.push_str(leading_ws(body));
+				out.push_str(run);
+				out.push_str(cr);
+				changed = true;
+			} else if let Some(Some(then)) = raw_body.next() {
+				out.push_str(&then);
+				out.push_str(cr);
+				changed = true;
+			} else {
+				out.push_str(line);
 			}
-			out.push_str(line);
 		} else {
 			let indent = leading_ws(body);
 			let rest_full = &body[indent.len()..];
@@ -4009,6 +4242,26 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool, step: Step) 
 			st.ambiguous += 1;
 		}
 		split = differs;
+		// A body is written to read as it did only where the current rules
+		// open the same block on the same line.
+		if let Some((ch, len)) = fence
+			&& !raw_then
+			&& now.fence == fence
+		{
+			raw_body = v2_raw_body(&lines[i + 1..], ch, len, st.v2).into_iter();
+		}
+	}
+	// A scalar written as an array to fold as it did is E028 too where it
+	// heads lines of its own.
+	if st.from_v2
+		&& let Some((t, at)) = v2_fold_scalars(&out)
+	{
+		out = t;
+		// It can put back what the line's own rewrite took off.
+		changed = out != text;
+		bracketed.extend(at);
+		bracketed.sort_unstable();
+		bracketed.dedup();
 	}
 	// 2.x let a comma list head lines of its own, and nothing spells that
 	// now: in brackets it is E028, and as one string it reads as another
@@ -4026,7 +4279,8 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool, step: Step) 
 	// either, under either rule set: appended, it would be another line of the
 	// block's content. The lines end the way most of the file's do. An older
 	// Format line becomes this one where it is, so the file names one format.
-	if stamp && st.ambiguous == 0 && fence.is_none() && now.fence.is_none() {
+	let unfinished = st.ambiguous > 0 || fence.is_some() || now.fence.is_some();
+	if stamp && !unfinished {
 		let eol = majority_eol(body_text);
 		let restamped = version.and_then(|_| restamp(&out, named.line));
 		let add_format = restamped.is_none();
@@ -4051,6 +4305,7 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool, step: Step) 
 		current: false,
 		ambiguous: st.ambiguous,
 		lost: st.lost,
+		unfinished,
 	}
 }
 

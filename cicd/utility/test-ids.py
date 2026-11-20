@@ -127,6 +127,7 @@ CALLS: dict[str, list[str]] = {
 	"source/python/tests/conformance.py": [CORPUS],
 	"source/c/tests/conformance.c": [CORPUS],
 	"cicd/utility/check-docs.bash": ["cicd/utility/check-abnf.py"],
+	"cicd/utility/check-formats.bash": ["cicd/utility/check-format-reads.py"],
 	"cicd/utility/soak-c.bash": ["source/c/tests/soak.c"],
 	"cicd/utility/win-runners.bash": ["cicd/utility/winpath-regress.ps1"],
 }
