@@ -363,7 +363,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - analyze-c fails on dev: clang-tidy on `set_off`, and the clang analyzer on `fs_property.c`
 	- ID: 2026111623502776
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Severity: Low
 	- Opened: 20261116-235027
 	- Opened by: found while working 2026111623191917
@@ -372,6 +372,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: `de2x4` fails on `bugprone-easily-swappable-parameters` for `set_off` in `shcl.h` (its `comment` and `above` arrays), from `1bbee68b` (2026-11-11). `de2x3` fails on `fs_slurp` in `source/c/tests/fs_property.c`, a read after end of file the analyzer assumes.
 	- Expected behavior: both pass, with a real fix or a suppression at the line with its reason, as the 3 bugprone checks are judged.
 	- Estimated effort: Low
+	- Needs local test suite run?: Yes. `cicd/utility/analyze-c.bash` on the round branch, with `de2x3` and `de2x4` passing.
+	- 20261120: nov20b's gate step ran analyze-c and it passed in full, so this may only need its close (me).
 
 - H001 on a case-only repeat gives the same hint as a real repeat
 	- ID: 2026111217560122
