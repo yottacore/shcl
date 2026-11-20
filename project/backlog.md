@@ -268,7 +268,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: `from` and `--from=FORMAT` replace `from_v2` and `--from-2x`
 	- ID: 2026111907080445
 	- Type: Feature
-	- Status: Queued
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261119-070804
@@ -278,6 +278,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: a caller names the format with `from`, which overrides the stamp and the scan, in all 4 bindings, the C++ interface and the 4 CLIs. It replaces `from_v2` and `--from-2x`.
 	- Estimated effort: High
 	- Note: split for its time cap into 2026111918111481 (Rust), the ports 2026111918112329 (Go), 2026111918112450 (Python) and 2026111918112570 (C and C++), and 2026111918113344 (the 4 CLIs).
+	- Test case: its children's: 2026111918111481: `a_caller_names_the_format_with_from` (Rust `dfhgc`), and fuzz `de116`'s pin arm.; 2026111918112329: `TestACallerNamesTheFormatWithFrom` (Go `dfhh0`, twin of Rust `dfhgc`).; 2026111918112450: `a_caller_names_the_format_with_from` (Python `dfhhb`, twin of Rust `dfhgc`).; 2026111918112570: `a_caller_names_the_format_with_from` (C `dfhhv`, C++ veneer `dfhhw`, twin of Rust `dfhgc`).; 2026111918113344: its children's: 2026111919213927: `migrate_reads_from_as_upgrade_does` (Rust `dfhjc`, Go `dfhjd`, Python `dfhje`, C `dfhjf`, veneer `dfhjg`), `de60h` and its twins, corpus `dcns3`, cli-regress `de60s`, `de60t`, `dfhk1` and `dfhk2`.; 2026111919213947: cli-regress `dfhkt`, `dfhkv`, `dfhkw`, `dfhkx`, `dfhky`, `dfhkz`, `dfhm0`, with `ddqhf`, `ddqhk` and `ddmhk` for the hint and refusal text.
+	- Closed: 20261119-203346
+	- Closed reason: Done
 
 - Format versions: `from` in the Rust library, in place of `from_v2`
 	- ID: 2026111918111481
@@ -388,7 +391,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: `--from=FORMAT` in the 4 CLIs, in place of `--from-2x`
 	- ID: 2026111918113344
 	- Type: Feature
-	- Status: Queued
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261119-181133
@@ -398,6 +401,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: `migrate` and `upgrade` take `--from=FORMAT` in place of `--from-2x` in the 4 CLIs, passed to the library's `from`. `migrate` and `migrate_unstamped` take `from` in place of `from_v2` in all 4 bindings and the C++ interface, read as `upgrade`'s is, with each format's step, so corpus case `118-migrate-backslash-spelling`'s golden and `de60h` and its twins change with it. A name no format has is a usage error. The help text, the completions, the `H007` hint's message, cli-regress, check-migrate, examples.md and spec.md's CLI parts follow.
 	- Estimated effort: Avg
 	- Note: split for its time cap into 2026111919213927 (`from` in the libraries' `migrate`) and 2026111919213947 (the CLIs' `--from=FORMAT` and its docs).
+	- Test case: its children's: 2026111919213927: `migrate_reads_from_as_upgrade_does` (Rust `dfhjc`, Go `dfhjd`, Python `dfhje`, C `dfhjf`, veneer `dfhjg`), `de60h` and its twins, corpus `dcns3`, cli-regress `de60s`, `de60t`, `dfhk1` and `dfhk2`.; 2026111919213947: cli-regress `dfhkt`, `dfhkv`, `dfhkw`, `dfhkx`, `dfhky`, `dfhkz`, `dfhm0`, with `ddqhf`, `ddqhk` and `ddmhk` for the hint and refusal text.
+	- Closed: 20261119-203346
+	- Closed reason: Done
 
 - Format versions: `from` in `migrate` and `migrate_unstamped`, in place of `from_v2`
 	- ID: 2026111919213927
