@@ -5934,8 +5934,10 @@ fn migrate_counts_a_quoted_name_with_a_backslash_pair_lost() {
 		"{:?}",
 		m.text
 	);
+	// upgrade's from_v2 takes the file as 2.0, whose step reads the names as
+	// 2.0 did (2026111917071578).
 	let up = shcl::upgrade(text, true, true);
-	assert_eq!(up.lost, 2, "{up:?}");
+	assert_eq!(up.lost, 0, "{up:?}");
 }
 
 const DEFAULT_TEXT: &str = "port: abc  # the port\nempty:\ngood: 8080\nlist: [80, 443]\nflag: maybe\nports: 80\nwords: a\nscript:\n\t```sh\n\techo hi\n\t```\nsrv:\n\tk: 1\nn: $5\n";
@@ -7167,8 +7169,8 @@ fn a_load_that_migrates_saves_through_the_guards() {
 /// A load that migrates converts from the format `find_format` gives the
 /// file's text and mtime, with the mtime pinned on the file. One whose
 /// format reads like this one's but for refused lines comes back as typed,
-/// and an older one goes through the 2.x migration that stands in for its
-/// steps (2026111908443663). Same rows in every runner.
+/// and an older one goes through the 2.x rewrite (2026111908443663). Same
+/// rows in every runner.
 #[test]
 fn a_load_converts_from_the_format_its_mtime_gives() {
 	let _id = test_id("dfgyc");
@@ -7311,6 +7313,99 @@ fn a_load_converts_from_a_pinned_dev_format() {
 		let up = upgrade_dated(text, Some(mtime as i64), false, false);
 		assert!(!up.current, "at {mtime}");
 		assert_eq!(up.text, with_stamp(&want), "at {mtime}");
+	}
+	let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A file from 1.0, 1.1 or 2.0 goes through the 2.x rewrite on load, with
+/// each format's own reads where they differ. 1.x keyed a quoted name by its
+/// text as typed and 2.0 resolved it, 1.x matched a quoted selector against
+/// an array's display form too, and 1.0 matched a selector's backslash pair
+/// as typed. A line the step can't be sure of stays as typed and counts as
+/// lost (2026111917071578). Same rows in every runner.
+#[test]
+fn a_load_converts_from_a_1x_or_2x_format() {
+	let _id = test_id("dfhe6");
+	use shcl::LoadOptions;
+	use std::time::{Duration, UNIX_EPOCH};
+	let dir = std::env::temp_dir().join(format!("shcl-v1conv-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(&dir).unwrap();
+	let f = dir.join("f.shcl").to_str().unwrap().to_string();
+	let jul20 = 1784505600; // 2026-07-20, to 1.0
+	let aug6 = 1785974400; // 2026-08-06, to 1.1
+	let sep1 = 1788220800; // 2026-09-01, to 2.0
+	let text = concat!(
+		"\"a\\\"b\": 1\n",
+		"'a\"b': 2\n",
+		"\"c\\td\": 3\n",
+		"s: q\n",
+		"s[\"q\\\"r\"].h: 1\n",
+		"x: a, b\n",
+		"x[\"a, b\"].h: 1\n",
+	);
+	let mid = "\"c\\td\": 3\ns: q\n";
+	let cases = [
+		(
+			jul20,
+			"'a\\\"b': 1\n'a\"b': 2\n",
+			"s[\"q\\\"r\"].h: 1\nx: [a, b]\nx[\"a, b\"].h: 1\n",
+			2,
+		),
+		(
+			aug6,
+			"'a\\\"b': 1\n'a\"b': 2\n",
+			"s('q\"r').h: 1\nx: [a, b]\nx[\"a, b\"].h: 1\n",
+			1,
+		),
+		// 2.0 read `"c\td"` with a tab, which reads clean as text now, so the
+		// file could be a 3.0 one, and it stays.
+		(
+			sep1,
+			"'a\"b': 1\n'a\"b': 2\n",
+			"s('q\"r').h: 1\nx: [a, b]\nx(\"a, b\").h: 1\n",
+			0,
+		),
+	];
+	for (mtime, head, tail, lost) in cases {
+		std::fs::write(&f, text).unwrap();
+		let file = std::fs::File::options().write(true).open(&f).unwrap();
+		file.set_modified(UNIX_EPOCH + Duration::from_secs(mtime))
+			.unwrap();
+		drop(file);
+		let opts = LoadOptions {
+			keep_lines: true,
+			migrate: true,
+			from_v2: false,
+		};
+		let (doc, _) = Document::load_file_opts(&f, Strictness::Standard, &opts).unwrap();
+		let want = format!("{head}{mid}{tail}");
+		assert_eq!(
+			(doc.to_text_keep_lines().map(|t| t.0), doc.lost_count()),
+			(Ok(with_stamp(&want)), lost),
+			"at {mtime}"
+		);
+		// upgrade writes nothing over the name that reads 2 ways.
+		let up = upgrade_dated(text, Some(mtime as i64), false, false);
+		let made = if mtime == sep1 {
+			(text.to_string(), 0, 1)
+		} else {
+			(with_stamp(&want), lost, 0)
+		};
+		assert_eq!((up.text, up.lost, up.ambiguous), made, "upgrade at {mtime}");
+		if mtime != sep1 {
+			continue;
+		}
+		// from_v2 takes it as 2.0 too, and says it isn't a 3.0 one.
+		let up = upgrade_dated(text, None, true, false);
+		assert_eq!(
+			(up.text, up.lost),
+			(
+				with_stamp(&want.replace("\"c\\td\"", "\"c\u{25c9}TAB\u{25c9}d\"")),
+				0
+			),
+			"from_v2"
+		);
 	}
 	let _ = std::fs::remove_dir_all(&dir);
 }

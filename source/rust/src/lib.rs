@@ -3039,7 +3039,8 @@ pub struct Migration {
 	/// holding a comma, which matched an array value, and a comma list with
 	/// lines under it (`E028` in brackets). Also a quoted name with a
 	/// backslash pair, which 1.2 read as typed and 2.0 resolved, so it is
-	/// kept as written.
+	/// kept as written where the format isn't found, as in `migrate`, and a
+	/// selector 1.0 or 1.1 matched otherwise.
 	pub lost: usize,
 }
 
@@ -3049,6 +3050,8 @@ struct Migrating {
 	rules: Lex,
 	// Under `Pin`, which pinned rules, so which escapes they read and refused.
 	pin: Pin,
+	// Under `V2`, which of 1.0 to 2.0, if the format was found.
+	v2: V2Read,
 	from_v2: bool,
 	ambiguous: usize,
 	lost: usize,
@@ -3359,9 +3362,8 @@ enum Step {
 	/// refuses, which stay as typed. Nothing changes.
 	Same,
 	/// migrate's rewrite from the 2.x rules, which lands on the current
-	/// format. It stands in for the steps from 1.0 to 2.0 until they're built
-	/// (2026111908444534).
-	V2,
+	/// format, with the reads of the format of 1.0 to 2.0 it starts from.
+	V2(V2Read),
 	/// The rewrite from the rules of a pin from 3.0-1f8 to 3.0-a37 into the
 	/// format 3 value syntax, where a backslash is text. It ends at the
 	/// current format. A line those rules refused stays as typed.
@@ -3383,19 +3385,38 @@ enum Pin {
 	FromA37,
 }
 
+/// Which of 1.0 to 2.0 a text read by the 2.x rules was written in, where
+/// they read a line otherwise. Their values and line syntax are the same.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum V2Read {
+	/// migrate's own, with no format found: 1.2 keyed a quoted name by its
+	/// text as typed, and 2.0 resolved its backslash pairs, so a name with
+	/// one stays as typed and counts as lost.
+	Either,
+	/// 1.0: as 1.1, and it also matched a selector by its text as typed, so
+	/// one with a backslash pair could miss the instance 1.1 finds.
+	From10,
+	/// 1.1 and 1.2 keyed a quoted name by its text as typed, so `"a\"b"`
+	/// and `'a"b'` were 2 fields, and matched a quoted selector against an
+	/// array's display form too, so `x["a, b"]` found `x: a, b`.
+	From11,
+	/// 2.0 resolved a quoted name's backslash pairs.
+	From20,
+}
+
 /// The step out of each format of `FORMAT_DAYS` but the current one, in the
 /// same order.
 const FORMAT_STEPS: [Step; FORMAT_DAYS.len() - 1] = [
-	Step::V2,                // 1.0
-	Step::V2,                // 1.1
-	Step::V2,                // 2.0
-	Step::Pin(Pin::From30d), // 3.0-1f8, read as 3.0-30d but where a line has an error
-	Step::Pin(Pin::From30d), // 3.0-30d
-	Step::Pin(Pin::FromB10), // 3.0-b10
-	Step::Same,              // 3.0-f8e, read as 3.0-a37 but where a line has an error
-	Step::Pin(Pin::FromA37), // 3.0-a37
-	Step::Same,              // 3.0-9ef, which refused an apostrophe inside a bare word
-	Step::Same,              // 3.0-a65
+	Step::V2(V2Read::From10), // 1.0, read as 1.1 but where a fold was late
+	Step::V2(V2Read::From11), // 1.1
+	Step::V2(V2Read::From20), // 2.0
+	Step::Pin(Pin::From30d),  // 3.0-1f8, read as 3.0-30d but where a line has an error
+	Step::Pin(Pin::From30d),  // 3.0-30d
+	Step::Pin(Pin::FromB10),  // 3.0-b10
+	Step::Same,               // 3.0-f8e, read as 3.0-a37 but where a line has an error
+	Step::Pin(Pin::FromA37),  // 3.0-a37
+	Step::Same,               // 3.0-9ef, which refused an apostrophe inside a bare word
+	Step::Same,               // 3.0-a65
 ];
 
 /// The first step of the run from `format` to the current one that changes
@@ -3416,8 +3437,9 @@ fn first_rewrite(format: Option<&str>) -> Option<Step> {
 /// is. `from_v2` is migrate's.
 fn convert(text: &str, format: Option<&str>, from_v2: bool) -> Migration {
 	match first_rewrite(format) {
-		Some(Step::V2) => migrate_unstamped(text, from_v2),
-		Some(Step::Pin(pin)) => migrate_text(text, from_v2, false, false, Some(pin)),
+		Some(step @ (Step::V2(_) | Step::Pin(_))) => {
+			migrate_text(text, from_v2, false, false, step)
+		}
 		Some(Step::Same) | None => Migration {
 			text: text.to_string(),
 			current: true,
@@ -3726,6 +3748,7 @@ impl RawLines {
 			dry: Migrating {
 				rules,
 				pin: Pin::FromA37,
+				v2: V2Read::Either,
 				from_v2: true,
 				ambiguous: 0,
 				lost: 0,
@@ -3812,14 +3835,14 @@ fn opens_raw(rest: &str, tok: &mut Tokens) -> Option<(u8, usize)> {
 /// so the second run has an answer the first one did not. An older Format
 /// line becomes that line where it is; a file with none gets it at the end.
 pub fn migrate(text: &str, from_v2: bool) -> Migration {
-	migrate_text(text, from_v2, true, false, None)
+	migrate_text(text, from_v2, true, false, Step::V2(V2Read::Either))
 }
 
 /// migrate() without the version line or the migrated note, for a program
 /// that writes `GEN_BANNER` itself, which includes the version line. The
 /// next run can tell the result is current only once that is written.
 pub fn migrate_unstamped(text: &str, from_v2: bool) -> Migration {
-	migrate_text(text, from_v2, false, false, None)
+	migrate_text(text, from_v2, false, false, Step::V2(V2Read::Either))
 }
 
 /// The line ending most of the text's lines end with. A tie goes to LF.
@@ -3830,10 +3853,16 @@ fn majority_eol(text: &str) -> &'static str {
 }
 
 /// `beta` takes a file naming this format as 2.x too, which only `upgrade`
-/// asks for, once the caller has said so. `pin` reads the text by that pin's
-/// rules rather than 2.x, for a file found to be in one of those formats,
-/// whatever its Format line says.
-fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool, pin: Option<Pin>) -> Migration {
+/// asks for, once the caller has said so. `step` is the one the text's format
+/// starts with, and says which rules it was written by: a pin's, for a file
+/// found to be in one of those formats, whatever its Format line says, or
+/// 2.x's. `Same` doesn't come here.
+fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool, step: Step) -> Migration {
+	let (pin, v2) = match step {
+		Step::Pin(p) => (Some(p), V2Read::Either),
+		Step::V2(v) => (None, v),
+		Step::Same => (None, V2Read::Either),
+	};
 	let (bom, body_text) = match text.strip_prefix('\u{feff}') {
 		Some(t) => ("\u{feff}", t),
 		None => ("", text),
@@ -3851,6 +3880,7 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool, pin: Option<
 	let mut st = Migrating {
 		rules: if pin.is_some() { Lex::Pin } else { Lex::V2 },
 		pin: pin.unwrap_or(Pin::FromA37),
+		v2,
 		from_v2: from_v2 || version.is_some() || pin.is_some(),
 		ambiguous: 0,
 		lost: 0,
@@ -4027,7 +4057,9 @@ pub struct Upgrade {
 /// made over: one from 3.0-9ef on is `current`, its errors kept as typed, as
 /// a load with `migrate` keeps them. One from 3.0-1f8 to 3.0-a37 goes through
 /// that format's step rather than `migrate_unstamped`, and is made over even
-/// when it loads clean, since `"x\ty"` loads clean now and held a tab then. A
+/// when it loads clean, since `"x\ty"` loads clean now and held a tab then.
+/// One from 1.0 to 2.0 goes through the 2.x rewrite with that format's reads
+/// of a quoted name and a selector, and `from_v2` takes it as 2.0. A
 /// file stamped beta1's `Format 3` or a pin is read the same way, and the
 /// made-over file's Format line names this format whole.
 /// `upgrade_dated` takes the file's mtime too.
@@ -4061,10 +4093,13 @@ pub fn upgrade_dated(text: &str, mtime: Option<i64>, from_v2: bool, banner: bool
 	} else {
 		find_format(text, mtime)
 	};
-	let pin = match first_rewrite(format) {
-		Some(Step::V2) => None,
-		Some(Step::Pin(pin)) => Some(pin),
+	let step = match first_rewrite(format) {
 		Some(Step::Same) | None => return up,
+		Some(s) => s,
+	};
+	let pin = match step {
+		Step::Pin(p) => Some(p),
+		Step::V2(_) | Step::Same => None,
 	};
 	let before = Document::parse(text);
 	let clean = before.error_count() == 0;
@@ -4076,7 +4111,7 @@ pub fn upgrade_dated(text: &str, mtime: Option<i64>, from_v2: bool, banner: bool
 	if clean && pin.is_none() && (!from_v2 || version == Some(FORMAT_MAJOR)) {
 		return up;
 	}
-	let m = migrate_text(text, from_v2, false, true, pin);
+	let m = migrate_text(text, from_v2, false, true, step);
 	// A 2.x file can load clean and still read differently now, as `a,b`
 	// does. One migrate leaves as it was has nothing to do, but an older
 	// Format line, which would keep the load's H007 hint, becomes this one.
@@ -4525,21 +4560,28 @@ fn migrate_line(
 		for (i, seg) in tok.segments.iter().enumerate() {
 			let name = &rest[seg.name.start..seg.name.end];
 			// A quoted name with a backslash pair read as typed under 1.2 and
-			// resolved under 2.0, so the file can't say which name it meant.
-			// It stays as written and counts as lost. Any other backslash is
-			// text either way. Only a real escape mark needs another
-			// spelling. A bare name not led by a letter goes in quotes, since
-			// `-` then a blank would start a list item now.
+			// resolved under 2.0, so unless the format was found the file
+			// can't say which name it meant. It stays as written and counts
+			// as lost. Any other backslash is text either way. Only a real
+			// escape mark needs another spelling. A bare name not led by a
+			// letter goes in quotes, since `-` then a blank would start a list
+			// item now.
 			let spelled = || &rest[seg.name.start - 1..seg.name.end + 1];
 			// A file that does not say it is 2.x could be a 3.0 one. Where it
 			// reads clean under these rules as well, it is left and counted.
 			// Under the rules of 3.0-1f8 to 3.0-a37 a double-quoted name
 			// resolved its escapes, and 2 spellings of one name were one, so
-			// it gets the spelling of the name it read.
+			// it gets the spelling of the name it read, as under 2.0. 1.x
+			// keyed it by its text as typed, so it gets a spelling of that.
 			let mut logical = std::borrow::Cow::Borrowed(name);
-			let (respell, clean_now) = if st.rules == Lex::Pin && seg.name.quote != Quote::None {
+			let found = st.rules == Lex::Pin
+				|| (st.v2 != V2Read::Either
+					&& matches!(seg.name.quote, Quote::Single | Quote::Double));
+			let (respell, clean_now) = if found && seg.name.quote != Quote::None {
 				if name.contains('\\') || name.contains(ESCAPE_MARK) {
-					logical = old_text(name, seg.name.quote, st).into();
+					if !matches!(st.v2, V2Read::From10 | V2Read::From11) {
+						logical = old_text(name, seg.name.quote, st).into();
+					}
 					let now = quoted_name_now(spelled());
 					(now.as_deref() != Some(&*logical), now.is_some())
 				} else {
@@ -4652,8 +4694,16 @@ fn migrate_line(
 			}
 			let index = !quoted && (index_shape(body) || body == "*");
 			// 2.x matched an array value by its display form, and a selector
-			// matches one plain value now, so nothing spells this.
-			if !index && !quoted && v2_bracket_array(body, st.rules) {
+			// matches one plain value now, so nothing spells this. 1.x did
+			// that for a quoted one too, and 1.0 matched a backslash pair as
+			// typed, so the line can't say which instance it meant.
+			let v1_miss = !index
+				&& match st.v2 {
+					V2Read::From10 => (quoted && logical.contains(", ")) || logical != body,
+					V2Read::From11 => quoted && logical.contains(", "),
+					V2Read::Either | V2Read::From20 => false,
+				};
+			if v1_miss || (!index && !quoted && v2_bracket_array(body, st.rules)) {
 				st.lost += 1;
 				return rest.to_string();
 			}

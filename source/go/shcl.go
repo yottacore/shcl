@@ -3289,7 +3289,9 @@ type Migration struct {
 	// no 3.0 spelling to move to: bracket text after the colon, a selector
 	// holding a comma, which matched an array value, and a comma list with
 	// lines under it (E028 in brackets). Also a quoted name with a backslash
-	// pair, which 1.2 read as typed and 2.0 resolved, so it is kept as written.
+	// pair, which 1.2 read as typed and 2.0 resolved, so it is kept as written
+	// where the format isn't found, as in Migrate, and a selector 1.0 or 1.1
+	// matched otherwise.
 	Lost int
 }
 
@@ -3300,7 +3302,9 @@ type migrating struct {
 	rules lex
 	// Under lexPin, which pinned rules, so which escapes they read and
 	// refused.
-	pin       pinRules
+	pin pinRules
+	// Under lexV2, which of 1.0 to 2.0, if the format was found.
+	v2        v2Read
 	fromV2    bool
 	ambiguous int
 	lost      int
@@ -3765,10 +3769,11 @@ func opensRaw(rest string, tok *Tokens) openFence {
 // step is what turns a text in one format of formatDays into the next one's,
 // as the design doc's Reading and converting says. A new format adds a row to
 // formatSteps, and a kind here only when no step yet does what it needs.
-// pin is set for stepPin only.
+// pin is set for stepPin only, and v2 for stepV2.
 type step struct {
 	kind stepKind
 	pin  pinRules
+	v2   v2Read
 }
 
 type stepKind int
@@ -3778,8 +3783,8 @@ const (
 	// older one refuses, which stay as typed. Nothing changes.
 	stepSame stepKind = iota
 	// stepV2: Migrate's rewrite from the 2.x rules, which lands on the
-	// current format. It stands in for the steps from 1.0 to 2.0 until
-	// they're built (2026111908444534).
+	// current format, with the reads of the format of 1.0 to 2.0 it starts
+	// from.
 	stepV2
 	// stepPin: the rewrite from the rules of a pin from 3.0-1f8 to 3.0-a37
 	// into the format 3 value syntax, where a backslash is text. It ends at
@@ -3804,12 +3809,33 @@ const (
 	pinFromA37
 )
 
+// v2Read is which of 1.0 to 2.0 a text read by the 2.x rules was written
+// in, where they read a line otherwise. Their values and line syntax are the
+// same.
+type v2Read int
+
+const (
+	// v2Either: Migrate's own, with no format found: 1.2 keyed a quoted name
+	// by its text as typed, and 2.0 resolved its backslash pairs, so a name
+	// with one stays as typed and counts as lost.
+	v2Either v2Read = iota
+	// v2From10: 1.0: as 1.1, and it also matched a selector by its text as
+	// typed, so one with a backslash pair could miss the instance 1.1 finds.
+	v2From10
+	// v2From11: 1.1 and 1.2 keyed a quoted name by its text as typed, so
+	// `"a\"b"` and `'a"b'` were 2 fields, and matched a quoted selector
+	// against an array's display form too, so `x["a, b"]` found `x: a, b`.
+	v2From11
+	// v2From20: 2.0 resolved a quoted name's backslash pairs.
+	v2From20
+)
+
 // formatSteps is the step out of each format of formatDays but the current
 // one, in the same order.
 var formatSteps = [len(formatDays) - 1]step{
-	{kind: stepV2},                   // 1.0
-	{kind: stepV2},                   // 1.1
-	{kind: stepV2},                   // 2.0
+	{kind: stepV2, v2: v2From10},     // 1.0, read as 1.1 but where a fold was late
+	{kind: stepV2, v2: v2From11},     // 1.1
+	{kind: stepV2, v2: v2From20},     // 2.0
 	{kind: stepPin, pin: pinFrom30d}, // 3.0-1f8, read as 3.0-30d but where a line has an error
 	{kind: stepPin, pin: pinFrom30d}, // 3.0-30d
 	{kind: stepPin, pin: pinFromB10}, // 3.0-b10
@@ -3842,12 +3868,8 @@ func firstRewrite(format string, ok bool) (step, bool) {
 // step per format in order, in memory. ok false, a newer format's, comes back
 // as it is. fromV2 is Migrate's.
 func convert(text, format string, ok, fromV2 bool) Migration {
-	s, found := firstRewrite(format, ok)
-	switch {
-	case found && s.kind == stepV2:
-		return MigrateUnstamped(text, fromV2)
-	case found && s.kind == stepPin:
-		return migrateText(text, fromV2, false, false, &s.pin)
+	if s, found := firstRewrite(format, ok); found {
+		return migrateText(text, fromV2, false, false, s)
 	}
 	return Migration{Text: text, Current: true}
 }
@@ -4105,14 +4127,14 @@ func stampHint(stamp Read[int]) (Diagnostic, bool) {
 // answer the first one did not. An older Format line becomes that line where
 // it is; a file with none gets it at the end.
 func Migrate(text string, fromV2 bool) Migration {
-	return migrateText(text, fromV2, true, false, nil)
+	return migrateText(text, fromV2, true, false, step{kind: stepV2})
 }
 
 // MigrateUnstamped is Migrate without the version line or the migrated note,
 // for a program that writes GenBanner itself, which includes the version line.
 // The next run can tell the result is current only once that is written.
 func MigrateUnstamped(text string, fromV2 bool) Migration {
-	return migrateText(text, fromV2, false, false, nil)
+	return migrateText(text, fromV2, false, false, step{kind: stepV2})
 }
 
 // majorityEol is the line ending most of the text's lines end with. A tie
@@ -4127,10 +4149,12 @@ func majorityEol(text string) string {
 }
 
 // migrateText: beta takes a file naming this format as 2.x too, which only
-// Upgrade asks for, once the caller has said so. pin reads the text by that
-// pin's rules rather than 2.x, for a file found to be in one of those
-// formats, whatever its Format line says.
-func migrateText(text string, fromV2, stamp, beta bool, pin *pinRules) Migration {
+// Upgrade asks for, once the caller has said so. s is the step the text's
+// format starts with, and says which rules it was written by: a pin's, for a
+// file found to be in one of those formats, whatever its Format line says, or
+// 2.x's. stepSame doesn't come here.
+func migrateText(text string, fromV2, stamp, beta bool, s step) Migration {
+	pin := s.kind == stepPin
 	whole := text
 	bom := ""
 	if strings.HasPrefix(text, "\ufeff") {
@@ -4139,12 +4163,14 @@ func migrateText(text string, fromV2, stamp, beta bool, pin *pinRules) Migration
 	}
 	named := formatLineRead(text)
 	version, hasVersion := named.Value, named.Status == Good
-	if pin == nil && hasVersion && (version > FormatMajor || (version == FormatMajor && !beta)) {
+	if !pin && hasVersion && (version > FormatMajor || (version == FormatMajor && !beta)) {
 		return Migration{Text: whole, Current: true}
 	}
-	st := migrating{rules: lexV2, pin: pinFromA37, fromV2: fromV2 || hasVersion || pin != nil}
-	if pin != nil {
-		st.rules, st.pin = lexPin, *pin
+	st := migrating{rules: lexV2, pin: pinFromA37, fromV2: fromV2 || hasVersion || pin}
+	if pin {
+		st.rules, st.pin = lexPin, s.pin
+	} else {
+		st.v2 = s.v2
 	}
 	var bracketed []int
 	// Where a file that does not say it is 2.x might be a 3.0 one, the lines
@@ -4319,7 +4345,9 @@ type Upgraded struct {
 // from 3.0-9ef on is Current, its errors kept as typed, as a load with Migrate
 // keeps them. One from 3.0-1f8 to 3.0-a37 goes through that format's step
 // rather than MigrateUnstamped, and is made over even when it loads clean,
-// since `"x\ty"` loads clean now and held a tab then. A file stamped beta1's
+// since `"x\ty"` loads clean now and held a tab then. One from 1.0 to 2.0
+// goes through the 2.x rewrite with that format's reads of a quoted name and a
+// selector, and fromV2 takes it as 2.0. A file stamped beta1's
 // `Format 3` or a pin is read the same way, and the made-over file's Format
 // line names this format whole. UpgradeDated takes the
 // file's mtime too.
@@ -4346,13 +4374,11 @@ func UpgradeDated(text string, mtime *int64, fromV2, banner bool) Upgraded {
 	if !fromV2 {
 		format, ok = FindFormat(text, mtime)
 	}
-	var pin *pinRules
-	switch s, found := firstRewrite(format, ok); {
-	case !found || s.kind == stepSame:
+	s, found := firstRewrite(format, ok)
+	if !found {
 		return up
-	case s.kind == stepPin:
-		pin = &s.pin
 	}
+	pin := s.kind == stepPin
 	before := Parse(text)
 	clean := before.ErrorCount() == 0
 	// A beta of 3.0 wrote this format's line too, so only the caller can say
@@ -4360,10 +4386,10 @@ func UpgradeDated(text string, mtime *int64, fromV2, banner bool) Upgraded {
 	// leaves, so a second run over its output leaves it alone. A file found
 	// to be from 3.0-1f8 to 3.0-a37 can load clean and still read otherwise,
 	// as `"x\ty"` does, so it is made over as the load makes it over.
-	if clean && pin == nil && (!fromV2 || (hasVersion && version == FormatMajor)) {
+	if clean && !pin && (!fromV2 || (hasVersion && version == FormatMajor)) {
 		return up
 	}
-	m := migrateText(text, fromV2, false, true, pin)
+	m := migrateText(text, fromV2, false, true, s)
 	// A 2.x file can load clean and still read differently now, as `a,b`
 	// does. One migrate leaves as it was has nothing to do, but an older
 	// Format line, which would keep the load's H007 hint, becomes this one.
@@ -4390,7 +4416,7 @@ func UpgradeDated(text string, mtime *int64, fromV2, banner bool) Upgraded {
 	// migrate keeps every line where it was, so these are the input's.
 	left := errorLines(fresh.diags)
 	// Only 2.x's block is in `#` comments.
-	fresh.swapBanner(banner, pin == nil)
+	fresh.swapBanner(banner, !pin)
 	made := upgradeText(fresh, banner)
 	// The block names this format, but a beta1 `Format 3` line above it is
 	// the one read, and would send the next run to FindFormat again, so it
@@ -4891,21 +4917,27 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 			seg := &tok.Segments[i]
 			name := rest[seg.Name.Start:seg.Name.End]
 			// A quoted name with a backslash pair read as typed under 1.2 and
-			// resolved under 2.0, so the file can't say which name it meant. It
-			// stays as written and counts as lost. Any other backslash is text
-			// either way. Only a real escape mark needs another spelling. A bare
-			// name not led by a letter goes in quotes, since `-` then a blank
-			// would start a list item now.
+			// resolved under 2.0, so unless the format was found the file
+			// can't say which name it meant. It stays as written and counts
+			// as lost. Any other backslash is text either way. Only a real
+			// escape mark needs another spelling. A bare name not led by a
+			// letter goes in quotes, since `-` then a blank would start a list
+			// item now.
 			// A file that does not say it is 2.x could be a 3.0 one. Where it
 			// reads clean under these rules as well, it is left and counted.
 			// Under the rules of 3.0-1f8 to 3.0-a37 a double-quoted name
 			// resolved its escapes, and 2 spellings of one name were one, so
-			// it gets the spelling of the name it read.
+			// it gets the spelling of the name it read, as under 2.0. 1.x
+			// keyed it by its text as typed, so it gets a spelling of that.
 			logical := name
 			var respell, cleanNow bool
-			if st.rules == lexPin && seg.Name.Quote != QuoteNone {
+			found := st.rules == lexPin ||
+				(st.v2 != v2Either && (seg.Name.Quote == QuoteSingle || seg.Name.Quote == QuoteDouble))
+			if found && seg.Name.Quote != QuoteNone {
 				if strings.Contains(name, "\\") || strings.ContainsRune(name, escapeMark) {
-					logical = oldText(name, seg.Name.Quote, st)
+					if st.v2 != v2From10 && st.v2 != v2From11 {
+						logical = oldText(name, seg.Name.Quote, st)
+					}
 					now, ok := quotedNameNow(rest[seg.Name.Start-1 : seg.Name.End+1])
 					respell = !ok || now != logical
 					cleanNow = ok
@@ -5025,8 +5057,19 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 			}
 			index := !quoted && (indexShape(body) || body == "*")
 			// 2.x matched an array value by its display form, and a selector
-			// matches one plain value now, so nothing spells this.
-			if !index && !quoted && v2BracketArray(body, st.rules) {
+			// matches one plain value now, so nothing spells this. 1.x did
+			// that for a quoted one too, and 1.0 matched a backslash pair as
+			// typed, so the line can't say which instance it meant.
+			v1Miss := false
+			if !index {
+				switch st.v2 {
+				case v2From10:
+					v1Miss = (quoted && strings.Contains(logical, ", ")) || logical != body
+				case v2From11:
+					v1Miss = quoted && strings.Contains(logical, ", ")
+				}
+			}
+			if v1Miss || (!index && !quoted && v2BracketArray(body, st.rules)) {
 				st.lost++
 				return rest
 			}

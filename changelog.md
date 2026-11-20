@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- `load_file_opts()` with `migrate`, `upgrade()` and `upgrade_file()` convert a file found to be from 1.0, 1.1 or 2.0 by that format's own reading of a quoted name, where they used to keep a name with a backslash pair as typed and count it lost. 1.x read `"a\"b"` as typed, so it becomes `'a\"b'`, a field apart from `'a"b'`. 2.0 resolved it, so it becomes `'a"b'`, which `from_v2` also gives. A selector 1.x matched otherwise stays as typed and counts as lost: a quoted one holding a comma and a space, which matched an array too, and from 1.0 one with a backslash pair, which it matched as typed. `migrate()` doesn't find the format, so it still keeps such a name as typed.
+
 - `load_file_opts()` with `migrate`, `upgrade()` and `upgrade_file()` convert a file found to be from a dev build pinned between 3.0-1f8 and 3.0-a37 by that build's own rules, rather than 2.x's. A backslash outside double quotes was text there and stays text, so `C:\temp` keeps its backslash, and `"x\ty"` gets `◉TAB◉`. A line that build refused stays as typed.
 
 - `upgrade()` and `upgrade_file()` work out a file's format with `find_format()`, and `upgrade_file()` and `shcl upgrade` pass it the file's mtime. A file found to be 3.0-9ef or later is left as it is, its errors kept as typed, as a load with `migrate` keeps them. A file with no stamp and a broken line used to go through the 2.x migration whatever its date. `upgrade_dated()` is `upgrade()` with an mtime (each binding's spelling).

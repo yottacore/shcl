@@ -6494,7 +6494,9 @@ func TestMigrateCountsAQuotedNameWithABackslashPairLost(t *testing.T) {
 	if want := "'k\\\\x': \"C:\u25C9TAB\u25C9emp\"\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n"; !strings.HasPrefix(m.Text, want) {
 		t.Fatalf("got %q\nwant %q", m.Text, want)
 	}
-	if up := Upgrade(text, true, true); up.Lost != 2 {
+	// Upgrade's fromV2 takes the file as 2.0, whose step reads the names as
+	// 2.0 did (2026111917071578).
+	if up := Upgrade(text, true, true); up.Lost != 0 {
 		t.Fatalf("%+v", up)
 	}
 }
@@ -8570,6 +8572,80 @@ func TestALoadConvertsFromAPinnedDevFormat(t *testing.T) {
 		up := UpgradeDated(text, &mtime, false, false)
 		if up.Current || up.Text != want {
 			t.Errorf("upgrade at %d: gave %v, %q; want %q", c.mtime, up.Current, up.Text, want)
+		}
+	}
+}
+
+// TestALoadConvertsFromA1xOr2xFormat: a file from 1.0, 1.1 or 2.0 goes
+// through the 2.x rewrite on load, with each format's own reads where they
+// differ. 1.x keyed a quoted name by its text as typed and 2.0 resolved it,
+// 1.x matched a quoted selector against an array's display form too, and 1.0
+// matched a selector's backslash pair as typed. A line the step can't be sure
+// of stays as typed and counts as lost (2026111917071578). Same rows in every
+// runner.
+func TestALoadConvertsFromA1xOr2xFormat(t *testing.T) {
+	defer testID(t, "dfhes")
+	f := filepath.Join(t.TempDir(), "f.shcl")
+	const (
+		jul20 = 1784505600 // 2026-07-20, to 1.0
+		aug6  = 1785974400 // 2026-08-06, to 1.1
+		sep1  = 1788220800 // 2026-09-01, to 2.0
+	)
+	text := "\"a\\\"b\": 1\n" +
+		"'a\"b': 2\n" +
+		"\"c\\td\": 3\n" +
+		"s: q\n" +
+		"s[\"q\\\"r\"].h: 1\n" +
+		"x: a, b\n" +
+		"x[\"a, b\"].h: 1\n"
+	mid := "\"c\\td\": 3\ns: q\n"
+	// 2.0 read `"c\td"` with a tab, which reads clean as text now, so the
+	// file could be a 3.0 one, and it stays.
+	cases := []struct {
+		mtime      int64
+		head, tail string
+		lost       int
+	}{
+		{jul20, "'a\\\"b': 1\n'a\"b': 2\n", "s[\"q\\\"r\"].h: 1\nx: [a, b]\nx[\"a, b\"].h: 1\n", 2},
+		{aug6, "'a\\\"b': 1\n'a\"b': 2\n", "s('q\"r').h: 1\nx: [a, b]\nx[\"a, b\"].h: 1\n", 1},
+		{sep1, "'a\"b': 1\n'a\"b': 2\n", "s('q\"r').h: 1\nx: [a, b]\nx(\"a, b\").h: 1\n", 0},
+	}
+	for _, c := range cases {
+		if err := os.WriteFile(f, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		at := time.Unix(c.mtime, 0)
+		if err := os.Chtimes(f, at, at); err != nil {
+			t.Fatal(err)
+		}
+		opts := LoadOptions{KeepLines: true, Migrate: true}
+		doc, _, err := LoadFileOpts(f, Standard, opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := c.head + mid + c.tail
+		got, _, err := doc.ToTextKeepLines()
+		if err != nil || got != withStamp(want) || doc.LostCount() != c.lost {
+			t.Errorf("at %d: gave %q, lost %d, %v; want %q, lost %d", c.mtime, got, doc.LostCount(), err, withStamp(want), c.lost)
+		}
+		// Upgrade writes nothing over the name that reads 2 ways.
+		mtime := c.mtime
+		up := UpgradeDated(text, &mtime, false, false)
+		madeText, madeLost, madeAmb := withStamp(want), c.lost, 0
+		if c.mtime == sep1 {
+			madeText, madeLost, madeAmb = text, 0, 1
+		}
+		if up.Text != madeText || up.Lost != madeLost || up.Ambiguous != madeAmb {
+			t.Errorf("upgrade at %d: gave %q, lost %d, ambiguous %d; want %q, %d, %d", c.mtime, up.Text, up.Lost, up.Ambiguous, madeText, madeLost, madeAmb)
+		}
+		if c.mtime != sep1 {
+			continue
+		}
+		// fromV2 takes it as 2.0 too, and says it isn't a 3.0 one.
+		up = UpgradeDated(text, nil, true, false)
+		wantV2 := withStamp(strings.Replace(want, "\"c\\td\"", "\"c◉TAB◉d\"", 1))
+		if up.Text != wantV2 || up.Lost != 0 {
+			t.Errorf("fromV2: gave %q, lost %d; want %q", up.Text, up.Lost, wantV2)
 		}
 	}
 }

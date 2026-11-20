@@ -121,6 +121,89 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Prereq IDs: 2026111908443663, 2026111908444515
 	- Requirements: rows and steps in the load's step table for 1.0, 1.1 and 2.0, per the design doc's Format numbers and Tells, in place of the 2.x migration that stands in for them. In all 4 bindings. A line a step isn't sure of stays as typed and is reported.
 	- Estimated effort: High
+	- Note: split for its time cap into 2026111917071578 (the Rust reference), then the ports 2026111917072123 (Go), 2026111917072255 (Python) and 2026111917072385 (C).
+
+- Format versions: the Rust steps out of 1.0 and 1.1
+	- ID: 2026111917071578
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-170715
+	- Opened by: me
+	- Parent ID: 2026111908444534
+	- Requirements: in the Rust reference, the step table's rows for 1.0 and 1.1, with steps that read the text by 1.x rules where they differ from 2.0's, and the 2.x migration as the step out of 2.0. A line the step isn't sure of stays as typed and is reported. The ports follow it.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261119: the step kind is `Step::V2(V2Read)`, with `From10`, `From11` and `From20` for the 3 rows, and `Either` for `migrate` and `migrate_unstamped`, which don't find the format. `migrate_text` takes the `Step` in place of its `Option<Pin>`.
+		- me, 20261119: 1.0 to 2.0 read values and line syntax the same, by the old v1.0.0, v1.2.0 and v2.0.0 CLIs over the corpus and probes. They differ in a quoted name, which 1.x keyed by its text as typed and 2.0 resolved, and in a selector, which 1.x matched against an array's display form when quoted and 1.0 matched as typed. Each step spells a name the way its format read it, so such a name isn't counted lost any more.
+		- me, 20261119: a selector 1.x may have matched otherwise stays as typed and counts as lost: a quoted one holding a comma and a space, and from 1.0 one with a backslash pair. The step reads a line at a time, so it can't see whether another instance would have matched, and calls them all unsure. A 1.0 value with a backslash pair that a selector without one matched by its resolved text isn't caught, for the same reason.
+		- me, 20261119: 1.0 kept 2 instances where a late block or stacked list closed onto an earlier one, and 1.1 folds them. No later format spells 2 instances of one value, and no text tells it, so the step out of 1.0 reads such a file as 1.1 does.
+		- me, 20261119: `from_v2` in the load and `upgrade` takes the file as 2.0, so a quoted name with a backslash pair now gets its 2.0 spelling there, where it used to stay as typed and count lost. Without `from_v2`, a name found to be 2.0's that reads clean now, as `"c\td"` does, counts as reading 2 ways, as a value does. Logged as a `Check:` in questions.md.
+	- 20261119: `migrate_counts_a_quoted_name_with_a_backslash_pair_lost` (`de60h`) now wants `upgrade(text, true, true).lost` 0, where it was 2, since `from_v2` takes the text as 2.0. Its `migrate` asserts are as they were.
+	- Verified: `dfhe6` fails with each of the 3 rows set back to `V2Read::Either`, and passes with them. cargo test, clippy and rustfmt, `--backlog-run-quick rust go python c cli`, cli-regress over the Rust CLI, crosscheck over the corpus (Rust and Go), check-migrate, check-docs, `test-ids.py check`, `lint-report.bash --check --no-mark`, the markdown check and markdownlint passed. On probe files dated to 1.0, 1.1 and 2.0, `shcl upgrade` gave the names and selectors the v1.0.0, v1.2.0 and v2.0.0 CLIs read, or kept the line as typed and counted it lost.
+	- Swept: `convert` and `upgrade_dated` are the only users of `first_rewrite`, and both pass the `Step` on. `migrate` and `migrate_unstamped` pass `Either`, so their output is as it was, which check-migrate, cli-regress and crosscheck confirm. Docs: the design doc's Reading and converting, design.md's `load_file_opts` bullet, the changelog, `upgrade`'s doc comment and `Migration::lost`. The ports are 2026111917072123, 2026111917072255 and 2026111917072385.
+	- Test case: `a_load_converts_from_a_1x_or_2x_format` (Rust `dfhe6`).
+	- Branch: `nov20-2026111908444534`
+	- Commit: `6946ac7f`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the steps, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261119-172700
+
+- Format versions: port the steps out of 1.0 and 1.1 to Go
+	- ID: 2026111917072123
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-170721
+	- Opened by: me
+	- Parent ID: 2026111908444534
+	- Prereq IDs: 2026111917071578
+	- Requirements: mirror 2026111917071578's step kinds, rules and test in Go, by parity over idiom.
+	- Estimated effort: Avg
+	- Note: the docs and the changelog already say what the ports build. Each binding's twin of `de60h` (Go `TestMigrateCountsAQuotedNameWithABackslashPairLost`, Python `de61f`, C `de61j`) needs `upgrade`'s lost count at 0, as the Rust one got. The old v1.0.0, v1.2.0 and v2.0.0 CLIs build from `git archive <tag> source/rust` in a few seconds each.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261119: Rust's `Step::V2(V2Read)` is a `v2Read` field on the `step` struct, set only for `stepV2`, with `v2Either` as its zero value. `migrateText` takes the `step` in place of its `*pinRules`, as Rust's takes the `Step`.
+	- 20261119: `TestMigrateCountsAQuotedNameWithABackslashPairLost` (`de61c`) now wants `Upgrade(text, true, true).Lost` 0, where it was 2, as Rust's `de60h` does. Its `Migrate` asserts are as they were.
+	- Verified: `dfhes` fails with each of the 3 rows set back to `v2Either`, and passes with them. Go tests in both modules, `--backlog-run-quick rust go python c cli` (vet, staticcheck, gofmt included), cli-regress and crosscheck over the Rust and Go CLIs, check-docs, `test-ids.py check` and `lint-report.bash --check --no-mark` passed. The Go CLI's `upgrade` printed the same bytes and exit code as the Rust CLI's on every corpus document with its stamp taken off, dated into 1.0, 1.1 and 2.0, with and without `--from-2x` (4116 pairs), and on 12 hand-written name and selector files at 5 dates.
+	- Swept: every Rust function the step touched has its Go twin changed: `migrating`, `step`, `formatSteps`, `convert`, `Migrate`, `MigrateUnstamped`, `migrateText`, `UpgradeDated` and `migrateLine`, with `v2Read` new. `Migration.Lost`'s and `Upgrade`'s doc comments say so.
+	- Test case: `TestALoadConvertsFromA1xOr2xFormat` (Go `dfhes`, twin of Rust `dfhe6`).
+	- Branch: `nov20-2026111908444534`
+	- Commit: `73959574`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the steps, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261119-173800
+
+- Format versions: port the steps out of 1.0 and 1.1 to Python
+	- ID: 2026111917072255
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-170722
+	- Opened by: me
+	- Parent ID: 2026111908444534
+	- Prereq IDs: 2026111917071578
+	- Requirements: mirror 2026111917071578's step kinds, rules and test in Python, by parity over idiom.
+	- Estimated effort: Avg
+	- Note: the docs and the changelog already say what the ports build. Each binding's twin of `de60h` (Go `TestMigrateCountsAQuotedNameWithABackslashPairLost`, Python `de61f`, C `de61j`) needs `upgrade`'s lost count at 0, as the Rust one got. The old v1.0.0, v1.2.0 and v2.0.0 CLIs build from `git archive <tag> source/rust` in a few seconds each.
+
+- Format versions: port the steps out of 1.0 and 1.1 to C
+	- ID: 2026111917072385
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-170723
+	- Opened by: me
+	- Parent ID: 2026111908444534
+	- Prereq IDs: 2026111917071578
+	- Requirements: mirror 2026111917071578's step kinds, rules and test in C, by parity over idiom.
+	- Estimated effort: Avg
+	- Note: the docs and the changelog already say what the ports build. Each binding's twin of `de60h` (Go `TestMigrateCountsAQuotedNameWithABackslashPairLost`, Python `de61f`, C `de61j`) needs `upgrade`'s lost count at 0, as the Rust one got. The old v1.0.0, v1.2.0 and v2.0.0 CLIs build from `git archive <tag> source/rust` in a few seconds each.
 
 - Format versions: `from` and `--from=FORMAT` replace `from_v2` and `--from-2x`
 	- ID: 2026111907080445
