@@ -180,7 +180,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: port the steps out of 1.0 and 1.1 to Python
 	- ID: 2026111917072255
 	- Type: Feature
-	- Status: Queued
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261119-170722
@@ -190,6 +190,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: mirror 2026111917071578's step kinds, rules and test in Python, by parity over idiom.
 	- Estimated effort: Avg
 	- Note: the docs and the changelog already say what the ports build. Each binding's twin of `de60h` (Go `TestMigrateCountsAQuotedNameWithABackslashPairLost`, Python `de61f`, C `de61j`) needs `upgrade`'s lost count at 0, as the Rust one got. The old v1.0.0, v1.2.0 and v2.0.0 CLIs build from `git archive <tag> source/rust` in a few seconds each.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261119: Rust's `Step::V2(V2Read)` is a `v2` field on the `_Step` named tuple, with a private `_V2Read` enum, set only for `V2` and `EITHER` by default. `_migrate_text` takes the `_Step` in place of its `_Pin | None`, and `_Migrating` gets a `v2` slot.
+	- 20261119: `migrate_counts_a_quoted_name_with_a_backslash_pair_lost` (`de61f`) now wants `upgrade(text, True, True).lost` 0, where it was 2, as Rust's `de60h` does. Its `migrate` asserts are as they were.
+	- Verified: `dfhf2` fails with each of the 3 rows set back to `EITHER`, and passes with them. With the 2.0 row set back, `de61f` fails first. The Python conformance suite, `--backlog-run-quick rust go python c cli` (ruff and mypy included; all 5 steps passed), cli-regress for Rust and Python, crosscheck over the corpus with the Rust, Go and Python CLIs, check-docs, `test-ids.py check`, `lint-report.bash --check --no-mark` and the markdown check passed. The Python CLI's `upgrade` printed the same stdout, stderr and exit code as the Rust CLI's on every corpus document with its stamp taken off, dated into 1.0, 1.1 and 2.0, with and without `--from-2x` (4116 pairs, `v2-port-diff.bash`), and on 12 hand-written name and selector files at 5 dates, with and without `--from-2x` (120 pairs), where a build with the 1.0 row set back differed on 4.
+	- Swept: every Rust function the step touched has its Python twin changed: `_Migrating`, `_StepKind`, `_Step`, `_FORMAT_STEPS`, `_convert`, `migrate`, `migrate_unstamped`, `_migrate_text`, `upgrade_dated` and `_migrate_line`, with `_V2Read` new. `_RawLines` keeps `EITHER`, as Rust's `RawLines` does. `Migration`'s and `upgrade`'s docstrings say so. design.md and the format-versions design doc name Python too.
+	- Test case: `a_load_converts_from_a_1x_or_2x_format` (Python `dfhf2`, twin of Rust `dfhe6`).
+	- Branch: `nov20-2026111917072255`
+	- Commit: `291a05c5`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the steps, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261119-175338
 
 - Format versions: port the steps out of 1.0 and 1.1 to C
 	- ID: 2026111917072385

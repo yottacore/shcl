@@ -5529,8 +5529,10 @@ def main():
 	mm = shcl.migrate(mtext, True)
 	if not mm.text.startswith("'k\\\\x': \"C:\u25c9TAB\u25c9emp\"\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n"):
 		raise SystemExit(repr(mm.text))
-	if shcl.upgrade(mtext, True, True).lost != 2:
-		raise SystemExit("upgrade: lost not 2")
+	# upgrade's from_v2 takes the file as 2.0, whose step reads the names as
+	# 2.0 did (2026111917071578).
+	if shcl.upgrade(mtext, True, True).lost != 0:
+		raise SystemExit("upgrade: lost not 0")
 
 	# upgrade and upgrade_file (2026100313461649): a file this version cannot
 	# load clean is backed up under a timestamped name and written fresh, and
@@ -6645,6 +6647,48 @@ def main():
 			up = shcl.upgrade_dated(ptext, pmtime, False, False)
 			if up.current or up.text != pwant:
 				raise SystemExit(f"upgrade at {pmtime}: {up.current} {up.text!r}, want {pwant!r}")
+
+	test_id("dfhf2", "a_load_converts_from_a_1x_or_2x_format")
+	# A file from 1.0, 1.1 or 2.0 goes through the 2.x rewrite on load, with
+	# each format's own reads where they differ. 1.x keyed a quoted name by
+	# its text as typed and 2.0 resolved it, 1.x matched a quoted selector
+	# against an array's display form too, and 1.0 matched a selector's
+	# backslash pair as typed. A line the step can't be sure of stays as
+	# typed and counts as lost (2026111917071578). Same rows in every runner.
+	with tempfile.TemporaryDirectory() as vd:
+		vf = os.path.join(vd, "f.shcl")
+		jul20 = 1784505600  # 2026-07-20, to 1.0
+		aug6 = 1785974400  # 2026-08-06, to 1.1
+		sep1 = 1788220800  # 2026-09-01, to 2.0
+		vtext = '"a\\"b": 1\n' "'a\"b': 2\n" '"c\\td": 3\n' "s: q\n" 's["q\\"r"].h: 1\n' "x: a, b\n" 'x["a, b"].h: 1\n'
+		vmid = '"c\\td": 3\ns: q\n'
+		# 2.0 read `"c\td"` with a tab, which reads clean as text now, so the
+		# file could be a 3.0 one, and it stays.
+		for vmtime, vhead, vtail, vlost in (
+			(jul20, "'a\\\"b': 1\n'a\"b': 2\n", 's["q\\"r"].h: 1\nx: [a, b]\nx["a, b"].h: 1\n', 2),
+			(aug6, "'a\\\"b': 1\n'a\"b': 2\n", "s('q\"r').h: 1\nx: [a, b]\nx[\"a, b\"].h: 1\n", 1),
+			(sep1, "'a\"b': 1\n'a\"b': 2\n", "s('q\"r').h: 1\nx: [a, b]\nx(\"a, b\").h: 1\n", 0),
+		):
+			with open(vf, "w", encoding="utf-8", newline="") as fh:
+				fh.write(vtext)
+			os.utime(vf, (vmtime, vmtime))
+			vdoc, _ = shcl.Document.load_file_opts(vf, shcl.Strictness.Standard, shcl.LoadOptions(keep_lines=True, migrate=True, from_v2=False))
+			vwant = vhead + vmid + vtail
+			vgot = (vdoc.to_text_keep_lines()[0], vdoc.lost_count())
+			if vgot != (with_stamp(vwant), vlost):
+				raise SystemExit(f"at {vmtime}: {vgot!r}, want {(with_stamp(vwant), vlost)!r}")
+			# upgrade writes nothing over the name that reads 2 ways.
+			up = shcl.upgrade_dated(vtext, vmtime, False, False)
+			vmade = (with_stamp(vwant), vlost, 0) if vmtime != sep1 else (vtext, 0, 1)
+			if (up.text, up.lost, up.ambiguous) != vmade:
+				raise SystemExit(f"upgrade at {vmtime}: {(up.text, up.lost, up.ambiguous)!r}, want {vmade!r}")
+			if vmtime != sep1:
+				continue
+			# from_v2 takes it as 2.0 too, and says it isn't a 3.0 one.
+			up = shcl.upgrade_dated(vtext, None, True, False)
+			vwant_v2 = with_stamp(vwant.replace('"c\\td"', '"c\u25c9TAB\u25c9d"', 1))
+			if (up.text, up.lost) != (vwant_v2, 0):
+				raise SystemExit(f"from_v2: {(up.text, up.lost)!r}, want {(vwant_v2, 0)!r}")
 
 	test_id("dfh0g", "an_upgrade_converts_from_the_format_its_mtime_gives")
 	# upgrade and upgrade_file find the format as the load does, with the

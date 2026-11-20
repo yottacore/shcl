@@ -2804,7 +2804,8 @@ class Migration:
 	spelling to move to: bracket text after the colon, a selector holding a
 	comma, which matched an array value, and a comma list with lines under it
 	(E028 in brackets). Also a quoted name with a backslash pair, which 1.2
-	read as typed and 2.0 resolved, so it is kept as written."""
+	read as typed and 2.0 resolved, so it is kept as written where the format
+	isn't found, as in migrate, and a selector 1.0 or 1.1 matched otherwise."""
 
 	__slots__ = ("text", "current", "ambiguous", "lost")
 
@@ -2818,13 +2819,17 @@ class Migration:
 class _Migrating:
 	"""The counters a line rewrite reports back, and the one thing it asks."""
 
-	__slots__ = ("rules", "pin", "from_v2", "ambiguous", "lost", "bracketed", "refused_now")
+	__slots__ = ("rules", "pin", "v2", "from_v2", "ambiguous", "lost", "bracketed", "refused_now")
 
-	def __init__(self, from_v2: bool, rules: _Lex = _Lex.V2, pin: _Pin | None = None) -> None:
+	def __init__(
+		self, from_v2: bool, rules: _Lex = _Lex.V2, pin: _Pin | None = None, v2: _V2Read | None = None
+	) -> None:
 		# The old rules the text is read by, V2 or Pin.
 		self.rules = rules
 		# Under Pin, which pinned rules, so which escapes they read and refused.
 		self.pin = _Pin.FROM_A37 if pin is None else pin
+		# Under V2, which of 1.0 to 2.0, if the format was found.
+		self.v2 = _V2Read.EITHER if v2 is None else v2
 		self.from_v2 = from_v2
 		self.ambiguous = 0
 		self.lost = 0
@@ -3096,8 +3101,8 @@ def _line_tells(rest: str, codes: list[str], tok: Tokens) -> int:
 class _StepKind(Enum):
 	"""SAME: the 2 formats read every line the same, but for lines the older
 	one refuses, which stay as typed. Nothing changes. V2: migrate's rewrite
-	from the 2.x rules, which lands on the current format. It stands in for
-	the steps from 1.0 to 2.0 until they're built (2026111908444534). PIN: the
+	from the 2.x rules, which lands on the current format, with the reads of
+	the format of 1.0 to 2.0 it starts from. PIN: the
 	rewrite from the rules of a pin from 3.0-1f8 to 3.0-a37 into the format 3
 	value syntax, where a backslash is text. It ends at the current format. A
 	line those rules refused stays as typed."""
@@ -3119,21 +3124,40 @@ class _Pin(IntEnum):
 	FROM_A37 = 2
 
 
+class _V2Read(Enum):
+	r"""Which of 1.0 to 2.0 a text read by the 2.x rules was written in, where
+	they read a line otherwise. Their values and line syntax are the same.
+	EITHER: migrate's own, with no format found: 1.2 keyed a quoted name by
+	its text as typed, and 2.0 resolved its backslash pairs, so a name with
+	one stays as typed and counts as lost. FROM_10: 1.0: as 1.1, and it also
+	matched a selector by its text as typed, so one with a backslash pair
+	could miss the instance 1.1 finds. FROM_11: 1.1 and 1.2 keyed a quoted
+	name by its text as typed, so `"a\"b"` and `'a"b'` were 2 fields, and
+	matched a quoted selector against an array's display form too, so
+	`x["a, b"]` found `x: a, b`. FROM_20: 2.0 resolved a quoted name's
+	backslash pairs."""
+	EITHER = 0
+	FROM_10 = 1
+	FROM_11 = 2
+	FROM_20 = 3
+
+
 class _Step(NamedTuple):
 	"""What turns a text in one format of _FORMAT_DAYS into the next one's, as
 	the design doc's Reading and converting says. A new format adds a row to
 	_FORMAT_STEPS, and a kind here only when no step yet does what it needs.
-	pin is set for PIN only."""
+	pin is set for PIN only, and v2 for V2."""
 	kind: _StepKind
 	pin: _Pin | None = None
+	v2: _V2Read = _V2Read.EITHER
 
 
 # The step out of each format of _FORMAT_DAYS but the current one, in the
 # same order.
 _FORMAT_STEPS: tuple[_Step, ...] = (
-	_Step(_StepKind.V2),  # 1.0
-	_Step(_StepKind.V2),  # 1.1
-	_Step(_StepKind.V2),  # 2.0
+	_Step(_StepKind.V2, v2=_V2Read.FROM_10),  # 1.0, read as 1.1 but where a fold was late
+	_Step(_StepKind.V2, v2=_V2Read.FROM_11),  # 1.1
+	_Step(_StepKind.V2, v2=_V2Read.FROM_20),  # 2.0
 	_Step(_StepKind.PIN, _Pin.FROM_30D),  # 3.0-1f8, read as 3.0-30d but where a line has an error
 	_Step(_StepKind.PIN, _Pin.FROM_30D),  # 3.0-30d
 	_Step(_StepKind.PIN, _Pin.FROM_B10),  # 3.0-b10
@@ -3157,10 +3181,8 @@ def _convert(text: str, fmt: str | None, from_v2: bool) -> Migration:
 	format in order, in memory. None, a newer format's, comes back as it is.
 	from_v2 is migrate's."""
 	step = _first_rewrite(fmt)
-	if step is not None and step.kind is _StepKind.V2:
-		return migrate_unstamped(text, from_v2)
-	if step is not None and step.kind is _StepKind.PIN:
-		return _migrate_text(text, from_v2, False, False, step.pin)
+	if step is not None:
+		return _migrate_text(text, from_v2, False, False, step)
 	return Migration(text, True, 0, 0)
 
 
@@ -3445,14 +3467,14 @@ def migrate(text: str, from_v2: bool) -> Migration:
 	refuse over. A rewritten file is stamped with the version line, so the
 	second run has an answer the first one did not. An older Format line
 	becomes that line where it is; a file with none gets it at the end."""
-	return _migrate_text(text, from_v2, True, False, None)
+	return _migrate_text(text, from_v2, True, False, _Step(_StepKind.V2, v2=_V2Read.EITHER))
 
 
 def migrate_unstamped(text: str, from_v2: bool) -> Migration:
 	"""migrate() without the version line or the migrated note, for a program
 	that writes GEN_BANNER itself, which includes the version line. The next
 	run can tell the result is current only once that is written."""
-	return _migrate_text(text, from_v2, False, False, None)
+	return _migrate_text(text, from_v2, False, False, _Step(_StepKind.V2, v2=_V2Read.EITHER))
 
 
 def _majority_eol(text):
@@ -3462,11 +3484,14 @@ def _majority_eol(text):
 	return "\r\n" if crlf > lf else "\n"
 
 
-def _migrate_text(text, from_v2, stamp, beta, pin):
+def _migrate_text(text, from_v2, stamp, beta, step):
 	"""beta takes a file naming this format as 2.x too, which only upgrade()
-	asks for, once the caller has said so. pin reads the text by that pin's
-	rules rather than 2.x, for a file found to be in one of those formats,
-	whatever its Format line says."""
+	asks for, once the caller has said so. step is the one the text's format
+	starts with, and says which rules it was written by: a pin's, for a file
+	found to be in one of those formats, whatever its Format line says, or
+	2.x's. SAME doesn't come here."""
+	pin = step.pin if step.kind is _StepKind.PIN else None
+	v2 = step.v2 if step.kind is _StepKind.V2 else _V2Read.EITHER
 	whole = text
 	bom = ""
 	if text.startswith("\ufeff"):
@@ -3476,7 +3501,7 @@ def _migrate_text(text, from_v2, stamp, beta, pin):
 	version = named.value if named.status is Status.Good else None
 	if pin is None and version is not None and (version > FORMAT_MAJOR or (version == FORMAT_MAJOR and not beta)):
 		return Migration(whole, current=True)
-	st = _Migrating(from_v2 or version is not None or pin is not None, _Lex.V2 if pin is None else _Lex.Pin, pin)
+	st = _Migrating(from_v2 or version is not None or pin is not None, _Lex.V2 if pin is None else _Lex.Pin, pin, v2)
 	bracketed = []
 	# Where a file that does not say it is 2.x might be a 3.0 one, the lines
 	# these rules already refuse are safe to rewrite.
@@ -3621,7 +3646,9 @@ def upgrade(text: str, from_v2: bool, banner: bool) -> Upgrade:
 	one from 3.0-9ef on is current, its errors kept as typed, as a load with
 	migrate keeps them. One from 3.0-1f8 to 3.0-a37 goes through that format's
 	step rather than migrate_unstamped(), and is made over even when it loads
-	clean, since `"x\\ty"` loads clean now and held a tab then. A file stamped
+	clean, since `"x\\ty"` loads clean now and held a tab then. One from 1.0
+	to 2.0 goes through the 2.x rewrite with that format's reads of a quoted
+	name and a selector, and from_v2 takes it as 2.0. A file stamped
 	beta1's `Format 3` or a pin is read the same way, and the made-over file's
 	Format line names this format whole.
 	upgrade_dated() takes the file's mtime too."""
@@ -3653,7 +3680,7 @@ def upgrade_dated(text: str, mtime: float | None, from_v2: bool, banner: bool) -
 	# as `"x\ty"` does, so it is made over as the load makes it over.
 	if clean and pin is None and (not from_v2 or version == FORMAT_MAJOR):
 		return up
-	m = _migrate_text(text, from_v2, False, True, pin)
+	m = _migrate_text(text, from_v2, False, True, step)
 	# A 2.x file can load clean and still read differently now, as `a,b`
 	# does. One migrate leaves as it was has nothing to do, but an older
 	# Format line, which would keep the load's H007 hint, becomes this one.
@@ -4047,21 +4074,27 @@ def _migrate_line(rest, tok, fence, st):
 		for i, seg in enumerate(tok.segments):
 			name = s[seg.name.start:seg.name.end].decode("utf-8", "surrogatepass")
 			# A quoted name with a backslash pair read as typed under 1.2 and
-			# resolved under 2.0, so the file can't say which name it meant.
-			# It stays as written and counts as lost. Any other backslash is
-			# text either way. Only a real escape mark needs another
-			# spelling. A bare name not led by a letter goes in quotes, since
-			# `-` then a blank would start a list item now.
+			# resolved under 2.0, so unless the format was found the file
+			# can't say which name it meant. It stays as written and counts
+			# as lost. Any other backslash is text either way. Only a real
+			# escape mark needs another spelling. A bare name not led by a
+			# letter goes in quotes, since `-` then a blank would start a list
+			# item now.
 			# A file that does not say it is 2.x could be a 3.0 one. Where it
 			# reads clean under these rules as well, it is left and counted.
 			# Under the rules of 3.0-1f8 to 3.0-a37 a double-quoted name
 			# resolved its escapes, and 2 spellings of one name were one, so
-			# it gets the spelling of the name it read.
+			# it gets the spelling of the name it read, as under 2.0. 1.x
+			# keyed it by its text as typed, so it gets a spelling of that.
 			logical = name
 			respell = clean_now = False
-			if st.rules is _Lex.Pin and seg.name.quote is not Quote.None_:
+			found = st.rules is _Lex.Pin or (
+				st.v2 is not _V2Read.EITHER and (seg.name.quote is Quote.Single or seg.name.quote is Quote.Double)
+			)
+			if found and seg.name.quote is not Quote.None_:
 				if "\\" in name or _ESCAPE_MARK in name:
-					logical = _old_text(name, seg.name.quote, st)
+					if st.v2 is not _V2Read.FROM_10 and st.v2 is not _V2Read.FROM_11:
+						logical = _old_text(name, seg.name.quote, st)
 					now = _quoted_name_now(s[seg.name.start - 1:seg.name.end + 1].decode("utf-8", "surrogatepass"))
 					respell = now != logical
 					clean_now = now is not None
@@ -4149,8 +4182,16 @@ def _migrate_line(rest, tok, fence, st):
 				edits.append((colon, colon + 1 + int(spaced), b""))
 			index = not quoted and (_index_shape(body) or body == "*")
 			# 2.x matched an array value by its display form, and a selector
-			# matches one plain value now, so nothing spells this.
-			if not index and not quoted and _v2_bracket_array(body, st.rules):
+			# matches one plain value now, so nothing spells this. 1.x did
+			# that for a quoted one too, and 1.0 matched a backslash pair as
+			# typed, so the line can't say which instance it meant.
+			v1_miss = False
+			if not index:
+				if st.v2 is _V2Read.FROM_10:
+					v1_miss = (quoted and ", " in logical) or logical != body
+				elif st.v2 is _V2Read.FROM_11:
+					v1_miss = quoted and ", " in logical
+			if v1_miss or (not index and not quoted and _v2_bracket_array(body, st.rules)):
 				st.lost += 1
 				return rest, fence
 			edits.append((open_at, open_at + 1, b"("))
