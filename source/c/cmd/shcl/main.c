@@ -2825,7 +2825,7 @@ static void suggest(char *out, size_t outsz, const char **cands, size_t ncands, 
 	for (size_t i = 0; i < ncands; i++) {
 		char c[64] = {0};
 		size_t cl = 0;
-		for (; cands[i][cl] && cl < sizeof c - 1; cl++) c[cl] = lower_byte(cands[i][cl]);
+		for (; cl < sizeof c - 1 && cands[i][cl]; cl++) c[cl] = lower_byte(cands[i][cl]);
 		if (cands[i][cl]) continue;
 		size_t d = edit_distance(w, c, 2);
 		if (d <= 2 && d < bestd) { best = cands[i]; bestd = d; }
