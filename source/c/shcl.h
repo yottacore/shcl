@@ -15104,283 +15104,179 @@ static void v_check_from(ShclArena *a, ShclArena *lvls, shcl_doc *d, const ShclV
 	}
 }
 
-// Append a segment to a chain key. Chain keys join segments length-prefixed
-// (`<len>:<name>`), not with a bare NUL: NUL is legal in a quoted name, so a
-// single field named "x\0y" would impersonate the two-segment path x.y. Same
-// injectivity reasoning as the merge key's cell encoding - and like it, the
-// length unit is each binding's native one (bytes here), because only
-// injectivity matters.
-static void chain_push(ShclArena *a, ShclSB *chain, ShclStr name) {
-	char buf[32];
-	snprintf(buf, sizeof buf, "%zu:", name.n);
-	sb_puts(a, chain, buf);
-	sb_putS(a, chain, name);
-}
-
-// Decode the next length-prefixed segment of a chain key at *i. Total: bails
-// at the first shape the encoder can't have produced.
-static int chain_next(ShclStr chain, size_t *i, ShclStr *nm) {
-	size_t k = *i, n = 0;
-	if (k >= chain.n) return 0;
-	while (k < chain.n && chain.p[k] >= '0' && chain.p[k] <= '9') { n = n * 10 + (size_t)(chain.p[k] - '0'); k++; }
-	if (k >= chain.n || chain.p[k] != ':' || k + 1 + n > chain.n) return 0;
-	k++;
-	*nm = s_slice(chain, k, k + n);
-	*i = k + n;
-	return 1;
-}
-
-// Schema paths bucketed by what their first segment accepts. A path can only
-// match a chain whose first part is that segment's name, or anything at all
-// when the segment is `*`, so a bucket plus the star list is the whole
-// candidate set. Values are positions in the list the index was built from,
-// and both callers ask "does any of these match", so bucket order cannot reach
-// the answer. Same map shape as `legal` and `sib_of` below: the entries hold
-// hashes, and `names` holds what each bucket is keyed on, for the verify.
+/* The schema's paths as one trie per constraint list - the top-level list and
+   each fragment's - in one node list, with node 0 the top-level root. A
+   document node is known when its chain reaches any trie node: stars match any
+   one name, every prefix of a path is legal, and a chain that goes on past a
+   path that inherits a fragment goes on in that fragment's trie. Each document
+   node's set comes from its parent's set and its own name, so a node costs its
+   name and not its depth. Building every node's chain from the root and
+   matching it from the top made the check the square of the depth
+   (2026110711492228). The reference keeps a name map per node; here one map
+   keyed on (parent, name) holds every named edge, and each node keeps the edge
+   that leads to it for the verify. */
 typedef struct {
-	ShclCMap of;
-	ShclVecS names;
-	ShclVecSize *buckets; size_t nb, cb;
-	ShclVecSize stars;
-} ShclFirstIdx;
+	size_t parent; ShclStr name;
+	size_t star; /* SIZE_MAX for none */
+	ShclVecSize mounts; /* roots of the fragments the paths ending here inherit */
+	/* Legal names under this chain, for "did you mean", as a row of `sibs`, or
+	   SIZE_MAX. Only the top-level nodes reached by names alone have any,
+	   since a star or a mount has no one parent chain to suggest under. */
+	size_t sibs;
+} ShclPathNode;
+DEFINE_VEC(ShclVecPathNode, ShclPathNode)
+typedef struct {
+	ShclVecPathNode nodes;
+	ShclCMap edges;
+	ShclSuggestNames *sibs; size_t nsib, csib;
+} ShclPathTrie;
 
-static void fidx_add(ShclArena *a, ShclFirstIdx *ix, size_t pos, ShclVecSeg segs) {
-	// A pathless entry keeps its old place in every candidate set: the scan it
-	// replaces looked at one, and what it then did is unchanged.
-	if (segs.len == 0 || segs.data[0].star) { ShclVecSize_push(a, &ix->stars, pos); return; }
-	ShclStr nm = segs.data[0].name;
-	uint64_t h = cmap_hash(nm, s_empty());
-	size_t g = (size_t)-1;
-	for (ShclCMapEnt *e = cmap_first(&ix->of, h); e; e = cmap_next(e, h))
-		if (s_eq(ix->names.data[e->val], nm)) { g = e->val; break; }
-	if (g == (size_t)-1) {
-		if (ix->nb == ix->cb) { size_t nc = ix->cb ? ix->cb * 2 : 8; ix->buckets = (ShclVecSize *)arena_grow(a, ix->buckets, ix->cb, nc, sizeof(ShclVecSize)); ix->cb = nc; }
-		memset(&ix->buckets[ix->nb], 0, sizeof ix->buckets[ix->nb]);
-		g = ix->nb++;
-		cmap_put(a, &ix->of, h, g);
-		ShclVecS_push(a, &ix->names, nm);
+static size_t trie_node(ShclArena *a, ShclPathTrie *t, size_t parent, ShclStr name) {
+	ShclPathNode n; n.parent = parent; n.name = name; n.star = SIZE_MAX; n.sibs = SIZE_MAX;
+	memset(&n.mounts, 0, sizeof n.mounts);
+	ShclVecPathNode_push(a, &t->nodes, n);
+	return t->nodes.len - 1;
+}
+
+static size_t trie_child(const ShclPathTrie *t, size_t at, ShclStr name) {
+	uint64_t h = name_key(at, name);
+	for (ShclCMapEnt *e = cmap_first(&t->edges, h); e; e = cmap_next(e, h)) {
+		const ShclPathNode *k = &t->nodes.data[e->val];
+		if (k->parent == at && s_eq(k->name, name)) return e->val;
 	}
-	ShclVecSize_push(a, &ix->buckets[g], pos);
+	return SIZE_MAX;
 }
 
-// The bucket for one chain part, or NULL. The star list is the caller's second
-// pass; keeping the two apart is what stops a per-node allocation here.
-static const ShclVecSize *fidx_bucket(const ShclFirstIdx *ix, ShclStr part) {
-	uint64_t h = cmap_hash(part, s_empty());
-	for (ShclCMapEnt *e = cmap_first((ShclCMap *)&ix->of, h); e; e = cmap_next(e, h))
-		if (s_eq(ix->names.data[e->val], part)) return &ix->buckets[e->val];
-	return NULL;
-}
-
-// Element-wise chain match against the star-bearing schema paths: a `*`
-// segment matches any one name, and every prefix of a path is legal.
-static int star_legal(const ShclVecSeg *pats, size_t npats, const ShclFirstIdx *ix, ShclStr chain) {
-	if (npats == 0) return 0;
-	size_t ci = 0; ShclStr first;
-	if (!chain_next(chain, &ci, &first)) return 0;
-	const ShclVecSize *bucket = fidx_bucket(ix, first);
-	for (int pass = 0; pass < 2; pass++) {
-		const ShclVecSize *list = pass ? &ix->stars : bucket;
-		if (!list) continue;
-		for (size_t bi = 0; bi < list->len; bi++) {
-			const ShclVecSeg *p = &pats[list->data[bi]];
-			size_t part = 0, i = 0; int match = 1;
-			ShclStr nm;
-			while (match && chain_next(chain, &i, &nm)) {
-				if (part >= p->len || (!p->data[part].star && !s_eq(p->data[part].name, nm))) match = 0;
-				part++;
-			}
-			if (match) return 1;
-		}
-	}
-	return 0;
-}
-
-/* A chain_parts_legal state: the constraint set (its row in `seen`), where
-   the chain's remainder starts, and how many parts are consumed. */
-typedef struct { size_t set, from, at; } ShclChainState;
-DEFINE_VEC(ShclVecChainState, ShclChainState)
-
-// Chain legality through fragment mounts: the general matcher - element-wise
-// like star_legal (stars wild, prefixes legal), and when a mount's whole path
-// matched with chain left over, the remainder is retried against the mounted
-// fragment's fields. Terminates: every descent consumes >= 1 part. A state is
-// (fragment, parts consumed), one byte each in `seen` - row 0 the top-level
-// constraints, row k+1 fragment k - and one already queued is not queued
-// again: two mounts of the same fragment at the same depth used to be walked
-// both, which is 2^depth on a chain that ends unknown. A worklist rather than
-// a call per mount, as in Python: a chain at the depth cap descends that many
-// mounts, which outran a small thread's stack. The answer is whether any
-// state matches, so the order states are tried in cannot reach it.
-// set_idx is one ShclFirstIdx per constraint list, laid out the way `seen` is -
-// row 0 the top-level constraints, row k+1 fragment k - rather than keyed by
-// fragment name as the reference does, because that numbering is already here.
-static int chain_parts_legal(ShclArena *tmp, const ShclVSchemaDef *def, const ShclFirstIdx *set_idx, ShclStr chain, size_t nparts, unsigned char *seen) {
-	ShclVecChainState todo = {0};
-	ShclChainState s0; s0.set = 0; s0.from = 0; s0.at = 0;
-	ShclVecChainState_push(tmp, &todo, s0);
-	seen[0] = 1;
-	while (todo.len) {
-		ShclChainState st = todo.data[--todo.len];
-		const ShclVecVCons *cons = st.set ? &def->frags.data[st.set - 1].fields : &def->cons;
-		// A state is only queued with parts left over, and the sweep never
-		// asks about an empty chain, so there is always a first part to look up.
-		size_t fi0 = st.from; ShclStr first;
-		const ShclVecSize *bucket = chain_next(chain, &fi0, &first) ? fidx_bucket(&set_idx[st.set], first) : NULL;
-		for (int pass = 0; pass < 2; pass++) {
-			const ShclVecSize *list = pass ? &set_idx[st.set].stars : bucket;
-			if (!list) continue;
-			for (size_t bi = 0; bi < list->len; bi++) {
-				const ShclVCons *c = &cons->data[list->data[bi]];
-				size_t n = c->segs.len;
-				// Compare only as far as the path goes. Walking the rest of the
-				// chain per candidate made every level cost the chain's length,
-				// which is cubic in the depth of a recursive mount.
-				size_t part = 0, i = st.from;
-				int match = 1;
-				ShclStr nm;
-				while (match && part < n && chain_next(chain, &i, &nm)) {
-					if (!c->segs.data[part].star && !s_eq(c->segs.data[part].name, nm)) match = 0;
-					part++;
+static void trie_add(ShclArena *a, ShclPathTrie *t, size_t root, const ShclVecVCons *cons, const ShclVSchemaDef *def, const size_t *roots, int top) { // NOLINT(bugprone-easily-swappable-parameters): the trie, then what goes in it
+	for (size_t i = 0; i < cons->len; i++) {
+		const ShclVCons *c = &cons->data[i];
+		size_t at = root;
+		// No sibling entry for '*' or below it; deeper names are reached
+		// through the star.
+		int named = top;
+		for (size_t si = 0; si < c->segs.len; si++) {
+			const ShclSegment *s = &c->segs.data[si];
+			named = named && !s->star;
+			if (named) {
+				if (t->nodes.data[at].sibs == SIZE_MAX) {
+					if (t->nsib == t->csib) { size_t nc = t->csib ? t->csib * 2 : 8; t->sibs = (ShclSuggestNames *)arena_grow(a, t->sibs, t->csib, nc, sizeof(ShclSuggestNames)); t->csib = nc; }
+					memset(&t->sibs[t->nsib], 0, sizeof t->sibs[t->nsib]);
+					t->nodes.data[at].sibs = t->nsib++;
 				}
-				if (!match) continue;
-				if (nparts - st.at <= n) return 1; // a prefix of a legal path
-				if (!c->inherits.n) continue;
-				size_t fi = v_frag_index(def, c->inherits);
-				if (fi == SIZE_MAX) continue;
-				// i is past the matched path, where the remainder starts.
-				ShclChainState next; next.set = fi + 1; next.from = i; next.at = st.at + n;
-				unsigned char *cell = &seen[next.set * (nparts + 1) + next.at];
-				if (*cell) continue;
-				*cell = 1;
-				ShclVecChainState_push(tmp, &todo, next);
+				suggest_push(a, &t->sibs[t->nodes.data[at].sibs], s->name);
 			}
+			size_t next = s->star ? t->nodes.data[at].star : trie_child(t, at, s->name);
+			if (next == SIZE_MAX) {
+				next = trie_node(a, t, at, s->star ? s_empty() : s->name);
+				if (s->star) t->nodes.data[at].star = next;
+				else cmap_put(a, &t->edges, name_key(at, s->name), next);
+			}
+			at = next;
+		}
+		if (c->inherits.n && roots) {
+			size_t fi = v_frag_index(def, c->inherits);
+			if (fi != SIZE_MAX) ShclVecSize_push(a, &t->nodes.data[at].mounts, roots[fi]);
 		}
 	}
-	return 0;
 }
-static int chain_legal(ShclArena *tmp, const ShclVSchemaDef *def, const ShclFirstIdx *set_idx, ShclStr chain) {
-	size_t nparts = 0, i = 0;
-	ShclStr nm;
-	while (chain_next(chain, &i, &nm)) nparts++;
-	size_t cells = (def->frags.len + 1) * (nparts + 1);
-	unsigned char *seen = (unsigned char *)arena_alloc(tmp, cells);
-	memset(seen, 0, cells);
-	return chain_parts_legal(tmp, def, set_idx, chain, nparts, seen);
+
+static void trie_build(ShclArena *a, ShclPathTrie *t, const ShclVSchemaDef *def) {
+	memset(t, 0, sizeof *t);
+	trie_node(a, t, SIZE_MAX, s_empty());
+	// A fragment is only reached through a mount, and only a top-level path
+	// can start a chain of them. roots[k] is fragment k's root.
+	size_t *roots = NULL;
+	for (size_t i = 0; i < def->cons.len; i++) {
+		if (!def->cons.data[i].inherits.n) continue;
+		roots = (size_t *)arena_alloc(a, (def->frags.len ? def->frags.len : 1) * sizeof *roots);
+		for (size_t fi = 0; fi < def->frags.len; fi++) roots[fi] = trie_node(a, t, SIZE_MAX, s_empty());
+		break;
+	}
+	trie_add(a, t, 0, &def->cons, def, roots, 1);
+	if (roots)
+		for (size_t fi = 0; fi < def->frags.len; fi++) trie_add(a, t, roots[fi], &def->frags.data[fi].fields, def, roots, 0);
 }
+
+static void trie_look(ShclArena *a, const ShclPathTrie *t, size_t at, ShclStr name, ShclVecSize *pool, size_t *stamp, size_t pass) { // NOLINT(bugprone-easily-swappable-parameters): the trie node, then the name it takes
+	size_t ks[2];
+	ks[0] = trie_child(t, at, name);
+	ks[1] = t->nodes.data[at].star;
+	for (int j = 0; j < 2; j++) {
+		size_t k = ks[j];
+		if (k == SIZE_MAX || stamp[k] == pass) continue;
+		stamp[k] = pass;
+		ShclVecSize_push(a, pool, k);
+	}
+}
+
+// Appends to pool the trie nodes a chain reaches when name follows a chain
+// that reached pool[from..to]. stamp keeps a node to one entry per pass, as
+// two mounts of one fragment reach the same nodes.
+static void trie_step(ShclArena *a, const ShclPathTrie *t, ShclVecSize *pool, size_t from, size_t to, ShclStr name, size_t *stamp, size_t pass) { // NOLINT(bugprone-easily-swappable-parameters): the range of pool, then the name
+	for (size_t i = from; i < to; i++) {
+		size_t at = pool->data[i];
+		trie_look(a, t, at, name, pool, stamp, pass);
+		const ShclVecSize *m = &t->nodes.data[at].mounts;
+		for (size_t r = 0; r < m->len; r++) trie_look(a, t, m->data[r], name, pool, stamp, pass);
+	}
+}
+
+/* A pending node of the sweep: its depth, its parent's trie nodes as a range
+   of the pool, and the top-level trie node its parent's chain spells by names
+   alone, which holds its siblings, or SIZE_MAX. */
+typedef struct { size_t node, depth, from, to, named; } ShclUnkFrame;
+DEFINE_VEC(ShclVecUnkFrame, ShclUnkFrame)
 
 // Unknown-field sweep: a schema path legalizes its name chain and every prefix
 // (selectors ignored). Only the topmost unknown node is reported; its subtree
 // is implied unknown and skipped.
 static void v_unknown(ShclArena *a, ShclArena *tmp, shcl_doc *d, const ShclVSchemaDef *def, ShclVecDiag *out) {
-	const ShclVecVCons *cons = &def->cons;
-	// Chains below a fragment mount only match by descending the mounts.
-	int has_mounts = 0;
-	for (size_t i = 0; i < cons->len; i++) if (cons->data[i].inherits.n) { has_mounts = 1; break; }
 	arena_guard(tmp, a->panic); // v_suggest scratch, reset per unknown field
-	// Legal chains in a hash set (the linear scan compounded the quadratic),
-	// and sibling names bucketed per parent chain, built once: v_suggest used
-	// to rebuild every chain per unknown field. The map entries hold hashes
-	// only; legal_chains / sib_chain hold what each names, for the verify.
-	ShclCMap legal; memset(&legal, 0, sizeof legal);
-	ShclVecS legal_chains = {0};
-	ShclCMap sib_of; memset(&sib_of, 0, sizeof sib_of);
-	ShclVecS sib_chain = {0}; /* parent chain per sibs bucket */
-	ShclSuggestNames *sibs = NULL; size_t nsib = 0, csib = 0;
-	// Paths with a `*` segment can't live in the exact-chain hash; they
-	// match element-wise (a star matches any one name, prefixes included).
-	ShclVecSeg *star_pats = NULL; size_t nstar = 0, cstar = 0;
-	for (size_t i = 0; i < cons->len; i++) {
-		int has_star = 0;
-		for (size_t si = 0; si < cons->data[i].segs.len; si++) if (cons->data[i].segs.data[si].star) { has_star = 1; break; }
-		if (has_star) {
-			if (nstar == cstar) { size_t nc = cstar ? cstar * 2 : 8; star_pats = (ShclVecSeg *)arena_grow(a, star_pats, cstar, nc, sizeof(ShclVecSeg)); cstar = nc; }
-			star_pats[nstar++] = cons->data[i].segs;
-		}
-		ShclSB chain = {0, 0, 0};
-		for (size_t si = 0; si < cons->data[i].segs.len; si++) {
-			if (cons->data[i].segs.data[si].star) break; // no sibling entry for '*'; deeper chains are pattern-only
-			ShclStr nm = cons->data[i].segs.data[si].name;
-			ShclStr pc = s_dup(a, sb_S(&chain));
-			uint64_t hp = cmap_hash(pc, s_empty());
-			size_t g = (size_t)-1;
-			for (ShclCMapEnt *e = cmap_first(&sib_of, hp); e; e = cmap_next(e, hp)) // a hit names an entry pushed beside it
-				SHCL_ANALYZER_SKIP if (s_eq(sib_chain.data[e->val], pc)) { g = e->val; break; }
-			if (g == (size_t)-1) {
-				if (nsib == csib) { size_t nc = csib ? csib * 2 : 8; sibs = (ShclSuggestNames *)arena_grow(a, sibs, csib, nc, sizeof(ShclSuggestNames)); csib = nc; }
-				memset(&sibs[nsib], 0, sizeof sibs[nsib]);
-				g = nsib++;
-				cmap_put(a, &sib_of, hp, g);
-				ShclVecS_push(a, &sib_chain, pc);
-			}
-			suggest_push(a, &sibs[g], nm);
-			chain_push(a, &chain, nm);
-			ShclStr full = s_dup(a, sb_S(&chain));
-			uint64_t hf = cmap_hash(full, s_empty());
-			int have = 0;
-			for (ShclCMapEnt *e = cmap_first(&legal, hf); e; e = cmap_next(e, hf)) // a hit names an entry pushed beside it
-				SHCL_ANALYZER_SKIP if (s_eq(legal_chains.data[e->val], full)) { have = 1; break; }
-			if (!have) { cmap_put(a, &legal, hf, legal_chains.len); ShclVecS_push(a, &legal_chains, full); }
-		}
-	}
-	// Both element-wise matchers used to scan their whole list per document
-	// node, which is quadratic once the schema and the document grow together.
-	ShclFirstIdx star_idx; memset(&star_idx, 0, sizeof star_idx);
-	for (size_t i = 0; i < nstar; i++) fidx_add(a, &star_idx, i, star_pats[i]);
-	ShclFirstIdx *set_idx = NULL;
-	if (has_mounts) {
-		size_t nsets = def->frags.len + 1;
-		set_idx = (ShclFirstIdx *)arena_alloc(a, nsets * sizeof(ShclFirstIdx));
-		memset(set_idx, 0, nsets * sizeof(ShclFirstIdx));
-		for (size_t i = 0; i < cons->len; i++) fidx_add(a, &set_idx[0], i, cons->data[i].segs);
-		for (size_t fi = 0; fi < def->frags.len; fi++) {
-			const ShclVecVCons *fc = &def->frags.data[fi].fields;
-			for (size_t i = 0; i < fc->len; i++) fidx_add(a, &set_idx[fi + 1], i, fc->data[i].segs);
-		}
-	}
-	ShclVecSize snode = {0}; ShclVecS schain = {0}; ShclVecS sshown = {0};
+	ShclPathTrie trie;
+	trie_build(a, &trie, def);
+	size_t *stamp = (size_t *)arena_alloc(a, trie.nodes.len * sizeof *stamp);
+	memset(stamp, 0, trie.nodes.len * sizeof *stamp);
+	size_t pass = 0;
+	// The document's root reaches the top-level root.
+	ShclVecSize pool = {0};
+	ShclVecSize_push(a, &pool, 0);
+	// The document nodes down to the current one, for the message only.
+	ShclVecSize path = {0};
+	ShclVecUnkFrame stack = {0};
 	ShclVecSize top = NODE(d, ROOT).children;
 	for (size_t i = top.len; i > 0; i--) {
-		ShclVecSize_push(a, &snode, top.data[i - 1]);
-		ShclVecS_push(a, &schain, s_empty());
-		ShclVecS_push(a, &sshown, s_empty());
+		ShclUnkFrame f; f.node = top.data[i - 1]; f.depth = 0; f.from = 0; f.to = 1; f.named = 0;
+		ShclVecUnkFrame_push(a, &stack, f);
 	}
-	while (snode.len) {
-		size_t n = snode.data[snode.len - 1];
-		ShclStr pchain = schain.data[snode.len - 1];
-		ShclStr pshown = sshown.data[snode.len - 1];
-		snode.len--; schain.len--; sshown.len--;
-		const ShclNode *node = &NODE(d, n);
-		ShclSB cb = {0, 0, 0};
-		sb_putS(a, &cb, pchain);
-		chain_push(a, &cb, node->name);
-		ShclStr chain = sb_S(&cb);
-		ShclSB sb2 = {0, 0, 0};
-		if (pshown.n) { sb_putS(a, &sb2, pshown); sb_putc(a, &sb2, '.'); }
-		sb_putS(a, &sb2, diag_name(a, node->name));
-		ShclStr shown = sb_S(&sb2);
-		int found = 0;
-		{
-			uint64_t hc = cmap_hash(chain, s_empty());
-			for (ShclCMapEnt *e = cmap_first(&legal, hc); e; e = cmap_next(e, hc)) // a hit names an entry pushed beside it
-				SHCL_ANALYZER_SKIP if (s_eq(legal_chains.data[e->val], chain)) { found = 1; break; }
-		}
-		if (!found && !star_legal(star_pats, nstar, &star_idx, chain) && !(has_mounts && chain_legal(tmp, def, set_idx, chain))) {
+	while (stack.len) {
+		ShclUnkFrame fr = stack.data[--stack.len];
+		const ShclNode *node = &NODE(d, fr.node);
+		path.len = fr.depth;
+		ShclVecSize_push(a, &path, fr.node);
+		pass++;
+		size_t at = pool.len;
+		trie_step(a, &trie, &pool, fr.from, fr.to, node->name, stamp, pass);
+		if (pool.len == at) {
 			ShclSB msg = {0, 0, 0};
-			sb_puts(a, &msg, "unknown field '"); sb_putS(a, &msg, shown); sb_puts(a, &msg, "'");
-			size_t sg = (size_t)-1;
-			uint64_t hpc = cmap_hash(pchain, s_empty());
-			for (ShclCMapEnt *e = cmap_first(&sib_of, hpc); e; e = cmap_next(e, hpc)) // a hit names an entry pushed beside it
-				SHCL_ANALYZER_SKIP if (s_eq(sib_chain.data[e->val], pchain)) { sg = e->val; break; }
-			v_suggest(a, tmp, sg == (size_t)-1 ? NULL : &sibs[sg], node->name, &msg);
+			sb_puts(a, &msg, "unknown field '");
+			size_t base = msg.len;
+			for (size_t p = 0; p < path.len; p++) {
+				if (msg.len > base) sb_putc(a, &msg, '.');
+				sb_putS(a, &msg, diag_name(a, NODE(d, path.data[p]).name));
+			}
+			sb_puts(a, &msg, "'");
+			size_t sg = fr.named == SIZE_MAX ? SIZE_MAX : trie.nodes.data[fr.named].sibs;
+			v_suggest(a, tmp, sg == SIZE_MAX ? NULL : &trie.sibs[sg], node->name, &msg);
 			v_diag(a, out, node->line, "V001", sb_S(&msg));
 			continue;
 		}
 		ShclVecSize ch = node->children;
+		if (!ch.len) { pool.len = at; continue; }
+		size_t named = fr.named == SIZE_MAX ? SIZE_MAX : trie_child(&trie, fr.named, node->name);
+		size_t end = pool.len;
 		for (size_t i = ch.len; i > 0; i--) {
-			ShclVecSize_push(a, &snode, ch.data[i - 1]);
-			ShclVecS_push(a, &schain, chain);
-			ShclVecS_push(a, &sshown, shown);
+			ShclUnkFrame f; f.node = ch.data[i - 1]; f.depth = fr.depth + 1; f.from = at; f.to = end; f.named = named;
+			ShclVecUnkFrame_push(a, &stack, f);
 		}
 	}
 	arena_free(tmp);

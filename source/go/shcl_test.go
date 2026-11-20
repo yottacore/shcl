@@ -3369,6 +3369,40 @@ func TestEscapesDecodeInLinearTime(t *testing.T) {
 	}
 }
 
+// The unknown-field check built each node's chain from the root and matched
+// it from the top, so a fragment that mounts itself cost the square of the
+// document's depth (2026110711492228). Four times the depth has to take under
+// 8 times the time, twice the linear growth, where the square took 16 times.
+// Best of 3 each. Same fixture in every runner.
+func TestRecursiveMountCheckIsLinearInDepth(t *testing.T) {
+	defer testID(t, "dfjq7")
+	if raceOn {
+		t.Skip("not timed under -race")
+	}
+	schema := Parse("fragment: f\n\tfield: a\n\t\tinherits: f\n\tfield: leaf\n\t\ttype: int\nfield: a\n\tinherits: f\n")
+	var ms [2]float64
+	for slot, depth := range []int{120, 480} {
+		var text strings.Builder
+		for ln := 0; ln < 20; ln++ {
+			fmt.Fprintf(&text, "a(v%d).%sleaf: 1\n", ln, strings.Repeat("a.", depth))
+		}
+		d := Parse(text.String())
+		ms[slot] = math.Inf(1)
+		for r := 0; r < 3; r++ {
+			t0 := time.Now()
+			vs := d.Validate(schema)
+			ms[slot] = math.Min(ms[slot], float64(time.Since(t0).Microseconds())/1000.0)
+			if len(vs) != 0 {
+				t.Fatalf("a legal chain was refused: %v", vs)
+			}
+		}
+	}
+	bound := math.Max(ms[0], 1) * 8
+	if ms[1] > bound {
+		t.Errorf("recursive mount check %.1f ms at depth 480 against %.1f ms at depth 120 (bound %.1f ms) - the check is not linear in the depth", ms[1], ms[0], bound)
+	}
+}
+
 // A good escape built the E023 text it never read, which took 1M escapes from
 // 0.19 s to 0.72 s (2026110613470306). Asserted as an allocation count, as
 // TestAsciiLowerDoesNotCopyAFoldedName is.

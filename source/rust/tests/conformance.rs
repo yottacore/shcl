@@ -3574,6 +3574,49 @@ fn escapes_decode_in_linear_time() {
 	);
 }
 
+/// The unknown-field check built each node's chain from the root and matched
+/// it from the top, so a fragment that mounts itself cost the square of the
+/// document's depth (2026110711492228). Four times the depth has to take under
+/// 8 times the time, twice the linear growth, where the square took 16 times.
+/// Best of 3 each. Same fixture in every runner.
+#[cfg_attr(
+	miri,
+	ignore = "times a ratio, which means nothing under Miri, and never finishes there (2026102106592600)"
+)]
+#[cfg_attr(
+	shcl_tsan,
+	ignore = "times a ratio, which means nothing under ThreadSanitizer"
+)]
+#[test]
+fn recursive_mount_check_is_linear_in_depth() {
+	let _id = test_id("dfjq6");
+	let schema = Document::parse(
+		"fragment: f\n\tfield: a\n\t\tinherits: f\n\tfield: leaf\n\t\ttype: int\nfield: a\n\tinherits: f\n",
+	);
+	let mut ms = [0.0f64; 2];
+	for (slot, depth) in ms.iter_mut().zip([120, 480]) {
+		let text: String = (0..20)
+			.map(|ln| format!("a(v{}).{}leaf: 1\n", ln, "a.".repeat(depth)))
+			.collect();
+		let d = Document::parse(&text);
+		*slot = f64::INFINITY;
+		for _ in 0..3 {
+			let t0 = std::time::Instant::now();
+			let vs = d.validate(&schema);
+			*slot = slot.min(t0.elapsed().as_secs_f64() * 1000.0);
+			assert!(vs.is_empty(), "a legal chain was refused: {:?}", vs);
+		}
+	}
+	let bound = ms[0].max(1.0) * 8.0;
+	assert!(
+		ms[1] <= bound,
+		"recursive mount check {:.1} ms at depth 480 against {:.1} ms at depth 120 (bound {:.1} ms) - the check is not linear in the depth",
+		ms[1],
+		ms[0],
+		bound
+	);
+}
+
 #[test]
 fn standard_trait_surface() {
 	let _id = test_id("dbegt");

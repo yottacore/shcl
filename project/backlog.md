@@ -121,7 +121,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Schema check costs the square of the nesting depth in all 4 bindings
 	- ID: 2026110711492228
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: the profile stage of a full run, and the round's cppcheck over `shcl.h`.
 	- Severity: Avg
 	- Target version: v3.0.0
 	- Opened: 20261107-114922
@@ -132,10 +133,24 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Time the check on the schema and document of 2026110613470309, and on the same document at half the depth.
 	- Incorrect behavior: twice the depth costs about 4 times as much in all 4. Python takes 6.3 s on the 41 KB document.
 	- Expected behavior: spec.md says the check's cost is proportional to the document.
-	- Reproduced: 20261107, C and Python.
+	- Reproduced: 20261107, C and Python. 20261120, all 4: the new fixture took 13 to 16 times the time for 4 times the depth on the old code.
 	- Possible cause: the unknown-field sweep builds each node's chain from the root and matches it from the top, so a node at depth d costs d. Passing each node's match states down from its parent would make it a constant per node.
+	- Actual cause: confirmed. Each node copied its parent's chain key and its shown path, hashed the whole key, and decoded it again for the star and mount matchers.
 	- Regression test: the `df080` fixture in every runner checks that 4 times the depth takes under 8 times the time.
 	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- One matcher replaces the 3 (exact chains, star paths, mounts). The schema's paths become a trie per constraint list, a path that inherits a fragment points at that fragment's root, and each document node's set of trie nodes comes from its parent's set and its own name. The mount matcher already covered the other 2, so one is enough.
+		- "Did you mean" reads its sibling names from the top-level trie node that the parent's chain spells by names alone, which is the same set the per-chain map held.
+		- The shown path in a V001 message is built only for a reported node, from the walk's own path. Its length still follows the depth, but that is the message's own size.
+		- C keeps one edge map keyed on parent and name, with `name_key`, where the others keep a name map per trie node.
+	- Actual fix: the trie matcher in all 4 bindings, with the old chain keys, `star_legal`, `chain_legal` and the first-segment index gone. On the issue's 41 KB document the check went from 0.57 s to 0.01 s in Rust, 0.45 s to 0.04 s in Go, 6.3 s to 0.27 s in Python (the whole CLI run), and 0.26 s to 0.01 s in C, in user CPU at a load of about 6.
+		- Swept: `v_unknown` and its twins are the only callers of the removed helpers in all 4, and no doc or script names them. The fixtures time the whole validate, so the other passes are linear on that input too.
+		- Verified: the quick run over every area, lint-report, crosscheck, cli-regress and perf-gate (`dc81v`, `dcvcb`) passed, and so did analyze-c and codeql, bar the known `de5aj`. Over random schemas with stars, prefixes and fragments that mount themselves or each other, the old Go CLI and the new ones gave the same output: 1,500 seeds for Rust, Go and C, and 300 for Python.
+	- Test case: `recursive_mount_check_is_linear_in_depth` in every runner: C `df080`, Rust `dfjq6`, Go `dfjq7`, Python `dfjq8`. Each fails on the old code and passes now.
+		- 20261120: `df080` in `mem_bounds.c` was renamed from `recursive_mount_check_is_not_cubic_in_depth`, and its bound went from 32 to 8 times, as this item asked.
+	- Branch: `nov20c-2026110711492228`
+	- Commit: `b42c2b26`
 
 - A repeat the schema doesn't allow passes Strict, and a near-miss table merges with only a hint
 	- ID: 2026111016205701

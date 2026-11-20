@@ -18962,70 +18962,39 @@ impl Document {
 	// prefix (selectors ignored). Only the topmost unknown node is reported;
 	// its subtree is implied unknown and skipped.
 	fn v_unknown(&self, def: &SchemaDef, out: &mut Vec<Diagnostic>) {
-		let cons = &def.cons;
-		// Chains below a fragment mount only match by descending the mounts.
-		let has_mounts = cons.iter().any(|c| c.inherits.is_some());
-		let mut legal: std::collections::HashSet<String> = std::collections::HashSet::new();
-		// Sibling names per parent chain, built once (schema order): v_suggest
-		// used to rebuild every chain per unknown field, which bit hardest on
-		// the wholesale-unmatched documents the feature exists for.
-		let mut siblings: HashMap<String, SuggestNames> = HashMap::new();
-		// Paths with a `*` segment can't live in the exact-chain hash; they
-		// match element-wise (a star matches any one name, prefixes included).
-		let mut star_pats: Vec<&[Segment]> = Vec::new();
-		for c in cons {
-			if c.segs.iter().any(|s| s.star) {
-				star_pats.push(&c.segs);
-			}
-			let mut chain = String::new();
-			for s in &c.segs {
-				if s.star {
-					break; // no sibling entry for '*'; deeper chains are pattern-only
-				}
-				siblings.entry(chain.clone()).or_default().push(&s.name);
-				chain_push(&mut chain, &s.name);
-				legal.insert(chain.clone());
-			}
-		}
-		// Both element-wise matchers below used to scan their whole list per
-		// document node, which is quadratic once the schema and the document
-		// grow together. A path can only match a chain whose first part its
-		// own first segment accepts, so one bucket lookup replaces the scan.
-		let star_idx = first_index(star_pats.iter().copied());
-		let set_idx: HashMap<String, FirstIndex> = if has_mounts {
-			// Keyed the way chain_parts_legal's `dead` is: "" for the
-			// top-level list, otherwise the fragment name.
-			std::iter::once((String::new(), first_index(cons.iter().map(|c| &c.segs[..]))))
-				.chain(
-					def.frags
-						.iter()
-						.map(|(k, v)| (k.clone(), first_index(v.iter().map(|c| &c.segs[..])))),
-				)
-				.collect()
-		} else {
-			HashMap::new()
-		};
-		let mut stack: Vec<(usize, String, String)> = self.arena[ROOT]
+		let mut trie = PathTrie::new(def);
+		let mut stamp = vec![0usize; trie.nodes.len()];
+		let mut pass = 0usize;
+		// Trie nodes each pending node's parent reached, as a range of `pool`.
+		// The document's root reaches the top-level root.
+		let mut pool: Vec<usize> = vec![0];
+		// The document nodes down to the current one, for the message only.
+		let mut path: Vec<usize> = Vec::new();
+		// (node, depth, parent's range in pool, the top-level trie node the
+		// parent's chain spells by names alone, which holds its siblings)
+		let mut stack: Vec<(usize, usize, usize, usize, Option<usize>)> = self.arena[ROOT]
 			.children
 			.iter()
 			.rev()
-			.map(|&c| (c, String::new(), String::new()))
+			.map(|&c| (c, 0, 0, 1, Some(0)))
 			.collect();
-		while let Some((n, pchain, pshown)) = stack.pop() {
+		while let Some((n, depth, from, to, pnamed)) = stack.pop() {
 			let node = &self.arena[n];
-			let mut chain = pchain.clone();
-			chain_push(&mut chain, &node.name);
-			let seg = diag_name(&node.name);
-			let shown = if pshown.is_empty() {
-				seg
-			} else {
-				format!("{}.{}", pshown, seg)
-			};
-			let known = legal.contains(&chain)
-				|| star_legal(&star_pats, &star_idx, &chain)
-				|| (has_mounts && chain_legal(cons, &def.frags, &set_idx, &chain));
-			if !known {
-				let hint = v_suggest(&mut siblings, &pchain, &node.name);
+			path.truncate(depth);
+			path.push(n);
+			pass += 1;
+			let at = pool.len();
+			trie.step(&mut pool, from, to, &node.name, &mut stamp, pass);
+			if pool.len() == at {
+				let hint = v_suggest(pnamed.map(|t| &mut trie.nodes[t].sibs), &node.name);
+				let shown = path.iter().fold(String::new(), |acc, &p| {
+					let seg = diag_name(&self.arena[p].name);
+					if acc.is_empty() {
+						seg
+					} else {
+						format!("{}.{}", acc, seg)
+					}
+				});
 				vdiag(
 					out,
 					node.line,
@@ -19034,169 +19003,141 @@ impl Document {
 				);
 				continue;
 			}
+			if node.children.is_empty() {
+				pool.truncate(at);
+				continue;
+			}
+			let named = pnamed.and_then(|t| trie.nodes[t].names.get(&node.name).copied());
+			let end = pool.len();
 			for &k in node.children.iter().rev() {
-				stack.push((k, chain.clone(), shown.clone()));
+				stack.push((k, depth + 1, at, end, named));
 			}
 		}
 	}
 }
 
-/// Chain keys join segments length-prefixed (`<len>:<name>`), not with a bare
-/// NUL: NUL is legal in a quoted name, so a single field named "x\0y" would
-/// impersonate the two-segment path x.y. Same injectivity reasoning as
-/// Value::key's cell encoding - and like it, the length unit is each
-/// binding's native one (bytes here), because only injectivity matters.
-fn chain_push(chain: &mut String, name: &str) {
-	chain.push_str(&name.len().to_string());
-	chain.push(':');
-	chain.push_str(name);
+/// The schema's paths as one trie per constraint list - the top-level list
+/// and each fragment's - in one node list, with node 0 the top-level root. A
+/// document node is known when its chain reaches any trie node: stars match
+/// any one name, every prefix of a path is legal, and a chain that goes on
+/// past a path that inherits a fragment goes on in that fragment's trie. Each
+/// document node's set comes from its parent's set and its own name, so a node
+/// costs its name and not its depth. Building every node's chain from the root
+/// and matching it from the top made the check the square of the depth
+/// (2026110711492228).
+struct PathTrie {
+	nodes: Vec<PathNode>,
 }
 
-/// Decode a chain key back into its segments. Total: bails at the first
-/// shape the encoder can't have produced.
-fn chain_parts(chain: &str) -> Vec<&str> {
-	let mut parts = Vec::new();
-	let b = chain.as_bytes();
-	let mut i = 0;
-	while i < b.len() {
-		let mut n = 0usize;
-		while i < b.len() && b[i].is_ascii_digit() {
-			n = n * 10 + (b[i] - b'0') as usize;
-			i += 1;
+#[derive(Default)]
+struct PathNode {
+	names: HashMap<String, usize>,
+	star: Option<usize>,
+	/// Roots of the fragments that the paths ending here inherit.
+	mounts: Vec<usize>,
+	/// Legal names under this chain, for "did you mean". Only the top-level
+	/// nodes reached by names alone have any, since a star or a mount has no
+	/// one parent chain to suggest under.
+	sibs: SuggestNames,
+}
+
+impl PathTrie {
+	fn new(def: &SchemaDef) -> PathTrie {
+		let mut trie = PathTrie {
+			nodes: vec![PathNode::default()],
+		};
+		// A fragment is only reached through a mount, and only a top-level
+		// path can start a chain of them.
+		let mut roots: HashMap<&str, usize> = HashMap::new();
+		if def.cons.iter().any(|c| c.inherits.is_some()) {
+			for name in def.frags.keys() {
+				roots.insert(name, trie.nodes.len());
+				trie.nodes.push(PathNode::default());
+			}
 		}
-		if i >= b.len() || b[i] != b':' || i + 1 + n > b.len() {
-			break;
+		trie.add(0, &def.cons, &roots, true);
+		for (name, fcs) in &def.frags {
+			if let Some(&r) = roots.get(name.as_str()) {
+				trie.add(r, fcs, &roots, false);
+			}
 		}
-		i += 1;
-		parts.push(&chain[i..i + n]);
-		i += n;
+		trie
 	}
-	parts
-}
 
-/// Element-wise chain match against the star-bearing schema paths: a `*`
-/// segment matches any one name, and every prefix of a path is legal.
-fn star_legal(pats: &[&[Segment]], idx: &FirstIndex, chain: &str) -> bool {
-	if pats.is_empty() {
-		return false;
-	}
-	let parts: Vec<&str> = chain_parts(chain);
-	idx.candidates(parts[0]).any(|pi| {
-		let p = pats[pi];
-		p.len() >= parts.len()
-			&& parts
-				.iter()
-				.enumerate()
-				.all(|(i, seg)| p[i].star || p[i].name == *seg)
-	})
-}
-
-/// Schema paths bucketed by what their first segment accepts. A path can only
-/// match a chain whose first part is that segment's name, or anything at all
-/// when the segment is `*`, so a lookup plus the star bucket is the whole
-/// candidate set. Values are positions in the list the index was built from.
-/// Both callers ask "does any of these match", so bucket order cannot reach
-/// the answer.
-struct FirstIndex {
-	by_name: HashMap<String, Vec<usize>>,
-	stars: Vec<usize>,
-}
-
-impl FirstIndex {
-	fn candidates<'a>(&'a self, part: &str) -> impl Iterator<Item = usize> + 'a {
-		self.by_name
-			.get(part)
-			.into_iter()
-			.flatten()
-			.copied()
-			.chain(self.stars.iter().copied())
-	}
-}
-
-fn first_index<'a>(paths: impl Iterator<Item = &'a [Segment]>) -> FirstIndex {
-	let mut idx = FirstIndex {
-		by_name: HashMap::new(),
-		stars: Vec::new(),
-	};
-	for (i, segs) in paths.enumerate() {
-		// A pathless entry keeps its old place in every candidate set: the
-		// scan it replaces looked at one, and what it then did is unchanged.
-		match segs.first() {
-			Some(s) if !s.star => idx.by_name.entry(s.name.clone()).or_default().push(i),
-			_ => idx.stars.push(i),
-		}
-	}
-	idx
-}
-
-/// Chain legality through fragment mounts: the general matcher - element-wise
-/// like star_legal (stars wild, prefixes legal), and when a mount's whole path
-/// matched with chain left over, the remainder is retried against the mounted
-/// fragment's fields. Terminates: every descent consumes >= 1 part. A state
-/// is (fragment, parts consumed), and one that has failed is not walked again:
-/// two mounts of the same fragment at the same depth used to be walked both,
-/// which is 2^depth on a chain that ends unknown.
-fn chain_legal(
-	cons: &[Constraint],
-	frags: &HashMap<String, Vec<Constraint>>,
-	set_idx: &HashMap<String, FirstIndex>,
-	chain: &str,
-) -> bool {
-	let parts: Vec<&str> = chain_parts(chain);
-	let mut dead: std::collections::HashSet<(&str, usize)> = std::collections::HashSet::new();
-	chain_parts_legal(cons, "", frags, set_idx, &parts, 0, &mut dead)
-}
-
-fn chain_parts_legal<'a>(
-	cons: &'a [Constraint],
-	set: &'a str,
-	frags: &'a HashMap<String, Vec<Constraint>>,
-	set_idx: &HashMap<String, FirstIndex>,
-	parts: &[&str],
-	at: usize,
-	dead: &mut std::collections::HashSet<(&'a str, usize)>,
-) -> bool {
-	if dead.contains(&(set, at)) {
-		return false;
-	}
-	let rest = &parts[at..];
-	// The recursion only descends with parts left over, and the sweep never
-	// asks about an empty chain, so `rest` always has a first part to look up.
-	let cand: Vec<usize> = match set_idx.get(set) {
-		Some(idx) => idx.candidates(rest[0]).collect(),
-		None => (0..cons.len()).collect(),
-	};
-	for &ci in &cand {
-		let c = &cons[ci];
-		let n = c.segs.len();
-		let k = rest.len().min(n);
-		if (0..k).all(|i| c.segs[i].star || c.segs[i].name == rest[i]) {
-			if rest.len() <= n {
-				return true;
+	fn add(&mut self, root: usize, cons: &[Constraint], roots: &HashMap<&str, usize>, top: bool) {
+		for c in cons {
+			let mut at = root;
+			// No sibling entry for '*' or below it; deeper names are reached
+			// through the star.
+			let mut named = top;
+			for s in &c.segs {
+				named = named && !s.star;
+				if named {
+					self.nodes[at].sibs.push(&s.name);
+				}
+				let next = if s.star {
+					self.nodes[at].star
+				} else {
+					self.nodes[at].names.get(&s.name).copied()
+				};
+				at = match next {
+					Some(k) => k,
+					None => {
+						let k = self.nodes.len();
+						self.nodes.push(PathNode::default());
+						if s.star {
+							self.nodes[at].star = Some(k);
+						} else {
+							self.nodes[at].names.insert(s.name.clone(), k);
+						}
+						k
+					}
+				};
 			}
 			if let Some(fr) = &c.inherits
-				&& let Some(fcs) = frags.get(fr)
-				&& chain_parts_legal(fcs, fr, frags, set_idx, parts, at + n, dead)
+				&& let Some(&r) = roots.get(fr.as_str())
 			{
-				return true;
+				self.nodes[at].mounts.push(r);
 			}
 		}
 	}
-	dead.insert((set, at));
-	false
+
+	/// Appends to `pool` the trie nodes a chain reaches when `name` follows a
+	/// chain that reached `pool[from..to]`. `stamp` keeps a node to one entry
+	/// per pass, as two mounts of one fragment reach the same nodes.
+	fn step(
+		&self,
+		pool: &mut Vec<usize>,
+		from: usize,
+		to: usize,
+		name: &str,
+		stamp: &mut [usize],
+		pass: usize,
+	) {
+		let mut add = |pool: &mut Vec<usize>, k: Option<usize>| {
+			if let Some(k) = k
+				&& stamp[k] != pass
+			{
+				stamp[k] = pass;
+				pool.push(k);
+			}
+		};
+		for i in from..to {
+			let t = &self.nodes[pool[i]];
+			add(pool, t.names.get(name).copied());
+			add(pool, t.star);
+			for &r in &t.mounts {
+				add(pool, self.nodes[r].names.get(name).copied());
+				add(pool, self.nodes[r].star);
+			}
+		}
+	}
 }
 
 /// Closest legal sibling name (same parent chain, schema order, edit distance
 /// <= 2) as "; did you mean 'x'?" - or nothing. Prose only, never contract.
-fn v_suggest(
-	siblings: &mut HashMap<String, SuggestNames>,
-	parent_chain: &str,
-	name: &str,
-) -> String {
-	match siblings
-		.get_mut(parent_chain)
-		.and_then(|names| names.closest(name))
-	{
+fn v_suggest(names: Option<&mut SuggestNames>, name: &str) -> String {
+	match names.and_then(|names| names.closest(name)) {
 		Some(n) => format!("; did you mean '{}'?", diag_name(n)),
 		None => String::new(),
 	}

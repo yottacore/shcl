@@ -11338,55 +11338,39 @@ class Document:
 		# Unknown-field sweep: a schema path legalizes its name chain and every
 		# prefix (selectors ignored). Only the topmost unknown node is
 		# reported; its subtree is implied unknown and skipped.
-		cons = sdef.cons
-		# Chains below a fragment mount only match by descending the mounts.
-		has_mounts = any(c.inherits is not None for c in cons)
-		legal = set()
-		# Sibling names per parent chain, built once (schema order): _v_suggest
-		# used to rebuild every chain per unknown field, which bit hardest on
-		# the wholesale-unmatched documents the feature exists for.
-		siblings: dict = {}
-		# Paths with a `*` segment can't live in the exact-chain hash; they
-		# match element-wise (a star matches any one name, prefixes included).
-		star_pats = []
-		for c in cons:
-			if any(s.star for s in c.segs):
-				star_pats.append(c.segs)
-			chain = ""
-			for s in c.segs:
-				if s.star:
-					break   # no sibling entry for '*'; deeper chains are pattern-only
-				siblings.setdefault(chain, _SuggestNames()).push(s.name)
-				chain = _chain_push(chain, s.name)
-				legal.add(chain)
-		# Both element-wise matchers below used to scan their whole list per
-		# document node, which is quadratic once the schema and the document
-		# grow together. A path can only match a chain whose first part its own
-		# first segment accepts, so one bucket lookup replaces the scan.
-		star_idx = _first_index(star_pats)
-		# Keyed the way _chain_parts_legal's seen set is: "" for the top-level
-		# list, otherwise the fragment name.
-		set_idx = {}
-		if has_mounts:
-			set_idx[""] = _first_index([c.segs for c in cons])
-			for name, fcs in sdef.frags.items():
-				set_idx[name] = _first_index([c.segs for c in fcs])
-		stack = [(c, "", "") for c in reversed(self.arena[_ROOT].children)]
+		trie = _PathTrie(sdef)
+		stamp = [0] * len(trie.nodes)
+		pass_ = 0
+		# Trie nodes each pending node's parent reached, as a range of pool.
+		# The document's root reaches the top-level root.
+		pool = [0]
+		# The document nodes down to the current one, for the message only.
+		path: list[int] = []
+		# (node, depth, parent's range in pool, the top-level trie node the
+		# parent's chain spells by names alone, which holds its siblings)
+		stack: list[tuple[int, int, int, int, int | None]] = [(c, 0, 0, 1, 0) for c in reversed(self.arena[_ROOT].children)]
 		while stack:
-			n, pchain, pshown = stack.pop()
+			n, depth, lo, hi, pnamed = stack.pop()
 			node = self.arena[n]
-			chain = _chain_push(pchain, node.name)
-			seg = _diag_name(node.name)
-			shown = seg if not pshown else pshown + "." + seg
-			if (
-				chain not in legal
-				and not _star_legal(star_pats, star_idx, chain)
-				and not (has_mounts and _chain_legal(cons, sdef.frags, set_idx, chain))
-			):
-				hint = _v_suggest(siblings, pchain, node.name)
+			del path[depth:]
+			path.append(n)
+			pass_ += 1
+			at = len(pool)
+			trie.step(pool, lo, hi, node.name, stamp, pass_)
+			if len(pool) == at:
+				hint = _v_suggest(trie.nodes[pnamed].sibs if pnamed is not None else None, node.name)
+				shown = ""
+				for p in path:
+					seg = _diag_name(self.arena[p].name)
+					shown = seg if not shown else shown + "." + seg
 				_vdiag(out, node.line, "V001", f"unknown field '{shown}'{hint}")
 				continue
-			stack.extend((k, chain, shown) for k in reversed(node.children))
+			if not node.children:
+				del pool[at:]
+				continue
+			named = trie.nodes[pnamed].names.get(node.name) if pnamed is not None else None
+			end = len(pool)
+			stack.extend((k, depth + 1, at, end, named) for k in reversed(node.children))
 
 
 class StatusError(Exception):
@@ -14721,120 +14705,91 @@ def _edit_distance(a, b, cap):
 	return prev[len(b)]
 
 
-def _chain_push(chain, name):
-	"""Append a segment to a chain key. Chain keys join segments
-	length-prefixed (`<len>:<name>`), not with a bare NUL: NUL is legal in a
-	quoted name, so a single field named "x\\0y" would impersonate the
-	two-segment path x.y. Same injectivity reasoning as the merge key's cell
-	encoding - and like it, the length unit is each binding's native one
-	(code points here), because only injectivity matters."""
-	return chain + str(len(name)) + ":" + name
+class _PathNode:
+	__slots__ = ("names", "star", "mounts", "sibs")
+
+	def __init__(self):
+		self.names = {}
+		self.star = None
+		# Roots of the fragments that the paths ending here inherit.
+		self.mounts = []
+		# Legal names under this chain, for "did you mean". Only the top-level
+		# nodes reached by names alone have any, since a star or a mount has no
+		# one parent chain to suggest under.
+		self.sibs = None
 
 
-def _chain_parts(chain):
-	"""Decode a chain key back into its segments. Total: bails at the first
-	shape the encoder can't have produced."""
-	parts = []
-	i = 0
-	while i < len(chain):
-		n = 0
-		while i < len(chain) and "0" <= chain[i] <= "9":
-			n = n * 10 + (ord(chain[i]) - 48)
-			i += 1
-		if i >= len(chain) or chain[i] != ":" or i + 1 + n > len(chain):
-			break
-		i += 1
-		parts.append(chain[i:i + n])
-		i += n
-	return parts
+class _PathTrie:
+	"""The schema's paths as one trie per constraint list - the top-level list
+	and each fragment's - in one node list, with node 0 the top-level root. A
+	document node is known when its chain reaches any trie node: stars match
+	any one name, every prefix of a path is legal, and a chain that goes on
+	past a path that inherits a fragment goes on in that fragment's trie. Each
+	document node's set comes from its parent's set and its own name, so a
+	node costs its name and not its depth. Building every node's chain from
+	the root and matching it from the top made the check the square of the
+	depth (2026110711492228)."""
+
+	def __init__(self, sdef):
+		self.nodes = [_PathNode()]
+		# A fragment is only reached through a mount, and only a top-level
+		# path can start a chain of them.
+		roots = {}
+		if any(c.inherits is not None for c in sdef.cons):
+			for name in sdef.frags:
+				roots[name] = len(self.nodes)
+				self.nodes.append(_PathNode())
+		self._add(0, sdef.cons, roots, True)
+		for name, fcs in sdef.frags.items():
+			r = roots.get(name)
+			if r is not None:
+				self._add(r, fcs, roots, False)
+
+	def _add(self, root, cons, roots, top):
+		nodes = self.nodes
+		for c in cons:
+			at = root
+			# No sibling entry for '*' or below it; deeper names are reached
+			# through the star.
+			named = top
+			for s in c.segs:
+				named = named and not s.star
+				if named:
+					if nodes[at].sibs is None:
+						nodes[at].sibs = _SuggestNames()
+					nodes[at].sibs.push(s.name)
+				nxt = nodes[at].star if s.star else nodes[at].names.get(s.name)
+				if nxt is None:
+					nxt = len(nodes)
+					nodes.append(_PathNode())
+					if s.star:
+						nodes[at].star = nxt
+					else:
+						nodes[at].names[s.name] = nxt
+				at = nxt
+			if c.inherits is not None:
+				r = roots.get(c.inherits)
+				if r is not None:
+					nodes[at].mounts.append(r)
+
+	def step(self, pool, lo, hi, name, stamp, pass_):
+		"""Append to pool the trie nodes a chain reaches when name follows a
+		chain that reached pool[lo:hi]. stamp keeps a node to one entry per
+		pass, as two mounts of one fragment reach the same nodes."""
+		nodes = self.nodes
+		for i in range(lo, hi):
+			t = nodes[pool[i]]
+			for m in (t, *(nodes[r] for r in t.mounts)) if t.mounts else (t,):
+				for k in (m.names.get(name), m.star):
+					if k is not None and stamp[k] != pass_:
+						stamp[k] = pass_
+						pool.append(k)
 
 
-def _first_index(paths):
-	"""Schema paths bucketed by what their first segment accepts. A path can
-	only match a chain whose first part is that segment's name, or anything at
-	all when the segment is `*`, so a lookup plus the star bucket is the whole
-	candidate set. Values are positions in the list the index was built from.
-	Both callers ask "does any of these match", so bucket order cannot reach
-	the answer."""
-	by_name: dict = {}
-	stars: list = []
-	for i, segs in enumerate(paths):
-		# A pathless entry keeps its old place in every candidate set: the scan
-		# it replaces looked at one, and what it then did is unchanged.
-		if segs and not segs[0].star:
-			by_name.setdefault(segs[0].name, []).append(i)
-		else:
-			stars.append(i)
-	return (by_name, stars)
-
-
-def _candidates(idx, part):
-	by_name, stars = idx
-	named = by_name.get(part, ())
-	return named if not stars else [*named, *stars]
-
-
-def _star_legal(pats, idx, chain):
-	"""Element-wise chain match against the star-bearing schema paths: a `*`
-	segment matches any one name, and every prefix of a path is legal."""
-	if not pats:
-		return False
-	parts = _chain_parts(chain)
-	return any(
-		len(pats[pi]) >= len(parts)
-		and all(pats[pi][i].star or pats[pi][i].name == seg for i, seg in enumerate(parts))
-		for pi in _candidates(idx, parts[0])
-	)
-
-
-def _chain_legal(cons, frags, set_idx, chain):
-	"""Chain legality through fragment mounts: the general matcher - element-
-	wise like _star_legal (stars wild, prefixes legal), and when a mount's whole
-	path matched with chain left over, the remainder is retried against the
-	mounted fragment's fields. Terminates: every descent consumes >= 1 part."""
-	parts = _chain_parts(chain)
-	return _chain_parts_legal(cons, frags, set_idx, parts)
-
-
-def _chain_parts_legal(cons, frags, set_idx, parts):
-	# Explicit stack of (fragment, constraints, parts consumed) rather than one
-	# frame per mount: a chain at the depth cap descends that many mounts. A
-	# state seen once is not walked again - two mounts of the same fragment at
-	# the same depth used to be walked both, which is 2^depth on a chain that
-	# ends unknown.
-	stack = [("", cons, 0)]
-	seen = set()
-	while stack:
-		name, cons, at = stack.pop()
-		if (name, at) in seen:
-			continue
-		seen.add((name, at))
-		# Indexes into parts rather than a slice of the rest: a copy per
-		# level is the chain's length per level, cubic in a recursive mount's
-		# depth. The stack only descends with parts left over, and the sweep
-		# never asks about an empty chain, so parts[at] is always there.
-		left = len(parts) - at
-		idx = set_idx.get(name)
-		order = range(len(cons)) if idx is None else _candidates(idx, parts[at])
-		for ci in order:
-			c = cons[ci]
-			n = len(c.segs)
-			k = min(left, n)
-			if all(c.segs[i].star or c.segs[i].name == parts[at + i] for i in range(k)):
-				if left <= n:
-					return True
-				if c.inherits is not None:
-					fcs = frags.get(c.inherits)
-					if fcs is not None:
-						stack.append((c.inherits, fcs, at + n))
-	return False
-
-
-def _v_suggest(siblings, parent_chain, name):
+def _v_suggest(names, name):
 	"""Closest legal sibling name (same parent chain, schema order, edit
 	distance <= 2) as "; did you mean 'x'?" - or nothing. Prose only, never
 	contract. The sibling lists are prebuilt once per validate."""
-	names = siblings.get(parent_chain)
 	best = names.closest(name) if names is not None else None
 	if best is None:
 		return ""

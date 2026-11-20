@@ -19135,257 +19135,188 @@ func firstFloatAbove(xs []float64, hi float64) int {
 // and every prefix (selectors ignored). Only the topmost unknown node is
 // reported; its subtree is implied unknown and skipped.
 func (d *Document) vUnknown(def *schemaDef, out *[]Diagnostic) {
-	cons := def.cons
-	// Chains below a fragment mount only match by descending the mounts.
-	hasMounts := false
-	for i := range cons {
-		if cons[i].inherits != "" {
-			hasMounts = true
-			break
-		}
-	}
-	legal := map[string]bool{}
-	// Sibling names per parent chain, built once (schema order): vSuggest
-	// used to rebuild every chain per unknown field, which bit hardest on
-	// the wholesale-unmatched documents the feature exists for.
-	siblings := map[string]*suggestNames{}
-	// Paths with a `*` segment can't live in the exact-chain hash; they
-	// match element-wise (a star matches any one name, prefixes included).
-	var starPats [][]segment
-	for i := range cons {
-		for _, s := range cons[i].segs {
-			if s.star {
-				starPats = append(starPats, cons[i].segs)
-				break
-			}
-		}
-		chain := ""
-		for _, s := range cons[i].segs {
-			if s.star {
-				break // no sibling entry for '*'; deeper chains are pattern-only
-			}
-			if siblings[chain] == nil {
-				siblings[chain] = &suggestNames{seen: map[string]bool{}}
-			}
-			siblings[chain].push(s.name)
-			chain = chainPush(chain, s.name)
-			legal[chain] = true
-		}
-	}
-	// Both element-wise matchers below used to scan their whole list per
-	// document node, which is quadratic once the schema and the document grow
-	// together. A path can only match a chain whose first part its own first
-	// segment accepts, so one bucket lookup replaces the scan.
-	starIdx := firstIndex(starPats)
-	setIdx := map[string]firstIdx{}
-	if hasMounts {
-		// Keyed the way chainPartsLegal's dead set is: "" for the top-level
-		// list, otherwise the fragment name.
-		segsOf := func(cs []constraint) [][]segment {
-			out := make([][]segment, len(cs))
-			for i := range cs {
-				out[i] = cs[i].segs
-			}
-			return out
-		}
-		setIdx[""] = firstIndex(segsOf(cons))
-		for name, fcs := range def.frags {
-			setIdx[name] = firstIndex(segsOf(fcs))
-		}
-	}
+	trie := newPathTrie(def)
+	stamp := make([]int, len(trie.nodes))
+	pass := 0
+	// Trie nodes each pending node's parent reached, as a range of pool. The
+	// document's root reaches the top-level root.
+	pool := []int{0}
+	// The document nodes down to the current one, for the message only.
+	var path []int
 	type frame struct {
-		node  int
-		chain string
-		shown string
+		node, depth int
+		from, to    int // the parent's range in pool
+		// The top-level trie node the parent's chain spells by names alone,
+		// which holds its siblings, or -1.
+		named int
 	}
 	var stack []frame
 	kids := d.arena[root].children
 	for i := len(kids) - 1; i >= 0; i-- {
-		stack = append(stack, frame{node: kids[i]})
+		stack = append(stack, frame{node: kids[i], from: 0, to: 1, named: 0})
 	}
 	for len(stack) > 0 {
 		fr := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
 		node := &d.arena[fr.node]
-		chain := chainPush(fr.chain, node.name)
-		seg := diagName(node.name)
-		shown := seg
-		if fr.shown != "" {
-			shown = fr.shown + "." + seg
-		}
-		if !legal[chain] && !starLegal(starPats, starIdx, chain) && !(hasMounts && chainLegal(cons, def.frags, setIdx, chain)) {
-			hint := vSuggest(siblings, fr.chain, node.name)
+		path = append(path[:fr.depth], fr.node)
+		pass++
+		at := len(pool)
+		pool = trie.step(pool, fr.from, fr.to, node.name, stamp, pass)
+		if len(pool) == at {
+			var sibs *suggestNames
+			if fr.named >= 0 {
+				sibs = trie.nodes[fr.named].sibs
+			}
+			hint := vSuggest(sibs, node.name)
+			shown := ""
+			for _, p := range path {
+				seg := diagName(d.arena[p].name)
+				if shown == "" {
+					shown = seg
+				} else {
+					shown = shown + "." + seg
+				}
+			}
 			vdiag(out, node.line, "V001", fmt.Sprintf("unknown field '%s'%s", shown, hint))
 			continue
 		}
+		if len(node.children) == 0 {
+			pool = pool[:at]
+			continue
+		}
+		named := -1
+		if fr.named >= 0 {
+			if k, ok := trie.nodes[fr.named].names[node.name]; ok {
+				named = k
+			}
+		}
+		end := len(pool)
 		for i := len(node.children) - 1; i >= 0; i-- {
-			stack = append(stack, frame{node: node.children[i], chain: chain, shown: shown})
+			stack = append(stack, frame{node: node.children[i], depth: fr.depth + 1, from: at, to: end, named: named})
 		}
 	}
 }
 
-// chainPush appends a segment to a chain key. Chain keys join segments
-// length-prefixed (`<len>:<name>`), not with a bare NUL: NUL is legal in a
-// quoted name, so a single field named "x\x00y" would impersonate the
-// two-segment path x.y. Same injectivity reasoning as the merge key's cell
-// encoding - and like it, the length unit is each binding's native one
-// (bytes here), because only injectivity matters.
-func chainPush(chain, name string) string {
-	return chain + strconv.Itoa(len(name)) + ":" + name
+// pathTrie is the schema's paths as one trie per constraint list - the
+// top-level list and each fragment's - in one node list, with node 0 the
+// top-level root. A document node is known when its chain reaches any trie
+// node: stars match any one name, every prefix of a path is legal, and a chain
+// that goes on past a path that inherits a fragment goes on in that fragment's
+// trie. Each document node's set comes from its parent's set and its own name,
+// so a node costs its name and not its depth. Building every node's chain from
+// the root and matching it from the top made the check the square of the depth
+// (2026110711492228).
+type pathTrie struct {
+	nodes []pathNode
 }
 
-// chainParts decodes a chain key back into its segments. Total: bails at the
-// first shape the encoder can't have produced.
-func chainParts(chain string) []string {
-	var parts []string
-	i := 0
-	for i < len(chain) {
-		n := 0
-		for i < len(chain) && chain[i] >= '0' && chain[i] <= '9' {
-			n = n*10 + int(chain[i]-'0')
-			i++
-		}
-		if i >= len(chain) || chain[i] != ':' || i+1+n > len(chain) {
+type pathNode struct {
+	names map[string]int
+	star  int // -1 for none
+	// Roots of the fragments that the paths ending here inherit.
+	mounts []int
+	// Legal names under this chain, for "did you mean". Only the top-level
+	// nodes reached by names alone have any, since a star or a mount has no
+	// one parent chain to suggest under.
+	sibs *suggestNames
+}
+
+func (t *pathTrie) newNode() int {
+	t.nodes = append(t.nodes, pathNode{names: map[string]int{}, star: -1})
+	return len(t.nodes) - 1
+}
+
+func newPathTrie(def *schemaDef) *pathTrie {
+	t := &pathTrie{}
+	t.newNode()
+	// A fragment is only reached through a mount, and only a top-level path
+	// can start a chain of them.
+	roots := map[string]int{}
+	for i := range def.cons {
+		if def.cons[i].inherits != "" {
+			for name := range def.frags {
+				roots[name] = t.newNode()
+			}
 			break
 		}
-		i++
-		parts = append(parts, chain[i:i+n])
-		i += n
 	}
-	return parts
+	t.add(0, def.cons, roots, true)
+	for name, fcs := range def.frags {
+		if r, ok := roots[name]; ok {
+			t.add(r, fcs, roots, false)
+		}
+	}
+	return t
 }
 
-// starLegal is the element-wise chain match against the star-bearing schema
-// paths: a `*` segment matches any one name, and every prefix of a path is
-// legal.
-func starLegal(pats [][]segment, idx firstIdx, chain string) bool {
-	if len(pats) == 0 {
-		return false
-	}
-	parts := chainParts(chain)
-	for _, pi := range idx.candidates(parts[0]) {
-		p := pats[pi]
-		if len(p) < len(parts) {
-			continue
-		}
-		ok := true
-		for i, seg := range parts {
-			if !p[i].star && p[i].name != seg {
-				ok = false
-				break
+func (t *pathTrie) add(root int, cons []constraint, roots map[string]int, top bool) {
+	for i := range cons {
+		c := &cons[i]
+		at := root
+		// No sibling entry for '*' or below it; deeper names are reached
+		// through the star.
+		named := top
+		for _, s := range c.segs {
+			named = named && !s.star
+			if named {
+				if t.nodes[at].sibs == nil {
+					t.nodes[at].sibs = &suggestNames{seen: map[string]bool{}}
+				}
+				t.nodes[at].sibs.push(s.name)
 			}
-		}
-		if ok {
-			return true
-		}
-	}
-	return false
-}
-
-// chainLegal is chain legality through fragment mounts: the general matcher -
-// element-wise like starLegal (stars wild, prefixes legal), and when a mount's
-// whole path matched with chain left over, the remainder is retried against
-// the mounted fragment's fields. Terminates: every descent consumes >= 1 part.
-func chainLegal(cons []constraint, frags map[string][]constraint, setIdx map[string]firstIdx, chain string) bool {
-	parts := chainParts(chain)
-	dead := map[chainState]bool{}
-	return chainPartsLegal(cons, "", frags, setIdx, parts, 0, dead)
-}
-
-// firstIdx buckets schema paths by what their first segment accepts. A path
-// can only match a chain whose first part is that segment's name, or anything
-// at all when the segment is `*`, so a lookup plus the star bucket is the whole
-// candidate set. Values are positions in the list the index was built from.
-// Both callers ask "does any of these match", so bucket order cannot reach the
-// answer.
-type firstIdx struct {
-	byName map[string][]int
-	stars  []int
-}
-
-func (ix firstIdx) candidates(part string) []int {
-	named := ix.byName[part]
-	if len(ix.stars) == 0 {
-		return named
-	}
-	out := make([]int, 0, len(named)+len(ix.stars))
-	return append(append(out, named...), ix.stars...)
-}
-
-func firstIndex(paths [][]segment) firstIdx {
-	ix := firstIdx{byName: map[string][]int{}}
-	for i, segs := range paths {
-		// A pathless entry keeps its old place in every candidate set: the
-		// scan it replaces looked at one, and what it then did is unchanged.
-		if len(segs) > 0 && !segs[0].star {
-			ix.byName[segs[0].name] = append(ix.byName[segs[0].name], i)
-		} else {
-			ix.stars = append(ix.stars, i)
-		}
-	}
-	return ix
-}
-
-// chainState: a fragment and how many parts are consumed on entry. One that
-// has failed is not walked again - two mounts of the same fragment at the same
-// depth used to be walked both, which is 2^depth on a chain that ends unknown.
-type chainState struct {
-	set string
-	at  int
-}
-
-func chainPartsLegal(cons []constraint, set string, frags map[string][]constraint, setIdx map[string]firstIdx, parts []string, at int, dead map[chainState]bool) bool {
-	if dead[chainState{set, at}] {
-		return false
-	}
-	rest := parts[at:]
-	// The recursion only descends with parts left over, and the sweep never
-	// asks about an empty chain, so rest always has a first part to look up.
-	cand, ok := setIdx[set]
-	var order []int
-	if ok {
-		order = cand.candidates(rest[0])
-	} else {
-		order = make([]int, len(cons))
-		for i := range cons {
-			order[i] = i
-		}
-	}
-	for _, ci := range order {
-		c := &cons[ci]
-		n := len(c.segs)
-		k := len(rest)
-		if n < k {
-			k = n
-		}
-		matched := true
-		for j := 0; j < k; j++ {
-			if !c.segs[j].star && c.segs[j].name != rest[j] {
-				matched = false
-				break
+			next, ok := t.nodes[at].star, t.nodes[at].star >= 0
+			if !s.star {
+				next, ok = t.nodes[at].names[s.name]
 			}
-		}
-		if !matched {
-			continue
-		}
-		if len(rest) <= n {
-			return true
+			if !ok {
+				next = t.newNode()
+				if s.star {
+					t.nodes[at].star = next
+				} else {
+					t.nodes[at].names[s.name] = next
+				}
+			}
+			at = next
 		}
 		if c.inherits != "" {
-			if fcs, ok := frags[c.inherits]; ok && chainPartsLegal(fcs, c.inherits, frags, setIdx, parts, at+n, dead) {
-				return true
+			if r, ok := roots[c.inherits]; ok {
+				t.nodes[at].mounts = append(t.nodes[at].mounts, r)
 			}
 		}
 	}
-	dead[chainState{set, at}] = true
-	return false
+}
+
+// step appends to pool the trie nodes a chain reaches when name follows a
+// chain that reached pool[from:to]. stamp keeps a node to one entry per pass,
+// as two mounts of one fragment reach the same nodes.
+func (t *pathTrie) step(pool []int, from, to int, name string, stamp []int, pass int) []int {
+	add := func(k int) {
+		if k >= 0 && stamp[k] != pass {
+			stamp[k] = pass
+			pool = append(pool, k)
+		}
+	}
+	look := func(n *pathNode) {
+		if k, ok := n.names[name]; ok {
+			add(k)
+		}
+		add(n.star)
+	}
+	for i := from; i < to; i++ {
+		n := &t.nodes[pool[i]]
+		look(n)
+		for _, r := range n.mounts {
+			look(&t.nodes[r])
+		}
+	}
+	return pool
 }
 
 // vSuggest finds the closest legal sibling name (same parent chain, schema
 // order, edit distance <= 2) as "; did you mean 'x'?" - or nothing. Prose
 // only, never contract.
-func vSuggest(siblings map[string]*suggestNames, parentChain, name string) string {
-	names := siblings[parentChain]
+func vSuggest(names *suggestNames, name string) string {
 	if names == nil {
 		return ""
 	}

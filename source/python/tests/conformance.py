@@ -2877,6 +2877,27 @@ def main():
 	bound = max(ms[0], 1.0) * 24
 	if ms[1] > bound:
 		raise SystemExit(f"80000 escapes {ms[1]:.1f} ms against {ms[0]:.1f} ms for 10000 (bound {bound:.1f} ms) - escape decoding is not linear")
+	test_id("dfjq8", "recursive_mount_check_is_linear_in_depth")
+	# The unknown-field check built each node's chain from the root and matched
+	# it from the top, so a fragment that mounts itself cost the square of the
+	# document's depth (2026110711492228). Four times the depth has to take
+	# under 8 times the time, twice the linear growth, where the square took 16
+	# times. Best of 3 each. Same fixture in every runner.
+	rschema = shcl.Document.parse("fragment: f\n\tfield: a\n\t\tinherits: f\n\tfield: leaf\n\t\ttype: int\nfield: a\n\tinherits: f\n")
+	ms = []
+	for depth in (120, 480):
+		rdoc = shcl.Document.parse("".join(f"a(v{ln})." + "a." * depth + "leaf: 1\n" for ln in range(20)))
+		best = float("inf")
+		for _ in range(3):
+			t0 = time.perf_counter()
+			rvs = rdoc.validate(rschema)
+			best = min(best, (time.perf_counter() - t0) * 1000.0)
+			if rvs:
+				raise SystemExit(f"recursive mount fixture: a legal chain was refused: {rvs!r}")
+		ms.append(best)
+	bound = max(ms[0], 1.0) * 8
+	if ms[1] > bound:
+		raise SystemExit(f"recursive mount check {ms[1]:.1f} ms at depth 480 against {ms[0]:.1f} ms at depth 120 (bound {bound:.1f} ms) - the check is not linear in the depth")
 	test_id("df027", "an_escape_message_is_built_only_for_an_error")
 	# A good escape built the E023 text it never read (2026110613470306).
 	built = []
