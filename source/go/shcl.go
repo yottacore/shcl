@@ -2000,13 +2000,22 @@ func scanPiece(s string, pos int, term byte, rules lex, comments, array bool) (P
 		}
 		// 2.0 read a quote inside a piece as text, but a comma or a `#`
 		// before its close did not end the piece. One that never closes is
-		// text, as `don't` is.
+		// text too, as `don't` is, and so is the rest of the line after it.
 		if shield && (b == '"' || b == '\'') {
 			if close := quoteClose(s, pos, rules); close >= 0 {
 				pos = close + 1
 				contentEnd = pos
 				continue
 			}
+			for pos < len(s) {
+				if n := blankLen(s, pos, edges); n > 0 {
+					pos += n
+				} else {
+					pos += utf8Len(s, pos)
+					contentEnd = clamp(pos)
+				}
+			}
+			break
 		}
 		if endsAt(pos) || (array && b == ']') || (comments && commentAt(s, pos)) {
 			break
@@ -4162,7 +4171,9 @@ func stampHint(stamp Read[int]) (Diagnostic, bool) {
 // at all: a fence label holding a `#`, which 2.x ran to the end of the line
 // and which now ends at the `#`. A quoted name with a backslash pair reads as
 // from's format read it, and without from stays as written and counts in
-// Lost, since 1.2 read it as typed and 2.0 resolved it.
+// Lost, since 1.2 read it as typed and 2.0 resolved it. With from naming 1.0,
+// 1.1 or 2.0, a raw body is written to read as that format read it, with the
+// indent its lines shared taken off.
 // Which file this is cannot always be read off the text: `p: a,b` is an array
 // under 2.x and one string under these rules, and a raw block can open where
 // only one rule set sees it, so rewriting a 3.0 file changes what it says. So
@@ -4221,6 +4232,104 @@ func majorityEol(text string) string {
 	return "\n"
 }
 
+// v2FenceClose is the fence run of a line that closed a raw block under 1.0
+// to 2.0, which trimmed every White_Space character off its edges, where now
+// only a space or a tab comes off.
+func v2FenceClose(line string, ch byte, length int) (string, bool) {
+	t := strings.TrimFunc(line, whiteSpace)
+	if len(t) < length {
+		return "", false
+	}
+	for i := 0; i < len(t); i++ {
+		if t[i] != ch {
+			return "", false
+		}
+	}
+	return t, true
+}
+
+// rawLine is one raw body line as v2RawBody would write it: set, or as typed.
+type rawLine struct {
+	text string
+	set  bool
+}
+
+// v2RawBody is a raw body as 1.0 to 2.0 read it, for the lines after its
+// opening fence. Those formats took the indent shared by the body's lines
+// that hold more than blanks off each line. 1.x blanked a line of blanks, and
+// 2.0 took off what such a line shares with that indent. Now only the closing
+// fence's indent comes off. So when a line would read otherwise now, each
+// line that holds more than blanks is written as that indent and the text it
+// read then, which a second run reads the same, and a line of blanks only
+// where it reads otherwise. The rest stay as typed. A block that never closes
+// stays as typed, since 2.x read it with an error and it is unfinished here.
+// Migrate's own read, with no format found, keeps them all too: the 2.x dev
+// builds after 2.0 read a body as it reads now.
+func v2RawBody(lines []string, ch byte, length int, v2 v2Read) []rawLine {
+	if v2 == v2Either {
+		return nil
+	}
+	var body []string
+	nest, closed := "", false
+	for _, l := range lines {
+		b := strings.TrimRight(l, "\r")
+		if _, ok := v2FenceClose(b, ch, length); ok {
+			nest, closed = leadingWS(b), true
+			break
+		}
+		body = append(body, b)
+	}
+	if !closed {
+		return nil
+	}
+	blank := func(b string) bool { return strings.TrimFunc(b, whiteSpace) == "" }
+	common, seen := "", false
+	for _, b := range body {
+		if blank(b) {
+			continue
+		}
+		lead := leadingWS(b)
+		if !seen {
+			common, seen = lead, true
+			continue
+		}
+		n := 0
+		for n < len(common) && n < len(lead) && common[n] == lead[n] {
+			n++
+		}
+		common = common[:n]
+	}
+	then := make([]string, len(body))
+	same := true
+	for k, b := range body {
+		switch {
+		case v2 == v2From20:
+			then[k] = stripCommon(b, common)
+		case blank(b):
+			then[k] = ""
+		default:
+			then[k] = b[len(common):]
+		}
+		same = same && stripCommon(b, nest) == then[k]
+	}
+	if same {
+		return nil
+	}
+	out := make([]rawLine, len(body))
+	for k, b := range body {
+		want := ""
+		if then[k] != "" {
+			want = nest + then[k]
+		}
+		keep := b == want
+		if blank(b) {
+			keep = stripCommon(b, nest) == then[k]
+		}
+		out[k] = rawLine{text: want, set: !keep}
+	}
+	return out
+}
+
 // migrateText: beta takes a file naming this format as 2.x too, which only
 // Upgrade asks for, once the caller has said so. s is the step the text's
 // format starts with, and says which rules it was written by: a pin's, for a
@@ -4266,7 +4375,10 @@ func migrateText(text string, fromV2, stamp, beta bool, s step) Migration {
 	// The output as the parser will read it, for where its raw blocks are.
 	now := newRawLines(lexCurrent)
 	split := false
-	for i, line := range strings.Split(text, "\n") {
+	lines := strings.Split(text, "\n")
+	// A raw body's lines as the format read them, from its opening line on.
+	var rawBody []rawLine
+	for i, line := range lines {
 		if i > 0 {
 			out.WriteByte('\n')
 		}
@@ -4275,10 +4387,34 @@ func migrateText(text string, fromV2, stamp, beta bool, s step) Migration {
 		body := strings.TrimRight(line, "\r")
 		cr := line[len(body):]
 		if fence.open {
-			if isFenceClose(body, fence.ch, fence.length) {
-				fence.open = false
+			// Only where the current rules read the same block.
+			run, closedThen := "", false
+			if st.v2 != v2Either && now.fence == fence {
+				run, closedThen = v2FenceClose(body, fence.ch, fence.length)
 			}
-			out.WriteString(line)
+			var then rawLine
+			if len(rawBody) > 0 {
+				then, rawBody = rawBody[0], rawBody[1:]
+			}
+			switch {
+			case isFenceClose(body, fence.ch, fence.length):
+				fence.open = false
+				out.WriteString(line)
+			case closedThen:
+				// A close only 1.0 to 2.0 read goes without the blanks that
+				// hid it now.
+				fence.open = false
+				out.WriteString(leadingWS(body))
+				out.WriteString(run)
+				out.WriteString(cr)
+				changed = true
+			case then.set:
+				out.WriteString(then.text)
+				out.WriteString(cr)
+				changed = true
+			default:
+				out.WriteString(line)
+			}
 		} else {
 			indent := leadingWS(body)
 			restFull := body[len(indent):]
@@ -4310,6 +4446,11 @@ func migrateText(text string, fromV2, stamp, beta bool, s step) Migration {
 			st.ambiguous++
 		}
 		split = differs
+		// A body is written to read as it did only where the current rules
+		// open the same block on the same line.
+		if fence.open && !rawThen && now.fence == fence {
+			rawBody = v2RawBody(lines[i+1:], fence.ch, fence.length, st.v2)
+		}
 	}
 	// 2.x let a comma list head lines of its own, and nothing spells that
 	// now: in brackets it is E028, and as one string it reads as another

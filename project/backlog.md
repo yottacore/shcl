@@ -1869,7 +1869,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: upgrade from 1.0, 1.1 or 2.0 keeps the indent those formats took off a raw body
 	- ID: 2026112008173348
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261120-081733
@@ -1878,6 +1878,22 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Related IDs: 2026111907080466, 2026111917071578
 	- Problem description: 1.0 to 2.0 took the indent shared by a raw body's lines off each line, so a body under `~~~sql` written as `  SELECT 1` read as `SELECT 1`. 3.0-1f8 and later take off only the fence's own indent. `upgrade --from=2.0` leaves the body as typed, so it reads with the 2 spaces now.
 	- Origin: Confirmed by check-formats `dfjac`, `dfjad` and `dfjae`, on corpus 053, 055 and 058 and 2 fuzz documents, against the v1.0.0, v1.1.0 and v2.0.0 CLIs.
+	- Actual cause: the steps out of 1.0, 1.1 and 2.0 passed a raw body through as typed, and closed a block only where the current rules close one. Those formats took the indent shared by the body's lines that hold more than blanks off each line. 1.x blanked a line of blanks, 2.0 took off what such a line shares with that indent, and both closed on a fence run with any White_Space at its edges.
+	- Actual fix: where a line would read otherwise, the step writes each line that holds more than blanks under the closing fence's indent with the text the format read, and a line of blanks only where it differs, in all 4 bindings (`v2_raw_body`, Go `v2RawBody`, Python `_v2_raw_body`). A closing fence run only 2.x read loses its blanks (`v2_fence_close`). Both happen only where the current rules open the same block on the same line. check-migrate leaves out a raw block that 2.0 and its pinned build read apart.
+	- Decisions:
+		- 20261120: `migrate` without `from` leaves raw bodies as typed, since the 2.x dev builds after 2.0 read them as now, and check-migrate's pinned build stands for those. A `Check:` entry in questions.md has it.
+		- 20261120: a block that never closes stays as typed. 2.x read it with an error, the file is left unstamped, and a rewrite there wasn't a fixpoint.
+		- 20261120: once a block has a line that reads otherwise, every line that holds more than blanks is written under the closing fence's indent, not only the ones that differ, so a second run reads it the same.
+		- 20261120: the closing fence rule is fixed here too, since a fuzz document needed both and it's the same step's reading of a raw block.
+	- 20261120: corpus 124's `expected-migrate.shcl` wants `echo hi` flush, where it had a tab before it, since 2.0 took the shared tab off.
+	- Verified: check-formats `--only 1.0` passes, and `--only 1.1` and `--only 2.0` fail only on corpus 042, which is 2026112008173368. The new Rust test and the corpus goldens fail on the unfixed library. cargo test, clippy and rustfmt, Go in both modules, the Python and C conformance runners, `--backlog-run-quick rust go python c cli cicd`, `lint-report.bash --check --no-mark`, cli-regress, crosscheck, check-migrate, `test-ids.py check`, the markdown check and markdownlint passed. Go, Python and C `upgrade` agree with Rust's on 686 corpus files at each of the 1.0, 1.1 and 2.0 dates.
+	- Swept: each binding's `migrate_text` loop and its 2.x close test. `RawLines` under the 2.x rules keeps the current close rule, since `migrate` without `from` reads with it. Docs: spec.md's migrate section, the format versions design doc, `migrate`'s doc comment in all 4, and the changelog.
+	- Test case: `upgrade_from_1x_or_2x_keeps_a_raw_body_and_an_open_quote_as_read` (Rust `dfjbg`, Go `dfjbh`, Python `dfjbj`, C `dfjbk`), corpus `124-migrate-crlf-fence`'s migrate golden, check-migrate `dfjbm`, and check-formats `dfjac`.
+	- Branch: `nov20b-2026112008173348`
+	- Commit: `90207741`
+	- Acceptance signoff: Self-closed: the tests were seen to fail on the old code, and the converted reads match the v1.0.0, v1.1.0 and v2.0.0 CLIs.
+	- Closed: 20261120-092600
+	- Closed reason: Done
 
 - Format versions: upgrade from 1.1 to 3.0-a37 splits a value that a later stacked list closes onto
 	- ID: 2026112008173368
@@ -1895,7 +1911,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: upgrade from 1.0, 1.1 or 2.0 cuts a value at a comma after a quote that never closes
 	- ID: 2026112008173388
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261120-081733
@@ -1904,6 +1920,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Related IDs: 2026111907080466, 2026111917071578
 	- Problem description: 1.0 to 2.0 read `open: don't, stop` as one element, `don't, stop`. `upgrade` writes `["don't", stop]`, which is 2. A quote that closes past the comma, as in `it's, they're`, converts right.
 	- Origin: Confirmed by check-formats `dfjac`, `dfjad` and `dfjae`, on corpus 210 line 6 and a fuzz document, against the v1.0.0, v1.1.0 and v2.0.0 CLIs. check-migrate misses it, since its pinned build reads the line as 2 elements too.
+	- Actual cause: in a 2.x value piece, a quote that never closed was read as text and the scan went on, so a later loose comma or `#` ended the piece. 2.0's comma split and comment strip kept such a quote open to the end of the line.
+	- Actual fix: a quote inside a 2.x value piece that never closes takes the rest of the line into the piece, in `scan_piece` (Rust and C), `scanPiece` (Go) and `_scan_piece` (Python). That's every 2.x step and `migrate`. check-migrate's mid-quote finder also flags such a line when a comma or a `#` follows it.
+	- Decisions:
+		- 20261120: `migrate` without `from` reads it as 2.0 did too, as it already did for a quote that closes past a comma (2026102620591100). So `note: don't panic  # keep this` keeps the comment as text. A `Check:` entry in questions.md has it.
+	- 20261120: check-migrate `dej4h` wants lines `1 2 3 4 5 6` of corpus 210, where it was `1 2 3 4 5`, since line 6's quote never closes. Corpus 210's `expected-migrate.shcl` wants `open: "don't, stop"`, where it had `open: ["don't", stop]`.
+	- Verified: corpus 210's migrate golden fails on the unfixed library, and the gates under 2026112008173348 passed on the same commit. check-formats `dfjac` to `dfjae` no longer show it.
+	- Swept: the arm for an open quote at the start of a piece already took the rest of the line. A selector body isn't shielded, since 2.x's ran to its `]`. All 4 bindings' scan.
+	- Test case: corpus `210-migrate-mid-quote-comma`'s migrate golden, through `migrate_matches_expected` in all 4 runners, the `dfjbg` test and its twins, and check-migrate `dej4h`.
+	- Branch: `nov20b-2026112008173348`
+	- Commit: `90207741`
+	- Acceptance signoff: Self-closed: the golden was seen to fail on the old code, and the converted reads match the v1.0.0, v1.1.0 and v2.0.0 CLIs.
+	- Closed: 20261120-092600
+	- Closed reason: Done
 
 - Format versions: the load finds a file's format with its mtime, and converts it by a table of steps
 	- ID: 2026111908443663

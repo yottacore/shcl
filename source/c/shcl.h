@@ -2294,10 +2294,16 @@ static size_t scan_piece(ShclStr s, size_t pos, char term, ShclLex rules, int co
 		if (shield && b == '\\' && pos + 1 < s.n) { pos += 1 + utf8_len(s, pos + 1); content_end = min_sz(pos, s.n); continue; }
 		/* 2.0 read a quote inside a piece as text, but a comma or a `#`
 		   before its close did not end the piece. One that never closes is
-		   text, as `don't` is. */
+		   text too, as `don't` is, and so is the rest of the line after it. */
 		if (shield && (b == '"' || b == '\'')) {
 			size_t close;
 			if (quote_close(s, pos, rules, &close)) { pos = close + 1; content_end = pos; continue; }
+			while (pos < s.n) {
+				size_t k = blank_len(s, pos, edges);
+				if (k) pos += k;
+				else { pos += utf8_len(s, pos); content_end = min_sz(pos, s.n); }
+			}
+			break;
 		}
 		if (b == (unsigned char)term) {
 			if (every_comma || loose_comma(s, pos)) break;
@@ -4322,6 +4328,93 @@ static const ShclVecDiag *migrate_load(ShclMigrateOwn *own, ShclStr text) {
 }
 static void migrate_unload(ShclMigrateOwn *own) { shcl_free(own->doc); own->doc = NULL; }
 
+/* The fence run of a line that closed a raw block under 1.0 to 2.0, which
+   trimmed every White_Space character off its edges, where now only a space
+   or a tab comes off: 1 with the run in *run when run isn't NULL, or 0. */
+static int v2_fence_close(ShclStr line, unsigned char ch, size_t len, ShclStr *run) {
+	ShclStr t = s_trim(line);
+	if (t.n < len) return 0;
+	for (size_t i = 0; i < t.n; i++) if ((unsigned char)t.p[i] != ch) return 0;
+	if (run) *run = t;
+	return 1;
+}
+
+/* One line of rest, from pos, its carriage returns off, with *next past its
+   '\n' or past the end. */
+static ShclStr raw_body_line(ShclStr rest, size_t pos, size_t *next) {
+	size_t e = pos;
+	while (e < rest.n && rest.p[e] != '\n') e++;
+	*next = e + 1;
+	size_t bn = e;
+	while (bn > pos && rest.p[bn - 1] == '\r') bn--;
+	return s_slice(rest, pos, bn);
+}
+
+/* A raw body as 1.0 to 2.0 read it, for the lines in rest, the text after
+   its opening line's '\n'. Those formats took the indent shared by the
+   body's lines that hold more than blanks off each line. 1.x blanked a line
+   of blanks, and 2.0 took off what such a line shares with that indent. Now
+   only the closing fence's indent comes off. So when a line would read
+   otherwise now, each line that holds more than blanks is written as that
+   indent and the text it read then, which a second run reads the same, and
+   a line of blanks only where it reads otherwise. The rest stay as typed, a
+   NULL p. A block that never closes stays as typed, since 2.x read it with
+   an error and it is unfinished here. migrate's own read, with no format
+   found, keeps them all too: the 2.x dev builds after 2.0 read a body as it
+   reads now. *count gets the number of lines, 0 with NULL when none
+   change. In a. */
+static ShclStr *v2_raw_body(ShclArena *a, ShclStr rest, unsigned char ch, size_t len, ShclV2Read v2, size_t *count) {
+	*count = 0;
+	if (v2 == SHCL_V2_EITHER) return NULL;
+	size_t nb = 0, pos = 0, next = 0;
+	int closed = 0;
+	ShclStr nest = s_empty();
+	while (pos <= rest.n) {
+		ShclStr b = raw_body_line(rest, pos, &next);
+		if (v2_fence_close(b, ch, len, NULL)) { nest = leading_ws(b); closed = 1; break; }
+		nb++;
+		pos = next;
+	}
+	if (!closed) return NULL;
+	ShclStr *body = (ShclStr *)arena_alloc(a, (nb + 1) * sizeof *body);
+	ShclStr *then = (ShclStr *)arena_alloc(a, (nb + 1) * sizeof *then);
+	pos = 0;
+	for (size_t k = 0; k < nb; k++) { body[k] = raw_body_line(rest, pos, &next); pos = next; }
+	ShclStr common = s_empty();
+	int seen = 0;
+	for (size_t k = 0; k < nb; k++) {
+		if (!s_trim(body[k]).n) continue;
+		ShclStr lead = leading_ws(body[k]);
+		if (!seen) { common = lead; seen = 1; continue; }
+		size_t n = 0;
+		while (n < common.n && n < lead.n && common.p[n] == lead.p[n]) n++;
+		common.n = n;
+	}
+	int same = 1;
+	for (size_t k = 0; k < nb; k++) {
+		if (v2 == SHCL_V2_FROM_20) then[k] = strip_common(body[k], common);
+		else if (!s_trim(body[k]).n) then[k] = s_empty();
+		else then[k] = s_slice(body[k], common.n, body[k].n);
+		if (!s_eq(strip_common(body[k], nest), then[k])) same = 0;
+	}
+	if (same) return NULL;
+	ShclStr *out = (ShclStr *)arena_alloc(a, (nb + 1) * sizeof *out);
+	for (size_t k = 0; k < nb; k++) {
+		ShclStr want = s_empty();
+		if (then[k].n) {
+			char *w = (char *)arena_alloc(a, nest.n + then[k].n);
+			memcpy(w, nest.p, nest.n);
+			memcpy(w + nest.n, then[k].p, then[k].n);
+			want.p = w; want.n = nest.n + then[k].n;
+		}
+		int keep = s_trim(body[k]).n ? s_eq(body[k], want) : s_eq(strip_common(body[k], nest), then[k]);
+		if (keep) { out[k].p = NULL; out[k].n = 0; }
+		else out[k] = want;
+	}
+	*count = nb;
+	return out;
+}
+
 /* Which file this is cannot always be read off the text: `p: a,b` is an array
    under 2.x and one string under these rules, and a raw block can open where
    only one rule set sees it, so rewriting a 3.0 file changes what it says. So
@@ -4371,6 +4464,9 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
 	raw_lines_init(&now, SHCL_LEX_CURRENT);
 	int split = 0;
 	size_t start = 0, lineno = 0;
+	/* A raw body's lines as the format read them, from its opening line on. */
+	ShclStr *raw_body = NULL;
+	size_t raw_n = 0, raw_at = 0;
 	for (size_t i = 0; i <= text.n; i++) {
 		if (i < text.n && text.p[i] != '\n') continue;
 		ShclStr line = s_slice(text, start, i);
@@ -4381,8 +4477,30 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
 		while (bn > 0 && line.p[bn - 1] == '\r') bn--;
 		ShclStr body = s_slice(line, 0, bn), cr = s_slice(line, bn, line.n);
 		if (fence_on) {
-			if (is_fence_close(body, fence_ch, fence_len)) fence_on = 0;
-			sb_putS(a, &out, line);
+			/* Only where the current rules read the same block. */
+			ShclStr run = s_empty();
+			int closed_then = st->v2 != SHCL_V2_EITHER && now.fence_on && now.fence_ch == fence_ch && now.fence_len == fence_len
+				&& v2_fence_close(body, fence_ch, fence_len, &run);
+			ShclStr then; then.p = NULL; then.n = 0;
+			if (raw_at < raw_n) then = raw_body[raw_at++];
+			if (is_fence_close(body, fence_ch, fence_len)) {
+				fence_on = 0;
+				sb_putS(a, &out, line);
+			} else if (closed_then) {
+				/* A close only 1.0 to 2.0 read goes without the blanks that
+				   hid it now. */
+				fence_on = 0;
+				sb_putS(a, &out, leading_ws(body));
+				sb_putS(a, &out, run);
+				sb_putS(a, &out, cr);
+				changed = 1;
+			} else if (then.p) {
+				sb_putS(a, &out, then);
+				sb_putS(a, &out, cr);
+				changed = 1;
+			} else {
+				sb_putS(a, &out, line);
+			}
 		} else {
 			arena_reset(sc);
 			ShclStr indent = leading_ws(body);
@@ -4408,6 +4526,12 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
 		int differs = (!raw_lines_step(a, sc, &now, written, &ignored)) != raw_then;
 		if (differs && !split && !st->from_v2) st->ambiguous++;
 		split = differs;
+		/* A body is written to read as it did only where the current rules
+		   open the same block on the same line. */
+		if (fence_on && !raw_then && now.fence_on && now.fence_ch == fence_ch && now.fence_len == fence_len) {
+			raw_at = 0; raw_n = 0;
+			raw_body = i < text.n ? v2_raw_body(a, s_slice(text, i + 1, text.n), fence_ch, fence_len, st->v2, &raw_n) : NULL;
+		}
 		start = i + 1;
 	}
 	/* 2.x let a comma list head lines of its own, and nothing spells that
@@ -4456,6 +4580,8 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
    at all: a fence label holding a `#`, which 2.x ran to the end of the line
    and which now ends at the `#`. A quoted name with a backslash pair stays as
    written and counts in lost, since 1.2 read it as typed and 2.0 resolved it.
+   A step out of 1.0, 1.1 or 2.0 writes a raw body to read as that format
+   read it, with the indent its lines shared taken off.
    The output and the reused tokens live in `a`; the per-line temporaries go
    to `sc`, reset per line, so a large document costs its own size and not
    every line's scratch on top. An allocation failure goes to outer when it is

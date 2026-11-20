@@ -6785,6 +6785,27 @@ def main():
 			if up.current or up.text != pwant:
 				raise SystemExit(f"upgrade at {pmtime}: {up.current} {up.text!r}, want {pwant!r}")
 
+	test_id("dfjbj", "upgrade_from_1x_or_2x_keeps_a_raw_body_and_an_open_quote_as_read")
+	# 1.0 to 2.0 took the indent shared by a raw body's lines off each line,
+	# where now only the closing fence's comes off. 1.x blanked a line of
+	# blanks, and 2.0 took off what such a line shares with that indent. They
+	# closed a block on a fence run with any White_Space at its edges, and a
+	# quote in a piece that never closes kept the rest of the line in the
+	# piece. The step out of each writes the text it read (2026112008173348,
+	# 2026112008173388). Same rows in every runner.
+	rtext = "r:\n\t```\n\t  line1\n\t   \n\n\t \n\t  line2\n\t```\nu: ~~~\n\t  x\n\t~~~\u2028\no: don't, stop\n"
+	rtail = "\tline2\n\t```\nu: ~~~\n\tx\n\t~~~\no: \"don't, stop\"\n"
+	for rfrom, rblanks in (("1.0", "\n\n\n"), ("1.1", "\n\n\n"), ("2.0", "\t \n\n\n")):
+		rup = shcl.upgrade(rtext, rfrom, False)
+		rwant = with_stamp("r:\n\t```\n\tline1\n" + rblanks + rtail)
+		if (rup.text, rup.lost, rup.ambiguous) != (rwant, 0, 0):
+			raise SystemExit(f"from {rfrom}: {rup.text!r} lost {rup.lost} ambiguous {rup.ambiguous}, want {rwant!r}")
+	# migrate's own read keeps a body as typed, as the 2.x builds after 2.0
+	# read it.
+	rm = shcl.migrate(rtext, None)
+	if not rm.text.startswith("r:\n\t```\n\t  line1\n\t   \n\n\t \n\t  line2\n"):
+		raise SystemExit(f"migrate: {rm.text!r}")
+
 	test_id("dfhf2", "a_load_converts_from_a_1x_or_2x_format")
 	# A file from 1.0, 1.1 or 2.0 goes through the 2.x rewrite on load, with
 	# each format's own reads where they differ. 1.x keyed a quoted name by

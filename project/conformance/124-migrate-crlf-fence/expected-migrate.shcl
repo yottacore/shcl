@@ -1,5 +1,5 @@
 script: ```sh
-	echo hi
+echo hi
 ```
 city: Boston
 path: "C:\temp"

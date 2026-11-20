@@ -402,14 +402,22 @@ for n, line in enumerate(text.split("\n"), 1):
 ##	Lines where the pinned build and 2.0 read a value apart, found in the 2.x
 ##	text the way 2.x reads a value: a backslash shields the next character,
 ##	and a quote that opens a piece runs to its close. A raw body is passed
-##	over, as in fLostNow. Two kinds, by the first argument:
+##	over, as in fLostNow. Three kinds, by the first argument:
 ##	  midquote  a quote in the middle of a piece, with a comma or a `#`
-##	            before its close. 2.0 kept the piece whole, and migrate does
-##	            too (2026102620591100), while the pinned build cut it there.
+##	            before its close, or after it when it never closes. 2.0 kept
+##	            the piece whole, and migrate does too (2026102620591100,
+##	            2026112008173388), while the pinned build cut it there.
 ##	  edge      a run of blanks at a piece's edge holding one other than a
 ##	            space, a tab or a CR, such as a no-break space. 2.0 trimmed
 ##	            every Unicode White_Space character there, and migrate does
 ##	            too (2026110312163206), while the pinned build kept it.
+##	  rawindent every line of a raw block, from the line that opens it to its
+##	            close, that 2.0 read otherwise. 2.0 took the indent shared by
+##	            the body's lines that hold more than blanks off each line, and
+##	            closed a block on a fence run with any White_Space at its
+##	            edges. migrate --from=2.0 does too (2026112008173348), while
+##	            the pinned build took off the closing fence's indent, and
+##	            closed only past a space, a tab or a CR.
 fValue2x(){
 	python3 -c '
 import importlib.util, re, sys
@@ -440,13 +448,43 @@ def close(s, i):
 	while j < len(s) and s[j] != s[i]:
 		j += 2 if s[j] == "\\" else 1
 	return j if j < len(s) else None
+wsAll = "".join(sorted(blank))
+def lead(b):
+	return b[:len(b) - len(b.lstrip(" \t"))]
+def strip_common(b, common):
+	k = 0
+	while k < len(common) and k < len(b) and common[k] == b[k]:
+		k += 1
+	return b[k:]
+def read20(body):
+	common = None
+	for b in body:
+		if not b.strip(wsAll):
+			continue
+		k, at = 0, lead(b)
+		if common is None:
+			common = at
+			continue
+		while k < len(common) and k < len(at) and common[k] == at[k]:
+			k += 1
+		common = common[:k]
+	return [strip_common(b, common or "") for b in body]
 for n, line in enumerate(text.split("\n"), 1):
 	s = line.strip(" \t\r")
 	if fence:
-		if len(s) >= fence[1] and s == fence[0] * len(s):
+		b = line.rstrip("\r")
+		t = b.strip(wsAll)
+		pinned = len(s) >= fence[1] and s == fence[0] * len(s)
+		if mode == "rawindent" and len(t) >= fence[1] and t == fence[0] * len(t):
+			if not pinned or read20(body) != [strip_common(x, lead(b)) for x in body]:
+				print("\n".join(str(k) for k in range(opened, n + 1)))
 			fence = None
+		elif mode != "rawindent" and pinned:
+			fence = None
+		else:
+			body.append(b)
 		continue
-	fence = opens(s)
+	fence, opened, body = opens(s), n, []
 	if fence or s.startswith("#"):
 		continue
 	if s.startswith("* "):
@@ -466,7 +504,7 @@ for n, line in enumerate(text.split("\n"), 1):
 		fence = opens(s[i:])
 		if fence:
 			continue
-	if i > len(s):
+	if i > len(s) or mode == "rawindent":
 		continue
 	first, start, cuts, end = i, True, [], len(s)
 	while i < len(s):
@@ -484,6 +522,9 @@ for n, line in enumerate(text.split("\n"), 1):
 			if j is None:
 				if start:
 					break
+				if mode == "midquote" and ("," in s[i + 1:] or "#" in s[i + 1:]):
+					print(n)
+					break
 				i, start = i + 1, False
 				continue
 			if mode == "midquote" and not start and ("," in s[i + 1:j] or "#" in s[i + 1:j]):
@@ -498,6 +539,7 @@ for n, line in enumerate(text.split("\n"), 1):
 }
 fMidQuote2x(){ fValue2x midquote "$1"; }
 fEdgeBlank2x(){ fValue2x edge "$1"; }
+fRawIndent2x(){ fValue2x rawindent "$1"; }
 
 ##	A document that names this format is not a 2.x file, whatever 2.x makes of
 ##	it: migrate leaves it as written, and so does upgrade but for one case,
@@ -526,6 +568,7 @@ fTrim(){
 			fLostNow "${dst}"
 			fMidQuote2x "${dst}"
 			fEdgeBlank2x "${dst}"
+			fRawIndent2x "${dst}"
 			grep -anE '(```|~~~)[^#]*#' "${dst}" | cut -d: -f1
 			grep -an $'\r[^\r]' "${dst}" | cut -d: -f1; } | sort -un)"
 		if [[ -z "${lines}" ]]; then [[ -s "${dst}" ]]; return; fi
@@ -844,8 +887,13 @@ fTest dcege 094 still has a mid-line carriage return
 fCrMidLine "${corpus}/094-unicode-space/input.shcl" 2>/dev/null \
 	|| { echo "check-migrate: 094-unicode-space no longer has a mid-line carriage return" >&2; nBad+=1; }
 fTest dej4h 210 still has a quote in a piece that closes past a comma and a hash
-[[ "$(fMidQuote2x "${corpus}/210-migrate-mid-quote-comma/input.shcl" | paste -sd ' ')" == "1 2 3 4 5" ]] \
-	|| { echo "check-migrate: 210-migrate-mid-quote-comma no longer has a quote in a piece closing past a comma or a # on lines 1 to 5" >&2; nBad+=1; }
+## Line 6's quote never closes, and has a comma after it.
+[[ "$(fMidQuote2x "${corpus}/210-migrate-mid-quote-comma/input.shcl" | paste -sd ' ')" == "1 2 3 4 5 6" ]] \
+	|| { echo "check-migrate: 210-migrate-mid-quote-comma no longer has a quote in a piece closing past a comma or a #, or never closing before one, on lines 1 to 6" >&2; nBad+=1; }
+fTest dfjbm 058 still has a raw body that 2.0 and the pinned build read apart
+## Its other 2 blocks read the same under both, and stay compared.
+[[ "$(fRawIndent2x "${corpus}/058-raw-indent/input.shcl" | paste -sd ' ')" == "2 3 4 5" ]] \
+	|| { echo "check-migrate: 058-raw-indent no longer has a raw body 2.0 and the pinned build read apart on lines 2 to 5 only" >&2; nBad+=1; }
 fTest dewb9 215 still has blanks at a piece edge that the pinned build keeps
 ## Lines 6 and 9 hold one inside a piece and none at all, and stay compared.
 [[ "$(fEdgeBlank2x "${corpus}/215-migrate-unicode-trim/input.shcl" | paste -sd ' ')" == "1 2 3 4 5 7 8 10 11" ]] \

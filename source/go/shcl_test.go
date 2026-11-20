@@ -8730,6 +8730,32 @@ func TestALoadConvertsFromAPinnedDevFormat(t *testing.T) {
 	}
 }
 
+// TestUpgradeFrom1xOr2xKeepsARawBodyAndAnOpenQuoteAsRead: 1.0 to 2.0 took
+// the indent shared by a raw body's lines off each line, where now only the
+// closing fence's comes off. 1.x blanked a line of blanks, and 2.0 took off
+// what such a line shares with that indent. They closed a block on a fence
+// run with any White_Space at its edges, and a quote in a piece that never
+// closes kept the rest of the line in the piece. The step out of each writes
+// the text it read (2026112008173348, 2026112008173388). Same rows in every
+// runner.
+func TestUpgradeFrom1xOr2xKeepsARawBodyAndAnOpenQuoteAsRead(t *testing.T) {
+	defer testID(t, "dfjbh")
+	text := "r:\n\t```\n\t  line1\n\t   \n\n\t \n\t  line2\n\t```\nu: ~~~\n\t  x\n\t~~~\u2028\no: don't, stop\n"
+	tail := "\tline2\n\t```\nu: ~~~\n\tx\n\t~~~\no: \"don't, stop\"\n"
+	for _, c := range []struct{ from, blanks string }{{"1.0", "\n\n\n"}, {"1.1", "\n\n\n"}, {"2.0", "\t \n\n\n"}} {
+		up := Upgrade(text, c.from, false)
+		want := withStamp("r:\n\t```\n\tline1\n" + c.blanks + tail)
+		if up.Text != want || up.Lost != 0 || up.Ambiguous != 0 {
+			t.Errorf("from %s: got %q lost %d ambiguous %d, want %q", c.from, up.Text, up.Lost, up.Ambiguous, want)
+		}
+	}
+	// Migrate's own read keeps a body as typed, as the 2.x builds after 2.0
+	// read it.
+	if m := Migrate(text, ""); !strings.HasPrefix(m.Text, "r:\n\t```\n\t  line1\n\t   \n\n\t \n\t  line2\n") {
+		t.Errorf("migrate: %q", m.Text)
+	}
+}
+
 // TestALoadConvertsFromA1xOr2xFormat: a file from 1.0, 1.1 or 2.0 goes
 // through the 2.x rewrite on load, with each format's own reads where they
 // differ. 1.x keyed a quoted name by its text as typed and 2.0 resolved it,

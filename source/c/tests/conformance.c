@@ -8908,6 +8908,35 @@ int main(int argc, char **argv) {
 		dir_clear(vdir);
 		#undef MK
 	}
+	test_id("dfjbk", "upgrade_from_1x_or_2x_keeps_a_raw_body_and_an_open_quote_as_read");
+	/* 1.0 to 2.0 took the indent shared by a raw body's lines off each line,
+	   where now only the closing fence's comes off. 1.x blanked a line of
+	   blanks, and 2.0 took off what such a line shares with that indent. They
+	   closed a block on a fence run with any White_Space at its edges, and a
+	   quote in a piece that never closes kept the rest of the line in the
+	   piece. The step out of each writes the text it read (2026112008173348,
+	   2026112008173388). Same rows in every runner. */
+	{
+		const char *text = "r:\n\t```\n\t  line1\n\t   \n\n\t \n\t  line2\n\t```\nu: ~~~\n\t  x\n\t~~~\xe2\x80\xa8\no: don't, stop\n";
+		const char *tail = "\tline2\n\t```\nu: ~~~\n\tx\n\t~~~\no: \"don't, stop\"\n";
+		const struct { const char *from, *blanks; } rows[] = {{"1.0", "\n\n\n"}, {"1.1", "\n\n\n"}, {"2.0", "\t \n\n\n"}};
+		for (size_t i = 0; i < sizeof rows / sizeof rows[0]; i++) {
+			char want[256];
+			snprintf(want, sizeof want, "r:\n\t```\n\tline1\n%s%s" SHCL_STAMP_LINE "\n", rows[i].blanks, tail);
+			shcl_upgraded up = shcl_upgrade(text, strlen(text), rows[i].from, 0);
+			if (!up_is(&up, want) || up.lost != 0 || up.ambiguous != 0) {
+				fprintf(stderr, "from %s: lost %zu ambiguous %zu\n%s\n", rows[i].from, up.lost, up.ambiguous, up.text ? up.text : "no text");
+				fail("upgrade_raw_body", rows[i].from);
+			}
+			shcl_upgraded_free(&up);
+		}
+		/* shcl_migrate's own read keeps a body as typed, as the 2.x builds
+		   after 2.0 read it. */
+		const char *typed = "r:\n\t```\n\t  line1\n\t   \n\n\t \n\t  line2\n";
+		shcl_migration mm = shcl_migrate(text, strlen(text), NULL);
+		if (mm.len < strlen(typed) || memcmp(mm.text, typed, strlen(typed)) != 0) fail("upgrade_raw_body", mm.text);
+		free(mm.text);
+	}
 	test_id("dfhjf", "migrate_reads_from_as_upgrade_does");
 	/* shcl_migrate reads a caller's from as shcl_upgrade does, with no mtime,
 	   and takes that format's step. A format whose steps rewrite nothing, and

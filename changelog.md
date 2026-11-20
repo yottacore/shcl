@@ -60,6 +60,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `migrate()` and `migrate_unstamped()` say when the migration couldn't finish, in a new `unfinished` field (each binding's spelling). It's set for text that reads 2 ways or a raw block that never closes, which is when `migrate()` leaves its stamp off, so a program that writes the info block itself after `migrate_unstamped()` can leave the Format line off too. It used to get the same result as a migration that finished.
 
+- `upgrade()`, `upgrade_file()` and `load_file_opts()` with `migrate` keep a raw body from 1.0, 1.1 or 2.0 reading as it did. Those formats took the indent shared by the body's lines off each line, so a body under `~~~sql` whose lines all sat 2 spaces past the fence read without those 2 spaces, and it read with them after the conversion. Such a body is now written under its closing fence's indent with the shared indent taken off. A fence run with a blank other than a space or a tab at its edge, which closed the block then, comes without that blank. `migrate()` without `from` leaves raw bodies as they are, since the 2.x builds after 2.0 read them as they read now.
+
+- A quote in the middle of a value that never closes kept the rest of the line in the value under 2.x, commas and a `#` included, so `open: don't, stop` was one string. `migrate()` and the conversion from 1.0, 1.1 or 2.0 wrote it as 2, `["don't", stop]`. They write `"don't, stop"` now.
+
 - A comment added above a field, by `set_comment` or as the note a default form leaves on the value it replaced, went above the field's blank line when a line kept for an error sat above the field. So the blank went above that kept line's comments, away from the field. The new comment goes under the blank now, right above the field, in every binding.
 
 - A remove that took the last field under a field opened by a line kept for an error, with a misplaced line among the kept lines above it, moved every comment among those lines down with the misplaced line. A comment above a kept field line now stays above it, as when the removed line is cut by hand and the file is formatted.

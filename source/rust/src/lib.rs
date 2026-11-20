@@ -1930,14 +1930,23 @@ fn scan_piece(
 		}
 		// 2.0 read a quote inside a piece as text, but a comma or a `#`
 		// before its close did not end the piece. One that never closes is
-		// text, as `don't` is.
-		if shield
-			&& (b == b'"' || b == b'\'')
-			&& let Some(close) = quote_close(s, pos, rules)
-		{
-			pos = close + 1;
-			content_end = pos;
-			continue;
+		// text too, as `don't` is, and so is the rest of the line after it.
+		if shield && (b == b'"' || b == b'\'') {
+			if let Some(close) = quote_close(s, pos, rules) {
+				pos = close + 1;
+				content_end = pos;
+				continue;
+			}
+			while pos < s.len() {
+				match blank_len(s, pos, edges) {
+					0 => {
+						pos += utf8_len(s[pos]);
+						content_end = pos.min(s.len());
+					}
+					n => pos += n,
+				}
+			}
+			break;
 		}
 		if ends_at(s, pos) || (array && b == b']') || (comments && comment_at(s, pos)) {
 			break;
@@ -3867,7 +3876,9 @@ fn opens_raw(rest: &str, tok: &mut Tokens) -> Option<(u8, usize)> {
 /// here at all: a fence label holding a `#`, which 2.x ran to the end of the
 /// line and which now ends at the `#`. A quoted name with a backslash pair
 /// reads as `from`'s format read it, and without `from` stays as written and
-/// counts in `lost`, since 1.2 read it as typed and 2.0 resolved it.
+/// counts in `lost`, since 1.2 read it as typed and 2.0 resolved it. With
+/// `from` naming 1.0, 1.1 or 2.0, a raw body is written to read as that
+/// format read it, with the indent its lines shared taken off.
 ///
 /// Which file this is cannot always be read off the text: `p: a,b` is an
 /// array under 2.x and one string under these rules, and a raw block can
@@ -3919,6 +3930,94 @@ fn majority_eol(text: &str) -> &'static str {
 	let crlf = text.matches("\r\n").count();
 	let lf = text.matches('\n').count() - crlf;
 	if crlf > lf { "\r\n" } else { "\n" }
+}
+
+/// The fence run of a line that closed a raw block under 1.0 to 2.0, which
+/// trimmed every White_Space character off its edges, where now only a space
+/// or a tab comes off.
+fn v2_fence_close(line: &str, ch: u8, len: usize) -> Option<&str> {
+	let t = line.trim_matches(white_space);
+	(t.len() >= len && t.bytes().all(|b| b == ch)).then_some(t)
+}
+
+/// A raw body as 1.0 to 2.0 read it, for the lines after its opening fence.
+/// Those formats took the indent shared by the body's lines that hold more
+/// than blanks off each line. 1.x blanked a line of blanks, and 2.0 took off
+/// what such a line shares with that indent. Now only the closing fence's
+/// indent comes off. So when a line would read otherwise now, each line that
+/// holds more than blanks is written as that indent and the text it read
+/// then, which a second run reads the same, and a line of blanks only where
+/// it reads otherwise. The rest stay as typed (None). A block that never
+/// closes stays as typed, since 2.x read it with an error and it is
+/// unfinished here. `migrate`'s own read, with no format found, keeps them
+/// all too: the 2.x dev builds after 2.0 read a body as it reads now.
+fn v2_raw_body(lines: &[&str], ch: u8, len: usize, v2: V2Read) -> Vec<Option<String>> {
+	if v2 == V2Read::Either {
+		return Vec::new();
+	}
+	let mut body: Vec<&str> = Vec::new();
+	let mut nest = None;
+	for l in lines {
+		let b = l.trim_end_matches('\r');
+		if v2_fence_close(b, ch, len).is_some() {
+			nest = Some(leading_ws(b));
+			break;
+		}
+		body.push(b);
+	}
+	let Some(nest) = nest else {
+		return Vec::new();
+	};
+	let mut common: Option<&str> = None;
+	for b in body
+		.iter()
+		.filter(|b| !b.trim_matches(white_space).is_empty())
+	{
+		let lead = leading_ws(b);
+		common = Some(match common {
+			None => lead,
+			Some(prev) => {
+				let n = prev
+					.bytes()
+					.zip(lead.bytes())
+					.take_while(|(x, y)| x == y)
+					.count();
+				&prev[..n]
+			}
+		});
+	}
+	let common = common.unwrap_or_default();
+	let then: Vec<&str> = body
+		.iter()
+		.map(|b| match v2 {
+			V2Read::From20 => strip_common(b, common),
+			_ if b.trim_matches(white_space).is_empty() => "",
+			_ => &b[common.len()..],
+		})
+		.collect();
+	if body
+		.iter()
+		.zip(&then)
+		.all(|(b, t)| strip_common(b, nest) == *t)
+	{
+		return Vec::new();
+	}
+	body.iter()
+		.zip(&then)
+		.map(|(b, t)| {
+			let want = if t.is_empty() {
+				String::new()
+			} else {
+				format!("{nest}{t}")
+			};
+			let keep = if b.trim_matches(white_space).is_empty() {
+				strip_common(b, nest) == *t
+			} else {
+				*b == want
+			};
+			(!keep).then_some(want)
+		})
+		.collect()
 }
 
 /// `beta` takes a file naming this format as 2.x too, which only `upgrade`
@@ -3978,7 +4077,10 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool, step: Step) 
 	// The output as the parser will read it, for where its raw blocks are.
 	let mut now = RawLines::new(Lex::Current);
 	let mut split = false;
-	for (i, line) in body_text.split('\n').enumerate() {
+	let lines: Vec<&str> = body_text.split('\n').collect();
+	// A raw body's lines as the format read them, from its opening line on.
+	let mut raw_body = Vec::<Option<String>>::new().into_iter();
+	for (i, &line) in lines.iter().enumerate() {
 		if i > 0 {
 			out.push('\n');
 		}
@@ -3987,10 +4089,30 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool, step: Step) 
 		let body = line.trim_end_matches('\r');
 		let cr = &line[body.len()..];
 		if let Some((ch, len)) = fence {
+			// Only where the current rules read the same block.
+			let closed_then = match st.v2 {
+				V2Read::Either => None,
+				_ if now.fence != fence => None,
+				_ => v2_fence_close(body, ch, len),
+			};
 			if is_fence_close(body, ch, len) {
 				fence = None;
+				out.push_str(line);
+			} else if let Some(run) = closed_then {
+				// A close only 1.0 to 2.0 read goes without the blanks that
+				// hid it now.
+				fence = None;
+				out.push_str(leading_ws(body));
+				out.push_str(run);
+				out.push_str(cr);
+				changed = true;
+			} else if let Some(Some(then)) = raw_body.next() {
+				out.push_str(&then);
+				out.push_str(cr);
+				changed = true;
+			} else {
+				out.push_str(line);
 			}
-			out.push_str(line);
 		} else {
 			let indent = leading_ws(body);
 			let rest_full = &body[indent.len()..];
@@ -4017,6 +4139,14 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool, step: Step) 
 			st.ambiguous += 1;
 		}
 		split = differs;
+		// A body is written to read as it did only where the current rules
+		// open the same block on the same line.
+		if let Some((ch, len)) = fence
+			&& !raw_then
+			&& now.fence == fence
+		{
+			raw_body = v2_raw_body(&lines[i + 1..], ch, len, st.v2).into_iter();
+		}
 	}
 	// 2.x let a comma list head lines of its own, and nothing spells that
 	// now: in brackets it is E028, and as one string it reads as another

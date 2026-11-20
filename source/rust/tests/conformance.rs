@@ -7597,6 +7597,38 @@ fn a_load_converts_from_a_1x_or_2x_format() {
 	let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 1.0 to 2.0 took the indent shared by a raw body's lines off each line,
+/// where now only the closing fence's comes off. 1.x blanked a line of
+/// blanks, and 2.0 took off what such a line shares with that indent. They
+/// closed a block on a fence run with any White_Space at its edges, and a
+/// quote in a piece that never closes kept the rest of the line in the piece.
+/// The step out of each writes the text it read (2026112008173348,
+/// 2026112008173388). Same rows in every runner.
+#[test]
+fn upgrade_from_1x_or_2x_keeps_a_raw_body_and_an_open_quote_as_read() {
+	let _id = test_id("dfjbg");
+	let text = "r:\n\t```\n\t  line1\n\t   \n\n\t \n\t  line2\n\t```\nu: ~~~\n\t  x\n\t~~~\u{2028}\no: don't, stop\n";
+	let tail = "\tline2\n\t```\nu: ~~~\n\tx\n\t~~~\no: \"don't, stop\"\n";
+	for (from, blanks) in [("1.0", "\n\n\n"), ("1.1", "\n\n\n"), ("2.0", "\t \n\n\n")] {
+		let up = shcl::upgrade(text, Some(from), false);
+		let want = format!("r:\n\t```\n\tline1\n{blanks}{tail}");
+		assert_eq!(
+			(up.text, up.lost, up.ambiguous),
+			(with_stamp(&want), 0, 0),
+			"from {from}"
+		);
+	}
+	// migrate's own read keeps a body as typed, as the 2.x builds after 2.0
+	// read it.
+	let m = shcl::migrate(text, None);
+	assert!(
+		m.text
+			.starts_with("r:\n\t```\n\t  line1\n\t   \n\n\t \n\t  line2\n"),
+		"{}",
+		m.text
+	);
+}
+
 /// `upgrade` and `upgrade_file` find the format as the load does, with the
 /// file's mtime, and make over only a file whose steps to this format rewrite
 /// anything. One from 3.0-9ef on is current, its error kept as typed

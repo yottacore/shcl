@@ -1957,13 +1957,21 @@ def _scan_piece(s, pos, term, rules, comments, array=False):
 			continue
 		# 2.0 read a quote inside a piece as text, but a comma or a `#`
 		# before its close did not end the piece. One that never closes is
-		# text, as `don't` is.
+		# text too, as `don't` is, and so is the rest of the line after it.
 		if shield and b in (_B_DQUOTE, _B_SQUOTE):
 			close = _quote_close(s, pos, rules)
 			if close is not None:
 				pos = close + 1
 				content_end = pos
 				continue
+			while pos < n:
+				k = _blank_len(s, pos, edges)
+				if k:
+					pos += k
+				else:
+					pos += 1 if s[pos] < 0x80 else _utf8_len(s[pos])
+					content_end = min(pos, n)
+			break
 		if b == term:
 			if every_comma or _loose_comma(s, pos):
 				break
@@ -3500,7 +3508,9 @@ def migrate(text: str, from_: str | None) -> Migration:
 	here at all: a fence label holding a `#`, which 2.x ran to the end of the
 	line and which now ends at the `#`. A quoted name with a backslash pair
 	reads as from_'s format read it, and without from_ stays as written and
-	counts in lost, since 1.2 read it as typed and 2.0 resolved it.
+	counts in lost, since 1.2 read it as typed and 2.0 resolved it. With
+	from_ naming 1.0, 1.1 or 2.0, a raw body is written to read as that
+	format read it, with the indent its lines shared taken off.
 
 	Which file this is cannot always be read off the text: `p: a,b` is an
 	array under 2.x and one string under these rules, and a raw block can open
@@ -3553,6 +3563,66 @@ def _majority_eol(text):
 	return "\r\n" if crlf > lf else "\n"
 
 
+def _v2_fence_close(line, ch, length):
+	"""The fence run of a line that closed a raw block under 1.0 to 2.0,
+	which trimmed every White_Space character off its edges, where now only a
+	space or a tab comes off. None when it closed nothing then."""
+	t = _trim(line)
+	return t if len(t) >= length and all(c == ch for c in t) else None
+
+
+def _v2_raw_body(lines, ch, length, v2):
+	"""A raw body as 1.0 to 2.0 read it, for the lines after its opening
+	fence. Those formats took the indent shared by the body's lines that hold
+	more than blanks off each line. 1.x blanked a line of blanks, and 2.0 took
+	off what such a line shares with that indent. Now only the closing fence's
+	indent comes off. So when a line would read otherwise now, each line that
+	holds more than blanks is written as that indent and the text it read
+	then, which a second run reads the same, and a line of blanks only where
+	it reads otherwise. The rest stay as typed (None). A block that never
+	closes stays as typed, since 2.x read it with an error and it is
+	unfinished here. migrate's own read, with no format found, keeps them all
+	too: the 2.x dev builds after 2.0 read a body as it reads now."""
+	if v2 is _V2Read.EITHER:
+		return []
+	body = []
+	nest = None
+	for line in lines:
+		b = line.rstrip("\r")
+		if _v2_fence_close(b, ch, length) is not None:
+			nest = _leading_ws(b)
+			break
+		body.append(b)
+	if nest is None:
+		return []
+	common = None
+	for b in body:
+		if not _trim(b):
+			continue
+		lead = _leading_ws(b)
+		if common is None:
+			common = lead
+		else:
+			k = 0
+			while k < len(common) and k < len(lead) and common[k] == lead[k]:
+				k += 1
+			common = common[:k]
+	common = common or ""
+	if v2 is _V2Read.FROM_20:
+		then = [_strip_common(b, common) for b in body]
+	else:
+		then = [b[len(common):] if _trim(b) else "" for b in body]
+	if all(_strip_common(b, nest) == then[k] for k, b in enumerate(body)):
+		return []
+	out = []
+	for k, b in enumerate(body):
+		t = then[k]
+		want = nest + t if t else ""
+		keep = _strip_common(b, nest) == t if not _trim(b) else b == want
+		out.append(None if keep else want)
+	return out
+
+
 def _migrate_text(text, from_v2, stamp, beta, step):
 	"""beta takes a file naming this format as 2.x too, which only upgrade()
 	asks for, once the caller has said so. step is the one the text's format
@@ -3584,16 +3654,35 @@ def _migrate_text(text, from_v2, stamp, beta, step):
 	# The output as the parser will read it, for where its raw blocks are.
 	now = _RawLines(_Lex.Current)
 	split = False
-	for i, line in enumerate(text.split("\n")):
+	lines = text.split("\n")
+	# A raw body's lines as the format read them, from its opening line on.
+	raw_body = iter(())
+	for i, line in enumerate(lines):
 		if i > 0:
 			out.append("\n")
 		raw_then = fence is not None
 		body = line.rstrip("\r")
 		cr = line[len(body):]
 		if fence is not None:
+			# Only where the current rules read the same block.
+			run = None
+			if st.v2 is not _V2Read.EITHER and now.fence == fence:
+				run = _v2_fence_close(body, fence[0], fence[1])
+			then = next(raw_body, None)
 			if _is_fence_close(body, fence[0], fence[1]):
 				fence = None
-			line_out = line
+				line_out = line
+			elif run is not None:
+				# A close only 1.0 to 2.0 read goes without the blanks that
+				# hid it now.
+				fence = None
+				line_out = _leading_ws(body) + run + cr
+				changed = True
+			elif then is not None:
+				line_out = then + cr
+				changed = True
+			else:
+				line_out = line
 		else:
 			indent = _leading_ws(body)
 			rest_full = body[len(indent):]
@@ -3616,6 +3705,10 @@ def _migrate_text(text, from_v2, stamp, beta, step):
 		if differs and not split and not st.from_v2:
 			st.ambiguous += 1
 		split = differs
+		# A body is written to read as it did only where the current rules
+		# open the same block on the same line.
+		if fence is not None and not raw_then and now.fence == fence:
+			raw_body = iter(_v2_raw_body(lines[i + 1:], fence[0], fence[1], st.v2))
 	# 2.x let a comma list head lines of its own, and nothing spells that
 	# now: in brackets it is E028, and as one string it reads as another
 	# value.
