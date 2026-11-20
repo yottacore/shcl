@@ -225,6 +225,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `7a199778`
 	- Closed: 20261120-083000
 	- Closed reason: Done
+	- 2026-11-20: all 11 formats pass check-formats since Bugs 2026112008173348, 2026112008173368 and 2026112008173388 closed, so the failing rows above are out of date (me).
 
 - Format versions: find_format doesn't count a quote in a bare value as a tell
 	- ID: 2026111910270033
