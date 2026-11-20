@@ -49,6 +49,31 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Note: until then shell-regress dcvej fails, since every fmt now ends with the stamp.
 
+- `migrate` without `--from` stamps a file whose raw body 2.x read differently
+	- ID: 2026112013244228
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261120-132442
+	- Opened by: me
+	- Related IDs: 2026112008173348, 2026112008173388, 2026111014552300
+	- Steps to reproduce:
+		- A file with no Format line: `q: ~~~sql`, then `SELECT 1` indented 2 spaces and `FROM t` indented 4, then `~~~` at column 0, then `port: 80`.
+		- `shcl migrate FILE`, then `shcl get` of `q` on the output.
+	- Incorrect behavior: exit 0, the body as typed, and `##    Format   3.0` at the end. 1.0, 1.1 and 2.0 read `q` with `SELECT 1` at column 0 and `FROM t` indented 2, and the stamped file reads it with 2 more spaces on each line. Nothing is counted or said.
+	- Expected behavior:
+		- A raw body that 1.0, 1.1 or 2.0 read differently from these rules counts as a value that reads 2 ways, as `note: don't panic  # keep this` does. The body stays as typed, the file gets no stamp, `unfinished` is true, and the CLI exits 7 and names `--from`.
+		- A body every format read the same isn't counted. That's every body 2.0's own `fmt` wrote, since it put the body at the fence's indent.
+		- `--from` naming 1.0, 1.1 or 2.0 still rewrites the body, as now.
+		- All 4 bindings, with spec.md's migrate section and `migrate`'s doc comments.
+	- Reproduced: 20261120, the debug CLI on dev `ba733399` against the v2.0.0 CLI.
+	- Estimated effort: Avg
+	- Decisions:
+		- me, 20261120: this reverses 2026112008173348's call to leave such a body as typed at exit 0. `help` says `migrate` refuses a file that doesn't say which rules it was written for when the 2.x and current readings differ, and this is that case. `upgrade` isn't affected, since it finds the format first.
+		- JC, 20261120: fixed before beta.2. It was filed as Avg for 3.0.0, since beta1 did the same and `upgrade` is the documented way to convert.
+	- Note: check-migrate's `rawindent` mode already leaves such a block out, and corpus 053, 055, 058 and 124 have bodies of this kind.
+
 - `clear_comments` takes a comment on the far side of a kept line above its target
 	- ID: 2026111021095858
 	- Type: Bug
@@ -107,31 +132,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Add a `V` error in all 4 for a repeated field or merged block that the schema doesn't give a `repeat` above 1.
 		- Without a schema, a repeated block whose children repeat as bare leaves is a warning rather than a hint.
 	- Estimated effort: Avg
-
-- `migrate` without `--from` stamps a file whose raw body 2.x read differently
-	- ID: 2026112013244228
-	- Type: Bug
-	- Status: Queued
-	- Severity: Avg
-	- Target version: v3.0.0
-	- Opened: 20261120-132442
-	- Opened by: me
-	- Related IDs: 2026112008173348, 2026112008173388, 2026111014552300
-	- Steps to reproduce:
-		- A file with no Format line: `q: ~~~sql`, then `SELECT 1` indented 2 spaces and `FROM t` indented 4, then `~~~` at column 0, then `port: 80`.
-		- `shcl migrate FILE`, then `shcl get` of `q` on the output.
-	- Incorrect behavior: exit 0, the body as typed, and `##    Format   3.0` at the end. 1.0, 1.1 and 2.0 read `q` with `SELECT 1` at column 0 and `FROM t` indented 2, and the stamped file reads it with 2 more spaces on each line. Nothing is counted or said.
-	- Expected behavior:
-		- A raw body that 1.0, 1.1 or 2.0 read differently from these rules counts as a value that reads 2 ways, as `note: don't panic  # keep this` does. The body stays as typed, the file gets no stamp, `unfinished` is true, and the CLI exits 7 and names `--from`.
-		- A body every format read the same isn't counted. That's every body 2.0's own `fmt` wrote, since it put the body at the fence's indent.
-		- `--from` naming 1.0, 1.1 or 2.0 still rewrites the body, as now.
-		- All 4 bindings, with spec.md's migrate section and `migrate`'s doc comments.
-	- Reproduced: 20261120, the debug CLI on dev `ba733399` against the v2.0.0 CLI.
-	- Estimated effort: Avg
-	- Decisions:
-		- me, 20261120: this reverses 2026112008173348's call to leave such a body as typed at exit 0. `help` says `migrate` refuses a file that doesn't say which rules it was written for when the 2.x and current readings differ, and this is that case. `upgrade` isn't affected, since it finds the format first.
-		- me, 20261120: Avg, so beta.2 doesn't wait for it. beta1 did the same, and `upgrade` is the documented way to convert.
-	- Note: check-migrate's `rawindent` mode already leaves such a block out, and corpus 053, 055, 058 and 124 have bodies of this kind.
 
 - `Document::merge` drops the base file's comments on every leaf the upper layer names
 	- ID: 2026111217560140
@@ -772,6 +772,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Decisions:
 		- me, 20261120: the macOS pool stays in `~/.local/bin`, as on Linux. `~/Applications` is where app bundles go and isn't on PATH, and the installer's own link on macOS is `~/.local/bin/shcl`. So the shared rule's `~/Applications` rows don't apply to shcl, and nothing moves.
+			- me, 20261120: JC was asked whether the shared rule should win, and the call came back to me. It stays. A command line tool that isn't where the installer puts it, or where Linux has it, surprises more than one that differs from a rule written for apps.
 
 - Some install paths differ from the shared install table
 	- ID: 2026110215285717
@@ -790,6 +791,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- me, 20261120: FreeBSD moves to `/usr/local/shcl/`. FreeBSD keeps everything outside the base system under `/usr/local`, it has no `/opt` until something makes one, and shcl's own FreeBSD package already installs there. The move requirement above covers an old `/opt/shcl`.
 		- me, 20261120: macOS stays at `~/.local/share/shcl`. The folder has a binary, a man page and completions, which shell tools on macOS keep under `~/.local` too, and a path with a space in it breaks unquoted shell use. Staying also means no move. This differs from the shared table's macOS row for that reason.
+			- me, 20261120: JC was asked whether the shared table should win, and the call came back to me. It stays. rustup, uv, pipx, deno and bun all install under the home folder's dot folders on macOS, and pipx moved out of `~/Library/Application Support` over the space in its name. Apple means that folder for an app's data files, not for programs.
 
 - User-facing text skips contractions and has a few words from the style list
 	- ID: 2026110215285720
