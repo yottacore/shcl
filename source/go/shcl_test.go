@@ -849,7 +849,7 @@ func TestMigrateMatchesExpected(t *testing.T) {
 		if !c.hasMigrate {
 			return
 		}
-		got := Migrate(c.input, true).Text
+		got := Migrate(c.input, "2.0").Text
 		if got != c.expectedMigrate {
 			t.Errorf("%s: migrate output differs from expected-migrate.shcl\ngot:\n%s\nwant:\n%s", c.name, got, c.expectedMigrate)
 		}
@@ -862,8 +862,8 @@ func TestMigrateMatchesExpected(t *testing.T) {
 func TestMigrateIsAFixpoint(t *testing.T) {
 	defer testID(t, "dcns6")
 	eachCase(t, func(t *testing.T, c corpusCase) {
-		once := Migrate(c.input, true).Text
-		if again := Migrate(once, true).Text; again != once {
+		once := Migrate(c.input, "2.0").Text
+		if again := Migrate(once, "2.0").Text; again != once {
 			t.Errorf("%s: migrate changes its own output\ngot:\n%s\nwant:\n%s", c.name, again, once)
 		}
 	})
@@ -896,8 +896,8 @@ func TestMigrateUnstampedIsMigrateWithoutTheStamp(t *testing.T) {
 	// difference, and a file is current exactly when its Format line says so.
 	eachCase(t, func(t *testing.T, c corpusCase) {
 		for _, fromV2 := range []bool{true, false} {
-			full := Migrate(c.input, fromV2)
-			bare := MigrateUnstamped(c.input, fromV2)
+			full := Migrate(c.input, v2From(fromV2))
+			bare := MigrateUnstamped(c.input, v2From(fromV2))
 			if bare.Current != full.Current || bare.Ambiguous != full.Ambiguous || bare.Lost != full.Lost {
 				t.Errorf("%s: counts differ without the stamp", c.name)
 			}
@@ -2612,12 +2612,12 @@ func TestWriteStatusNamesEachFailure(t *testing.T) {
 	check("under a file", WriteFileAtomic(at("ok.shcl/t.shcl"), "a: 1\n"), WriteNotFound)
 	check("over a directory", WriteFileAtomic(at("sub"), "a: 1\n"), WriteIsDirectory)
 	check("through a trailing separator", WriteFileAtomic(at("ok.shcl")+"/", "a: 1\n"), WriteIsDirectory)
-	_, err = UpgradeFile(at("sub"), false, true)
+	_, err = UpgradeFile(at("sub"), "", true)
 	check("upgrade of a directory", err, WriteIsDirectory)
 	if err := os.WriteFile(at("bin.shcl"), []byte("a: \xff\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err = UpgradeFile(at("bin.shcl"), false, true)
+	_, err = UpgradeFile(at("bin.shcl"), "", true)
 	check("upgrade of a file that is not UTF-8", err, WriteUnreadable)
 	if err == nil || !strings.Contains(err.Error(), "UTF-8") {
 		t.Errorf("upgrade of a file that is not UTF-8: %v", err)
@@ -2630,7 +2630,7 @@ func TestWriteStatusNamesEachFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	check("over a FIFO", WriteFileAtomic(fifo, "a: 1\n"), WriteNotRegular)
-	_, err = UpgradeFile(fifo, false, true)
+	_, err = UpgradeFile(fifo, "", true)
 	check("upgrade of a FIFO", err, WriteNotRegular)
 	// root writes anyway, so the rows wait for a probe that is refused.
 	shut := at("shut")
@@ -2651,7 +2651,7 @@ func TestWriteStatusNamesEachFailure(t *testing.T) {
 	check("into a shut folder", WriteFileAtomic(filepath.Join(shut, "t.shcl"), "a: 1\n"), WritePermissionDenied)
 	_, err = WriteBackup(v2, "x: a,b\n", 2)
 	check("backup into a shut folder", err, WritePermissionDenied)
-	_, err = UpgradeFile(v2, true, true)
+	_, err = UpgradeFile(v2, "2.0", true)
 	check("upgrade in a shut folder", err, WritePermissionDenied)
 	// A file it may not read says so, not that it isn't UTF-8
 	// (2026101514324707).
@@ -2659,7 +2659,7 @@ func TestWriteStatusNamesEachFailure(t *testing.T) {
 	if err := os.WriteFile(locked, []byte("a: 1\nb 2\n"), 0o000); err != nil {
 		t.Fatal(err)
 	}
-	_, err = UpgradeFile(locked, false, true)
+	_, err = UpgradeFile(locked, "", true)
 	check("upgrade of a file it may not read", err, WritePermissionDenied)
 	if err == nil || strings.Contains(err.Error(), "UTF-8") || !errors.Is(err, fs.ErrPermission) {
 		t.Errorf("upgrade of a file it may not read: %v", err)
@@ -4528,7 +4528,7 @@ func TestFormatVersionCapsAt32Bits(t *testing.T) {
 		t.Errorf("4294967295 read as %d", v)
 	}
 	// Read as this major until 2026101514324705, which made a file naming one
-	// too big a beta file to `upgrade --from-2x`.
+	// too big a beta file to `upgrade --from=2.0`.
 	// if v, ok := FormatVersion("##    Format   4294967296\na: 1\n"); !ok || v != FormatMajor {
 	// 	t.Errorf("4294967296 read as %d", v)
 	// }
@@ -6201,7 +6201,7 @@ func TestLooseReadsAQuotedThousandsNumberWithATrailingDot(t *testing.T) {
 // value these rules refuse is quoted.
 func TestMigrateBracketsA2xCommaList(t *testing.T) {
 	defer testID(t, "ddkn0")
-	m := Migrate("x: a, b\ny: a,b\nz: \"q\", r\nw: New York,,b\nv: done:\nu: rw,noatime\n", true)
+	m := Migrate("x: a, b\ny: a,b\nz: \"q\", r\nw: New York,,b\nv: done:\nu: rw,noatime\n", "2.0")
 	if m.Ambiguous != 0 {
 		t.Fatalf("ambiguous %d", m.Ambiguous)
 	}
@@ -6211,7 +6211,7 @@ func TestMigrateBracketsA2xCommaList(t *testing.T) {
 	if d := Parse(m.Text).Diagnostics(); len(d) != 0 {
 		t.Fatalf("%v", d)
 	}
-	m = Migrate("x: a, b\ny: a,b\n", false)
+	m = Migrate("x: a, b\ny: a,b\n", "")
 	if m.Ambiguous != 1 {
 		t.Fatalf("ambiguous %d", m.Ambiguous)
 	}
@@ -6225,7 +6225,7 @@ func TestMigrateBracketsA2xCommaList(t *testing.T) {
 // would be two, and `[s]` reads as that string too.
 func TestMigrateWritesALone2xElementPlain(t *testing.T) {
 	defer testID(t, "ddrgg")
-	m := Migrate("k: s,\nk: s\nq: , \"a b\"\nc: x,\n\td: 1\n", true)
+	m := Migrate("k: s,\nk: s\nq: , \"a b\"\nc: x,\n\td: 1\n", "2.0")
 	if m.Ambiguous != 0 || m.Lost != 0 {
 		t.Fatalf("ambiguous %d, lost %d", m.Ambiguous, m.Lost)
 	}
@@ -6248,7 +6248,7 @@ func TestMigrateWritesALone2xElementPlain(t *testing.T) {
 // something else is quoted, such as one that looks like `- name: value`.
 func TestMigrateWritesStarItemsAsDashes(t *testing.T) {
 	defer testID(t, "ddkn1")
-	m := Migrate("list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n", true)
+	m := Migrate("list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n", "2.0")
 	if !strings.HasPrefix(m.Text, "list:\n\t- a\n\t- \"key: value\"\n\t- 'c'\n\t- O'Brien\n") {
 		t.Fatalf("%q", m.Text)
 	}
@@ -6265,7 +6265,7 @@ func TestMigrateWritesStarItemsAsDashes(t *testing.T) {
 // fields rather than reading as list items, and `404` stays a name.
 func TestMigrateQuotesANameNotLedByALetter(t *testing.T) {
 	defer testID(t, "ddkn2")
-	m := Migrate("404: a\n-x: y\nl:\n\t- :0\na.9b: 2\n_id: 7\n", true)
+	m := Migrate("404: a\n-x: y\nl:\n\t- :0\na.9b: 2\n_id: 7\n", "2.0")
 	if !strings.HasPrefix(m.Text, "\"404\": a\n\"-x\": y\nl:\n\t\"-\" :0\na.\"9b\": 2\n\"_id\": 7\n") {
 		t.Fatalf("%q", m.Text)
 	}
@@ -6288,7 +6288,7 @@ func TestMigrateQuotesANameNotLedByALetter(t *testing.T) {
 // one get the escape for a real mark, so they still read as that text.
 func TestMigrateEscapesARealMark(t *testing.T) {
 	defer testID(t, "ddkn3")
-	m := Migrate("\"a\u25C9q\u25C9\": 1\nbare: My\u25C9SPACE\u25C9App\ns[x\u25C9y].p: 2\n", true)
+	m := Migrate("\"a\u25C9q\u25C9\": 1\nbare: My\u25C9SPACE\u25C9App\ns[x\u25C9y].p: 2\n", "2.0")
 	back := Parse(m.Text)
 	if d := back.Diagnostics(); len(d) != 0 {
 		t.Fatalf("%v\n%s", d, m.Text)
@@ -6311,7 +6311,7 @@ func TestMigrateEscapesARealMark(t *testing.T) {
 // as one with a quote or a space, is quoted, so its block still loads.
 func TestMigrateQuotesABareSelectorTheseRulesRefuse(t *testing.T) {
 	defer testID(t, "ddkn4")
-	m := Migrate("srv[O'Brien].port: 1\nsrv[New York].port: 2\n", true)
+	m := Migrate("srv[O'Brien].port: 1\nsrv[New York].port: 2\n", "2.0")
 	if !strings.HasPrefix(m.Text, "srv(\"O'Brien\").port: 1\nsrv(\"New York\").port: 2\n") {
 		t.Fatalf("%q", m.Text)
 	}
@@ -6333,7 +6333,7 @@ func TestMigrateWritesSelectorsInParens(t *testing.T) {
 	text := "a[x].k: 1\nb: y\nb[0].k: 2\nc[a(b)].k: 3\ne:[f].g: 4\nr[\"x\"]:\n\ts: 1\n"
 	want := "a(x).k: 1\nb: y\nb(0).k: 2\nc(\"a(b)\").k: 3\ne(f).g: 4\nr(\"x\"):\n\ts: 1\n"
 	for _, fromV2 := range []bool{true, false} {
-		m := Migrate(text, fromV2)
+		m := Migrate(text, v2From(fromV2))
 		if m.Ambiguous != 0 || m.Lost != 0 {
 			t.Fatalf("fromV2 %v: ambiguous %d, lost %d\n%s", fromV2, m.Ambiguous, m.Lost, m.Text)
 		}
@@ -6341,7 +6341,7 @@ func TestMigrateWritesSelectorsInParens(t *testing.T) {
 			t.Fatalf("fromV2 %v: %q", fromV2, m.Text)
 		}
 	}
-	back := Parse(Migrate(text, true).Text)
+	back := Parse(Migrate(text, "2.0").Text)
 	if d := back.Diagnostics(); len(d) != 0 {
 		t.Fatalf("%v", d)
 	}
@@ -6358,13 +6358,13 @@ func TestMigrateWritesSelectorsInParens(t *testing.T) {
 // read as empty, is an empty value.
 func TestMigrateCountsWhatNothingSpells(t *testing.T) {
 	defer testID(t, "ddkn6")
-	if m := Migrate("a[x, y].b: 1\n", true); m.Lost != 1 {
+	if m := Migrate("a[x, y].b: 1\n", "2.0"); m.Lost != 1 {
 		t.Fatalf("lost %d", m.Lost)
 	}
-	if m := Migrate("a: 1, 2\n\tb: 1\nc: 3, 4\n", true); m.Lost != 1 {
+	if m := Migrate("a: 1, 2\n\tb: 1\nc: 3, 4\n", "2.0"); m.Lost != 1 {
 		t.Fatalf("lost %d\n%s", m.Lost, m.Text)
 	}
-	m := Migrate("e: ,\nf: , # c\n", true)
+	m := Migrate("e: ,\nf: , # c\n", "2.0")
 	if m.Lost != 0 {
 		t.Fatalf("lost %d", m.Lost)
 	}
@@ -6383,12 +6383,12 @@ func TestMigrateCountsWhatNothingSpells(t *testing.T) {
 // A file that does not say it is 2.x could be a 3.0 one. A piece that reads
 // clean under these rules too, such as an escape, a backtick value, `[a]` or
 // a `- ` item, is left as written and counted, so the CLI asks for
-// --from-2x rather than changing a correct file at exit 0. A selector in
+// --from=2.0 rather than changing a correct file at exit 0. A selector in
 // brackets is E029 now, so its line is rewritten the 2.x way.
 func TestMigrateLeavesWhatReadsCleanNow(t *testing.T) {
 	defer testID(t, "ddkn7")
 	text := "x: \"a\u25C9TAB\u25C9b\"\n\"n\u25C9TAB\u25C9\": 1\nl:\n\t- :0\ns[\"\u25C9TAB\u25C9\"].p: 1\nb: `abc`\nc: [a]\n"
-	m := Migrate(text, false)
+	m := Migrate(text, "")
 	if m.Ambiguous != 5 {
 		t.Fatalf("ambiguous %d\n%s", m.Ambiguous, m.Text)
 	}
@@ -6396,7 +6396,7 @@ func TestMigrateLeavesWhatReadsCleanNow(t *testing.T) {
 	if m.Text != want {
 		t.Fatalf("got %q\nwant %q", m.Text, want)
 	}
-	if !strings.Contains(Migrate(text, true).Text, "ESCAPE_CHAR") {
+	if !strings.Contains(Migrate(text, "2.0").Text, "ESCAPE_CHAR") {
 		t.Fatal("no ESCAPE_CHAR with fromV2")
 	}
 }
@@ -6407,7 +6407,7 @@ func TestMigrateLeavesWhatReadsCleanNow(t *testing.T) {
 func TestMigrateWritesTheText2xRead(t *testing.T) {
 	defer testID(t, "de61a")
 	text := "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\ns: 'it\\'s'\nl: \"C:\\\\a\", x\\ty\nw: C:\\work\nsrv[a\\tb].port: 1\nn:['C:\\\\x']\nlist:\n\t* C:\\new\n"
-	m := Migrate(text, true)
+	m := Migrate(text, "2.0")
 	if m.Ambiguous != 0 || m.Lost != 0 {
 		t.Fatalf("ambiguous %d lost %d\n%s", m.Ambiguous, m.Lost, m.Text)
 	}
@@ -6434,11 +6434,11 @@ func TestMigrateWritesTheText2xRead(t *testing.T) {
 	// so the two values are left and counted. Dated 2026-09-01, so it's found
 	// to be 2.0 rather than 3.0-a37, which reads the comma list too.
 	text = "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\n"
-	up := UpgradeDated(text, &sep1, false, true)
+	up := UpgradeDated(text, &sep1, "", true)
 	if up.Current || up.Ambiguous != 2 || up.Text != text {
 		t.Fatalf("%+v", up)
 	}
-	up = Upgrade(text, true, true)
+	up = Upgrade(text, "2.0", true)
 	if up.Current || up.Ambiguous != 0 || up.Lost != 0 {
 		t.Fatalf("%+v", up)
 	}
@@ -6453,19 +6453,19 @@ func TestMigrateWritesTheText2xRead(t *testing.T) {
 
 // A file that does not say it is 2.x could be a 3.0 one, where a backslash
 // is text. A piece that reads clean under these rules too is left and
-// counted, so the CLI asks for --from-2x. A line these rules refuse is 2.x
+// counted, so the CLI asks for --from=2.0. A line these rules refuse is 2.x
 // either way, and converts, and a file that names format 2 converts whole.
 func TestMigrateCountsABackslashPairInAnUnstampedFile(t *testing.T) {
 	defer testID(t, "de61b")
 	text := "p: \"C:\\\\new\"\nt: C:\\temp\nw: C:\\work\nb: \"say \\\"hi\\\"\"\nl: a\\tb, c\n"
-	m := Migrate(text, false)
+	m := Migrate(text, "")
 	if m.Ambiguous != 2 || m.Lost != 0 {
 		t.Fatalf("ambiguous %d lost %d\n%s", m.Ambiguous, m.Lost, m.Text)
 	}
 	if want := "p: \"C:\\\\new\"\nt: C:\\temp\nw: C:\\work\nb: 'say \"hi\"'\nl: [\"a\u25C9TAB\u25C9b\", c]\n"; m.Text != want {
 		t.Fatalf("got %q\nwant %q", m.Text, want)
 	}
-	m = Migrate(text+"##    Format   2\n", false)
+	m = Migrate(text+"##    Format   2\n", "")
 	if m.Ambiguous != 0 || m.Lost != 0 {
 		t.Fatalf("ambiguous %d lost %d\n%s", m.Ambiguous, m.Lost, m.Text)
 	}
@@ -6475,26 +6475,33 @@ func TestMigrateCountsABackslashPairInAnUnstampedFile(t *testing.T) {
 }
 
 // 1.2 read a quoted name as typed and 2.0 resolved its backslash pairs, so
-// a name with one reads two ways across 2.x. It stays as written and counts
-// as lost, with fromV2 or without, and the rest of its line still
-// converts. Any other backslash in a name was text under both.
+// a name with one reads two ways across 2.x. Without from it stays as written
+// and counts as lost, and the rest of its line still converts. With from, the
+// format's step reads it as that format did, so it isn't lost
+// (2026111919213927). Any other backslash in a name was text under both.
 func TestMigrateCountsAQuotedNameWithABackslashPairLost(t *testing.T) {
 	defer testID(t, "de61c")
 	text := "'k\\\\x': C:\\temp\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n"
-	for _, fromV2 := range []bool{true, false} {
-		m := Migrate(text, fromV2)
-		if m.Lost != 2 {
-			t.Fatalf("fromV2 %v: lost %d\n%s", fromV2, m.Lost, m.Text)
-		}
-		if want := map[bool]int{true: 0, false: 1}[fromV2]; m.Ambiguous != want {
-			t.Fatalf("fromV2 %v: ambiguous %d\n%s", fromV2, m.Ambiguous, m.Text)
+	if m := Migrate(text, ""); m.Lost != 2 || m.Ambiguous != 1 {
+		t.Fatalf("lost %d, ambiguous %d\n%s", m.Lost, m.Ambiguous, m.Text)
+	}
+	for _, from := range []string{"2.0", "1.1", "1.0"} {
+		if m := Migrate(text, from); m.Lost != 0 || m.Ambiguous != 0 {
+			t.Fatalf("from %s: lost %d, ambiguous %d\n%s", from, m.Lost, m.Ambiguous, m.Text)
 		}
 	}
-	m := Migrate(text, true)
-	if want := "'k\\\\x': \"C:\u25C9TAB\u25C9emp\"\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n"; !strings.HasPrefix(m.Text, want) {
-		t.Fatalf("got %q\nwant %q", m.Text, want)
+	// 2.0 resolved a name's backslash pairs, and 1.1 keyed it as typed.
+	for _, c := range [][2]string{
+		{"2.0", "\"k\\x\": \"C:\u25C9TAB\u25C9emp\"\n\"n\u25C9TAB\u25C9y\".z: 1\n"},
+		{"1.1", "'k\\\\x': \"C:\u25C9TAB\u25C9emp\"\n\"n\\ty\".z: 1\n"},
+	} {
+		m := Migrate(text, c[0])
+		if want := c[1] + "\"a\\b\": 2\nr: 3\n"; !strings.HasPrefix(m.Text, want) {
+			t.Fatalf("from %s: got %q\nwant %q", c[0], m.Text, want)
+		}
 	}
-	if up := Upgrade(text, true, true); up.Lost != 2 {
+	// Upgrade's from takes the file as 2.0 the same way (2026111917071578).
+	if up := Upgrade(text, "2.0", true); up.Lost != 0 {
 		t.Fatalf("%+v", up)
 	}
 }
@@ -8435,7 +8442,7 @@ func TestANewerFormatDocumentSavesNowhere(t *testing.T) {
 			t.Errorf("%q: a file was made", text)
 		}
 		for _, fromV2 := range []bool{false, true} {
-			if up := Upgrade(text, fromV2, true); !up.Current || up.Text != text {
+			if up := Upgrade(text, v2From(fromV2), true); !up.Current || up.Text != text {
 				t.Errorf("%q: Upgrade(%v) gave %+v", text, fromV2, up)
 			}
 		}
@@ -8482,11 +8489,11 @@ func TestALoadConvertsFromTheFormatItsMtimeGives(t *testing.T) {
 		if err := os.Chtimes(f, at, at); err != nil {
 			t.Fatal(err)
 		}
-		opts := LoadOptions{KeepLines: true, Migrate: true, FromV2: c.fromV2}
+		opts := LoadOptions{KeepLines: true, Migrate: true, From: v2From(c.fromV2)}
 		doc, _, _ := LoadFileOpts(f, Standard, opts)
 		want, lost := c.text, 0
 		if c.migrated {
-			m := MigrateUnstamped(c.text, c.fromV2)
+			m := MigrateUnstamped(c.text, v2From(c.fromV2))
 			want, lost = m.Text, m.Lost
 		}
 		got, _, err := doc.ToTextKeepLines()
@@ -8567,9 +8574,83 @@ func TestALoadConvertsFromAPinnedDevFormat(t *testing.T) {
 			t.Errorf("at %d: gave %q, lost %d, %v; want %q", c.mtime, got, doc.LostCount(), err, want)
 		}
 		mtime := c.mtime
-		up := UpgradeDated(text, &mtime, false, false)
+		up := UpgradeDated(text, &mtime, "", false)
 		if up.Current || up.Text != want {
 			t.Errorf("upgrade at %d: gave %v, %q; want %q", c.mtime, up.Current, up.Text, want)
+		}
+	}
+}
+
+// TestALoadConvertsFromA1xOr2xFormat: a file from 1.0, 1.1 or 2.0 goes
+// through the 2.x rewrite on load, with each format's own reads where they
+// differ. 1.x keyed a quoted name by its text as typed and 2.0 resolved it,
+// 1.x matched a quoted selector against an array's display form too, and 1.0
+// matched a selector's backslash pair as typed. A line the step can't be sure
+// of stays as typed and counts as lost (2026111917071578). Same rows in every
+// runner.
+func TestALoadConvertsFromA1xOr2xFormat(t *testing.T) {
+	defer testID(t, "dfhes")
+	f := filepath.Join(t.TempDir(), "f.shcl")
+	const (
+		jul20 = 1784505600 // 2026-07-20, to 1.0
+		aug6  = 1785974400 // 2026-08-06, to 1.1
+		sep1  = 1788220800 // 2026-09-01, to 2.0
+	)
+	text := "\"a\\\"b\": 1\n" +
+		"'a\"b': 2\n" +
+		"\"c\\td\": 3\n" +
+		"s: q\n" +
+		"s[\"q\\\"r\"].h: 1\n" +
+		"x: a, b\n" +
+		"x[\"a, b\"].h: 1\n"
+	mid := "\"c\\td\": 3\ns: q\n"
+	// 2.0 read `"c\td"` with a tab, which reads clean as text now, so the
+	// file could be a 3.0 one, and it stays.
+	cases := []struct {
+		mtime      int64
+		head, tail string
+		lost       int
+	}{
+		{jul20, "'a\\\"b': 1\n'a\"b': 2\n", "s[\"q\\\"r\"].h: 1\nx: [a, b]\nx[\"a, b\"].h: 1\n", 2},
+		{aug6, "'a\\\"b': 1\n'a\"b': 2\n", "s('q\"r').h: 1\nx: [a, b]\nx[\"a, b\"].h: 1\n", 1},
+		{sep1, "'a\"b': 1\n'a\"b': 2\n", "s('q\"r').h: 1\nx: [a, b]\nx(\"a, b\").h: 1\n", 0},
+	}
+	for _, c := range cases {
+		if err := os.WriteFile(f, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		at := time.Unix(c.mtime, 0)
+		if err := os.Chtimes(f, at, at); err != nil {
+			t.Fatal(err)
+		}
+		opts := LoadOptions{KeepLines: true, Migrate: true}
+		doc, _, err := LoadFileOpts(f, Standard, opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := c.head + mid + c.tail
+		got, _, err := doc.ToTextKeepLines()
+		if err != nil || got != withStamp(want) || doc.LostCount() != c.lost {
+			t.Errorf("at %d: gave %q, lost %d, %v; want %q, lost %d", c.mtime, got, doc.LostCount(), err, withStamp(want), c.lost)
+		}
+		// Upgrade writes nothing over the name that reads 2 ways.
+		mtime := c.mtime
+		up := UpgradeDated(text, &mtime, "", false)
+		madeText, madeLost, madeAmb := withStamp(want), c.lost, 0
+		if c.mtime == sep1 {
+			madeText, madeLost, madeAmb = text, 0, 1
+		}
+		if up.Text != madeText || up.Lost != madeLost || up.Ambiguous != madeAmb {
+			t.Errorf("upgrade at %d: gave %q, lost %d, ambiguous %d; want %q, %d, %d", c.mtime, up.Text, up.Lost, up.Ambiguous, madeText, madeLost, madeAmb)
+		}
+		if c.mtime != sep1 {
+			continue
+		}
+		// fromV2 takes it as 2.0 too, and says it isn't a 3.0 one.
+		up = UpgradeDated(text, nil, "2.0", false)
+		wantV2 := withStamp(strings.Replace(want, "\"c\\td\"", "\"c◉TAB◉d\"", 1))
+		if up.Text != wantV2 || up.Lost != 0 {
+			t.Errorf("fromV2: gave %q, lost %d; want %q", up.Text, up.Lost, wantV2)
 		}
 	}
 }
@@ -8590,7 +8671,7 @@ func TestAnUpgradeConvertsFromTheFormatItsMtimeGives(t *testing.T) {
 	)
 	quote, fresh := "a: x\"y\n", "a: 'x\"y'\n## SHCL format 3.0\n"
 	// Text from no file reads as the newest format its tells leave.
-	if !Upgrade(quote, false, false).Current {
+	if !Upgrade(quote, "", false).Current {
 		t.Errorf("Upgrade with no mtime made over %q", quote)
 	}
 	cases := []struct {
@@ -8610,7 +8691,7 @@ func TestAnUpgradeConvertsFromTheFormatItsMtimeGives(t *testing.T) {
 			want = fresh
 		}
 		mtime := c.mtime
-		up := UpgradeDated(quote, &mtime, c.fromV2, false)
+		up := UpgradeDated(quote, &mtime, v2From(c.fromV2), false)
 		if up.Current == c.made || up.Text != want {
 			t.Errorf("%d, fromV2 %v: gave %v, %q; want %q", c.mtime, c.fromV2, up.Current, up.Text, want)
 		}
@@ -8621,7 +8702,7 @@ func TestAnUpgradeConvertsFromTheFormatItsMtimeGives(t *testing.T) {
 		if err := os.Chtimes(f, at, at); err != nil {
 			t.Fatal(err)
 		}
-		up, err := UpgradeFile(f, c.fromV2, false)
+		up, err := UpgradeFile(f, v2From(c.fromV2), false)
 		if err != nil || up.Current == c.made {
 			t.Errorf("file at %d, fromV2 %v: current %v, %v", c.mtime, c.fromV2, up.Current, err)
 		}
@@ -8670,7 +8751,7 @@ func TestAnUpgradeReadsABeta1StampAsTheLoadDoes(t *testing.T) {
 		{"o: \"open\n##    Format   3\n", at(oct10), false, "o: \"open\n" + StampLine + "\n"},
 	}
 	for _, c := range cases {
-		up := UpgradeDated(c.text, c.mtime, c.fromV2, false)
+		up := UpgradeDated(c.text, c.mtime, v2From(c.fromV2), false)
 		if up.Current != (c.want == c.text) || up.Text != c.want {
 			t.Errorf("%q at %v, fromV2 %v: gave %v, %q; want %q", c.text, c.mtime, c.fromV2, up.Current, up.Text, c.want)
 		}
@@ -8687,7 +8768,7 @@ func TestAnUpgradeReadsABeta1StampAsTheLoadDoes(t *testing.T) {
 		if err := os.Chtimes(f, tm, tm); err != nil {
 			t.Fatal(err)
 		}
-		up, err := UpgradeFile(f, false, false)
+		up, err := UpgradeFile(f, "", false)
 		if err != nil || up.Current != (c.want == beta) {
 			t.Errorf("file at %d: current %v, %v", c.mtime, up.Current, err)
 		}
@@ -8696,6 +8777,127 @@ func TestAnUpgradeReadsABeta1StampAsTheLoadDoes(t *testing.T) {
 		}
 		if !up.Current {
 			_ = os.Remove(up.Backup)
+		}
+	}
+}
+
+// TestMigrateReadsFromAsUpgradeDoes: Migrate reads a caller's from as
+// Upgrade does, with no mtime, and takes that format's step. A format whose steps rewrite nothing, and a newer one,
+// leave the text alone, and a name no format has is no from. A pin's rewrite
+// names this format whole, so a second run with the same pin leaves it alone
+// (2026111919213927). Same table in every runner.
+func TestMigrateReadsFromAsUpgradeDoes(t *testing.T) {
+	defer testID(t, "dfhjd")
+	note := "##    Format   3.0\n##    Migrated from SHCL 2.x.\n"
+	sq := "b: 'C:\\temp'\n"
+	sqMade := "b: \"C:\u25c9TAB\u25c9emp\"\n" + note
+	tab := "a: \"x\\ty\"\n"
+	tabMade := "a: \"x\u25c9TAB\u25c9y\"\n##    Format   3.0\n"
+	// The text, from, and the text Migrate gives, which is the input when
+	// it's current.
+	cases := [][3]string{
+		{sq, "2.0", sqMade},
+		{sq, "1", sqMade},
+		{sq, "3.0", sq},
+		{sq, "3.0-9ef", sq},
+		{sq, "3.1", sq},
+		{sq, "4", sq},
+		{tab, "3.0-a37", tabMade},
+		{tab, "3.0-231", tabMade},
+		{tabMade, "3.0-a37", tabMade},
+		{sqMade, "2.0", sqMade},
+	}
+	for _, c := range cases {
+		m := Migrate(c[0], c[1])
+		if m.Current != (c[2] == c[0]) || m.Text != c[2] {
+			t.Errorf("%q, from %s: current %v, got %q, want %q", c[0], c[1], m.Current, m.Text, c[2])
+		}
+	}
+	none, unknown := Migrate(sq, ""), Migrate(sq, "1.2")
+	if unknown.Text != none.Text || unknown.Ambiguous != none.Ambiguous || unknown.Lost != none.Lost {
+		t.Errorf("from 1.2 %+v, none %+v", unknown, none)
+	}
+	if got, want := MigrateUnstamped(tab, "3.0-a37").Text, "a: \"x\u25c9TAB\u25c9y\"\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// TestACallerNamesTheFormatWithFrom: a caller's from names the format a file
+// was written in, by a name in FormatNames or a major alone, in place of its
+// stamp and what FindFormat reads off it, in Upgrade and the load. A name no
+// format has is no from, and a newer format's leaves the file alone. A file
+// stamped this format whole is what a told upgrade writes, so a second run
+// leaves it alone (2026111918111481). Same rows in every runner.
+func TestACallerNamesTheFormatWithFrom(t *testing.T) {
+	defer testID(t, "dfhh0")
+	const (
+		oct10 = int64(1791590400) // 2026-10-10, to 3.0-a37
+		nov10 = int64(1794268800) // 2026-11-10, every format
+	)
+	// An escape to 2.0, and text from 3.0-1f8 on.
+	sq := "b: 'C:\\temp'\n"
+	sqMade := withStamp("b: \"C:\u25c9TAB\u25c9emp\"\n")
+	// An escape to 3.0-a37, and text from 3.0-9ef on.
+	tab := "a: \"x\\ty\"\n"
+	tabMade := withStamp("a: \"x\u25c9TAB\u25c9y\"\n")
+	pinned := tab + "## SHCL format 3.0-9ef\n"
+	// The text, the mtime, from, and the text Upgrade gives, which is the
+	// input when it's current.
+	cases := []struct {
+		text  string
+		mtime int64
+		from  string
+		want  string
+	}{
+		{sq, nov10, "", sq},
+		{sq, nov10, "2.0", sqMade},
+		{sq, nov10, "1", sqMade},
+		{sq, nov10, "3.0-a37", sq},
+		{tab, nov10, "", tab},
+		{tab, nov10, "3.0-a37", tabMade},
+		{tab, nov10, "3.0-231", tabMade},
+		{tab, nov10, "3.0-9ef", tab},
+		{tab, oct10, "", tabMade},
+		{tab, oct10, "3.0", tab},
+		{tab, oct10, "3.1", tab},
+		{tab, oct10, "4", tab},
+		{tab, oct10, "1.2", tabMade},
+		{pinned, nov10, "", pinned},
+		{pinned, nov10, "3.0-a37", tabMade},
+		{tabMade, nov10, "3.0-a37", tabMade},
+	}
+	for _, c := range cases {
+		mtime := c.mtime
+		up := UpgradeDated(c.text, &mtime, c.from, false)
+		if up.Current != (c.want == c.text) || up.Text != c.want {
+			t.Errorf("%q at %d, from %q: gave %v, %q; want %q", c.text, c.mtime, c.from, up.Current, up.Text, c.want)
+		}
+	}
+	mtime := nov10
+	if !UpgradeDated(tabMade, &mtime, "2.0", false).Current {
+		t.Errorf("%q from 2.0 was made over", tabMade)
+	}
+	f := filepath.Join(t.TempDir(), "f.shcl")
+	for _, c := range []struct {
+		from string
+		want string
+	}{
+		{"", withStamp(sq)},
+		{"2.0", sqMade},
+		{"3.0-a37", withStamp(sq)},
+		{"1.2", withStamp(sq)},
+		{"4", withStamp(sq)},
+	} {
+		if err := os.WriteFile(f, []byte(sq), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		tm := time.Unix(nov10, 0)
+		if err := os.Chtimes(f, tm, tm); err != nil {
+			t.Fatal(err)
+		}
+		doc, _, _ := LoadFileOpts(f, Standard, LoadOptions{KeepLines: true, Migrate: true, From: c.from})
+		if got, _, err := doc.ToTextKeepLines(); err != nil || got != c.want {
+			t.Errorf("load, from %q: gave %q, %v; want %q", c.from, got, err, c.want)
 		}
 	}
 }
@@ -8727,8 +8929,8 @@ func TestALoadThatMigratesSavesThroughTheGuards(t *testing.T) {
 		return doc, st
 	}
 	old := "p: a,b\n# kept\nq: 1\n"
-	opts := LoadOptions{KeepLines: true, Migrate: true, FromV2: true}
-	migrated := MigrateUnstamped(old, true).Text
+	opts := LoadOptions{KeepLines: true, Migrate: true, From: "2.0"}
+	migrated := MigrateUnstamped(old, "2.0").Text
 	if migrated == old {
 		t.Fatalf("migrate left %q as it was", old)
 	}
@@ -8785,12 +8987,12 @@ func TestALoadThatMigratesSavesThroughTheGuards(t *testing.T) {
 
 	// What Migrate counts lost is lost to a canonical save.
 	lossy := "k: [x, y]\n"
-	m := MigrateUnstamped(lossy, true)
+	m := MigrateUnstamped(lossy, "2.0")
 	if m.Lost == 0 {
 		t.Fatalf("migrate lost nothing of %q", lossy)
 	}
 	write(lossy)
-	doc, _ = load(LoadOptions{Migrate: true, FromV2: true})
+	doc, _ = load(LoadOptions{Migrate: true, From: "2.0"})
 	if doc.LostCount() != m.Lost {
 		t.Errorf("lost %d, want %d", doc.LostCount(), m.Lost)
 	}

@@ -93,48 +93,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: High
 	- Note: split for its time cap into 2026111907075423 (the stamp and mtime steps), 2026111907080400 (the tells and the most legal reading), 2026111907080423 (the conversion steps on load), 2026111907080445 (`from`) and 2026111907080466 (the round-trip gate).
 
-- Format versions: one table-driven conversion step per format, run in order on load
-	- ID: 2026111907080423
-	- Type: Feature
-	- Status: Queued
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261119-070804
-	- Opened by: me
-	- Parent ID: 2026111018212703
-	- Prereq IDs: 2026111907075423
-	- Requirements: the parent's table-driven steps, one per format, run in order in memory on load, in all 4 bindings. A line a step isn't sure of stays as typed and is reported. The load passes the file's mtime to the format read.
-	- Estimated effort: High
-	- Note: likely splits by the design doc's runs, 1.0 to 2.0, 3.0-1f8 to 3.0-a37, and 3.0-9ef to 3.0, since 2.0 to 3.0 is what migrate does now.
-	- 20261119: the load passes the file's mtime to find_format here, so this item also adds the touch -d mtime cases that 2026111907080400 left out (no file was read there).
-	- Note: split for its time cap into 2026111908443663 (the step table, the mtime on load, and the 3.0-9ef to 3.0 run), 2026111908444515 (3.0-1f8 to 3.0-a37), 2026111908444534 (1.0 to 2.0) and 2026111908444554 (`upgrade`).
-
-- Format versions: conversion steps for 1.0 to 2.0, and from 2.0 to 3.0-1f8
-	- ID: 2026111908444534
-	- Type: Feature
-	- Status: Queued
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261119-084445
-	- Opened by: me
-	- Parent ID: 2026111907080423
-	- Prereq IDs: 2026111908443663, 2026111908444515
-	- Requirements: rows and steps in the load's step table for 1.0, 1.1 and 2.0, per the design doc's Format numbers and Tells, in place of the 2.x migration that stands in for them. In all 4 bindings. A line a step isn't sure of stays as typed and is reported.
-	- Estimated effort: High
-
-- Format versions: `from` and `--from=FORMAT` replace `from_v2` and `--from-2x`
-	- ID: 2026111907080445
-	- Type: Feature
-	- Status: Queued
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261119-070804
-	- Opened by: me
-	- Parent ID: 2026111018212703
-	- Prereq IDs: 2026111907075423, 2026111907080423
-	- Requirements: a caller names the format with `from`, which overrides the stamp and the scan, in all 4 bindings, the C++ interface and the 4 CLIs. It replaces `from_v2` and `--from-2x`.
-	- Estimated effort: High
-
 - Format versions: each published format and pin round-trips against its own tag's CLI in a gate
 	- ID: 2026111907080466
 	- Type: Feature
@@ -352,6 +310,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Add a read that gives every value across repeats and arrays, in file order.
 		- The `_or` doc says a repeat gives the default, and points to that read.
 	- Estimated effort: Avg
+
+- `shcl migrate --from=3.0` on a file with no stamp says the file already names its format
+	- ID: 2026111920301167
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261119-203011
+	- Opened by: me
+	- Related IDs: 2026111919213947
+	- Steps to reproduce: `printf 'x: "a\\tb"\n' | shcl migrate --from=3.0 -`, or `--from=3.0-9ef`, or any format whose steps are all the same as this one's.
+	- Incorrect behavior: exit 0 with `nothing to migrate: the file already names its format`, though the file has no stamp. It's `--from` that named the format. All 4 CLIs say it.
+	- Expected behavior: the message says the named format reads the same under these rules, or names `--from`.
 
 - The C++ veneer's `de1a5` failed once under the quick gate, and passed 3 runs alone
 	- ID: 2026111912330703
@@ -1129,6 +1100,360 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- spec.md and the `upgrade` docs say 2.x includes 1.x, and that a 1.x file's backup is named `format-v2`.
 		- The next changelog's upgrading notes say C's `SHCL_SET_OK` is 0, so old code testing a setter `!= 0` reads every success as a failure, and that a string read of an array gives its bracket text. The released beta1 section stays as it is.
 	- Estimated effort: Low
+
+- The veneer smoke test does not compile with `SHCL_NO_FILE_IO`
+	- ID: 2026111919581254
+	- Type: Bug
+	- Status: Closed
+	- Priority: Low
+	- Target version: v3.0.0
+	- Opened: 20261119-195812
+	- Opened by: me
+	- Steps to reproduce: `g++ -std=c++17 -DSHCL_NO_FILE_IO -fsyntax-only -Isource/c source/c/tests/veneer_smoke.cpp`
+	- Incorrect behavior: 4 errors. `main`'s `#else` arm calls `a_save_names_this_format` and others that sit inside `#ifndef SHCL_NO_FILE_IO`. Seen on `f7a1dff5`, before 2026111919213927.
+	- Expected behavior: it compiles and runs the checks that need no file I/O, or no gate builds it that way and the `#else` arm goes.
+	- Closed reason: Duplicate
+	- Superseded by ID: 2026111814490325
+	- Test case: none, duplicate
+	- Closed: 20261119-200159
+
+- Format versions: one table-driven conversion step per format, run in order on load
+	- ID: 2026111907080423
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-070804
+	- Opened by: me
+	- Parent ID: 2026111018212703
+	- Prereq IDs: 2026111907075423
+	- Requirements: the parent's table-driven steps, one per format, run in order in memory on load, in all 4 bindings. A line a step isn't sure of stays as typed and is reported. The load passes the file's mtime to the format read.
+	- Estimated effort: High
+	- Note: likely splits by the design doc's runs, 1.0 to 2.0, 3.0-1f8 to 3.0-a37, and 3.0-9ef to 3.0, since 2.0 to 3.0 is what migrate does now.
+	- 20261119: the load passes the file's mtime to find_format here, so this item also adds the touch -d mtime cases that 2026111907080400 left out (no file was read there).
+	- Note: split for its time cap into 2026111908443663 (the step table, the mtime on load, and the 3.0-9ef to 3.0 run), 2026111908444515 (3.0-1f8 to 3.0-a37), 2026111908444534 (1.0 to 2.0) and 2026111908444554 (`upgrade`).
+	- Test case: its children's: 2026111908444534: its children's: 2026111917071578: `a_load_converts_from_a_1x_or_2x_format` (Rust `dfhe6`).; 2026111917072123: `TestALoadConvertsFromA1xOr2xFormat` (Go `dfhes`, twin of Rust `dfhe6`).; 2026111917072255: `a_load_converts_from_a_1x_or_2x_format` (Python `dfhf2`, twin of Rust `dfhe6`).; 2026111917072385: `a_load_converts_from_a_1x_or_2x_format` (C `dfhfn`, twin of Rust `dfhe6`).; 2026111908444515: its children's: 2026111912004261: `a_load_converts_from_a_pinned_dev_format` (Rust `dfh4s`).; 2026111912004789: `TestALoadConvertsFromAPinnedDevFormat` (Go `dfh64`, twin of Rust `dfh4s`).; 2026111912004810: `a_load_converts_from_a_pinned_dev_format` (Python `dfh6n`, twin of Rust `dfh4s`).; 2026111912004831: `a_load_converts_from_a_pinned_dev_format` (C `dfh7e`, twin of Rust `dfh4s`).; 2026111908443663: `a_load_converts_from_the_format_its_mtime_gives` (Rust `dfgyc`, Go `dfgyd`, Python `dfgye`, C `dfgyf`).; 2026111908444554: `an_upgrade_converts_from_the_format_its_mtime_gives` (Rust `dfh0e`, Go `dfh0f`, Python `dfh0g`, C `dfh0h`, veneer `dfh0j`).; 2026111912330681: `an_upgrade_reads_a_beta1_stamp_as_the_load_does` (Rust `dfh89`, Go `dfh8a`, Python `dfh8b`, C `dfh8c`), fuzz `de116`, and check-migrate `ddmp8`.
+	- Closed: 20261119-180720
+	- Closed reason: Done
+
+- Format versions: conversion steps for 1.0 to 2.0, and from 2.0 to 3.0-1f8
+	- ID: 2026111908444534
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-084445
+	- Opened by: me
+	- Parent ID: 2026111907080423
+	- Prereq IDs: 2026111908443663, 2026111908444515
+	- Requirements: rows and steps in the load's step table for 1.0, 1.1 and 2.0, per the design doc's Format numbers and Tells, in place of the 2.x migration that stands in for them. In all 4 bindings. A line a step isn't sure of stays as typed and is reported.
+	- Estimated effort: High
+	- Note: split for its time cap into 2026111917071578 (the Rust reference), then the ports 2026111917072123 (Go), 2026111917072255 (Python) and 2026111917072385 (C).
+	- Test case: its children's: 2026111917071578: `a_load_converts_from_a_1x_or_2x_format` (Rust `dfhe6`).; 2026111917072123: `TestALoadConvertsFromA1xOr2xFormat` (Go `dfhes`, twin of Rust `dfhe6`).; 2026111917072255: `a_load_converts_from_a_1x_or_2x_format` (Python `dfhf2`, twin of Rust `dfhe6`).; 2026111917072385: `a_load_converts_from_a_1x_or_2x_format` (C `dfhfn`, twin of Rust `dfhe6`).
+	- Closed: 20261119-180719
+	- Closed reason: Done
+
+- Format versions: the Rust steps out of 1.0 and 1.1
+	- ID: 2026111917071578
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-170715
+	- Opened by: me
+	- Parent ID: 2026111908444534
+	- Requirements: in the Rust reference, the step table's rows for 1.0 and 1.1, with steps that read the text by 1.x rules where they differ from 2.0's, and the 2.x migration as the step out of 2.0. A line the step isn't sure of stays as typed and is reported. The ports follow it.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261119: the step kind is `Step::V2(V2Read)`, with `From10`, `From11` and `From20` for the 3 rows, and `Either` for `migrate` and `migrate_unstamped`, which don't find the format. `migrate_text` takes the `Step` in place of its `Option<Pin>`.
+		- me, 20261119: 1.0 to 2.0 read values and line syntax the same, by the old v1.0.0, v1.2.0 and v2.0.0 CLIs over the corpus and probes. They differ in a quoted name, which 1.x keyed by its text as typed and 2.0 resolved, and in a selector, which 1.x matched against an array's display form when quoted and 1.0 matched as typed. Each step spells a name the way its format read it, so such a name isn't counted lost any more.
+		- me, 20261119: a selector 1.x may have matched otherwise stays as typed and counts as lost: a quoted one holding a comma and a space, and from 1.0 one with a backslash pair. The step reads a line at a time, so it can't see whether another instance would have matched, and calls them all unsure. A 1.0 value with a backslash pair that a selector without one matched by its resolved text isn't caught, for the same reason.
+		- me, 20261119: 1.0 kept 2 instances where a late block or stacked list closed onto an earlier one, and 1.1 folds them. No later format spells 2 instances of one value, and no text tells it, so the step out of 1.0 reads such a file as 1.1 does.
+		- me, 20261119: `from_v2` in the load and `upgrade` takes the file as 2.0, so a quoted name with a backslash pair now gets its 2.0 spelling there, where it used to stay as typed and count lost. Without `from_v2`, a name found to be 2.0's that reads clean now, as `"c\td"` does, counts as reading 2 ways, as a value does. Logged as a `Check:` in questions.md.
+	- 20261119: `migrate_counts_a_quoted_name_with_a_backslash_pair_lost` (`de60h`) now wants `upgrade(text, true, true).lost` 0, where it was 2, since `from_v2` takes the text as 2.0. Its `migrate` asserts are as they were.
+	- Verified: `dfhe6` fails with each of the 3 rows set back to `V2Read::Either`, and passes with them. cargo test, clippy and rustfmt, `--backlog-run-quick rust go python c cli`, cli-regress over the Rust CLI, crosscheck over the corpus (Rust and Go), check-migrate, check-docs, `test-ids.py check`, `lint-report.bash --check --no-mark`, the markdown check and markdownlint passed. On probe files dated to 1.0, 1.1 and 2.0, `shcl upgrade` gave the names and selectors the v1.0.0, v1.2.0 and v2.0.0 CLIs read, or kept the line as typed and counted it lost.
+	- Swept: `convert` and `upgrade_dated` are the only users of `first_rewrite`, and both pass the `Step` on. `migrate` and `migrate_unstamped` pass `Either`, so their output is as it was, which check-migrate, cli-regress and crosscheck confirm. Docs: the design doc's Reading and converting, design.md's `load_file_opts` bullet, the changelog, `upgrade`'s doc comment and `Migration::lost`. The ports are 2026111917072123, 2026111917072255 and 2026111917072385.
+	- Test case: `a_load_converts_from_a_1x_or_2x_format` (Rust `dfhe6`).
+	- Branch: `nov20-2026111908444534`
+	- Commit: `6946ac7f`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the steps, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261119-172700
+
+- Format versions: port the steps out of 1.0 and 1.1 to Go
+	- ID: 2026111917072123
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-170721
+	- Opened by: me
+	- Parent ID: 2026111908444534
+	- Prereq IDs: 2026111917071578
+	- Requirements: mirror 2026111917071578's step kinds, rules and test in Go, by parity over idiom.
+	- Estimated effort: Avg
+	- Note: the docs and the changelog already say what the ports build. Each binding's twin of `de60h` (Go `TestMigrateCountsAQuotedNameWithABackslashPairLost`, Python `de61f`, C `de61j`) needs `upgrade`'s lost count at 0, as the Rust one got. The old v1.0.0, v1.2.0 and v2.0.0 CLIs build from `git archive <tag> source/rust` in a few seconds each.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261119: Rust's `Step::V2(V2Read)` is a `v2Read` field on the `step` struct, set only for `stepV2`, with `v2Either` as its zero value. `migrateText` takes the `step` in place of its `*pinRules`, as Rust's takes the `Step`.
+	- 20261119: `TestMigrateCountsAQuotedNameWithABackslashPairLost` (`de61c`) now wants `Upgrade(text, true, true).Lost` 0, where it was 2, as Rust's `de60h` does. Its `Migrate` asserts are as they were.
+	- Verified: `dfhes` fails with each of the 3 rows set back to `v2Either`, and passes with them. Go tests in both modules, `--backlog-run-quick rust go python c cli` (vet, staticcheck, gofmt included), cli-regress and crosscheck over the Rust and Go CLIs, check-docs, `test-ids.py check` and `lint-report.bash --check --no-mark` passed. The Go CLI's `upgrade` printed the same bytes and exit code as the Rust CLI's on every corpus document with its stamp taken off, dated into 1.0, 1.1 and 2.0, with and without `--from-2x` (4116 pairs), and on 12 hand-written name and selector files at 5 dates.
+	- Swept: every Rust function the step touched has its Go twin changed: `migrating`, `step`, `formatSteps`, `convert`, `Migrate`, `MigrateUnstamped`, `migrateText`, `UpgradeDated` and `migrateLine`, with `v2Read` new. `Migration.Lost`'s and `Upgrade`'s doc comments say so.
+	- Test case: `TestALoadConvertsFromA1xOr2xFormat` (Go `dfhes`, twin of Rust `dfhe6`).
+	- Branch: `nov20-2026111908444534`
+	- Commit: `73959574`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the steps, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261119-173800
+
+- Format versions: port the steps out of 1.0 and 1.1 to Python
+	- ID: 2026111917072255
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-170722
+	- Opened by: me
+	- Parent ID: 2026111908444534
+	- Prereq IDs: 2026111917071578
+	- Requirements: mirror 2026111917071578's step kinds, rules and test in Python, by parity over idiom.
+	- Estimated effort: Avg
+	- Note: the docs and the changelog already say what the ports build. Each binding's twin of `de60h` (Go `TestMigrateCountsAQuotedNameWithABackslashPairLost`, Python `de61f`, C `de61j`) needs `upgrade`'s lost count at 0, as the Rust one got. The old v1.0.0, v1.2.0 and v2.0.0 CLIs build from `git archive <tag> source/rust` in a few seconds each.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261119: Rust's `Step::V2(V2Read)` is a `v2` field on the `_Step` named tuple, with a private `_V2Read` enum, set only for `V2` and `EITHER` by default. `_migrate_text` takes the `_Step` in place of its `_Pin | None`, and `_Migrating` gets a `v2` slot.
+	- 20261119: `migrate_counts_a_quoted_name_with_a_backslash_pair_lost` (`de61f`) now wants `upgrade(text, True, True).lost` 0, where it was 2, as Rust's `de60h` does. Its `migrate` asserts are as they were.
+	- Verified: `dfhf2` fails with each of the 3 rows set back to `EITHER`, and passes with them. With the 2.0 row set back, `de61f` fails first. The Python conformance suite, `--backlog-run-quick rust go python c cli` (ruff and mypy included; all 5 steps passed), cli-regress for Rust and Python, crosscheck over the corpus with the Rust, Go and Python CLIs, check-docs, `test-ids.py check`, `lint-report.bash --check --no-mark` and the markdown check passed. The Python CLI's `upgrade` printed the same stdout, stderr and exit code as the Rust CLI's on every corpus document with its stamp taken off, dated into 1.0, 1.1 and 2.0, with and without `--from-2x` (4116 pairs, `v2-port-diff.bash`), and on 12 hand-written name and selector files at 5 dates, with and without `--from-2x` (120 pairs), where a build with the 1.0 row set back differed on 4.
+	- Swept: every Rust function the step touched has its Python twin changed: `_Migrating`, `_StepKind`, `_Step`, `_FORMAT_STEPS`, `_convert`, `migrate`, `migrate_unstamped`, `_migrate_text`, `upgrade_dated` and `_migrate_line`, with `_V2Read` new. `_RawLines` keeps `EITHER`, as Rust's `RawLines` does. `Migration`'s and `upgrade`'s docstrings say so. design.md and the format-versions design doc name Python too.
+	- Test case: `a_load_converts_from_a_1x_or_2x_format` (Python `dfhf2`, twin of Rust `dfhe6`).
+	- Branch: `nov20-2026111917072255`
+	- Commit: `291a05c5`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the steps, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261119-175338
+
+- Format versions: port the steps out of 1.0 and 1.1 to C
+	- ID: 2026111917072385
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-170723
+	- Opened by: me
+	- Parent ID: 2026111908444534
+	- Prereq IDs: 2026111917071578
+	- Requirements: mirror 2026111917071578's step kinds, rules and test in C, by parity over idiom.
+	- Estimated effort: Avg
+	- Note: the docs and the changelog already say what the ports build. Each binding's twin of `de60h` (Go `TestMigrateCountsAQuotedNameWithABackslashPairLost`, Python `de61f`, C `de61j`) needs `upgrade`'s lost count at 0, as the Rust one got. The old v1.0.0, v1.2.0 and v2.0.0 CLIs build from `git archive <tag> source/rust` in a few seconds each.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261119: Rust's `Step::V2(V2Read)` is a `v2` field of a new private `ShclV2Read` on the `ShclStep` struct, set only for `SHCL_STEP_V2`, with `SHCL_V2_EITHER` as its zero value. `ShclStep` and `ShclStepKind` moved up beside `ShclPin`, since `migrate_text` now takes the `ShclStep` in place of its `const ShclPin *`, and `ShclMigrating` gets a `v2` field. `shcl_migrate` and `shcl_migrate_unstamped` pass a V2 step with `SHCL_V2_EITHER`, and `s_convert` passes every rewriting step to `migrate_text`.
+	- 20261119: `migrate_counts_a_quoted_name_with_a_backslash_pair_lost` (`de61j`) now wants `shcl_upgrade(t, len, 1, 1).lost` 0, where it was 2, as Rust's `de60h` does. Its `shcl_migrate` asserts are as they were.
+	- Verified: `dfhfn` fails with each of the 3 rows set back to `SHCL_V2_EITHER`, and passes with them. With the 2.0 row set back, `de61j` fails too. The C runner, `--backlog-run-quick rust go python c cli` (all 5 steps passed), cli-regress for Rust and C after rebuilding the C CLI, crosscheck over the corpus with the 4 CLIs, check-docs, check-veneer, `test-ids.py check`, `lint-report.bash --check --no-mark`, the markdown check and markdownlint passed. The C CLI's `upgrade` printed the same stdout, stderr and exit code as the Rust CLI's on every corpus document with its stamp taken off, dated into 1.0, 1.1 and 2.0, with and without `--from-2x` (4116 pairs, `v2-port-diff.bash`), and on 12 hand-written name and selector files at 5 dates, with and without `--from-2x` (120 pairs, `v2-probe-diff.bash`), where a build with the 1.0 row set back differed on 4.
+	- Note: cppcheck and analyze-c, which `shcl.h` changes call for, are left to the round's gate step.
+	- Swept: every Rust function the step touched has its C twin changed: `ShclMigrating`, `ShclStepKind`, `ShclStep`, `shcl_format_steps`, `s_convert`, `shcl_migrate`, `shcl_migrate_unstamped`, `migrate_text`, `upgrade_into` and `migrate_line`, with `ShclV2Read` new. `raw_lines_init` sets `SHCL_V2_EITHER`, as Rust's `RawLines` does. `s_first_rewrite`'s none step names all 3 fields. The doc comments on `shcl_migration`, `shcl_upgrade` and the C++ `upgrade` say so; the C++ calls wrap the C ones with nothing else to change. design.md and the format-versions design doc say all 4 bindings.
+	- Test case: `a_load_converts_from_a_1x_or_2x_format` (C `dfhfn`, twin of Rust `dfhe6`).
+	- Branch: `nov20-2026111917072385`
+	- Commit: `97d8dbfb`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the steps, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261119-180613
+
+- Format versions: `from` and `--from=FORMAT` replace `from_v2` and `--from-2x`
+	- ID: 2026111907080445
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-070804
+	- Opened by: me
+	- Parent ID: 2026111018212703
+	- Prereq IDs: 2026111907075423, 2026111907080423
+	- Requirements: a caller names the format with `from`, which overrides the stamp and the scan, in all 4 bindings, the C++ interface and the 4 CLIs. It replaces `from_v2` and `--from-2x`.
+	- Estimated effort: High
+	- Note: split for its time cap into 2026111918111481 (Rust), the ports 2026111918112329 (Go), 2026111918112450 (Python) and 2026111918112570 (C and C++), and 2026111918113344 (the 4 CLIs).
+	- Test case: its children's: 2026111918111481: `a_caller_names_the_format_with_from` (Rust `dfhgc`), and fuzz `de116`'s pin arm.; 2026111918112329: `TestACallerNamesTheFormatWithFrom` (Go `dfhh0`, twin of Rust `dfhgc`).; 2026111918112450: `a_caller_names_the_format_with_from` (Python `dfhhb`, twin of Rust `dfhgc`).; 2026111918112570: `a_caller_names_the_format_with_from` (C `dfhhv`, C++ veneer `dfhhw`, twin of Rust `dfhgc`).; 2026111918113344: its children's: 2026111919213927: `migrate_reads_from_as_upgrade_does` (Rust `dfhjc`, Go `dfhjd`, Python `dfhje`, C `dfhjf`, veneer `dfhjg`), `de60h` and its twins, corpus `dcns3`, cli-regress `de60s`, `de60t`, `dfhk1` and `dfhk2`.; 2026111919213947: cli-regress `dfhkt`, `dfhkv`, `dfhkw`, `dfhkx`, `dfhky`, `dfhkz`, `dfhm0`, with `ddqhf`, `ddqhk` and `ddmhk` for the hint and refusal text.
+	- Closed: 20261119-203346
+	- Closed reason: Done
+
+- Format versions: `from` in the Rust library, in place of `from_v2`
+	- ID: 2026111918111481
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-181114
+	- Opened by: me
+	- Parent ID: 2026111907080445
+	- Requirements: `upgrade`, `upgrade_dated`, `upgrade_file`, `migrate`, `migrate_unstamped` and `LoadOptions` take `from`, a format name read as a stamp naming it is, in place of `from_v2`, in the Rust reference. The Rust CLI maps `--from-2x` to `from` 2.0 until the CLI child. The ports follow it.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261120: `from` is `Option<&str>`, and `LoadOptions` takes a lifetime for it. It's read as a stamp naming it would be, in place of the file's own stamp and what `find_format` reads off it, by the same table walk (`named_formats`), so a pin's alias such as `3.0-231` gives its format, and a major alone, such as `1` or `3`, leaves its formats to the mtime and the tells. `from` 2.0 is what `from_v2` was, so every caller that passed it gets the same result.
+		- me, 20261120: a name no format has, such as `1.2` or an empty one, is no `from`, as for a stamp, since `upgrade` and the load have no error for a caller's input. The CLI child refuses such a name as a usage error. A newer format's `from`, such as `3.1` or `4`, leaves the file alone. Logged as a `Check:` in questions.md.
+		- me, 20261120: a stamp naming a newer format still leaves the file alone whatever `from` says, since these rules can't read that format's lines and its save is refused anyway.
+		- me, 20261120: with `from`, a clean file naming this major stays when the step is a 2.x one, as with `from_v2`, and stays with a pin only when its stamp names `3.0` whole, which is what the made-over file names. Without that, a second run with the same pin made its own output over again, since `◉TAB◉` was text in a pin (fuzz `de116`).
+		- me, 20261120: `migrate` and `migrate_unstamped` keep `from_v2` here. Taking `from` 2.0 there reads a quoted name with a backslash pair as 2.0 did, which changes corpus case `118-migrate-backslash-spelling`'s golden and `de60h`, shared with the other 3 bindings, so it goes with the CLIs' `--from=FORMAT` in 2026111918113344.
+	- Verified: `dfhgc` fails with `from` ignored, and with the guard on a clean file stamped `3.0` taken out, and passes with both. `de116` fails its second run with a pin's `from` with that guard taken out, and passes at 300 and at 200,000 in release. cargo test, clippy and rustfmt, `--backlog-run-quick rust go python c cli` (all 5 steps passed), cli-regress over the Rust CLI, crosscheck over the corpus with the Rust, Go and C CLIs, check-docs, `test-ids.py check`, `lint-report.bash --check --no-mark`, the markdown check and markdownlint passed.
+	- Swept: every Rust caller of `upgrade`, `upgrade_dated`, `upgrade_file` and `LoadOptions`, in `src/`, `tests/` and the Rust CLI, which passes `from` 2.0 for `--from-2x`. `convert` and `upgrade_dated` are the only places that read `from`, both through `from_format`. Docs: `LoadOptions::from`, `upgrade`'s and `Upgrade`'s doc comments, spec.md's `UpgradeFile` and `LoadFileOpts` bullets, design.md's `upgrade_file` and `load_file_opts` bullets, the format versions design doc and the changelog. The ports are 2026111918112329, 2026111918112450 and 2026111918112570.
+	- Test case: `a_caller_names_the_format_with_from` (Rust `dfhgc`), and fuzz `de116`'s pin arm.
+	- Branch: `nov20-2026111907080445`
+	- Commit: `7577e2fb`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the change, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261119-183600
+
+- Format versions: port `from` to Go
+	- ID: 2026111918112329
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-181123
+	- Opened by: me
+	- Parent ID: 2026111907080445
+	- Prereq IDs: 2026111918111481
+	- Requirements: mirror 2026111918111481's `from` and its tests in Go, by parity over idiom. The Go CLI maps `--from-2x` to `from` 2.0 until the CLI child.
+	- Estimated effort: Avg
+	- Note: the docs and the changelog already say what the ports build. The test is a twin of Rust's `a_caller_names_the_format_with_from` (`dfhgc`), same rows. `migrate` keeps `from_v2` until 2026111918113344.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261120: Rust's `Option<&str>` is a `string` in Go, with `""` as none, so `LoadOptions{}` is still `LoadFileWith`. Rust's `from_format` is `fromFormat`, which returns the format, whether it's one this reader knows, and whether `from` was taken. The tests pass what was `fromV2` through a `v2From` helper.
+	- Verified: `dfhh0` fails with `from` ignored, and with the guard on a clean file stamped `3.0` taken out, where a second run turned `◉TAB◉` into `◉ESCAPE_CHAR◉TAB◉ESCAPE_CHAR◉`, and passes with both. `go test -count=1` in both modules, gofmt and go vet, cli-regress over the Go CLI, crosscheck over the corpus with the Rust and Go CLIs, and `--backlog-run-quick rust go python c cli` passed. The Go CLI's `upgrade` printed the same as the Rust CLI's on every corpus document dated to 2.0 with `--from-2x` (686 pairs, `v2-port-diff.bash`) and on the 120 hand-written probe pairs (`v2-probe-diff.bash`).
+	- Swept: every Go caller of `Upgrade`, `UpgradeDated`, `UpgradeFile` and `LoadOptions`, in `shcl.go`, the tests and the Go CLI, which passes `"2.0"` for `--from-2x`. `FindFormat`, `fromFormat`, `namedFormats` and `pickFormat` mirror Rust's split. `convert` and `UpgradeDated` are the only readers of `from`. The doc comments on `LoadOptions.From`, `Upgrade`, `Upgraded` and `UpgradeError` follow Rust's.
+	- Test case: `TestACallerNamesTheFormatWithFrom` (Go `dfhh0`, twin of Rust `dfhgc`).
+	- Branch: `nov20-2026111918112329`
+	- Commit: `22abbbf4`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the change, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261119-185000
+
+- Format versions: port `from` to Python
+	- ID: 2026111918112450
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-181124
+	- Opened by: me
+	- Parent ID: 2026111907080445
+	- Prereq IDs: 2026111918111481
+	- Requirements: mirror 2026111918111481's `from` and its tests in Python, by parity over idiom. The Python CLI maps `--from-2x` to `from` 2.0 until the CLI child.
+	- Estimated effort: Avg
+	- Note: the docs and the changelog already say what the ports build. The test is a twin of Rust's `a_caller_names_the_format_with_from` (`dfhgc`), same rows. `migrate` keeps `from_v2` until 2026111918113344.
+	- Note: `from` is a keyword in Python, so the parameter needs another name, such as `from_`, as PEP 8 suggests.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261120: the parameter and the `LoadOptions` field are `from_`, `str | None`, with `None` as none. PEP 8 gives a keyword a trailing underscore, `Quote.None_` already has one, and `from_` reads as the reference's `from` where `source` or `from_format` wouldn't. The style guide's deviations list says so.
+		- me, 20261120: Rust's `from_format` is `_from_format`, which returns whether `from_` was taken and the format, in place of Rust's nested `Option`. The load's private `_load_file_any` takes `migrate` as `(from_,)` or `None`, for Rust's `Option<Option<&str>>`. `named_formats` and `pick_format` are `_named_formats` and `_pick_format`. The tests pass what was `from_v2` through a `v2_from` helper, as Go's do.
+	- Verified: `dfhhb` fails with `from_` other than 2.0 ignored, and with the guard on a clean file stamped `3.0` taken out, where a second run turned `◉TAB◉` into `◉ESCAPE_CHAR◉TAB◉ESCAPE_CHAR◉`, and passes with both. With `from_` ignored altogether, `ddqfy` fails first. The Python runner, `--backlog-run-quick rust go python c cli` (ruff and mypy included), cli-regress over the Python CLI (675 rows), crosscheck over the corpus with the Rust and Python CLIs (7954 comparisons), `test-ids.py check` and `lint-report.bash --check --no-mark` passed.
+	- Swept: every Python caller of `upgrade`, `upgrade_dated`, `upgrade_file` and `LoadOptions`, in `shcl.py`, the runner and the Python CLI, which passes `"2.0"` for `--from-2x`. No other Python test file calls them. `upgrade_dated` and `_load_file_any` are the only readers of `from_`, both through `_from_format`. The docstrings of `LoadOptions`, `Upgrade`, `upgrade`, `UpgradeAmbiguous` and `UpgradeErrorsLeft` follow Rust's. No public name was added, so `__all__` is as it was.
+	- Test case: `a_caller_names_the_format_with_from` (Python `dfhhb`, twin of Rust `dfhgc`).
+	- Branch: `nov20-2026111918112450`
+	- Commit: `cdf8a2ff`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the change, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261119-190344
+
+- Format versions: port `from` to C and the C++ interface
+	- ID: 2026111918112570
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-181125
+	- Opened by: me
+	- Parent ID: 2026111907080445
+	- Prereq IDs: 2026111918111481
+	- Requirements: mirror 2026111918111481's `from` and its tests in C and `shcl.hpp`, by parity over idiom. The C CLI maps `--from-2x` to `from` 2.0 until the CLI child.
+	- Estimated effort: Avg
+	- Note: the docs and the changelog already say what the ports build. The test is a twin of Rust's `a_caller_names_the_format_with_from` (`dfhgc`), same rows. `migrate` keeps `from_v2` until 2026111918113344.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261120: C's `from` is a NUL-terminated `const char *`, with NULL as none, in `shcl_upgrade`, `shcl_upgrade_dated`, `shcl_upgrade_file` and `shcl_load_options`, so `{0}` is still `shcl_load_file_with`. A format name is a short token, and the file calls take their path the same way. C++ takes `std::optional<std::string_view>`, as Rust's `Option<&str>`.
+		- me, 20261120: a C++ `from` holding a NUL goes to C as none. Rust, Go and Python read such a name as no format, so the result is the same, where cutting it at the NUL would name a format.
+		- me, 20261120: Rust's `from_format` is C's `from_format`, which returns whether `from` was taken, with the format in an out parameter, NULL for a newer one. `named_formats` and `pick_format` keep their names. `s_load_file_any` takes `migrate` and `from` apart, for Rust's `Option<Option<&str>>`. The tests pass what was `from_v2` through a `v2_from` helper, as Go's do.
+	- Verified: `dfhhv` fails with `from` ignored, and with the guard on a clean file stamped `3.0` taken out, where a second run turned `◉TAB◉` into `◉ESCAPE_CHAR◉TAB◉ESCAPE_CHAR◉`, and passes with both. The C runner, the veneer smoke, `--backlog-run-quick rust go python c cli`, check-veneer, cli-regress over the C CLI (675 rows), crosscheck over the corpus with the Rust and C CLIs (7954 comparisons), `test-ids.py check` and `lint-report.bash --check --no-mark` passed. analyze-c and cppcheck were not run here, and wait for the round's gate step.
+	- Swept: every C and C++ caller of `shcl_upgrade`, `shcl_upgrade_dated`, `shcl_upgrade_file`, `shcl_load_options` and their C++ spellings, in `shcl.h`, `shcl.hpp`, the C runner, the veneer smoke and the C CLI, which passes `"2.0"` for `--from-2x`. No other C test file or cicd script calls them. `upgrade_into` and `s_load_file_any` are the only readers of `from`, both through `from_format`. The doc comments on `shcl_load_options.from`, `shcl_upgraded`, `shcl_upgrade`, `shcl_upgrade_error` and their C++ twins follow Rust's. `migrate` and `migrate_unstamped` keep `from_v2`.
+	- Test case: `a_caller_names_the_format_with_from` (C `dfhhv`, C++ veneer `dfhhw`, twin of Rust `dfhgc`).
+	- Branch: `nov20-2026111918112570`
+	- Commit: `d4967bb8`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the change, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261119-191821
+
+- Format versions: `--from=FORMAT` in the 4 CLIs, in place of `--from-2x`
+	- ID: 2026111918113344
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-181133
+	- Opened by: me
+	- Parent ID: 2026111907080445
+	- Prereq IDs: 2026111918111481, 2026111918112329, 2026111918112450, 2026111918112570
+	- Requirements: `migrate` and `upgrade` take `--from=FORMAT` in place of `--from-2x` in the 4 CLIs, passed to the library's `from`. `migrate` and `migrate_unstamped` take `from` in place of `from_v2` in all 4 bindings and the C++ interface, read as `upgrade`'s is, with each format's step, so corpus case `118-migrate-backslash-spelling`'s golden and `de60h` and its twins change with it. A name no format has is a usage error. The help text, the completions, the `H007` hint's message, cli-regress, check-migrate, examples.md and spec.md's CLI parts follow.
+	- Estimated effort: Avg
+	- Note: split for its time cap into 2026111919213927 (`from` in the libraries' `migrate`) and 2026111919213947 (the CLIs' `--from=FORMAT` and its docs).
+	- Test case: its children's: 2026111919213927: `migrate_reads_from_as_upgrade_does` (Rust `dfhjc`, Go `dfhjd`, Python `dfhje`, C `dfhjf`, veneer `dfhjg`), `de60h` and its twins, corpus `dcns3`, cli-regress `de60s`, `de60t`, `dfhk1` and `dfhk2`.; 2026111919213947: cli-regress `dfhkt`, `dfhkv`, `dfhkw`, `dfhkx`, `dfhky`, `dfhkz`, `dfhm0`, with `ddqhf`, `ddqhk` and `ddmhk` for the hint and refusal text.
+	- Closed: 20261119-203346
+	- Closed reason: Done
+
+- Format versions: `from` in `migrate` and `migrate_unstamped`, in place of `from_v2`
+	- ID: 2026111919213927
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-192139
+	- Opened by: me
+	- Parent ID: 2026111918113344
+	- Requirements: `migrate` and `migrate_unstamped` take `from` in place of `from_v2` in all 4 bindings and the C++ interface, read as `upgrade`'s is, with each format's step. Corpus case `118-migrate-backslash-spelling`'s golden and `de60h` and its twins change with it. The 4 CLIs map `--from-2x` to `from` 2.0 until 2026111918113344's CLI child.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261120: `from` is read by `from_format` with no mtime, as `upgrade` reads it, through a new private `migrate_from` (Go `migrateFrom`, Python `_migrate_from`, C `migrate_from`), and the rewrite takes that format's step from `first_rewrite`. Without `from`, or with a name no format has, it's what `from_v2` false was, with `V2Read::Either`. A format whose steps are all `Same`, such as `3.0` or `3.0-9ef`, and a newer one, such as `3.1` or `4`, give the text back `current`.
+		- me, 20261120: with a pin's `from`, a text whose stamp names `3.0` whole is `current`, as `upgrade` does, since that's what the pin's rewrite stamps. Without it a second run turned `◉TAB◉` into `◉ESCAPE_CHAR◉TAB◉ESCAPE_CHAR◉`.
+		- me, 20261120: a pin's rewrite leaves off `MIGRATED_LINE`, since that note names 2.x. It still gets the Format line.
+		- me, 20261120: C takes `from` as a NUL-terminated `const char *`, NULL as none, and C++ as `std::optional<std::string_view>`, as `shcl_upgrade` and `upgrade` do. C's untouched copy is a new `migration_as_is`, which `s_convert` shares, since `s_convert` is compiled out with `SHCL_NO_FILE_IO`.
+	- 20261120: `de60h` (Go `de61c`, Python `de61f`, C `de61j`) wanted `lost` 2 with and without `from_v2`, and now wants 2 without `from` and 0 with `from` 2.0, 1.1 and 1.0, with each format's spelling of the names. corpus `dcns3` (`118-migrate-backslash-spelling`) wanted `'n\\tm': 1` and `'n\tm': 2` kept as typed, and now wants `"n\tm": 1` and `"n◉TAB◉m": 2`. cli-regress `de60s` wanted exit 7 and the name kept, and now wants exit 0 with `"n◉TAB◉y"`, and `de60t` wants the same name with the migrated note. check-migrate no longer counts a quoted name with a backslash pair as lost under `--from-2x`.
+	- Verified: `dfhjc` fails with the pin guard taken out, where a second run turned `◉TAB◉` into `◉ESCAPE_CHAR◉TAB◉ESCAPE_CHAR◉`, and `de60h` and the corpus case fail with `from` 2.0 read as `Either`, and all pass with the change. `--backlog-run-quick rust go python c cli` (all 5 steps passed), cli-regress over the 4 CLIs (677 rows), crosscheck over the corpus with the 4 CLIs (23862 comparisons), the C runner, the veneer smoke, the C library compiled with `SHCL_NO_FILE_IO`, check-migrate (it diverged on corpus 118 before its lost count was changed), `test-ids.py check` and `lint-report.bash --check --no-mark` passed.
+	- Swept: every caller of `migrate` and `migrate_unstamped` in the 4 bindings, the C++ interface, the 4 CLIs (which pass 2.0 for `--from-2x`), the Rust upgrade and fuzz tests, the Go upgrade tests, the C OOM hook test, the 4 runners and the veneer smoke. No cicd script calls the library's `migrate`. Docs: the doc comments on `migrate` and `migrate_unstamped` in all 4 and C++, `shcl_migration`'s `ambiguous`, spec.md's stamping bullet, design.md's `from` bullet and the changelog. The `from_v2` field inside each binding's `Migrating` stays, since it's what a known format sets.
+	- Test case: `migrate_reads_from_as_upgrade_does` (Rust `dfhjc`, Go `dfhjd`, Python `dfhje`, C `dfhjf`, veneer `dfhjg`), `de60h` and its twins, corpus `dcns3`, cli-regress `de60s`, `de60t`, `dfhk1` and `dfhk2`.
+	- Branch: `nov20-2026111918113344`
+	- Commit: `af5dd518`
+	- Acceptance signoff: Self-closed: the new tests were seen to fail without the change, and the named gates passed.
+	- Closed reason: Done
+	- Closed: 20261119-200100
+
+- Format versions: `--from=FORMAT` in the 4 CLIs, in place of `--from-2x`, with help, completions and docs
+	- ID: 2026111919213947
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261119-192139
+	- Opened by: me
+	- Parent ID: 2026111918113344
+	- Prereq IDs: 2026111919213927
+	- Requirements: `migrate` and `upgrade` take `--from=FORMAT` in place of `--from-2x` in the 4 CLIs, passed to the library's `from`. A name no format has is a usage error. The help text, the completions, the man page, the `H007` hint's message, cli-regress, check-migrate, crosscheck, check-readme, examples.md and spec.md's CLI parts follow.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261120: the CLI takes a name in `FORMAT_NAMES` or the major of one alone (`1`, `2`, `3`), in both spellings, and refuses anything else at exit 1 with `bad --from value (no format has that name)`. That includes a newer format such as `4` or `3.1`, and a pin no row has, which the library would take. A mistyped name read as no `from` would quietly do something else. A `Check:` entry in questions.md has it.
+		- me, 20261120: `--from-2x` is gone with no alias, as the item asks. It's an unknown option now.
+		- me, 20261120: the `H007` hint and `explain H007` name `--from=FORMAT` rather than the stamp's own number, since a stamp such as `Format 02` or `2.5` isn't a name `--from` takes.
+		- me, 20261120: the ambiguous refusal's pointer reads `(--from=FORMAT rewrites them)`. Test scripts pass `--from=2.0` where they passed `--from-2x`. cli-regress's option-scopes probe gives `FORMAT` the value `2.0`.
+	- Verified: the 7 new cli-regress rows, `ddqhf`, `ddqhk` and `ddmhk` fail on the old C CLI and pass on all 4 new ones. cli-regress over the 4 CLIs (684 rows, 4007 checks), check-migrate (647 documents), crosscheck over the corpus with the 4 CLIs (23862 comparisons), and steps 1 to 4 of `--backlog-run-quick rust go python c cli` passed, which take in check-completions, check-readme, check-docs, check-doc-examples, test-ids, shellcheck, markdownlint, clippy, go vet, staticcheck, ruff and mypy. The mingw C CLI build passed on its own. The help from the 4 CLIs has one checksum and no line over 80.
+	- Swept: every `--from-2x` in the 4 CLIs (parse, the 2 value-option lists, `allowed_opts`, the 3 refusal pointers, help and explain), the `H007` message in the 4 libraries, both completion files, the man page, spec.md, design.md, examples.md, the conformance README, the format versions design doc, changelog, cli-regress, check-migrate, crosscheck, check-readme, doc-tables.py, sanitize-c and the test comments. Left as written: the beta1 changelog section, dated History lines, row names and the older design docs.
+	- Test case: cli-regress `dfhkt`, `dfhkv`, `dfhkw`, `dfhkx`, `dfhky`, `dfhkz`, `dfhm0`, with `ddqhf`, `ddqhk` and `ddmhk` for the hint and refusal text.
+	- 20261120: the clang analyzer (`de2x3`) reported 2 reads past the end in the C CLI's `suggest()`, on paths from `explain` with an unknown code. Both were false: the word and each candidate are terminated where they're built, but the analyzer can't tie a `strlen()` to that. `suggest()` now copies each one up to the NUL it reads, with the same 63-byte cap and the same refusal of a word that isn't ASCII. Branch `nov20-2026111919213947-fix`. Verified: the repro command, which failed with 2 errors on the round's tree, passes with 0. The C runner, cli-regress over the C CLI (684 rows), `--backlog-run-quick rust go python c cli` and `lint-report.bash --check --no-mark` passed, and 11 typo and long-word probes gave the same output from the old and new C CLI.
+	- Branch: `nov20-2026111919213947`
+	- Commit: `e88edb41`
+	- Acceptance signoff: Self-closed: the new rows were seen to fail on the old CLI, and the named gates passed. What the flag takes is a `Check:` entry in questions.md.
+	- Closed: 20261119-203300
+	- Closed reason: Done
 
 - Windows-only save tests expect a save without the format stamp, and fail on b29w
 	- ID: 2026111910545268

@@ -104,7 +104,7 @@ Usage:
                                          where they were, plus the info block.
                                          That's only for a FILE that doesn't
                                          load clean and names no format or an
-                                         older one, or with --from-2x one that
+                                         older one, or with --from one that
                                          reads differently once migrated. With
                                          --write, back FILE up and rewrite it.
                                          Any other file is left alone
@@ -203,18 +203,21 @@ Options (the subcommands each belongs to are in parentheses):
                                          without --write exit 7 too, and set
                                          prints nothing. fmt takes --lossy
                                          only with --write
-  --from-2x                              (migrate/upgrade) say the file was
-                                         written for 2.x, and rewrite the
-                                         spellings the old and new rules read
+  --from=FORMAT                          (migrate/upgrade) say which format
+                                         the file was written for, by name,
+                                         such as 2.0 or 3.0-a37, or a major
+                                         alone, such as 2, and rewrite the
+                                         spellings it and these rules read
                                          differently. Without it, those are
                                          left alone and the command exits 7.
                                          With it, upgrade writes nothing and
                                          exits 7 when the fresh file would
                                          still have an error, and names the
                                          lines. On a file that wasn't written
-                                         for 2.x, it can change good lines.
-                                         With --write, the backup has the
-                                         original
+                                         for FORMAT, it can change good lines.
+                                         A name no format has is a usage
+                                         error. With --write, the backup has
+                                         the original
   --check                                (fmt/migrate) print nothing and exit 6
                                          when fmt would change the file or
                                          migrate would rewrite a line, which
@@ -312,7 +315,7 @@ from the file, unless --lossy is given. Where that would happen, set and
 migrate without --write exit 7. fmt --write and set refuse a file that names a
 newer format (H006) the same way, with no override. migrate refuses a file
 that doesn't say which rules it was written for, when the 2.x and current
-readings differ. --from-2x says the file is 2.x. migrate also reports a 2.x
+readings differ. --from=2.0 says the file is 2.x. migrate also reports a 2.x
 binding that it can't convert. With --write, migrate and upgrade save the
 original beside FILE as NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local
 time. N is the format the original was written for. When that name is taken,
@@ -516,9 +519,10 @@ H007|hint|the file names an older format than this reader
   The info block's Format line names a format before the one this shcl
   reads, and some lines read differently now. For example, p: a,b was an
   array in 2.x and is one string here.
-  'shcl upgrade FILE --from-2x --write' rewrites the file for these rules and
-  saves the original beside it. A file with nothing else to change gets this
-  format on its Format line.
+  'shcl upgrade FILE --from=FORMAT --write', with the format the Format line
+  names, rewrites the file for these rules and saves the original beside
+  it. A file with nothing else to change gets this format on its Format
+  line.
 H008|hint|a '#' against text opens a comment
   A '#' outside quotes opens a comment wherever it sits, so
   url: http://h/#frag reads http://h/, color: #fff reads nothing, and
@@ -619,7 +623,7 @@ class _SetOpt:
 
 
 class _Opts:
-	__slots__ = ("kind", "kind_opt", "kind_text", "clash_opt", "clash", "array", "slots", "json", "paths", "default", "on_bad", "on_bad_arg", "on_bad_text", "strictness", "strictness_text", "write", "lossy", "from_2x", "check", "no_banner", "schema", "unit", "decimal", "layers", "sets", "args", "seen", "swallowed")
+	__slots__ = ("kind", "kind_opt", "kind_text", "clash_opt", "clash", "array", "slots", "json", "paths", "default", "on_bad", "on_bad_arg", "on_bad_text", "strictness", "strictness_text", "write", "lossy", "from_", "check", "no_banner", "schema", "unit", "decimal", "layers", "sets", "args", "seen", "swallowed")
 
 	def __init__(self):
 		self.kind = "string"     # int|float|bool|datetime|string|raw
@@ -654,7 +658,7 @@ class _Opts:
 		self.decimal = False
 		self.write = False
 		self.lossy = False
-		self.from_2x = False
+		self.from_ = None
 		self.check = False
 		self.no_banner = False
 		self.layers = []         # lower-priority layers, in listed order
@@ -682,6 +686,11 @@ def known_option(name):
 	# A real option by any spelling, -w included. The suggestions draw on
 	# option_names alone, which leaves the short form out.
 	return name == "-w" or name in option_names()
+
+
+def known_format(name):
+	"""A name from_ reads: one in FORMAT_NAMES, or the major of one alone."""
+	return any(n == name or n.split(".")[0] == name for n, _ in shcl.FORMAT_NAMES)
 
 
 def note_clash(o, opt, a, b):
@@ -723,6 +732,13 @@ def _set_value_opt(o, name, v):
 			note_clash(o, "--schema", o.schema, v)
 		o.schema = v
 		o.seen.append("--schema")
+	elif name == "--from":
+		if not known_format(v):
+			raise ValueError(f"bad --from value (no format has that name): {v} (see --help)")
+		if o.from_ is not None and o.from_ != v:
+			note_clash(o, "--from", o.from_, v)
+		o.from_ = v
+		o.seen.append("--from")
 	elif name == "--unit":
 		if o.unit is not None and o.unit != v:
 			note_clash(o, "--unit", o.unit, v)
@@ -816,7 +832,7 @@ def asked_for(argv):
 			want = "donate"
 		elif a == "--":
 			break
-		elif a in ("--default", "--on-bad", "--strictness", "--schema", "--unit", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove"):
+		elif a in ("--default", "--on-bad", "--strictness", "--schema", "--from", "--unit", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove"):
 			i += 1
 		if want is not None and want not in asked:
 			asked.append(want)
@@ -969,13 +985,10 @@ def parse_opts(argv):
 		elif a == "--lossy":
 			o.lossy = True
 			o.seen.append("--lossy")
-		elif a == "--from-2x":
-			o.from_2x = True
-			o.seen.append("--from-2x")
 		elif a == "--check":
 			o.check = True
 			o.seen.append("--check")
-		elif a in ("--default", "--on-bad", "--strictness", "--schema", "--unit", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove"):
+		elif a in ("--default", "--on-bad", "--strictness", "--schema", "--from", "--unit", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove"):
 			i += 1
 			if i >= len(argv):
 				raise ValueError(f"missing value for {a} (try {a}=VALUE)")
@@ -990,6 +1003,8 @@ def parse_opts(argv):
 			_set_value_opt(o, "--strictness", a[len("--strictness="):])
 		elif a.startswith("--schema="):
 			_set_value_opt(o, "--schema", a[len("--schema="):])
+		elif a.startswith("--from="):
+			_set_value_opt(o, "--from", a[len("--from="):])
 		elif a.startswith("--unit="):
 			_set_value_opt(o, "--unit", a[len("--unit="):])
 		elif a.startswith("--layer="):
@@ -1288,9 +1303,9 @@ def allowed_opts(cmd):
 	elif cmd == "init":
 		allowed = ("--schema", "--no-banner")
 	elif cmd == "migrate":
-		allowed = ("--write", "--lossy", "--from-2x", "--check")
+		allowed = ("--write", "--lossy", "--from", "--check")
 	elif cmd == "upgrade":
-		allowed = ("--write", "--from-2x")
+		allowed = ("--write", "--from")
 	elif cmd in ("tokens", "explain"):
 		allowed = ()
 	elif cmd == "count":
@@ -1811,7 +1826,7 @@ def do_migrate(o):
 	except (OSError, ValueError) as e:
 		sys.stderr.write(str(e) + "\n")
 		return EXIT_IO
-	m = shcl.migrate(text, o.from_2x)
+	m = shcl.migrate(text, o.from_)
 	doc, code = load_doc_from("", m.text, o.strictness)
 	if doc is None:
 		return code
@@ -1825,7 +1840,7 @@ def do_migrate(o):
 		return 0
 	rc = 0
 	if m.ambiguous != 0:
-		sys.stderr.write(f"{file}: {m.ambiguous} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; left as written (--from-2x rewrites them)\n")
+		sys.stderr.write(f"{file}: {m.ambiguous} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; left as written (--from=FORMAT rewrites them)\n")
 		rc = 7
 	if m.lost != 0:
 		sys.stderr.write(f"{file}: {m.lost} line(s) bound a value under 2.x that nothing binds now: bracket text after the colon, a selector with a comma, a comma list with lines under it, or a quoted name with a backslash escape (--lossy overrides)\n")
@@ -1962,16 +1977,16 @@ def do_upgrade(o):
 	mtime = file_mtime(file)
 	if o.write:
 		try:
-			up = shcl.upgrade_file(file, o.from_2x, True)
+			up = shcl.upgrade_file(file, o.from_, True)
 		except shcl.UpgradeError as e:
-			say_diagnostics_from("", shcl.upgrade_dated(text, mtime, o.from_2x, True).diagnostics)
+			say_diagnostics_from("", shcl.upgrade_dated(text, mtime, o.from_, True).diagnostics)
 			if isinstance(e, shcl.UpgradeAmbiguous):
-				sys.stderr.write(f"{e} (--from-2x rewrites them)\n")
+				sys.stderr.write(f"{e} (--from=FORMAT rewrites them)\n")
 				return 7
 			sys.stderr.write(f"{e}\n")
 			return 7 if isinstance(e, shcl.UpgradeErrorsLeft) else EXIT_IO
 	else:
-		up = shcl.upgrade_dated(text, mtime, o.from_2x, True)
+		up = shcl.upgrade_dated(text, mtime, o.from_, True)
 	if up.current:
 		# diagnostics is empty when current, but the file is still loaded, and
 		# every loading subcommand says what its load found (2026101419280005).
@@ -1982,7 +1997,7 @@ def do_upgrade(o):
 		return 0
 	say_diagnostics_from("", up.diagnostics)
 	if up.ambiguous != 0:
-		sys.stderr.write(f"{shcl.UpgradeAmbiguous(file, up.ambiguous)} (--from-2x rewrites them)\n")
+		sys.stderr.write(f"{shcl.UpgradeAmbiguous(file, up.ambiguous)} (--from=FORMAT rewrites them)\n")
 		return 7
 	if up.errors_left:
 		sys.stderr.write(f"{shcl.UpgradeErrorsLeft(file, up.errors_left)}\n")

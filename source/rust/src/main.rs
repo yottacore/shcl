@@ -5,11 +5,11 @@
 //! so the exit codes and flags below are a stable surface, not conveniences.
 
 use shcl::{
-	Diagnostic, Document, DurationUnit, FORMAT_MAJOR, GEN_BANNER, Piece, Quote, Rules, SaveError,
-	SaveOptions, SchemaStatus, Severity, SizeUnit, Status, Strictness, Tokens, UpgradeError,
-	format_diagnostic, format_float, format_version, generate, migrate, parse_datetime,
-	read_named_schema, suppress_declared_reopens, suppress_declared_repeats, tokenize,
-	upgrade_dated, upgrade_file, write_backup, write_file_atomic,
+	Diagnostic, Document, DurationUnit, FORMAT_MAJOR, FORMAT_NAMES, GEN_BANNER, Piece, Quote,
+	Rules, SaveError, SaveOptions, SchemaStatus, Severity, SizeUnit, Status, Strictness, Tokens,
+	UpgradeError, format_diagnostic, format_float, format_version, generate, migrate,
+	parse_datetime, read_named_schema, suppress_declared_reopens, suppress_declared_repeats,
+	tokenize, upgrade_dated, upgrade_file, write_backup, write_file_atomic,
 };
 use std::fmt::Write as _;
 use std::process::ExitCode;
@@ -101,7 +101,7 @@ Usage:
                                          where they were, plus the info block.
                                          That's only for a FILE that doesn't
                                          load clean and names no format or an
-                                         older one, or with --from-2x one that
+                                         older one, or with --from one that
                                          reads differently once migrated. With
                                          --write, back FILE up and rewrite it.
                                          Any other file is left alone
@@ -200,18 +200,21 @@ Options (the subcommands each belongs to are in parentheses):
                                          without --write exit 7 too, and set
                                          prints nothing. fmt takes --lossy
                                          only with --write
-  --from-2x                              (migrate/upgrade) say the file was
-                                         written for 2.x, and rewrite the
-                                         spellings the old and new rules read
+  --from=FORMAT                          (migrate/upgrade) say which format
+                                         the file was written for, by name,
+                                         such as 2.0 or 3.0-a37, or a major
+                                         alone, such as 2, and rewrite the
+                                         spellings it and these rules read
                                          differently. Without it, those are
                                          left alone and the command exits 7.
                                          With it, upgrade writes nothing and
                                          exits 7 when the fresh file would
                                          still have an error, and names the
                                          lines. On a file that wasn't written
-                                         for 2.x, it can change good lines.
-                                         With --write, the backup has the
-                                         original
+                                         for FORMAT, it can change good lines.
+                                         A name no format has is a usage
+                                         error. With --write, the backup has
+                                         the original
   --check                                (fmt/migrate) print nothing and exit 6
                                          when fmt would change the file or
                                          migrate would rewrite a line, which
@@ -309,7 +312,7 @@ from the file, unless --lossy is given. Where that would happen, set and
 migrate without --write exit 7. fmt --write and set refuse a file that names a
 newer format (H006) the same way, with no override. migrate refuses a file
 that doesn't say which rules it was written for, when the 2.x and current
-readings differ. --from-2x says the file is 2.x. migrate also reports a 2.x
+readings differ. --from=2.0 says the file is 2.x. migrate also reports a 2.x
 binding that it can't convert. With --write, migrate and upgrade save the
 original beside FILE as NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local
 time. N is the format the original was written for. When that name is taken,
@@ -674,9 +677,10 @@ H007|hint|the file names an older format than this reader
   The info block's Format line names a format before the one this shcl
   reads, and some lines read differently now. For example, p: a,b was an
   array in 2.x and is one string here.
-  'shcl upgrade FILE --from-2x --write' rewrites the file for these rules and
-  saves the original beside it. A file with nothing else to change gets this
-  format on its Format line.
+  'shcl upgrade FILE --from=FORMAT --write', with the format the Format line
+  names, rewrites the file for these rules and saves the original beside
+  it. A file with nothing else to change gets this format on its Format
+  line.
 H008|hint|a '#' against text opens a comment
   A '#' outside quotes opens a comment wherever it sits, so
   url: http://h/#frag reads http://h/, color: #fff reads nothing, and
@@ -904,7 +908,7 @@ struct Opts {
 	strictness_text: Option<String>,
 	write: bool,
 	lossy: bool,
-	from_2x: bool,
+	from: Option<String>,
 	check: bool,
 	no_banner: bool,
 	schema: Option<String>,
@@ -940,6 +944,7 @@ fn asked_for(argv: &[String]) -> Vec<&'static str> {
 			| "--on-bad"
 			| "--strictness"
 			| "--schema"
+			| "--from"
 			| "--unit"
 			| "--layer"
 			| "--set"
@@ -1128,7 +1133,7 @@ fn parse_opts(argv: &[String]) -> Result<Opts, String> {
 		strictness_text: None,
 		write: false,
 		lossy: false,
-		from_2x: false,
+		from: None,
 		check: false,
 		no_banner: false,
 		schema: None,
@@ -1188,10 +1193,6 @@ fn parse_opts(argv: &[String]) -> Result<Opts, String> {
 				o.lossy = true;
 				o.seen.push("--lossy");
 			}
-			"--from-2x" => {
-				o.from_2x = true;
-				o.seen.push("--from-2x");
-			}
 			"--check" => {
 				o.check = true;
 				o.seen.push("--check");
@@ -1208,6 +1209,7 @@ fn parse_opts(argv: &[String]) -> Result<Opts, String> {
 			| "--on-bad"
 			| "--strictness"
 			| "--schema"
+			| "--from"
 			| "--unit"
 			| "--layer"
 			| "--set"
@@ -1228,6 +1230,7 @@ fn parse_opts(argv: &[String]) -> Result<Opts, String> {
 			_ if a.starts_with("--on-bad=") => set_value_opt(&mut o, "--on-bad", &a[9..])?,
 			_ if a.starts_with("--strictness=") => set_value_opt(&mut o, "--strictness", &a[13..])?,
 			_ if a.starts_with("--schema=") => set_value_opt(&mut o, "--schema", &a[9..])?,
+			_ if a.starts_with("--from=") => set_value_opt(&mut o, "--from", &a[7..])?,
 			_ if a.starts_with("--unit=") => set_value_opt(&mut o, "--unit", &a[7..])?,
 			_ if a.starts_with("--layer=") => set_value_opt(&mut o, "--layer", &a[8..])?,
 			_ if a.starts_with("--set=") => set_value_opt(&mut o, "--set", &a[6..])?,
@@ -1265,6 +1268,13 @@ fn parse_opts(argv: &[String]) -> Result<Opts, String> {
 
 /// Record the first competing pair. Only the first is kept: the line is already
 /// a usage error, and a second pair would just change which one gets named.
+/// A name `from` reads: one in FORMAT_NAMES, or the major of one alone.
+fn known_format(name: &str) -> bool {
+	FORMAT_NAMES
+		.iter()
+		.any(|(n, _)| *n == name || n.split('.').next() == Some(name))
+}
+
 fn note_clash(o: &mut Opts, opt: Option<&'static str>, a: &str, b: &str) {
 	if o.clash.is_none() {
 		o.clash_opt = opt;
@@ -1321,6 +1331,21 @@ fn set_value_opt(o: &mut Opts, name: &str, v: &str) -> Result<(), String> {
 			}
 			o.schema = Some(v.to_string());
 			o.seen.push("--schema");
+		}
+		"--from" => {
+			if !known_format(v) {
+				return Err(format!(
+					"bad --from value (no format has that name): {} (see --help)",
+					v
+				));
+			}
+			if let Some(prev) = o.from.take()
+				&& prev != v
+			{
+				note_clash(o, Some("--from"), &prev, v);
+			}
+			o.from = Some(v.to_string());
+			o.seen.push("--from");
 		}
 		"--unit" => {
 			if let Some(prev) = o.unit.take()
@@ -1427,8 +1452,8 @@ fn allowed_opts(cmd: &str) -> &'static [&'static str] {
 		"check" => &["--strictness", "--schema"],
 
 		"init" => &["--schema", "--no-banner"],
-		"migrate" => &["--write", "--lossy", "--from-2x", "--check"],
-		"upgrade" => &["--write", "--from-2x"],
+		"migrate" => &["--write", "--lossy", "--from", "--check"],
+		"upgrade" => &["--write", "--from"],
 		"tokens" | "explain" => &[],
 		"count" => &[
 			"--strictness",
@@ -2594,7 +2619,7 @@ fn do_migrate(o: &Opts) -> u8 {
 			return EXIT_IO;
 		}
 	};
-	let m = migrate(&text, o.from_2x);
+	let m = migrate(&text, o.from.as_deref());
 	let doc = match load_from("", &m.text, o.strictness, false) {
 		Ok(d) => d,
 		Err(code) => return code,
@@ -2615,7 +2640,7 @@ fn do_migrate(o: &Opts) -> u8 {
 	let mut rc = 0;
 	if m.ambiguous != 0 {
 		errln!(
-			"{}: {} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; left as written (--from-2x rewrites them)",
+			"{}: {} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; left as written (--from=FORMAT rewrites them)",
 			file,
 			m.ambiguous
 		);
@@ -2796,16 +2821,16 @@ fn do_upgrade(o: &Opts) -> u8 {
 	// The mtime upgrade_file reads, so the text half finds the same format.
 	let mtime = file_mtime(file);
 	let up = if o.write {
-		match upgrade_file(file, o.from_2x, true) {
+		match upgrade_file(file, o.from.as_deref(), true) {
 			Ok(up) => up,
 			Err(e) => {
 				say_diagnostics_from(
 					"",
-					&upgrade_dated(&text, mtime, o.from_2x, true).diagnostics,
+					&upgrade_dated(&text, mtime, o.from.as_deref(), true).diagnostics,
 				);
 				return match e {
 					UpgradeError::Ambiguous { .. } => {
-						errln!("{} (--from-2x rewrites them)", e);
+						errln!("{} (--from=FORMAT rewrites them)", e);
 						7
 					}
 					UpgradeError::ErrorsLeft { .. } => {
@@ -2820,7 +2845,7 @@ fn do_upgrade(o: &Opts) -> u8 {
 			}
 		}
 	} else {
-		upgrade_dated(&text, mtime, o.from_2x, true)
+		upgrade_dated(&text, mtime, o.from.as_deref(), true)
 	};
 	if up.current {
 		// `diagnostics` is empty when current, but the file is still loaded,
@@ -2836,7 +2861,7 @@ fn do_upgrade(o: &Opts) -> u8 {
 	say_diagnostics_from("", &up.diagnostics);
 	if up.ambiguous != 0 {
 		errln!(
-			"{} (--from-2x rewrites them)",
+			"{} (--from=FORMAT rewrites them)",
 			UpgradeError::Ambiguous {
 				path: file.clone(),
 				count: up.ambiguous

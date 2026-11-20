@@ -444,15 +444,16 @@ class LoadOptions:
 	converted to this format, from the format its text and mtime give, rather
 	than the file itself. Only the document changes: the file is not written,
 	and a save checks the path against the bytes the load read, so a save over
-	the file gets every check a plain load's does. from_v2 is migrate's: the
-	file can only have been written for 2.x, so it converts from 2.0. It is
-	ignored without migrate."""
-	__slots__ = ("keep_lines", "migrate", "from_v2")
+	the file gets every check a plain load's does. from_ is the format the
+	file was written in, by a name in FORMAT_NAMES or a major alone, as
+	upgrade()'s from_. It overrides the file's stamp and what find_format()
+	reads off it. It is ignored without migrate."""
+	__slots__ = ("keep_lines", "migrate", "from_")
 
-	def __init__(self, keep_lines: bool = False, migrate: bool = False, from_v2: bool = False) -> None:
+	def __init__(self, keep_lines: bool = False, migrate: bool = False, from_: str | None = None) -> None:
 		self.keep_lines = keep_lines
 		self.migrate = migrate
-		self.from_v2 = from_v2
+		self.from_ = from_
 
 
 class _Seen:
@@ -2804,7 +2805,8 @@ class Migration:
 	spelling to move to: bracket text after the colon, a selector holding a
 	comma, which matched an array value, and a comma list with lines under it
 	(E028 in brackets). Also a quoted name with a backslash pair, which 1.2
-	read as typed and 2.0 resolved, so it is kept as written."""
+	read as typed and 2.0 resolved, so it is kept as written where the format
+	isn't found, as in migrate, and a selector 1.0 or 1.1 matched otherwise."""
 
 	__slots__ = ("text", "current", "ambiguous", "lost")
 
@@ -2818,13 +2820,19 @@ class Migration:
 class _Migrating:
 	"""The counters a line rewrite reports back, and the one thing it asks."""
 
-	__slots__ = ("rules", "pin", "from_v2", "ambiguous", "lost", "bracketed", "refused_now")
+	__slots__ = ("rules", "pin", "v2", "from_v2", "ambiguous", "lost", "bracketed", "refused_now")
 
-	def __init__(self, from_v2: bool, rules: _Lex = _Lex.V2, pin: _Pin | None = None) -> None:
+	def __init__(
+		self, from_v2: bool, rules: _Lex = _Lex.V2, pin: _Pin | None = None, v2: _V2Read | None = None
+	) -> None:
 		# The old rules the text is read by, V2 or Pin.
 		self.rules = rules
 		# Under Pin, which pinned rules, so which escapes they read and refused.
 		self.pin = _Pin.FROM_A37 if pin is None else pin
+		# Under V2, which of 1.0 to 2.0, if the format was found.
+		self.v2 = _V2Read.EITHER if v2 is None else v2
+		# Which rules wrote the text is known, from a caller's from_, the
+		# file's Format line or its format, so every rewrite is made.
 		self.from_v2 = from_v2
 		self.ambiguous = 0
 		self.lost = 0
@@ -2892,7 +2900,7 @@ def _stamp_number(digits: str) -> int:
 	"""A stamp's number, capped at 32 bits. A number too long for int() -
 	CPython refuses past 4300 digits - is one no format will ever have
 	(20260918b item 30). Read as this major, a number that doesn't fit would
-	make a file `upgrade --from-2x` takes for a beta one."""
+	make a file `upgrade --from=2.0` takes for a beta one."""
 	v = digits.lstrip("0") or "0"
 	return 0xFFFFFFFF if len(v) > 10 or int(v) > 0xFFFFFFFF else int(v)
 
@@ -2945,21 +2953,55 @@ def find_format(text: str, mtime: float | None = None) -> str | None:
 	stamp = read_format_version(text)
 	if _names_newer(stamp):
 		return None
+	by_stamp = _named_formats(stamp.raw or "") if stamp.status is Status.Good else 0
+	return _pick_format(text, mtime, by_stamp)
+
+
+def _named_formats(name: str) -> int:
+	"""The formats of _FORMAT_DAYS a stamp naming name leaves, as bits: the
+	one a whole format's or a pin's name gives, or every format of a major
+	named alone, or of a minor whose pin no row has. 0 for a name no format
+	has, such as `1.2`."""
+	for fname, fformat in FORMAT_NAMES:
+		if fname == name:
+			at = next((i for i, (d, _) in enumerate(_FORMAT_DAYS) if d == fformat), None)
+			if at is not None:
+				return 1 << at
+			break
+	named = _stamp_format(name)
+	whole = "." in name
+	left = 0
+	for i, (f, _) in enumerate(_FORMAT_DAYS):
+		fv = _stamp_format(f)
+		if fv is not None and named is not None and fv[0] == named[0] and (not whole or fv[1] == named[1]):
+			left |= 1 << i
+	return left
+
+
+def _from_format(text: str, mtime: float | None, from_: str | None) -> tuple[bool, str | None]:
+	"""What a caller's from_ names, read as a stamp naming it would be, in
+	place of the text's own stamp, and whether it was taken. Not taken when
+	there's no from_, or it names no format shcl knows, so the text's stamp
+	and the scan decide. None for a newer format than this reader's, which
+	leaves nothing to do. A major alone, such as `1`, leaves its formats to
+	the mtime and the tells."""
+	if from_ is None:
+		return False, None
+	f = _stamp_format(from_)
+	if f is not None and f > (FORMAT_MAJOR, FORMAT_MINOR):
+		return True, None
+	left = _named_formats(from_)
+	if left == 0:
+		return False, None
+	return True, _pick_format(text, mtime, left)
+
+
+def _pick_format(text: str, mtime: float | None, by_stamp: int) -> str:
+	"""find_format()'s last 3 steps over the formats by_stamp leaves, every
+	one when it's 0."""
 	left = (1 << len(_FORMAT_DAYS)) - 1
-	if stamp.status is Status.Good:
-		raw = stamp.raw or ""
-		for fname, fformat in FORMAT_NAMES:
-			if fname == raw:
-				return fformat
-		named = _stamp_format(raw)
-		whole = "." in raw
-		by_stamp = 0
-		for i, (f, _) in enumerate(_FORMAT_DAYS):
-			fv = _stamp_format(f)
-			if fv is not None and named is not None and fv[0] == named[0] and (not whole or fv[1] == named[1]):
-				by_stamp |= 1 << i
-		if by_stamp:
-			left = by_stamp
+	if by_stamp:
+		left = by_stamp
 	if mtime is not None:
 		by_mtime = 0
 		for i, (_, day) in enumerate(_FORMAT_DAYS):
@@ -3096,8 +3138,8 @@ def _line_tells(rest: str, codes: list[str], tok: Tokens) -> int:
 class _StepKind(Enum):
 	"""SAME: the 2 formats read every line the same, but for lines the older
 	one refuses, which stay as typed. Nothing changes. V2: migrate's rewrite
-	from the 2.x rules, which lands on the current format. It stands in for
-	the steps from 1.0 to 2.0 until they're built (2026111908444534). PIN: the
+	from the 2.x rules, which lands on the current format, with the reads of
+	the format of 1.0 to 2.0 it starts from. PIN: the
 	rewrite from the rules of a pin from 3.0-1f8 to 3.0-a37 into the format 3
 	value syntax, where a backslash is text. It ends at the current format. A
 	line those rules refused stays as typed."""
@@ -3119,21 +3161,40 @@ class _Pin(IntEnum):
 	FROM_A37 = 2
 
 
+class _V2Read(Enum):
+	r"""Which of 1.0 to 2.0 a text read by the 2.x rules was written in, where
+	they read a line otherwise. Their values and line syntax are the same.
+	EITHER: migrate's own, with no format found: 1.2 keyed a quoted name by
+	its text as typed, and 2.0 resolved its backslash pairs, so a name with
+	one stays as typed and counts as lost. FROM_10: 1.0: as 1.1, and it also
+	matched a selector by its text as typed, so one with a backslash pair
+	could miss the instance 1.1 finds. FROM_11: 1.1 and 1.2 keyed a quoted
+	name by its text as typed, so `"a\"b"` and `'a"b'` were 2 fields, and
+	matched a quoted selector against an array's display form too, so
+	`x["a, b"]` found `x: a, b`. FROM_20: 2.0 resolved a quoted name's
+	backslash pairs."""
+	EITHER = 0
+	FROM_10 = 1
+	FROM_11 = 2
+	FROM_20 = 3
+
+
 class _Step(NamedTuple):
 	"""What turns a text in one format of _FORMAT_DAYS into the next one's, as
 	the design doc's Reading and converting says. A new format adds a row to
 	_FORMAT_STEPS, and a kind here only when no step yet does what it needs.
-	pin is set for PIN only."""
+	pin is set for PIN only, and v2 for V2."""
 	kind: _StepKind
 	pin: _Pin | None = None
+	v2: _V2Read = _V2Read.EITHER
 
 
 # The step out of each format of _FORMAT_DAYS but the current one, in the
 # same order.
 _FORMAT_STEPS: tuple[_Step, ...] = (
-	_Step(_StepKind.V2),  # 1.0
-	_Step(_StepKind.V2),  # 1.1
-	_Step(_StepKind.V2),  # 2.0
+	_Step(_StepKind.V2, v2=_V2Read.FROM_10),  # 1.0, read as 1.1 but where a fold was late
+	_Step(_StepKind.V2, v2=_V2Read.FROM_11),  # 1.1
+	_Step(_StepKind.V2, v2=_V2Read.FROM_20),  # 2.0
 	_Step(_StepKind.PIN, _Pin.FROM_30D),  # 3.0-1f8, read as 3.0-30d but where a line has an error
 	_Step(_StepKind.PIN, _Pin.FROM_30D),  # 3.0-30d
 	_Step(_StepKind.PIN, _Pin.FROM_B10),  # 3.0-b10
@@ -3152,15 +3213,13 @@ def _first_rewrite(fmt: str | None) -> _Step | None:
 	return next((s for s in _FORMAT_STEPS[at:] if s.kind is not _StepKind.SAME), None)
 
 
-def _convert(text: str, fmt: str | None, from_v2: bool) -> Migration:
+def _convert(text: str, fmt: str | None, told: bool) -> Migration:
 	"""The text, written in fmt, as the current format reads it, one step per
 	format in order, in memory. None, a newer format's, comes back as it is.
-	from_v2 is migrate's."""
+	told says a caller named the format, so every rewrite is made."""
 	step = _first_rewrite(fmt)
-	if step is not None and step.kind is _StepKind.V2:
-		return migrate_unstamped(text, from_v2)
-	if step is not None and step.kind is _StepKind.PIN:
-		return _migrate_text(text, from_v2, False, False, step.pin)
+	if step is not None:
+		return _migrate_text(text, told, False, False, step)
 	return Migration(text, True, 0, 0)
 
 
@@ -3317,7 +3376,7 @@ def _stamp_hint(stamp: Read[int]) -> Diagnostic | None:
 			"so some lines may read differently than written", "H006")
 	return Diagnostic(stamp.line, Severity.Hint,
 		f"the file names format {written}, older than this reader's format {FORMAT_MAJOR}.{FORMAT_MINOR}, "
-		"so some lines may read differently than written; shcl upgrade --from-2x rewrites it", "H007")
+		"so some lines may read differently than written; shcl upgrade --from=FORMAT rewrites it", "H007")
 
 
 def schema_ref(text: str) -> str | None:
@@ -3415,7 +3474,7 @@ def _opens_raw(rest: str, tok: Tokens) -> tuple[str, int] | None:
 	return None if fence is None else (fence[0], fence[1])
 
 
-def migrate(text: str, from_v2: bool) -> Migration:
+def migrate(text: str, from_: str | None) -> Migration:
 	r"""Rewrite a document written under the 2.x rules so this parser reads the
 	same tree. Each line is read with the 2.x tokenizer and rewritten only
 	where the two rule sets disagree (value-syntax.md, Migration). A piece
@@ -3432,27 +3491,51 @@ def migrate(text: str, from_v2: bool) -> Migration:
 	could not read - comes through as written. One shape has no spelling
 	here at all: a fence label holding a `#`, which 2.x ran to the end of the
 	line and which now ends at the `#`. A quoted name with a backslash pair
-	stays as written and counts in lost, since 1.2 read it as typed and 2.0
-	resolved it.
+	reads as from_'s format read it, and without from_ stays as written and
+	counts in lost, since 1.2 read it as typed and 2.0 resolved it.
 
 	Which file this is cannot always be read off the text: `p: a,b` is an
 	array under 2.x and one string under these rules, and a raw block can open
 	where only one rule set sees it, so rewriting a 3.0 file changes what it
 	says. So the version line decides. A file that names this format is
 	returned untouched; one that names an older format, or a caller passing
-	from_v2, gets every rewrite. Anything else leaves those pieces alone where
+	from_, gets every rewrite. Anything else leaves those pieces alone where
 	these rules read the line cleanly, counted in ambiguous for the caller to
 	refuse over. A rewritten file is stamped with the version line, so the
 	second run has an answer the first one did not. An older Format line
-	becomes that line where it is; a file with none gets it at the end."""
-	return _migrate_text(text, from_v2, True, False, None)
+	becomes that line where it is; a file with none gets it at the end.
+
+	from_ names the format the file was written in, read as upgrade() reads
+	it, and the rewrite is that format's step: from 1.0 to 2.0, the 2.x
+	rewrite with that format's reads of a quoted name and a selector, and from
+	3.0-1f8 to 3.0-a37, that pin's. Without it, a quoted name with a backslash
+	pair stays as typed and counts in lost. A name no format has, such as
+	`1.2`, is no from_. A format whose steps rewrite nothing, and a newer one,
+	leave the file untouched, and so does a pin's when the file's stamp names
+	this format whole, which is what a rewrite from a pin names."""
+	return _migrate_from(text, from_, True)
 
 
-def migrate_unstamped(text: str, from_v2: bool) -> Migration:
+def migrate_unstamped(text: str, from_: str | None) -> Migration:
 	"""migrate() without the version line or the migrated note, for a program
 	that writes GEN_BANNER itself, which includes the version line. The next
 	run can tell the result is current only once that is written."""
-	return _migrate_text(text, from_v2, False, False, None)
+	return _migrate_from(text, from_, False)
+
+
+def _migrate_from(text: str, from_: str | None, stamp: bool) -> Migration:
+	"""migrate's reading of from_, as upgrade's with no mtime, into the step
+	the rewrite takes."""
+	told, fmt = _from_format(text, None, from_)
+	step: _Step | None = _Step(_StepKind.V2, v2=_V2Read.EITHER)
+	if told:
+		step = _first_rewrite(fmt)
+		if step is None:
+			return _convert(text, None, True)
+	assert step is not None
+	if step.kind is _StepKind.PIN and _names_this(read_format_version(text)):
+		return _convert(text, None, True)
+	return _migrate_text(text, told, stamp, False, step)
 
 
 def _majority_eol(text):
@@ -3462,11 +3545,14 @@ def _majority_eol(text):
 	return "\r\n" if crlf > lf else "\n"
 
 
-def _migrate_text(text, from_v2, stamp, beta, pin):
+def _migrate_text(text, from_v2, stamp, beta, step):
 	"""beta takes a file naming this format as 2.x too, which only upgrade()
-	asks for, once the caller has said so. pin reads the text by that pin's
-	rules rather than 2.x, for a file found to be in one of those formats,
-	whatever its Format line says."""
+	asks for, once the caller has said so. step is the one the text's format
+	starts with, and says which rules it was written by: a pin's, for a file
+	found to be in one of those formats, whatever its Format line says, or
+	2.x's. SAME doesn't come here."""
+	pin = step.pin if step.kind is _StepKind.PIN else None
+	v2 = step.v2 if step.kind is _StepKind.V2 else _V2Read.EITHER
 	whole = text
 	bom = ""
 	if text.startswith("\ufeff"):
@@ -3476,7 +3562,7 @@ def _migrate_text(text, from_v2, stamp, beta, pin):
 	version = named.value if named.status is Status.Good else None
 	if pin is None and version is not None and (version > FORMAT_MAJOR or (version == FORMAT_MAJOR and not beta)):
 		return Migration(whole, current=True)
-	st = _Migrating(from_v2 or version is not None or pin is not None, _Lex.V2 if pin is None else _Lex.Pin, pin)
+	st = _Migrating(from_v2 or version is not None or pin is not None, _Lex.V2 if pin is None else _Lex.Pin, pin, v2)
 	bracketed = []
 	# Where a file that does not say it is 2.x might be a 3.0 one, the lines
 	# these rules already refuse are safe to rewrite.
@@ -3547,7 +3633,8 @@ def _migrate_text(text, from_v2, stamp, beta, pin):
 		if add_format:
 			out.append(FORMAT_LINE)
 			out.append(eol)
-		if changed:
+		# The note names 2.x, so a pin's rewrite goes without it.
+		if changed and pin is None:
 			out.append(MIGRATED_LINE)
 			out.append(eol)
 	return Migration("".join(out), ambiguous=st.ambiguous, lost=st.lost)
@@ -3558,11 +3645,11 @@ class Upgrade:
 
 	text: the fresh file's text, or the input when current, ambiguous or
 	errors_left. current: the input loads with no error under these rules
-	and, with from_v2, migrates to the same text and names no older format,
+	and, with from_, migrates to the same text and names no older format,
 	or its stamp names this format whole, so it is left as it is. A file
 	stamped beta1's `Format 3` is current when find_format() finds it to be
-	3.0-9ef or later, unless from_v2 says a 2.x build wrote it and it loads
-	with an error.
+	3.0-9ef or later, unless from_ names an older format and it loads with
+	an error.
 	format: the format the input was written for, which goes
 	in the backup's name: what its Format line names,
 	else 2. ambiguous: as Migration.ambiguous; nonzero means the text reads
@@ -3570,12 +3657,12 @@ class Upgrade:
 	fresh text does not carry over, the ones 2.x bound that nothing binds now
 	and the ones the load of the migrated text drops. The backup still has
 	them. diagnostics: what loading the input found, which is why it needed
-	the upgrade unless it loaded clean and from_v2 said it reads as 2.x; empty
-	when current. backup: where upgrade_file() put the original; empty from
-	upgrade(), and when nothing was written. errors_left: with from_v2, the
+	the upgrade unless it loaded clean and from_ said it reads otherwise;
+	empty when current. backup: where upgrade_file() put the original; empty
+	from upgrade(), and when nothing was written. errors_left: with from_, the
 	input's lines still in error once converted; nonempty means nothing is
-	written and text is the input, since the next run with from_v2 would take
-	the fresh text for 2.x again."""
+	written and text is the input, since the next run with from_ would take
+	the fresh text for that format again."""
 
 	__slots__ = ("text", "current", "format", "ambiguous", "lost", "diagnostics", "backup", "errors_left")
 
@@ -3590,7 +3677,7 @@ class Upgrade:
 		self.errors_left: list[int] = []
 
 
-def upgrade(text: str, from_v2: bool, banner: bool) -> Upgrade:
+def upgrade(text: str, from_: str | None, banner: bool) -> Upgrade:
 	"""A config file written for an older format, made over for this one: the
 	input run through migrate_unstamped(), then saved keeping its lines, so
 	each line, blank ones included, stays where it was. With banner, the info
@@ -3604,31 +3691,39 @@ def upgrade(text: str, from_v2: bool, banner: bool) -> Upgrade:
 	stamp names this format whole comes back
 	current and untouched, and so does one that loads with no error under these
 	rules, since a program calling this on every start must never rewrite a good
-	file. from_v2 is migrate's: the file can only have been written for 2.x.
-	Then a file that loads clean is still made over when migrate would change
-	it, as it would `p: a,b`, an array under 2.x and one string now. One it
-	would not change that names an older format gets this format on that Format
-	line, and nothing else. A file naming this format that loads with an error
-	is taken as 2.x when from_v2 says a 2.x build wrote it, as with a beta of
-	3.0 that wrote 2.x lines. With from_v2, any
-	file is made over only when the fresh text loads clean; when it wouldn't,
-	errors_left names the lines still in error. Pass from_v2 only for a file
-	known to be old, never on every start: a file this format wrote that picks
-	up an error later would be read by 2.x rules too.
+	file. from_ names the format the file was written in, by a name in
+	FORMAT_NAMES or a major alone, read as a stamp naming it would be, in place
+	of the file's stamp and what find_format() reads off it. `from` is a
+	keyword, hence the underscore. A name no format has, such as `1.2`, is no
+	from_, and a newer format's leaves the file alone, as does a stamp naming a
+	newer one. With a 2.x or older format, a file that loads clean is still
+	made over when migrate would change it, as it would `p: a,b`, an array
+	under 2.x and one string now. One it would not change that names an older
+	format gets this format on that Format line, and nothing else. A file
+	naming this major that loads with an error is taken as that format, as
+	with a beta of 3.0 that wrote 2.x lines, and one that loads clean is left
+	alone. With a pin, a file that loads clean is made over too, unless its
+	stamp names this format whole, which is what the made-over file names.
+	With from_, any file is made over only when the fresh text loads clean;
+	when it wouldn't, errors_left names the lines still in error. Pass from_
+	only for a file known to be old, never on every start: a file this format
+	wrote that picks up an error later would be read by the old rules too.
 
-	Without from_v2, the file's format is find_format()'s, from the text alone,
+	Without from_, the file's format is find_format()'s, from the text alone,
 	and only a format whose steps to this one rewrite anything gets made over:
 	one from 3.0-9ef on is current, its errors kept as typed, as a load with
 	migrate keeps them. One from 3.0-1f8 to 3.0-a37 goes through that format's
 	step rather than migrate_unstamped(), and is made over even when it loads
-	clean, since `"x\\ty"` loads clean now and held a tab then. A file stamped
+	clean, since `"x\\ty"` loads clean now and held a tab then. One from 1.0
+	to 2.0 goes through the 2.x rewrite with that format's reads of a quoted
+	name and a selector. A file stamped
 	beta1's `Format 3` or a pin is read the same way, and the made-over file's
 	Format line names this format whole.
 	upgrade_dated() takes the file's mtime too."""
-	return upgrade_dated(text, None, from_v2, banner)
+	return upgrade_dated(text, None, from_, banner)
 
 
-def upgrade_dated(text: str, mtime: float | None, from_v2: bool, banner: bool) -> Upgrade:
+def upgrade_dated(text: str, mtime: float | None, from_: str | None, banner: bool) -> Upgrade:
 	"""upgrade(), with mtime for find_format(): the file's, in Unix seconds, or
 	None for text from no file. upgrade_file() passes the file's."""
 	named = read_format_version(text)
@@ -3639,7 +3734,9 @@ def upgrade_dated(text: str, mtime: float | None, from_v2: bool, banner: bool) -
 	# The load's step table, in its upgrade form, so a format whose run is
 	# all SAME has nothing to do. beta1's `Format 3` names only a major, so
 	# find_format reads it as the load does, with the mtime and the tells.
-	fmt = "2.0" if from_v2 else find_format(text, mtime)
+	told, fmt = _from_format(text, mtime, from_)
+	if not told:
+		fmt = find_format(text, mtime)
 	step = _first_rewrite(fmt)
 	if step is None or step.kind is _StepKind.SAME:
 		return up
@@ -3650,10 +3747,12 @@ def upgrade_dated(text: str, mtime: float | None, from_v2: bool, banner: bool) -
 	# a 2.x build wrote the file. One that loads clean is what an upgrade
 	# leaves, so a second run over its output leaves it alone. A file found
 	# to be from 3.0-1f8 to 3.0-a37 can load clean and still read otherwise,
-	# as `"x\ty"` does, so it is made over as the load makes it over.
-	if clean and pin is None and (not from_v2 or version == FORMAT_MAJOR):
+	# as `"x\ty"` does, so it is made over as the load makes it over. One
+	# stamped this format whole is what a told upgrade writes, so a second
+	# run over it with the same from_ leaves it alone.
+	if clean and ((pin is None and (not told or version == FORMAT_MAJOR)) or (told and _names_this(named))):
 		return up
-	m = _migrate_text(text, from_v2, False, True, pin)
+	m = _migrate_text(text, told, False, True, step)
 	# A 2.x file can load clean and still read differently now, as `a,b`
 	# does. One migrate leaves as it was has nothing to do, but an older
 	# Format line, which would keep the load's H007 hint, becomes this one.
@@ -3685,10 +3784,10 @@ def upgrade_dated(text: str, mtime: float | None, from_v2: bool, banner: bool) -
 	read = read_format_version(made)
 	if read.status is Status.Good and not _names_this(read) and not _names_newer(read):
 		made = _restamp(made, read.line) or made
-	# With from_v2 it goes only when that leaves it loading clean, or the next
-	# run with it would read the result by 2.x rules again
+	# With from_ it goes only when that leaves it loading clean, or the next
+	# run with it would read the result by the old rules again
 	# (2026101515372401). Without, a line in error stays as typed, as on load.
-	if from_v2:
+	if told:
 		check = Document.parse(made)
 		if check.error_count() != 0:
 			# Empty only if a clean text formats to one with an error, and then
@@ -4047,21 +4146,27 @@ def _migrate_line(rest, tok, fence, st):
 		for i, seg in enumerate(tok.segments):
 			name = s[seg.name.start:seg.name.end].decode("utf-8", "surrogatepass")
 			# A quoted name with a backslash pair read as typed under 1.2 and
-			# resolved under 2.0, so the file can't say which name it meant.
-			# It stays as written and counts as lost. Any other backslash is
-			# text either way. Only a real escape mark needs another
-			# spelling. A bare name not led by a letter goes in quotes, since
-			# `-` then a blank would start a list item now.
+			# resolved under 2.0, so unless the format was found the file
+			# can't say which name it meant. It stays as written and counts
+			# as lost. Any other backslash is text either way. Only a real
+			# escape mark needs another spelling. A bare name not led by a
+			# letter goes in quotes, since `-` then a blank would start a list
+			# item now.
 			# A file that does not say it is 2.x could be a 3.0 one. Where it
 			# reads clean under these rules as well, it is left and counted.
 			# Under the rules of 3.0-1f8 to 3.0-a37 a double-quoted name
 			# resolved its escapes, and 2 spellings of one name were one, so
-			# it gets the spelling of the name it read.
+			# it gets the spelling of the name it read, as under 2.0. 1.x
+			# keyed it by its text as typed, so it gets a spelling of that.
 			logical = name
 			respell = clean_now = False
-			if st.rules is _Lex.Pin and seg.name.quote is not Quote.None_:
+			found = st.rules is _Lex.Pin or (
+				st.v2 is not _V2Read.EITHER and (seg.name.quote is Quote.Single or seg.name.quote is Quote.Double)
+			)
+			if found and seg.name.quote is not Quote.None_:
 				if "\\" in name or _ESCAPE_MARK in name:
-					logical = _old_text(name, seg.name.quote, st)
+					if st.v2 is not _V2Read.FROM_10 and st.v2 is not _V2Read.FROM_11:
+						logical = _old_text(name, seg.name.quote, st)
 					now = _quoted_name_now(s[seg.name.start - 1:seg.name.end + 1].decode("utf-8", "surrogatepass"))
 					respell = now != logical
 					clean_now = now is not None
@@ -4149,8 +4254,16 @@ def _migrate_line(rest, tok, fence, st):
 				edits.append((colon, colon + 1 + int(spaced), b""))
 			index = not quoted and (_index_shape(body) or body == "*")
 			# 2.x matched an array value by its display form, and a selector
-			# matches one plain value now, so nothing spells this.
-			if not index and not quoted and _v2_bracket_array(body, st.rules):
+			# matches one plain value now, so nothing spells this. 1.x did
+			# that for a quoted one too, and 1.0 matched a backslash pair as
+			# typed, so the line can't say which instance it meant.
+			v1_miss = False
+			if not index:
+				if st.v2 is _V2Read.FROM_10:
+					v1_miss = (quoted and ", " in logical) or logical != body
+				elif st.v2 is _V2Read.FROM_11:
+					v1_miss = quoted and ", " in logical
+			if v1_miss or (not index and not quoted and _v2_bracket_array(body, st.rules)):
 				st.lost += 1
 				return rest, fence
 			edits.append((open_at, open_at + 1, b"("))
@@ -7575,7 +7688,7 @@ class Document:
 		that would write them canonical refuses as for any lost line. A file
 		naming a newer format is parsed as it is, so its save raises
 		SaveTooNew."""
-		migrate = opts.from_v2 if opts.migrate else None
+		migrate = (opts.from_,) if opts.migrate else None
 		doc, st = Document._load_file_any(path, strictness, opts.keep_lines, migrate)
 		return doc._strict_gate(), st
 
@@ -7588,9 +7701,9 @@ class Document:
 
 	@staticmethod
 	def _load_file_any(
-		path: str | os.PathLike[str], strictness: Strictness, keep: bool, migrate: bool | None
+		path: str | os.PathLike[str], strictness: Strictness, keep: bool, migrate: tuple[str | None] | None
 	) -> tuple[Document, FileStatus]:
-		"""migrate is from_v2, to parse the migrated text, or None."""
+		"""migrate is (from_,), to parse the migrated text, or None."""
 		text, st = read_file(path, 0)
 		if text is None:
 			doc = _Parser().parse("", strictness)
@@ -7599,9 +7712,12 @@ class Document:
 			return doc, st
 		parsed, mig = text, None
 		if migrate is not None:
-			# from_v2 says the file is 2.x, whatever its stamp and mtime say.
-			fmt = "2.0" if migrate else find_format(text, _file_mtime(path))
-			mig = _convert(text, fmt, migrate)
+			# from_ names the format, whatever the stamp and the mtime say.
+			mtime = _file_mtime(path)
+			told, fmt = _from_format(text, mtime, migrate[0])
+			if not told:
+				fmt = find_format(text, mtime)
+			mig = _convert(text, fmt, told)
 			parsed = mig.text
 		doc = _Parser().parse(parsed, strictness)
 		# migrate's count, summed as a merge sums a layer's. Its lines are gone
@@ -11942,7 +12058,7 @@ class UpgradeNotFound(UpgradeError):
 
 class UpgradeAmbiguous(UpgradeError):
 	"""The file does not say which rules it was written for, and some of it
-	reads two ways (Upgrade.ambiguous); from_v2 settles it."""
+	reads two ways (Upgrade.ambiguous); from_ settles it."""
 	path: str
 	count: int
 
@@ -11962,7 +12078,7 @@ class UpgradeBackupTaken(UpgradeError):
 
 
 class UpgradeErrorsLeft(UpgradeError):
-	"""With from_v2, the fresh text would still have an error on these lines
+	"""With from_, the fresh text would still have an error on these lines
 	of the input (Upgrade.errors_left)."""
 	path: str
 	lines: list[int]
@@ -12088,7 +12204,7 @@ def _create_backup(file, name):
 	return _create_like(file, name)
 
 
-def upgrade_file(path: str | os.PathLike[str], from_v2: bool, banner: bool) -> Upgrade:
+def upgrade_file(path: str | os.PathLike[str], from_: str | None, banner: bool) -> Upgrade:
 	"""upgrade() on a file, for a program to call when it starts, before its
 	load. A file that needs it is kept under backup_file_name() by
 	write_backup(), then the fresh text replaces it through
@@ -12114,7 +12230,7 @@ def upgrade_file(path: str | os.PathLike[str], from_v2: bool, banner: bool) -> U
 		text = data.decode("utf-8")
 	except UnicodeDecodeError:
 		raise UpgradeFailed(f"{path}: can't be read as UTF-8 text", WriteStatus.Unreadable) from None
-	up = upgrade_dated(text, _file_mtime(path), from_v2, banner)
+	up = upgrade_dated(text, _file_mtime(path), from_, banner)
 	if up.current:
 		return up
 	if up.ambiguous != 0:

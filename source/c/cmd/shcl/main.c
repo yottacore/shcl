@@ -89,7 +89,7 @@ static const char *HELP =
 	"                                         where they were, plus the info block.\n"
 	"                                         That's only for a FILE that doesn't\n"
 	"                                         load clean and names no format or an\n"
-	"                                         older one, or with --from-2x one that\n"
+	"                                         older one, or with --from one that\n"
 	"                                         reads differently once migrated. With\n"
 	"                                         --write, back FILE up and rewrite it.\n"
 	"                                         Any other file is left alone\n"
@@ -188,18 +188,21 @@ static const char *HELP =
 	"                                         without --write exit 7 too, and set\n"
 	"                                         prints nothing. fmt takes --lossy\n"
 	"                                         only with --write\n"
-	"  --from-2x                              (migrate/upgrade) say the file was\n"
-	"                                         written for 2.x, and rewrite the\n"
-	"                                         spellings the old and new rules read\n"
+	"  --from=FORMAT                          (migrate/upgrade) say which format\n"
+	"                                         the file was written for, by name,\n"
+	"                                         such as 2.0 or 3.0-a37, or a major\n"
+	"                                         alone, such as 2, and rewrite the\n"
+	"                                         spellings it and these rules read\n"
 	"                                         differently. Without it, those are\n"
 	"                                         left alone and the command exits 7.\n"
 	"                                         With it, upgrade writes nothing and\n"
 	"                                         exits 7 when the fresh file would\n"
 	"                                         still have an error, and names the\n"
 	"                                         lines. On a file that wasn't written\n"
-	"                                         for 2.x, it can change good lines.\n"
-	"                                         With --write, the backup has the\n"
-	"                                         original\n"
+	"                                         for FORMAT, it can change good lines.\n"
+	"                                         A name no format has is a usage\n"
+	"                                         error. With --write, the backup has\n"
+	"                                         the original\n"
 	"  --check                                (fmt/migrate) print nothing and exit 6\n"
 	"                                         when fmt would change the file or\n"
 	"                                         migrate would rewrite a line, which\n"
@@ -297,7 +300,7 @@ static const char *HELP =
 	"migrate without --write exit 7. fmt --write and set refuse a file that names a\n"
 	"newer format (H006) the same way, with no override. migrate refuses a file\n"
 	"that doesn't say which rules it was written for, when the 2.x and current\n"
-	"readings differ. --from-2x says the file is 2.x. migrate also reports a 2.x\n"
+	"readings differ. --from=2.0 says the file is 2.x. migrate also reports a 2.x\n"
 	"binding that it can't convert. With --write, migrate and upgrade save the\n"
 	"original beside FILE as NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local\n"
 	"time. N is the format the original was written for. When that name is taken,\n"
@@ -385,7 +388,7 @@ typedef struct {
 	const char *strictness_text;  // NULL if --strictness was not given
 	int write;
 	int lossy;
-	int from_2x;
+	const char *from;         // --from, a name known_format takes; NULL if unset
 	int check;
 	int no_banner;
 	const char *schema;       // NULL if unset
@@ -555,9 +558,10 @@ static const char *CODES =
 	"  The info block's Format line names a format before the one this shcl\n"
 	"  reads, and some lines read differently now. For example, p: a,b was an\n"
 	"  array in 2.x and is one string here.\n"
-	"  'shcl upgrade FILE --from-2x --write' rewrites the file for these rules and\n"
-	"  saves the original beside it. A file with nothing else to change gets this\n"
-	"  format on its Format line.\n"
+	"  'shcl upgrade FILE --from=FORMAT --write', with the format the Format line\n"
+	"  names, rewrites the file for these rules and saves the original beside\n"
+	"  it. A file with nothing else to change gets this format on its Format\n"
+	"  line.\n"
 	"H008|hint|a '#' against text opens a comment\n"
 	"  A '#' outside quotes opens a comment wherever it sits, so\n"
 	"  url: http://h/#frag reads http://h/, color: #fff reads nothing, and\n"
@@ -1503,7 +1507,7 @@ static int do_migrate(const Opts *o) {
 	if (o->write && !write_target_ok(file)) return EXIT_IO;
 	size_t len; char *text = read_input(file, &len);
 	if (!text) return EXIT_IO;
-	shcl_migration m = shcl_migrate(text, len, o->from_2x);
+	shcl_migration m = shcl_migrate(text, len, o->from);
 	shcl_doc *d = xdoc(shcl_parse_with(m.text, m.len, o->strictness));
 	int rc = strict_gate(d);
 	if (rc) { shcl_free(d); free(m.text); free(text); return rc; }
@@ -1517,7 +1521,7 @@ static int do_migrate(const Opts *o) {
 		return 0;
 	}
 	if (m.ambiguous) {
-		fprintf(stderr, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; left as written (--from-2x rewrites them)\n", file, m.ambiguous);
+		fprintf(stderr, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; left as written (--from=FORMAT rewrites them)\n", file, m.ambiguous);
 		rc = 7;
 	}
 	if (m.lost) {
@@ -1643,12 +1647,12 @@ static int do_upgrade(const Opts *o) {
 	shcl_upgraded up;
 	if (o->write) {
 		char *why = NULL;
-		shcl_upgrade_error e = shcl_upgrade_file(file, o->from_2x, 1, &up, &why, NULL);
+		shcl_upgrade_error e = shcl_upgrade_file(file, o->from, 1, &up, &why, NULL);
 		if (e != SHCL_UPGRADE_OK) {
-			shcl_upgraded found = shcl_upgrade_dated(text, len, mtime, o->from_2x, 1);
+			shcl_upgraded found = shcl_upgrade_dated(text, len, mtime, o->from, 1);
 			say_diagnostics_from("", found.diagnostics);
 			shcl_upgraded_free(&found);
-			if (e == SHCL_UPGRADE_AMBIGUOUS) fprintf(stderr, "%s (--from-2x rewrites them)\n", why);
+			if (e == SHCL_UPGRADE_AMBIGUOUS) fprintf(stderr, "%s (--from=FORMAT rewrites them)\n", why);
 			else fprintf(stderr, "%s\n", why);
 			free(why);
 			free(text);
@@ -1656,7 +1660,7 @@ static int do_upgrade(const Opts *o) {
 			return e == SHCL_UPGRADE_AMBIGUOUS || e == SHCL_UPGRADE_ERRORS_LEFT ? 7 : EXIT_IO;
 		}
 	} else {
-		up = shcl_upgrade_dated(text, len, mtime, o->from_2x, 1);
+		up = shcl_upgrade_dated(text, len, mtime, o->from, 1);
 	}
 	free(text);
 	if (up.current) {
@@ -1672,7 +1676,7 @@ static int do_upgrade(const Opts *o) {
 	}
 	say_diagnostics_from("", up.diagnostics);
 	if (up.ambiguous != 0) {
-		fprintf(stderr, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; nothing written (--from-2x rewrites them)\n", file, up.ambiguous);
+		fprintf(stderr, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; nothing written (--from=FORMAT rewrites them)\n", file, up.ambiguous);
 		shcl_upgraded_free(&up);
 		return 7;
 	}
@@ -2371,6 +2375,16 @@ static void opts_free(Opts *o) {
 
 // Record the first competing pair. Only the first is kept: the line is already
 // a usage error, and a second pair would just change which one gets named.
+/* A name from reads: one in shcl_format_names, or the major of one alone. */
+static int known_format(const char *name) {
+	for (size_t i = 0; i < SHCL_FORMAT_NAME_COUNT; i++) {
+		const char *n = shcl_format_names[i][0];
+		size_t major = strcspn(n, ".");
+		if (!strcmp(n, name) || (strlen(name) == major && !strncmp(n, name, major))) return 1;
+	}
+	return 0;
+}
+
 static void note_clash(Opts *o, const char *opt, const char *a, const char *b) {
 	if (!o->clash[0]) { o->clash_opt = opt; o->clash[0] = a; o->clash[1] = b; }
 }
@@ -2400,6 +2414,10 @@ static int set_value_opt(Opts *o, const char *name, const char *v) {
 	} else if (!strcmp(name, "--schema")) {
 		if (o->schema && strcmp(o->schema, v)) note_clash(o, "--schema", o->schema, v);
 		o->schema = v; opt_seen(o, "--schema");
+	} else if (!strcmp(name, "--from")) {
+		if (!known_format(v)) { fprintf(stderr, "bad --from value (no format has that name): %s (see --help)\n", v); return 1; }
+		if (o->from && strcmp(o->from, v)) note_clash(o, "--from", o->from, v);
+		o->from = v; opt_seen(o, "--from");
 	} else if (!strcmp(name, "--unit")) {
 		if (o->unit && strcmp(o->unit, v)) note_clash(o, "--unit", o->unit, v);
 		o->unit = v; opt_seen(o, "--unit");
@@ -2438,7 +2456,7 @@ static int known_option(const char *name) {
 static int parse_opts(int argc, char **argv, int from, Opts *o) {
 	o->kind = "string"; o->kind_opt = o->kind_text = NULL; o->clash_opt = NULL; o->clash[0] = o->clash[1] = NULL;
 	o->array = 0; o->slots = 0; o->json = 0; o->paths = 0; o->deflt = NULL; o->on_bad = "flag"; o->on_bad_arg = NULL; o->on_bad_text = NULL;
-	o->strictness = SHCL_STANDARD; o->strictness_text = NULL; o->write = 0; o->lossy = 0; o->from_2x = 0; o->check = 0; o->no_banner = 0; o->schema = NULL; o->unit = NULL; o->decimal = 0;
+	o->strictness = SHCL_STANDARD; o->strictness_text = NULL; o->write = 0; o->lossy = 0; o->from = NULL; o->check = 0; o->no_banner = 0; o->schema = NULL; o->unit = NULL; o->decimal = 0;
 	o->layers = o->args = NULL; o->sets = NULL; o->nlayers = o->nsets = o->nargs = 0; o->nseen = 0;
 	o->swallowed_opt = o->swallowed_value = NULL;
 	// Value-taking options accept both --opt=VALUE and the space form --opt VALUE.
@@ -2462,11 +2480,10 @@ static int parse_opts(int argc, char **argv, int from, Opts *o) {
 		else if (!strcmp(a, "--paths")) { o->paths = 1; opt_seen(o, "--paths"); }
 		else if (!strcmp(a, "--write") || !strcmp(a, "-w")) { o->write = 1; opt_seen(o, "--write"); }
 		else if (!strcmp(a, "--lossy")) { o->lossy = 1; opt_seen(o, "--lossy"); }
-		else if (!strcmp(a, "--from-2x")) { o->from_2x = 1; opt_seen(o, "--from-2x"); }
 		else if (!strcmp(a, "--check")) { o->check = 1; opt_seen(o, "--check"); }
 		else if (!strcmp(a, "--no-banner")) { o->no_banner = 1; opt_seen(o, "--no-banner"); }
 		else if (!strcmp(a, "--decimal")) { o->decimal = 1; opt_seen(o, "--decimal"); }
-		else if (!strcmp(a, "--default") || !strcmp(a, "--on-bad") || !strcmp(a, "--strictness") || !strcmp(a, "--schema") || !strcmp(a, "--unit") || !strcmp(a, "--layer") || !strcmp(a, "--set") || !strcmp(a, "--set-literal") || !strcmp(a, "--set-default") || !strcmp(a, "--set-literal-default") || !strcmp(a, "--remove")) {
+		else if (!strcmp(a, "--default") || !strcmp(a, "--on-bad") || !strcmp(a, "--strictness") || !strcmp(a, "--schema") || !strcmp(a, "--from") || !strcmp(a, "--unit") || !strcmp(a, "--layer") || !strcmp(a, "--set") || !strcmp(a, "--set-literal") || !strcmp(a, "--set-default") || !strcmp(a, "--set-literal-default") || !strcmp(a, "--remove")) {
 			if (i + 1 >= argc) { fprintf(stderr, "missing value for %s (try %s=VALUE)\n", a, a); return 1; }
 			// codeql[cpp/loop-variable-changed] an option's value is the next argument
 			if (set_value_opt(o, a, argv[++i])) return 1;
@@ -2476,6 +2493,7 @@ static int parse_opts(int argc, char **argv, int from, Opts *o) {
 		else if (!strncmp(a, "--on-bad=", 9)) { if (set_value_opt(o, "--on-bad", a + 9)) return 1; }
 		else if (!strncmp(a, "--strictness=", 13)) { if (set_value_opt(o, "--strictness", a + 13)) return 1; }
 		else if (!strncmp(a, "--schema=", 9)) { if (set_value_opt(o, "--schema", a + 9)) return 1; }
+		else if (!strncmp(a, "--from=", 7)) { if (set_value_opt(o, "--from", a + 7)) return 1; }
 		else if (!strncmp(a, "--unit=", 7)) { if (set_value_opt(o, "--unit", a + 7)) return 1; }
 		else if (!strncmp(a, "--layer=", 8)) { if (set_value_opt(o, "--layer", a + 8)) return 1; }
 		else if (!strncmp(a, "--set-literal=", 14)) { if (set_value_opt(o, "--set-literal", a + 14)) return 1; }
@@ -2566,8 +2584,8 @@ static const char *const *allowed_opts(const char *cmd) {
 	static const char *fmt_ok[] = { "--write", "--lossy", "--check", "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove", NULL };
 	static const char *check_ok[] = { "--strictness", "--schema", NULL };
 	static const char *init_ok[] = { "--schema", "--no-banner", NULL };
-	static const char *migrate_ok[] = { "--write", "--lossy", "--from-2x", "--check", NULL };
-	static const char *upgrade_ok[] = { "--write", "--from-2x", NULL };
+	static const char *migrate_ok[] = { "--write", "--lossy", "--from", "--check", NULL };
+	static const char *upgrade_ok[] = { "--write", "--from", NULL };
 	static const char *count_ok[] = { "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove", NULL };
 	static const char *instances_ok[] = { "--paths", "--json", "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove", NULL };
 	static const char *list_ok[] = { "--json", "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove", NULL };
@@ -2729,7 +2747,7 @@ static size_t asked_for(int argc, char **argv, const char **asked) {
 		else if (!strcmp(a, "--donate")) want = "donate";
 		else if (!strcmp(a, "--")) break;
 		// codeql[cpp/loop-variable-changed] an option's value is the next argument
-		else if (!strcmp(a, "--default") || !strcmp(a, "--on-bad") || !strcmp(a, "--strictness") || !strcmp(a, "--schema") || !strcmp(a, "--unit") || !strcmp(a, "--layer") || !strcmp(a, "--set") || !strcmp(a, "--set-literal") || !strcmp(a, "--set-default") || !strcmp(a, "--set-literal-default") || !strcmp(a, "--remove")) i++;
+		else if (!strcmp(a, "--default") || !strcmp(a, "--on-bad") || !strcmp(a, "--strictness") || !strcmp(a, "--schema") || !strcmp(a, "--from") || !strcmp(a, "--unit") || !strcmp(a, "--layer") || !strcmp(a, "--set") || !strcmp(a, "--set-literal") || !strcmp(a, "--set-default") || !strcmp(a, "--set-literal-default") || !strcmp(a, "--remove")) i++;
 		int seen = 0;
 		for (size_t k = 0; k < n; k++) seen = seen || !strcmp(asked[k], want ? want : "");
 		if (want && !seen) asked[n++] = want;
@@ -2794,21 +2812,21 @@ static void suggest(char *out, size_t outsz, const char **cands, size_t ncands, 
 	// Every candidate is ASCII, and this counts distance in bytes where the
 	// other three count characters, so a word that is not ASCII gets no
 	// suggestion rather than one the four bindings could disagree on.
+	// Each copy stops at the NUL it reads rather than at a strlen() taken
+	// first: the clang analyzer can't tie strlen() to a buffer the caller
+	// just terminated, and reports a read past it.
 	char w[64] = {0};
-	size_t wl = strlen(word);
-	if (wl >= sizeof w) return;
-	for (size_t i = 0; i < wl; i++) {
-		if ((unsigned char)word[i] >= 0x80) return;
+	for (size_t i = 0; word[i]; i++) {
+		if (i >= sizeof w - 1 || (unsigned char)word[i] >= 0x80) return;
 		w[i] = lower_byte(word[i]);
 	}
-	w[wl] = '\0';
 	const char *best = NULL;
 	size_t bestd = 3;
 	for (size_t i = 0; i < ncands; i++) {
 		char c[64] = {0};
-		size_t cl = strlen(cands[i]);
-		if (cl >= sizeof c) continue;
-		for (size_t j = 0; j <= cl; j++) c[j] = lower_byte(cands[i][j]);
+		size_t cl = 0;
+		for (; cl < sizeof c - 1 && cands[i][cl]; cl++) c[cl] = lower_byte(cands[i][cl]);
+		if (cands[i][cl]) continue;
 		size_t d = edit_distance(w, c, 2);
 		if (d <= 2 && d < bestd) { best = cands[i]; bestd = d; }
 	}

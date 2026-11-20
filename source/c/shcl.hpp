@@ -257,13 +257,18 @@ struct Migration {
 	std::size_t lost = 0;
 };
 // A document written under the 2.x lexical rules, rewritten so this parser
-// reads the same tree; text to text, no document involved. from_v2 says the
-// file really was written for 2.x, which is the only thing that can settle the
-// spellings the two rule sets read differently.
-Migration migrate(std::string_view text, bool from_v2);
+// reads the same tree; text to text, no document involved. from names the
+// format the file was written in, read as upgrade() reads it, which is the
+// only thing that can settle the spellings the two rule sets read
+// differently, and the rewrite is that format's step. Without it, a quoted
+// name with a backslash pair stays as written and counts in lost. A name no
+// format has, such as `1.2`, is no from. A format whose steps rewrite
+// nothing, and a newer one, leave the text untouched, and so does a pin's
+// when the text's stamp names this format whole.
+Migration migrate(std::string_view text, std::optional<std::string_view> from);
 // migrate() without the version line or the migrated note, for a program that
 // writes GEN_BANNER itself, which includes the version line.
-Migration migrate_unstamped(std::string_view text, bool from_v2);
+Migration migrate_unstamped(std::string_view text, std::optional<std::string_view> from);
 // The format major a document's Format line names, read the way migrate reads
 // it; none when no line names one, or when it names no number. migrate hands a
 // file back untouched exactly when this is FORMAT_MAJOR or more.
@@ -290,18 +295,19 @@ Read<std::string> read_schema_ref(std::string_view text);
 
 // What upgrade() made of a document, and upgrade_file() of a file. text is
 // the fresh file's text, or the input when current, ambiguous or errors_left.
-// current: the input loads with no error under these rules and, with
-// from_v2, migrates to the same text, or its stamp names this format whole, so
-// it is left as it is; a file stamped beta1's `Format 3` is current when
-// find_format() finds it to be 3.0-9ef or later, unless from_v2 says it is 2.x
-// and it loads with an error. format: the format the input was written for,
+// current: the input loads with no error under these rules and, with from,
+// migrates to the same text and names no older format, or its stamp names
+// this format whole, so it is left as it is; a file stamped beta1's `Format 3`
+// is current when find_format() finds it to be 3.0-9ef or later, unless from
+// names an older format and it loads with an error. format: the format the
+// input was written for,
 // which goes in
 // the backup's name. ambiguous as Migration's: nonzero means nothing is
 // written. lost: lines and values the fresh text does not carry over, which
 // the backup still has. diagnostics: what loading the input found, empty when
 // current. backup: where upgrade_file() put the original, empty from
-// upgrade() and when nothing was written. errors_left: with from_v2, the
-// input's lines still in error once converted; any means nothing is written.
+// upgrade() and when nothing was written. errors_left: with from, the input's
+// lines still in error once converted; any means nothing is written.
 struct Upgrade {
 	std::string text;
 	bool current = false;
@@ -320,18 +326,25 @@ struct Upgrade {
 // the way fmt writes it. A whole block above the
 // first field stays, so a file with its block at the top comes out with 2, both
 // naming this format. A file that names this format, or loads with no error
-// under these rules, comes back current and untouched. With from_v2, which says
-// the file can only be 2.x, a clean file is still made over when migrate would
-// change it, as it would `p: a,b`, and any file only when the fresh text loads
-// clean (errors_left). Pass from_v2 only for a file known to be old, never on
-// every start. Without from_v2, the file's format is find_format's, and one
-// from 3.0-9ef on is current, its errors kept as typed. One from 3.0-1f8 to
-// 3.0-a37 goes through that format's step, and is made over even when it
-// loads clean, since `"x\ty"` loads clean now and held a tab then.
-Upgrade upgrade(std::string_view text, bool from_v2, bool banner);
+// under these rules, comes back current and untouched. from names the format
+// the file was written in, by a name in FORMAT_NAMES or a major alone, read as
+// a stamp naming it would be, in place of the file's stamp and what
+// find_format reads off it. A name no format has, such as `1.2`, is no from,
+// and a newer format's leaves the file alone. With a 2.x or older format, a
+// clean file is still made over when migrate would change it, as it would
+// `p: a,b`; with a pin, unless its stamp names this format whole. With from,
+// any file is made over only when the fresh text loads clean (errors_left).
+// Pass from only for a file known to be old, never on every start. Without
+// from, the file's format is find_format's, and one from 3.0-9ef on is
+// current, its errors kept as typed. One from 3.0-1f8 to 3.0-a37 goes through
+// that format's step, and is made over even when it loads clean, since
+// `"x\ty"` loads clean now and held a tab then. One from 1.0 to 2.0 goes
+// through the 2.x rewrite with that format's reads of a quoted name and a
+// selector.
+Upgrade upgrade(std::string_view text, std::optional<std::string_view> from, bool banner);
 // upgrade(), with mtime for find_format: the file's, in Unix seconds, or
 // std::nullopt for text from no file. upgrade_file() passes the file's.
-Upgrade upgrade_dated(std::string_view text, std::optional<std::int64_t> mtime, bool from_v2, bool banner);
+Upgrade upgrade_dated(std::string_view text, std::optional<std::int64_t> mtime, std::optional<std::string_view> from, bool banner);
 // The name a config file's backup gets:
 // NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local time, with N the format
 // the file was written for. SHCL_TEST_CLOCK stands in for the clock.
@@ -375,7 +388,7 @@ struct SaveOptions {
 struct LoadOptions {
 	bool keep_lines{}; // keep the text for to_text_keep_lines(), as load_file_keep_lines; with migrate, the migrated text
 	bool migrate{};    // parse the file converted to this format, from the format its text and mtime give; the file is not written, and a save checks the path against the bytes the load read
-	bool from_v2{};    // migrate's from_v2: the file can only have been written for 2.x, so it converts from 2.0; ignored without migrate
+	std::optional<std::string_view> from{}; // the format the file was written in, as upgrade()'s from; it overrides the file's stamp and what find_format reads off it; ignored without migrate
 };
 // Why a write failed, so a program can tell a missing folder from no
 // permission or a full disk. NotFound and Unreadable are FileStatus's names.
@@ -442,7 +455,7 @@ std::pair<std::string, std::optional<UpgradeError>> write_backup(const std::stri
 // the other. A current file is not written at all, and neither is one that
 // changed after it was read, that reads two ways, or that errors_left says
 // would still have an error.
-std::pair<Upgrade, std::optional<UpgradeError>> upgrade_file(const std::string &path, bool from_v2, bool banner);
+std::pair<Upgrade, std::optional<UpgradeError>> upgrade_file(const std::string &path, std::optional<std::string_view> from, bool banner);
 #endif
 
 // A parsed document. Its const members may be called on one Document from
@@ -1144,8 +1157,6 @@ void tokenize_value(std::string_view text, std::size_t from, Rules rules, Tokens
 	detail::copy_tokens(t, out);
 }
 
-Migration migrate(std::string_view text, bool from_v2) { return detail::migration(shcl_migrate(text.data(), text.size(), from_v2 ? 1 : 0)); }
-Migration migrate_unstamped(std::string_view text, bool from_v2) { return detail::migration(shcl_migrate_unstamped(text.data(), text.size(), from_v2 ? 1 : 0)); }
 
 std::optional<std::uint32_t> format_version(std::string_view text) {
 	std::int64_t v = shcl_format_version(text.data(), text.size());
@@ -1187,15 +1198,35 @@ Read<std::string> read_schema_ref(std::string_view text) {
 	return {std::string(r.value.p, r.value.n), detail::st(r.status)};
 }
 
-Upgrade upgrade(std::string_view text, bool from_v2, bool banner) {
+namespace detail {
+// from for the C call, NUL-terminated in buf. One holding a NUL names no
+// format, so it's none, as it is in the other bindings.
+static const char *from_c(std::optional<std::string_view> from, std::string &buf) {
+	if (!from || from->find('\0') != std::string_view::npos) return nullptr;
+	buf.assign(*from);
+	return buf.c_str();
+}
+} // namespace detail
+
+Migration migrate(std::string_view text, std::optional<std::string_view> from) {
+	std::string buf;
+	return detail::migration(shcl_migrate(text.data(), text.size(), detail::from_c(from, buf)));
+}
+Migration migrate_unstamped(std::string_view text, std::optional<std::string_view> from) {
+	std::string buf;
+	return detail::migration(shcl_migrate_unstamped(text.data(), text.size(), detail::from_c(from, buf)));
+}
+Upgrade upgrade(std::string_view text, std::optional<std::string_view> from, bool banner) {
 	detail::UpgradedOwn own;
-	own.c = shcl_upgrade(text.data(), text.size(), from_v2 ? 1 : 0, banner ? 1 : 0);
+	std::string buf;
+	own.c = shcl_upgrade(text.data(), text.size(), detail::from_c(from, buf), banner ? 1 : 0);
 	return detail::upgraded(own.c);
 }
 
-Upgrade upgrade_dated(std::string_view text, std::optional<std::int64_t> mtime, bool from_v2, bool banner) {
+Upgrade upgrade_dated(std::string_view text, std::optional<std::int64_t> mtime, std::optional<std::string_view> from, bool banner) {
 	detail::UpgradedOwn own;
-	own.c = shcl_upgrade_dated(text.data(), text.size(), mtime ? &*mtime : nullptr, from_v2 ? 1 : 0, banner ? 1 : 0);
+	std::string buf;
+	own.c = shcl_upgrade_dated(text.data(), text.size(), mtime ? &*mtime : nullptr, detail::from_c(from, buf), banner ? 1 : 0);
 	return detail::upgraded(own.c);
 }
 
@@ -1280,13 +1311,14 @@ std::pair<std::string, std::optional<UpgradeError>> write_backup(const std::stri
 	return {std::string(n.get()), std::nullopt};
 }
 
-std::pair<Upgrade, std::optional<UpgradeError>> upgrade_file(const std::string &path, bool from_v2, bool banner) {
+std::pair<Upgrade, std::optional<UpgradeError>> upgrade_file(const std::string &path, std::optional<std::string_view> from, bool banner) {
 	if (detail::cut_short(path)) return {Upgrade{}, detail::nul_in(path)};
 	detail::UpgradedOwn own;
 	char *why = nullptr;
 	shcl_write_status st = SHCL_WRITE_OK;
+	std::string buf;
 	// codeql[cpp/path-injection] opens the path its caller named, which is the job
-	shcl_upgrade_error e = shcl_upgrade_file(path.c_str(), from_v2 ? 1 : 0, banner ? 1 : 0, &own.c, &why, &st);
+	shcl_upgrade_error e = shcl_upgrade_file(path.c_str(), detail::from_c(from, buf), banner ? 1 : 0, &own.c, &why, &st);
 	std::unique_ptr<char, void (*)(void *)> w(why, &std::free);
 	if (e != SHCL_UPGRADE_OK) {
 		std::vector<std::size_t> lines;
@@ -1342,7 +1374,8 @@ std::pair<Document, FileStatus> Document::load_file_opts(const std::string &path
 	shcl_load_options o{};
 	o.keep_lines = opts.keep_lines ? 1 : 0;
 	o.migrate = opts.migrate ? 1 : 0;
-	o.from_v2 = opts.from_v2 ? 1 : 0;
+	std::string buf;
+	o.from = detail::from_c(opts.from, buf);
 	shcl_file_status cs = SHCL_FILE_UNREADABLE;
 	// codeql[cpp/path-injection] opens the path its caller named, which is the job
 	Document d = Access::wrap(shcl_load_file_opts(path.c_str(), static_cast<shcl_strictness>(s), o, &cs));

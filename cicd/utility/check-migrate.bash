@@ -44,11 +44,11 @@
 ##		does the fuzz half, since the corpus alone can meet it too.
 ##
 ##		Each compared document also goes through `upgrade --write`, with and
-##		without --from-2x. A rewrite leaves the original bytes under the dated
+##		without --from=2.0. A rewrite leaves the original bytes under the dated
 ##		backup name, and a fresh file that loads clean, has the info block
 ##		once, reads as the migrated text, and is left alone by a second run.
 ##		A file left alone keeps its bytes. One naming format 3 is left alone
-##		too, unless --from-2x vouches for it and it loads with an error. Then
+##		too, unless --from=2.0 vouches for it and it loads with an error. Then
 ##		it converts when the fresh file loads clean, and is refused at 7 when
 ##		that would keep an error.
 ##
@@ -339,12 +339,12 @@ fUnplaced(){
 
 ##	Lines 2.x read cleanly that nothing spells now, so migrate counts them
 ##	lost and refuses: a selector holding a bare comma, which 2.x matched
-##	against an array value by its display form; a quoted name with a
-##	backslash pair, which 1.2 read as typed and 2.0 resolved; and a comma
-##	list on a field with lines under it, which is E028 in brackets and
-##	another value as one string. The first two are found in the 2.x text,
-##	read the way 2.x reads a path: a backslash shields the next character,
-##	and `name:[x]` is a selector too. A raw body is passed over, its block
+##	against an array value by its display form, and a comma list on a field
+##	with lines under it, which is E028 in brackets and another value as one
+##	string. A quoted name with a backslash pair, which 1.2 read as typed and
+##	2.0 resolved, isn't one, since --from=2.0 reads it as 2.0 did. The first is
+##	found in the 2.x text, read the way 2.x reads a path: a backslash shields
+##	the next character, and `name:[x]` is a selector too. A raw body is passed over, its block
 ##	opened by a fence run after the path's colon or at the start of a line.
 ##	The third is asked of the current parser on migrate's output, and kept
 ##	only where the 2.x line has a comma.
@@ -368,9 +368,6 @@ for n, line in enumerate(text.split("\n"), 1):
 			q, j = s[i], i + 1
 			while j < len(s) and s[j] != q:
 				j += 2 if s[j] == "\\" else 1
-			if re.search(r"\\[tn\\\x27\"]", s[i + 1:j]):
-				print(n)
-				break
 			i = j + 1
 		else:
 			m = re.match(r"[A-Za-z0-9_-]+", s[i:])
@@ -397,7 +394,7 @@ for n, line in enumerate(text.split("\n"), 1):
 			break
 		i += m.end()
 ' "$1"
-	{ "${newCli}" migrate --from-2x "$1" 2>/dev/null || true; } | fCheckNew - \
+	{ "${newCli}" migrate --from=2.0 "$1" 2>/dev/null || true; } | fCheckNew - \
 		| awk '$1 == "line" && $4 == "E028" { sub(/:$/, "", $2); print $2 }' \
 		| awk 'NR == FNR { if (index($0, ",")) comma[FNR] = 1; next } comma[$1]' "$1" -
 }
@@ -511,7 +508,7 @@ fEdgeBlank2x(){ fValue2x edge "$1"; }
 fNamesFormat3(){
 	local err
 	grep -qE '^##[[:space:]]+Format[[:space:]]+[3-9]' "$1" || return 1
-	err="$("${newCli}" migrate --from-2x "$1" 2>&1 >/dev/null || true)"
+	err="$("${newCli}" migrate --from=2.0 "$1" 2>&1 >/dev/null || true)"
 	[[ "${err}" == *"nothing to migrate: the file already names its format"* ]]
 }
 
@@ -548,7 +545,7 @@ declare -i nUpBad=0 nUpRewritten=0 nUpCleanRewritten=0 nUpCurrent=0 nUpPlain=0 n
 ##	leaves a file with only those alone.
 fErrors(){ fCheckNew "$1" | awk '$1 == "line" && $3 == "Error:" && $4 ~ /^E/ { n++ } END { print n + 0 }'; }
 
-##	Whether `migrate --from-2x` changed anything but the stamp. It adds the
+##	Whether `migrate --from=2.0` changed anything but the stamp. It adds the
 ##	migrated line only then; a refused file gets no stamp, so its text is
 ##	compared whole.
 fMigrateChanged(){
@@ -588,7 +585,7 @@ fUpUntouched(){
 
 ##	Rewritten: the backup has the original bytes under the dated name, the
 ##	fresh file loads clean, has the info block once, and a second run, with
-##	or without --from-2x, leaves it alone.
+##	or without --from=2.0, leaves it alone.
 fUpRewritten(){
 	local how="$1" fresh="${upDir}/cfg.shcl" n opt
 	((upRc == 0)) || fUpBad "${how}: exit ${upRc}, not 0"
@@ -600,14 +597,14 @@ fUpRewritten(){
 	n="$(grep -c '^## This config file format is SHCL\.' "${fresh}" || true)"
 	[[ "${n}" == 1 ]] || fUpBad "${how}: the info block is there ${n} time(s)"
 	cp "${fresh}" "${tmpDir}/fresh.again"
-	for opt in --from-2x ""; do
+	for opt in --from=2.0 ""; do
 		fUpgradeAgain ${opt:+"${opt}"}
 		((upRc == 0)) && cmp -s "${tmpDir}/fresh.again" "${fresh}" && [[ "$(fUpEntries)" == 2 ]] \
-			|| fUpBad "${how}: a second upgrade ${opt:-without --from-2x} did not leave it alone (exit ${upRc})"
+			|| fUpBad "${how}: a second upgrade ${opt:-without --from=2.0} did not leave it alone (exit ${upRc})"
 	done
 }
 
-##	Whether --from-2x should take a file naming format 3 as 2.x: it loads with
+##	Whether --from=2.0 should take a file naming format 3 as 2.x: it loads with
 ##	an error, and its text as migrate rewrites a 2.x file, made canonical,
 ##	loads clean. migrate passes over a format 3 file, so it's handed one that
 ##	names format 2. Worked out from the file, not from what upgrade did.
@@ -616,12 +613,12 @@ fUpConverts3(){
 	[[ "$(fErrors "${src}")" != 0 ]] || return 1
 	grep -qE '^##[[:space:]]+Format[[:space:]]+3[[:space:]]*$' "${src}" || return 1
 	sed -E 's/^(##[[:space:]]+Format[[:space:]]+)3([[:space:]]*)$/\12\2/' "${src}" > "${tmpDir}/as2x.shcl"
-	{ "${newCli}" migrate --from-2x "${tmpDir}/as2x.shcl" 2>/dev/null || true; } \
+	{ "${newCli}" migrate --from=2.0 "${tmpDir}/as2x.shcl" 2>/dev/null || true; } \
 		| { "${newCli}" fmt - 2>/dev/null || true; } > "${tmpDir}/as2x.fresh"
 	[[ -s "${tmpDir}/as2x.fresh" && "$(fErrors "${tmpDir}/as2x.fresh")" == 0 ]]
 }
 
-##	A file naming format 3 is left alone without --from-2x. With it, one
+##	A file naming format 3 is left alone without --from=2.0. With it, one
 ##	fUpConverts3 takes is rewritten and backed up under the format its line
 ##	names (2026101407100010). One with an error whose fresh file would keep
 ##	one is refused at 7 and left (2026101515372401). Anything else is left
@@ -631,28 +628,28 @@ fUpConverts3(){
 ##	same fresh file (2026111912330681).
 fUpFormat3(){
 	local upBackup="cfg_backup_20261004-001500_format-v3.shcl" pin="${1:-}"
-	fUpgradeRun "${upSrc}" --from-2x
+	fUpgradeRun "${upSrc}" --from=2.0
 	if fUpConverts3 "${upSrc}"; then
 		nUpFormat3+=1
-		fUpRewritten "format 3 with an error, with --from-2x"
+		fUpRewritten "format 3 with an error, with --from=2.0"
 		cp "${upDir}/cfg.shcl" "${tmpDir}/fresh3.shcl"
 	elif [[ "$(fErrors "${upSrc}")" != 0 ]] && grep -qE '^##[[:space:]]+Format[[:space:]]+3[[:space:]]*$' "${upSrc}"; then
 		nUpFormat3Left+=1
-		((upRc == 7)) || fUpBad "format 3 whose fresh file keeps an error, with --from-2x: exit ${upRc}, not 7"
-		upRc=0; fUpUntouched "format 3 whose fresh file keeps an error, with --from-2x"
+		((upRc == 7)) || fUpBad "format 3 whose fresh file keeps an error, with --from=2.0: exit ${upRc}, not 7"
+		upRc=0; fUpUntouched "format 3 whose fresh file keeps an error, with --from=2.0"
 	else
-		fUpUntouched "format 3, with --from-2x"
+		fUpUntouched "format 3, with --from=2.0"
 	fi
 	fUpgradeRun "${upSrc}"
 	if [[ "${pin}" == pin ]]; then
-		fUpRewritten "format 3 with a pin's tell, without --from-2x"
-		cmp -s "${tmpDir}/fresh3.shcl" "${upDir}/cfg.shcl" || fUpBad "format 3 with a pin's tell, without --from-2x: a fresh file other than the --from-2x one"
+		fUpRewritten "format 3 with a pin's tell, without --from=2.0"
+		cmp -s "${tmpDir}/fresh3.shcl" "${upDir}/cfg.shcl" || fUpBad "format 3 with a pin's tell, without --from=2.0: a fresh file other than the --from=2.0 one"
 	else
-		fUpUntouched "format 3, without --from-2x"
+		fUpUntouched "format 3, without --from=2.0"
 	fi
 }
 
-##	With --from-2x a file is rewritten when it loads with an error, or when
+##	With --from=2.0 a file is rewritten when it loads with an error, or when
 ##	it loads clean and `migrate` would still change it (`p: a,b`); its reads
 ##	are the migrated text's. Without, a clean file is current, and one with
 ##	an error is either the same fresh file or refused at 7 for text that
@@ -662,31 +659,31 @@ fUpgradeCheck(){
 	local migrated="$3" migReads="$4" errs changed=0 reads
 	errs="$(fErrors "${upSrc}")"
 	fMigrateChanged "${upSrc}" "${migrated}" && changed=1
-	fUpgradeRun "${upSrc}" --from-2x
+	fUpgradeRun "${upSrc}" --from=2.0
 	if ((errs || changed)); then
 		nUpRewritten+=1; ((errs)) || nUpCleanRewritten+=1
-		fUpRewritten "--from-2x"
+		fUpRewritten "--from=2.0"
 		reads="$(fReadTree "${newCli}" "${upDir}/cfg.shcl")"
 		if [[ "${reads}" != "${migReads}" ]]; then
-			fUpBad "--from-2x: the fresh file and the migrated text read differently"
+			fUpBad "--from=2.0: the fresh file and the migrated text read differently"
 			diff <(printf '%s\n' "${migReads}") <(printf '%s\n' "${reads}") | head -12 || true
 		fi
 		cp "${upDir}/cfg.shcl" "${tmpDir}/fresh.shcl"
 	else
 		nUpCurrent+=1
-		fUpUntouched "--from-2x, a clean file migrate leaves as it is"
+		fUpUntouched "--from=2.0, a clean file migrate leaves as it is"
 	fi
 	fUpgradeRun "${upSrc}"
 	if ((errs == 0)); then
-		fUpUntouched "a clean file without --from-2x"
+		fUpUntouched "a clean file without --from=2.0"
 	elif ((upRc == 7)); then
 		nUpAmbiguous+=1; upRc=0
 		fUpUntouched "a refusal at 7"
-		if "${newCli}" migrate "${upSrc}" >/dev/null 2>&1; then fUpBad "refused at 7, and migrate without --from-2x did not refuse"; fi
+		if "${newCli}" migrate "${upSrc}" >/dev/null 2>&1; then fUpBad "refused at 7, and migrate without --from=2.0 did not refuse"; fi
 	else
 		nUpPlain+=1
-		fUpRewritten "without --from-2x"
-		cmp -s "${tmpDir}/fresh.shcl" "${upDir}/cfg.shcl" || fUpBad "without --from-2x: a fresh file other than the --from-2x one"
+		fUpRewritten "without --from=2.0"
+		cmp -s "${tmpDir}/fresh.shcl" "${upDir}/cfg.shcl" || fUpBad "without --from=2.0: a fresh file other than the --from=2.0 one"
 	fi
 }
 
@@ -698,17 +695,17 @@ for f in "${corpus}"/*/input.shcl "${brackets}"/*.shcl "${dump}"/*.shcl; do
 	if fHasNul "${f}"; then nSkipped+=1; continue; fi
 	if fNamesFormat3 "${f}"; then
 		nNamed3+=1
-		rc=0; "${newCli}" migrate --from-2x "${f}" > "${tmpDir}/migrated.shcl" 2>/dev/null || rc=$?
+		rc=0; "${newCli}" migrate --from=2.0 "${f}" > "${tmpDir}/migrated.shcl" 2>/dev/null || rc=$?
 		if ((rc != 0)) || ! cmp -s "${f}" "${tmpDir}/migrated.shcl"; then
 			nBad+=1
 			echo "check-migrate: DIVERGE ${name}: it names format 3, and migrate exited ${rc} or changed it"
 		fi
 		upName="${name}"; upSrc="${f}"
 		## Wrong since 2026101407100010: a beta file that loads with an error now
-		## converts with --from-2x, so format 3 isn't always left alone. Kept as a
+		## converts with --from=2.0, so format 3 isn't always left alone. Kept as a
 		## record; don't uncomment.
-		# fUpgradeRun "${f}" --from-2x; fUpUntouched "format 3, with --from-2x"
-		# fUpgradeRun "${f}";           fUpUntouched "format 3, without --from-2x"
+		# fUpgradeRun "${f}" --from=2.0; fUpUntouched "format 3, with --from=2.0"
+		# fUpgradeRun "${f}";           fUpUntouched "format 3, without --from=2.0"
 		fUpFormat3
 		continue
 	fi
@@ -727,7 +724,7 @@ for f in "${corpus}"/*/input.shcl "${brackets}"/*.shcl "${dump}"/*.shcl; do
 	unclean="$( { fUnclean2x <<<"${check2x}"; printf '%s\n' "${lostNow}"; } | grep . | sort -un || true)"
 	arrays="$(printf '%s\n' "${e019}" "${lostNow}" | grep . | sort -un || true)"
 	if [[ -n "${unclean}" && "${unclean}" == "${arrays}" ]]; then
-		lostRc=0; lostOut="$("${newCli}" migrate --from-2x "${f}" 2>&1 >/dev/null)" || lostRc=$?
+		lostRc=0; lostOut="$("${newCli}" migrate --from=2.0 "${f}" 2>&1 >/dev/null)" || lostRc=$?
 		if ((lostRc != 7)); then
 			nBad+=1
 			echo "check-migrate: DIVERGE ${name}: 2.x read a value nothing spells now, and migrate exited ${lostRc}, not the refusal 7"
@@ -743,7 +740,7 @@ for f in "${corpus}"/*/input.shcl "${brackets}"/*.shcl "${dump}"/*.shcl; do
 	if ! fTrim "${f}" "${tmpDir}/original.shcl" "${check2x}"; then nSkipped+=1; continue; fi
 	cmp -s "${f}" "${tmpDir}/original.shcl" || nTrimmed+=1
 	f="${tmpDir}/original.shcl"
-	rc=0; "${newCli}" migrate --from-2x "${f}" > "${tmpDir}/migrated.shcl" 2>"${tmpDir}/migrate.err" || rc=$?
+	rc=0; "${newCli}" migrate --from=2.0 "${f}" > "${tmpDir}/migrated.shcl" 2>"${tmpDir}/migrate.err" || rc=$?
 	## The refusal still prints the migrated text, so the reads below compare it.
 	if fRawOpen2x "${f}"; then
 		nRawOpen+=1
@@ -786,18 +783,18 @@ nBad+=nUpBad
 ##	its branches checked nothing.
 if ((nUpRewritten == 0 || nUpCleanRewritten == 0 || nUpCurrent == 0 || nUpPlain == 0 || nUpAmbiguous == 0)); then
 	nBad+=1
-	echo "check-migrate: an upgrade case no document reached: ${nUpRewritten} rewritten with --from-2x, ${nUpCleanRewritten} of them clean, ${nUpCurrent} current, ${nUpPlain} rewritten without it, ${nUpAmbiguous} refused at 7" >&2
+	echo "check-migrate: an upgrade case no document reached: ${nUpRewritten} rewritten with --from=2.0, ${nUpCleanRewritten} of them clean, ${nUpCurrent} current, ${nUpPlain} rewritten without it, ${nUpAmbiguous} refused at 7" >&2
 fi
 
 ##	A file naming format 3 is left alone, but for one that loads with an
-##	error, which --from-2x takes as 2.x when the fresh file loads clean
+##	error, which --from=2.0 takes as 2.x when the fresh file loads clean
 ##	(2026101407100010). The first file here would keep `b 2`, so it is
 ##	refused at 7 and stays (2026101515372401); the other 2 are a beta's comma
 ##	list, bare and under the info block the betas wrote. The comma list is a
-##	pin's tell, so those 2 are made over without --from-2x as well
+##	pin's tell, so those 2 are made over without --from=2.0 as well
 ##	(2026111912330681), and a corpus input naming format 3 with no such tell
 ##	is still left alone.
-fTest ddmp8 a file naming format 3 is upgraded only when --from-2x vouches for it
+fTest ddmp8 a file naming format 3 is upgraded only when --from=2.0 vouches for it
 printf 'a: 1\n  bad\nb 2\n\n##    Format   3\n' > "${tmpDir}/format3-bad.shcl"
 printf 'tags: a, b\n##    Format   3\n' > "${tmpDir}/format3-beta.shcl"
 printf 'tags: a, b\n\n##\n## This config file format is SHCL.\n##    Format   3\n##\n' > "${tmpDir}/format3-beta-block.shcl"
@@ -806,10 +803,10 @@ for f in "${corpus}"/*/input.shcl "${tmpDir}/format3-bad.shcl" "${tmpDir}/format
 	grep -qE '^##[[:space:]]+Format[[:space:]]+[3-9]' "${f}" || continue
 	upName="${f%/input.shcl}"; upName="${upName##*/}"; upSrc="${f}"; nFormat3+=1
 	## Wrong since 2026101407100010, as in the loop above. Don't uncomment.
-	# fUpgradeRun "${f}" --from-2x; fUpUntouched "format 3, with --from-2x"
-	# fUpgradeRun "${f}";           fUpUntouched "format 3, without --from-2x"
+	# fUpgradeRun "${f}" --from=2.0; fUpUntouched "format 3, with --from=2.0"
+	# fUpgradeRun "${f}";           fUpUntouched "format 3, without --from=2.0"
 	## Wrong since 2026111912330681: a comma list is a tell of 3.0-a37 or
-	## older, so the beta files are made over without --from-2x too. Kept as
+	## older, so the beta files are made over without --from=2.0 too. Kept as
 	## a record; don't uncomment.
 	# fUpFormat3
 	case "${f}" in
@@ -819,8 +816,8 @@ for f in "${corpus}"/*/input.shcl "${tmpDir}/format3-bad.shcl" "${tmpDir}/format
 done
 nBad+=nUpBad
 ((nFormat3 > 1)) || { echo "check-migrate: no corpus input names format 3" >&2; nBad+=1; }
-((nUpFormat3 == 2)) || { echo "check-migrate: ${nUpFormat3} file(s) naming format 3 that --from-2x should convert, not the 2 beta files" >&2; nBad+=1; }
-((nUpFormat3Left > 0)) || { echo "check-migrate: no file naming format 3 that --from-2x should refuse at 7" >&2; nBad+=1; }
+((nUpFormat3 == 2)) || { echo "check-migrate: ${nUpFormat3} file(s) naming format 3 that --from=2.0 should convert, not the 2 beta files" >&2; nBad+=1; }
+((nUpFormat3Left > 0)) || { echo "check-migrate: no file naming format 3 that --from=2.0 should refuse at 7" >&2; nBad+=1; }
 
 ##	Each named case has to keep its shape, or the exception is stale.
 fTest dcegd 068 still has a fence label holding a hash
@@ -840,7 +837,7 @@ fInfoHashLabel "${corpus}/068-info-hash-spellings/input.shcl" 2>/dev/null \
 # [[ "${breaks171}" == "3 4 11" ]] \
 # 	|| { echo "check-migrate: 171-windows-path-escape has paths that held a line break on lines '${breaks171}', not '3 4 11'" >&2; nBad+=1; }
 fTest ddg9d 096 is refused for the raw block 2.x read to the end
-rawRc=0; "${newCli}" migrate --from-2x "${corpus}/096-raw-unterminated-eof/input.shcl" >/dev/null 2>"${tmpDir}/migrate.err" || rawRc=$?
+rawRc=0; "${newCli}" migrate --from=2.0 "${corpus}/096-raw-unterminated-eof/input.shcl" >/dev/null 2>"${tmpDir}/migrate.err" || rawRc=$?
 { fRawOpen2x "${corpus}/096-raw-unterminated-eof/input.shcl" && ((rawRc == 7)) && grep -q 'nowhere to put the Format line' "${tmpDir}/migrate.err"; } \
 	|| { echo "check-migrate: 096-raw-unterminated-eof is no longer an open raw block under 2.x that migrate refuses (exit ${rawRc})" >&2; nBad+=1; }
 fTest dcege 094 still has a mid-line carriage return
@@ -873,7 +870,7 @@ fTest dcwsm 2.x reads both elements of the loose-indent document
 	|| { echo "check-migrate: 2.x no longer reads both elements of the loose-indent document" >&2; nBad+=1; }
 fTest dcwsn a rewrite of the loose-indent document is refused at 7
 indentRc=0
-"${newCli}" migrate --from-2x --write "${tmpDir}/indent.shcl" >/dev/null 2>&1 || indentRc=$?
+"${newCli}" migrate --from=2.0 --write "${tmpDir}/indent.shcl" >/dev/null 2>&1 || indentRc=$?
 ((indentRc == 7)) \
 	|| { echo "check-migrate: a rewrite of the loose-indent document exited ${indentRc}, not the refusal 7" >&2; nBad+=1; }
 fTestEnd
@@ -885,7 +882,7 @@ if ((nBad)); then
 	echo "check-migrate: ${nBad} divergence(s) over ${nCompared} document(s) (${nSkipped} skipped)" >&2
 	exit 1
 fi
-echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, ${nCorpus} corpus cases, $((nCompared - nCorpus)) fuzz-dumped and ${nTrimmed} with lines taken out first; ${nLostChecked} lost count(s) match; ${nRawOpen} refused for an open raw block; ${nNamed3} naming format 3 left as written; ${nSkipped} skipped; upgrade rewrote ${nUpRewritten} with --from-2x (${nUpCleanRewritten} that loaded clean) and ${nUpPlain} without, left ${nUpCurrent} and ${nFormat3} naming format 3, refused ${nUpAmbiguous} at 7; ${nUpFormat3Soup} of the ${nNamed3} naming format 3 converted with --from-2x"
+echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, ${nCorpus} corpus cases, $((nCompared - nCorpus)) fuzz-dumped and ${nTrimmed} with lines taken out first; ${nLostChecked} lost count(s) match; ${nRawOpen} refused for an open raw block; ${nNamed3} naming format 3 left as written; ${nSkipped} skipped; upgrade rewrote ${nUpRewritten} with --from=2.0 (${nUpCleanRewritten} that loaded clean) and ${nUpPlain} without, left ${nUpCurrent} and ${nFormat3} naming format 3, refused ${nUpAmbiguous} at 7; ${nUpFormat3Soup} of the ${nNamed3} naming format 3 converted with --from=2.0"
 
 ##	History:
 ##		2026-09-08  Created with the 3.0 lexical cut, pinned on the funnel merge.
@@ -932,3 +929,6 @@ echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, 
 ##		            piece's edges, as 2.0 did, so a line with one there the
 ##		            pinned build keeps comes out of the comparison. An info
 ##		            block is counted at the line start only.
+##		2026-11-20  migrate --from-2x reads a quoted name with a backslash pair
+##		            as 2.0 did, so it isn't lost.
+##		2026-11-20  --from=2.0 in place of --from-2x.

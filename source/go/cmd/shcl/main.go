@@ -116,7 +116,7 @@ Usage:
                                          where they were, plus the info block.
                                          That's only for a FILE that doesn't
                                          load clean and names no format or an
-                                         older one, or with --from-2x one that
+                                         older one, or with --from one that
                                          reads differently once migrated. With
                                          --write, back FILE up and rewrite it.
                                          Any other file is left alone
@@ -215,18 +215,21 @@ Options (the subcommands each belongs to are in parentheses):
                                          without --write exit 7 too, and set
                                          prints nothing. fmt takes --lossy
                                          only with --write
-  --from-2x                              (migrate/upgrade) say the file was
-                                         written for 2.x, and rewrite the
-                                         spellings the old and new rules read
+  --from=FORMAT                          (migrate/upgrade) say which format
+                                         the file was written for, by name,
+                                         such as 2.0 or 3.0-a37, or a major
+                                         alone, such as 2, and rewrite the
+                                         spellings it and these rules read
                                          differently. Without it, those are
                                          left alone and the command exits 7.
                                          With it, upgrade writes nothing and
                                          exits 7 when the fresh file would
                                          still have an error, and names the
                                          lines. On a file that wasn't written
-                                         for 2.x, it can change good lines.
-                                         With --write, the backup has the
-                                         original
+                                         for FORMAT, it can change good lines.
+                                         A name no format has is a usage
+                                         error. With --write, the backup has
+                                         the original
   --check                                (fmt/migrate) print nothing and exit 6
                                          when fmt would change the file or
                                          migrate would rewrite a line, which
@@ -324,7 +327,7 @@ from the file, unless --lossy is given. Where that would happen, set and
 migrate without --write exit 7. fmt --write and set refuse a file that names a
 newer format (H006) the same way, with no override. migrate refuses a file
 that doesn't say which rules it was written for, when the 2.x and current
-readings differ. --from-2x says the file is 2.x. migrate also reports a 2.x
+readings differ. --from=2.0 says the file is 2.x. migrate also reports a 2.x
 binding that it can't convert. With --write, migrate and upgrade save the
 original beside FILE as NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local
 time. N is the format the original was written for. When that name is taken,
@@ -527,9 +530,10 @@ H007|hint|the file names an older format than this reader
   The info block's Format line names a format before the one this shcl
   reads, and some lines read differently now. For example, p: a,b was an
   array in 2.x and is one string here.
-  'shcl upgrade FILE --from-2x --write' rewrites the file for these rules and
-  saves the original beside it. A file with nothing else to change gets this
-  format on its Format line.
+  'shcl upgrade FILE --from=FORMAT --write', with the format the Format line
+  names, rewrites the file for these rules and saves the original beside
+  it. A file with nothing else to change gets this format on its Format
+  line.
 H008|hint|a '#' against text opens a comment
   A '#' outside quotes opens a comment wherever it sits, so
   url: http://h/#frag reads http://h/, color: #fff reads nothing, and
@@ -793,7 +797,7 @@ type opts struct {
 	strictText  string
 	write       bool
 	lossy       bool
-	from2x      bool
+	from        string
 	check       bool
 	noBanner    bool
 	// schemaSet, not an empty schema path: `--schema=` is a path the command
@@ -846,7 +850,7 @@ scan:
 		case a == "--":
 			break scan
 		case a == "--default" || a == "--on-bad" || a == "--strictness" || a == "--schema" ||
-			a == "--unit" || a == "--layer" || a == "--set" || a == "--set-literal" ||
+			a == "--from" || a == "--unit" || a == "--layer" || a == "--set" || a == "--set-literal" ||
 			a == "--set-default" || a == "--set-literal-default" || a == "--remove":
 			i++
 		}
@@ -958,6 +962,16 @@ func asciiLower(s string) string {
 
 // Record the first competing pair. Only the first is kept: the line is already
 // a usage error, and a second pair would just change which one gets named.
+// knownFormat: a name from reads, one in FormatNames or the major of one alone.
+func knownFormat(name string) bool {
+	for _, row := range shcl.FormatNames {
+		if row[0] == name || strings.SplitN(row[0], ".", 2)[0] == name {
+			return true
+		}
+	}
+	return false
+}
+
 func (o *opts) noteClash(opt, a, b string) {
 	if !o.clash {
 		o.clash, o.clashOpt, o.clashA, o.clashB = true, opt, a, b
@@ -1009,6 +1023,15 @@ func setValueOpt(o *opts, name, v string) error {
 		o.schema = v
 		o.schemaSet = true
 		o.seen = append(o.seen, "--schema")
+	case "--from":
+		if !knownFormat(v) {
+			return fmt.Errorf("bad --from value (no format has that name): %s (see --help)", v)
+		}
+		if o.from != "" && o.from != v {
+			o.noteClash("--from", o.from, v)
+		}
+		o.from = v
+		o.seen = append(o.seen, "--from")
 	case "--unit":
 		if o.unitSet && o.unit != v {
 			o.noteClash("--unit", o.unit, v)
@@ -1206,9 +1229,6 @@ func parseOpts(argv []string) (*opts, error) {
 		case a == "--lossy":
 			o.lossy = true
 			o.seen = append(o.seen, "--lossy")
-		case a == "--from-2x":
-			o.from2x = true
-			o.seen = append(o.seen, "--from-2x")
 		case a == "--check":
 			o.check = true
 			o.seen = append(o.seen, "--check")
@@ -1219,7 +1239,7 @@ func parseOpts(argv []string) (*opts, error) {
 			o.decimal = true
 			o.seen = append(o.seen, "--decimal")
 		case a == "--default" || a == "--on-bad" || a == "--strictness" || a == "--schema" ||
-			a == "--unit" || a == "--layer" || a == "--set" || a == "--set-literal" ||
+			a == "--from" || a == "--unit" || a == "--layer" || a == "--set" || a == "--set-literal" ||
 			a == "--set-default" || a == "--set-literal-default" || a == "--remove":
 			i++
 			if i >= len(argv) {
@@ -1265,6 +1285,10 @@ func parseOpts(argv []string) (*opts, error) {
 			}
 		case strings.HasPrefix(a, "--schema="):
 			if err := setValueOpt(o, "--schema", a[len("--schema="):]); err != nil {
+				return nil, err
+			}
+		case strings.HasPrefix(a, "--from="):
+			if err := setValueOpt(o, "--from", a[len("--from="):]); err != nil {
 				return nil, err
 			}
 		case strings.HasPrefix(a, "--unit="):
@@ -1313,9 +1337,9 @@ func allowedOpts(cmd string) []string {
 	case "init":
 		allowed = []string{"--schema", "--no-banner"}
 	case "migrate":
-		allowed = []string{"--write", "--lossy", "--from-2x", "--check"}
+		allowed = []string{"--write", "--lossy", "--from", "--check"}
 	case "upgrade":
-		allowed = []string{"--write", "--from-2x"}
+		allowed = []string{"--write", "--from"}
 	case "tokens", "explain":
 		allowed = []string{}
 	case "count":
@@ -2457,7 +2481,8 @@ func doMigrate(o *opts) int {
 		fmt.Fprintln(os.Stderr, err)
 		return exitIO
 	}
-	m := shcl.Migrate(text, o.from2x)
+	from := o.from
+	m := shcl.Migrate(text, from)
 	doc, code := loadDocFrom("", m.Text, o.strictness, false)
 	if doc == nil {
 		return code
@@ -2475,7 +2500,7 @@ func doMigrate(o *opts) int {
 	rc := 0
 	if m.Ambiguous != 0 {
 		fmt.Fprintf(os.Stderr, "%s: %d value(s) read one way under 2.x and another under these rules, and "+
-			"the file doesn't say which it was written for; left as written (--from-2x rewrites them)\n", file, m.Ambiguous)
+			"the file doesn't say which it was written for; left as written (--from=FORMAT rewrites them)\n", file, m.Ambiguous)
 		rc = 7
 	}
 	if m.Lost != 0 {
@@ -2647,13 +2672,14 @@ func doUpgrade(o *opts) int {
 	}
 	// The mtime UpgradeFile reads, so the text half finds the same format.
 	mtime := fileMtime(file)
+	from := o.from
 	var up shcl.Upgraded
 	if o.write {
-		if up, err = shcl.UpgradeFile(file, o.from2x, true); err != nil {
-			sayDiagnosticsFrom("", shcl.UpgradeDated(text, mtime, o.from2x, true).Diagnostics)
+		if up, err = shcl.UpgradeFile(file, from, true); err != nil {
+			sayDiagnosticsFrom("", shcl.UpgradeDated(text, mtime, from, true).Diagnostics)
 			var ue *shcl.UpgradeError
 			if errors.As(err, &ue) && ue.Kind == shcl.UpgradeAmbiguous {
-				fmt.Fprintf(os.Stderr, "%v (--from-2x rewrites them)\n", err)
+				fmt.Fprintf(os.Stderr, "%v (--from=FORMAT rewrites them)\n", err)
 				return 7
 			}
 			if errors.As(err, &ue) && ue.Kind == shcl.UpgradeErrorsLeft {
@@ -2664,7 +2690,7 @@ func doUpgrade(o *opts) int {
 			return exitIO
 		}
 	} else {
-		up = shcl.UpgradeDated(text, mtime, o.from2x, true)
+		up = shcl.UpgradeDated(text, mtime, from, true)
 	}
 	if up.Current {
 		// Diagnostics is empty when current, but the file is still loaded, and
@@ -2679,7 +2705,7 @@ func doUpgrade(o *opts) int {
 	sayDiagnosticsFrom("", up.Diagnostics)
 	if up.Ambiguous != 0 {
 		err := &shcl.UpgradeError{Kind: shcl.UpgradeAmbiguous, Path: file, Count: up.Ambiguous}
-		fmt.Fprintf(os.Stderr, "%v (--from-2x rewrites them)\n", err)
+		fmt.Fprintf(os.Stderr, "%v (--from=FORMAT rewrites them)\n", err)
 		return 7
 	}
 	if len(up.ErrorsLeft) != 0 {

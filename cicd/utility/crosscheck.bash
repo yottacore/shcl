@@ -418,7 +418,7 @@ fCase(){
 	# the default one refuses where the flag rewrites.
 	fCompare "tokens ${caseName}" tokens "$input"
 	fCompare "migrate ${caseName}" migrate "$input"
-	fCompare "migrate --from-2x ${caseName}" migrate --from-2x "$input"
+	fCompare "migrate --from=2.0 ${caseName}" migrate --from=2.0 "$input"
 	# The save gate over real inputs: a case whose load dropped something must
 	# refuse the in-place write and leave the file byte-identical, and one that
 	# dropped nothing must rewrite it. Nothing else replays a corpus input
@@ -516,7 +516,7 @@ fExtraFile(){
 	fCompare "paths --json ${f##*/}" paths --json "$f"
 	fCompare "tokens ${f##*/}" tokens "$f"
 	fCompare "migrate ${f##*/}" migrate "$f"
-	fCompare "migrate --from-2x ${f##*/}" migrate --from-2x "$f"
+	fCompare "migrate --from=2.0 ${f##*/}" migrate --from=2.0 "$f"
 	# The save gate over the soup as well: whether a load counted anything
 	# lost is the one parse result no read can show, and the corpus alone
 	# holds only the shapes somebody thought to pin.

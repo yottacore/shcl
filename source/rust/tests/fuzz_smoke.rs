@@ -16,6 +16,11 @@ use shcl::{
 	tokenize_value, upgrade,
 };
 
+/// The `from` that says a text was written for 2.x, as `--from=2.0` does.
+fn v2_from(from_v2: bool) -> Option<&'static str> {
+	from_v2.then_some("2.0")
+}
+
 /// Small deterministic PRNG (xorshift64*); no external crates, stable across runs.
 struct Rng(u64);
 
@@ -453,12 +458,12 @@ fn mutated_inputs_never_panic_and_format_is_fixpoint() {
 		// already had is not a stamp: with a raw block left open migrate adds
 		// none, and the CLI refuses that output at 7.
 		for from_v2 in [true, false] {
-			let m = migrate(&text, from_v2).text;
+			let m = migrate(&text, v2_from(from_v2)).text;
 			if format_version(&m).is_none_or(|v| v < FORMAT_MAJOR) {
 				continue;
 			}
 			assert_eq!(
-				migrate(&m, from_v2).text,
+				migrate(&m, v2_from(from_v2)).text,
 				m,
 				"migrate changes its own output at iteration {} (from-2x {}) for mutated input:\n{}",
 				i,
@@ -1410,14 +1415,14 @@ fn schema_and_format_lines_follow_the_parser() {
 }
 
 /// `upgrade` over the soup, stamped with this format, the one before, a newer
-/// one, a number past 32 bits or nothing, and run with and without
-/// `from_v2`. A file naming a newer format comes back current and as it was,
-/// and so does one naming this format that loads clean, unless its tells
-/// leave a pin from 3.0-a37 back, whose step can rewrite it. A made-over file
-/// names this format, loads clean wherever `from_v2` was passed, and a second
-/// run leaves it alone. A file found to be a pin keeps a line the pin
-/// refused as typed, as the load does, so it can still have an error. The
-/// rules for a stamped file under `from_v2` are 2026111907080445's. The
+/// one, a number past 32 bits or nothing, and run without `from`, with 2.0
+/// and with a pin. A file naming a newer format comes back current and as it
+/// was, and so does one naming this format that loads clean, unless its tells
+/// or `from` leave a pin from 3.0-a37 back, whose step can rewrite it. A
+/// made-over file names this format, loads clean wherever `from` was passed,
+/// and a second run leaves it alone, with that `from` too. A file found to be
+/// a pin keeps a line the pin refused as typed, as the load does, so it can
+/// still have an error (2026111918111481). The
 /// scan once missed the block under a
 /// `~x:` line, so the stamp an upgrade added read as inside it and every run
 /// made the file over again (2026101514324701); some inputs get a name led
@@ -1435,8 +1440,8 @@ fn upgrade_leaves_its_own_output_alone() {
 	let iters = iter_count(300);
 	let seeds = seed_texts();
 	let mut rng = Rng(0x5EED_06AD_0000_0004);
-	let (mut kept, mut made, mut beta, mut pinned, mut newer, mut odd) =
-		(0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
+	let (mut kept, mut made, mut beta, mut pinned, mut newer, mut odd, mut told_pin) =
+		(0usize, 0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
 	// The step out of 3.0-9ef and every one after it change nothing.
 	let place = |f: &str| FORMAT_NAMES.iter().position(|(n, _)| *n == f);
 	let first_same = place("3.0-9ef");
@@ -1475,14 +1480,14 @@ fn upgrade_leaves_its_own_output_alone() {
 			&& at.is_some_and(|k| !raw_spans(&text).iter().any(|&(o, l)| o <= k && k < l));
 		let clean = Document::parse(&text).error_count() == 0;
 		let pin = find_format(&text, None).is_some_and(|f| place(f) < first_same);
-		for from_v2 in [false, true] {
-			let up = upgrade(&text, from_v2, true);
-			let ctx = || format!("iteration {i}, from_v2 {from_v2}:\n{text}\n->\n{}", up.text);
+		for from in [None, Some("2.0"), Some("3.0-a37")] {
+			let up = upgrade(&text, from, true);
+			let ctx = || format!("iteration {i}, from {from:?}:\n{text}\n->\n{}", up.text);
 			if says_newer || named.is_some_and(|v| v > FORMAT_MAJOR) {
 				newer += 1;
 				assert!(up.current, "a newer format was made over, {}", ctx());
 			}
-			if named == Some(FORMAT_MAJOR) && clean && !pin {
+			if named == Some(FORMAT_MAJOR) && clean && !pin && from != Some("3.0-a37") {
 				assert!(up.current, "a clean current file was made over, {}", ctx());
 			}
 			if up.current {
@@ -1508,16 +1513,16 @@ fn upgrade_leaves_its_own_output_alone() {
 			);
 			let loads = Document::parse(&up.text).error_count() == 0;
 			if named == Some(FORMAT_MAJOR) {
-				if from_v2 {
-					beta += 1;
-				} else {
-					pinned += 1;
+				match from {
+					Some("2.0") => beta += 1,
+					Some(_) => told_pin += 1,
+					None => pinned += 1,
 				}
 			}
-			if from_v2 {
+			if from.is_some() {
 				assert!(loads, "the fresh text has an error, {}", ctx());
 			}
-			let again = upgrade(&up.text, false, true);
+			let again = upgrade(&up.text, None, true);
 			assert!(
 				again.current && again.text == up.text,
 				"a second run made it over again, {}\n->\n{}",
@@ -1525,11 +1530,13 @@ fn upgrade_leaves_its_own_output_alone() {
 				again.text
 			);
 			if loads {
-				assert!(
-					upgrade(&up.text, true, true).current,
-					"a second run with from_v2 made it over again, {}",
-					ctx()
-				);
+				for again_from in [Some("2.0"), from] {
+					assert!(
+						upgrade(&up.text, again_from, true).current,
+						"a second run from {again_from:?} made it over again, {}",
+						ctx()
+					);
+				}
 			}
 		}
 	}
@@ -1543,6 +1550,10 @@ fn upgrade_leaves_its_own_output_alone() {
 	assert!(
 		pinned > iters / 100,
 		"only {pinned} files naming this format were found to be a pin"
+	);
+	assert!(
+		told_pin > iters / 100,
+		"only {told_pin} files naming this format were made over from a pin"
 	);
 	assert!(newer > iters / 10, "only {newer} runs over a newer format");
 	assert!(odd > iters / 10, "only {odd} files had an odd name");

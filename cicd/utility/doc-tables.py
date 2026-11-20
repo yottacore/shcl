@@ -382,7 +382,7 @@ def fWrap(before: str, after: str) -> tuple[str, str, str | None]:
 
 
 def fMigration(g: Gate, table: Table) -> tuple[int, int]:
-	"""Before, a 2.x spelling, and After, what `migrate --from-2x` writes. A
+	"""Before, a 2.x spelling, and After, what `migrate --from=2.0` writes. A
 	before cell is one or more spans joined by "or", maybe with a comma and a
 	description after, and the after cell opens with a span or "As written".
 	Anything else is prose."""
@@ -409,10 +409,10 @@ def fMigration(g: Gate, table: Table) -> tuple[int, int]:
 		checked += 1
 		for before, after in zip(befores, afters, strict=True):
 			text, want, path = fWrap(before, after)
-			mig = g.run(row, text, ["migrate", "--from-2x", "FILE"])
+			mig = g.run(row, text, ["migrate", "--from=2.0", "FILE"])
 			body = "".join(ln + "\n" for ln in mig.out.splitlines() if not ln.startswith("##"))
 			if (mig.rc, body) != (0, want):
-				g.bad(row, f"migrate --from-2x on {text!r} gives {body!r} at exit {mig.rc}, the table says {want!r}")
+				g.bad(row, f"migrate --from=2.0 on {text!r} gives {body!r} at exit {mig.rc}, the table says {want!r}")
 				continue
 			if readsAs and path is not None:
 				read = g.run(row, mig.out, ["get", "FILE", path])

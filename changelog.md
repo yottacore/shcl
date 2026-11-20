@@ -6,13 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- `load_file_opts()` with `migrate`, `upgrade()` and `upgrade_file()` convert a file found to be from 1.0, 1.1 or 2.0 by that format's own reading of a quoted name, where they used to keep a name with a backslash pair as typed and count it lost. 1.x read `"a\"b"` as typed, so it becomes `'a\"b'`, a field apart from `'a"b'`. 2.0 resolved it, so it becomes `'a"b'`, which `from_v2` also gives. A selector 1.x matched otherwise stays as typed and counts as lost: a quoted one holding a comma and a space, which matched an array too, and from 1.0 one with a backslash pair, which it matched as typed. `migrate()` doesn't find the format, so it still keeps such a name as typed.
+
 - `load_file_opts()` with `migrate`, `upgrade()` and `upgrade_file()` convert a file found to be from a dev build pinned between 3.0-1f8 and 3.0-a37 by that build's own rules, rather than 2.x's. A backslash outside double quotes was text there and stays text, so `C:\temp` keeps its backslash, and `"x\ty"` gets `◉TAB◉`. A line that build refused stays as typed.
 
 - `upgrade()` and `upgrade_file()` work out a file's format with `find_format()`, and `upgrade_file()` and `shcl upgrade` pass it the file's mtime. A file found to be 3.0-9ef or later is left as it is, its errors kept as typed, as a load with `migrate` keeps them. A file with no stamp and a broken line used to go through the 2.x migration whatever its date. `upgrade_dated()` is `upgrade()` with an mtime (each binding's spelling).
 
 - `upgrade()` and `upgrade_file()` work out the format of a file stamped beta1's `##    Format   3`, or a dev pin such as `3.0-a37`, as the load does, and convert it by that format's steps. They used to leave such a file alone, where a load with `migrate` converted it. A file stamped `3.0` is still left alone.
 
-- `upgrade()` and `upgrade_file()` take a `banner` argument after `from_v2` (each binding's spelling). With it they write the info block as before. Without it, an old block comes off and the fresh text ends with the stamp a save writes. `shcl upgrade` still writes the block.
+- `upgrade()`, `upgrade_dated()`, `upgrade_file()` and `LoadOptions` take `from` in place of `from_v2` (each binding's spelling), naming the format the file was written in, such as `2.0`, `3.0-a37` or a major alone, `1`. It overrides the file's stamp and what `find_format()` reads off it. `from_v2` was `from` `2.0`. A name no format has is no `from`, and a newer format's leaves the file alone.
+
+- `migrate()` and `migrate_unstamped()` take `from` in place of `from_v2` too, and convert by the named format's step, so `from` `2.0` gives a quoted name with a backslash pair its 2.0 reading, where `from_v2` kept it as typed and counted it lost.
+
+- `shcl migrate` and `shcl upgrade` take `--from=FORMAT` in place of `--from-2x`, and pass it to the library's `from`. `--from-2x` was `--from=2.0`. A name no format has is a usage error, exit 1. The `H007` hint names `--from=FORMAT` too.
+
+- `upgrade()` and `upgrade_file()` take a `banner` argument after `from` (each binding's spelling). With it they write the info block as before. Without it, an old block comes off and the fresh text ends with the stamp a save writes. `shcl upgrade` still writes the block.
 
 - `to_text_keep_lines()` refuses a document from a newer format, as its save does, so a program that saves through that text can't write a newer format's file back by this reader's rules. Its return type changes in every binding: Rust gives `Result<(String, bool), SaveError>`, Go adds an `error`, Python raises `SaveTooNew`, C returns `shcl_save_result` with the text in an out-parameter, and C++ gives a `SaveResult` first in a tuple.
 

@@ -19,6 +19,11 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+/// The `from` that says a text was written for 2.x, as `--from=2.0` does.
+fn v2_from(from_v2: bool) -> Option<&'static str> {
+	from_v2.then_some("2.0")
+}
+
 /// What a save writes for `s`, which names no format.
 fn with_stamp(s: &str) -> String {
 	format!("{s}{STAMP_LINE}\n")
@@ -1166,7 +1171,7 @@ fn migrate_matches_expected() {
 				case.name
 			),
 		};
-		let got = migrate(&case.input, true).text;
+		let got = migrate(&case.input, Some("2.0")).text;
 		assert_eq!(
 			&got, want,
 			"{}: migrate output differs from expected-migrate.shcl",
@@ -1189,9 +1194,9 @@ fn migrate_matches_expected() {
 fn migrate_is_a_fixpoint() {
 	let _id = test_id("dcns5");
 	each_case(|case| {
-		let once = migrate(&case.input, true).text;
+		let once = migrate(&case.input, Some("2.0")).text;
 		assert_eq!(
-			migrate(&once, true).text,
+			migrate(&once, Some("2.0")).text,
 			once,
 			"{}: migrate changes its own output",
 			case.name
@@ -1234,8 +1239,8 @@ fn migrate_unstamped_is_migrate_without_the_stamp() {
 	// difference, and a file is current exactly when its Format line says so.
 	each_case(|case| {
 		for from_v2 in [true, false] {
-			let full = migrate(&case.input, from_v2);
-			let bare = migrate_unstamped(&case.input, from_v2);
+			let full = migrate(&case.input, v2_from(from_v2));
+			let bare = migrate_unstamped(&case.input, v2_from(from_v2));
 			assert_eq!(
 				(bare.current, bare.ambiguous, bare.lost),
 				(full.current, full.ambiguous, full.lost),
@@ -3228,12 +3233,12 @@ fn write_status_names_each_failure() {
 		why(write_file_atomic(&format!("{}/", at("ok.shcl")), "a: 1\n")),
 		Some(WriteStatus::IsDirectory)
 	);
-	match upgrade_file(&at("sub"), false, true) {
+	match upgrade_file(&at("sub"), None, true) {
 		Err(UpgradeError::Io(e)) => assert_eq!(e.status, WriteStatus::IsDirectory),
 		other => panic!("upgrade of a directory: {other:?}"),
 	}
 	std::fs::write(at("bin.shcl"), b"a: \xff\n").unwrap();
-	match upgrade_file(&at("bin.shcl"), false, true) {
+	match upgrade_file(&at("bin.shcl"), None, true) {
 		Err(UpgradeError::Io(e)) => {
 			assert_eq!(e.status, WriteStatus::Unreadable);
 			assert!(e.message.contains("UTF-8"), "{}", e.message);
@@ -3255,7 +3260,7 @@ fn write_status_names_each_failure() {
 			why(write_file_atomic(&fifo, "a: 1\n")),
 			Some(WriteStatus::NotRegular)
 		);
-		match upgrade_file(&fifo, false, true) {
+		match upgrade_file(&fifo, None, true) {
 			Err(UpgradeError::Io(e)) => assert_eq!(e.status, WriteStatus::NotRegular),
 			other => panic!("upgrade of a FIFO: {other:?}"),
 		}
@@ -3277,7 +3282,7 @@ fn write_status_names_each_failure() {
 				}
 				other => panic!("backup into a shut folder: {other:?}"),
 			}
-			match upgrade_file(v2.to_str().unwrap(), true, true) {
+			match upgrade_file(v2.to_str().unwrap(), Some("2.0"), true) {
 				Err(UpgradeError::Io(e)) => {
 					assert_eq!(e.status, WriteStatus::PermissionDenied)
 				}
@@ -3288,7 +3293,7 @@ fn write_status_names_each_failure() {
 			let locked = dir.join("locked.shcl");
 			std::fs::write(&locked, "a: 1\nb 2\n").unwrap();
 			std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
-			match upgrade_file(locked.to_str().unwrap(), false, true) {
+			match upgrade_file(locked.to_str().unwrap(), None, true) {
 				Err(UpgradeError::Io(e)) => {
 					assert_eq!(e.status, WriteStatus::PermissionDenied);
 					assert!(!e.message.contains("UTF-8"), "{}", e.message);
@@ -4667,7 +4672,7 @@ fn format_version_caps_at_32_bits() {
 		Some(4294967295)
 	);
 	// Read as this major until 2026101514324705, which made a file naming
-	// one too big a beta file to `upgrade --from-2x`.
+	// one too big a beta file to `upgrade --from=2.0`.
 	// assert_eq!(
 	// 	format_version("##    Format   4294967296\na: 1\n"),
 	// 	Some(FORMAT_MAJOR)
@@ -5660,7 +5665,7 @@ fn migrate_brackets_a_2x_comma_list() {
 	let _id = test_id("ddjya");
 	let m = migrate(
 		"x: a, b\ny: a,b\nz: \"q\", r\nw: New York,,b\nv: done:\nu: rw,noatime\n",
-		true,
+		Some("2.0"),
 	);
 	assert_eq!(m.ambiguous, 0);
 	assert!(
@@ -5672,7 +5677,7 @@ fn migrate_brackets_a_2x_comma_list() {
 	);
 	let back = Document::parse(&m.text);
 	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
-	let m = migrate("x: a, b\ny: a,b\n", false);
+	let m = migrate("x: a, b\ny: a,b\n", None);
 	assert_eq!(m.ambiguous, 1);
 	assert!(m.text.starts_with("x: [a, b]\ny: a,b\n"), "{:?}", m.text);
 }
@@ -5683,7 +5688,7 @@ fn migrate_brackets_a_2x_comma_list() {
 #[test]
 fn migrate_writes_a_lone_2x_element_plain() {
 	let _id = test_id("ddrgf");
-	let m = migrate("k: s,\nk: s\nq: , \"a b\"\nc: x,\n\td: 1\n", true);
+	let m = migrate("k: s,\nk: s\nq: , \"a b\"\nc: x,\n\td: 1\n", Some("2.0"));
 	assert_eq!((m.ambiguous, m.lost), (0, 0));
 	assert!(
 		m.text.starts_with("k: s\nk: s\nq: \"a b\"\nc: x\n\td: 1\n"),
@@ -5701,7 +5706,10 @@ fn migrate_writes_a_lone_2x_element_plain() {
 #[test]
 fn migrate_writes_star_items_as_dashes() {
 	let _id = test_id("ddk4w");
-	let m = migrate("list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n", true);
+	let m = migrate(
+		"list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n",
+		Some("2.0"),
+	);
 	assert!(
 		m.text
 			.starts_with("list:\n\t- a\n\t- \"key: value\"\n\t- 'c'\n\t- O'Brien\n"),
@@ -5721,7 +5729,7 @@ fn migrate_writes_star_items_as_dashes() {
 #[test]
 fn migrate_quotes_a_name_not_led_by_a_letter() {
 	let _id = test_id("ddk4x");
-	let m = migrate("404: a\n-x: y\nl:\n\t- :0\na.9b: 2\n_id: 7\n", true);
+	let m = migrate("404: a\n-x: y\nl:\n\t- :0\na.9b: 2\n_id: 7\n", Some("2.0"));
 	assert!(
 		m.text
 			.starts_with("\"404\": a\n\"-x\": y\nl:\n\t\"-\" :0\na.\"9b\": 2\n\"_id\": 7\n"),
@@ -5742,7 +5750,7 @@ fn migrate_escapes_a_real_mark() {
 	let _id = test_id("ddk4y");
 	let m = migrate(
 		"\"a\u{25C9}q\u{25C9}\": 1\nbare: My\u{25C9}SPACE\u{25C9}App\ns[x\u{25C9}y].p: 2\n",
-		true,
+		Some("2.0"),
 	);
 	let back = Document::parse(&m.text);
 	assert!(
@@ -5773,7 +5781,7 @@ fn migrate_escapes_a_real_mark() {
 #[test]
 fn migrate_quotes_a_bare_selector_these_rules_refuse() {
 	let _id = test_id("ddk4z");
-	let m = migrate("srv[O'Brien].port: 1\nsrv[New York].port: 2\n", true);
+	let m = migrate("srv[O'Brien].port: 1\nsrv[New York].port: 2\n", Some("2.0"));
 	assert!(
 		m.text
 			.starts_with("srv(\"O'Brien\").port: 1\nsrv(\"New York\").port: 2\n"),
@@ -5795,11 +5803,11 @@ fn migrate_writes_selectors_in_parens() {
 	let text = "a[x].k: 1\nb: y\nb[0].k: 2\nc[a(b)].k: 3\ne:[f].g: 4\nr[\"x\"]:\n\ts: 1\n";
 	let want = "a(x).k: 1\nb: y\nb(0).k: 2\nc(\"a(b)\").k: 3\ne(f).g: 4\nr(\"x\"):\n\ts: 1\n";
 	for from_v2 in [true, false] {
-		let m = migrate(text, from_v2);
+		let m = migrate(text, v2_from(from_v2));
 		assert_eq!((m.ambiguous, m.lost), (0, 0), "{}", m.text);
 		assert!(m.text.starts_with(want), "{:?}", m.text);
 	}
-	let back = Document::parse(&migrate(text, true).text);
+	let back = Document::parse(&migrate(text, Some("2.0")).text);
 	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
 	assert_eq!(back.get_int("c(\"a(b)\").k").unwrap(), 3);
 	assert_eq!(back.get_int("e(f).g").unwrap(), 4);
@@ -5814,11 +5822,11 @@ fn migrate_writes_selectors_in_parens() {
 #[test]
 fn migrate_counts_what_nothing_spells() {
 	let _id = test_id("ddk50");
-	let m = migrate("a[x, y].b: 1\n", true);
+	let m = migrate("a[x, y].b: 1\n", Some("2.0"));
 	assert_eq!(m.lost, 1);
-	let m = migrate("a: 1, 2\n\tb: 1\nc: 3, 4\n", true);
+	let m = migrate("a: 1, 2\n\tb: 1\nc: 3, 4\n", Some("2.0"));
 	assert_eq!(m.lost, 1, "{}", m.text);
-	let m = migrate("e: ,\nf: , # c\n", true);
+	let m = migrate("e: ,\nf: , # c\n", Some("2.0"));
 	assert_eq!(m.lost, 0);
 	assert!(m.text.starts_with("e:\nf: # c\n"), "{:?}", m.text);
 	let back = Document::parse(&m.text);
@@ -5829,13 +5837,13 @@ fn migrate_counts_what_nothing_spells() {
 // A file that does not say it is 2.x could be a 3.0 one. A piece that reads
 // clean under these rules too, such as an escape, a backtick value, `[a]` or
 // a `- ` item, is left as written and counted, so the CLI asks for
-// --from-2x rather than changing a correct file at exit 0. A selector in
+// --from=2.0 rather than changing a correct file at exit 0. A selector in
 // brackets is `E029` now, so its line is rewritten the 2.x way.
 #[test]
 fn migrate_leaves_what_reads_clean_now() {
 	let _id = test_id("ddk51");
 	let text = "x: \"a\u{25C9}TAB\u{25C9}b\"\n\"n\u{25C9}TAB\u{25C9}\": 1\nl:\n\t- :0\ns[\"\u{25C9}TAB\u{25C9}\"].p: 1\nb: `abc`\nc: [a]\n";
-	let m = migrate(text, false);
+	let m = migrate(text, None);
 	assert_eq!(m.ambiguous, 5, "{}", m.text);
 	assert_eq!(
 		m.text,
@@ -5844,7 +5852,7 @@ fn migrate_leaves_what_reads_clean_now() {
 			"s(\"\u{25C9}ESCAPE_CHAR\u{25C9}TAB\u{25C9}ESCAPE_CHAR\u{25C9}\")"
 		)
 	);
-	assert!(migrate(text, true).text.contains("ESCAPE_CHAR"));
+	assert!(migrate(text, Some("2.0")).text.contains("ESCAPE_CHAR"));
 }
 
 // 2.x resolved a backslash pair in a value, an element, a `*` item, a
@@ -5854,7 +5862,7 @@ fn migrate_leaves_what_reads_clean_now() {
 fn migrate_writes_the_text_2x_read() {
 	let _id = test_id("de60f");
 	let text = "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\ns: 'it\\'s'\nl: \"C:\\\\a\", x\\ty\nw: C:\\work\nsrv[a\\tb].port: 1\nn:['C:\\\\x']\nlist:\n\t* C:\\new\n";
-	let m = migrate(text, true);
+	let m = migrate(text, Some("2.0"));
 	assert_eq!((m.ambiguous, m.lost), (0, 0), "{}", m.text);
 	assert!(
 		m.text.starts_with(
@@ -5877,12 +5885,12 @@ fn migrate_writes_the_text_2x_read() {
 	// so the two values are left and counted. Dated 2026-09-01, so it's found
 	// to be 2.0 rather than 3.0-a37, which reads the comma list too.
 	let text = "p: \"C:\\\\new\"\nt: C:\\temp\nq: a, b\n";
-	let up = upgrade_dated(text, Some(1788220800), false, true);
+	let up = upgrade_dated(text, Some(1788220800), None, true);
 	assert!(
 		!up.current && up.ambiguous == 2 && up.text == text,
 		"{up:?}"
 	);
-	let up = shcl::upgrade(text, true, true);
+	let up = shcl::upgrade(text, Some("2.0"), true);
 	assert!(!up.current && up.ambiguous == 0 && up.lost == 0, "{up:?}");
 	let back = Document::parse(&up.text);
 	assert_eq!(back.get_string("p").unwrap(), "C:\\new");
@@ -5891,19 +5899,19 @@ fn migrate_writes_the_text_2x_read() {
 
 // A file that does not say it is 2.x could be a 3.0 one, where a backslash
 // is text. A piece that reads clean under these rules too is left and
-// counted, so the CLI asks for --from-2x. A line these rules refuse is 2.x
+// counted, so the CLI asks for --from=2.0. A line these rules refuse is 2.x
 // either way, and converts, and a file that names format 2 converts whole.
 #[test]
 fn migrate_counts_a_backslash_pair_in_an_unstamped_file() {
 	let _id = test_id("de60g");
 	let text = "p: \"C:\\\\new\"\nt: C:\\temp\nw: C:\\work\nb: \"say \\\"hi\\\"\"\nl: a\\tb, c\n";
-	let m = migrate(text, false);
+	let m = migrate(text, None);
 	assert_eq!((m.ambiguous, m.lost), (2, 0), "{}", m.text);
 	assert_eq!(
 		m.text,
 		"p: \"C:\\\\new\"\nt: C:\\temp\nw: C:\\work\nb: 'say \"hi\"'\nl: [\"a\u{25C9}TAB\u{25C9}b\", c]\n"
 	);
-	let m = migrate(&format!("{text}##    Format   2\n"), false);
+	let m = migrate(&format!("{text}##    Format   2\n"), None);
 	assert_eq!((m.ambiguous, m.lost), (0, 0), "{}", m.text);
 	assert!(
 		m.text
@@ -5914,28 +5922,43 @@ fn migrate_counts_a_backslash_pair_in_an_unstamped_file() {
 }
 
 // 1.2 read a quoted name as typed and 2.0 resolved its backslash pairs, so
-// a name with one reads two ways across 2.x. It stays as written and counts
-// as lost, with from_v2 or without, and the rest of its line still
-// converts. Any other backslash in a name was text under both.
+// a name with one reads two ways across 2.x. Without `from` it stays as
+// written and counts as lost, and the rest of its line still converts. With
+// `from`, the format's step reads it as that format did, so it isn't lost
+// (2026111919213927). Any other backslash in a name was text under both.
 #[test]
 fn migrate_counts_a_quoted_name_with_a_backslash_pair_lost() {
 	let _id = test_id("de60h");
 	let text = "'k\\\\x': C:\\temp\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n";
-	for from_v2 in [true, false] {
-		let m = migrate(text, from_v2);
-		assert_eq!(m.lost, 2, "from_v2 {from_v2}: {}", m.text);
-		assert_eq!(m.ambiguous, usize::from(!from_v2), "{}", m.text);
+	let m = migrate(text, None);
+	assert_eq!(m.lost, 2, "{}", m.text);
+	assert_eq!(m.ambiguous, 1, "{}", m.text);
+	for from in ["2.0", "1.1", "1.0"] {
+		let m = migrate(text, Some(from));
+		assert_eq!(m.lost, 0, "from {from}: {}", m.text);
+		assert_eq!(m.ambiguous, 0, "from {from}: {}", m.text);
 	}
-	let m = migrate(text, true);
-	assert!(
-		m.text.starts_with(
-			"'k\\\\x': \"C:\u{25C9}TAB\u{25C9}emp\"\n\"n\\ty\".z: 1\n\"a\\b\": 2\nr: 3\n"
+	// 2.0 resolved a name's backslash pairs, and 1.1 keyed it as typed.
+	for (from, names) in [
+		(
+			"2.0",
+			"\"k\\x\": \"C:\u{25C9}TAB\u{25C9}emp\"\n\"n\u{25C9}TAB\u{25C9}y\".z: 1\n",
 		),
-		"{:?}",
-		m.text
-	);
-	let up = shcl::upgrade(text, true, true);
-	assert_eq!(up.lost, 2, "{up:?}");
+		(
+			"1.1",
+			"'k\\\\x': \"C:\u{25C9}TAB\u{25C9}emp\"\n\"n\\ty\".z: 1\n",
+		),
+	] {
+		let m = migrate(text, Some(from));
+		assert!(
+			m.text.starts_with(&format!("{names}\"a\\b\": 2\nr: 3\n")),
+			"from {from}: {:?}",
+			m.text
+		);
+	}
+	// upgrade's `from` takes the file as 2.0 the same way (2026111917071578).
+	let up = shcl::upgrade(text, Some("2.0"), true);
+	assert_eq!(up.lost, 0, "{up:?}");
 }
 
 const DEFAULT_TEXT: &str = "port: abc  # the port\nempty:\ngood: 8080\nlist: [80, 443]\nflag: maybe\nports: 80\nwords: a\nscript:\n\t```sh\n\techo hi\n\t```\nsrv:\n\tk: 1\nn: $5\n";
@@ -6956,7 +6979,7 @@ fn a_newer_format_document_saves_nowhere() {
 		assert_eq!(d.save_file(&other), Err(too_new(&other)), "{text:?}");
 		assert!(!Path::new(&other).exists());
 		for from_v2 in [false, true] {
-			let up = shcl::upgrade(text, from_v2, true);
+			let up = shcl::upgrade(text, from_v2.then_some("2.0"), true);
 			assert!(up.current, "{text:?}");
 			assert_eq!(up.text, text);
 		}
@@ -7095,9 +7118,9 @@ fn a_load_that_migrates_saves_through_the_guards() {
 	let opts = LoadOptions {
 		keep_lines: true,
 		migrate: true,
-		from_v2: true,
+		from: Some("2.0"),
 	};
-	let migrated = migrate_unstamped(old, true).text;
+	let migrated = migrate_unstamped(old, Some("2.0")).text;
 	assert_ne!(migrated, old);
 
 	// The document is the migrated text's, and the load writes nothing.
@@ -7134,7 +7157,7 @@ fn a_load_that_migrates_saves_through_the_guards() {
 
 	// What migrate counts lost is lost to a canonical save.
 	let lossy = "k: [x, y]\n";
-	let m = migrate_unstamped(lossy, true);
+	let m = migrate_unstamped(lossy, Some("2.0"));
 	assert!(m.lost > 0);
 	std::fs::write(&f, lossy).unwrap();
 	let canon = LoadOptions {
@@ -7167,8 +7190,8 @@ fn a_load_that_migrates_saves_through_the_guards() {
 /// A load that migrates converts from the format `find_format` gives the
 /// file's text and mtime, with the mtime pinned on the file. One whose
 /// format reads like this one's but for refused lines comes back as typed,
-/// and an older one goes through the 2.x migration that stands in for its
-/// steps (2026111908443663). Same rows in every runner.
+/// and an older one goes through the 2.x rewrite (2026111908443663). Same
+/// rows in every runner.
 #[test]
 fn a_load_converts_from_the_format_its_mtime_gives() {
 	let _id = test_id("dfgyc");
@@ -7206,11 +7229,11 @@ fn a_load_converts_from_the_format_its_mtime_gives() {
 		let opts = LoadOptions {
 			keep_lines: true,
 			migrate: true,
-			from_v2,
+			from: from_v2.then_some("2.0"),
 		};
 		let (doc, _) = Document::load_file_opts(&f, Strictness::Standard, &opts).unwrap();
 		let (want, lost) = if migrated {
-			let m = migrate_unstamped(text, from_v2);
+			let m = migrate_unstamped(text, v2_from(from_v2));
 			(m.text, m.lost)
 		} else {
 			(text.to_string(), 0)
@@ -7299,7 +7322,7 @@ fn a_load_converts_from_a_pinned_dev_format() {
 		let opts = LoadOptions {
 			keep_lines: true,
 			migrate: true,
-			from_v2: false,
+			from: None,
 		};
 		let (doc, _) = Document::load_file_opts(&f, Strictness::Standard, &opts).unwrap();
 		let want = format!("{common}{e}{tail}{end}o: \"open\n");
@@ -7308,9 +7331,102 @@ fn a_load_converts_from_a_pinned_dev_format() {
 			(Ok(with_stamp(&want)), 0),
 			"at {mtime}"
 		);
-		let up = upgrade_dated(text, Some(mtime as i64), false, false);
+		let up = upgrade_dated(text, Some(mtime as i64), None, false);
 		assert!(!up.current, "at {mtime}");
 		assert_eq!(up.text, with_stamp(&want), "at {mtime}");
+	}
+	let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A file from 1.0, 1.1 or 2.0 goes through the 2.x rewrite on load, with
+/// each format's own reads where they differ. 1.x keyed a quoted name by its
+/// text as typed and 2.0 resolved it, 1.x matched a quoted selector against
+/// an array's display form too, and 1.0 matched a selector's backslash pair
+/// as typed. A line the step can't be sure of stays as typed and counts as
+/// lost (2026111917071578). Same rows in every runner.
+#[test]
+fn a_load_converts_from_a_1x_or_2x_format() {
+	let _id = test_id("dfhe6");
+	use shcl::LoadOptions;
+	use std::time::{Duration, UNIX_EPOCH};
+	let dir = std::env::temp_dir().join(format!("shcl-v1conv-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(&dir).unwrap();
+	let f = dir.join("f.shcl").to_str().unwrap().to_string();
+	let jul20 = 1784505600; // 2026-07-20, to 1.0
+	let aug6 = 1785974400; // 2026-08-06, to 1.1
+	let sep1 = 1788220800; // 2026-09-01, to 2.0
+	let text = concat!(
+		"\"a\\\"b\": 1\n",
+		"'a\"b': 2\n",
+		"\"c\\td\": 3\n",
+		"s: q\n",
+		"s[\"q\\\"r\"].h: 1\n",
+		"x: a, b\n",
+		"x[\"a, b\"].h: 1\n",
+	);
+	let mid = "\"c\\td\": 3\ns: q\n";
+	let cases = [
+		(
+			jul20,
+			"'a\\\"b': 1\n'a\"b': 2\n",
+			"s[\"q\\\"r\"].h: 1\nx: [a, b]\nx[\"a, b\"].h: 1\n",
+			2,
+		),
+		(
+			aug6,
+			"'a\\\"b': 1\n'a\"b': 2\n",
+			"s('q\"r').h: 1\nx: [a, b]\nx[\"a, b\"].h: 1\n",
+			1,
+		),
+		// 2.0 read `"c\td"` with a tab, which reads clean as text now, so the
+		// file could be a 3.0 one, and it stays.
+		(
+			sep1,
+			"'a\"b': 1\n'a\"b': 2\n",
+			"s('q\"r').h: 1\nx: [a, b]\nx(\"a, b\").h: 1\n",
+			0,
+		),
+	];
+	for (mtime, head, tail, lost) in cases {
+		std::fs::write(&f, text).unwrap();
+		let file = std::fs::File::options().write(true).open(&f).unwrap();
+		file.set_modified(UNIX_EPOCH + Duration::from_secs(mtime))
+			.unwrap();
+		drop(file);
+		let opts = LoadOptions {
+			keep_lines: true,
+			migrate: true,
+			from: None,
+		};
+		let (doc, _) = Document::load_file_opts(&f, Strictness::Standard, &opts).unwrap();
+		let want = format!("{head}{mid}{tail}");
+		assert_eq!(
+			(doc.to_text_keep_lines().map(|t| t.0), doc.lost_count()),
+			(Ok(with_stamp(&want)), lost),
+			"at {mtime}"
+		);
+		// upgrade writes nothing over the name that reads 2 ways.
+		let up = upgrade_dated(text, Some(mtime as i64), None, false);
+		let made = if mtime == sep1 {
+			(text.to_string(), 0, 1)
+		} else {
+			(with_stamp(&want), lost, 0)
+		};
+		assert_eq!((up.text, up.lost, up.ambiguous), made, "upgrade at {mtime}");
+		if mtime != sep1 {
+			continue;
+		}
+		// from_v2 takes it as 2.0 too, and says it isn't a 3.0 one.
+		let up = upgrade_dated(text, None, Some("2.0"), false);
+		assert_eq!(
+			(up.text, up.lost),
+			(
+				with_stamp(&want.replace("\"c\\td\"", "\"c\u{25c9}TAB\u{25c9}d\"")),
+				0
+			),
+			"from_v2"
+		);
 	}
 	let _ = std::fs::remove_dir_all(&dir);
 }
@@ -7334,7 +7450,7 @@ fn an_upgrade_converts_from_the_format_its_mtime_gives() {
 	let quote = "a: x\"y\n";
 	let fresh = "a: 'x\"y'\n## SHCL format 3.0\n";
 	// Text from no file reads as the newest format its tells leave.
-	assert!(upgrade(quote, false, false).current);
+	assert!(upgrade(quote, None, false).current);
 	// The mtime, from_v2, and whether it's made over.
 	let cases: [(u64, bool, bool); 5] = [
 		(nov10, false, false),
@@ -7344,7 +7460,12 @@ fn an_upgrade_converts_from_the_format_its_mtime_gives() {
 		(nov10, true, true),
 	];
 	for (mtime, from_v2, made) in cases {
-		let up = upgrade_dated(quote, Some(i64::try_from(mtime).unwrap()), from_v2, false);
+		let up = upgrade_dated(
+			quote,
+			Some(i64::try_from(mtime).unwrap()),
+			from_v2.then_some("2.0"),
+			false,
+		);
 		let want = if made { fresh } else { quote };
 		assert_eq!(
 			(up.current, up.text.as_str()),
@@ -7356,7 +7477,7 @@ fn an_upgrade_converts_from_the_format_its_mtime_gives() {
 		file.set_modified(UNIX_EPOCH + Duration::from_secs(mtime))
 			.unwrap();
 		drop(file);
-		let up = upgrade_file(&f, from_v2, false).unwrap();
+		let up = upgrade_file(&f, from_v2.then_some("2.0"), false).unwrap();
 		assert_eq!(up.current, !made, "file at {mtime}, from_v2 {from_v2}");
 		assert_eq!(std::fs::read_to_string(&f).unwrap(), want);
 		if made {
@@ -7416,7 +7537,7 @@ fn an_upgrade_reads_a_beta1_stamp_as_the_load_does() {
 		),
 	];
 	for (text, mtime, from_v2, want) in &cases {
-		let up = upgrade_dated(text, *mtime, *from_v2, false);
+		let up = upgrade_dated(text, *mtime, from_v2.then_some("2.0"), false);
 		assert_eq!(
 			(up.current, up.text.as_str()),
 			(want == text, want.as_str()),
@@ -7433,12 +7554,139 @@ fn an_upgrade_reads_a_beta1_stamp_as_the_load_does() {
 		file.set_modified(UNIX_EPOCH + Duration::from_secs(mtime.unsigned_abs()))
 			.unwrap();
 		drop(file);
-		let up = upgrade_file(&f, false, false).unwrap();
+		let up = upgrade_file(&f, None, false).unwrap();
 		assert_eq!(up.current, want == &beta, "file at {mtime}");
 		assert_eq!(
 			&std::fs::read_to_string(&f).unwrap(),
 			want,
 			"file at {mtime}"
+		);
+	}
+	let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A caller's `from` names the format a file was written in, by a name in
+/// `FORMAT_NAMES` or a major alone, in place of its stamp and what
+/// `find_format` reads off it, in `upgrade` and the load. A name no format
+/// has is no `from`, and a newer format's leaves the file alone. A file
+/// stamped this format whole is what a told upgrade writes, so a second run
+/// leaves it alone (2026111918111481). Same rows in every runner.
+// migrate reads a caller's `from` as upgrade does, with no mtime, and takes
+// that format's step. A format whose steps rewrite nothing, and a newer one,
+// leave the text alone, and a name no format has is no `from`. A pin's
+// rewrite names this format whole, so a second run with the same pin leaves
+// it alone (2026111919213927). Same table in every runner.
+#[test]
+fn migrate_reads_from_as_upgrade_does() {
+	let _id = test_id("dfhjc");
+	let note = "##    Format   3.0\n##    Migrated from SHCL 2.x.\n";
+	let sq = "b: 'C:\\temp'\n";
+	let sq_made = format!("b: \"C:\u{25c9}TAB\u{25c9}emp\"\n{note}");
+	let tab = "a: \"x\\ty\"\n";
+	let tab_made = "a: \"x\u{25c9}TAB\u{25c9}y\"\n##    Format   3.0\n";
+	// The text, from, and the text migrate gives, which is the input when
+	// it's current.
+	let cases: [(&str, &str, &str); 10] = [
+		(sq, "2.0", &sq_made),
+		(sq, "1", &sq_made),
+		(sq, "3.0", sq),
+		(sq, "3.0-9ef", sq),
+		(sq, "3.1", sq),
+		(sq, "4", sq),
+		(tab, "3.0-a37", tab_made),
+		(tab, "3.0-231", tab_made),
+		(tab_made, "3.0-a37", tab_made),
+		(&sq_made, "2.0", &sq_made),
+	];
+	for (text, from, want) in cases {
+		let m = migrate(text, Some(from));
+		assert_eq!(
+			(m.current, m.text.as_str()),
+			(want == text, want),
+			"{text:?}, from {from}"
+		);
+	}
+	let none = migrate(sq, None);
+	let unknown = migrate(sq, Some("1.2"));
+	assert_eq!(
+		(unknown.text, unknown.ambiguous, unknown.lost),
+		(none.text, none.ambiguous, none.lost)
+	);
+	assert_eq!(
+		migrate_unstamped(tab, Some("3.0-a37")).text,
+		"a: \"x\u{25c9}TAB\u{25c9}y\"\n"
+	);
+}
+
+#[test]
+fn a_caller_names_the_format_with_from() {
+	let _id = test_id("dfhgc");
+	use shcl::LoadOptions;
+	use std::time::{Duration, UNIX_EPOCH};
+	let oct10 = 1791590400; // 2026-10-10, to 3.0-a37
+	let nov10 = 1794268800; // 2026-11-10, every format
+	// An escape to 2.0, and text from 3.0-1f8 on.
+	let sq = "b: 'C:\\temp'\n";
+	let sq_made = with_stamp("b: \"C:\u{25c9}TAB\u{25c9}emp\"\n");
+	// An escape to 3.0-a37, and text from 3.0-9ef on.
+	let tab = "a: \"x\\ty\"\n";
+	let tab_made = with_stamp("a: \"x\u{25c9}TAB\u{25c9}y\"\n");
+	let pinned = format!("{tab}## SHCL format 3.0-9ef\n");
+	// The text, the mtime, from, and the text upgrade gives, which is the
+	// input when it's current.
+	let cases: [(&str, i64, Option<&str>, &str); 16] = [
+		(sq, nov10, None, sq),
+		(sq, nov10, Some("2.0"), &sq_made),
+		(sq, nov10, Some("1"), &sq_made),
+		(sq, nov10, Some("3.0-a37"), sq),
+		(tab, nov10, None, tab),
+		(tab, nov10, Some("3.0-a37"), &tab_made),
+		(tab, nov10, Some("3.0-231"), &tab_made),
+		(tab, nov10, Some("3.0-9ef"), tab),
+		(tab, oct10, None, &tab_made),
+		(tab, oct10, Some("3.0"), tab),
+		(tab, oct10, Some("3.1"), tab),
+		(tab, oct10, Some("4"), tab),
+		(tab, oct10, Some("1.2"), &tab_made),
+		(&pinned, nov10, None, &pinned),
+		(&pinned, nov10, Some("3.0-a37"), &tab_made),
+		(&tab_made, nov10, Some("3.0-a37"), &tab_made),
+	];
+	for (text, mtime, from, want) in cases {
+		let up = upgrade_dated(text, Some(mtime), from, false);
+		assert_eq!(
+			(up.current, up.text.as_str()),
+			(want == text, want),
+			"{text:?} at {mtime}, from {from:?}"
+		);
+	}
+	assert!(upgrade_dated(&tab_made, Some(nov10), Some("2.0"), false).current);
+	let dir = std::env::temp_dir().join(format!("shcl-from-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(&dir).unwrap();
+	let f = dir.join("f.shcl").to_str().unwrap().to_string();
+	for (from, want) in [
+		(None, with_stamp(sq)),
+		(Some("2.0"), sq_made.clone()),
+		(Some("3.0-a37"), with_stamp(sq)),
+		(Some("1.2"), with_stamp(sq)),
+		(Some("4"), with_stamp(sq)),
+	] {
+		std::fs::write(&f, sq).unwrap();
+		let file = std::fs::File::options().write(true).open(&f).unwrap();
+		file.set_modified(UNIX_EPOCH + Duration::from_secs(nov10.unsigned_abs()))
+			.unwrap();
+		drop(file);
+		let opts = LoadOptions {
+			keep_lines: true,
+			migrate: true,
+			from,
+		};
+		let (doc, _) = Document::load_file_opts(&f, Strictness::Standard, &opts).unwrap();
+		assert_eq!(
+			doc.to_text_keep_lines().map(|t| t.0),
+			Ok(want),
+			"load, from {from:?}"
 		);
 	}
 	let _ = std::fs::remove_dir_all(&dir);
