@@ -549,7 +549,7 @@ fRawIndent2x(){ fValue2x rawindent "$1"; }
 ##	says so too, so a 2.x file migrate wrongly passes over still compares.
 fNamesFormat3(){
 	local err
-	grep -qE '^##[[:space:]]+Format[[:space:]]+[3-9]' "$1" || return 1
+	grep -qE "${formatHeadEre}"'[3-9]' "$1" || return 1
 	err="$("${newCli}" migrate --from=2.0 "$1" 2>&1 >/dev/null || true)"
 	[[ "${err}" == *"nothing to migrate: the file already names its format"* ]]
 }
@@ -650,7 +650,8 @@ fUpRewritten(){
 ##	A Format line naming major 3 and no newer minor: beta1's `3`, the `3.0`
 ##	the info block writes, or a pin such as `3.0-a37`. --from takes any of them
 ##	(spec.md, UpgradeFile).
-format3Ere='^##[[:space:]]+Format[[:space:]]+3(\.0(-[[:alnum:]]+)?)?[[:space:]]*$'
+formatHeadEre='^##[[:space:]]+(SHCL[[:space:]]+format|Format)[[:space:]]+'
+format3Ere="${formatHeadEre}"'3(\.0(-[[:alnum:]]+)?)?[[:space:]]*$'
 
 ##	Whether --from=2.0 should take a file naming format 3 as 2.x: it loads with
 ##	an error, and its text as migrate rewrites a 2.x file, made canonical,
@@ -660,7 +661,7 @@ fUpConverts3(){
 	local src="$1"
 	[[ "$(fErrors "${src}")" != 0 ]] || return 1
 	grep -qE "${format3Ere}" "${src}" || return 1
-	sed -E 's/^(##[[:space:]]+Format[[:space:]]+)3(\.0(-[[:alnum:]]+)?)?([[:space:]]*)$/\12\4/' "${src}" > "${tmpDir}/as2x.shcl"
+	sed -E 's/^(##[[:space:]]+(SHCL[[:space:]]+format|Format)[[:space:]]+)3(\.0(-[[:alnum:]]+)?)?([[:space:]]*)$/\12\5/' "${src}" > "${tmpDir}/as2x.shcl"
 	{ "${newCli}" migrate --from=2.0 "${tmpDir}/as2x.shcl" 2>/dev/null || true; } \
 		| { "${newCli}" fmt - 2>/dev/null || true; } > "${tmpDir}/as2x.fresh"
 	[[ -s "${tmpDir}/as2x.fresh" && "$(fErrors "${tmpDir}/as2x.fresh")" == 0 ]]
@@ -842,15 +843,17 @@ fi
 ##	pin's tell, so those 2 are made over without --from=2.0 as well
 ##	(2026111912330681), and a corpus input naming format 3 with no such tell
 ##	is still left alone. The fourth names `3.0`, as the info block does, and
-##	--from=2.0 takes it as it takes beta1's `3` (2026112017370795).
+##	--from=2.0 takes it as it takes beta1's `3` (2026112017370795). The fifth is
+##	stamped `## SHCL format 3.0` with no info block (2026112110133815).
 fTest ddmp8 a file naming format 3 is upgraded only when --from=2.0 vouches for it
 printf 'a: 1\n  bad\nb 2\n\n##    Format   3\n' > "${tmpDir}/format3-bad.shcl"
 printf 'tags: a, b\n##    Format   3\n' > "${tmpDir}/format3-beta.shcl"
 printf 'tags: a, b\n\n##\n## This config file format is SHCL.\n##    Format   3\n##\n' > "${tmpDir}/format3-beta-block.shcl"
 printf 'key: 1\n~x\n\n##    Format   3.0\n' > "${tmpDir}/format30-bad.shcl"
+printf 'key: 1\n~x\n\n## SHCL format 3.0\n' > "${tmpDir}/format30-stamp-bad.shcl"
 declare -i nFormat3=0 nUpFormat3Soup=nUpFormat3; nUpBad=0; nUpFormat3=0; nUpFormat3Left=0
-for f in "${corpus}"/*/input.shcl "${tmpDir}/format3-bad.shcl" "${tmpDir}/format3-beta.shcl" "${tmpDir}/format3-beta-block.shcl" "${tmpDir}/format30-bad.shcl"; do
-	grep -qE '^##[[:space:]]+Format[[:space:]]+[3-9]' "${f}" || continue
+for f in "${corpus}"/*/input.shcl "${tmpDir}/format3-bad.shcl" "${tmpDir}/format3-beta.shcl" "${tmpDir}/format3-beta-block.shcl" "${tmpDir}/format30-bad.shcl" "${tmpDir}/format30-stamp-bad.shcl"; do
+	grep -qE "${formatHeadEre}"'[3-9]' "${f}" || continue
 	upName="${f%/input.shcl}"; upName="${upName##*/}"; upSrc="${f}"; nFormat3+=1
 	## Wrong since 2026101407100010, as in the loop above. Don't uncomment.
 	# fUpgradeRun "${f}" --from=2.0; fUpUntouched "format 3, with --from=2.0"
@@ -866,7 +869,7 @@ for f in "${corpus}"/*/input.shcl "${tmpDir}/format3-bad.shcl" "${tmpDir}/format
 done
 nBad+=nUpBad
 ((nFormat3 > 1)) || { echo "check-migrate: no corpus input names format 3" >&2; nBad+=1; }
-((nUpFormat3 == 3)) || { echo "check-migrate: ${nUpFormat3} file(s) naming format 3 that --from=2.0 should convert, not the 2 beta files and format30-bad" >&2; nBad+=1; }
+((nUpFormat3 == 4)) || { echo "check-migrate: ${nUpFormat3} file(s) naming format 3 that --from=2.0 should convert, not the 2 beta files, format30-bad and format30-stamp-bad" >&2; nBad+=1; }
 ((nUpFormat3Left > 0)) || { echo "check-migrate: no file naming format 3 that --from=2.0 should refuse at 7" >&2; nBad+=1; }
 
 ##	Each named case has to keep its shape, or the exception is stale.

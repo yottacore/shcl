@@ -38,12 +38,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - check-migrate reads a file stamped only `## SHCL format 3.0` as 2.x
 	- ID: 2026112110133815
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Priority: Low
 	- Opened: 20261121-101338
 	- Opened by:
 	- Progress log:
 		- `fNamesFormat3` looks only for `Format` lines, so such a file takes the 2.x comparison path. No run has hit it yet. Seen beside 2026112017370795.
+	- Closed reason: Done
+	- Closed: 20261121-115407
+	- Branch: nov21-2026112110133815
+	- Actual cause: fNamesFormat3 and the format3Ere pattern took only a Format line, so a file stamped `## SHCL format 3.0` fell to the 2.x comparison and the branch that wants it untouched.
+	- Actual fix: one pattern, formatHeadEre, takes either head, and fNamesFormat3, format3Ere, fUpConverts3's sed and ddmp8's loop go through it. ddmp8 has a fifth fixed file, format30-stamp-bad, and expects 4 converted with --from=2.0.
+	- Test case: check-migrate ddmp8 (format30-stamp-bad).
+	- Verified: check-migrate --iters 300 passed. With the head pattern cut back to Format only, ddmp8 failed with 3 files converted, not 4. shellcheck passed.
+	- Swept: every Format match in check-migrate.bash; no other cicd or test script has these patterns.
+	- Acceptance signoff: Self-closed: the new check failed with the old pattern and passes with the fix.
 
 - Format versions: the demo gif and its golden text show fmt output without the stamp
 	- ID: 2026111710564808
