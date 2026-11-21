@@ -35,6 +35,42 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- check-migrate wants a file stamped `Format 3.0` that loads with an error left alone by `upgrade --from=2.0`, which converts it
+	- ID: 2026112017370795
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261120-173707
+	- Opened by: me, the nov20c gate's check-migrate
+	- Related IDs: 2026101407100010, 2026111708125373, 2026111912330681
+	- Version and build: dev at `f9f1a9fc`, and nov20c at `63a34d6b`
+	- Steps to reproduce: run `cicd/utility/check-migrate.bash` on nov20c at `63a34d6b`. Its fuzz dump's `fuzz_00042` is a corpus input with the info block, `##    Format   3.0` in it, and `~##` above it, which is `E015`.
+	- Incorrect behavior: `ddmp7` fails: "format 3, with --from=2.0: the file was changed" and "something was written beside the file". `upgrade --from=2.0` writes a fresh file, which loads clean, and backs the original up under `format-v3`.
+	- Expected behavior: `ddmp7` passes. spec.md's `UpgradeFile` says a file naming this major that loads with an error is taken as the `from` format and written, so the library is right and the check wants the wrong thing.
+	- Reproduced: 20261120. The Rust CLI on dev at `f9f1a9fc` and on nov20c rewrites `fuzz_00042` with `--from=2.0` to the same fresh file, and leaves it alone without. `key: 1`, `~x`, a blank, then `##    Format   3.0` does the same. check-migrate.bash is the same on both. Corpus 223 shifted the seeds, so dev's dump never had such a file.
+	- Possible cause: `fUpConverts3`, its `sed`, and the `elif` in `fUpFormat3` match only `Format   3` with nothing after it, which is beta1's spelling. Info blocks name `3.0` since 2026111708125373, so a `3.0` file falls to the branch that wants it untouched.
+	- Estimated effort: Low
+
+- A list rewrite keeps the blank under a comment that sits in an item's place, which cuts the field's own comment off from it
+	- ID: 2026112017363707
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261120-173637
+	- Opened by: me, the nov20c gate's 2M release fuzz
+	- Related IDs: 2026110613470311, 2026111012160121, 2026110712372271
+	- Version and build: dev at `f9f1a9fc`, and nov20c at `63a34d6b`
+	- Steps to reproduce: `printf '# the list\nhosts:\n\t#- a\n\n\t# b is the spare\n\t- b\nz: 1\n' > f.shcl`, then `printf 'literal\thosts\tb\n' | shcl set f.shcl`.
+	- Incorrect behavior: the output is `# the list`, `#- a`, a blank, `# b is the spare`, then `hosts: b`. The blank under `#- a` moves up with the comments among the items, so `# the list` is set off from the field and `comments("hosts")` gives only `# b is the spare`. A merge that writes the list as a bracket array does the same. Fuzz `dderx` fails on it at iteration 172087 of the 2M release run on nov20c, op 10, a merge.
+	- Expected behavior: the comments among the items go right above the field's line, under its own comment, with no blank among them, as corpus `221-list-replace-comments` has for a blank between 2 items. With `- a` in place of `#- a` the blank goes.
+	- Reproduced: 20261120, the Rust CLI on dev at `f9f1a9fc` with the steps. The fuzz input's base and merge give the same text through the Rust library on dev and on nov20c at `63a34d6b`, and the placement property's merge check is the same on both. Corpus 223 shifted the seeds, so dev's run never reached it. Not tried in Go, Python or C.
+	- Possible cause: `adopt` drops a blank between items, but not one under a comment that sits where an item was.
+	- Note: the placement property excuses it with `blank_kept` in `fuzz_smoke.rs`, keyed by this ID. The fix takes it out.
+	- Verified: 20261120 on nov20c-fix, with `blank_kept` forced false `dderx` fails at iteration 172087 at 200,000 in release, and with it `dderx`, `dd3t9` and `df50j` pass at 200,000.
+	- Estimated effort: Low
+
 - Format versions: find_format doesn't count a quoted value with a backslash pair, `a: "t\"wo"`, as a tell
 	- ID: 2026112016323606
 	- Type: Bug
@@ -144,6 +180,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the 3 rows fail on the Python library at `4607415d` and pass on the change (`placement-watch.py`). The issue's commands give the expected text through the Rust, Go and C CLIs. cargo test, Go `go test -count=1` in both modules, the Python and C conformance runners, `--backlog-run-quick rust go python c`, `dd3t9`, `dderx` and `df50j` at 200,000 in release, cli-regress (685 rows), crosscheck over the corpus and a 2000-iteration dump (55461 comparisons, `ddesf` included), lint-report, rustfmt, gofmt, go vet, the markdown check and markdownlint.
 	- Needs local test suite run?: the 2M release fuzz of `fuzz_smoke` (`dd3t9`, `dderx`), and cppcheck and analyze-c for the `shcl.h` change.
 	- Branch: `nov20c-2026111021095858`
+	- Note: 20261120, the round's 2M release fuzz on `63a34d6b` failed `dderx` at iteration 172087, on a merge's list rewrite that dev's library gives the same text for. That's Bug 2026112017363707, not this change, and `placement_slips` excuses it by its ID (branch `nov20c-fix`).
 
 - Schema check costs the square of the nesting depth in all 4 bindings
 	- ID: 2026110711492228
@@ -216,6 +253,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: corpus `223-undeclared-repeat` (`dfjr5`) in all 4 runners and the crosscheck.
 		- Verified: it fails with the Rust fix taken out, along with the 5 updated goldens, and passes in all 4 with it.
 	- Verified: the quick gate, all areas; crosscheck; cli-regress; check-docs.
+	- Note: 20261120, corpus 223 shifted the fuzz seeds. check-migrate `ddmp7` then failed on `63a34d6b` on a dump file stamped `Format 3.0` with an error, which dev's CLI rewrites the same way. The check is wrong there, not the library: Bug 2026112017370795. The 2M fuzz's `dderx` failure is Bug 2026112017363707, from dev too.
 
 - Without a schema, 2 plain blocks that merge and repeat their children get only a hint
 	- ID: 2026112015385902

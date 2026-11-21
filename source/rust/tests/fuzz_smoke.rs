@@ -2772,6 +2772,37 @@ fn info_block_inside(text: &str) -> bool {
 	})
 }
 
+/// 2026112017363707: a list rewrite keeps the blank under a comment that sat
+/// in an item's place, which sets the field's own comments off from its line.
+/// True when the list had such a blank, and the comments over the field's line
+/// past blanks hold `want` in order.
+fn blank_kept(before: &str, a: &Anchor, after: &str, b: &Anchor, want: &[String]) -> bool {
+	let tabs = |l: &str| l.len() - l.trim_start_matches('\t').len();
+	let was: Vec<&str> = before.lines().collect();
+	let block: Vec<&str> = was[a.line + 1..]
+		.iter()
+		.take_while(|l| l.trim_matches(BLANKS).is_empty() || tabs(l) > a.depth)
+		.copied()
+		.collect();
+	let had = block.windows(2).any(|w| {
+		w[0].trim_matches(BLANKS).starts_with('#') && w[1].trim_matches(BLANKS).is_empty()
+	});
+	let now: Vec<&str> = after.lines().collect();
+	let mut over: Vec<&str> = now[..b.line]
+		.iter()
+		.rev()
+		.map(|l| l.trim_matches(BLANKS))
+		.take_while(|t| t.is_empty() || t.starts_with('#'))
+		.filter(|t| !t.is_empty())
+		.collect();
+	over.reverse();
+	let mut rest = over.iter();
+	had && want
+		.iter()
+		.filter(|w| !w.is_empty())
+		.all(|w| rest.any(|l| l == w))
+}
+
 /// Where a comment must be after an edit, from the 2 canonical texts alone
 /// (2026110616475903). A comment's anchor is the next line below it that is
 /// not blank or a comment, at its own depth, and it holds the blank above
@@ -3008,7 +3039,8 @@ fn placement_slips(
 			}
 			_ => lead == want,
 		};
-		if !placed {
+		let excused = rewritten && blank_kept(before, a, after, b, &want);
+		if !placed && !excused {
 			slips.push(format!("{}: comments {want:?} are now {lead:?}", a.key));
 		}
 		// A run a blank sets off from it stays between it and the line above
