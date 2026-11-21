@@ -1,0 +1,20 @@
+bot:
+	name: a
+	name: b
+planet:
+	name: earth
+	r: 1
+planet:
+	name: mars
+	r: 2
+server: web
+	port: 80
+server: db
+	port: 5432
+tag: x
+tag: y
+env:
+	A: 1
+	A: 2
+pet: cat
+pet: dog

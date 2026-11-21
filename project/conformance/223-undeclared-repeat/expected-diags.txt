@@ -1,0 +1,7 @@
+line 3: Hint: H001
+line 8: Hint: H001
+line 9: Hint: H001
+line 15: Hint: H001
+line 18: Hint: H001
+line 20: Hint: H001
+ok (6 diagnostic(s))

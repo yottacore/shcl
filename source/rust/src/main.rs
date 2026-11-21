@@ -706,6 +706,10 @@ V006|error|above the declared max
 V007|error|instance count out of repeat bounds
   There are too few or too many instances of a field that the schema
   bounds with 'repeat'.
+V008|error|repeated field with no repeat in the schema
+  A field without children is written more than once under one parent, and
+  the schema gives it no 'repeat', so a read finds more than one value. Give
+  it a 'repeat' above 1, or write one line, such as an array.
 V090|error|unknown schema key
   It's a schema fault. The key is dropped, and the rest of the schema still
   checks the document. The line number is a schema line.

@@ -5818,8 +5818,10 @@ fn generated_starters_load_and_validate_clean() {
 	// `a["b#c"]:` where the bare body was a comment and the schema refused.
 	// 2026100207032800 took it to 1029: the 12 whose parent defaults to an
 	// array and has a child, which has no selector spelling once a bare
-	// selector body cannot hold a space.
-	assert_eq!(generated, 1029, "grid schemas that generate");
+	// selector body cannot hold a space. 2026111016205701 took it to 1014:
+	// the 15 that pair a required `a` with a required `a(b)` and no default
+	// of b write 2 `a` leaves, which is V008 with no `repeat` on `a`.
+	assert_eq!(generated, 1014, "grid schemas that generate");
 }
 
 /// What the default forms put behind the old value in a note.

@@ -14860,6 +14860,32 @@ static void v_out_of_range(ShclArena *a, ShclVecDiag *out, size_t line, const Sh
 
 // Diagnostic messages go to a (they outlive the walk); coercion temporaries
 // and compare strings go to lv, the walk level's scratch.
+/* A field the schema gives no `repeat` reads as one value, so the same
+   leaf written twice under one parent (H001's shape, or a merged block's
+   children) passes every per-node check and then reads Multiple. Instances
+   with children are the table idiom and stay legal, and a `(*)` leaf names
+   its instances. A `*` leaf has no one name. Same-parent nodes are
+   adjacent in `found`, one run per parent. */
+static void v_repeated(ShclArena *a, const shcl_doc *d, const ShclVCons *c, const ShclVecSize *found, ShclVecDiag *out) {
+	if (!c->segs.len) return;
+	const ShclSegment *last = &c->segs.data[c->segs.len - 1];
+	if (last->star || last->sel.tag == SEL_WILDCARD) return;
+	for (size_t i = 0; i < found->len;) {
+		size_t parent = NODE(d, found->data[i]).parent, j = i;
+		int leaves = 1;
+		for (; j < found->len && NODE(d, found->data[j]).parent == parent; j++)
+			if (NODE(d, found->data[j]).children.len) leaves = 0;
+		if (j - i > 1 && leaves) {
+			ShclSB s = {0, 0, 0};
+			sb_puts(a, &s, "repeated field at '"); sb_putS(a, &s, schema_text(a, c->path));
+			sb_puts(a, &s, "': "); sb_put_u64(a, &s, (uint64_t)(j - i));
+			sb_puts(a, &s, " lines, and the schema has no repeat for it");
+			v_diag(a, out, NODE(d, found->data[i + 1]).line, "V008", sb_S(&s));
+		}
+		i = j;
+	}
+}
+
 static void v_node(ShclArena *a, ShclArena *lv, shcl_doc *d, const ShclVCons *c, size_t n, ShclVecDiag *out) { // NOLINT(bugprone-easily-swappable-parameters): result arena first, then the level's
 	ShclNode *node = &NODE(d, n);
 	size_t line = node->line;
@@ -15074,6 +15100,8 @@ static void v_check_from(ShclArena *a, ShclArena *lvls, shcl_doc *d, const ShclV
 					sb_puts(a, &s, ".."); sb_put_u64(a, &s, c->rep_hi);
 					v_diag(a, out, ctx->anchor, "V007", sb_S(&s));
 				}
+			} else {
+				v_repeated(a, d, c, &ctx->found, out);
 			}
 		}
 		if (L->k >= ctx->found.len) { L->i++; L->k = 0; L->opened = 0; continue; }

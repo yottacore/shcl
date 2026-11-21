@@ -18608,6 +18608,8 @@ impl Document {
 						),
 					);
 				}
+			} else {
+				self.v_repeated(c, found, out);
 			}
 			for &n in found {
 				self.v_node(c, n, out);
@@ -18625,6 +18627,35 @@ impl Document {
 						}
 					}
 				}
+			}
+		}
+	}
+
+	// A field the schema gives no `repeat` reads as one value, so the same
+	// leaf written twice under one parent (H001's shape, or a merged block's
+	// children) passes every per-node check and then reads Multiple. Instances
+	// with children are the table idiom and stay legal, and a `(*)` leaf names
+	// its instances. A `*` leaf has no one name. Same-parent nodes are
+	// adjacent in `found`, one run per parent.
+	fn v_repeated(&self, c: &Constraint, found: &[usize], out: &mut Vec<Diagnostic>) {
+		if c.segs
+			.last()
+			.is_none_or(|s| s.star || matches!(s.selector, Some(Selector::Wildcard)))
+		{
+			return;
+		}
+		for run in found.chunk_by(|&a, &b| self.arena[a].parent == self.arena[b].parent) {
+			if run.len() > 1 && run.iter().all(|&n| self.arena[n].children.is_empty()) {
+				vdiag(
+					out,
+					self.arena[run[1]].line,
+					"V008",
+					format!(
+						"repeated field at '{}': {} lines, and the schema has no repeat for it",
+						schema_text(&c.path),
+						run.len()
+					),
+				);
 			}
 		}
 	}

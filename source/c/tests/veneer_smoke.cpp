@@ -1115,7 +1115,8 @@ int main() {
 	// Schema validation rides through the veneer: a conforming doc is clean, a
 	// violation has its stable V-code, and a key-level schema fault still
 	// lets the unknown-field sweep run (the faulted entry keeps its path).
-	auto schema = shcl::Document::parse("field: port\n\ttype: int\n\tmin: 1\nfield: city\nfield: ratio\nfield: name\nfield: on\nfield: tags\n");
+	// `city` is written twice, so it needs its repeat (V008).
+	auto schema = shcl::Document::parse("field: port\n\ttype: int\n\tmin: 1\nfield: city\n\trepeat: [1, 2]\nfield: ratio\nfield: name\nfield: on\nfield: tags\n");
 	CHECK(doc.validate(schema).empty());
 	auto badschema = shcl::Document::parse("field: port\n\ttype: int\n\tmin: 90000\n");
 	auto vd = doc.validate(badschema);

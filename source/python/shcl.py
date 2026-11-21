@@ -11180,6 +11180,8 @@ class Document:
 					n = len(found)
 					if n < lo or n > hi:
 						_vdiag(out, anchor, "V007", f"instance count out of bounds at '{_schema_text(c.path)}': {n} not in {lo}..{hi}")
+				else:
+					self._v_repeated(c, found, out)
 				stack.extend(("node", c, n) for n in reversed(found))
 			else:
 				_, c, n = job
@@ -11195,6 +11197,27 @@ class Document:
 						if (c.inherits, n) not in mounted:
 							mounted.add((c.inherits, n))
 							stack.extend(("check", fc, n, self.arena[n].line) for fc in reversed(fcs))
+
+	# A field the schema gives no `repeat` reads as one value, so the same
+	# leaf written twice under one parent (H001's shape, or a merged block's
+	# children) passes every per-node check and then reads Multiple. Instances
+	# with children are the table idiom and stay legal, and a `(*)` leaf names
+	# its instances. A `*` leaf has no one name. Same-parent nodes are
+	# adjacent in `found`, one run per parent.
+	def _v_repeated(self, c, found, out):
+		if not c.segs or c.segs[-1].star or (c.segs[-1].selector is not None and c.segs[-1].selector[0] == "wild"):
+			return
+		arena = self.arena
+		i = 0
+		while i < len(found):
+			parent = arena[found[i]].parent
+			j, leaves = i, True
+			while j < len(found) and arena[found[j]].parent == parent:
+				leaves = leaves and not arena[found[j]].children
+				j += 1
+			if j - i > 1 and leaves:
+				_vdiag(out, arena[found[i + 1]].line, "V008", f"repeated field at '{_schema_text(c.path)}': {j - i} lines, and the schema has no repeat for it")
+			i = j
 
 	def _v_node(self, c, n, out):
 		node = self.arena[n]

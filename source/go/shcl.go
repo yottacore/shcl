@@ -18814,6 +18814,8 @@ func (d *Document) vCheckFrom(
 				vdiag(out, ctx.anchor, "V007", fmt.Sprintf("instance count out of bounds at '%s': %d not in %d..%d",
 					schemaText(c.path), n, c.repeat[0], c.repeat[1]))
 			}
+		} else {
+			d.vRepeated(c, ctx.found, out)
 		}
 		for _, n := range ctx.found {
 			d.vNode(c, n, out)
@@ -18834,6 +18836,33 @@ func (d *Document) vCheckFrom(
 				}
 			}
 		}
+	}
+}
+
+// A field the schema gives no `repeat` reads as one value, so the same
+// leaf written twice under one parent (H001's shape, or a merged block's
+// children) passes every per-node check and then reads Multiple. Instances
+// with children are the table idiom and stay legal, and a `(*)` leaf names
+// its instances. A `*` leaf has no one name. Same-parent nodes are
+// adjacent in `found`, one run per parent.
+func (d *Document) vRepeated(c *constraint, found []int, out *[]Diagnostic) {
+	if len(c.segs) == 0 {
+		return
+	}
+	if last := c.segs[len(c.segs)-1]; last.star || last.sel != nil && last.sel.kind == selWildcard {
+		return
+	}
+	for i := 0; i < len(found); {
+		j, leaves := i, true
+		for j < len(found) && d.arena[found[j]].parent == d.arena[found[i]].parent {
+			leaves = leaves && len(d.arena[found[j]].children) == 0
+			j++
+		}
+		if j-i > 1 && leaves {
+			vdiag(out, d.arena[found[i+1]].line, "V008", fmt.Sprintf("repeated field at '%s': %d lines, and the schema has no repeat for it",
+				schemaText(c.path), j-i))
+		}
+		i = j
 	}
 }
 

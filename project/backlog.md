@@ -171,7 +171,39 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Add a `V` error in all 4 for a repeated field or merged block that the schema doesn't give a `repeat` above 1.
 		- Without a schema, a repeated block whose children repeat as bare leaves is a warning rather than a hint.
+			- That part is child 2026112015385902, which waits on a question, since SHCL has no warning severity.
+	- Actual cause: validation checked each node a path resolves to, and counted them only against a declared `repeat`. With no `repeat`, any number of lines passed.
 	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- With no `repeat`, 2 or more lines of a field under one parent, none with children, are `V008` at the second line (me). Instances with children are the table idiom, so they stay legal, and so does the same leaf under 2 parents, since that repeat is the parent's.
+		- A merged block is covered through its children: 2 plain `planet:` blocks merge into one, and their `name` lines then repeat under it (me).
+		- A `(*)` leaf names its instances and a `*` leaf has no one name, so neither is checked. A faulted `repeat` counts as none (me).
+		- `V008` is a new code rather than `V007` with an implied bound, since the count is per parent, not per context (me).
+		- The schema-side choice has a `Check:` entry in questions.md.
+	- Actual fix: `v_repeated` (Go `vRepeated`, Python `_v_repeated`) runs where `repeat` is absent, in all 4. `V008` is in the spec's table and every CLI's `explain` list.
+		- 20261120: assert values changed for this item. The `expected-validate.txt` goldens of corpus 036, 039, 054, 078 and 196 each gained their `V008` lines. The Rust generation grid in `generated_starters_load_and_validate_clean` went from 1029 to 1014, for the 15 that pair a required `a` with a required `a(b)`. The veneer smoke's clean schema gives `city` a `repeat: [1, 2]`, since its document writes `city` twice.
+	- Swept: the count site in all 4 `v_check_from`; the generator's self-check, which reports `V008` as `V097` through the same validate; the 4 `explain` lists; check-docs `dd5gs` matches them to the spec.
+	- Branch: nov20c-2026111016205701
+	- Commit: `6ac1a643`
+	- Test case: corpus `223-undeclared-repeat` (`dfjr5`) in all 4 runners and the crosscheck.
+		- Verified: it fails with the Rust fix taken out, along with the 5 updated goldens, and passes in all 4 with it.
+	- Verified: the quick gate, all areas; crosscheck; cli-regress; check-docs.
+
+- Without a schema, 2 plain blocks that merge and repeat their children get only a hint
+	- ID: 2026112015385902
+	- Type: Bug
+	- Status: Waiting for answers
+		- Waits on the 2026112015385902 question in questions.md: a new warning severity, or a sharper hint.
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261120-153859
+	- Opened by: me
+	- Parent ID: 2026111016205701
+	- Steps to reproduce: load `planet:` twice with no schema, each with a `name:` and an `r:` under it.
+	- Incorrect behavior: 0 errors, `count("planet")` is 1, and the only sign is `H001` on `name` and `r`, which nothing shows by default.
+	- Requirements: a repeated block whose children repeat as bare leaves is a warning rather than a hint, with no schema.
+	- Note: SHCL has no warning severity, only Error and Hint. With a schema, the same file is `V008` since the parent.
 
 - `Document::merge` drops the base file's comments on every leaf the upper layer names
 	- ID: 2026111217560140
