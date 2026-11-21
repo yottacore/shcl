@@ -4758,7 +4758,7 @@ static shcl_migration migrate_text(const char *text, size_t len, int from_v2, in
 	st.pin = pinned ? step.pin : SHCL_PIN_FROM_A37;
 	st.v2 = step.kind == SHCL_STEP_V2 ? step.v2 : SHCL_V2_EITHER;
 	st.from_v2 = from_v2 || pinned;
-	shcl_migration m; m.current = 0;
+	shcl_migration m; memset(&m, 0, sizeof m);
 	ShclStr r = migrate(own, in, &st, &m.current, stamp, beta);
 	m.ambiguous = st.ambiguous; m.lost = st.lost; m.unfinished = st.unfinished; m.len = r.n;
 	m.text = (char *)malloc(r.n + 1);
