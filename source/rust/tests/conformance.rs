@@ -3574,6 +3574,49 @@ fn escapes_decode_in_linear_time() {
 	);
 }
 
+/// The unknown-field check built each node's chain from the root and matched
+/// it from the top, so a fragment that mounts itself cost the square of the
+/// document's depth (2026110711492228). Four times the depth has to take under
+/// 8 times the time, twice the linear growth, where the square took 16 times.
+/// Best of 3 each. Same fixture in every runner.
+#[cfg_attr(
+	miri,
+	ignore = "times a ratio, which means nothing under Miri, and never finishes there (2026102106592600)"
+)]
+#[cfg_attr(
+	shcl_tsan,
+	ignore = "times a ratio, which means nothing under ThreadSanitizer"
+)]
+#[test]
+fn recursive_mount_check_is_linear_in_depth() {
+	let _id = test_id("dfjq6");
+	let schema = Document::parse(
+		"fragment: f\n\tfield: a\n\t\tinherits: f\n\tfield: leaf\n\t\ttype: int\nfield: a\n\tinherits: f\n",
+	);
+	let mut ms = [0.0f64; 2];
+	for (slot, depth) in ms.iter_mut().zip([120, 480]) {
+		let text: String = (0..20)
+			.map(|ln| format!("a(v{}).{}leaf: 1\n", ln, "a.".repeat(depth)))
+			.collect();
+		let d = Document::parse(&text);
+		*slot = f64::INFINITY;
+		for _ in 0..3 {
+			let t0 = std::time::Instant::now();
+			let vs = d.validate(&schema);
+			*slot = slot.min(t0.elapsed().as_secs_f64() * 1000.0);
+			assert!(vs.is_empty(), "a legal chain was refused: {:?}", vs);
+		}
+	}
+	let bound = ms[0].max(1.0) * 8.0;
+	assert!(
+		ms[1] <= bound,
+		"recursive mount check {:.1} ms at depth 480 against {:.1} ms at depth 120 (bound {:.1} ms) - the check is not linear in the depth",
+		ms[1],
+		ms[0],
+		bound
+	);
+}
+
 #[test]
 fn standard_trait_surface() {
 	let _id = test_id("dbegt");
@@ -4900,6 +4943,104 @@ fn a_value_the_format_3_syntax_refuses_is_a_tell() {
 		("s: p\ns(p).h: x\"y\n", nov10, "3.0"),
 		("a:\n\t- x\"y\n", nov10, "3.0"),
 		("x\"y: 1\n", nov10, "3.0"),
+	];
+	for (text, mtime, want) in cases {
+		assert_eq!(
+			find_format(text, mtime),
+			Some(want),
+			"{:?} at {:?}",
+			text,
+			mtime
+		);
+	}
+}
+
+/// A value a quote opens and the same quote ends, with text between 2 quoted
+/// runs, such as `"x" "y"`, read whole in 1.0 to 2.0, without its outer
+/// quotes. 3.0-1f8 on refuse it (`E017`), so it tells 1.0 to 2.0 apart from
+/// them. A run the 2.x rules leave open, or a closing quote of another kind,
+/// is refused by 1.0 to 2.0 too, so those aren't tells (2026112010395941).
+/// The same rows are in every binding's runner.
+#[test]
+fn a_value_of_2_quoted_runs_is_a_tell() {
+	let _id = test_id("dfjs9");
+	let sep1 = Some(1788220800); // 2026-09-01, 1.0 to 2.0
+	let oct20 = Some(1792454400); // 2026-10-20, to 3.0-9ef
+	let nov10 = Some(1794268800); // 2026-11-10, every format
+	let cases: [(&str, Option<i64>, &str); 26] = [
+		("a: \"x\" \"y\"\n", nov10, "2.0"),
+		("a: \"x\" \"y\"\n", None, "2.0"),
+		("a: \"x\" \"y\"\n", oct20, "2.0"),
+		("a: \"x\" \"y\"\n", sep1, "2.0"),
+		("a: 'x' 'y'\n", nov10, "2.0"),
+		("a: \"x\"\"y\"\n", nov10, "2.0"),
+		("a: \"x\" \"y\" \"z\"\n", nov10, "2.0"),
+		("a: \"x\" \"y #c\"\n", nov10, "2.0"),
+		("a: \"x, y\" \"z\"\n", nov10, "2.0"),
+		("a: \"x\\\" \"y\"\n", nov10, "2.0"),
+		("a: z, \"x\" \"y\"\n", nov10, "2.0"),
+		("s:\n\ta: \"x\" \"y\"  # c\n", nov10, "2.0"),
+		("a:\n\t* \"x\" \"y\"\n", nov10, "2.0"),
+		("a: \"x\" \"y\"\nb: x\"y\n", nov10, "2.0"),
+		// An apostrophe the pins read as the close, which 2.x read escaped.
+		("a: 't\\'wo'\n", nov10, "2.0"),
+		// One tell each way ties, and the tie goes to the newest.
+		("a: \"x\" \"y\"\nb:\n\t- z\n", nov10, "3.0"),
+		// Not tells.
+		("a: \"x\" y\n", nov10, "3.0"),
+		("a: \"x\"y\n", nov10, "3.0"),
+		("a: \"x\" 'y'\n", nov10, "3.0"),
+		("a: \"x\" \"y\n", nov10, "3.0"),
+		("a: \"x\" \"y\\\"\n", nov10, "3.0"),
+		("a: \"x\" \"y\", \"q\n", nov10, "3.0"),
+		("a:\n\t- \"x\" \"y\"\n", nov10, "3.0"),
+		("\"x\" \"y\": 1\n", nov10, "3.0"),
+		// The pins read these, so they're the format 3 value syntax's own
+		// tells, a backtick and a `*` item.
+		("a: `x` \"y\"\n", nov10, "3.0-a37"),
+		("a:\n\t* \"t\\\"wo\"\n", nov10, "3.0-a37"),
+	];
+	for (text, mtime, want) in cases {
+		assert_eq!(
+			find_format(text, mtime),
+			Some(want),
+			"{:?} at {:?}",
+			text,
+			mtime
+		);
+	}
+}
+
+/// A quoted value with a backslash pair that 1.0 to 3.0-a37 read as an
+/// escape, such as `"t\"wo"`, read clean there as `t"wo`. 3.0-9ef on refuse
+/// it (`E017`), since the backslash is text and the second quote closes the
+/// run, so it tells the formats to 3.0-a37 apart from them. A pair that both
+/// read clean isn't a tell, and neither is a run the older formats leave open
+/// (2026112016323606). The same rows are in every binding's runner.
+#[test]
+fn a_quoted_value_with_a_backslash_pair_is_a_tell() {
+	let _id = test_id("dfjt5");
+	let sep1 = Some(1788220800); // 2026-09-01, 1.0 to 2.0
+	let oct20 = Some(1792454400); // 2026-10-20, to 3.0-9ef
+	let nov10 = Some(1794268800); // 2026-11-10, every format
+	let cases: [(&str, Option<i64>, &str); 14] = [
+		("a: \"t\\\"wo\"\n", nov10, "3.0-a37"),
+		("a: \"t\\\"wo\"\n", None, "3.0-a37"),
+		("a: \"t\\\"wo\"\n", oct20, "3.0-a37"),
+		("a: \"t\\\"wo\"\n", sep1, "2.0"),
+		("a: \"a\\\" b\"\n", nov10, "3.0-a37"),
+		("a: \"\\\"\\\"\"\n", nov10, "3.0-a37"),
+		("s:\n\ta: \"t\\\"wo\"  # c\n", nov10, "3.0-a37"),
+		("a:\n\t* \"t\\\"wo\"\n", nov10, "3.0-a37"),
+		// 2 tells against 3.0-9ef on and one against 3.0-1f8 on.
+		("a: \"t\\\"wo\"\nb: \"x\" \"y\"\n", nov10, "2.0"),
+		// One tell each way ties, and the tie goes to the newest.
+		("a: \"t\\\"wo\"\nb:\n\t- z\n", nov10, "3.0"),
+		// Not tells.
+		("a: \"t\\\\\"\n", nov10, "3.0"),
+		("a: \"t\\\"wo\n", nov10, "3.0"),
+		("a: \"t\\\"wo\" x\n", nov10, "3.0"),
+		("a: 't\\'wo\n", nov10, "3.0"),
 	];
 	for (text, mtime, want) in cases {
 		assert_eq!(
@@ -7674,6 +7815,48 @@ fn upgrade_from_1x_or_2x_keeps_a_raw_body_and_an_open_quote_as_read() {
 		"{}",
 		m.text
 	);
+}
+
+/// Without `from` or a Format line, a raw body that 1.0, 1.1 or 2.0 read
+/// otherwise, with its shared indent taken off or closed on a fence run with
+/// a Unicode blank at its edge, reads two ways, since the 2.x builds after
+/// 2.0 read it as these rules do. It stays as typed, counts as ambiguous, and
+/// the file is unfinished. A body every format read alike, as 2.0's fmt wrote
+/// it, doesn't count, and `from` still rewrites it (2026112013244228). Same
+/// rows in every runner.
+#[test]
+fn migrate_counts_a_raw_body_2x_read_otherwise() {
+	let _id = test_id("dfjnc");
+	let indented = "q: ~~~sql\n  SELECT 1\n    FROM t\n~~~\nport: 80\n";
+	let flush = "q: ~~~sql\nSELECT 1\n  FROM t\n~~~\nport: 80\n";
+	// text and ambiguous. Each comes back as typed, and only one that
+	// counts nothing is stamped.
+	let rows = [
+		(indented, 1),
+		("a:\n\t```\n\t\tx\n\t```\nb: ~~~\n y\n~~~\n", 2),
+		("u: ~~~\n\tx\n~~~\u{2028}\nport: 80\n", 1),
+		(flush, 0),
+	];
+	for (text, ambiguous) in rows {
+		let stamped = if ambiguous == 0 {
+			format!("{text}##    Format   3.0\n")
+		} else {
+			text.to_string()
+		};
+		for (m, want) in [
+			(migrate(text, None), stamped.as_str()),
+			(migrate_unstamped(text, None), text),
+		] {
+			assert_eq!(
+				(m.text.as_str(), m.ambiguous, m.unfinished, m.lost),
+				(want, ambiguous, ambiguous != 0, 0),
+				"{text:?}"
+			);
+		}
+	}
+	let m = migrate(indented, Some("2.0"));
+	assert_eq!((m.ambiguous, m.unfinished), (0, false), "{}", m.text);
+	assert!(m.text.starts_with(flush), "{}", m.text);
 }
 
 /// 1.0 to 3.0-a37 keyed an instance by its strings alone, so `k: x` and a

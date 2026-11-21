@@ -1089,3 +1089,72 @@ b: 1, , 2
 # added
 z0:
 ## SHCL format 3.0
+
+:: row 2026111021095858-1 clearing a field's comments leaves the comments above a kept line right above it
+:: before
+k2: 78
+# note 3
+port4: a, b,  c
+# on srv5
+srv5: 1
+:: ops
+clear-comments	srv5
+:: expected
+k2: 78
+# note 3
+port4: a, b,  c
+srv5: 1
+## SHCL format 3.0
+:: keep
+k2: 78
+# note 3
+port4: a, b,  c
+srv5: 1
+## SHCL format 3.0
+
+:: row 2026111021095858-2 and the blank above the comments it takes stays above the field
+:: before
+a: 1
+# c
+b: 1, , 2
+
+# on z
+z: 1
+:: ops
+clear-comments	z
+:: expected
+a: 1
+# c
+b: 1, , 2
+
+z: 1
+## SHCL format 3.0
+:: keep
+a: 1
+# c
+b: 1, , 2
+
+z: 1
+## SHCL format 3.0
+
+:: row 2026111021095858-3 a field opened from a kept line loses only the comments above that line
+:: before
+# on k
+k: 1, , 2
+# on a
+a: 1, , 2
+	b: 1
+:: ops
+clear-comments	a
+:: expected
+# on k
+k: 1, , 2
+a: 1, , 2
+	b: 1
+## SHCL format 3.0
+:: keep
+# on k
+k: 1, , 2
+a: 1, , 2
+	b: 1
+## SHCL format 3.0

@@ -3369,6 +3369,40 @@ func TestEscapesDecodeInLinearTime(t *testing.T) {
 	}
 }
 
+// The unknown-field check built each node's chain from the root and matched
+// it from the top, so a fragment that mounts itself cost the square of the
+// document's depth (2026110711492228). Four times the depth has to take under
+// 8 times the time, twice the linear growth, where the square took 16 times.
+// Best of 3 each. Same fixture in every runner.
+func TestRecursiveMountCheckIsLinearInDepth(t *testing.T) {
+	defer testID(t, "dfjq7")
+	if raceOn {
+		t.Skip("not timed under -race")
+	}
+	schema := Parse("fragment: f\n\tfield: a\n\t\tinherits: f\n\tfield: leaf\n\t\ttype: int\nfield: a\n\tinherits: f\n")
+	var ms [2]float64
+	for slot, depth := range []int{120, 480} {
+		var text strings.Builder
+		for ln := 0; ln < 20; ln++ {
+			fmt.Fprintf(&text, "a(v%d).%sleaf: 1\n", ln, strings.Repeat("a.", depth))
+		}
+		d := Parse(text.String())
+		ms[slot] = math.Inf(1)
+		for r := 0; r < 3; r++ {
+			t0 := time.Now()
+			vs := d.Validate(schema)
+			ms[slot] = math.Min(ms[slot], float64(time.Since(t0).Microseconds())/1000.0)
+			if len(vs) != 0 {
+				t.Fatalf("a legal chain was refused: %v", vs)
+			}
+		}
+	}
+	bound := math.Max(ms[0], 1) * 8
+	if ms[1] > bound {
+		t.Errorf("recursive mount check %.1f ms at depth 480 against %.1f ms at depth 120 (bound %.1f ms) - the check is not linear in the depth", ms[1], ms[0], bound)
+	}
+}
+
 // A good escape built the E023 text it never read, which took 1M escapes from
 // 0.19 s to 0.72 s (2026110613470306). Asserted as an allocation count, as
 // TestAsciiLowerDoesNotCopyAFoldedName is.
@@ -4743,6 +4777,102 @@ func TestAValueTheFormat3SyntaxRefusesIsATell(t *testing.T) {
 		{"s: p\ns(p).h: x\"y\n", nov10, "3.0"},
 		{"a:\n\t- x\"y\n", nov10, "3.0"},
 		{"x\"y: 1\n", nov10, "3.0"},
+	}
+	for _, c := range cases {
+		if got, ok := FindFormat(c.text, c.mtime); !ok || got != c.want {
+			t.Errorf("%q at %v: %q, want %q", c.text, c.mtime, got, c.want)
+		}
+	}
+}
+
+// TestAValueOf2QuotedRunsIsATell: a value a quote opens and the same quote
+// ends, with text between 2 quoted runs, such as `"x" "y"`, read whole in 1.0
+// to 2.0, and 3.0-1f8 on refuse it (E017), so it tells them apart. Rust's
+// a_value_of_2_quoted_runs_is_a_tell has the same rows. The mtimes are Unix
+// seconds at UTC.
+func TestAValueOf2QuotedRunsIsATell(t *testing.T) {
+	defer testID(t, "dfjsa")
+	at := func(n int64) *int64 { return &n }
+	sep1 := at(1788220800)  // 2026-09-01, 1.0 to 2.0
+	oct20 := at(1792454400) // 2026-10-20, to 3.0-9ef
+	nov10 := at(1794268800) // 2026-11-10, every format
+	cases := []struct {
+		text  string
+		mtime *int64
+		want  string
+	}{
+		{"a: \"x\" \"y\"\n", nov10, "2.0"},
+		{"a: \"x\" \"y\"\n", nil, "2.0"},
+		{"a: \"x\" \"y\"\n", oct20, "2.0"},
+		{"a: \"x\" \"y\"\n", sep1, "2.0"},
+		{"a: 'x' 'y'\n", nov10, "2.0"},
+		{"a: \"x\"\"y\"\n", nov10, "2.0"},
+		{"a: \"x\" \"y\" \"z\"\n", nov10, "2.0"},
+		{"a: \"x\" \"y #c\"\n", nov10, "2.0"},
+		{"a: \"x, y\" \"z\"\n", nov10, "2.0"},
+		{"a: \"x\\\" \"y\"\n", nov10, "2.0"},
+		{"a: z, \"x\" \"y\"\n", nov10, "2.0"},
+		{"s:\n\ta: \"x\" \"y\"  # c\n", nov10, "2.0"},
+		{"a:\n\t* \"x\" \"y\"\n", nov10, "2.0"},
+		{"a: \"x\" \"y\"\nb: x\"y\n", nov10, "2.0"},
+		// An apostrophe the pins read as the close, which 2.x read escaped.
+		{"a: 't\\'wo'\n", nov10, "2.0"},
+		// One tell each way ties, and the tie goes to the newest.
+		{"a: \"x\" \"y\"\nb:\n\t- z\n", nov10, "3.0"},
+		// Not tells.
+		{"a: \"x\" y\n", nov10, "3.0"},
+		{"a: \"x\"y\n", nov10, "3.0"},
+		{"a: \"x\" 'y'\n", nov10, "3.0"},
+		{"a: \"x\" \"y\n", nov10, "3.0"},
+		{"a: \"x\" \"y\\\"\n", nov10, "3.0"},
+		{"a: \"x\" \"y\", \"q\n", nov10, "3.0"},
+		{"a:\n\t- \"x\" \"y\"\n", nov10, "3.0"},
+		{"\"x\" \"y\": 1\n", nov10, "3.0"},
+		// The pins read these, so they're the format 3 value syntax's own
+		// tells, a backtick and a `*` item.
+		{"a: `x` \"y\"\n", nov10, "3.0-a37"},
+		{"a:\n\t* \"t\\\"wo\"\n", nov10, "3.0-a37"},
+	}
+	for _, c := range cases {
+		if got, ok := FindFormat(c.text, c.mtime); !ok || got != c.want {
+			t.Errorf("%q at %v: %q, want %q", c.text, c.mtime, got, c.want)
+		}
+	}
+}
+
+// TestAQuotedValueWithABackslashPairIsATell: a quoted value with a backslash
+// pair that 1.0 to 3.0-a37 read as an escape, such as `"t\"wo"`, read clean
+// there, and 3.0-9ef on refuse it (E017), so it tells them apart. Rust's
+// a_quoted_value_with_a_backslash_pair_is_a_tell has the same rows. The
+// mtimes are Unix seconds at UTC.
+func TestAQuotedValueWithABackslashPairIsATell(t *testing.T) {
+	defer testID(t, "dfjt6")
+	at := func(n int64) *int64 { return &n }
+	sep1 := at(1788220800)  // 2026-09-01, 1.0 to 2.0
+	oct20 := at(1792454400) // 2026-10-20, to 3.0-9ef
+	nov10 := at(1794268800) // 2026-11-10, every format
+	cases := []struct {
+		text  string
+		mtime *int64
+		want  string
+	}{
+		{"a: \"t\\\"wo\"\n", nov10, "3.0-a37"},
+		{"a: \"t\\\"wo\"\n", nil, "3.0-a37"},
+		{"a: \"t\\\"wo\"\n", oct20, "3.0-a37"},
+		{"a: \"t\\\"wo\"\n", sep1, "2.0"},
+		{"a: \"a\\\" b\"\n", nov10, "3.0-a37"},
+		{"a: \"\\\"\\\"\"\n", nov10, "3.0-a37"},
+		{"s:\n\ta: \"t\\\"wo\"  # c\n", nov10, "3.0-a37"},
+		{"a:\n\t* \"t\\\"wo\"\n", nov10, "3.0-a37"},
+		// 2 tells against 3.0-9ef on and one against 3.0-1f8 on.
+		{"a: \"t\\\"wo\"\nb: \"x\" \"y\"\n", nov10, "2.0"},
+		// One tell each way ties, and the tie goes to the newest.
+		{"a: \"t\\\"wo\"\nb:\n\t- z\n", nov10, "3.0"},
+		// Not tells.
+		{"a: \"t\\\\\"\n", nov10, "3.0"},
+		{"a: \"t\\\"wo\n", nov10, "3.0"},
+		{"a: \"t\\\"wo\" x\n", nov10, "3.0"},
+		{"a: 't\\'wo\n", nov10, "3.0"},
 	}
 	for _, c := range cases {
 		if got, ok := FindFormat(c.text, c.mtime); !ok || got != c.want {
@@ -8799,6 +8929,45 @@ func TestUpgradeFrom1xOr2xKeepsARawBodyAndAnOpenQuoteAsRead(t *testing.T) {
 	// read it.
 	if m := Migrate(text, ""); !strings.HasPrefix(m.Text, "r:\n\t```\n\t  line1\n\t   \n\n\t \n\t  line2\n") {
 		t.Errorf("migrate: %q", m.Text)
+	}
+}
+
+// TestMigrateCountsARawBody2xReadOtherwise: without from or a Format line, a
+// raw body that 1.0, 1.1 or 2.0 read otherwise, with its shared indent taken
+// off or closed on a fence run with a Unicode blank at its edge, reads two
+// ways, since the 2.x builds after 2.0 read it as these rules do. It stays as
+// typed, counts as ambiguous, and the file is unfinished. A body every format
+// read alike, as 2.0's fmt wrote it, doesn't count, and from still rewrites it
+// (2026112013244228). Same rows in every runner.
+func TestMigrateCountsARawBody2xReadOtherwise(t *testing.T) {
+	defer testID(t, "dfjnd")
+	indented := "q: ~~~sql\n  SELECT 1\n    FROM t\n~~~\nport: 80\n"
+	flush := "q: ~~~sql\nSELECT 1\n  FROM t\n~~~\nport: 80\n"
+	// Each comes back as typed, and only one that counts nothing is stamped.
+	for _, c := range []struct {
+		text      string
+		ambiguous int
+	}{
+		{indented, 1},
+		{"a:\n\t```\n\t\tx\n\t```\nb: ~~~\n y\n~~~\n", 2},
+		{"u: ~~~\n\tx\n~~~\u2028\nport: 80\n", 1},
+		{flush, 0},
+	} {
+		stamped := c.text
+		if c.ambiguous == 0 {
+			stamped += "##    Format   3.0\n"
+		}
+		for _, r := range []struct {
+			m    Migration
+			want string
+		}{{Migrate(c.text, ""), stamped}, {MigrateUnstamped(c.text, ""), c.text}} {
+			if r.m.Text != r.want || r.m.Ambiguous != c.ambiguous || r.m.Unfinished != (c.ambiguous != 0) || r.m.Lost != 0 {
+				t.Errorf("%q: got %q ambiguous %d unfinished %v lost %d, want %q", c.text, r.m.Text, r.m.Ambiguous, r.m.Unfinished, r.m.Lost, r.want)
+			}
+		}
+	}
+	if m := Migrate(indented, "2.0"); m.Ambiguous != 0 || m.Unfinished || !strings.HasPrefix(m.Text, flush) {
+		t.Errorf("from 2.0: ambiguous %d unfinished %v %q", m.Ambiguous, m.Unfinished, m.Text)
 	}
 }
 

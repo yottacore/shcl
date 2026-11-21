@@ -2772,6 +2772,37 @@ fn info_block_inside(text: &str) -> bool {
 	})
 }
 
+/// 2026112017363707: a list rewrite keeps the blank under a comment that sat
+/// in an item's place, which sets the field's own comments off from its line.
+/// True when the list had such a blank, and the comments over the field's line
+/// past blanks hold `want` in order.
+fn blank_kept(before: &str, a: &Anchor, after: &str, b: &Anchor, want: &[String]) -> bool {
+	let tabs = |l: &str| l.len() - l.trim_start_matches('\t').len();
+	let was: Vec<&str> = before.lines().collect();
+	let block: Vec<&str> = was[a.line + 1..]
+		.iter()
+		.take_while(|l| l.trim_matches(BLANKS).is_empty() || tabs(l) > a.depth)
+		.copied()
+		.collect();
+	let had = block.windows(2).any(|w| {
+		w[0].trim_matches(BLANKS).starts_with('#') && w[1].trim_matches(BLANKS).is_empty()
+	});
+	let now: Vec<&str> = after.lines().collect();
+	let mut over: Vec<&str> = now[..b.line]
+		.iter()
+		.rev()
+		.map(|l| l.trim_matches(BLANKS))
+		.take_while(|t| t.is_empty() || t.starts_with('#'))
+		.filter(|t| !t.is_empty())
+		.collect();
+	over.reverse();
+	let mut rest = over.iter();
+	had && want
+		.iter()
+		.filter(|w| !w.is_empty())
+		.all(|w| rest.any(|l| l == w))
+}
+
 /// Where a comment must be after an edit, from the 2 canonical texts alone
 /// (2026110616475903). A comment's anchor is the next line below it that is
 /// not blank or a comment, at its own depth, and it holds the blank above
@@ -2858,23 +2889,13 @@ fn placement_slips(
 			.is_some_and(|k| rewrites(&a.key[..k]) && new_item(&a.key[..k], a))
 	};
 	let went = |a: &Anchor| item(a) || !now.iter().any(|b| b.key == a.key);
-	// 2026111021095858: a comment edit takes the comments above a kept line
-	// that sits right above its target, past the kept line. Lines with an
-	// error are the kept ones.
+	// Lines with an error are the kept ones.
 	let kept: std::collections::BTreeSet<usize> = base
 		.diagnostics()
 		.iter()
 		.filter(|d| d.severity == Severity::Error && d.line > 0)
 		.map(|d| d.line - 1)
 		.collect();
-	let past_kept = |a: &Anchor| {
-		kept.contains(&a.line)
-			&& was
-				.iter()
-				.skip_while(|b| b.line <= a.line)
-				.find(|b| !kept.contains(&b.line) || b.key == path)
-				.is_some_and(|b| b.key == path || under(&b.key))
-	};
 	let had: std::collections::HashSet<&str> =
 		before.lines().map(|l| l.trim_matches(BLANKS)).collect();
 	let mut slips = Vec::new();
@@ -2887,7 +2908,7 @@ fn placement_slips(
 		};
 		let target = a.key == path;
 		if item(a)
-			|| edit == Placed::Comment && (target || under(&a.key) || past_kept(a))
+			|| edit == Placed::Comment && (target || under(&a.key))
 			|| edit == Placed::Merge && layered(&a.key)
 		{
 			continue;
@@ -3018,7 +3039,8 @@ fn placement_slips(
 			}
 			_ => lead == want,
 		};
-		if !placed {
+		let excused = rewritten && blank_kept(before, a, after, b, &want);
+		if !placed && !excused {
 			slips.push(format!("{}: comments {want:?} are now {lead:?}", a.key));
 		}
 		// A run a blank sets off from it stays between it and the line above
@@ -5828,8 +5850,10 @@ fn generated_starters_load_and_validate_clean() {
 	// `a["b#c"]:` where the bare body was a comment and the schema refused.
 	// 2026100207032800 took it to 1029: the 12 whose parent defaults to an
 	// array and has a child, which has no selector spelling once a bare
-	// selector body cannot hold a space.
-	assert_eq!(generated, 1029, "grid schemas that generate");
+	// selector body cannot hold a space. 2026111016205701 took it to 1014:
+	// the 15 that pair a required `a` with a required `a(b)` and no default
+	// of b write 2 `a` leaves, which is V008 with no `repeat` on `a`.
+	assert_eq!(generated, 1014, "grid schemas that generate");
 }
 
 /// What the default forms put behind the old value in a note.

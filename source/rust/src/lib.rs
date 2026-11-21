@@ -703,10 +703,6 @@ impl Lead {
 		}
 	}
 
-	fn is_comment(&self) -> bool {
-		self.text.starts_with('#') && !self.kept
-	}
-
 	/// A line the load kept as written, settled or not. The save gate
 	/// counts these (design.md, Kept lines under edits).
 	fn is_kept_line(&self) -> bool {
@@ -3039,8 +3035,10 @@ pub struct Migration {
 	/// `text` is the input.
 	pub current: bool,
 	/// Pieces both rule sets read cleanly and differently, such as `a,b` or
-	/// an escape, and runs of lines one rule set reads as a raw body and the
-	/// other as fields, which nothing can decide between, left as written.
+	/// an escape, runs of lines one rule set reads as a raw body and the
+	/// other as fields, and a raw body 1.0 to 2.0 read with its shared indent
+	/// taken off or closed early, which nothing can decide between, left as
+	/// written.
 	/// Always 0 when the caller said the file is 2.x. A backslash pair 2.x
 	/// resolved is one of them, as in `"C:\\new"`.
 	pub ambiguous: usize,
@@ -3262,10 +3260,11 @@ fn pick_format(text: &str, mtime: Option<i64>, by_stamp: u32) -> &'static str {
 /// against, by their first and last format. A footer's run is the formats
 /// whose `init` wrote it, and it counts against the rest. A spelling 2
 /// formats both read clean, such as an escape, isn't a tell here.
-const TELL_RUNS: [(&str, &str); 7] = [
+const TELL_RUNS: [(&str, &str); 8] = [
 	// Refused from the format 3 value syntax on: a comma list, `*` items, a
 	// bracket selector, a bare name led by a digit, a quote, a tab, a CR, a
-	// bracket or a loose colon in a bare value, an open backtick.
+	// bracket or a loose colon in a bare value, an open backtick, a quoted
+	// value with a backslash pair the older formats read as an escape.
 	("3.0-9ef", "3.0"),
 	// A bracketed value, which binds nothing.
 	("3.0-1f8", "3.0-a37"),
@@ -3277,6 +3276,9 @@ const TELL_RUNS: [(&str, &str); 7] = [
 	("1.1", "2.0"),
 	("3.0-1f8", "3.0-1f8"),
 	("3.0-30d", "3.0"),
+	// A value a quote opens and closes with text between 2 runs, such as
+	// `"x" "y"`, which 1.0 to 2.0 read whole.
+	("3.0-1f8", "3.0"),
 ];
 
 const TELL_REFUSED_NOW: usize = 0;
@@ -3286,6 +3288,7 @@ const TELL_APOSTROPHE: usize = 3;
 const TELL_FOOTER_2: usize = 4;
 const TELL_FOOTER_1F8: usize = 5;
 const TELL_FOOTER_3: usize = 6;
+const TELL_QUOTE_RUNS: usize = 7;
 
 /// The Syntax line of each footer, and the tell it is.
 const TELL_FOOTERS: [(&str, &str, usize); 3] = [
@@ -3363,11 +3366,10 @@ fn most_legal(text: &str, left: u32) -> u32 {
 fn line_tells(rest: &str, codes: &[(usize, &str)], tok: &mut Tokens) -> u32 {
 	let has = |c: &str| codes.iter().any(|r| r.1 == c);
 	if rest.starts_with('*') {
-		return if has("E013") {
-			tell_run(TELL_REFUSED_NOW)
-		} else {
-			0
-		};
+		if !has("E013") {
+			return 0;
+		}
+		return tell_run(TELL_REFUSED_NOW) | quote_tells(rest, 1, tok);
 	}
 	if is_item(rest) {
 		return if codes.is_empty() {
@@ -3380,18 +3382,24 @@ fn line_tells(rest: &str, codes: &[(usize, &str)], tok: &mut Tokens) -> u32 {
 	let led_by_digit = tok
 		.misspelled
 		.is_some_and(|at| rest.as_bytes().get(at).is_some_and(u8::is_ascii_digit));
+	let mut run = 0;
 	if has("E026")
 		|| has("E029")
 		|| (has("E025") && rest.contains('\r'))
 		|| (has("E014") && led_by_digit)
 		|| value_told(rest, codes, tok)
 	{
-		return tell_run(TELL_REFUSED_NOW);
+		run |= tell_run(TELL_REFUSED_NOW);
 	}
 	if !codes.is_empty() {
-		return 0;
+		let plain = tok.fault.is_none()
+			&& tok.array.is_none()
+			&& tok.segments.iter().all(|s| s.selector.is_none());
+		if let Some(sep) = tok.sep.filter(|_| plain && has("E017")) {
+			run |= quote_tells(rest, sep + 1, tok);
+		}
+		return run;
 	}
-	let mut run = 0;
 	if tok.array.is_some() {
 		run |= tell_run(TELL_BRACKETS);
 	}
@@ -3426,6 +3434,29 @@ fn value_told(rest: &str, codes: &[(usize, &str)], tok: &Tokens) -> bool {
 		Quote::Open => has("E017") && rest.as_bytes().get(p.start) == Some(&b'`'),
 		_ => false,
 	})
+}
+
+/// The formats that refuse a value from `from` the format 3 value syntax
+/// refuses with `E017`, where 1.0 to 2.0 close every quote in it. A piece a
+/// quote opens and the same quote ends, with text between 2 quoted runs,
+/// such as `"x" "y"` or `'x' 'y'`, is refused by the pins from 3.0-1f8 to
+/// 3.0-a37 too, which keep the text as typed. 1.0 to 2.0 read it whole,
+/// without its outer quotes. A backslash pair the pins and 1.0 to 2.0 read as
+/// an escape, such as `"t\"wo"`, is read clean by every format to 3.0-a37,
+/// and only 3.0-9ef on refuse it. A piece the 2.x rules leave open was
+/// refused by 1.0 to 2.0 as well, so it isn't one. Leaves `tok` holding the
+/// 2.x reading.
+fn quote_tells(rest: &str, from: usize, tok: &mut Tokens) -> u32 {
+	lex_value(rest, from, Lex::Pin, tok);
+	let pins_open = tok.elements.iter().any(|p| p.quote == Quote::Open);
+	lex_value(rest, from, Lex::V2, tok);
+	if tok.elements.iter().any(|p| p.quote == Quote::Open) {
+		0
+	} else if pins_open {
+		tell_run(TELL_QUOTE_RUNS)
+	} else {
+		tell_run(TELL_REFUSED_NOW)
+	}
 }
 
 /// What turns a text in one format of `FORMAT_DAYS` into the next one's, as
@@ -3898,10 +3929,12 @@ fn opens_raw(rest: &str, tok: &mut Tokens) -> Option<(u8, usize)> {
 /// reads as `from`'s format read it, and without `from` stays as written and
 /// counts in `lost`, since 1.2 read it as typed and 2.0 resolved it. With
 /// `from` naming 1.0, 1.1 or 2.0, a raw body is written to read as that
-/// format read it, with the indent its lines shared taken off. A file taken
-/// as 3.0-a37 or older, by `from` or its Format line, gets `[x]` for a
-/// scalar `x` beside a stacked list of `x` alone, since those were one
-/// instance then and a list isn't a scalar now.
+/// format read it, with the indent its lines shared taken off. Without
+/// `from` or a Format line, a body any of those formats read otherwise
+/// stays as typed and counts in `ambiguous`. A file taken as 3.0-a37 or
+/// older, by `from` or its Format line, gets `[x]` for a scalar `x` beside a
+/// stacked list of `x` alone, since those were one instance then and a list
+/// isn't a scalar now.
 ///
 /// Which file this is cannot always be read off the text: `p: a,b` is an
 /// array under 2.x and one string under these rules, and a raw block can
@@ -3973,7 +4006,8 @@ fn v2_fence_close(line: &str, ch: u8, len: usize) -> Option<&str> {
 /// it reads otherwise. The rest stay as typed (None). A block that never
 /// closes stays as typed, since 2.x read it with an error and it is
 /// unfinished here. `migrate`'s own read, with no format found, keeps them
-/// all too: the 2.x dev builds after 2.0 read a body as it reads now.
+/// all too, since the 2.x dev builds after 2.0 read a body as it reads now,
+/// and counts a body 1.0 to 2.0 read otherwise as ambiguous.
 fn v2_raw_body(lines: &[&str], ch: u8, len: usize, v2: V2Read) -> Vec<Option<String>> {
 	if v2 == V2Read::Either {
 		return Vec::new();
@@ -4041,6 +4075,20 @@ fn v2_raw_body(lines: &[&str], ch: u8, len: usize, v2: V2Read) -> Vec<Option<Str
 			(!keep).then_some(want)
 		})
 		.collect()
+}
+
+/// Whether 1.0, 1.1 or 2.0 read a raw body, for the lines after its opening
+/// fence, otherwise than these rules do: with the indent its lines shared
+/// taken off, or closed on a line only they took as its closing fence.
+fn v2_reads_body_otherwise(lines: &[&str], ch: u8, len: usize) -> bool {
+	let close = lines
+		.iter()
+		.map(|l| l.trim_end_matches('\r'))
+		.find(|b| v2_fence_close(b, ch, len).is_some());
+	close.is_some_and(|b| !is_fence_close(b, ch, len))
+		|| [V2Read::From11, V2Read::From20]
+			.into_iter()
+			.any(|v| v2_raw_body(lines, ch, len, v).iter().any(Option::is_some))
 }
 
 /// 1.0 to 3.0-a37 keyed an instance by its strings alone, so `k: x` and a
@@ -4249,6 +4297,14 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool, step: Step) 
 			&& now.fence == fence
 		{
 			raw_body = v2_raw_body(&lines[i + 1..], ch, len, st.v2).into_iter();
+			// A file that may be 3.0 keeps the body as typed, and one 1.0 to
+			// 2.0 read otherwise reads two ways.
+			if st.v2 == V2Read::Either
+				&& !st.from_v2
+				&& v2_reads_body_otherwise(&lines[i + 1..], ch, len)
+			{
+				st.ambiguous += 1;
+			}
 		}
 	}
 	// A scalar written as an array to fold as it did is E028 too where it
@@ -9250,6 +9306,20 @@ fn beside_kept(nd: &mut NodeData, owed: bool) -> (Vec<Lead>, bool) {
 		l.blank_before |= std::mem::take(&mut blank);
 	}
 	(left, blank)
+}
+
+/// A node's own comments among its leading lines, the ones clear_comments
+/// takes and comments reads: those after its last kept line, as a remove
+/// takes them, up to the kept line written in place of its `name:` line. A
+/// comment on the far side of a kept line is that line's (2026111021095858).
+fn own_comments(nd: &NodeData) -> std::ops::Range<usize> {
+	let lead = nd.leading();
+	let end = lead.len() - usize::from(heads_block(nd));
+	let from = lead[..end]
+		.iter()
+		.rposition(Lead::is_kept_line)
+		.map_or(0, |k| k + 1);
+	from..end
 }
 
 /// Kept lines in all of one node's trivia lists.
@@ -14538,9 +14608,10 @@ impl Document {
 		};
 		let found = targets
 			.iter()
-			.filter_map(|&t| self.arena[t].trivia.as_deref())
-			.flat_map(|tr| &tr.leading)
-			.filter(|l| l.is_comment())
+			.flat_map(|&t| {
+				let nd = &self.arena[t];
+				&nd.leading()[own_comments(nd)]
+			})
 			.map(|l| l.text.clone())
 			.collect();
 		Read::new(found, Status::Good, None).at(self.line_of_one(&targets), None)
@@ -14550,10 +14621,10 @@ impl Document {
 	/// `set_comment` adds to, so a program can replace a comment rather than
 	/// stack another one on it. Which lines those are is where the load put
 	/// them: everything between the node and the binding line before it, so a
-	/// heading written for a group of fields goes too. A comment on the
-	/// node's own line stays, and so does a line kept as written for being
-	/// malformed. Returns how many lines came off, 0 when the path reaches
-	/// nothing.
+	/// heading written for a group of fields goes too, back to a line kept as
+	/// written for being malformed. That line stays, and so do the comments
+	/// above it, which are its own. A comment on the node's own line stays
+	/// too. Returns how many lines came off, 0 when the path reaches nothing.
 	pub fn clear_comments(&mut self, path: &str) -> usize {
 		self.try_clear_comments(path).value
 	}
@@ -14571,26 +14642,22 @@ impl Document {
 		let mut cleared = 0;
 		for t in targets {
 			let nd = &mut self.arena[t];
-			let Some(tr) = nd.trivia.as_deref_mut() else {
-				continue;
-			};
-			let before = tr.leading.len();
-			// The blank above the run is the one that separates it from what
-			// comes before, so it stays with whatever is now first.
-			let blank = tr.leading.first().is_some_and(|l| l.blank_before);
-			tr.leading.retain(|l| !l.is_comment());
-			let gone = before - tr.leading.len();
-			if gone == 0 {
+			let own = own_comments(nd);
+			if own.is_empty() {
 				continue;
 			}
-			cleared += gone;
-			// A kept line left in the run may have sat under a comment that
-			// went.
+			cleared += own.len();
+			let tr = nd.triv_mut();
+			// The blank above the run is the one that separates it from what
+			// comes before, so it stays with whatever is now in its place.
+			let blank = tr.leading[own.start].blank_before;
+			tr.leading.drain(own.clone());
+			// The kept line heading the node may have sat under a comment
+			// that went.
 			restep(&mut tr.leading);
-			if let Some(first) = tr.leading.first_mut() {
-				first.blank_before |= blank;
-			} else {
-				nd.blank_before |= blank;
+			match tr.leading.get_mut(own.start) {
+				Some(next) => next.blank_before |= blank,
+				None => nd.blank_before |= blank,
 			}
 		}
 		if cleared > 0 {
@@ -18574,6 +18641,8 @@ impl Document {
 						),
 					);
 				}
+			} else {
+				self.v_repeated(c, found, out);
 			}
 			for &n in found {
 				self.v_node(c, n, out);
@@ -18591,6 +18660,35 @@ impl Document {
 						}
 					}
 				}
+			}
+		}
+	}
+
+	// A field the schema gives no `repeat` reads as one value, so the same
+	// leaf written twice under one parent (H001's shape, or a merged block's
+	// children) passes every per-node check and then reads Multiple. Instances
+	// with children are the table idiom and stay legal, and a `(*)` leaf names
+	// its instances. A `*` leaf has no one name. Same-parent nodes are
+	// adjacent in `found`, one run per parent.
+	fn v_repeated(&self, c: &Constraint, found: &[usize], out: &mut Vec<Diagnostic>) {
+		if c.segs
+			.last()
+			.is_none_or(|s| s.star || matches!(s.selector, Some(Selector::Wildcard)))
+		{
+			return;
+		}
+		for run in found.chunk_by(|&a, &b| self.arena[a].parent == self.arena[b].parent) {
+			if run.len() > 1 && run.iter().all(|&n| self.arena[n].children.is_empty()) {
+				vdiag(
+					out,
+					self.arena[run[1]].line,
+					"V008",
+					format!(
+						"repeated field at '{}': {} lines, and the schema has no repeat for it",
+						schema_text(&c.path),
+						run.len()
+					),
+				);
 			}
 		}
 	}
@@ -18928,70 +19026,39 @@ impl Document {
 	// prefix (selectors ignored). Only the topmost unknown node is reported;
 	// its subtree is implied unknown and skipped.
 	fn v_unknown(&self, def: &SchemaDef, out: &mut Vec<Diagnostic>) {
-		let cons = &def.cons;
-		// Chains below a fragment mount only match by descending the mounts.
-		let has_mounts = cons.iter().any(|c| c.inherits.is_some());
-		let mut legal: std::collections::HashSet<String> = std::collections::HashSet::new();
-		// Sibling names per parent chain, built once (schema order): v_suggest
-		// used to rebuild every chain per unknown field, which bit hardest on
-		// the wholesale-unmatched documents the feature exists for.
-		let mut siblings: HashMap<String, SuggestNames> = HashMap::new();
-		// Paths with a `*` segment can't live in the exact-chain hash; they
-		// match element-wise (a star matches any one name, prefixes included).
-		let mut star_pats: Vec<&[Segment]> = Vec::new();
-		for c in cons {
-			if c.segs.iter().any(|s| s.star) {
-				star_pats.push(&c.segs);
-			}
-			let mut chain = String::new();
-			for s in &c.segs {
-				if s.star {
-					break; // no sibling entry for '*'; deeper chains are pattern-only
-				}
-				siblings.entry(chain.clone()).or_default().push(&s.name);
-				chain_push(&mut chain, &s.name);
-				legal.insert(chain.clone());
-			}
-		}
-		// Both element-wise matchers below used to scan their whole list per
-		// document node, which is quadratic once the schema and the document
-		// grow together. A path can only match a chain whose first part its
-		// own first segment accepts, so one bucket lookup replaces the scan.
-		let star_idx = first_index(star_pats.iter().copied());
-		let set_idx: HashMap<String, FirstIndex> = if has_mounts {
-			// Keyed the way chain_parts_legal's `dead` is: "" for the
-			// top-level list, otherwise the fragment name.
-			std::iter::once((String::new(), first_index(cons.iter().map(|c| &c.segs[..]))))
-				.chain(
-					def.frags
-						.iter()
-						.map(|(k, v)| (k.clone(), first_index(v.iter().map(|c| &c.segs[..])))),
-				)
-				.collect()
-		} else {
-			HashMap::new()
-		};
-		let mut stack: Vec<(usize, String, String)> = self.arena[ROOT]
+		let mut trie = PathTrie::new(def);
+		let mut stamp = vec![0usize; trie.nodes.len()];
+		let mut pass = 0usize;
+		// Trie nodes each pending node's parent reached, as a range of `pool`.
+		// The document's root reaches the top-level root.
+		let mut pool: Vec<usize> = vec![0];
+		// The document nodes down to the current one, for the message only.
+		let mut path: Vec<usize> = Vec::new();
+		// (node, depth, parent's range in pool, the top-level trie node the
+		// parent's chain spells by names alone, which holds its siblings)
+		let mut stack: Vec<(usize, usize, usize, usize, Option<usize>)> = self.arena[ROOT]
 			.children
 			.iter()
 			.rev()
-			.map(|&c| (c, String::new(), String::new()))
+			.map(|&c| (c, 0, 0, 1, Some(0)))
 			.collect();
-		while let Some((n, pchain, pshown)) = stack.pop() {
+		while let Some((n, depth, from, to, pnamed)) = stack.pop() {
 			let node = &self.arena[n];
-			let mut chain = pchain.clone();
-			chain_push(&mut chain, &node.name);
-			let seg = diag_name(&node.name);
-			let shown = if pshown.is_empty() {
-				seg
-			} else {
-				format!("{}.{}", pshown, seg)
-			};
-			let known = legal.contains(&chain)
-				|| star_legal(&star_pats, &star_idx, &chain)
-				|| (has_mounts && chain_legal(cons, &def.frags, &set_idx, &chain));
-			if !known {
-				let hint = v_suggest(&mut siblings, &pchain, &node.name);
+			path.truncate(depth);
+			path.push(n);
+			pass += 1;
+			let at = pool.len();
+			trie.step(&mut pool, from, to, &node.name, &mut stamp, pass);
+			if pool.len() == at {
+				let hint = v_suggest(pnamed.map(|t| &mut trie.nodes[t].sibs), &node.name);
+				let shown = path.iter().fold(String::new(), |acc, &p| {
+					let seg = diag_name(&self.arena[p].name);
+					if acc.is_empty() {
+						seg
+					} else {
+						format!("{}.{}", acc, seg)
+					}
+				});
 				vdiag(
 					out,
 					node.line,
@@ -19000,169 +19067,141 @@ impl Document {
 				);
 				continue;
 			}
+			if node.children.is_empty() {
+				pool.truncate(at);
+				continue;
+			}
+			let named = pnamed.and_then(|t| trie.nodes[t].names.get(&node.name).copied());
+			let end = pool.len();
 			for &k in node.children.iter().rev() {
-				stack.push((k, chain.clone(), shown.clone()));
+				stack.push((k, depth + 1, at, end, named));
 			}
 		}
 	}
 }
 
-/// Chain keys join segments length-prefixed (`<len>:<name>`), not with a bare
-/// NUL: NUL is legal in a quoted name, so a single field named "x\0y" would
-/// impersonate the two-segment path x.y. Same injectivity reasoning as
-/// Value::key's cell encoding - and like it, the length unit is each
-/// binding's native one (bytes here), because only injectivity matters.
-fn chain_push(chain: &mut String, name: &str) {
-	chain.push_str(&name.len().to_string());
-	chain.push(':');
-	chain.push_str(name);
+/// The schema's paths as one trie per constraint list - the top-level list
+/// and each fragment's - in one node list, with node 0 the top-level root. A
+/// document node is known when its chain reaches any trie node: stars match
+/// any one name, every prefix of a path is legal, and a chain that goes on
+/// past a path that inherits a fragment goes on in that fragment's trie. Each
+/// document node's set comes from its parent's set and its own name, so a node
+/// costs its name and not its depth. Building every node's chain from the root
+/// and matching it from the top made the check the square of the depth
+/// (2026110711492228).
+struct PathTrie {
+	nodes: Vec<PathNode>,
 }
 
-/// Decode a chain key back into its segments. Total: bails at the first
-/// shape the encoder can't have produced.
-fn chain_parts(chain: &str) -> Vec<&str> {
-	let mut parts = Vec::new();
-	let b = chain.as_bytes();
-	let mut i = 0;
-	while i < b.len() {
-		let mut n = 0usize;
-		while i < b.len() && b[i].is_ascii_digit() {
-			n = n * 10 + (b[i] - b'0') as usize;
-			i += 1;
+#[derive(Default)]
+struct PathNode {
+	names: HashMap<String, usize>,
+	star: Option<usize>,
+	/// Roots of the fragments that the paths ending here inherit.
+	mounts: Vec<usize>,
+	/// Legal names under this chain, for "did you mean". Only the top-level
+	/// nodes reached by names alone have any, since a star or a mount has no
+	/// one parent chain to suggest under.
+	sibs: SuggestNames,
+}
+
+impl PathTrie {
+	fn new(def: &SchemaDef) -> PathTrie {
+		let mut trie = PathTrie {
+			nodes: vec![PathNode::default()],
+		};
+		// A fragment is only reached through a mount, and only a top-level
+		// path can start a chain of them.
+		let mut roots: HashMap<&str, usize> = HashMap::new();
+		if def.cons.iter().any(|c| c.inherits.is_some()) {
+			for name in def.frags.keys() {
+				roots.insert(name, trie.nodes.len());
+				trie.nodes.push(PathNode::default());
+			}
 		}
-		if i >= b.len() || b[i] != b':' || i + 1 + n > b.len() {
-			break;
+		trie.add(0, &def.cons, &roots, true);
+		for (name, fcs) in &def.frags {
+			if let Some(&r) = roots.get(name.as_str()) {
+				trie.add(r, fcs, &roots, false);
+			}
 		}
-		i += 1;
-		parts.push(&chain[i..i + n]);
-		i += n;
+		trie
 	}
-	parts
-}
 
-/// Element-wise chain match against the star-bearing schema paths: a `*`
-/// segment matches any one name, and every prefix of a path is legal.
-fn star_legal(pats: &[&[Segment]], idx: &FirstIndex, chain: &str) -> bool {
-	if pats.is_empty() {
-		return false;
-	}
-	let parts: Vec<&str> = chain_parts(chain);
-	idx.candidates(parts[0]).any(|pi| {
-		let p = pats[pi];
-		p.len() >= parts.len()
-			&& parts
-				.iter()
-				.enumerate()
-				.all(|(i, seg)| p[i].star || p[i].name == *seg)
-	})
-}
-
-/// Schema paths bucketed by what their first segment accepts. A path can only
-/// match a chain whose first part is that segment's name, or anything at all
-/// when the segment is `*`, so a lookup plus the star bucket is the whole
-/// candidate set. Values are positions in the list the index was built from.
-/// Both callers ask "does any of these match", so bucket order cannot reach
-/// the answer.
-struct FirstIndex {
-	by_name: HashMap<String, Vec<usize>>,
-	stars: Vec<usize>,
-}
-
-impl FirstIndex {
-	fn candidates<'a>(&'a self, part: &str) -> impl Iterator<Item = usize> + 'a {
-		self.by_name
-			.get(part)
-			.into_iter()
-			.flatten()
-			.copied()
-			.chain(self.stars.iter().copied())
-	}
-}
-
-fn first_index<'a>(paths: impl Iterator<Item = &'a [Segment]>) -> FirstIndex {
-	let mut idx = FirstIndex {
-		by_name: HashMap::new(),
-		stars: Vec::new(),
-	};
-	for (i, segs) in paths.enumerate() {
-		// A pathless entry keeps its old place in every candidate set: the
-		// scan it replaces looked at one, and what it then did is unchanged.
-		match segs.first() {
-			Some(s) if !s.star => idx.by_name.entry(s.name.clone()).or_default().push(i),
-			_ => idx.stars.push(i),
-		}
-	}
-	idx
-}
-
-/// Chain legality through fragment mounts: the general matcher - element-wise
-/// like star_legal (stars wild, prefixes legal), and when a mount's whole path
-/// matched with chain left over, the remainder is retried against the mounted
-/// fragment's fields. Terminates: every descent consumes >= 1 part. A state
-/// is (fragment, parts consumed), and one that has failed is not walked again:
-/// two mounts of the same fragment at the same depth used to be walked both,
-/// which is 2^depth on a chain that ends unknown.
-fn chain_legal(
-	cons: &[Constraint],
-	frags: &HashMap<String, Vec<Constraint>>,
-	set_idx: &HashMap<String, FirstIndex>,
-	chain: &str,
-) -> bool {
-	let parts: Vec<&str> = chain_parts(chain);
-	let mut dead: std::collections::HashSet<(&str, usize)> = std::collections::HashSet::new();
-	chain_parts_legal(cons, "", frags, set_idx, &parts, 0, &mut dead)
-}
-
-fn chain_parts_legal<'a>(
-	cons: &'a [Constraint],
-	set: &'a str,
-	frags: &'a HashMap<String, Vec<Constraint>>,
-	set_idx: &HashMap<String, FirstIndex>,
-	parts: &[&str],
-	at: usize,
-	dead: &mut std::collections::HashSet<(&'a str, usize)>,
-) -> bool {
-	if dead.contains(&(set, at)) {
-		return false;
-	}
-	let rest = &parts[at..];
-	// The recursion only descends with parts left over, and the sweep never
-	// asks about an empty chain, so `rest` always has a first part to look up.
-	let cand: Vec<usize> = match set_idx.get(set) {
-		Some(idx) => idx.candidates(rest[0]).collect(),
-		None => (0..cons.len()).collect(),
-	};
-	for &ci in &cand {
-		let c = &cons[ci];
-		let n = c.segs.len();
-		let k = rest.len().min(n);
-		if (0..k).all(|i| c.segs[i].star || c.segs[i].name == rest[i]) {
-			if rest.len() <= n {
-				return true;
+	fn add(&mut self, root: usize, cons: &[Constraint], roots: &HashMap<&str, usize>, top: bool) {
+		for c in cons {
+			let mut at = root;
+			// No sibling entry for '*' or below it; deeper names are reached
+			// through the star.
+			let mut named = top;
+			for s in &c.segs {
+				named = named && !s.star;
+				if named {
+					self.nodes[at].sibs.push(&s.name);
+				}
+				let next = if s.star {
+					self.nodes[at].star
+				} else {
+					self.nodes[at].names.get(&s.name).copied()
+				};
+				at = match next {
+					Some(k) => k,
+					None => {
+						let k = self.nodes.len();
+						self.nodes.push(PathNode::default());
+						if s.star {
+							self.nodes[at].star = Some(k);
+						} else {
+							self.nodes[at].names.insert(s.name.clone(), k);
+						}
+						k
+					}
+				};
 			}
 			if let Some(fr) = &c.inherits
-				&& let Some(fcs) = frags.get(fr)
-				&& chain_parts_legal(fcs, fr, frags, set_idx, parts, at + n, dead)
+				&& let Some(&r) = roots.get(fr.as_str())
 			{
-				return true;
+				self.nodes[at].mounts.push(r);
 			}
 		}
 	}
-	dead.insert((set, at));
-	false
+
+	/// Appends to `pool` the trie nodes a chain reaches when `name` follows a
+	/// chain that reached `pool[from..to]`. `stamp` keeps a node to one entry
+	/// per pass, as two mounts of one fragment reach the same nodes.
+	fn step(
+		&self,
+		pool: &mut Vec<usize>,
+		from: usize,
+		to: usize,
+		name: &str,
+		stamp: &mut [usize],
+		pass: usize,
+	) {
+		let mut add = |pool: &mut Vec<usize>, k: Option<usize>| {
+			if let Some(k) = k
+				&& stamp[k] != pass
+			{
+				stamp[k] = pass;
+				pool.push(k);
+			}
+		};
+		for i in from..to {
+			let t = &self.nodes[pool[i]];
+			add(pool, t.names.get(name).copied());
+			add(pool, t.star);
+			for &r in &t.mounts {
+				add(pool, self.nodes[r].names.get(name).copied());
+				add(pool, self.nodes[r].star);
+			}
+		}
+	}
 }
 
 /// Closest legal sibling name (same parent chain, schema order, edit distance
 /// <= 2) as "; did you mean 'x'?" - or nothing. Prose only, never contract.
-fn v_suggest(
-	siblings: &mut HashMap<String, SuggestNames>,
-	parent_chain: &str,
-	name: &str,
-) -> String {
-	match siblings
-		.get_mut(parent_chain)
-		.and_then(|names| names.closest(name))
-	{
+fn v_suggest(names: Option<&mut SuggestNames>, name: &str) -> String {
+	match names.and_then(|names| names.closest(name)) {
 		Some(n) => format!("; did you mean '{}'?", diag_name(n)),
 		None => String::new(),
 	}

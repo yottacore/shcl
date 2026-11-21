@@ -716,11 +716,12 @@ int main(void) {
 	/* The chain matcher compared each candidate path against the whole rest
 	   of the chain at every mount it went through, so a fragment that mounts
 	   itself cost the cube of the document's depth (2026110613470309). Each
-	   node still builds its chain from the root, which is the square, so four
-	   times the depth has to take under 32 times the time, twice the square's
-	   growth, where the old walk took 64 times. Best of 3 each. Corpus case
-	   220 pins the answers at depth. */
-	test_id("df080", "recursive_mount_check_is_not_cubic_in_depth");
+	   node then still built its chain from the root and matched it from the
+	   top, which is the square (2026110711492228). Four times the depth has to
+	   take under 8 times the time, twice the linear growth, where the square
+	   took 16 times. Best of 3 each. Same fixture in every runner, and corpus
+	   case 220 pins the answers at depth. */
+	test_id("df080", "recursive_mount_check_is_linear_in_depth");
 	{
 		static const char rschema[] = "fragment: f\n\tfield: a\n\t\tinherits: f\n\tfield: leaf\n\t\ttype: int\nfield: a\n\tinherits: f\n";
 		shcl_doc *rs = shcl_parse(rschema, sizeof rschema - 1);
@@ -755,7 +756,7 @@ int main(void) {
 #ifdef SHCL_UNDER_ASAN
 		printf("mem_bounds: recursive mount ratio not judged under a sanitizer\n");
 #else
-		if (t[1] > (t[0] > 1.0 ? t[0] : 1.0) * 32) fail("the recursive mount check is cubic in the depth");
+		if (t[1] > (t[0] > 1.0 ? t[0] : 1.0) * 8) fail("the recursive mount check is not linear in the depth");
 #endif
 	}
 

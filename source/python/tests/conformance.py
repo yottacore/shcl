@@ -2877,6 +2877,27 @@ def main():
 	bound = max(ms[0], 1.0) * 24
 	if ms[1] > bound:
 		raise SystemExit(f"80000 escapes {ms[1]:.1f} ms against {ms[0]:.1f} ms for 10000 (bound {bound:.1f} ms) - escape decoding is not linear")
+	test_id("dfjq8", "recursive_mount_check_is_linear_in_depth")
+	# The unknown-field check built each node's chain from the root and matched
+	# it from the top, so a fragment that mounts itself cost the square of the
+	# document's depth (2026110711492228). Four times the depth has to take
+	# under 8 times the time, twice the linear growth, where the square took 16
+	# times. Best of 3 each. Same fixture in every runner.
+	rschema = shcl.Document.parse("fragment: f\n\tfield: a\n\t\tinherits: f\n\tfield: leaf\n\t\ttype: int\nfield: a\n\tinherits: f\n")
+	ms = []
+	for depth in (120, 480):
+		rdoc = shcl.Document.parse("".join(f"a(v{ln})." + "a." * depth + "leaf: 1\n" for ln in range(20)))
+		best = float("inf")
+		for _ in range(3):
+			t0 = time.perf_counter()
+			rvs = rdoc.validate(rschema)
+			best = min(best, (time.perf_counter() - t0) * 1000.0)
+			if rvs:
+				raise SystemExit(f"recursive mount fixture: a legal chain was refused: {rvs!r}")
+		ms.append(best)
+	bound = max(ms[0], 1.0) * 8
+	if ms[1] > bound:
+		raise SystemExit(f"recursive mount check {ms[1]:.1f} ms at depth 480 against {ms[0]:.1f} ms at depth 120 (bound {bound:.1f} ms) - the check is not linear in the depth")
 	test_id("df027", "an_escape_message_is_built_only_for_an_error")
 	# A good escape built the E023 text it never read (2026110613470306).
 	built = []
@@ -4477,6 +4498,82 @@ def main():
 	):
 		if shcl.find_format(vttext, vtmtime) != vtwant:
 			raise SystemExit(f"find_format {vttext!r} at {vtmtime}: {shcl.find_format(vttext, vtmtime)!r}, want {vtwant!r}")
+
+	test_id("dfjsb", "a_value_of_2_quoted_runs_is_a_tell")
+	# A value a quote opens and the same quote ends, with text between 2
+	# quoted runs, such as `"x" "y"`, read whole in 1.0 to 2.0, and 3.0-1f8 on
+	# refuse it (E017), so it tells them apart. Rust's
+	# a_value_of_2_quoted_runs_is_a_tell has the same rows. The mtimes are
+	# Unix seconds at UTC.
+	qrsep1 = 1788220800  # 2026-09-01, 1.0 to 2.0
+	qroct20 = 1792454400  # 2026-10-20, to 3.0-9ef
+	qrnov10 = 1794268800  # 2026-11-10, every format
+	for qrtext, qrmtime, qrwant in (
+		('a: "x" "y"\n', qrnov10, "2.0"),
+		('a: "x" "y"\n', None, "2.0"),
+		('a: "x" "y"\n', qroct20, "2.0"),
+		('a: "x" "y"\n', qrsep1, "2.0"),
+		("a: 'x' 'y'\n", qrnov10, "2.0"),
+		('a: "x""y"\n', qrnov10, "2.0"),
+		('a: "x" "y" "z"\n', qrnov10, "2.0"),
+		('a: "x" "y #c"\n', qrnov10, "2.0"),
+		('a: "x, y" "z"\n', qrnov10, "2.0"),
+		('a: "x\\" "y"\n', qrnov10, "2.0"),
+		('a: z, "x" "y"\n', qrnov10, "2.0"),
+		('s:\n\ta: "x" "y"  # c\n', qrnov10, "2.0"),
+		('a:\n\t* "x" "y"\n', qrnov10, "2.0"),
+		('a: "x" "y"\nb: x"y\n', qrnov10, "2.0"),
+		# An apostrophe the pins read as the close, which 2.x read escaped.
+		("a: 't\\'wo'\n", qrnov10, "2.0"),
+		# One tell each way ties, and the tie goes to the newest.
+		('a: "x" "y"\nb:\n\t- z\n', qrnov10, "3.0"),
+		# Not tells.
+		('a: "x" y\n', qrnov10, "3.0"),
+		('a: "x"y\n', qrnov10, "3.0"),
+		("a: \"x\" 'y'\n", qrnov10, "3.0"),
+		('a: "x" "y\n', qrnov10, "3.0"),
+		('a: "x" "y\\"\n', qrnov10, "3.0"),
+		('a: "x" "y", "q\n', qrnov10, "3.0"),
+		('a:\n\t- "x" "y"\n', qrnov10, "3.0"),
+		('"x" "y": 1\n', qrnov10, "3.0"),
+		# The pins read these, so they're the format 3 value syntax's own
+		# tells, a backtick and a `*` item.
+		('a: `x` "y"\n', qrnov10, "3.0-a37"),
+		('a:\n\t* "t\\"wo"\n', qrnov10, "3.0-a37"),
+	):
+		if shcl.find_format(qrtext, qrmtime) != qrwant:
+			raise SystemExit(f"find_format {qrtext!r} at {qrmtime}: {shcl.find_format(qrtext, qrmtime)!r}, want {qrwant!r}")
+
+	test_id("dfjt7", "a_quoted_value_with_a_backslash_pair_is_a_tell")
+	# A quoted value with a backslash pair that 1.0 to 3.0-a37 read as an
+	# escape, such as `"t\"wo"`, read clean there, and 3.0-9ef on refuse it
+	# (E017), so it tells them apart. Rust's
+	# a_quoted_value_with_a_backslash_pair_is_a_tell has the same rows. The
+	# mtimes are Unix seconds at UTC.
+	bqsep1 = 1788220800  # 2026-09-01, 1.0 to 2.0
+	bqoct20 = 1792454400  # 2026-10-20, to 3.0-9ef
+	bqnov10 = 1794268800  # 2026-11-10, every format
+	for bqtext, bqmtime, bqwant in (
+		('a: "t\\"wo"\n', bqnov10, "3.0-a37"),
+		('a: "t\\"wo"\n', None, "3.0-a37"),
+		('a: "t\\"wo"\n', bqoct20, "3.0-a37"),
+		('a: "t\\"wo"\n', bqsep1, "2.0"),
+		('a: "a\\" b"\n', bqnov10, "3.0-a37"),
+		('a: "\\"\\""\n', bqnov10, "3.0-a37"),
+		('s:\n\ta: "t\\"wo"  # c\n', bqnov10, "3.0-a37"),
+		('a:\n\t* "t\\"wo"\n', bqnov10, "3.0-a37"),
+		# 2 tells against 3.0-9ef on and one against 3.0-1f8 on.
+		('a: "t\\"wo"\nb: "x" "y"\n', bqnov10, "2.0"),
+		# One tell each way ties, and the tie goes to the newest.
+		('a: "t\\"wo"\nb:\n\t- z\n', bqnov10, "3.0"),
+		# Not tells.
+		('a: "t\\\\"\n', bqnov10, "3.0"),
+		('a: "t\\"wo\n', bqnov10, "3.0"),
+		('a: "t\\"wo" x\n', bqnov10, "3.0"),
+		("a: 't\\'wo\n", bqnov10, "3.0"),
+	):
+		if shcl.find_format(bqtext, bqmtime) != bqwant:
+			raise SystemExit(f"find_format {bqtext!r} at {bqmtime}: {shcl.find_format(bqtext, bqmtime)!r}, want {bqwant!r}")
 
 	test_id("dfj92", "a_file_format_reads_through_a_stamp_mtime_and_body_that_disagree")
 	# Every pairing of a stamp, an mtime and a body whose tells disagree reads
@@ -6841,6 +6938,32 @@ def main():
 	rm = shcl.migrate(rtext, None)
 	if not rm.text.startswith("r:\n\t```\n\t  line1\n\t   \n\n\t \n\t  line2\n"):
 		raise SystemExit(f"migrate: {rm.text!r}")
+
+	test_id("dfjne", "migrate_counts_a_raw_body_2x_read_otherwise")
+	# Without from_ or a Format line, a raw body that 1.0, 1.1 or 2.0 read
+	# otherwise, with its shared indent taken off or closed on a fence run with
+	# a Unicode blank at its edge, reads two ways, since the 2.x builds after
+	# 2.0 read it as these rules do. It stays as typed, counts as ambiguous,
+	# and the file is unfinished. A body every format read alike, as 2.0's fmt
+	# wrote it, doesn't count, and from_ still rewrites it (2026112013244228).
+	# Same rows in every runner.
+	rbindented = "q: ~~~sql\n  SELECT 1\n    FROM t\n~~~\nport: 80\n"
+	rbflush = "q: ~~~sql\nSELECT 1\n  FROM t\n~~~\nport: 80\n"
+	# Each comes back as typed, and only one that counts nothing is stamped.
+	for rbtext, rbamb in (
+		(rbindented, 1),
+		("a:\n\t```\n\t\tx\n\t```\nb: ~~~\n y\n~~~\n", 2),
+		("u: ~~~\n\tx\n~~~\u2028\nport: 80\n", 1),
+		(rbflush, 0),
+	):
+		rbstamped = rbtext + "##    Format   3.0\n" if rbamb == 0 else rbtext
+		for rbm, rbwant in ((shcl.migrate(rbtext, None), rbstamped), (shcl.migrate_unstamped(rbtext, None), rbtext)):
+			rbgot = (rbm.text, rbm.ambiguous, rbm.unfinished, rbm.lost)
+			if rbgot != (rbwant, rbamb, rbamb != 0, 0):
+				raise SystemExit(f"{rbtext!r}: {rbgot!r}, want {(rbwant, rbamb, rbamb != 0, 0)!r}")
+	rbm = shcl.migrate(rbindented, "2.0")
+	if rbm.ambiguous != 0 or rbm.unfinished or not rbm.text.startswith(rbflush):
+		raise SystemExit(f"from 2.0: {rbm.ambiguous} {rbm.unfinished} {rbm.text!r}")
 
 	test_id("dfjd0", "upgrade_from_1x_to_a37_folds_a_scalar_with_a_list_of_it")
 	# 1.0 to 3.0-a37 keyed an instance by its strings alone, so `k: x` and a

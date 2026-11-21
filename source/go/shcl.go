@@ -649,10 +649,6 @@ func plainLead(text string) lead {
 	return lead{text: text}
 }
 
-func (l *lead) isComment() bool {
-	return strings.HasPrefix(l.text, "#") && !l.kept
-}
-
 // isKeptLine: a line the load kept as written, settled or not. The save gate
 // counts these (design.md, Kept lines under edits).
 func (l *lead) isKeptLine() bool {
@@ -3289,9 +3285,10 @@ type Migration struct {
 	// migrate and Text is the input.
 	Current bool
 	// Ambiguous: pieces both rule sets read cleanly and differently, such as
-	// `a,b` or an escape, and runs of lines one rule set reads as a raw body
-	// and the other as fields, which nothing can decide between, left as
-	// written. Always 0 when the caller said the file is 2.x. A backslash pair
+	// `a,b` or an escape, runs of lines one rule set reads as a raw body and
+	// the other as fields, and a raw body 1.0 to 2.0 read with its shared
+	// indent taken off or closed early, which nothing can decide between, left
+	// as written. Always 0 when the caller said the file is 2.x. A backslash pair
 	// 2.x resolved is one of them, as in `"C:\\new"`.
 	Ambiguous int
 	// Lost: lines 2.x bound a value on that nothing binds now, since there is
@@ -3544,7 +3541,8 @@ func pickFormat(text string, mtime *int64, byStamp uint32) string {
 var tellRuns = [...][2]string{
 	// Refused from the format 3 value syntax on: a comma list, `*` items, a
 	// bracket selector, a bare name led by a digit, a quote, a tab, a CR, a
-	// bracket or a loose colon in a bare value, an open backtick.
+	// bracket or a loose colon in a bare value, an open backtick, a quoted
+	// value with a backslash pair the older formats read as an escape.
 	{"3.0-9ef", "3.0"},
 	// A bracketed value, which binds nothing.
 	{"3.0-1f8", "3.0-a37"},
@@ -3556,6 +3554,9 @@ var tellRuns = [...][2]string{
 	{"1.1", "2.0"},
 	{"3.0-1f8", "3.0-1f8"},
 	{"3.0-30d", "3.0"},
+	// A value a quote opens and closes with text between 2 runs, such as
+	// `"x" "y"`, which 1.0 to 2.0 read whole.
+	{"3.0-1f8", "3.0"},
 }
 
 const (
@@ -3566,6 +3567,7 @@ const (
 	tellFooter2
 	tellFooter1f8
 	tellFooter3
+	tellQuoteRuns
 )
 
 // tellFooters are the Syntax line of each footer, and the tell it is.
@@ -3661,10 +3663,10 @@ func lineTells(rest string, codes []string, tok *Tokens) uint32 {
 		return false
 	}
 	if strings.HasPrefix(rest, "*") {
-		if has("E013") {
-			return tellRun(tellRefusedNow)
+		if !has("E013") {
+			return 0
 		}
-		return 0
+		return tellRun(tellRefusedNow) | quoteTells(rest, 1, tok)
 	}
 	if isItem(rest) {
 		if len(codes) == 0 {
@@ -3674,13 +3676,22 @@ func lineTells(rest string, codes []string, tok *Tokens) uint32 {
 	}
 	Tokenize(rest, ':', false, RulesCurrent, tok)
 	ledByDigit := tok.Misspelled >= 0 && tok.Misspelled < len(rest) && rest[tok.Misspelled] >= '0' && rest[tok.Misspelled] <= '9'
+	run := uint32(0)
 	if has("E026") || has("E029") || (has("E025") && strings.Contains(rest, "\r")) || (has("E014") && ledByDigit) || valueTold(rest, has, tok) {
-		return tellRun(tellRefusedNow)
+		run |= tellRun(tellRefusedNow)
 	}
 	if len(codes) > 0 {
-		return 0
+		plain := tok.Fault < 0 && tok.Array < 0
+		for _, seg := range tok.Segments {
+			if seg.Selector != nil {
+				plain = false
+			}
+		}
+		if sep := tok.Sep; plain && has("E017") && sep >= 0 {
+			run |= quoteTells(rest, sep+1, tok)
+		}
+		return run
 	}
-	run := uint32(0)
 	if tok.Array >= 0 {
 		run |= tellRun(tellBrackets)
 	}
@@ -3738,6 +3749,36 @@ func valueTold(rest string, has func(string) bool, tok *Tokens) bool {
 		}
 	}
 	return false
+}
+
+// quoteTells is the formats that refuse a value from `from` the format 3
+// value syntax refuses with E017, where 1.0 to 2.0 close every quote in it. A
+// piece a quote opens and the same quote ends, with text between 2 quoted
+// runs, such as `"x" "y"` or `'x' 'y'`, is refused by the pins from 3.0-1f8
+// to 3.0-a37 too, which keep the text as typed. 1.0 to 2.0 read it whole,
+// without its outer quotes. A backslash pair the pins and 1.0 to 2.0 read as
+// an escape, such as `"t\"wo"`, is read clean by every format to 3.0-a37,
+// and only 3.0-9ef on refuse it. A piece the 2.x rules leave open was refused
+// by 1.0 to 2.0 as well, so it isn't one. Leaves tok holding the 2.x reading.
+func quoteTells(rest string, from int, tok *Tokens) uint32 {
+	opened := func() bool {
+		for _, p := range tok.Elements {
+			if p.Quote == QuoteOpen {
+				return true
+			}
+		}
+		return false
+	}
+	lexValue(rest, from, lexPin, tok)
+	pinsOpen := opened()
+	lexValue(rest, from, lexV2, tok)
+	switch {
+	case opened():
+		return 0
+	case pinsOpen:
+		return tellRun(tellQuoteRuns)
+	}
+	return tellRun(tellRefusedNow)
 }
 
 // SchemaRef is the schema a document's `##    Schema   REF` line names: a
@@ -4204,9 +4245,11 @@ func stampHint(stamp Read[int]) (Diagnostic, bool) {
 // from's format read it, and without from stays as written and counts in
 // Lost, since 1.2 read it as typed and 2.0 resolved it. With from naming 1.0,
 // 1.1 or 2.0, a raw body is written to read as that format read it, with the
-// indent its lines shared taken off. A file taken as 3.0-a37 or older, by from
-// or its Format line, gets `[x]` for a scalar `x` beside a stacked list of `x`
-// alone, since those were one instance then and a list isn't a scalar now.
+// indent its lines shared taken off. Without from or a Format line, a body any
+// of those formats read otherwise stays as typed and counts in Ambiguous. A
+// file taken as 3.0-a37 or older, by from or its Format line, gets `[x]` for a
+// scalar `x` beside a stacked list of `x` alone, since those were one instance
+// then and a list isn't a scalar now.
 // Which file this is cannot always be read off the text: `p: a,b` is an array
 // under 2.x and one string under these rules, and a raw block can open where
 // only one rule set sees it, so rewriting a 3.0 file changes what it says. So
@@ -4296,8 +4339,9 @@ type rawLine struct {
 // read then, which a second run reads the same, and a line of blanks only
 // where it reads otherwise. The rest stay as typed. A block that never closes
 // stays as typed, since 2.x read it with an error and it is unfinished here.
-// Migrate's own read, with no format found, keeps them all too: the 2.x dev
-// builds after 2.0 read a body as it reads now.
+// Migrate's own read, with no format found, keeps them all too, since the 2.x
+// dev builds after 2.0 read a body as it reads now, and counts a body 1.0 to
+// 2.0 read otherwise as ambiguous.
 func v2RawBody(lines []string, ch byte, length int, v2 v2Read) []rawLine {
 	if v2 == v2Either {
 		return nil
@@ -4361,6 +4405,30 @@ func v2RawBody(lines []string, ch byte, length int, v2 v2Read) []rawLine {
 		out[k] = rawLine{text: want, set: !keep}
 	}
 	return out
+}
+
+// v2ReadsBodyOtherwise says whether 1.0, 1.1 or 2.0 read a raw body, for the
+// lines after its opening fence, otherwise than these rules do: with the indent
+// its lines shared taken off, or closed on a line only they took as its closing
+// fence.
+func v2ReadsBodyOtherwise(lines []string, ch byte, length int) bool {
+	for _, l := range lines {
+		b := strings.TrimRight(l, "\r")
+		if _, ok := v2FenceClose(b, ch, length); ok {
+			if !isFenceClose(b, ch, length) {
+				return true
+			}
+			break
+		}
+	}
+	for _, v := range []v2Read{v2From11, v2From20} {
+		for _, r := range v2RawBody(lines, ch, length, v) {
+			if r.set {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // v2FoldScalars: 1.0 to 3.0-a37 keyed an instance by its strings alone, so
@@ -4561,6 +4629,11 @@ func migrateText(text string, fromV2, stamp, beta bool, s step) Migration {
 		// open the same block on the same line.
 		if fence.open && !rawThen && now.fence == fence {
 			rawBody = v2RawBody(lines[i+1:], fence.ch, fence.length, st.v2)
+			// A file that may be 3.0 keeps the body as typed, and one 1.0 to
+			// 2.0 read otherwise reads two ways.
+			if st.v2 == v2Either && !st.fromV2 && v2ReadsBodyOtherwise(lines[i+1:], fence.ch, fence.length) {
+				st.ambiguous++
+			}
 		}
 	}
 	// A scalar written as an array to fold as it did is E028 too where it
@@ -8256,6 +8329,26 @@ func keptAmong(among []amongLead) int {
 		}
 	}
 	return n
+}
+
+// ownComments gives a node's own comments among its leading lines, the ones
+// ClearComments takes and Comments reads: those after its last kept line, as a
+// remove takes them, up to the kept line written in place of its `name:` line.
+// A comment on the far side of a kept line is that line's (2026111021095858).
+func ownComments(nd *nodeData) (int, int) {
+	lead := nd.leading()
+	end := len(lead)
+	if headsBlock(nd) {
+		end--
+	}
+	from := 0
+	for k := end - 1; k >= 0; k-- {
+		if lead[k].isKeptLine() {
+			from = k + 1
+			break
+		}
+	}
+	return from, end
 }
 
 // keptInLists counts kept lines in all of one node's trivia lists.
@@ -14514,14 +14607,10 @@ func (d *Document) ReadComments(path string) Read[[]string] {
 	}
 	out := []string{}
 	for _, t := range targets {
-		tr := d.arena[t].trivia
-		if tr == nil {
-			continue
-		}
-		for _, l := range tr.leading {
-			if l.isComment() {
-				out = append(out, l.text)
-			}
+		nd := &d.arena[t]
+		from, end := ownComments(nd)
+		for _, l := range nd.leading()[from:end] {
+			out = append(out, l.text)
 		}
 	}
 	return Read[[]string]{Value: out, Status: Good}.at(d.lineOfOne(targets), nil)
@@ -14531,9 +14620,10 @@ func (d *Document) ReadComments(path string) Read[[]string] {
 // lines SetComment adds to, so a program can replace a comment rather than
 // stack another one on it. Which lines those are is where the load put them:
 // everything between the node and the binding line before it, so a heading
-// written for a group of fields goes too. A comment on the node's own line
-// stays, and so does a line kept as written for being malformed. Returns how
-// many lines came off, 0 when the path reaches nothing.
+// written for a group of fields goes too, back to a line kept as written for
+// being malformed. That line stays, and so do the comments above it, which are
+// its own. A comment on the node's own line stays too. Returns how many lines
+// came off, 0 when the path reaches nothing.
 func (d *Document) ClearComments(path string) int {
 	d.ready()
 	return d.TryClearComments(path).Value
@@ -14553,30 +14643,21 @@ func (d *Document) TryClearComments(path string) Read[int] {
 	cleared := 0
 	for _, t := range targets {
 		nd := &d.arena[t]
+		from, end := ownComments(nd)
+		if from == end {
+			continue
+		}
+		cleared += end - from
 		tr := nd.trivia
-		if tr == nil {
-			continue
-		}
-		before := len(tr.leading)
 		// The blank above the run is the one that separates it from what comes
-		// before, so it stays with whatever is now first.
-		blank := before > 0 && tr.leading[0].blankBefore
-		kept := tr.leading[:0]
-		for _, l := range tr.leading {
-			if !l.isComment() {
-				kept = append(kept, l)
-			}
-		}
-		tr.leading = kept
-		gone := before - len(kept)
-		if gone == 0 {
-			continue
-		}
-		cleared += gone
-		// A kept line left in the run may have sat under a comment that went.
-		restep(kept)
-		if len(kept) > 0 {
-			kept[0].blankBefore = kept[0].blankBefore || blank
+		// before, so it stays with whatever is now in its place.
+		blank := tr.leading[from].blankBefore
+		tr.leading = append(tr.leading[:from], tr.leading[end:]...)
+		// The kept line heading the node may have sat under a comment that
+		// went.
+		restep(tr.leading)
+		if from < len(tr.leading) {
+			tr.leading[from].blankBefore = tr.leading[from].blankBefore || blank
 		} else {
 			nd.blankBefore = nd.blankBefore || blank
 		}
@@ -18777,6 +18858,8 @@ func (d *Document) vCheckFrom(
 				vdiag(out, ctx.anchor, "V007", fmt.Sprintf("instance count out of bounds at '%s': %d not in %d..%d",
 					schemaText(c.path), n, c.repeat[0], c.repeat[1]))
 			}
+		} else {
+			d.vRepeated(c, ctx.found, out)
 		}
 		for _, n := range ctx.found {
 			d.vNode(c, n, out)
@@ -18797,6 +18880,33 @@ func (d *Document) vCheckFrom(
 				}
 			}
 		}
+	}
+}
+
+// A field the schema gives no `repeat` reads as one value, so the same
+// leaf written twice under one parent (H001's shape, or a merged block's
+// children) passes every per-node check and then reads Multiple. Instances
+// with children are the table idiom and stay legal, and a `(*)` leaf names
+// its instances. A `*` leaf has no one name. Same-parent nodes are
+// adjacent in `found`, one run per parent.
+func (d *Document) vRepeated(c *constraint, found []int, out *[]Diagnostic) {
+	if len(c.segs) == 0 {
+		return
+	}
+	if last := c.segs[len(c.segs)-1]; last.star || last.sel != nil && last.sel.kind == selWildcard {
+		return
+	}
+	for i := 0; i < len(found); {
+		j, leaves := i, true
+		for j < len(found) && d.arena[found[j]].parent == d.arena[found[i]].parent {
+			leaves = leaves && len(d.arena[found[j]].children) == 0
+			j++
+		}
+		if j-i > 1 && leaves {
+			vdiag(out, d.arena[found[i+1]].line, "V008", fmt.Sprintf("repeated field at '%s': %d lines, and the schema has no repeat for it",
+				schemaText(c.path), j-i))
+		}
+		i = j
 	}
 }
 
@@ -19098,257 +19208,188 @@ func firstFloatAbove(xs []float64, hi float64) int {
 // and every prefix (selectors ignored). Only the topmost unknown node is
 // reported; its subtree is implied unknown and skipped.
 func (d *Document) vUnknown(def *schemaDef, out *[]Diagnostic) {
-	cons := def.cons
-	// Chains below a fragment mount only match by descending the mounts.
-	hasMounts := false
-	for i := range cons {
-		if cons[i].inherits != "" {
-			hasMounts = true
-			break
-		}
-	}
-	legal := map[string]bool{}
-	// Sibling names per parent chain, built once (schema order): vSuggest
-	// used to rebuild every chain per unknown field, which bit hardest on
-	// the wholesale-unmatched documents the feature exists for.
-	siblings := map[string]*suggestNames{}
-	// Paths with a `*` segment can't live in the exact-chain hash; they
-	// match element-wise (a star matches any one name, prefixes included).
-	var starPats [][]segment
-	for i := range cons {
-		for _, s := range cons[i].segs {
-			if s.star {
-				starPats = append(starPats, cons[i].segs)
-				break
-			}
-		}
-		chain := ""
-		for _, s := range cons[i].segs {
-			if s.star {
-				break // no sibling entry for '*'; deeper chains are pattern-only
-			}
-			if siblings[chain] == nil {
-				siblings[chain] = &suggestNames{seen: map[string]bool{}}
-			}
-			siblings[chain].push(s.name)
-			chain = chainPush(chain, s.name)
-			legal[chain] = true
-		}
-	}
-	// Both element-wise matchers below used to scan their whole list per
-	// document node, which is quadratic once the schema and the document grow
-	// together. A path can only match a chain whose first part its own first
-	// segment accepts, so one bucket lookup replaces the scan.
-	starIdx := firstIndex(starPats)
-	setIdx := map[string]firstIdx{}
-	if hasMounts {
-		// Keyed the way chainPartsLegal's dead set is: "" for the top-level
-		// list, otherwise the fragment name.
-		segsOf := func(cs []constraint) [][]segment {
-			out := make([][]segment, len(cs))
-			for i := range cs {
-				out[i] = cs[i].segs
-			}
-			return out
-		}
-		setIdx[""] = firstIndex(segsOf(cons))
-		for name, fcs := range def.frags {
-			setIdx[name] = firstIndex(segsOf(fcs))
-		}
-	}
+	trie := newPathTrie(def)
+	stamp := make([]int, len(trie.nodes))
+	pass := 0
+	// Trie nodes each pending node's parent reached, as a range of pool. The
+	// document's root reaches the top-level root.
+	pool := []int{0}
+	// The document nodes down to the current one, for the message only.
+	var path []int
 	type frame struct {
-		node  int
-		chain string
-		shown string
+		node, depth int
+		from, to    int // the parent's range in pool
+		// The top-level trie node the parent's chain spells by names alone,
+		// which holds its siblings, or -1.
+		named int
 	}
 	var stack []frame
 	kids := d.arena[root].children
 	for i := len(kids) - 1; i >= 0; i-- {
-		stack = append(stack, frame{node: kids[i]})
+		stack = append(stack, frame{node: kids[i], from: 0, to: 1, named: 0})
 	}
 	for len(stack) > 0 {
 		fr := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
 		node := &d.arena[fr.node]
-		chain := chainPush(fr.chain, node.name)
-		seg := diagName(node.name)
-		shown := seg
-		if fr.shown != "" {
-			shown = fr.shown + "." + seg
-		}
-		if !legal[chain] && !starLegal(starPats, starIdx, chain) && !(hasMounts && chainLegal(cons, def.frags, setIdx, chain)) {
-			hint := vSuggest(siblings, fr.chain, node.name)
+		path = append(path[:fr.depth], fr.node)
+		pass++
+		at := len(pool)
+		pool = trie.step(pool, fr.from, fr.to, node.name, stamp, pass)
+		if len(pool) == at {
+			var sibs *suggestNames
+			if fr.named >= 0 {
+				sibs = trie.nodes[fr.named].sibs
+			}
+			hint := vSuggest(sibs, node.name)
+			shown := ""
+			for _, p := range path {
+				seg := diagName(d.arena[p].name)
+				if shown == "" {
+					shown = seg
+				} else {
+					shown = shown + "." + seg
+				}
+			}
 			vdiag(out, node.line, "V001", fmt.Sprintf("unknown field '%s'%s", shown, hint))
 			continue
 		}
+		if len(node.children) == 0 {
+			pool = pool[:at]
+			continue
+		}
+		named := -1
+		if fr.named >= 0 {
+			if k, ok := trie.nodes[fr.named].names[node.name]; ok {
+				named = k
+			}
+		}
+		end := len(pool)
 		for i := len(node.children) - 1; i >= 0; i-- {
-			stack = append(stack, frame{node: node.children[i], chain: chain, shown: shown})
+			stack = append(stack, frame{node: node.children[i], depth: fr.depth + 1, from: at, to: end, named: named})
 		}
 	}
 }
 
-// chainPush appends a segment to a chain key. Chain keys join segments
-// length-prefixed (`<len>:<name>`), not with a bare NUL: NUL is legal in a
-// quoted name, so a single field named "x\x00y" would impersonate the
-// two-segment path x.y. Same injectivity reasoning as the merge key's cell
-// encoding - and like it, the length unit is each binding's native one
-// (bytes here), because only injectivity matters.
-func chainPush(chain, name string) string {
-	return chain + strconv.Itoa(len(name)) + ":" + name
+// pathTrie is the schema's paths as one trie per constraint list - the
+// top-level list and each fragment's - in one node list, with node 0 the
+// top-level root. A document node is known when its chain reaches any trie
+// node: stars match any one name, every prefix of a path is legal, and a chain
+// that goes on past a path that inherits a fragment goes on in that fragment's
+// trie. Each document node's set comes from its parent's set and its own name,
+// so a node costs its name and not its depth. Building every node's chain from
+// the root and matching it from the top made the check the square of the depth
+// (2026110711492228).
+type pathTrie struct {
+	nodes []pathNode
 }
 
-// chainParts decodes a chain key back into its segments. Total: bails at the
-// first shape the encoder can't have produced.
-func chainParts(chain string) []string {
-	var parts []string
-	i := 0
-	for i < len(chain) {
-		n := 0
-		for i < len(chain) && chain[i] >= '0' && chain[i] <= '9' {
-			n = n*10 + int(chain[i]-'0')
-			i++
-		}
-		if i >= len(chain) || chain[i] != ':' || i+1+n > len(chain) {
+type pathNode struct {
+	names map[string]int
+	star  int // -1 for none
+	// Roots of the fragments that the paths ending here inherit.
+	mounts []int
+	// Legal names under this chain, for "did you mean". Only the top-level
+	// nodes reached by names alone have any, since a star or a mount has no
+	// one parent chain to suggest under.
+	sibs *suggestNames
+}
+
+func (t *pathTrie) newNode() int {
+	t.nodes = append(t.nodes, pathNode{names: map[string]int{}, star: -1})
+	return len(t.nodes) - 1
+}
+
+func newPathTrie(def *schemaDef) *pathTrie {
+	t := &pathTrie{}
+	t.newNode()
+	// A fragment is only reached through a mount, and only a top-level path
+	// can start a chain of them.
+	roots := map[string]int{}
+	for i := range def.cons {
+		if def.cons[i].inherits != "" {
+			for name := range def.frags {
+				roots[name] = t.newNode()
+			}
 			break
 		}
-		i++
-		parts = append(parts, chain[i:i+n])
-		i += n
 	}
-	return parts
+	t.add(0, def.cons, roots, true)
+	for name, fcs := range def.frags {
+		if r, ok := roots[name]; ok {
+			t.add(r, fcs, roots, false)
+		}
+	}
+	return t
 }
 
-// starLegal is the element-wise chain match against the star-bearing schema
-// paths: a `*` segment matches any one name, and every prefix of a path is
-// legal.
-func starLegal(pats [][]segment, idx firstIdx, chain string) bool {
-	if len(pats) == 0 {
-		return false
-	}
-	parts := chainParts(chain)
-	for _, pi := range idx.candidates(parts[0]) {
-		p := pats[pi]
-		if len(p) < len(parts) {
-			continue
-		}
-		ok := true
-		for i, seg := range parts {
-			if !p[i].star && p[i].name != seg {
-				ok = false
-				break
+func (t *pathTrie) add(root int, cons []constraint, roots map[string]int, top bool) {
+	for i := range cons {
+		c := &cons[i]
+		at := root
+		// No sibling entry for '*' or below it; deeper names are reached
+		// through the star.
+		named := top
+		for _, s := range c.segs {
+			named = named && !s.star
+			if named {
+				if t.nodes[at].sibs == nil {
+					t.nodes[at].sibs = &suggestNames{seen: map[string]bool{}}
+				}
+				t.nodes[at].sibs.push(s.name)
 			}
-		}
-		if ok {
-			return true
-		}
-	}
-	return false
-}
-
-// chainLegal is chain legality through fragment mounts: the general matcher -
-// element-wise like starLegal (stars wild, prefixes legal), and when a mount's
-// whole path matched with chain left over, the remainder is retried against
-// the mounted fragment's fields. Terminates: every descent consumes >= 1 part.
-func chainLegal(cons []constraint, frags map[string][]constraint, setIdx map[string]firstIdx, chain string) bool {
-	parts := chainParts(chain)
-	dead := map[chainState]bool{}
-	return chainPartsLegal(cons, "", frags, setIdx, parts, 0, dead)
-}
-
-// firstIdx buckets schema paths by what their first segment accepts. A path
-// can only match a chain whose first part is that segment's name, or anything
-// at all when the segment is `*`, so a lookup plus the star bucket is the whole
-// candidate set. Values are positions in the list the index was built from.
-// Both callers ask "does any of these match", so bucket order cannot reach the
-// answer.
-type firstIdx struct {
-	byName map[string][]int
-	stars  []int
-}
-
-func (ix firstIdx) candidates(part string) []int {
-	named := ix.byName[part]
-	if len(ix.stars) == 0 {
-		return named
-	}
-	out := make([]int, 0, len(named)+len(ix.stars))
-	return append(append(out, named...), ix.stars...)
-}
-
-func firstIndex(paths [][]segment) firstIdx {
-	ix := firstIdx{byName: map[string][]int{}}
-	for i, segs := range paths {
-		// A pathless entry keeps its old place in every candidate set: the
-		// scan it replaces looked at one, and what it then did is unchanged.
-		if len(segs) > 0 && !segs[0].star {
-			ix.byName[segs[0].name] = append(ix.byName[segs[0].name], i)
-		} else {
-			ix.stars = append(ix.stars, i)
-		}
-	}
-	return ix
-}
-
-// chainState: a fragment and how many parts are consumed on entry. One that
-// has failed is not walked again - two mounts of the same fragment at the same
-// depth used to be walked both, which is 2^depth on a chain that ends unknown.
-type chainState struct {
-	set string
-	at  int
-}
-
-func chainPartsLegal(cons []constraint, set string, frags map[string][]constraint, setIdx map[string]firstIdx, parts []string, at int, dead map[chainState]bool) bool {
-	if dead[chainState{set, at}] {
-		return false
-	}
-	rest := parts[at:]
-	// The recursion only descends with parts left over, and the sweep never
-	// asks about an empty chain, so rest always has a first part to look up.
-	cand, ok := setIdx[set]
-	var order []int
-	if ok {
-		order = cand.candidates(rest[0])
-	} else {
-		order = make([]int, len(cons))
-		for i := range cons {
-			order[i] = i
-		}
-	}
-	for _, ci := range order {
-		c := &cons[ci]
-		n := len(c.segs)
-		k := len(rest)
-		if n < k {
-			k = n
-		}
-		matched := true
-		for j := 0; j < k; j++ {
-			if !c.segs[j].star && c.segs[j].name != rest[j] {
-				matched = false
-				break
+			next, ok := t.nodes[at].star, t.nodes[at].star >= 0
+			if !s.star {
+				next, ok = t.nodes[at].names[s.name]
 			}
-		}
-		if !matched {
-			continue
-		}
-		if len(rest) <= n {
-			return true
+			if !ok {
+				next = t.newNode()
+				if s.star {
+					t.nodes[at].star = next
+				} else {
+					t.nodes[at].names[s.name] = next
+				}
+			}
+			at = next
 		}
 		if c.inherits != "" {
-			if fcs, ok := frags[c.inherits]; ok && chainPartsLegal(fcs, c.inherits, frags, setIdx, parts, at+n, dead) {
-				return true
+			if r, ok := roots[c.inherits]; ok {
+				t.nodes[at].mounts = append(t.nodes[at].mounts, r)
 			}
 		}
 	}
-	dead[chainState{set, at}] = true
-	return false
+}
+
+// step appends to pool the trie nodes a chain reaches when name follows a
+// chain that reached pool[from:to]. stamp keeps a node to one entry per pass,
+// as two mounts of one fragment reach the same nodes.
+func (t *pathTrie) step(pool []int, from, to int, name string, stamp []int, pass int) []int {
+	add := func(k int) {
+		if k >= 0 && stamp[k] != pass {
+			stamp[k] = pass
+			pool = append(pool, k)
+		}
+	}
+	look := func(n *pathNode) {
+		if k, ok := n.names[name]; ok {
+			add(k)
+		}
+		add(n.star)
+	}
+	for i := from; i < to; i++ {
+		n := &t.nodes[pool[i]]
+		look(n)
+		for _, r := range n.mounts {
+			look(&t.nodes[r])
+		}
+	}
+	return pool
 }
 
 // vSuggest finds the closest legal sibling name (same parent chain, schema
 // order, edit distance <= 2) as "; did you mean 'x'?" - or nothing. Prose
 // only, never contract.
-func vSuggest(siblings map[string]*suggestNames, parentChain, name string) string {
-	names := siblings[parentChain]
+func vSuggest(names *suggestNames, name string) string {
 	if names == nil {
 		return ""
 	}

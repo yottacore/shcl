@@ -1,0 +1,16 @@
+field: bot.name
+	type: string
+field: planet
+field: "planet(*).name"
+field: "planet(*).r"
+	type: int
+	repeat: [0, 9]
+field: server
+field: server.port
+	type: int
+field: "server(*).port"
+	type: int
+field: tag
+	repeat: [1, 1]
+field: env.*
+field: "pet(*)"

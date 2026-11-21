@@ -97,13 +97,13 @@ Case `041` pins generation over fragments. The `desc` and `default` words surviv
 
 Case `040` pins fragment faults. An `inherits` that names no declared fragment is `V095`, and a nameless declaration and a non-`field` key inside one are `V094`, all at schema lines. The surviving constraint checks nothing here, since its mount names the missing fragment. The unknown-field sweep is off under faults, so the document's unknown fields don't draw a `V001`.
 
-Case `039` pins fragments end to end. A self-recursive `node` fragment validates a 10-level layout tree clean, and the same fragment mounted at the alias `doc.layout` still flags an unknown field beneath it. A `repeat` declared on a fragment field disavows the document's `H001` under `--schema`, while the plain `check` golden keeps the hint.
+Case `039` pins fragments end to end. A self-recursive `node` fragment validates a 10-level layout tree clean, and the same fragment mounted at the alias `doc.layout` still flags an unknown field beneath it. A `repeat` declared on a fragment field disavows the document's `H001` under `--schema`, while the plain `check` golden keeps the hint. The top-level `tag` has no `repeat` of its own, so its 3 lines are a `V008` all the same.
 
 Case `038` pins open-section schema validation. A `*` name segment in a schema path resolves every child of `indicators` whatever its name, so `required: yes` on `indicators.*.period` fires per child, and the `V002` is anchored at the offending child's own line. A field the schema doesn't declare is still `V001`, and children of any name are legal without being listed.
 
 Case `037` pins the name wildcard in lookups. A `*` slots across children of any name with per-slot statuses, and a childless slot keeps `NotFound`. It composes with `(value)` selectors and keeps `count` and `instances` slot-aligned, scalar reads on it stay `Multiple`, and a field literally named `*` is addressed quoted (`"*"`), never by the wildcard. The write ops pin `remove` across wildcard slots, and `write-bad.ops` pins that setters refuse `*` paths, with the path checked whole and the document unchanged. `server.host` reads `a.example`, since only `web1` has one, yet a setter on it is refused, since the write would have to pick a `server`. spec.md says "That holds where a read of the whole path finds one node".
 
-Case `036` pins schema-declared repeat suppression. With `--schema`, an `H001` is dropped when its field declares a repeat upper bound above 1, since by declaration repetition is that field's instance mechanism. An undeclared repeat keeps its hint, and the plain `check` goldens keep both.
+Case `036` pins schema-declared repeat suppression. With `--schema`, an `H001` is dropped when its field declares a repeat upper bound above 1, since by declaration repetition is that field's instance mechanism. An undeclared repeat keeps its hint and is also a `V008`, and the plain `check` goldens keep both hints.
 
 Case `035` pins the `H002` merge hint. A binding that merges with an earlier one that isn't adjacent is hinted at the later line. Adjacent re-mentions and dotted redundant-path re-opens stay silent. Its strict `load ok` row is one of the 2 that pin the strictness table's hint row, since a hint never fails a load at any level.
 
@@ -197,7 +197,7 @@ Case `076` pins a value written after an index selector on the last segment (`a(
 
 Case `077` pins that a fragment mounted at one node by 2 schema paths (`srv` and `srv(*)` both inheriting `unit`) runs once per node. Each fault under it is reported once rather than once per path.
 
-Case `078` pins what a schema disavows. A `repeat` above 1 drops the `H001` hint for a field whose path has an escaped quote, a `reopen: true` drops the `H002` hint, and a `repeat` or `reopen` that faults (`V092`) disavows nothing, so the hint stays beside the fault.
+Case `078` pins what a schema disavows. A `repeat` above 1 drops the `H001` hint for a field whose path has an escaped quote, a `reopen: true` drops the `H002` hint, and a `repeat` or `reopen` that faults (`V092`) disavows nothing, so the hint stays beside the fault, and the repeated leaf is a `V008` as if it had no `repeat`.
 
 Case `079` pins the order a merge appends in. Unmatched higher-layer nodes keep that file's order (`c, a, b, a`) rather than regrouping by name, and a footer line the layer repeats itself is kept twice, while one the base already has is kept once.
 
@@ -482,6 +482,8 @@ Case `220` pins the schema check through a fragment that mounts itself, 60 level
 Case `221` pins where a replaced stacked list's comments go. A setter writing the list anew, and a merge, put the comments among its items and on them right above the field, with the field's blank line above them. The same is true after a comment of the field's own, with a blank among the items, and in a block.
 
 Case `222` pins instance values and array elements that contain U+2028, U+2029, and U+0085. The library returns them as they are, and the CLI listings `instances` and `get --array` print each such value quoted with the escapes `fmt` writes, so one value stays one line.
+
+Case `223` pins `V008`. A leaf written twice under one block, and 2 plain `planet:` blocks that merged and so repeat `name`, are each a `V008` when the schema gives them no `repeat`. A child with a `repeat` above 1 isn't one, 2 `server` instances with children aren't, and neither are the same `port` under 2 parents, a repeat under a `*` leaf, or `pet` under a `(*)` path. A `repeat` that the count misses stays a `V007`.
 
 Beyond the fixed corpus, the differential harness (`cicd/utility/crosscheck.bash`) also derives accessor coverage over the fuzz set. The reference's fuzz dump writes a `<name>.reads.tsv` beside each dumped input, with paths it knows exist and a type and strictness that cycle, and the `--extra` replay runs it through the same row machinery. Every scalar read row, from the corpus and from the fuzz set, is also replayed under `--on-bad=error` as an exit-code differential and under `--default=<x>` as a stdout differential, so the on-bad and default policy is pinned across bindings too. The harness also runs 3 `set` edits (a changed value, a new child, and a removal) on the first paths of every input, corpus and fuzz alike, so the save that keeps lines is compared well past the goldens. The reference's line-ending fuzz dumps up to 100 more inputs into an `eol/` folder beside the rest, and each one mixes LF and CRLF and has its edits as a write-ops script. Each goes through `set --write` in every binding, and the files left on disk must match byte for byte.
 

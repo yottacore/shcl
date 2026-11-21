@@ -674,9 +674,6 @@ class _Lead:
 		# not a comment, so clear_comments and comments leave it alone.
 		self.kept = kept
 
-	def is_comment(self):
-		return self.text.startswith("#") and not self.kept
-
 	def is_kept_line(self):
 		"""A line the load kept as written, settled or not. The save gate
 		counts these (design.md, Kept lines under edits)."""
@@ -2805,8 +2802,9 @@ class Migration:
 
 	current: the file already names its format, so there was nothing to migrate
 	and text is the input. ambiguous: pieces both rule sets read cleanly and
-	differently, such as `a,b` or an escape, and runs of lines one rule set
-	reads as a raw body and the other as fields, which nothing can decide
+	differently, such as `a,b` or an escape, runs of lines one rule set reads
+	as a raw body and the other as fields, and a raw body 1.0 to 2.0 read with
+	its shared indent taken off or closed early, which nothing can decide
 	between, left as written; always 0 when the caller said the file is 2.x.
 	A backslash pair 2.x resolved is one of them, as in `"C:\\new"`. lost:
 	lines 2.x bound a value on that nothing binds now, since there is no 3.0
@@ -3037,7 +3035,8 @@ def _pick_format(text: str, mtime: float | None, by_stamp: int) -> str:
 _TELL_RUNS = (
 	# Refused from the format 3 value syntax on: a comma list, `*` items, a
 	# bracket selector, a bare name led by a digit, a quote, a tab, a CR, a
-	# bracket or a loose colon in a bare value, an open backtick.
+	# bracket or a loose colon in a bare value, an open backtick, a quoted
+	# value with a backslash pair the older formats read as an escape.
 	("3.0-9ef", "3.0"),
 	# A bracketed value, which binds nothing.
 	("3.0-1f8", "3.0-a37"),
@@ -3049,6 +3048,9 @@ _TELL_RUNS = (
 	("1.1", "2.0"),
 	("3.0-1f8", "3.0-1f8"),
 	("3.0-30d", "3.0"),
+	# A value a quote opens and closes with text between 2 runs, such as
+	# `"x" "y"`, which 1.0 to 2.0 read whole.
+	("3.0-1f8", "3.0"),
 )
 
 _TELL_REFUSED_NOW = 0
@@ -3058,6 +3060,7 @@ _TELL_APOSTROPHE = 3
 _TELL_FOOTER_2 = 4
 _TELL_FOOTER_1F8 = 5
 _TELL_FOOTER_3 = 6
+_TELL_QUOTE_RUNS = 7
 
 # The Syntax line of each footer, and the tell it is.
 _TELL_FOOTERS = (
@@ -3120,12 +3123,15 @@ def _line_tells(rest: str, codes: list[str], tok: Tokens) -> int:
 	rules refuse for another reason has no tell, since the other formats
 	refuse it too."""
 	if rest.startswith("*"):
-		return _tell_run(_TELL_REFUSED_NOW) if "E013" in codes else 0
+		if "E013" not in codes:
+			return 0
+		return _tell_run(_TELL_REFUSED_NOW) | _quote_tells(rest, 1, tok)
 	if _is_item(rest):
 		return 0 if codes else _tell_run(_TELL_NEW_SPELLING)
 	tokenize(rest, ":", False, Rules.Current, tok)
 	src = tok.src
 	led_by_digit = tok.misspelled is not None and tok.misspelled < len(src) and 0x30 <= src[tok.misspelled] <= 0x39
+	run = 0
 	if (
 		"E026" in codes
 		or "E029" in codes
@@ -3133,10 +3139,13 @@ def _line_tells(rest: str, codes: list[str], tok: Tokens) -> int:
 		or ("E014" in codes and led_by_digit)
 		or _value_told(codes, tok)
 	):
-		return _tell_run(_TELL_REFUSED_NOW)
+		run |= _tell_run(_TELL_REFUSED_NOW)
 	if codes:
-		return 0
-	run = 0
+		plain = tok.fault is None and tok.array is None and all(s.selector is None for s in tok.segments)
+		sep = tok.sep
+		if plain and "E017" in codes and sep is not None:
+			run |= _quote_tells(rest, sep + 1, tok)
+		return run
 	if tok.array is not None:
 		run |= _tell_run(_TELL_BRACKETS)
 	if any(s.selector is not None for s in tok.segments):
@@ -3170,6 +3179,25 @@ def _value_told(codes: list[str], tok: Tokens) -> bool:
 		elif p.quote is Quote.Open and "E017" in codes and src[p.start : p.start + 1] == b"`":
 			return True
 	return False
+
+
+def _quote_tells(rest: str, from_: int, tok: Tokens) -> int:
+	"""The formats that refuse a value from the byte offset from_ the format 3
+	value syntax refuses with E017, where 1.0 to 2.0 close every quote in it.
+	A piece a quote opens and the same quote ends, with text between 2 quoted
+	runs, such as `"x" "y"` or `'x' 'y'`, is refused by the pins from 3.0-1f8
+	to 3.0-a37 too, which keep the text as typed. 1.0 to 2.0 read it whole,
+	without its outer quotes. A backslash pair the pins and 1.0 to 2.0 read as
+	an escape, such as `"t\\"wo"`, is read clean by every format to 3.0-a37,
+	and only 3.0-9ef on refuse it. A piece the 2.x rules leave open was
+	refused by 1.0 to 2.0 as well, so it isn't one. Leaves tok holding the 2.x
+	reading."""
+	_lex_value(rest, from_, _Lex.Pin, tok)
+	pins_open = any(p.quote is Quote.Open for p in tok.elements)
+	_lex_value(rest, from_, _Lex.V2, tok)
+	if any(p.quote is Quote.Open for p in tok.elements):
+		return 0
+	return _tell_run(_TELL_QUOTE_RUNS if pins_open else _TELL_REFUSED_NOW)
 
 
 class _StepKind(Enum):
@@ -3531,10 +3559,12 @@ def migrate(text: str, from_: str | None) -> Migration:
 	reads as from_'s format read it, and without from_ stays as written and
 	counts in lost, since 1.2 read it as typed and 2.0 resolved it. With
 	from_ naming 1.0, 1.1 or 2.0, a raw body is written to read as that
-	format read it, with the indent its lines shared taken off. A file taken
-	as 3.0-a37 or older, by from_ or its Format line, gets `[x]` for a
-	scalar `x` beside a stacked list of `x` alone, since those were one
-	instance then and a list isn't a scalar now.
+	format read it, with the indent its lines shared taken off. Without from_
+	or a Format line, a body any of those formats read otherwise stays as
+	typed and counts in ambiguous. A file taken as 3.0-a37 or older, by from_
+	or its Format line, gets `[x]` for a scalar `x` beside a stacked list of
+	`x` alone, since those were one instance then and a list isn't a scalar
+	now.
 
 	Which file this is cannot always be read off the text: `p: a,b` is an
 	array under 2.x and one string under these rules, and a raw block can open
@@ -3606,7 +3636,8 @@ def _v2_raw_body(lines, ch, length, v2):
 	it reads otherwise. The rest stay as typed (None). A block that never
 	closes stays as typed, since 2.x read it with an error and it is
 	unfinished here. migrate's own read, with no format found, keeps them all
-	too: the 2.x dev builds after 2.0 read a body as it reads now."""
+	too, since the 2.x dev builds after 2.0 read a body as it reads now, and
+	counts a body 1.0 to 2.0 read otherwise as ambiguous."""
 	if v2 is _V2Read.EITHER:
 		return []
 	body = []
@@ -3645,6 +3676,24 @@ def _v2_raw_body(lines, ch, length, v2):
 		keep = _strip_common(b, nest) == t if not _trim(b) else b == want
 		out.append(None if keep else want)
 	return out
+
+
+def _v2_reads_body_otherwise(lines, ch, length):
+	"""Whether 1.0, 1.1 or 2.0 read a raw body, for the lines after its
+	opening fence, otherwise than these rules do: with the indent its lines
+	shared taken off, or closed on a line only they took as its closing
+	fence."""
+	for line in lines:
+		b = line.rstrip("\r")
+		if _v2_fence_close(b, ch, length) is not None:
+			if not _is_fence_close(b, ch, length):
+				return True
+			break
+	return any(
+		r is not None
+		for v in (_V2Read.FROM_11, _V2Read.FROM_20)
+		for r in _v2_raw_body(lines, ch, length, v)
+	)
 
 
 def _v2_fold_scalars(text):
@@ -3788,6 +3837,14 @@ def _migrate_text(text, from_v2, stamp, beta, step):
 		# open the same block on the same line.
 		if fence is not None and not raw_then and now.fence == fence:
 			raw_body = iter(_v2_raw_body(lines[i + 1:], fence[0], fence[1], st.v2))
+			# A file that may be 3.0 keeps the body as typed, and one 1.0 to
+			# 2.0 read otherwise reads two ways.
+			if (
+				st.v2 is _V2Read.EITHER
+				and not st.from_v2
+				and _v2_reads_body_otherwise(lines[i + 1:], fence[0], fence[1])
+			):
+				st.ambiguous += 1
 	# A scalar written as an array to fold as it did is E028 too where it
 	# heads lines of its own.
 	if st.from_v2:
@@ -6566,6 +6623,23 @@ class _Emit:
 
 def _kept_in(leads):
 	return sum(1 for lead in leads if lead.is_kept_line())
+
+
+def _own_span(nd):
+	"""A node's own comments among its leading lines, the ones
+	clear_comments takes and comments reads, as a range: those after its last
+	kept line, as a remove takes them, up to the kept line written in place of
+	its `name:` line. A comment on the far side of a kept line is that line's
+	(2026111021095858)."""
+	lead = nd.leading()
+	end = len(lead) - 1 if _heads_block(nd) else len(lead)
+	start = next((k + 1 for k in range(end - 1, -1, -1) if lead[k].is_kept_line()), 0)
+	return start, end
+
+
+def _own_comments(nd):
+	start, end = _own_span(nd)
+	return nd.leading()[start:end]
 
 
 def _kept_in_lists(nd):
@@ -9950,7 +10024,7 @@ class Document:
 		tag, targets = self._targets_at(path)
 		if tag == "err":
 			return Read([], targets, None)
-		found = [c.text for t in targets if (tr := self.arena[t].trivia) is not None for c in tr.leading if c.is_comment()]
+		found = [c.text for t in targets for c in _own_comments(self.arena[t])]
 		return Read(found, Status.Good, None)._at(self._line_of_one(targets), None)
 
 	def clear_comments(self, path: str) -> int:
@@ -9958,9 +10032,11 @@ class Document:
 		set_comment adds to, so a program can replace a comment rather than
 		stack another one on it. Which lines those are is where the load put
 		them: everything between the node and the binding line before it, so a
-		heading written for a group of fields goes too. A comment on the node's
-		own line stays, and so does a line kept as written for being malformed.
-		Returns how many lines came off, 0 when the path reaches nothing."""
+		heading written for a group of fields goes too, back to a line kept as
+		written for being malformed. That line stays, and so do the comments
+		above it, which are its own. A comment on the node's own line stays
+		too. Returns how many lines came off, 0 when the path reaches
+		nothing."""
 		return self.try_clear_comments(path).value
 
 	def try_clear_comments(self, path: str) -> Read[int]:
@@ -9975,23 +10051,20 @@ class Document:
 		cleared = 0
 		for t in targets:
 			nd = self.arena[t]
+			start, end = _own_span(nd)
+			if start == end:
+				continue
+			cleared += end - start
 			tr = nd.trivia
-			if tr is None:
-				continue
-			before = len(tr.leading)
 			# The blank above the run is the one that separates it from what
-			# comes before, so it stays with whatever is now first.
-			blank = before > 0 and tr.leading[0].blank_before
-			tr.leading = [c for c in tr.leading if not c.is_comment()]
-			gone = before - len(tr.leading)
-			if gone == 0:
-				continue
-			cleared += gone
-			# A kept line left in the run may have sat under a comment that
-			# went.
+			# comes before, so it stays with whatever is now in its place.
+			blank = tr.leading[start].blank_before
+			del tr.leading[start:end]
+			# The kept line heading the node may have sat under a comment
+			# that went.
 			_restep(tr.leading)
-			if tr.leading:
-				tr.leading[0].blank_before = tr.leading[0].blank_before or blank
+			if start < len(tr.leading):
+				tr.leading[start].blank_before = tr.leading[start].blank_before or blank
 			else:
 				nd.blank_before = nd.blank_before or blank
 		if cleared:
@@ -11137,6 +11210,8 @@ class Document:
 					n = len(found)
 					if n < lo or n > hi:
 						_vdiag(out, anchor, "V007", f"instance count out of bounds at '{_schema_text(c.path)}': {n} not in {lo}..{hi}")
+				else:
+					self._v_repeated(c, found, out)
 				stack.extend(("node", c, n) for n in reversed(found))
 			else:
 				_, c, n = job
@@ -11152,6 +11227,27 @@ class Document:
 						if (c.inherits, n) not in mounted:
 							mounted.add((c.inherits, n))
 							stack.extend(("check", fc, n, self.arena[n].line) for fc in reversed(fcs))
+
+	# A field the schema gives no `repeat` reads as one value, so the same
+	# leaf written twice under one parent (H001's shape, or a merged block's
+	# children) passes every per-node check and then reads Multiple. Instances
+	# with children are the table idiom and stay legal, and a `(*)` leaf names
+	# its instances. A `*` leaf has no one name. Same-parent nodes are
+	# adjacent in `found`, one run per parent.
+	def _v_repeated(self, c, found, out):
+		if not c.segs or c.segs[-1].star or (c.segs[-1].selector is not None and c.segs[-1].selector[0] == "wild"):
+			return
+		arena = self.arena
+		i = 0
+		while i < len(found):
+			parent = arena[found[i]].parent
+			j, leaves = i, True
+			while j < len(found) and arena[found[j]].parent == parent:
+				leaves = leaves and not arena[found[j]].children
+				j += 1
+			if j - i > 1 and leaves:
+				_vdiag(out, arena[found[i + 1]].line, "V008", f"repeated field at '{_schema_text(c.path)}': {j - i} lines, and the schema has no repeat for it")
+			i = j
 
 	def _v_node(self, c, n, out):
 		node = self.arena[n]
@@ -11295,55 +11391,39 @@ class Document:
 		# Unknown-field sweep: a schema path legalizes its name chain and every
 		# prefix (selectors ignored). Only the topmost unknown node is
 		# reported; its subtree is implied unknown and skipped.
-		cons = sdef.cons
-		# Chains below a fragment mount only match by descending the mounts.
-		has_mounts = any(c.inherits is not None for c in cons)
-		legal = set()
-		# Sibling names per parent chain, built once (schema order): _v_suggest
-		# used to rebuild every chain per unknown field, which bit hardest on
-		# the wholesale-unmatched documents the feature exists for.
-		siblings: dict = {}
-		# Paths with a `*` segment can't live in the exact-chain hash; they
-		# match element-wise (a star matches any one name, prefixes included).
-		star_pats = []
-		for c in cons:
-			if any(s.star for s in c.segs):
-				star_pats.append(c.segs)
-			chain = ""
-			for s in c.segs:
-				if s.star:
-					break   # no sibling entry for '*'; deeper chains are pattern-only
-				siblings.setdefault(chain, _SuggestNames()).push(s.name)
-				chain = _chain_push(chain, s.name)
-				legal.add(chain)
-		# Both element-wise matchers below used to scan their whole list per
-		# document node, which is quadratic once the schema and the document
-		# grow together. A path can only match a chain whose first part its own
-		# first segment accepts, so one bucket lookup replaces the scan.
-		star_idx = _first_index(star_pats)
-		# Keyed the way _chain_parts_legal's seen set is: "" for the top-level
-		# list, otherwise the fragment name.
-		set_idx = {}
-		if has_mounts:
-			set_idx[""] = _first_index([c.segs for c in cons])
-			for name, fcs in sdef.frags.items():
-				set_idx[name] = _first_index([c.segs for c in fcs])
-		stack = [(c, "", "") for c in reversed(self.arena[_ROOT].children)]
+		trie = _PathTrie(sdef)
+		stamp = [0] * len(trie.nodes)
+		pass_ = 0
+		# Trie nodes each pending node's parent reached, as a range of pool.
+		# The document's root reaches the top-level root.
+		pool = [0]
+		# The document nodes down to the current one, for the message only.
+		path: list[int] = []
+		# (node, depth, parent's range in pool, the top-level trie node the
+		# parent's chain spells by names alone, which holds its siblings)
+		stack: list[tuple[int, int, int, int, int | None]] = [(c, 0, 0, 1, 0) for c in reversed(self.arena[_ROOT].children)]
 		while stack:
-			n, pchain, pshown = stack.pop()
+			n, depth, lo, hi, pnamed = stack.pop()
 			node = self.arena[n]
-			chain = _chain_push(pchain, node.name)
-			seg = _diag_name(node.name)
-			shown = seg if not pshown else pshown + "." + seg
-			if (
-				chain not in legal
-				and not _star_legal(star_pats, star_idx, chain)
-				and not (has_mounts and _chain_legal(cons, sdef.frags, set_idx, chain))
-			):
-				hint = _v_suggest(siblings, pchain, node.name)
+			del path[depth:]
+			path.append(n)
+			pass_ += 1
+			at = len(pool)
+			trie.step(pool, lo, hi, node.name, stamp, pass_)
+			if len(pool) == at:
+				hint = _v_suggest(trie.nodes[pnamed].sibs if pnamed is not None else None, node.name)
+				shown = ""
+				for p in path:
+					seg = _diag_name(self.arena[p].name)
+					shown = seg if not shown else shown + "." + seg
 				_vdiag(out, node.line, "V001", f"unknown field '{shown}'{hint}")
 				continue
-			stack.extend((k, chain, shown) for k in reversed(node.children))
+			if not node.children:
+				del pool[at:]
+				continue
+			named = trie.nodes[pnamed].names.get(node.name) if pnamed is not None else None
+			end = len(pool)
+			stack.extend((k, depth + 1, at, end, named) for k in reversed(node.children))
 
 
 class StatusError(Exception):
@@ -14678,120 +14758,91 @@ def _edit_distance(a, b, cap):
 	return prev[len(b)]
 
 
-def _chain_push(chain, name):
-	"""Append a segment to a chain key. Chain keys join segments
-	length-prefixed (`<len>:<name>`), not with a bare NUL: NUL is legal in a
-	quoted name, so a single field named "x\\0y" would impersonate the
-	two-segment path x.y. Same injectivity reasoning as the merge key's cell
-	encoding - and like it, the length unit is each binding's native one
-	(code points here), because only injectivity matters."""
-	return chain + str(len(name)) + ":" + name
+class _PathNode:
+	__slots__ = ("names", "star", "mounts", "sibs")
+
+	def __init__(self):
+		self.names = {}
+		self.star = None
+		# Roots of the fragments that the paths ending here inherit.
+		self.mounts = []
+		# Legal names under this chain, for "did you mean". Only the top-level
+		# nodes reached by names alone have any, since a star or a mount has no
+		# one parent chain to suggest under.
+		self.sibs = None
 
 
-def _chain_parts(chain):
-	"""Decode a chain key back into its segments. Total: bails at the first
-	shape the encoder can't have produced."""
-	parts = []
-	i = 0
-	while i < len(chain):
-		n = 0
-		while i < len(chain) and "0" <= chain[i] <= "9":
-			n = n * 10 + (ord(chain[i]) - 48)
-			i += 1
-		if i >= len(chain) or chain[i] != ":" or i + 1 + n > len(chain):
-			break
-		i += 1
-		parts.append(chain[i:i + n])
-		i += n
-	return parts
+class _PathTrie:
+	"""The schema's paths as one trie per constraint list - the top-level list
+	and each fragment's - in one node list, with node 0 the top-level root. A
+	document node is known when its chain reaches any trie node: stars match
+	any one name, every prefix of a path is legal, and a chain that goes on
+	past a path that inherits a fragment goes on in that fragment's trie. Each
+	document node's set comes from its parent's set and its own name, so a
+	node costs its name and not its depth. Building every node's chain from
+	the root and matching it from the top made the check the square of the
+	depth (2026110711492228)."""
+
+	def __init__(self, sdef):
+		self.nodes = [_PathNode()]
+		# A fragment is only reached through a mount, and only a top-level
+		# path can start a chain of them.
+		roots = {}
+		if any(c.inherits is not None for c in sdef.cons):
+			for name in sdef.frags:
+				roots[name] = len(self.nodes)
+				self.nodes.append(_PathNode())
+		self._add(0, sdef.cons, roots, True)
+		for name, fcs in sdef.frags.items():
+			r = roots.get(name)
+			if r is not None:
+				self._add(r, fcs, roots, False)
+
+	def _add(self, root, cons, roots, top):
+		nodes = self.nodes
+		for c in cons:
+			at = root
+			# No sibling entry for '*' or below it; deeper names are reached
+			# through the star.
+			named = top
+			for s in c.segs:
+				named = named and not s.star
+				if named:
+					if nodes[at].sibs is None:
+						nodes[at].sibs = _SuggestNames()
+					nodes[at].sibs.push(s.name)
+				nxt = nodes[at].star if s.star else nodes[at].names.get(s.name)
+				if nxt is None:
+					nxt = len(nodes)
+					nodes.append(_PathNode())
+					if s.star:
+						nodes[at].star = nxt
+					else:
+						nodes[at].names[s.name] = nxt
+				at = nxt
+			if c.inherits is not None:
+				r = roots.get(c.inherits)
+				if r is not None:
+					nodes[at].mounts.append(r)
+
+	def step(self, pool, lo, hi, name, stamp, pass_):
+		"""Append to pool the trie nodes a chain reaches when name follows a
+		chain that reached pool[lo:hi]. stamp keeps a node to one entry per
+		pass, as two mounts of one fragment reach the same nodes."""
+		nodes = self.nodes
+		for i in range(lo, hi):
+			t = nodes[pool[i]]
+			for m in (t, *(nodes[r] for r in t.mounts)) if t.mounts else (t,):
+				for k in (m.names.get(name), m.star):
+					if k is not None and stamp[k] != pass_:
+						stamp[k] = pass_
+						pool.append(k)
 
 
-def _first_index(paths):
-	"""Schema paths bucketed by what their first segment accepts. A path can
-	only match a chain whose first part is that segment's name, or anything at
-	all when the segment is `*`, so a lookup plus the star bucket is the whole
-	candidate set. Values are positions in the list the index was built from.
-	Both callers ask "does any of these match", so bucket order cannot reach
-	the answer."""
-	by_name: dict = {}
-	stars: list = []
-	for i, segs in enumerate(paths):
-		# A pathless entry keeps its old place in every candidate set: the scan
-		# it replaces looked at one, and what it then did is unchanged.
-		if segs and not segs[0].star:
-			by_name.setdefault(segs[0].name, []).append(i)
-		else:
-			stars.append(i)
-	return (by_name, stars)
-
-
-def _candidates(idx, part):
-	by_name, stars = idx
-	named = by_name.get(part, ())
-	return named if not stars else [*named, *stars]
-
-
-def _star_legal(pats, idx, chain):
-	"""Element-wise chain match against the star-bearing schema paths: a `*`
-	segment matches any one name, and every prefix of a path is legal."""
-	if not pats:
-		return False
-	parts = _chain_parts(chain)
-	return any(
-		len(pats[pi]) >= len(parts)
-		and all(pats[pi][i].star or pats[pi][i].name == seg for i, seg in enumerate(parts))
-		for pi in _candidates(idx, parts[0])
-	)
-
-
-def _chain_legal(cons, frags, set_idx, chain):
-	"""Chain legality through fragment mounts: the general matcher - element-
-	wise like _star_legal (stars wild, prefixes legal), and when a mount's whole
-	path matched with chain left over, the remainder is retried against the
-	mounted fragment's fields. Terminates: every descent consumes >= 1 part."""
-	parts = _chain_parts(chain)
-	return _chain_parts_legal(cons, frags, set_idx, parts)
-
-
-def _chain_parts_legal(cons, frags, set_idx, parts):
-	# Explicit stack of (fragment, constraints, parts consumed) rather than one
-	# frame per mount: a chain at the depth cap descends that many mounts. A
-	# state seen once is not walked again - two mounts of the same fragment at
-	# the same depth used to be walked both, which is 2^depth on a chain that
-	# ends unknown.
-	stack = [("", cons, 0)]
-	seen = set()
-	while stack:
-		name, cons, at = stack.pop()
-		if (name, at) in seen:
-			continue
-		seen.add((name, at))
-		# Indexes into parts rather than a slice of the rest: a copy per
-		# level is the chain's length per level, cubic in a recursive mount's
-		# depth. The stack only descends with parts left over, and the sweep
-		# never asks about an empty chain, so parts[at] is always there.
-		left = len(parts) - at
-		idx = set_idx.get(name)
-		order = range(len(cons)) if idx is None else _candidates(idx, parts[at])
-		for ci in order:
-			c = cons[ci]
-			n = len(c.segs)
-			k = min(left, n)
-			if all(c.segs[i].star or c.segs[i].name == parts[at + i] for i in range(k)):
-				if left <= n:
-					return True
-				if c.inherits is not None:
-					fcs = frags.get(c.inherits)
-					if fcs is not None:
-						stack.append((c.inherits, fcs, at + n))
-	return False
-
-
-def _v_suggest(siblings, parent_chain, name):
+def _v_suggest(names, name):
 	"""Closest legal sibling name (same parent chain, schema order, edit
 	distance <= 2) as "; did you mean 'x'?" - or nothing. Prose only, never
 	contract. The sibling lists are prebuilt once per validate."""
-	names = siblings.get(parent_chain)
 	best = names.closest(name) if names is not None else None
 	if best is None:
 		return ""

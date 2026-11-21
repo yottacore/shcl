@@ -35,6 +35,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Without a schema, 2 plain blocks that merge and repeat their children get only a hint
+	- ID: 2026112015385902
+	- Type: Bug
+	- Status: Waiting for answers
+		- Waits on the 2026112015385902 question in questions.md: a new warning severity, or a sharper hint.
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261120-153859
+	- Opened by: me
+	- Parent ID: 2026111016205701
+	- Steps to reproduce: load `planet:` twice with no schema, each with a `name:` and an `r:` under it.
+	- Incorrect behavior: 0 errors, `count("planet")` is 1, and the only sign is `H001` on `name` and `r`, which nothing shows by default.
+	- Requirements: a repeated block whose children repeat as bare leaves is a warning rather than a hint, with no schema.
+	- Note: SHCL has no warning severity, only Error and Hint. With a schema, the same file is `V008` since the parent.
+
 - Format versions: the demo gif and its golden text show fmt output without the stamp
 	- ID: 2026111710564808
 	- Type: Feature
@@ -49,68 +64,41 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Note: until then shell-regress dcvej fails, since every fmt now ends with the stamp.
 
-- `migrate` without `--from` stamps a file whose raw body 2.x read differently
-	- ID: 2026112013244228
+- check-migrate wants a file stamped `Format 3.0` that loads with an error left alone by `upgrade --from=2.0`, which converts it
+	- ID: 2026112017370795
 	- Type: Bug
 	- Status: Queued
-	- Severity: High
+	- Severity: Avg
 	- Target version: v3.0.0-beta.2
-	- Opened: 20261120-132442
-	- Opened by: me
-	- Related IDs: 2026112008173348, 2026112008173388, 2026111014552300
-	- Steps to reproduce:
-		- A file with no Format line: `q: ~~~sql`, then `SELECT 1` indented 2 spaces and `FROM t` indented 4, then `~~~` at column 0, then `port: 80`.
-		- `shcl migrate FILE`, then `shcl get` of `q` on the output.
-	- Incorrect behavior: exit 0, the body as typed, and `##    Format   3.0` at the end. 1.0, 1.1 and 2.0 read `q` with `SELECT 1` at column 0 and `FROM t` indented 2, and the stamped file reads it with 2 more spaces on each line. Nothing is counted or said.
-	- Expected behavior:
-		- A raw body that 1.0, 1.1 or 2.0 read differently from these rules counts as a value that reads 2 ways, as `note: don't panic  # keep this` does. The body stays as typed, the file gets no stamp, `unfinished` is true, and the CLI exits 7 and names `--from`.
-		- A body every format read the same isn't counted. That's every body 2.0's own `fmt` wrote, since it put the body at the fence's indent.
-		- `--from` naming 1.0, 1.1 or 2.0 still rewrites the body, as now.
-		- All 4 bindings, with spec.md's migrate section and `migrate`'s doc comments.
-	- Reproduced: 20261120, the debug CLI on dev `ba733399` against the v2.0.0 CLI.
-	- Estimated effort: Avg
-	- Decisions:
-		- me, 20261120: this reverses 2026112008173348's call to leave such a body as typed at exit 0. `help` says `migrate` refuses a file that doesn't say which rules it was written for when the 2.x and current readings differ, and this is that case. `upgrade` isn't affected, since it finds the format first.
-		- JC, 20261120: fixed before beta.2. It was filed as Avg for 3.0.0, since beta1 did the same and `upgrade` is the documented way to convert.
-	- Note: check-migrate's `rawindent` mode already leaves such a block out, and corpus 053, 055, 058 and 124 have bodies of this kind.
-
-- `clear_comments` takes a comment on the far side of a kept line above its target
-	- ID: 2026111021095858
-	- Type: Bug
-	- Status: Queued
-	- Severity: Avg
-	- Target version: v3.0.0
-	- Opened: 20261110-210958
-	- Opened by: found while working 2026111012160121
-	- Related IDs: 2026111012160121, 2026100307163901
-	- Version and build: r1111 at `cddbda9f`
-	- Steps to reproduce: `printf 'k2: 78\n# note 3\nport4: a, b,  c\n# on srv5\nsrv5: 1\n' > f.shcl`, then `printf 'clear-comments\tsrv5\n' | shcl set f.shcl`.
-	- Incorrect behavior: both comments go. That includes `# note 3`, which is above the kept `E026` line `port4: a, b,  c` rather than against `srv5`.
-	- Expected behavior: only `# on srv5` goes. design.md's remove rule says a comment on the far side of a kept line stays with that line, and `remove srv5` keeps it.
-	- Reproduced: 20261111, the Rust, Go, and C CLIs.
-	- Possible cause: a kept line and the comments above it are in the next field's leading lines, and `clear_comments` clears every comment there, where the remove stops at the last kept line. `set_comment` likely does the same.
+	- Opened: 20261120-173707
+	- Opened by: me, the nov20c gate's check-migrate
+	- Related IDs: 2026101407100010, 2026111708125373, 2026111912330681
+	- Version and build: dev at `f9f1a9fc`, and nov20c at `63a34d6b`
+	- Steps to reproduce: run `cicd/utility/check-migrate.bash` on nov20c at `63a34d6b`. Its fuzz dump's `fuzz_00042` is a corpus input with the info block, `##    Format   3.0` in it, and `~##` above it, which is `E015`.
+	- Incorrect behavior: `ddmp7` fails: "format 3, with --from=2.0: the file was changed" and "something was written beside the file". `upgrade --from=2.0` writes a fresh file, which loads clean, and backs the original up under `format-v3`.
+	- Expected behavior: `ddmp7` passes. spec.md's `UpgradeFile` says a file naming this major that loads with an error is taken as the `from` format and written, so the library is right and the check wants the wrong thing.
+	- Reproduced: 20261120. The Rust CLI on dev at `f9f1a9fc` and on nov20c rewrites `fuzz_00042` with `--from=2.0` to the same fresh file, and leaves it alone without. `key: 1`, `~x`, a blank, then `##    Format   3.0` does the same. check-migrate.bash is the same on both. Corpus 223 shifted the seeds, so dev's dump never had such a file.
+	- Possible cause: `fUpConverts3`, its `sed`, and the `elif` in `fUpFormat3` match only `Format   3` with nothing after it, which is beta1's spelling. Info blocks name `3.0` since 2026111708125373, so a `3.0` file falls to the branch that wants it untouched.
 	- Estimated effort: Low
-	- Note: the placement property in `dd3t9` excuses this class with a check keyed by this ID. The fix takes it out.
-	- 20261111: the property that excuses this is now in dev's `fuzz_smoke.rs`, on b2bits. The CLI reproduction stands.
 
-- Schema check costs the square of the nesting depth in all 4 bindings
-	- ID: 2026110711492228
+- A list rewrite keeps the blank under a comment that sits in an item's place, which cuts the field's own comment off from it
+	- ID: 2026112017363707
 	- Type: Bug
 	- Status: Queued
 	- Severity: Avg
-	- Target version: v3.0.0
-	- Opened: 20261107-114922
-	- Opened by: me, from 2026110613470309
-	- Related IDs: 2026110613470309
-	- Version and build: dev at `c9f4bc4b`
-	- Steps to reproduce:
-		- Time the check on the schema and document of 2026110613470309, and on the same document at half the depth.
-	- Incorrect behavior: twice the depth costs about 4 times as much in all 4. Python takes 6.3 s on the 41 KB document.
-	- Expected behavior: spec.md says the check's cost is proportional to the document.
-	- Reproduced: 20261107, C and Python.
-	- Possible cause: the unknown-field sweep builds each node's chain from the root and matches it from the top, so a node at depth d costs d. Passing each node's match states down from its parent would make it a constant per node.
-	- Regression test: the `df080` fixture in every runner checks that 4 times the depth takes under 8 times the time.
-	- Estimated effort: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261120-173637
+	- Opened by: me, the nov20c gate's 2M release fuzz
+	- Related IDs: 2026110613470311, 2026111012160121, 2026110712372271
+	- Version and build: dev at `f9f1a9fc`, and nov20c at `63a34d6b`
+	- Steps to reproduce: `printf '# the list\nhosts:\n\t#- a\n\n\t# b is the spare\n\t- b\nz: 1\n' > f.shcl`, then `printf 'literal\thosts\tb\n' | shcl set f.shcl`.
+	- Incorrect behavior: the output is `# the list`, `#- a`, a blank, `# b is the spare`, then `hosts: b`. The blank under `#- a` moves up with the comments among the items, so `# the list` is set off from the field and `comments("hosts")` gives only `# b is the spare`. A merge that writes the list as a bracket array does the same. Fuzz `dderx` fails on it at iteration 172087 of the 2M release run on nov20c, op 10, a merge.
+	- Expected behavior: the comments among the items go right above the field's line, under its own comment, with no blank among them, as corpus `221-list-replace-comments` has for a blank between 2 items. With `- a` in place of `#- a` the blank goes.
+	- Reproduced: 20261120, the Rust CLI on dev at `f9f1a9fc` with the steps. The fuzz input's base and merge give the same text through the Rust library on dev and on nov20c at `63a34d6b`, and the placement property's merge check is the same on both. Corpus 223 shifted the seeds, so dev's run never reached it. Not tried in Go, Python or C.
+	- Possible cause: `adopt` drops a blank between items, but not one under a comment that sits where an item was.
+	- Note: the placement property excuses it with `blank_kept` in `fuzz_smoke.rs`, keyed by this ID. The fix takes it out.
+	- Verified: 20261120 on nov20c-fix, with `blank_kept` forced false `dderx` fails at iteration 172087 at 200,000 in release, and with it `dderx`, `dd3t9` and `df50j` pass at 200,000.
+	- Estimated effort: Low
 
 - A repeat the schema doesn't allow passes Strict, and a near-miss table merges with only a hint
 	- ID: 2026111016205701
@@ -131,7 +119,25 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Add a `V` error in all 4 for a repeated field or merged block that the schema doesn't give a `repeat` above 1.
 		- Without a schema, a repeated block whose children repeat as bare leaves is a warning rather than a hint.
+			- That part is child 2026112015385902, which waits on a question, since SHCL has no warning severity.
+	- Actual cause: validation checked each node a path resolves to, and counted them only against a declared `repeat`. With no `repeat`, any number of lines passed.
 	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- With no `repeat`, 2 or more lines of a field under one parent, none with children, are `V008` at the second line (me). Instances with children are the table idiom, so they stay legal, and so does the same leaf under 2 parents, since that repeat is the parent's.
+		- A merged block is covered through its children: 2 plain `planet:` blocks merge into one, and their `name` lines then repeat under it (me).
+		- A `(*)` leaf names its instances and a `*` leaf has no one name, so neither is checked. A faulted `repeat` counts as none (me).
+		- `V008` is a new code rather than `V007` with an implied bound, since the count is per parent, not per context (me).
+		- The schema-side choice has a `Check:` entry in questions.md.
+	- Actual fix: `v_repeated` (Go `vRepeated`, Python `_v_repeated`) runs where `repeat` is absent, in all 4. `V008` is in the spec's table and every CLI's `explain` list.
+		- 20261120: assert values changed for this item. The `expected-validate.txt` goldens of corpus 036, 039, 054, 078 and 196 each gained their `V008` lines. The Rust generation grid in `generated_starters_load_and_validate_clean` went from 1029 to 1014, for the 15 that pair a required `a` with a required `a(b)`. The veneer smoke's clean schema gives `city` a `repeat: [1, 2]`, since its document writes `city` twice.
+	- Swept: the count site in all 4 `v_check_from`; the generator's self-check, which reports `V008` as `V097` through the same validate; the 4 `explain` lists; check-docs `dd5gs` matches them to the spec.
+	- Branch: nov20c-2026111016205701
+	- Commit: `6ac1a643`
+	- Test case: corpus `223-undeclared-repeat` (`dfjr5`) in all 4 runners and the crosscheck.
+		- Verified: it fails with the Rust fix taken out, along with the 5 updated goldens, and passes in all 4 with it.
+	- Verified: the quick gate, all areas; crosscheck; cli-regress; check-docs.
+	- Note: 20261120, corpus 223 shifted the fuzz seeds. check-migrate `ddmp7` then failed on `63a34d6b` on a dump file stamped `Format 3.0` with an error, which dev's CLI rewrites the same way. The check is wrong there, not the library: Bug 2026112017370795. The 2M fuzz's `dderx` failure is Bug 2026112017363707, from dev too.
 
 - `Document::merge` drops the base file's comments on every leaf the upper layer names
 	- ID: 2026111217560140
@@ -248,18 +254,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The `_or` doc says a repeat gives the default, and points to that read.
 	- Estimated effort: Avg
 
-- Format versions: find_format doesn't count a value of 2 quoted runs, `a: "x" "y"`, as a tell
-	- ID: 2026112010395941
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Target version: v3.0.0
-	- Opened: 20261120-103959
-	- Opened by: me
-	- Related IDs: 2026111910270033
-	- Problem description: 1.0 to 2.0 read `a: "x" "y"` clean, as `x" "y`. 3.0-1f8 on refuse it with `E017`, the pins binding the text as typed and 3.0-9ef on binding nothing. find_format counts no tell for it, so a 2.0 file with only such a line and a recent mtime reads as 3.0 and isn't converted.
-	- Origin: Confirmed against the v2.0.0 and 3.0-1f8 to 3.0 CLIs (2026111910270033).
-
 - `shcl migrate --from=3.0` on a file with no stamp says the file already names its format
 	- ID: 2026111920301167
 	- Type: Bug
@@ -286,6 +280,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: `veneer FAIL: round 2, thread 7, call 0`, where got and want print the same up to a line end, then `FAIL de1a5 c++ reads_from_several_threads`.
 	- Expected behavior: the threads test passes every run.
 	- Note: control: the same source built with g++ and run 3 times alone passed every time. No C or C++ code changed in that tree.
+	- 20261120: failed again in nov20c's gate step quick run at `63a34d6b` (load about 25 on 32 cores), round 1, thread 2, call 0. The printed got and want are the same text and the same `T F 1` flags, so the compare saw something other than what it printed. 5 runs alone then passed.
 
 - The C++ veneer smoke doesn't build with SHCL_NO_FILE_IO
 	- ID: 2026111814490325
@@ -319,19 +314,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: de5aj fails with py/empty-except at source/python/cmd/shcl/main.py's gone_since_read, an except clause that only passes with no comment.
 	- Estimated effort: Low
 	- Origin: Confirmed. 1bbee68b (2026-11-11, beta2 bits), older than round nov17b.
-
-- analyze-c fails on dev: clang-tidy on `set_off`, and the clang analyzer on `fs_property.c`
-	- ID: 2026111623502776
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261116-235027
-	- Opened by: found while working 2026111623191917
-	- Version and build: `nov17` at `813dfecf`
-	- Steps to reproduce: `cicd/utility/analyze-c.bash`.
-	- Incorrect behavior: `de2x4` fails on `bugprone-easily-swappable-parameters` for `set_off` in `shcl.h` (its `comment` and `above` arrays), from `1bbee68b` (2026-11-11). `de2x3` fails on `fs_slurp` in `source/c/tests/fs_property.c`, a read after end of file the analyzer assumes.
-	- Expected behavior: both pass, with a real fix or a suppression at the line with its reason, as the 3 bugprone checks are judged.
-	- Estimated effort: Low
 
 - H001 on a case-only repeat gives the same hint as a real repeat
 	- ID: 2026111217560122
@@ -1044,6 +1026,193 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- spec.md and the `upgrade` docs say 2.x includes 1.x, and that a 1.x file's backup is named `format-v2`.
 		- The next changelog's upgrading notes say C's `SHCL_SET_OK` is 0, so old code testing a setter `!= 0` reads every success as a failure, and that a string read of an array gives its bracket text. The released beta1 section stays as it is.
 	- Estimated effort: Low
+
+- Format versions: find_format doesn't count a quoted value with a backslash pair, `a: "t\"wo"`, as a tell
+	- ID: 2026112016323606
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261120-163236
+	- Opened by: me
+	- Related IDs: 2026112010395941, 2026111910270033
+	- Problem description: 1.0 to 3.0-a37 read `a: "t\"wo"` clean, as `t"wo`. 3.0-9ef on refuse it with `E017` and bind nothing, since the backslash is text there and the second quote closes the run. find_format counts no tell for it, so a file from 1.0 to 3.0-a37 with only such a line and a recent mtime reads as 3.0 and isn't converted.
+	- Origin: Confirmed against the v1.0.0 to 3.0 CLIs (2026112010395941). The `*` item `* "t\"wo"` is already told, by `E013`.
+	- Reproduced: the new test fails in all 4 runners with the new tell turned off. On the CLIs built at v1.0.0, v2.0.0, 3.0-1f8, 3.0-a37, 3.0-9ef and this tree, every format to 3.0-a37 reads `"t\"wo"`, `"a\" b"` and `"\"\""` clean, as `t"wo`, `a" b` and `""`, and 3.0-9ef on refuse each with `E017`. Every format refuses `"t\"wo`, `"t\"wo" x` and `'t\'wo`, and reads `"t\\"` clean.
+	- Actual cause: find_format counted `E017` on a quoted value only when the pins left a quote open in it and the 2.x rules closed every quote, the case of 2 quoted runs.
+	- Actual effort: Low
+	- Actual fix: a field value refused with `E017` is also a tell against 3.0-9ef on when both the pins' rules and the 2.x rules close every quote in it. `quote_runs` became `quote_tells`, which gives the formats the value counts against. A load with migrate or upgrade then finds such a file to be 3.0-a37, and `upgrade` gives `a: 't"wo'`.
+	- Decisions:
+		- me, 20261120: the tell needs the 2.x rules to close every quote as well as the pins' rules, so a value only the pins read clean isn't counted. No such value was found that the current rules refuse with `E017`, and counting it against 3.0-9ef on alone would favor 1.0 to 2.0, which refuse it too.
+		- me, 20261120: the `*` item stays told by `E013` alone, since `quote_tells` adds the same run there.
+	- Verified: the new test fails in all 4 runners with the new tell turned off, and passes with the fix. `--backlog-run-quick rust go python c cli` passed all 5 steps, and was stopped at about 5 minutes in its wrap-up after them. cargo fmt, gofmt, ruff check, cli-regress over the 4 CLIs, crosscheck over the corpus, `test-ids.py check`, `lint-report.bash --check --no-mark` and the markdown check passed. `shcl upgrade` on a file with only `a: "t\"wo"` gives `a: 't"wo'` in all 4 CLIs. analyze-c and cppcheck were not run.
+	- Swept: `line_tells` and `quote_tells` in Rust, Go (`lineTells`, `quoteTells`), Python (`_line_tells`, `_quote_tells`) and C (`line_tells`, `quote_tells`, `any_open`). C++ `find_format` wraps C. The `TELL_RUNS` comment in all 4. Docs: the design doc's Tells table and a dated note under its tells step, and the changelog's `find_format` entry.
+	- Branch: `nov20c-2026112016323606`
+	- Commit: `cc4fe119`
+	- Test case: `a_quoted_value_with_a_backslash_pair_is_a_tell` (Rust `dfjt5`, Go `dfjt6`, Python `dfjt7`, C `dfjt8`).
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the fix in all 4 runners, and the named gates passed.
+	- Closed: 20261120-165807
+	- Closed reason: Done
+
+- `migrate` without `--from` stamps a file whose raw body 2.x read differently
+	- ID: 2026112013244228
+	- Type: Bug
+	- Status: Closed
+	- Severity: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261120-132442
+	- Opened by: me
+	- Related IDs: 2026112008173348, 2026112008173388, 2026111014552300
+	- Steps to reproduce:
+		- A file with no Format line: `q: ~~~sql`, then `SELECT 1` indented 2 spaces and `FROM t` indented 4, then `~~~` at column 0, then `port: 80`.
+		- `shcl migrate FILE`, then `shcl get` of `q` on the output.
+	- Incorrect behavior: exit 0, the body as typed, and `##    Format   3.0` at the end. 1.0, 1.1 and 2.0 read `q` with `SELECT 1` at column 0 and `FROM t` indented 2, and the stamped file reads it with 2 more spaces on each line. Nothing is counted or said.
+	- Expected behavior:
+		- A raw body that 1.0, 1.1 or 2.0 read differently from these rules counts as a value that reads 2 ways, as `note: don't panic  # keep this` does. The body stays as typed, the file gets no stamp, `unfinished` is true, and the CLI exits 7 and names `--from`.
+		- A body every format read the same isn't counted. That's every body 2.0's own `fmt` wrote, since it put the body at the fence's indent.
+		- `--from` naming 1.0, 1.1 or 2.0 still rewrites the body, as now.
+		- All 4 bindings, with spec.md's migrate section and `migrate`'s doc comments.
+	- Reproduced: 20261120, the debug CLI on dev `ba733399` against the v2.0.0 CLI.
+	- Estimated effort: Avg
+	- Decisions:
+		- me, 20261120: this reverses 2026112008173348's call to leave such a body as typed at exit 0. `help` says `migrate` refuses a file that doesn't say which rules it was written for when the 2.x and current readings differ, and this is that case. `upgrade` isn't affected, since it finds the format first.
+		- JC, 20261120: fixed before beta.2. It was filed as Avg for 3.0.0, since beta1 did the same and `upgrade` is the documented way to convert.
+		- me, 20261120: a body counts once per block, as one more value in the CLI's "value(s) read one way under 2.x" message, so no CLI wording changed.
+		- me, 20261120: a closing fence run with a Unicode blank at its edge, which only 1.0 to 2.0 took as the close, counts too, since the block then reads 2 ways as well.
+		- me, 20261120: a file whose Format line names an older format isn't counted, as for every other ambiguous piece, since the line says it's 2.x.
+	- Note: check-migrate's `rawindent` mode already leaves such a block out, and corpus 053, 055, 058 and 124 have bodies of this kind.
+	- Actual cause: `migrate_text` read a raw body only for the named format's step. Without `from`, it passed the body through and never asked whether 1.0 to 2.0 read it otherwise.
+	- Actual fix: where the current rules open the same block on the same line, and there is no `from` or Format line, a body that 1.0, 1.1 or 2.0 read otherwise adds 1 to `ambiguous`. So the file is unstamped and `unfinished`, and the CLIs exit 7 naming `--from=FORMAT`. In all 4 bindings (`v2_reads_body_otherwise`, Go `v2ReadsBodyOtherwise`, Python `_v2_reads_body_otherwise`), with the doc comments, spec.md, design.md, the format versions doc and the changelog.
+	- Verified: the new tests fail with the count held at 0 in Rust, Go, Python and C, and pass with the fix. cargo test, rustfmt and clippy, Go in both modules with vet, the Python and C conformance runners, ruff, cli-regress (685 rows), crosscheck, check-migrate (642 documents), `test-ids.py check`, `lint-report.bash --check --no-mark`, the markdown check and markdownlint (only lines already there) passed. `--backlog-run-quick rust go python c cli` passed all 5 steps; the call timed out in its wrap-up after step 5.
+	- Swept: each binding's `migrate_text` call site of the raw body step, and `Migration`'s `ambiguous` doc and `migrate`'s doc comment in all 4. C++ `Migration`'s comment is general and still holds. `upgrade` finds the format first, so it's unchanged.
+	- Test case: `migrate_counts_a_raw_body_2x_read_otherwise` (Rust `dfjnc`, Go `dfjnd`, Python `dfjne`, C `dfjnf`), and cli-regress `dfjng` (`migrate-raw-body-ambiguous`).
+	- Branch: `nov20c-2026112013244228`
+	- Commit: `9fc7fac1`
+	- Acceptance signoff: Self-closed: the tests were seen to fail on the old code, and the named gates passed.
+	- Closed: 20261120-142900
+	- Closed reason: Done
+
+- `clear_comments` takes a comment on the far side of a kept line above its target
+	- ID: 2026111021095858
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261110-210958
+	- Opened by: found while working 2026111012160121
+	- Related IDs: 2026111012160121, 2026100307163901
+	- Version and build: r1111 at `cddbda9f`
+	- Steps to reproduce: `printf 'k2: 78\n# note 3\nport4: a, b,  c\n# on srv5\nsrv5: 1\n' > f.shcl`, then `printf 'clear-comments\tsrv5\n' | shcl set f.shcl`.
+	- Incorrect behavior: both comments go. That includes `# note 3`, which is above the kept `E026` line `port4: a, b,  c` rather than against `srv5`.
+	- Expected behavior: only `# on srv5` goes. design.md's remove rule says a comment on the far side of a kept line stays with that line, and `remove srv5` keeps it.
+	- Reproduced: 20261111, the Rust, Go, and C CLIs.
+	- Possible cause: a kept line and the comments above it are in the next field's leading lines, and `clear_comments` clears every comment there, where the remove stops at the last kept line. `set_comment` likely does the same.
+	- Estimated effort: Low
+	- Note: the placement property in `dd3t9` excuses this class with a check keyed by this ID. The fix takes it out.
+	- 20261111: the property that excuses this is now in dev's `fuzz_smoke.rs`, on b2bits. The CLI reproduction stands.
+	- Reproduced: 20261120, the Rust CLI on nov20c at `4607415d`, the same output.
+	- Actual cause [Bug]: `clear_comments` took every comment in the node's leading lines, and `comments` read them all. A kept line right above the node, and the comments above it, are in those lines too.
+	- Actual fix [Bug]: both take only the comments after the last kept line, up to the kept line heading the node, as a remove does, through one helper in all 4 bindings (`own_comments` in `lib.rs` and `shcl.h`, `ownComments` in `shcl.go`, `_own_span` in `shcl.py`). The blank above what goes stays above what's now in its place. The now unused `is_comment` is gone in all 4. The excuse keyed by this ID is out of `placement_slips`. design.md's "Kept lines under edits", spec.md, the doc comments and the changelog say so.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261120: `comments` reads the same lines `clear_comments` takes, as its doc already said, so a comment above a kept line isn't the field's on a read either.
+		- me, 20261120: a settled kept line counts as kept here, as for a remove, so a comment above it stays.
+	- Swept: `set_comment` appends after every line already above the node, so it was right already (2026111022100191). The merge's replaced leaf and `beside_kept` already stop at the last kept line. No other edit reads a node's comments by `is_comment`.
+	- Test case: placement rows `2026111021095858-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dd3t9`, `dderx`.
+	- Verified: the 3 rows fail on the Python library at `4607415d` and pass on the change (`placement-watch.py`). The issue's commands give the expected text through the Rust, Go and C CLIs. cargo test, Go `go test -count=1` in both modules, the Python and C conformance runners, `--backlog-run-quick rust go python c`, `dd3t9`, `dderx` and `df50j` at 200,000 in release, cli-regress (685 rows), crosscheck over the corpus and a 2000-iteration dump (55461 comparisons, `ddesf` included), lint-report, rustfmt, gofmt, go vet, the markdown check and markdownlint.
+	- Needs local test suite run?: No. Passed on 20261120.
+	- Branch: `nov20c-2026111021095858`
+	- Note: 20261120, the round's 2M release fuzz on `63a34d6b` failed `dderx` at iteration 172087, on a merge's list rewrite that dev's library gives the same text for. That's Bug 2026112017363707, not this change, and `placement_slips` excuses it by its ID (branch `nov20c-fix`).
+	- Closed reason: Done
+	- Acceptance signoff: me, 20261120, from the runs below.
+	- Closed: 20261121
+	- 20261120: Verified: on nov20c, the 2M release fuzz of `fuzz_smoke` at `8616e427` passed `dd3t9`, `dderx` and `df50j`, and cppcheck and analyze-c passed on the same `shcl.h`.
+
+- Schema check costs the square of the nesting depth in all 4 bindings
+	- ID: 2026110711492228
+	- Type: Bug
+	- Status: Closed
+	- Needs local test suite run?: No. Passed on 20261120.
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261107-114922
+	- Opened by: me, from 2026110613470309
+	- Related IDs: 2026110613470309
+	- Version and build: dev at `c9f4bc4b`
+	- Steps to reproduce:
+		- Time the check on the schema and document of 2026110613470309, and on the same document at half the depth.
+	- Incorrect behavior: twice the depth costs about 4 times as much in all 4. Python takes 6.3 s on the 41 KB document.
+	- Expected behavior: spec.md says the check's cost is proportional to the document.
+	- Reproduced: 20261107, C and Python. 20261120, all 4: the new fixture took 13 to 16 times the time for 4 times the depth on the old code.
+	- Possible cause: the unknown-field sweep builds each node's chain from the root and matches it from the top, so a node at depth d costs d. Passing each node's match states down from its parent would make it a constant per node.
+	- Actual cause: confirmed. Each node copied its parent's chain key and its shown path, hashed the whole key, and decoded it again for the star and mount matchers.
+	- Regression test: the `df080` fixture in every runner checks that 4 times the depth takes under 8 times the time.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- One matcher replaces the 3 (exact chains, star paths, mounts). The schema's paths become a trie per constraint list, a path that inherits a fragment points at that fragment's root, and each document node's set of trie nodes comes from its parent's set and its own name. The mount matcher already covered the other 2, so one is enough.
+		- "Did you mean" reads its sibling names from the top-level trie node that the parent's chain spells by names alone, which is the same set the per-chain map held.
+		- The shown path in a V001 message is built only for a reported node, from the walk's own path. Its length still follows the depth, but that is the message's own size.
+		- C keeps one edge map keyed on parent and name, with `name_key`, where the others keep a name map per trie node.
+	- Actual fix: the trie matcher in all 4 bindings, with the old chain keys, `star_legal`, `chain_legal` and the first-segment index gone. On the issue's 41 KB document the check went from 0.57 s to 0.01 s in Rust, 0.45 s to 0.04 s in Go, 6.3 s to 0.27 s in Python (the whole CLI run), and 0.26 s to 0.01 s in C, in user CPU at a load of about 6.
+		- Swept: `v_unknown` and its twins are the only callers of the removed helpers in all 4, and no doc or script names them. The fixtures time the whole validate, so the other passes are linear on that input too.
+		- Verified: the quick run over every area, lint-report, crosscheck, cli-regress and perf-gate (`dc81v`, `dcvcb`) passed, and so did analyze-c and codeql, bar the known `de5aj`. Over random schemas with stars, prefixes and fragments that mount themselves or each other, the old Go CLI and the new ones gave the same output: 1,500 seeds for Rust, Go and C, and 300 for Python.
+	- Test case: `recursive_mount_check_is_linear_in_depth` in every runner: C `df080`, Rust `dfjq6`, Go `dfjq7`, Python `dfjq8`. Each fails on the old code and passes now.
+		- 20261120: `df080` in `mem_bounds.c` was renamed from `recursive_mount_check_is_not_cubic_in_depth`, and its bound went from 32 to 8 times, as this item asked.
+	- Branch: `nov20c-2026110711492228`
+	- Commit: `b42c2b26`
+	- Closed reason: Done
+	- Acceptance signoff: me, 20261120, from the gate step below.
+	- Closed: 20261121
+	- 20261120: Verified: nov20c's gate step quick run at `63a34d6b` passed `dfjq6`, `dfjq7`, `dfjq8` and `df080`, and cppcheck passed on the same `shcl.h`. The profile stage times a large document's parse with no schema, so it never reaches the schema check and was left out (me).
+
+- Format versions: find_format doesn't count a value of 2 quoted runs, `a: "x" "y"`, as a tell
+	- ID: 2026112010395941
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261120-103959
+	- Opened by: me
+	- Related IDs: 2026111910270033
+	- Problem description: 1.0 to 2.0 read `a: "x" "y"` clean, as `x" "y`. 3.0-1f8 on refuse it with `E017`, the pins binding the text as typed and 3.0-9ef on binding nothing. find_format counts no tell for it, so a 2.0 file with only such a line and a recent mtime reads as 3.0 and isn't converted.
+	- Origin: Confirmed against the v2.0.0 and 3.0-1f8 to 3.0 CLIs (2026111910270033).
+	- Reproduced: the new test fails in all 4 runners with the new tell turned off. On the format CLIs, 1.0 to 2.0 read `"x" "y"`, `'x' 'y'`, `"x""y"`, `"x" "y #c"`, `"x, y" "z"` and `'t\'wo'` clean, without the outer quotes, and 3.0-1f8 on refuse each with `E017`. `"x" y`, `"x"y`, `"x" 'y'`, `"x" "y` and `"x" "y\"` are refused by every format.
+	- Actual cause: find_format counted `E017` only on a value a backtick opens.
+	- Actual effort: Avg
+	- Actual fix: a field value refused with `E017`, or a `*` item, is a tell against 3.0-1f8 on when the pins' rules leave a quote open in it and the 2.x rules close every quote. A load with migrate or upgrade then finds such a file to be 2.0, and the 2.x step quotes the value, as `a: 'x" "y'`.
+	- Decisions:
+		- me, 20261120: the tell is read off the value lexed by the pins' rules and by the 2.x rules, rather than off the shape of 2 runs. So `'t\'wo'`, which the pins refuse and 1.0 to 2.0 read with the backslash pair, counts too, and `"t\"wo"`, which the pins read, doesn't. Its own run, 3.0-1f8 to 3.0, is a new `TELL_RUNS` row.
+		- me, 20261120: a `*` item counts too, since the pins refuse `* "x" "y"` with `E017` and 1.0 to 2.0 read it clean. A `-` item doesn't, since every format to 3.0-a37 refuses those.
+		- me, 20261120: `a: "t\"wo"`, which 1.0 to 3.0-a37 read clean and 3.0-9ef on refuse, isn't counted either. It's filed apart as 2026112016323606.
+	- Verified: the new test fails in all 4 runners with the new tell turned off, and in Rust with the 2.x check dropped or the pins' rules swapped for the current ones, and passes with the fix. `--backlog-run-quick rust go python c cli` passed all 5 steps, and was stopped at 4 minutes in its wrap-up after them. cargo test, clippy and rustfmt, gofmt, ruff check, cli-regress over the 4 CLIs, crosscheck over the corpus, the C runner under ASan and UBSan with `SHCL_ARENA_MALLOC`, `test-ids.py check`, `lint-report.bash --check --no-mark` and the markdown check passed. `shcl upgrade` on a file with only `a: "x" "y"` gives `a: 'x" "y'` in all 4 CLIs. analyze-c and cppcheck were not run.
+	- Swept: `line_tells` and the new `quote_runs` in Rust, Go (`lineTells`, `quoteRuns`), Python (`_line_tells`, `_quote_runs`) and C (`line_tells`, `quote_runs`). C++ `find_format` wraps C. `TELL_RUNS` in all 4. Docs: the design doc's Tells table and a dated note under its tells step, and the changelog's `find_format` entry.
+	- Branch: `nov20c-2026112010395941`
+	- Commit: `364817b5`
+	- Test case: `a_value_of_2_quoted_runs_is_a_tell` (Rust `dfjs9`, Go `dfjsa`, Python `dfjsb`, C `dfjsc`).
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the fix in all 4 runners, and the named gates passed.
+	- Closed: 20261120-163500
+	- Closed reason: Done
+
+- analyze-c fails on dev: clang-tidy on `set_off`, and the clang analyzer on `fs_property.c`
+	- ID: 2026111623502776
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Opened: 20261116-235027
+	- Opened by: found while working 2026111623191917
+	- Version and build: `nov17` at `813dfecf`
+	- Steps to reproduce: `cicd/utility/analyze-c.bash`.
+	- Incorrect behavior: `de2x4` fails on `bugprone-easily-swappable-parameters` for `set_off` in `shcl.h` (its `comment` and `above` arrays), from `1bbee68b` (2026-11-11). `de2x3` fails on `fs_slurp` in `source/c/tests/fs_property.c`, a read after end of file the analyzer assumes.
+	- Expected behavior: both pass, with a real fix or a suppression at the line with its reason, as the 3 bugprone checks are judged.
+	- Estimated effort: Low
+	- Needs local test suite run?: No. Passed on 20261120.
+	- Closed reason: Moot
+	- Test case: `de2x3`, `de2x4`
+	- Acceptance signoff: me, 20261120, from the run below.
+	- Closed: 20261121
+	- 20261120: nov20b's gate step ran analyze-c and it passed in full, so this may only need its close (me).
+	- 20261120: Verified: `cicd/utility/analyze-c.bash` on nov20c at `d4ba7078` passed `de2x0` to `de2x4`. No item here changed `set_off` or `fs_slurp`; later work cleared both, as nov20b's analyze-c first showed.
 
 - `migrate_unstamped` can't say a migration didn't finish
 	- ID: 2026111014552300

@@ -5226,6 +5226,88 @@ int main(int argc, char **argv) {
 			if (!got || strcmp(got, vt[k].want)) fail("a_value_the_format_3_syntax_refuses_is_a_tell", vt[k].text);
 		}
 	}
+	test_id("dfjsc", "a_value_of_2_quoted_runs_is_a_tell");
+	/* A value a quote opens and the same quote ends, with text between 2
+	   quoted runs, such as `"x" "y"`, read whole in 1.0 to 2.0, and 3.0-1f8 on
+	   refuse it (E017), so it tells them apart. Rust's
+	   a_value_of_2_quoted_runs_is_a_tell has the same rows. The mtimes are
+	   Unix seconds at UTC, and has_mtime 0 passes none. */
+	{
+		const int64_t sep1 = 1788220800;  /* 2026-09-01, 1.0 to 2.0 */
+		const int64_t oct20 = 1792454400; /* 2026-10-20, to 3.0-9ef */
+		const int64_t nov10 = 1794268800; /* 2026-11-10, every format */
+		const struct { const char *text; int has_mtime; int64_t mtime; const char *want; } qr[] = {
+			{"a: \"x\" \"y\"\n", 1, nov10, "2.0"},
+			{"a: \"x\" \"y\"\n", 0, 0, "2.0"},
+			{"a: \"x\" \"y\"\n", 1, oct20, "2.0"},
+			{"a: \"x\" \"y\"\n", 1, sep1, "2.0"},
+			{"a: 'x' 'y'\n", 1, nov10, "2.0"},
+			{"a: \"x\"\"y\"\n", 1, nov10, "2.0"},
+			{"a: \"x\" \"y\" \"z\"\n", 1, nov10, "2.0"},
+			{"a: \"x\" \"y #c\"\n", 1, nov10, "2.0"},
+			{"a: \"x, y\" \"z\"\n", 1, nov10, "2.0"},
+			{"a: \"x\\\" \"y\"\n", 1, nov10, "2.0"},
+			{"a: z, \"x\" \"y\"\n", 1, nov10, "2.0"},
+			{"s:\n\ta: \"x\" \"y\"  # c\n", 1, nov10, "2.0"},
+			{"a:\n\t* \"x\" \"y\"\n", 1, nov10, "2.0"},
+			{"a: \"x\" \"y\"\nb: x\"y\n", 1, nov10, "2.0"},
+			/* An apostrophe the pins read as the close, which 2.x read escaped. */
+			{"a: 't\\'wo'\n", 1, nov10, "2.0"},
+			/* One tell each way ties, and the tie goes to the newest. */
+			{"a: \"x\" \"y\"\nb:\n\t- z\n", 1, nov10, "3.0"},
+			/* Not tells. */
+			{"a: \"x\" y\n", 1, nov10, "3.0"},
+			{"a: \"x\"y\n", 1, nov10, "3.0"},
+			{"a: \"x\" 'y'\n", 1, nov10, "3.0"},
+			{"a: \"x\" \"y\n", 1, nov10, "3.0"},
+			{"a: \"x\" \"y\\\"\n", 1, nov10, "3.0"},
+			{"a: \"x\" \"y\", \"q\n", 1, nov10, "3.0"},
+			{"a:\n\t- \"x\" \"y\"\n", 1, nov10, "3.0"},
+			{"\"x\" \"y\": 1\n", 1, nov10, "3.0"},
+			/* The pins read these, so they're the format 3 value syntax's own
+			   tells, a backtick and a `*` item. */
+			{"a: `x` \"y\"\n", 1, nov10, "3.0-a37"},
+			{"a:\n\t* \"t\\\"wo\"\n", 1, nov10, "3.0-a37"},
+		};
+		for (size_t k = 0; k < sizeof qr / sizeof qr[0]; k++) {
+			const char *got = shcl_find_format(qr[k].text, strlen(qr[k].text), qr[k].has_mtime ? &qr[k].mtime : NULL);
+			if (!got || strcmp(got, qr[k].want)) fail("a_value_of_2_quoted_runs_is_a_tell", qr[k].text);
+		}
+	}
+	test_id("dfjt8", "a_quoted_value_with_a_backslash_pair_is_a_tell");
+	/* A quoted value with a backslash pair that 1.0 to 3.0-a37 read as an
+	   escape, such as `"t\"wo"`, read clean there, and 3.0-9ef on refuse it
+	   (E017), so it tells them apart. Rust's
+	   a_quoted_value_with_a_backslash_pair_is_a_tell has the same rows. The
+	   mtimes are Unix seconds at UTC, and has_mtime 0 passes none. */
+	{
+		const int64_t sep1 = 1788220800;  /* 2026-09-01, 1.0 to 2.0 */
+		const int64_t oct20 = 1792454400; /* 2026-10-20, to 3.0-9ef */
+		const int64_t nov10 = 1794268800; /* 2026-11-10, every format */
+		const struct { const char *text; int has_mtime; int64_t mtime; const char *want; } bq[] = {
+			{"a: \"t\\\"wo\"\n", 1, nov10, "3.0-a37"},
+			{"a: \"t\\\"wo\"\n", 0, 0, "3.0-a37"},
+			{"a: \"t\\\"wo\"\n", 1, oct20, "3.0-a37"},
+			{"a: \"t\\\"wo\"\n", 1, sep1, "2.0"},
+			{"a: \"a\\\" b\"\n", 1, nov10, "3.0-a37"},
+			{"a: \"\\\"\\\"\"\n", 1, nov10, "3.0-a37"},
+			{"s:\n\ta: \"t\\\"wo\"  # c\n", 1, nov10, "3.0-a37"},
+			{"a:\n\t* \"t\\\"wo\"\n", 1, nov10, "3.0-a37"},
+			/* 2 tells against 3.0-9ef on and one against 3.0-1f8 on. */
+			{"a: \"t\\\"wo\"\nb: \"x\" \"y\"\n", 1, nov10, "2.0"},
+			/* One tell each way ties, and the tie goes to the newest. */
+			{"a: \"t\\\"wo\"\nb:\n\t- z\n", 1, nov10, "3.0"},
+			/* Not tells. */
+			{"a: \"t\\\\\"\n", 1, nov10, "3.0"},
+			{"a: \"t\\\"wo\n", 1, nov10, "3.0"},
+			{"a: \"t\\\"wo\" x\n", 1, nov10, "3.0"},
+			{"a: 't\\'wo\n", 1, nov10, "3.0"},
+		};
+		for (size_t k = 0; k < sizeof bq / sizeof bq[0]; k++) {
+			const char *got = shcl_find_format(bq[k].text, strlen(bq[k].text), bq[k].has_mtime ? &bq[k].mtime : NULL);
+			if (!got || strcmp(got, bq[k].want)) fail("a_quoted_value_with_a_backslash_pair_is_a_tell", bq[k].text);
+		}
+	}
 	test_id("dfj93", "a_file_format_reads_through_a_stamp_mtime_and_body_that_disagree");
 	/* Every pairing of a stamp, an mtime and a body whose tells disagree reads
 	   as the design doc's 4 steps give it, from tables written here rather
@@ -8975,6 +9057,44 @@ int main(int argc, char **argv) {
 		shcl_migration mm = shcl_migrate(text, strlen(text), NULL);
 		if (mm.len < strlen(typed) || memcmp(mm.text, typed, strlen(typed)) != 0) fail("upgrade_raw_body", mm.text);
 		free(mm.text);
+	}
+	test_id("dfjnf", "migrate_counts_a_raw_body_2x_read_otherwise");
+	/* Without from or a Format line, a raw body that 1.0, 1.1 or 2.0 read
+	   otherwise, with its shared indent taken off or closed on a fence run
+	   with a Unicode blank at its edge, reads two ways, since the 2.x builds
+	   after 2.0 read it as these rules do. It stays as typed, counts as
+	   ambiguous, and the file is unfinished. A body every format read alike,
+	   as 2.0's fmt wrote it, doesn't count, and from still rewrites it
+	   (2026112013244228). Same rows in every runner. */
+	{
+		const char *indented = "q: ~~~sql\n  SELECT 1\n    FROM t\n~~~\nport: 80\n";
+		const char *flush = "q: ~~~sql\nSELECT 1\n  FROM t\n~~~\nport: 80\n";
+		/* Each comes back as typed, and only one that counts nothing is
+		   stamped. */
+		const struct { const char *text; size_t ambiguous; } rows[] = {
+			{indented, 1},
+			{"a:\n\t```\n\t\tx\n\t```\nb: ~~~\n y\n~~~\n", 2},
+			{"u: ~~~\n\tx\n~~~\xe2\x80\xa8\nport: 80\n", 1},
+			{flush, 0},
+		};
+		for (size_t i = 0; i < sizeof rows / sizeof rows[0]; i++) {
+			char stamped[256];
+			snprintf(stamped, sizeof stamped, "%s%s", rows[i].text, rows[i].ambiguous ? "" : "##    Format   3.0\n");
+			for (int bare = 0; bare < 2; bare++) {
+				const char *t = rows[i].text;
+				shcl_migration m = bare ? shcl_migrate_unstamped(t, strlen(t), NULL) : shcl_migrate(t, strlen(t), NULL);
+				const char *want = bare ? t : stamped;
+				if (!m.text || m.len != strlen(want) || memcmp(m.text, want, m.len) != 0 || m.ambiguous != rows[i].ambiguous
+					|| m.unfinished != (rows[i].ambiguous != 0) || m.lost != 0) {
+					fprintf(stderr, "ambiguous %zu unfinished %d lost %zu\n%s\n", m.ambiguous, m.unfinished, m.lost, m.text ? m.text : "no text");
+					fail("migrate_raw_body_2x", t);
+				}
+				free(m.text);
+			}
+		}
+		shcl_migration m = shcl_migrate(indented, strlen(indented), "2.0");
+		if (!m.text || m.ambiguous != 0 || m.unfinished || strncmp(m.text, flush, strlen(flush)) != 0) fail("migrate_raw_body_2x", "from 2.0");
+		free(m.text);
 	}
 	test_id("dfjd1", "upgrade_from_1x_to_a37_folds_a_scalar_with_a_list_of_it");
 	/* 1.0 to 3.0-a37 keyed an instance by its strings alone, so `k: x` and a

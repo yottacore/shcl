@@ -1,0 +1,5 @@
+query	type	expected	status
+-	load	ok	-
+bot.name	string	-	Multiple
+planet	count	1	Good
+server(*).port	int[]	80|5432	Good
