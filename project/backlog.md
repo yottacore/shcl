@@ -551,12 +551,26 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The C++ veneer smoke doesn't build with SHCL_NO_FILE_IO
 	- ID: 2026111814490325
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261118-144903
 	- Opened by:
 	- Progress log:
 		- veneer_smoke.cpp declares a_save_names_this_format inside the file I/O guard but calls it outside it, so a -DSHCL_NO_FILE_IO build fails to compile. No gate builds that combination. Found in round nov18 while working 2026111708542868.
+	- Target version: v3.0.0-beta.2
+	- Related IDs: 2026111919581254
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Origin: `ff279feb` (stamp on save), which put `a_save_names_this_format` inside the file I/O guard while `main` calls it in both arms. Confirmed.
+	- Decisions: 20261121: the function moves out of the guard rather than its call into the guard, since it only parses, merges and builds text, so it runs with file I/O out. A new cross check, "veneer smoke with file I/O compiled out", builds the smoke with `-DSHCL_NO_FILE_IO` under the gate's `-Werror` flags and runs it, beside the C library's. It costs about 13 s of CPU per run.
+	- Verified: the new cross check fails on the old smoke (`a_save_names_this_format` not declared) and passes with the fix, where `dfe66` runs. The smoke built and ran both ways, `--backlog-run-quick c` passed with the new check in it, shell-regress `de4bg` passed, and `lint-report.bash --check --no-mark` passed. check-push-gate passed its first 72 rows before a 270 s cap stopped it, so its full run waits for the round's gate step.
+	- Swept: `main`'s `#else` arm calls no other function from inside a guard, since the smoke now builds. The C runner and `oom_recover` don't build with `SHCL_NO_FILE_IO` either, but have no guards and never supported it. `oom_hook` and `mem_bounds` build.
+	- Test case: cross check "veneer smoke with file I/O compiled out" in `cicd/config.bash`, which runs veneer `dfe66` and the other checks that need no file.
+	- Branch: `nov21-2026111814490325`
+	- Commit: `887f6510`
+	- Acceptance signoff: Self-closed: mechanical, and the new check was seen to fail without the fix.
+	- Closed: 20261121-120527
+	- Closed reason: Done
 
 - shell-regress de1a8 and dc0b5 fail on dev
 	- ID: 2026111711415580

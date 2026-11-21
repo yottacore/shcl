@@ -358,12 +358,6 @@ static int migrate_says_when_it_could_not_finish() {
 	return test_id_end(fails);
 }
 
-#ifndef SHCL_NO_FILE_IO
-// A save over the file a load read refuses when another program changed
-// it since, writes nothing, and writes with force. A save over a file the
-// document never read, a parse's included, is refused the same way, and
-// nothing at the path is written (2026102910482342, 2026110613470307,
-// 2026110907535001). The C runner's fixture, through the veneer.
 // Every text a save writes names this format: a stamp is rewritten where it
 // is, with its own head, and a text with none gets one as its last line. A
 // newer format's stamp stays, and so does a kept text that ends in a raw block
@@ -395,6 +389,12 @@ static int a_save_names_this_format() {
 	return test_id_end(fails);
 }
 
+#ifndef SHCL_NO_FILE_IO
+// A save over the file a load read refuses when another program changed
+// it since, writes nothing, and writes with force. A save over a file the
+// document never read, a parse's included, is refused the same way, and
+// nothing at the path is written (2026102910482342, 2026110613470307,
+// 2026110907535001). The C runner's fixture, through the veneer.
 static int a_save_over_a_file_changed_since_the_load_is_refused() {
 	test_id("dekkn", "a_save_over_a_file_changed_since_the_load_is_refused");
 	const char *tmp = std::getenv("TMPDIR");

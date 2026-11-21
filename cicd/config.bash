@@ -523,6 +523,8 @@ CROSS_TARGETS=(
 CROSS_CHECKS=(
 	"C library + CLI for Windows x86_64 (mingw)|wbin=\"\$(mktemp -u)\".exe; x86_64-w64-mingw32-gcc -std=c11 -O2 -Wall -Wextra -Wshadow -Wvla -Werror -Isource/c source/c/cmd/shcl/main.c -o \"\${wbin}\"; wrc=\$?; rm -f \"\${wbin}\"; ((wrc==0))"
 	"C library with file I/O compiled out|printf '#define SHCL_NO_FILE_IO\\n#define SHCL_IMPLEMENTATION\\n#include \"shcl.h\"\\n' | cc -x c -std=c11 -O2 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -Isource/c -c - -o /dev/null"
+	## The smoke's checks that need no file run there too (2026111814490325).
+	"veneer smoke with file I/O compiled out|nbin=\"\$(mktemp)\"; g++ -std=c++17 -O2 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -DSHCL_NO_FILE_IO -Isource/c source/c/tests/veneer_smoke.cpp -o \"\${nbin}\" -lm -pthread && \"\${nbin}\" >/dev/null; nrc=\$?; rm -f \"\${nbin}\"; ((nrc==0))"
 	## Go's windows publish path lives in its own build-tagged file, so the lint
 	## stage's vet and staticcheck - which only ever see the host's GOOS - walk
 	## straight past it. These are the only thing that compiles it at all.
