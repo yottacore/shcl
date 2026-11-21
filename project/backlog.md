@@ -54,7 +54,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: Avg
-	- Target version: v3.0.0
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261121-084446
 	- Opened by: me, on rereading the 2026111918111481 answer in questions.md
 	- Related IDs: 2026111918111481, 2026111919213947
@@ -65,14 +65,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261121, Python on dev at `8d981f5e`. `"v2.0"` and `"1.2"` do the same. `migrate` reads such a name as no `from` too.
 	- Requirements:
 		- One public call says whether `from` takes a name: a name in `FORMAT_NAMES`, or the major of one alone. The 4 CLIs use it for `--from`, in place of their own check.
-		- With a name it refuses, `upgrade`, `upgrade_dated`, `migrate`, and `migrate_unstamped` return the input, and a new field on `Upgrade` and `Migration` says why. `upgrade_file` returns a new error kind and writes nothing.
-		- A load with `migrate` has no result to say it in. It reads such a `from` as none, as it does now, and its doc comment names the check.
-		- All 4 bindings, the C++ interface, and spec.md.
+		- A name it refuses converts nothing, and each call says so in its own result:
+			- `upgrade`, `upgrade_dated`, `migrate`, and `migrate_unstamped` return the input, and a new field on `Upgrade` and `Migration` says why.
+			- `upgrade_file` returns a new error kind and writes nothing.
+			- A load with `migrate` reads the file as it is and adds an error at line 0, under a new code, `E030` if it's still free. It fails a Strict load like any other error.
+		- All 4 bindings, the C++ interface, spec.md, and `explain`.
 	- Estimated effort: Avg
 	- Decisions:
 		- Refused and reported, where the 2026111918111481 answer kept it as no `from` (me, 20261121). The CLI refuses such a name so a typo can't pass as some other format, and a program's typo is in the library call. A typo in a schema is a fault for the same reason.
 		- The library takes the CLI's list, so a newer format's name and a pin no row has are refused too (me). Both still leave the file alone.
-		- Decided against: an error from the load (me). A load below Strict never fails.
+		- The load says it as an error at line 0 (me, 20261121). The load still gives its document, so it fails no more than it did. A schema that doesn't load is reported the same way, as `V099`.
+		- For beta.2 (me, 20261121). It's the first release with `from`, so the results change once, before any program has adopted them. JC is fine with lower-priority work in beta.2.
+		- Decided against: only the check and the `upgrade_file` error (me). The text calls and the load would stay quiet, and the same slip does the same harm there.
+		- Decided against: a new file status for the load (me). The status is about the file, and every program that matches on it would have to change.
 
 - Without a schema, 2 plain blocks that merge and repeat their children get only the array hint
 	- ID: 2026112015385902
@@ -314,7 +319,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A cli-regress row.
 	- Estimated effort: Low
 	- Decisions:
-		- No alias (me, 20261121). beta1 is a pre-release, and an alias would stay in the help, the man page, and the completions for good.
+		- No alias (me, 20261121). beta1 is a pre-release, and an alias would stay in the help, the man page, and the completions for good. The dropped words `version`, `about`, and `donate` get a pointer and no alias too.
+		- For beta.2, though it's Low (me, 20261121). JC is fine with lower-priority work in beta.2.
 	- Note: beta.2 is the first release without the flag, so the pointer is needed then. beta1's `H007` hint and its docs say to run `shcl upgrade --from-2x`, and a program built on beta1 keeps saying it.
 
 - `shcl migrate --from=3.0` on a file with no stamp says the file already names its format
