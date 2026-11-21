@@ -35,260 +35,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- A merge of a layer with a kept `- name:` line loses one kept line from the canonical save, with a lost count of 0
-	- ID: 2026112113032005
-	- Type: Bug
-	- Status: Queued
-	- Severity: Avg
-	- Target version: v3.0.0
-	- Opened: 20261121-130320
-	- Opened by: me, the nov21 gate's 2M release fuzz
-	- Related IDs: 2026112112314153
-	- Version and build: dev at `393765cb`, and nov21 at `86d615d1`
-	- Steps to reproduce: fuzz `dderx` at 2,000,000 in release, iteration 1757912. In Rust string form, base `"\n        srv: [1\n        - 2\n    - name:\n    - name:\n    - name:\nblk:\n\tbad name: ~~~\n\trun: 1\n\t~~~\na: \"a\u{25c9}Q\u{25c9}b\"\n"` through `parse_keep_lines`, `remove("blk")`, then a merge of `"\n\n        \"q.k\": 2\n            b: 3, 3\n        a: 4, 4\n    b: [5\n        \"q.k\": 6\n            a.b(x): [7\n    - name:\n"`.
-	- Incorrect behavior: the canonical save writes 3 `# - name:` lines where the base and the layer had 4 kept `- name:` lines, and `lost_count()` is 0, so the save isn't refused. `dderx` fails: "the canonical save lost kept line(s) [\"- name:\"]".
-	- Expected behavior: every kept line is written, or the lost count says so and the save refuses.
-	- Reproduced: 20261121, the steps through the Python library on dev at `393765cb`, on `2bd7d20f` and on nov21 at `86d615d1` give the same text. Smaller cases with one `- name:` line in the base and the layer keep both. Not judged yet whether the property misreads the 4 copies of one text or the merge drops one.
-	- Estimated effort: Avg
-
-- The placement property takes the items of a list under a misplaced line for the items of the list above it
-	- ID: 2026112113030549
-	- Type: Bug
-	- Status: Closed
-	- Severity: Low
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261121-130305
-	- Opened by: me, the nov21 gate's 2M release fuzz
-	- Related IDs: 2026111012160121
-	- Version and build: dev at `393765cb`, and nov21 at `86d615d1`
-	- Incorrect behavior: `dderx` failed at iteration 605071 of the 2M release run on a merge that wrote `hosts` and `~rv.tags` as bracket arrays: "hosts: comments [... \"# why\"] are now [...]". `# why` trails `- y` under `~rv.tags`, a misplaced line after `hosts`' items, and the merge put it above `tags:`, as design.md says. The property counted it among the lines `hosts` takes in.
-	- Reproduced: 20261121, `dderx` on dev at `393765cb` with corpus 224 added fails at the same iteration. The library gives the same text on dev and on nov21.
-	- Actual cause [Bug]: `placement_slips` took every anchor under a misplaced line before the next field as among the list's items, the items of a list under it that the merge rewrote too.
-	- Actual fix [Bug]: an item of a list under a misplaced line goes with its own list (`theirs` in `placement_slips`).
-	- Branch: `nov21-fix`
-	- Verified: the new `df50j` row fails with `theirs` off and passes with it. `dderx` passes past iteration 605071 in the 2M release run on nov21-fix.
-	- Swept: `mine` is used once more, for the lines `lead_over` reads, which this doesn't change. No other property reads a misplaced line's block.
-	- Test case: `df50j` (`the_placement_property_reads_a_list_replace`), a new row for the merge, and `dderx`.
-	- Acceptance signoff: Self-closed: a property misread, watched to fail on its new row.
-	- Closed: 20261121-130305
-	- Closed reason: Done
-
-- check-migrate checks a fuzz document its trim left naming format 3 as a 2.x file
-	- ID: 2026112112352726
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Target version: v3.0.0
-	- Opened: 20261121-123527
-	- Opened by: me, the nov21 gate's check-migrate
-	- Related IDs: 2026112017370795, 2026112110133815
-	- Version and build: dev at `393765cb`, and nov21 at `86d615d1`
-	- Steps to reproduce: run `cicd/utility/check-migrate.bash` on nov21. Its fuzz dump's `fuzz_00480` has `'C:\': ~~~` and a raw body with `##    Format   3` in it, indented. The trim takes the line that opens the block, since 2.x read the backslash as escaping the quote, so the indented Format line is outside any block.
-	- Incorrect behavior: `ddmp7` fails. `upgrade --from=2.0` backs the trimmed file up under `format-v3` rather than `format-v2`, and without `--from` it says "nothing to upgrade" at exit 0 with the file's error kept. The load reads the indented line as the file's Format line, but `fNamesFormat3` matches only one at the line start, so the check takes the file for 2.x.
-	- Expected behavior: `ddmp7` passes. A document the trim leaves naming format 3 is checked as one, or left out, since it is no 2.x file any more.
-	- Reproduced: 20261121, check-migrate on nov21 at `86d615d1` and on dev at `393765cb` with corpus 224's input added fail the same 7 lines on `fuzz_00480`. The fuzz dump is the same on both, so corpus 224 shifted the seeds onto it. The Rust CLI on dev and on nov21 gives the same upgrade results on the file with the block's opening line taken out.
-	- Possible cause: `fNamesFormat3` runs on the document before the trim, and its pattern, `formatHeadEre`, is anchored at the line start with no indent.
-	- Estimated effort: Low
-	- Note: check-migrate's `fUpgradeCheck` leaves such a document out, keyed by this ID: one with an error, an indented Format line naming 3 or later, and `migrate` saying it names its format. The OK line counts them. The fix takes it out.
-	- Verified: 20261121 on nov21-fix, check-migrate passes with the excuse, which leaves out only `fuzz_00480`, and failed `ddmp7` on it without.
-
-- A merge puts a comment the layer had under a block, above a blank, onto the next field in the base
-	- ID: 2026112112314153
-	- Type: Bug
-	- Status: Queued
-	- Severity: Avg
-	- Target version: v3.0.0
-	- Opened: 20261121-123141
-	- Opened by: me, the nov21 gate's 2M release fuzz
-	- Related IDs: 2026112017363707, 2026110712372276, 2026111012160121
-	- Version and build: dev at `393765cb`, and nov21 at `86d615d1`
-	- Steps to reproduce: `printf 'a:\n\tb: y\n# about e\ne: y\n' > base.shcl`, `printf 'a:\n\tb: 2\n# note 6\n\nz: 1\n' > layer.shcl`, then `shcl fmt --layer=base.shcl layer.shcl`.
-	- Incorrect behavior: the output has `# note 6` right above `# about e`, then `e: y`, and the blank moves down above `z: 1`. So `comments("e")` gives both, though in the layer `# note 6` is set off from the line below it and reads as the line above's. All 4 CLIs give the same text. Fuzz `dderx` fails on it at iteration 98734 of the 2M release run on nov21, op 10, a merge.
-	- Expected behavior: `# note 6` stays with `a`'s block, with a blank between it and `# about e`, so `comments("e")` is `# about e` alone, since a run a blank sets off belongs to the line above (2026110712372276).
-	- Reproduced: 20261121, the steps in the Rust, Go and C CLIs on nov21 at `86d615d1`, and the Rust CLI and the Python library on dev at `393765cb`. `dderx` at 100,000 in release fails at iteration 98734 on dev with corpus 224 added, so it is older than the round. Corpus 224 shifted the seeds onto it.
-	- Possible cause: the merge writes the layer's trailing comments on a block at the end of that block, and the blank under them goes with the layer's next line, so they join the base's next run.
-	- Estimated effort: Avg
-	- Note: `placement_slips` in `fuzz_smoke.rs` excuses it with `layer_tail_joined`, keyed by this ID: on a merge, comments over a field's own run that the layer had above a blank under a block. The fix takes it out.
-	- Verified: 20261121 on nov21-fix, `dderx` in release fails at iteration 98734 without the excuse and passes 620,000 with it.
-
-- check-migrate reads a file stamped only `## SHCL format 3.0` as 2.x
-	- ID: 2026112110133815
-	- Type: Bug
-	- Status: Closed
-	- Priority: Low
-	- Opened: 20261121-101338
-	- Opened by:
-	- Progress log:
-		- `fNamesFormat3` looks only for `Format` lines, so such a file takes the 2.x comparison path. No run has hit it yet. Seen beside 2026112017370795.
-	- Closed reason: Done
-	- Closed: 20261121-115407
-	- Branch: nov21-2026112110133815
-	- Actual cause: fNamesFormat3 and the format3Ere pattern took only a Format line, so a file stamped `## SHCL format 3.0` fell to the 2.x comparison and the branch that wants it untouched.
-	- Actual fix: one pattern, formatHeadEre, takes either head, and fNamesFormat3, format3Ere, fUpConverts3's sed and ddmp8's loop go through it. ddmp8 has a fifth fixed file, format30-stamp-bad, and expects 4 converted with --from=2.0.
-	- Test case: check-migrate ddmp8 (format30-stamp-bad).
-	- Verified: check-migrate --iters 300 passed. With the head pattern cut back to Format only, ddmp8 failed with 3 files converted, not 4. shellcheck passed.
-	- Swept: every Format match in check-migrate.bash; no other cicd or test script has these patterns.
-	- Acceptance signoff: Self-closed: the new check failed with the old pattern and passes with the fix.
-
-- Format versions: the demo gif and its golden text show fmt output without the stamp
-	- ID: 2026111710564808
-	- Type: Feature
-	- Status: Stalled
-		- Held for: the gif stage, which only a full run or a release cut runs.
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261117-105648
-	- Opened by: 2026111709431277
-	- Parent ID: 2026111708130702
-	- Requirements: rerender assets/demo.gif and refresh cicd/demo/expected.txt (the gif stage, or gen-demo-gif.py), so shell-regress dcvej matches the CLI again. Only a tool run.
-	- Estimated effort: Low
-	- Note: until then shell-regress dcvej fails, since every fmt now ends with the stamp.
-
-- A `from` that names no format is read as no `from`, and nothing says so
-	- ID: 2026112108444603
-	- Type: Bug
-	- Status: Closed
-	- Severity: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261121-084446
-	- Opened by: me, on rereading the 2026111918111481 answer in questions.md
-	- Related IDs: 2026111918111481, 2026111919213947
-	- Version and build: dev at `8d981f5e`
-	- Steps to reproduce: in Python, `shcl.upgrade('p: a,b\nq: "C:\\new"\n', "2.0.0", False)`.
-	- Incorrect behavior: `current` is true and the text is the input, as for a file that needs nothing. With `"2.0"` the text is `p: [a, b]` and `q: "C:◉NEWLINE◉ew"`. So a program that passes the release number in place of the format leaves its 2.0 files as they were, and then reads `p` as one string.
-	- Expected behavior: the result says the name isn't a format, and nothing is converted.
-	- Reproduced: 20261121, Python on dev at `8d981f5e`. `"v2.0"` and `"1.2"` do the same. `migrate` reads such a name as no `from` too.
-	- Requirements:
-		- One public call says whether `from` takes a name: a name in `FORMAT_NAMES`, or the major of one alone. The 4 CLIs use it for `--from`, in place of their own check.
-		- A name it refuses converts nothing, and each call says so in its own result:
-			- `upgrade`, `upgrade_dated`, `migrate`, and `migrate_unstamped` return the input, and a new field on `Upgrade` and `Migration` says why.
-			- `upgrade_file` returns a new error kind and writes nothing.
-			- A load with `migrate` reads the file as it is and adds an error at line 0, under a new code, `E030` if it's still free. It fails a Strict load like any other error.
-		- All 4 bindings, the C++ interface, spec.md, and `explain`.
-	- Estimated effort: Avg
-	- Decisions:
-		- Refused and reported, where the 2026111918111481 answer kept it as no `from` (me, 20261121). The CLI refuses such a name so a typo can't pass as some other format, and a program's typo is in the library call. A typo in a schema is a fault for the same reason.
-		- The library takes the CLI's list, so a newer format's name and a pin no row has are refused too (me). Both still leave the file alone.
-		- The load says it as an error at line 0 (me, 20261121). The load still gives its document, so it fails no more than it did. A schema that doesn't load is reported the same way, as `V099`.
-		- For beta.2 (me, 20261121). It's the first release with `from`, so the results change once, before any program has adopted them. JC is fine with lower-priority work in beta.2.
-		- Decided against: only the check and the `upgrade_file` error (me). The text calls and the load would stay quiet, and the same slip does the same harm there.
-		- Decided against: a new file status for the load (me). The status is about the file, and every program that matches on it would have to change.
-	- Note: split into Rust and the docs (2026112109191634), Go (2026112109191655), Python (2026112109192615), and C with C++ (2026112109192636). All 4 closed in one job.
-	- Actual effort: Avg
-	- Actual fix: every call that takes `from` checks it with the new public `known_format` first, and a name it refuses converts nothing. See the children.
-	- Test case: `a_from_that_names_no_format_is_refused` (Rust `dfksh`, Go `dfkss`, Python `dfksj`, C `dfkst`, veneer `dfksv`).
-	- Branch: `nov21-2026112108444603`
-	- Commit: `b4ad4254`
-	- Acceptance signoff: Self-closed: each new test was seen to fail with the guard taken out, and the named gates passed. What a refused `from` gives back is a `Check:` entry in questions.md.
-	- Closed: 20261121-094900
-	- Closed reason: Done
-
-- A `from` that names no format is read as no `from` in the Rust library, and nothing says so
-	- ID: 2026112109191634
-	- Type: Bug
-	- Status: Closed
-	- Severity: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261121-091916
-	- Opened by: me
-	- Parent ID: 2026112108444603
-	- Requirements: the parent's requirements in the Rust reference and the Rust CLI, plus `E030` in spec.md, design.md's Load outcomes, the man page and the explain table of all 4 CLIs, so the code lists stay in step.
-	- Estimated effort: Avg
-	- Actual effort: Avg
-	- Decisions:
-		- me, 20261121: the check is `known_format`, the CLIs' own name for it, now public, and the 4 CLIs call it in place of their copies. The field is `bad_from` and the error `UpgradeError::BadFrom { path, from }`, named for the CLI's `bad --from value`.
-		- me, 20261121: with `bad_from`, `current` is false, since nothing said the file needs nothing, and a migration's `unfinished` is set, so a program that writes the stamp itself leaves it off. `upgrade_file` refuses before it reads the file. The load's `E030` goes first, at line 0, and the file is parsed as it is. Without `migrate`, `from` is still ignored. `E030`'s message and the error quote the name the way a message quotes a value. A `Check:` entry in questions.md has these.
-		- me, 20261121: design.md's Load outcomes table lists line codes only, and has no `E029` either, so `E030` isn't added there. The man page's code list is about a file's lines, so it isn't either.
-		- 20261121: `dfhgc` wanted `current` and the input for `from` `3.1` and `4`, and the `find_format` result for `1.2`. Those rows moved to `dfksh`, which wants `bad_from`, `current` false, and the input. `dfhjc` wanted `current` for `3.1` and `4`, and `1.2` to give what no `from` gives. Those moved to `dfksh` too. The twins in Go, Python and C changed the same way.
-	- Verified: `dfksh` fails with the 4 guards taken out, and passes with them. cargo test (all suites), `--backlog-run-quick rust go python c cli` (all 5 steps passed, check-docs `dd5gs` included), cli-regress over the 4 CLIs (685 rows, 4027 checks), `lint-report.bash --check --no-mark`, the markdown check on the touched docs (no new findings) and `explain E030` in the Rust CLI.
-	- Swept: every caller of `upgrade`, `upgrade_dated`, `upgrade_file`, `migrate`, `migrate_unstamped` and `LoadOptions::from` in `src/`, `tests/` and the Rust CLI, which checks `--from` before any call, so it never meets `BadFrom`. Every `Migration` and `Upgrade` literal in `lib.rs`. Docs: the doc comments on `LoadOptions::from`, `Migration`, `Upgrade`, `upgrade`, `migrate`, `UpgradeError` and `from_format`, spec.md's `UpgradeFile` and `LoadFileOpts` bullets and code table, design.md's `from` decisions, the format versions design doc, the changelog, the style guide's Python error list, and the explain table in all 4 CLIs.
-	- Actual fix: `known_format` in `lib.rs`, checked first in `upgrade_dated`, `migrate_from`, `upgrade_file` and `load_file_any`. `E030` in spec.md and all 4 explain tables.
-	- Test case: `a_from_that_names_no_format_is_refused` (Rust `dfksh`).
-	- Branch: `nov21-2026112108444603`
-	- Commit: `b4ad4254`
-	- Acceptance signoff: Self-closed: the new test was seen to fail without the change, and the named gates passed.
-	- Closed: 20261121-094900
-	- Closed reason: Done
-
-- A `from` that names no format is read as no `from` in the Go library, and nothing says so
-	- ID: 2026112109191655
-	- Type: Bug
-	- Status: Closed
-	- Severity: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261121-091916
-	- Opened by: me
-	- Parent ID: 2026112108444603
-	- Prereq IDs: 2026112109191634
-	- Requirements: mirror the Rust child's `known_format`, refusal field, error kind, `E030` load error and tests in Go, by parity over idiom. The Go CLI's `--from` check uses `KnownFormat`.
-	- Estimated effort: Avg
-	- Actual effort: Low
-	- Decisions:
-		- me, 20261121: Go's `from` is a `string` with `""` as none, so `""` stays none, and the shared rows leave it out. `KnownFormat` is public, `Migration.BadFrom` and `Upgraded.BadFrom` are the fields, and `UpgradeError` gets the kind `UpgradeBadFrom` and a `From` field with the name.
-	- Verified: `dfkss` fails with the 4 guards taken out, and passes with them. `go test -count=1` in both modules, gofmt and go vet, and the quick gate and cli-regress named on 2026112109191634.
-	- Swept: every Go caller of `Upgrade`, `UpgradeDated`, `UpgradeFile`, `Migrate`, `MigrateUnstamped` and `LoadOptions.From`, in `shcl.go`, the tests and the Go CLI, which calls `KnownFormat` for `--from`. The doc comments on `KnownFormat`, `fromFormat`, `Migration`, `Migrate`, `Upgraded`, `Upgrade`, `UpgradeError` and `LoadOptions.From`.
-	- Test case: `TestAFromThatNamesNoFormatIsRefused` (Go `dfkss`, twin of Rust `dfksh`).
-	- Branch: `nov21-2026112108444603`
-	- Commit: `b4ad4254`
-	- Acceptance signoff: Self-closed: the new test was seen to fail without the change, and the named gates passed.
-	- Closed: 20261121-094900
-	- Closed reason: Done
-
-- A `from` that names no format is read as no `from` in the Python library, and nothing says so
-	- ID: 2026112109192615
-	- Type: Bug
-	- Status: Closed
-	- Severity: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261121-091926
-	- Opened by: me
-	- Parent ID: 2026112108444603
-	- Prereq IDs: 2026112109191634
-	- Requirements: mirror the Rust child's `known_format`, refusal field, error kind, `E030` load error and tests in Python, by parity over idiom. The Python CLI's `--from` check uses `shcl.known_format`, which goes in `__all__`.
-	- Estimated effort: Avg
-	- Actual effort: Low
-	- Decisions:
-		- me, 20261121: `known_format` and `UpgradeBadFrom` are public and in `__all__`, and `UpgradeBadFrom` has `path` and `from_`. check-docs' Python-only list and the style guide's deviations name `UpgradeBadFrom`, as they name the other per-variant classes.
-	- Verified: `dfksj` fails with the 4 guards taken out, and passes with them. The Python runner, ruff and mypy, check-docs `ddydt`, and the quick gate and cli-regress named on 2026112109191634.
-	- Swept: every Python caller of `upgrade`, `upgrade_dated`, `upgrade_file`, `migrate`, `migrate_unstamped` and `LoadOptions.from_`, in `shcl.py`, the runner and the Python CLI, which calls `shcl.known_format` for `--from`. The docstrings of `known_format`, `_from_format`, `Migration`, `migrate`, `Upgrade`, `upgrade`, `UpgradeBadFrom` and `LoadOptions`.
-	- Test case: `a_from_that_names_no_format_is_refused` (Python `dfksj`, twin of Rust `dfksh`).
-	- Branch: `nov21-2026112108444603`
-	- Commit: `b4ad4254`
-	- Acceptance signoff: Self-closed: the new test was seen to fail without the change, and the named gates passed.
-	- Closed: 20261121-094900
-	- Closed reason: Done
-
-- A `from` that names no format is read as no `from` in the C library and the C++ interface, and nothing says so
-	- ID: 2026112109192636
-	- Type: Bug
-	- Status: Closed
-	- Severity: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261121-091926
-	- Opened by: me
-	- Parent ID: 2026112108444603
-	- Prereq IDs: 2026112109191634
-	- Requirements: mirror the Rust child's `known_format`, refusal field, error kind, `E030` load error and tests in C and `shcl.hpp`, by parity over idiom. The C CLI's `--from` check uses `shcl_known_format`. analyze-c and cppcheck wait for the round's gate step.
-	- Estimated effort: Avg
-	- Actual effort: Avg
-	- Decisions:
-		- me, 20261121: `shcl_known_format(const char *)` is public, with NULL as no name. `shcl_migration` and `shcl_upgraded` end with `int bad_from`, and `shcl_upgrade_error` ends with `SHCL_UPGRADE_BAD_FROM`. The load builds `E030`'s message in the document's arena and moves it to the front.
-		- me, 20261121: C++ has `known_format`, `Migration::bad_from`, `Upgrade::bad_from` and `UpgradeErrorKind::BadFrom`. A `from` holding a NUL went to C as none. It now goes with each NUL as U+FFFD, so C refuses it, as the other bindings refuse such a name, where cutting it at the NUL could name a format.
-		- 20261121: veneer `dfhhw` wanted `current` for `from` `4` and for `3.0-a37` with a NUL, and `dfhjg` wanted `current` for `4` and no `from`'s text for the NUL name. Both now want `bad_from`.
-	- Verified: `dfkst` fails with the 4 guards taken out, and passes with them. The C runner and the veneer smoke under their `-Werror` flags, the C library compiled with `SHCL_NO_FILE_IO`, the quick gate's C area, and cli-regress over the C CLI. analyze-c and cppcheck weren't run here, and wait for the round's gate step. The veneer smoke doesn't build with `SHCL_NO_FILE_IO` on dev either (`a_save_names_this_format`), so that wasn't tried.
-	- Swept: every C and C++ caller of `shcl_upgrade`, `shcl_upgrade_dated`, `shcl_upgrade_file`, `shcl_migrate`, `shcl_migrate_unstamped` and `shcl_load_options.from` and their C++ spellings, in `shcl.h`, `shcl.hpp`, the C runner, the veneer smoke and the C CLI, which calls `shcl_known_format` for `--from`. `detail::from_c` is the only place C++ hands `from` to C. The static_assert on `UpgradeErrorKind` covers the new kind.
-	- Test case: `a_from_that_names_no_format_is_refused` (C `dfkst`, C++ veneer `dfksv`, twins of Rust `dfksh`).
-	- Branch: `nov21-2026112108444603`
-	- Commit: `b4ad4254`
-	- Acceptance signoff: Self-closed: the new test was seen to fail without the change, and the named gates passed.
-	- Closed: 20261121-094900
-	- Closed reason: Done
-
 - Without a schema, 2 plain blocks that merge and repeat their children get only the array hint
 	- ID: 2026112015385902
 	- Type: Bug
 	- Status: Waiting on automated testing
-	- Needs local test suite run?: the 2M release fuzz and `check-migrate.bash` on `f179e254`, since corpus 224 shifts the seeds, and cppcheck and analyze-c for the `shcl.h` change.
+	- Needs local test suite run?: the 2M release fuzz, once Bug 2026112113032005 stops it at iteration 1757912.
 	- Severity: Avg
 	- Target version: v3.0.0
 	- Opened: 20261120-153859
@@ -327,70 +78,58 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: the quick gate's rust, go, python, c and cli areas; the 4 conformance suites; cli-regress; crosscheck; check-docs; check-doc-examples; perf-gate; the 2 shell-regress rows that read cli-regress (`dcmcq`, `dct57`); test-ids check; gcc-15 with the gate's warnings. 40,000 merged blocks load in time linear with 20,000 in all 4.
 	- Branch: nov21-2026112015385902
 	- Commit: `f179e254`
+	- Prereq IDs: 2026112113032005
+	- 20261121: the round's 2M release fuzz on nov21 stopped at 3 finds that fail on dev with corpus 224 too, filed as 2026112112314153, 2026112113030549 and 2026112113032005. check-migrate passed on nov21 a0b82b38 with the 2026112112352726 excuse. analyze-c passed on nov21 86d615d1. cppcheck found an uninitialized `bad_from` (from 2026112108444603), fixed in 57895eae.
+	- Verified: 20261121, cppcheck clean on nov21 57895eae.
 
-- check-migrate wants a file stamped `Format 3.0` that loads with an error left alone by `upgrade --from=2.0`, which converts it
-	- ID: 2026112017370795
-	- Type: Bug
-	- Status: Closed
-	- Severity: Avg
+- Format versions: the demo gif and its golden text show fmt output without the stamp
+	- ID: 2026111710564808
+	- Type: Feature
+	- Status: Stalled
+		- Held for: the gif stage, which only a full run or a release cut runs.
+	- Priority: High
 	- Target version: v3.0.0-beta.2
-	- Opened: 20261120-173707
-	- Opened by: me, the nov20c gate's check-migrate
-	- Related IDs: 2026101407100010, 2026111708125373, 2026111912330681
-	- Version and build: dev at `f9f1a9fc`, and nov20c at `63a34d6b`
-	- Steps to reproduce: run `cicd/utility/check-migrate.bash` on nov20c at `63a34d6b`. Its fuzz dump's `fuzz_00042` is a corpus input with the info block, `##    Format   3.0` in it, and `~##` above it, which is `E015`.
-	- Incorrect behavior: `ddmp7` fails: "format 3, with --from=2.0: the file was changed" and "something was written beside the file". `upgrade --from=2.0` writes a fresh file, which loads clean, and backs the original up under `format-v3`.
-	- Expected behavior: `ddmp7` passes. spec.md's `UpgradeFile` says a file naming this major that loads with an error is taken as the `from` format and written, so the library is right and the check wants the wrong thing.
-	- Reproduced: 20261120. The Rust CLI on dev at `f9f1a9fc` and on nov20c rewrites `fuzz_00042` with `--from=2.0` to the same fresh file, and leaves it alone without. `key: 1`, `~x`, a blank, then `##    Format   3.0` does the same. check-migrate.bash is the same on both. Corpus 223 shifted the seeds, so dev's dump never had such a file.
-	- Possible cause: `fUpConverts3`, its `sed`, and the `elif` in `fUpFormat3` match only `Format   3` with nothing after it, which is beta1's spelling. Info blocks name `3.0` since 2026111708125373, so a `3.0` file falls to the branch that wants it untouched.
+	- Opened: 20261117-105648
+	- Opened by: 2026111709431277
+	- Parent ID: 2026111708130702
+	- Requirements: rerender assets/demo.gif and refresh cicd/demo/expected.txt (the gif stage, or gen-demo-gif.py), so shell-regress dcvej matches the CLI again. Only a tool run.
 	- Estimated effort: Low
-	- Actual cause: as the possible cause says. The 3 matches took only beta1's `Format   3`, so a file naming `3.0` that loads with an error fell to the branch that wants it untouched, though `--from=2.0` converts it as spec.md says.
-	- Actual effort: Low
-	- Actual fix: one pattern, `format3Ere`, takes a Format line naming `3`, `3.0` or a 3.0 pin and no newer minor, and `fUpConverts3`, its `sed` and the `elif` in `fUpFormat3` go through it. `ddmp8` has a fourth fixed file, `format30-bad` (`key: 1`, `~x`, a blank, `##    Format   3.0`), so the case no longer hangs on the fuzz seeds.
-	- Swept: every Format 3 match in check-migrate.bash. `fNamesFormat3` and the `ddmp8` loop already take `[3-9]`, and the swap check at line 156 does too. No other cicd or test script has `fUpConverts3`, `fUpFormat3` or the old pattern.
-	- Verified: check-migrate passed, 646 documents, 1 of the 18 naming format 3 converted with `--from=2.0`. A copy with the old pattern put back failed `ddmp7` on `fuzz_00042` and `ddmp8` on `format30-bad` and the count. shellcheck and `lint-report.bash --check --no-mark` passed.
-	- Branch: `nov21-2026112017370795`
-	- Test case: check-migrate `ddmp8` (`format30-bad`) and `ddmp7`.
-	- Acceptance signoff: Self-closed: reproduced, the new check failed with the old pattern and passes with the fix.
-	- Closed: 20261121-100622
-	- Closed reason: Done
-	- Decisions: me, 20261121: the pattern takes a 3.0 pin such as `3.0-a37` too, since spec.md says `from` takes any file naming this major that loads with an error. A newer minor such as `3.1` stays out, since the spec leaves that file alone whatever `from` says.
-	- Note: shell-regress failed 3 checks this change doesn't reach: `dcvej` (demo gif), `de1a8` (check-docs.bash) and `dc0b5` (completions fixture). The other 195 passed.
-	- 20261121: check-migrate `ddmp8` expected 2 fixed files that `--from=2.0` converts. It now expects 3, with `format30-bad` added.
+	- Note: until then shell-regress dcvej fails, since every fmt now ends with the stamp.
 
-- A list rewrite keeps the blank under a comment that sits in an item's place, which cuts the field's own comment off from it
-	- ID: 2026112017363707
+- A merge of a layer with a kept `- name:` line loses one kept line from the canonical save, with a lost count of 0
+	- ID: 2026112113032005
 	- Type: Bug
-	- Status: Closed
+	- Status: Queued
 	- Severity: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261120-173637
-	- Opened by: me, the nov20c gate's 2M release fuzz
-	- Related IDs: 2026110613470311, 2026111012160121, 2026110712372271
-	- Version and build: dev at `f9f1a9fc`, and nov20c at `63a34d6b`
-	- Steps to reproduce: `printf '# the list\nhosts:\n\t#- a\n\n\t# b is the spare\n\t- b\nz: 1\n' > f.shcl`, then `printf 'literal\thosts\tb\n' | shcl set f.shcl`.
-	- Incorrect behavior: the output is `# the list`, `#- a`, a blank, `# b is the spare`, then `hosts: b`. The blank under `#- a` moves up with the comments among the items, so `# the list` is set off from the field and `comments("hosts")` gives only `# b is the spare`. A merge that writes the list as a bracket array does the same. Fuzz `dderx` fails on it at iteration 172087 of the 2M release run on nov20c, op 10, a merge.
-	- Expected behavior: the comments among the items go right above the field's line, under its own comment, with no blank among them, as corpus `221-list-replace-comments` has for a blank between 2 items. With `- a` in place of `#- a` the blank goes.
-	- Reproduced: 20261120, the Rust CLI on dev at `f9f1a9fc` with the steps. The fuzz input's base and merge give the same text through the Rust library on dev and on nov20c at `63a34d6b`, and the placement property's merge check is the same on both. Corpus 223 shifted the seeds, so dev's run never reached it. Not tried in Go, Python or C.
-	- Possible cause: `adopt` drops a blank between items, but not one under a comment that sits where an item was.
-	- Note: the placement property excuses it with `blank_kept` in `fuzz_smoke.rs`, keyed by this ID. The fix takes it out.
-	- Verified: 20261120 on nov20c-fix, with `blank_kept` forced false `dderx` fails at iteration 172087 at 200,000 in release, and with it `dderx`, `dd3t9` and `df50j` pass at 200,000.
-	- Estimated effort: Low
-	- Reproduced: 20261121, the Rust CLI on nov21 at `2bd7d20f`, the same output. With `# x` above `- a` in place of `#- a`, the blank between the 2 comments stays too.
-	- Actual cause [Bug]: `adopt_heir` cleared only the blank above the first line it moved. design.md kept a blank between 2 moved lines on purpose, so a blank above a comment among the items split the run above the field, and the field's own comments and the moved ones above that blank read as the line above's.
-	- Actual fix [Bug]: `adopt_heir` clears the blank above every comment it moves, in all 4 bindings (`adopt_heir` in `lib.rs` and `shcl.h`, `adoptHeir` in `shcl.go`, `_adopt_heir` in `shcl.py`). A blank above a kept line among them stays. The `blank_kept` excuse is out of `placement_slips`. design.md's "Lines an edit takes from their node" and the changelog say so.
-	- Actual effort: Low
-	- Against: the 2026110712372271 decision and design.md's "A blank between 2 of the lines that moved stays".
-	- Decisions:
-		- me, 20261121: a blank above a moved comment goes, whether a comment or an item sat above it, since keeping it cuts the field's own comments off from the field. One above a kept line stays, since kept lines stay as built and `df50j` pins that blank. Dropping every blank among the moved lines was the other option.
-	- Swept: both callers of `adopt_heir` in each binding, `unstack` (the setter's list replace and the merge's `bracket`) and the settle's move of kept lines from among a list's items through `adopt`'s `Takes` heir. `adopt`'s other heirs don't merge lines into a node's own run.
-	- Test case: placement rows `2026112017363707-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dderx`, `dd3t9`, `df50j`.
-	- Verified: the 3 rows fail on the Python library at `2bd7d20f` and pass on the change (`placement-watch.py`). `dderx` at 200,000 in release fails at iteration 172087 on the Rust library at `2bd7d20f` with the excuse out, and passes on the change, with `dd3t9` and `df50j`. `--skip=check-docs --backlog-run-quick rust go python c` passed all 5 steps, the 4 placement runners included. check-docs alone failed only `dc0c8` on a line committed on nov21 before this change. mdcheck and markdownlint gave no new findings.
-	- Needs local test suite run?: No
-	- Branch: `nov21-2026112017363707`
-	- Acceptance signoff: me, 20261121. Each new row was seen to fail without the fix, and `dderx` passes its failing iteration.
-	- Closed: 20261121-103024
-	- Closed reason: Done
+	- Target version: v3.0.0
+	- Opened: 20261121-130320
+	- Opened by: me, the nov21 gate's 2M release fuzz
+	- Related IDs: 2026112112314153
+	- Version and build: dev at `393765cb`, and nov21 at `86d615d1`
+	- Steps to reproduce: fuzz `dderx` at 2,000,000 in release, iteration 1757912. In Rust string form, base `"\n        srv: [1\n        - 2\n    - name:\n    - name:\n    - name:\nblk:\n\tbad name: ~~~\n\trun: 1\n\t~~~\na: \"a\u{25c9}Q\u{25c9}b\"\n"` through `parse_keep_lines`, `remove("blk")`, then a merge of `"\n\n        \"q.k\": 2\n            b: 3, 3\n        a: 4, 4\n    b: [5\n        \"q.k\": 6\n            a.b(x): [7\n    - name:\n"`.
+	- Incorrect behavior: the canonical save writes 3 `# - name:` lines where the base and the layer had 4 kept `- name:` lines, and `lost_count()` is 0, so the save isn't refused. `dderx` fails: "the canonical save lost kept line(s) [\"- name:\"]".
+	- Expected behavior: every kept line is written, or the lost count says so and the save refuses.
+	- Reproduced: 20261121, the steps through the Python library on dev at `393765cb`, on `2bd7d20f` and on nov21 at `86d615d1` give the same text. Smaller cases with one `- name:` line in the base and the layer keep both. Not judged yet whether the property misreads the 4 copies of one text or the merge drops one.
+	- Estimated effort: Avg
+
+- A merge puts a comment the layer had under a block, above a blank, onto the next field in the base
+	- ID: 2026112112314153
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261121-123141
+	- Opened by: me, the nov21 gate's 2M release fuzz
+	- Related IDs: 2026112017363707, 2026110712372276, 2026111012160121
+	- Version and build: dev at `393765cb`, and nov21 at `86d615d1`
+	- Steps to reproduce: `printf 'a:\n\tb: y\n# about e\ne: y\n' > base.shcl`, `printf 'a:\n\tb: 2\n# note 6\n\nz: 1\n' > layer.shcl`, then `shcl fmt --layer=base.shcl layer.shcl`.
+	- Incorrect behavior: the output has `# note 6` right above `# about e`, then `e: y`, and the blank moves down above `z: 1`. So `comments("e")` gives both, though in the layer `# note 6` is set off from the line below it and reads as the line above's. All 4 CLIs give the same text. Fuzz `dderx` fails on it at iteration 98734 of the 2M release run on nov21, op 10, a merge.
+	- Expected behavior: `# note 6` stays with `a`'s block, with a blank between it and `# about e`, so `comments("e")` is `# about e` alone, since a run a blank sets off belongs to the line above (2026110712372276).
+	- Reproduced: 20261121, the steps in the Rust, Go and C CLIs on nov21 at `86d615d1`, and the Rust CLI and the Python library on dev at `393765cb`. `dderx` at 100,000 in release fails at iteration 98734 on dev with corpus 224 added, so it is older than the round. Corpus 224 shifted the seeds onto it.
+	- Possible cause: the merge writes the layer's trailing comments on a block at the end of that block, and the blank under them goes with the layer's next line, so they join the base's next run.
+	- Estimated effort: Avg
+	- Note: `placement_slips` in `fuzz_smoke.rs` excuses it with `layer_tail_joined`, keyed by this ID: on a merge, comments over a field's own run that the layer had above a blank under a block. The fix takes it out.
+	- Verified: 20261121 on nov21-fix, `dderx` in release fails at iteration 98734 without the excuse and passes 620,000 with it.
 
 - A repeat the schema doesn't allow passes Strict, and a near-miss table merges with only a hint
 	- ID: 2026111016205701
@@ -549,65 +288,24 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The `_or` doc says a repeat gives the default, and points to that read.
 	- Estimated effort: Avg
 
-- `--from-2x` is an unknown option now, with no pointer to `--from=2.0`
-	- ID: 2026112108444472
+- check-migrate checks a fuzz document its trim left naming format 3 as a 2.x file
+	- ID: 2026112112352726
 	- Type: Bug
-	- Status: Closed
-	- Severity: Low
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261121-084444
-	- Opened by: me, on rereading the 2026111919213947 answer in questions.md
-	- Related IDs: 2026111919213947
-	- Version and build: dev at `8d981f5e`
-	- Steps to reproduce: `shcl upgrade --from-2x f.shcl`, or the same with `migrate`.
-	- Incorrect behavior: `unknown option: --from-2x (see --help)`, exit 1. A near typo gets more help, since `--from-2` gives `did you mean '--from'?`.
-	- Expected behavior: the message says the flag is `--from=2.0` now. Still exit 1.
-	- Reproduced: 20261121, the Rust and Python CLIs on dev at `8d981f5e`. Go and C not tried.
-	- Requirements:
-		- The same message in all 4 CLIs, for `upgrade` and `migrate`.
-		- A cli-regress row.
-	- Estimated effort: Low
-	- Decisions:
-		- No alias (me, 20261121). beta1 is a pre-release, and an alias would stay in the help, the man page, and the completions for good. The dropped words `version`, `about`, and `donate` get a pointer and no alias too.
-		- For beta.2, though it's Low (me, 20261121). JC is fine with lower-priority work in beta.2.
-		- me, 20261121: the message reads `unknown option: --from-2x; it's '--from=2.0' now (see --help)`, in the place a typo's `did you mean` goes. A table of renamed options (`RENAMED_OPTS`, read by `option_hint`) serves both places an unknown option is reported, so it's said before the subcommand too, and with a value such as `--from-2x=1`. It's said for every subcommand, as `did you mean` is, since the options are read before the subcommand judges them.
-	- Note: beta.2 is the first release without the flag, so the pointer is needed then. beta1's `H007` hint and its docs say to run `shcl upgrade --from-2x`, and a program built on beta1 keeps saying it.
-	- Actual effort: Low
-	- Actual fix: `option_hint` in the 4 CLIs, in place of the bare `suggest` call at both unknown-option sites.
-	- Verified: `dfkvt` and `dfkvv` fail on the C CLI built from the round's tree, and pass on all 4 new CLIs. cli-regress over the 4 CLIs (689 rows, 4043 checks), `--backlog-run-quick rust go python c cli` (all 5 steps) and `lint-report.bash --check --no-mark` passed. A probe of `upgrade --from-2x`, `migrate --from-2x`, `--from-2x upgrade` and `--from-2` gave the same output from all 4.
-	- Swept: both unknown-option sites in each of the 4 CLIs (the option parse and the word before the subcommand). The help, man page and completions don't name `--from-2x`. The changelog's `--from=FORMAT` line names the pointer.
-	- Test case: cli-regress `dfkvt`, `dfkvv`.
-	- Branch: `nov21-2026112108444472`
-	- Commit: `bd6216b8`
-	- Acceptance signoff: Self-closed: the new rows were seen to fail on the old CLI, and the named gates passed.
-	- Closed: 20261121-104500
-	- Closed reason: Done
-
-- `shcl migrate --from=3.0` on a file with no stamp says the file already names its format
-	- ID: 2026111920301167
-	- Type: Bug
-	- Status: Closed
+	- Status: Queued
 	- Severity: Low
 	- Target version: v3.0.0
-	- Opened: 20261119-203011
-	- Opened by: me
-	- Related IDs: 2026111919213947
-	- Steps to reproduce: `printf 'x: "a\\tb"\n' | shcl migrate --from=3.0 -`, or `--from=3.0-9ef`, or any format whose steps are all the same as this one's.
-	- Incorrect behavior: exit 0 with `nothing to migrate: the file already names its format`, though the file has no stamp. It's `--from` that named the format. All 4 CLIs say it.
-	- Expected behavior: the message says the named format reads the same under these rules, or names `--from`.
-	- Cause: the CLIs had one message for `current`, written when only a stamp could set it. A `--from` whose steps all rewrite nothing sets it too.
-	- Decisions:
-		- me, 20261121: with `--from`, the CLI asks `migrate` again without it. If that isn't current either, it was `--from` that made the file current, and the message is `nothing to migrate: --from=FORMAT reads the same as the current format`, with the name as given. Otherwise it stays `the file already names its format`, which is right for a pin's `--from` on a file stamped `3.0`. The second call runs only on this path, and uses the public API alone, so the 4 CLIs stay alike.
-	- Actual effort: Low
-	- Actual fix: the `current` branch of `do_migrate` in the 4 CLIs.
-	- Verified: `dfkvw` fails on the C CLI built from the round's tree, and passes on all 4 new CLIs. `dfkvx` (a pin's `--from` on a `3.0`-stamped file) passes on both, as the control. The gates named on 2026112108444472 passed. `--from=3.0`, `3.0-9ef` and `3` on an unstamped file, and a stamped file with and without `--from`, gave the same output from all 4.
-	- Swept: the one `current` message in each CLI's `migrate`. `upgrade` says `nothing to upgrade, left as is`, which holds either way.
-	- Test case: cli-regress `dfkvw`, `dfkvx`.
-	- Branch: `nov21-2026112108444472`
-	- Commit: `bd6216b8`
-	- Acceptance signoff: Self-closed: the new row was seen to fail on the old CLI, and the named gates passed.
-	- Closed: 20261121-104500
-	- Closed reason: Done
+	- Opened: 20261121-123527
+	- Opened by: me, the nov21 gate's check-migrate
+	- Related IDs: 2026112017370795, 2026112110133815
+	- Version and build: dev at `393765cb`, and nov21 at `86d615d1`
+	- Steps to reproduce: run `cicd/utility/check-migrate.bash` on nov21. Its fuzz dump's `fuzz_00480` has `'C:\': ~~~` and a raw body with `##    Format   3` in it, indented. The trim takes the line that opens the block, since 2.x read the backslash as escaping the quote, so the indented Format line is outside any block.
+	- Incorrect behavior: `ddmp7` fails. `upgrade --from=2.0` backs the trimmed file up under `format-v3` rather than `format-v2`, and without `--from` it says "nothing to upgrade" at exit 0 with the file's error kept. The load reads the indented line as the file's Format line, but `fNamesFormat3` matches only one at the line start, so the check takes the file for 2.x.
+	- Expected behavior: `ddmp7` passes. A document the trim leaves naming format 3 is checked as one, or left out, since it is no 2.x file any more.
+	- Reproduced: 20261121, check-migrate on nov21 at `86d615d1` and on dev at `393765cb` with corpus 224's input added fail the same 7 lines on `fuzz_00480`. The fuzz dump is the same on both, so corpus 224 shifted the seeds onto it. The Rust CLI on dev and on nov21 gives the same upgrade results on the file with the block's opening line taken out.
+	- Possible cause: `fNamesFormat3` runs on the document before the trim, and its pattern, `formatHeadEre`, is anchored at the line start with no indent.
+	- Estimated effort: Low
+	- Note: check-migrate's `fUpgradeCheck` leaves such a document out, keyed by this ID: one with an error, an indented Format line naming 3 or later, and `migrate` saying it names its format. The OK line counts them. The fix takes it out.
+	- Verified: 20261121 on nov21-fix, check-migrate passes with the excuse, which leaves out only `fuzz_00480`, and failed `ddmp7` on it without.
 
 - The C++ veneer's `de1a5` failed once under the quick gate, and passed 3 runs alone
 	- ID: 2026111912330703
@@ -623,100 +321,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: the threads test passes every run.
 	- Note: control: the same source built with g++ and run 3 times alone passed every time. No C or C++ code changed in that tree.
 	- 20261120: failed again in nov20c's gate step quick run at `63a34d6b` (load about 25 on 32 cores), round 1, thread 2, call 0. The printed got and want are the same text and the same `T F 1` flags, so the compare saw something other than what it printed. 5 runs alone then passed.
-
-- The C++ veneer smoke doesn't build with SHCL_NO_FILE_IO
-	- ID: 2026111814490325
-	- Type: Bug
-	- Status: Closed
-	- Severity: Low
-	- Opened: 20261118-144903
-	- Opened by:
-	- Progress log:
-		- veneer_smoke.cpp declares a_save_names_this_format inside the file I/O guard but calls it outside it, so a -DSHCL_NO_FILE_IO build fails to compile. No gate builds that combination. Found in round nov18 while working 2026111708542868.
-	- Target version: v3.0.0-beta.2
-	- Related IDs: 2026111919581254
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Origin: `ff279feb` (stamp on save), which put `a_save_names_this_format` inside the file I/O guard while `main` calls it in both arms. Confirmed.
-	- Decisions: 20261121: the function moves out of the guard rather than its call into the guard, since it only parses, merges and builds text, so it runs with file I/O out. A new cross check, "veneer smoke with file I/O compiled out", builds the smoke with `-DSHCL_NO_FILE_IO` under the gate's `-Werror` flags and runs it, beside the C library's. It costs about 13 s of CPU per run.
-	- Verified: the new cross check fails on the old smoke (`a_save_names_this_format` not declared) and passes with the fix, where `dfe66` runs. The smoke built and ran both ways, `--backlog-run-quick c` passed with the new check in it, shell-regress `de4bg` passed, and `lint-report.bash --check --no-mark` passed. check-push-gate passed its first 72 rows before a 270 s cap stopped it, so its full run waits for the round's gate step.
-	- Swept: `main`'s `#else` arm calls no other function from inside a guard, since the smoke now builds. The C runner and `oom_recover` don't build with `SHCL_NO_FILE_IO` either, but have no guards and never supported it. `oom_hook` and `mem_bounds` build.
-	- Test case: cross check "veneer smoke with file I/O compiled out" in `cicd/config.bash`, which runs veneer `dfe66` and the other checks that need no file.
-	- Branch: `nov21-2026111814490325`
-	- Commit: `887f6510`
-	- Acceptance signoff: Self-closed: mechanical, and the new check was seen to fail without the fix.
-	- Closed: 20261121-120527
-	- Closed reason: Done
-
-- shell-regress de1a8 and dc0b5 fail on dev
-	- ID: 2026111711415580
-	- Type: Bug
-	- Status: Closed
-	- Severity: Low
-	- Target version: v3.0.0
-	- Opened: 20261117-114155
-	- Opened by:
-	- Progress log:
-		- 20261117: both fail on dev at 635440bb, before round nov17b. de1a8: check-docs.bash:1396, the loop over found reads a capture that skips fFeedBad. dc0b5: the check-completions fixture did not build, anchor not found: _shcl: the paths description.
-	- Actual cause: de1a8: check-docs `dfdpp` filled `found` with `grep ... || true` inside the capture, so a grep error read as no hits (fbab0831). dc0b5: the zsh completions' paths description became "print every field path in the document" (b15a5c0f), and the fixture's anchor kept the old wording.
-	- Actual fix: `dfdpp` fills `found` through `fGrepOrNone` with `|| fFeedBad $?`. The dc0b5 fixture anchors on the new description.
-	- Swept: de1a8's own scan lists every capture check-docs feeds a loop from, and `found` was the only one unguarded. The other 5 anchors in the dc0b5 fixture still match.
-	- Verified: both rows failed with the unfixed check-docs.bash and shell-regress.bash and pass with the fix. shell-regress passed but the known `dcvej`. check-docs, `shellcheck -x`, `lint-report.bash --check --no-mark` and `--backlog-run-quick python` passed.
-	- Test case: shell-regress `de1a8` and `dc0b5`.
-	- Branch: `nov21-2026111711415580`
-	- Commit: `d13b8461`
-	- Acceptance signoff: Self-closed: both rows failed before the fix and pass after.
-	- Closed: 20261121-113915
-	- Closed reason: Done
-
-- codeql-scan fails de5aj on an empty except in the Python CLI's gone_since_read
-	- ID: 2026111709183317
-	- Type: Bug
-	- Status: Closed
-	- Severity: Low
-	- Target version: v3.0.0
-	- Opened: 20261117-091833
-	- Opened by: nov17b-2026111016205704
-	- Steps to reproduce: run cicd/utility/codeql-scan.bash.
-	- Incorrect behavior: de5aj fails with py/empty-except at source/python/cmd/shcl/main.py's gone_since_read, an except clause that only passes with no comment.
-	- Estimated effort: Low
-	- Origin: Confirmed. 1bbee68b (2026-11-11, beta2 bits), older than round nov17b.
-	- Actual fix: the clause returns False, with a comment saying the changed check decides. Same result as before, as in the Rust and C CLIs, where only a missing file counts as gone.
-	- Swept: every `pass` in an except clause in the Python CLI, the library and its tests. The rest have a comment or an `else`.
-	- Verified: codeql-scan.bash passed, `de5aj` included, where the nov18, nov19 and nov20b runs failed it. ruff and `--backlog-run-quick python` passed.
-	- Test case: codeql-scan `de5aj`.
-	- Actual effort: Low
-	- Branch: `nov21-2026111711415580`
-	- Commit: `d13b8461`
-	- Acceptance signoff: Self-closed: the scan row failed before and passes after.
-	- Closed: 20261121-113915
-	- Closed reason: Done
-
-- H001 on a case-only repeat gives the same hint as a real repeat
-	- ID: 2026111217560122
-	- Type: Bug
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: cppcheck and analyze-c for the `shcl.h` change in `f179e254`.
-	- Severity: Low
-	- Target version: v3.0.0
-	- Opened: 20261112-175601
-	- Opened by: shcl feedback (tukzmon round, 20261112)
-	- Related IDs: 2026111016205711
-	- Steps to reproduce: `Order: a`, then `order: b`.
-	- Incorrect behavior: H001 says "did you mean 'order: [a, b]'?", the same hint as for a real repeat, and nothing says names ignore case.
-	- Expected behavior: the hint names both spellings and says they're one name.
-	- Estimated effort: Low
-	- Actual cause: the `H001` builder groups the repeat by the folded name and showed only that, so a repeat spelled 2 ways read like any other.
-	- Actual fix: when the lines spell the name more than one way, the hint ends with each spelling, cut at 3 like any list in a message, and says they're one name, in all 4: `'order' repeats as a bare leaf - did you mean 'order: [a, b]'? - 'Order', 'order' are spellings of one name, since names ignore case`. The head the schema suppressor matches is unchanged. `explain H001` in the 4 CLIs, spec.md's `H001` row and the changelog say so.
-	- Decisions:
-		- The suggestion keeps the folded name, which is 2026111016205711's part to change (me). The spellings go at the end, so the head the suppressor matches stays as it is.
-		- The spellings are kept apart through a hash set, so a name written in 40,000 case forms costs no more than 40,000 lines (me).
-	- Swept: the `H001` builder in all 4 (Rust `emit_repeated_leaf_hints`, Go `emitRepeatedLeafHints`, Python `_emit_repeated_leaf_hints`, C `emit_repeated_leaf_hints`), which is the only site that writes `H001`.
-	- Test case: cli-regress `dfkwf` (`h001-case-spellings`): 2 spellings, one spelling, and 4 spellings over 5 lines, exact text in all 4. Corpus `224-merged-plain-blocks` (`dfkwg`) has `Order: a` and `order: b` too.
-		- Verified: it fails on the unfixed C code and passes in all 4 with it.
-	- Verified: the same runs as 2026112015385902, from the same commit.
-	- Branch: nov21-2026112015385902
-	- Commit: `f179e254`
 
 - install.ps1 lists a drop-ins line in the plan for a release that has none
 	- ID: 2026110915493402
@@ -1416,6 +1020,409 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- spec.md and the `upgrade` docs say 2.x includes 1.x, and that a 1.x file's backup is named `format-v2`.
 		- The next changelog's upgrading notes say C's `SHCL_SET_OK` is 0, so old code testing a setter `!= 0` reads every success as a failure, and that a string read of an array gives its bracket text. The released beta1 section stays as it is.
 	- Estimated effort: Low
+
+- The placement property takes the items of a list under a misplaced line for the items of the list above it
+	- ID: 2026112113030549
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261121-130305
+	- Opened by: me, the nov21 gate's 2M release fuzz
+	- Related IDs: 2026111012160121
+	- Version and build: dev at `393765cb`, and nov21 at `86d615d1`
+	- Incorrect behavior: `dderx` failed at iteration 605071 of the 2M release run on a merge that wrote `hosts` and `~rv.tags` as bracket arrays: "hosts: comments [... \"# why\"] are now [...]". `# why` trails `- y` under `~rv.tags`, a misplaced line after `hosts`' items, and the merge put it above `tags:`, as design.md says. The property counted it among the lines `hosts` takes in.
+	- Reproduced: 20261121, `dderx` on dev at `393765cb` with corpus 224 added fails at the same iteration. The library gives the same text on dev and on nov21.
+	- Actual cause [Bug]: `placement_slips` took every anchor under a misplaced line before the next field as among the list's items, the items of a list under it that the merge rewrote too.
+	- Actual fix [Bug]: an item of a list under a misplaced line goes with its own list (`theirs` in `placement_slips`).
+	- Branch: `nov21-fix`
+	- Verified: the new `df50j` row fails with `theirs` off and passes with it. `dderx` passes past iteration 605071 in the 2M release run on nov21-fix.
+	- Swept: `mine` is used once more, for the lines `lead_over` reads, which this doesn't change. No other property reads a misplaced line's block.
+	- Test case: `df50j` (`the_placement_property_reads_a_list_replace`), a new row for the merge, and `dderx`.
+	- Acceptance signoff: Self-closed: a property misread, watched to fail on its new row.
+	- Closed: 20261121-130305
+	- Closed reason: Done
+
+- check-migrate reads a file stamped only `## SHCL format 3.0` as 2.x
+	- ID: 2026112110133815
+	- Type: Bug
+	- Status: Closed
+	- Priority: Low
+	- Opened: 20261121-101338
+	- Opened by:
+	- Progress log:
+		- `fNamesFormat3` looks only for `Format` lines, so such a file takes the 2.x comparison path. No run has hit it yet. Seen beside 2026112017370795.
+	- Closed reason: Done
+	- Closed: 20261121-115407
+	- Branch: nov21-2026112110133815
+	- Actual cause: fNamesFormat3 and the format3Ere pattern took only a Format line, so a file stamped `## SHCL format 3.0` fell to the 2.x comparison and the branch that wants it untouched.
+	- Actual fix: one pattern, formatHeadEre, takes either head, and fNamesFormat3, format3Ere, fUpConverts3's sed and ddmp8's loop go through it. ddmp8 has a fifth fixed file, format30-stamp-bad, and expects 4 converted with --from=2.0.
+	- Test case: check-migrate ddmp8 (format30-stamp-bad).
+	- Verified: check-migrate --iters 300 passed. With the head pattern cut back to Format only, ddmp8 failed with 3 files converted, not 4. shellcheck passed.
+	- Swept: every Format match in check-migrate.bash; no other cicd or test script has these patterns.
+	- Acceptance signoff: Self-closed: the new check failed with the old pattern and passes with the fix.
+
+- A `from` that names no format is read as no `from`, and nothing says so
+	- ID: 2026112108444603
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261121-084446
+	- Opened by: me, on rereading the 2026111918111481 answer in questions.md
+	- Related IDs: 2026111918111481, 2026111919213947
+	- Version and build: dev at `8d981f5e`
+	- Steps to reproduce: in Python, `shcl.upgrade('p: a,b\nq: "C:\\new"\n', "2.0.0", False)`.
+	- Incorrect behavior: `current` is true and the text is the input, as for a file that needs nothing. With `"2.0"` the text is `p: [a, b]` and `q: "C:◉NEWLINE◉ew"`. So a program that passes the release number in place of the format leaves its 2.0 files as they were, and then reads `p` as one string.
+	- Expected behavior: the result says the name isn't a format, and nothing is converted.
+	- Reproduced: 20261121, Python on dev at `8d981f5e`. `"v2.0"` and `"1.2"` do the same. `migrate` reads such a name as no `from` too.
+	- Requirements:
+		- One public call says whether `from` takes a name: a name in `FORMAT_NAMES`, or the major of one alone. The 4 CLIs use it for `--from`, in place of their own check.
+		- A name it refuses converts nothing, and each call says so in its own result:
+			- `upgrade`, `upgrade_dated`, `migrate`, and `migrate_unstamped` return the input, and a new field on `Upgrade` and `Migration` says why.
+			- `upgrade_file` returns a new error kind and writes nothing.
+			- A load with `migrate` reads the file as it is and adds an error at line 0, under a new code, `E030` if it's still free. It fails a Strict load like any other error.
+		- All 4 bindings, the C++ interface, spec.md, and `explain`.
+	- Estimated effort: Avg
+	- Decisions:
+		- Refused and reported, where the 2026111918111481 answer kept it as no `from` (me, 20261121). The CLI refuses such a name so a typo can't pass as some other format, and a program's typo is in the library call. A typo in a schema is a fault for the same reason.
+		- The library takes the CLI's list, so a newer format's name and a pin no row has are refused too (me). Both still leave the file alone.
+		- The load says it as an error at line 0 (me, 20261121). The load still gives its document, so it fails no more than it did. A schema that doesn't load is reported the same way, as `V099`.
+		- For beta.2 (me, 20261121). It's the first release with `from`, so the results change once, before any program has adopted them. JC is fine with lower-priority work in beta.2.
+		- Decided against: only the check and the `upgrade_file` error (me). The text calls and the load would stay quiet, and the same slip does the same harm there.
+		- Decided against: a new file status for the load (me). The status is about the file, and every program that matches on it would have to change.
+	- Note: split into Rust and the docs (2026112109191634), Go (2026112109191655), Python (2026112109192615), and C with C++ (2026112109192636). All 4 closed in one job.
+	- Actual effort: Avg
+	- Actual fix: every call that takes `from` checks it with the new public `known_format` first, and a name it refuses converts nothing. See the children.
+	- Test case: `a_from_that_names_no_format_is_refused` (Rust `dfksh`, Go `dfkss`, Python `dfksj`, C `dfkst`, veneer `dfksv`).
+	- Branch: `nov21-2026112108444603`
+	- Commit: `b4ad4254`
+	- Acceptance signoff: Self-closed: each new test was seen to fail with the guard taken out, and the named gates passed. What a refused `from` gives back is a `Check:` entry in questions.md.
+	- Closed: 20261121-094900
+	- Closed reason: Done
+
+- A `from` that names no format is read as no `from` in the Rust library, and nothing says so
+	- ID: 2026112109191634
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261121-091916
+	- Opened by: me
+	- Parent ID: 2026112108444603
+	- Requirements: the parent's requirements in the Rust reference and the Rust CLI, plus `E030` in spec.md, design.md's Load outcomes, the man page and the explain table of all 4 CLIs, so the code lists stay in step.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261121: the check is `known_format`, the CLIs' own name for it, now public, and the 4 CLIs call it in place of their copies. The field is `bad_from` and the error `UpgradeError::BadFrom { path, from }`, named for the CLI's `bad --from value`.
+		- me, 20261121: with `bad_from`, `current` is false, since nothing said the file needs nothing, and a migration's `unfinished` is set, so a program that writes the stamp itself leaves it off. `upgrade_file` refuses before it reads the file. The load's `E030` goes first, at line 0, and the file is parsed as it is. Without `migrate`, `from` is still ignored. `E030`'s message and the error quote the name the way a message quotes a value. A `Check:` entry in questions.md has these.
+		- me, 20261121: design.md's Load outcomes table lists line codes only, and has no `E029` either, so `E030` isn't added there. The man page's code list is about a file's lines, so it isn't either.
+		- 20261121: `dfhgc` wanted `current` and the input for `from` `3.1` and `4`, and the `find_format` result for `1.2`. Those rows moved to `dfksh`, which wants `bad_from`, `current` false, and the input. `dfhjc` wanted `current` for `3.1` and `4`, and `1.2` to give what no `from` gives. Those moved to `dfksh` too. The twins in Go, Python and C changed the same way.
+	- Verified: `dfksh` fails with the 4 guards taken out, and passes with them. cargo test (all suites), `--backlog-run-quick rust go python c cli` (all 5 steps passed, check-docs `dd5gs` included), cli-regress over the 4 CLIs (685 rows, 4027 checks), `lint-report.bash --check --no-mark`, the markdown check on the touched docs (no new findings) and `explain E030` in the Rust CLI.
+	- Swept: every caller of `upgrade`, `upgrade_dated`, `upgrade_file`, `migrate`, `migrate_unstamped` and `LoadOptions::from` in `src/`, `tests/` and the Rust CLI, which checks `--from` before any call, so it never meets `BadFrom`. Every `Migration` and `Upgrade` literal in `lib.rs`. Docs: the doc comments on `LoadOptions::from`, `Migration`, `Upgrade`, `upgrade`, `migrate`, `UpgradeError` and `from_format`, spec.md's `UpgradeFile` and `LoadFileOpts` bullets and code table, design.md's `from` decisions, the format versions design doc, the changelog, the style guide's Python error list, and the explain table in all 4 CLIs.
+	- Actual fix: `known_format` in `lib.rs`, checked first in `upgrade_dated`, `migrate_from`, `upgrade_file` and `load_file_any`. `E030` in spec.md and all 4 explain tables.
+	- Test case: `a_from_that_names_no_format_is_refused` (Rust `dfksh`).
+	- Branch: `nov21-2026112108444603`
+	- Commit: `b4ad4254`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the change, and the named gates passed.
+	- Closed: 20261121-094900
+	- Closed reason: Done
+
+- A `from` that names no format is read as no `from` in the Go library, and nothing says so
+	- ID: 2026112109191655
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261121-091916
+	- Opened by: me
+	- Parent ID: 2026112108444603
+	- Prereq IDs: 2026112109191634
+	- Requirements: mirror the Rust child's `known_format`, refusal field, error kind, `E030` load error and tests in Go, by parity over idiom. The Go CLI's `--from` check uses `KnownFormat`.
+	- Estimated effort: Avg
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261121: Go's `from` is a `string` with `""` as none, so `""` stays none, and the shared rows leave it out. `KnownFormat` is public, `Migration.BadFrom` and `Upgraded.BadFrom` are the fields, and `UpgradeError` gets the kind `UpgradeBadFrom` and a `From` field with the name.
+	- Verified: `dfkss` fails with the 4 guards taken out, and passes with them. `go test -count=1` in both modules, gofmt and go vet, and the quick gate and cli-regress named on 2026112109191634.
+	- Swept: every Go caller of `Upgrade`, `UpgradeDated`, `UpgradeFile`, `Migrate`, `MigrateUnstamped` and `LoadOptions.From`, in `shcl.go`, the tests and the Go CLI, which calls `KnownFormat` for `--from`. The doc comments on `KnownFormat`, `fromFormat`, `Migration`, `Migrate`, `Upgraded`, `Upgrade`, `UpgradeError` and `LoadOptions.From`.
+	- Test case: `TestAFromThatNamesNoFormatIsRefused` (Go `dfkss`, twin of Rust `dfksh`).
+	- Branch: `nov21-2026112108444603`
+	- Commit: `b4ad4254`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the change, and the named gates passed.
+	- Closed: 20261121-094900
+	- Closed reason: Done
+
+- A `from` that names no format is read as no `from` in the Python library, and nothing says so
+	- ID: 2026112109192615
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261121-091926
+	- Opened by: me
+	- Parent ID: 2026112108444603
+	- Prereq IDs: 2026112109191634
+	- Requirements: mirror the Rust child's `known_format`, refusal field, error kind, `E030` load error and tests in Python, by parity over idiom. The Python CLI's `--from` check uses `shcl.known_format`, which goes in `__all__`.
+	- Estimated effort: Avg
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261121: `known_format` and `UpgradeBadFrom` are public and in `__all__`, and `UpgradeBadFrom` has `path` and `from_`. check-docs' Python-only list and the style guide's deviations name `UpgradeBadFrom`, as they name the other per-variant classes.
+	- Verified: `dfksj` fails with the 4 guards taken out, and passes with them. The Python runner, ruff and mypy, check-docs `ddydt`, and the quick gate and cli-regress named on 2026112109191634.
+	- Swept: every Python caller of `upgrade`, `upgrade_dated`, `upgrade_file`, `migrate`, `migrate_unstamped` and `LoadOptions.from_`, in `shcl.py`, the runner and the Python CLI, which calls `shcl.known_format` for `--from`. The docstrings of `known_format`, `_from_format`, `Migration`, `migrate`, `Upgrade`, `upgrade`, `UpgradeBadFrom` and `LoadOptions`.
+	- Test case: `a_from_that_names_no_format_is_refused` (Python `dfksj`, twin of Rust `dfksh`).
+	- Branch: `nov21-2026112108444603`
+	- Commit: `b4ad4254`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the change, and the named gates passed.
+	- Closed: 20261121-094900
+	- Closed reason: Done
+
+- A `from` that names no format is read as no `from` in the C library and the C++ interface, and nothing says so
+	- ID: 2026112109192636
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261121-091926
+	- Opened by: me
+	- Parent ID: 2026112108444603
+	- Prereq IDs: 2026112109191634
+	- Requirements: mirror the Rust child's `known_format`, refusal field, error kind, `E030` load error and tests in C and `shcl.hpp`, by parity over idiom. The C CLI's `--from` check uses `shcl_known_format`. analyze-c and cppcheck wait for the round's gate step.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261121: `shcl_known_format(const char *)` is public, with NULL as no name. `shcl_migration` and `shcl_upgraded` end with `int bad_from`, and `shcl_upgrade_error` ends with `SHCL_UPGRADE_BAD_FROM`. The load builds `E030`'s message in the document's arena and moves it to the front.
+		- me, 20261121: C++ has `known_format`, `Migration::bad_from`, `Upgrade::bad_from` and `UpgradeErrorKind::BadFrom`. A `from` holding a NUL went to C as none. It now goes with each NUL as U+FFFD, so C refuses it, as the other bindings refuse such a name, where cutting it at the NUL could name a format.
+		- 20261121: veneer `dfhhw` wanted `current` for `from` `4` and for `3.0-a37` with a NUL, and `dfhjg` wanted `current` for `4` and no `from`'s text for the NUL name. Both now want `bad_from`.
+	- Verified: `dfkst` fails with the 4 guards taken out, and passes with them. The C runner and the veneer smoke under their `-Werror` flags, the C library compiled with `SHCL_NO_FILE_IO`, the quick gate's C area, and cli-regress over the C CLI. analyze-c and cppcheck weren't run here, and wait for the round's gate step. The veneer smoke doesn't build with `SHCL_NO_FILE_IO` on dev either (`a_save_names_this_format`), so that wasn't tried.
+	- Swept: every C and C++ caller of `shcl_upgrade`, `shcl_upgrade_dated`, `shcl_upgrade_file`, `shcl_migrate`, `shcl_migrate_unstamped` and `shcl_load_options.from` and their C++ spellings, in `shcl.h`, `shcl.hpp`, the C runner, the veneer smoke and the C CLI, which calls `shcl_known_format` for `--from`. `detail::from_c` is the only place C++ hands `from` to C. The static_assert on `UpgradeErrorKind` covers the new kind.
+	- Test case: `a_from_that_names_no_format_is_refused` (C `dfkst`, C++ veneer `dfksv`, twins of Rust `dfksh`).
+	- Branch: `nov21-2026112108444603`
+	- Commit: `b4ad4254`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the change, and the named gates passed.
+	- Closed: 20261121-094900
+	- Closed reason: Done
+
+- check-migrate wants a file stamped `Format 3.0` that loads with an error left alone by `upgrade --from=2.0`, which converts it
+	- ID: 2026112017370795
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261120-173707
+	- Opened by: me, the nov20c gate's check-migrate
+	- Related IDs: 2026101407100010, 2026111708125373, 2026111912330681
+	- Version and build: dev at `f9f1a9fc`, and nov20c at `63a34d6b`
+	- Steps to reproduce: run `cicd/utility/check-migrate.bash` on nov20c at `63a34d6b`. Its fuzz dump's `fuzz_00042` is a corpus input with the info block, `##    Format   3.0` in it, and `~##` above it, which is `E015`.
+	- Incorrect behavior: `ddmp7` fails: "format 3, with --from=2.0: the file was changed" and "something was written beside the file". `upgrade --from=2.0` writes a fresh file, which loads clean, and backs the original up under `format-v3`.
+	- Expected behavior: `ddmp7` passes. spec.md's `UpgradeFile` says a file naming this major that loads with an error is taken as the `from` format and written, so the library is right and the check wants the wrong thing.
+	- Reproduced: 20261120. The Rust CLI on dev at `f9f1a9fc` and on nov20c rewrites `fuzz_00042` with `--from=2.0` to the same fresh file, and leaves it alone without. `key: 1`, `~x`, a blank, then `##    Format   3.0` does the same. check-migrate.bash is the same on both. Corpus 223 shifted the seeds, so dev's dump never had such a file.
+	- Possible cause: `fUpConverts3`, its `sed`, and the `elif` in `fUpFormat3` match only `Format   3` with nothing after it, which is beta1's spelling. Info blocks name `3.0` since 2026111708125373, so a `3.0` file falls to the branch that wants it untouched.
+	- Estimated effort: Low
+	- Actual cause: as the possible cause says. The 3 matches took only beta1's `Format   3`, so a file naming `3.0` that loads with an error fell to the branch that wants it untouched, though `--from=2.0` converts it as spec.md says.
+	- Actual effort: Low
+	- Actual fix: one pattern, `format3Ere`, takes a Format line naming `3`, `3.0` or a 3.0 pin and no newer minor, and `fUpConverts3`, its `sed` and the `elif` in `fUpFormat3` go through it. `ddmp8` has a fourth fixed file, `format30-bad` (`key: 1`, `~x`, a blank, `##    Format   3.0`), so the case no longer hangs on the fuzz seeds.
+	- Swept: every Format 3 match in check-migrate.bash. `fNamesFormat3` and the `ddmp8` loop already take `[3-9]`, and the swap check at line 156 does too. No other cicd or test script has `fUpConverts3`, `fUpFormat3` or the old pattern.
+	- Verified: check-migrate passed, 646 documents, 1 of the 18 naming format 3 converted with `--from=2.0`. A copy with the old pattern put back failed `ddmp7` on `fuzz_00042` and `ddmp8` on `format30-bad` and the count. shellcheck and `lint-report.bash --check --no-mark` passed.
+	- Branch: `nov21-2026112017370795`
+	- Test case: check-migrate `ddmp8` (`format30-bad`) and `ddmp7`.
+	- Acceptance signoff: Self-closed: reproduced, the new check failed with the old pattern and passes with the fix.
+	- Closed: 20261121-100622
+	- Closed reason: Done
+	- Decisions: me, 20261121: the pattern takes a 3.0 pin such as `3.0-a37` too, since spec.md says `from` takes any file naming this major that loads with an error. A newer minor such as `3.1` stays out, since the spec leaves that file alone whatever `from` says.
+	- Note: shell-regress failed 3 checks this change doesn't reach: `dcvej` (demo gif), `de1a8` (check-docs.bash) and `dc0b5` (completions fixture). The other 195 passed.
+	- 20261121: check-migrate `ddmp8` expected 2 fixed files that `--from=2.0` converts. It now expects 3, with `format30-bad` added.
+
+- A list rewrite keeps the blank under a comment that sits in an item's place, which cuts the field's own comment off from it
+	- ID: 2026112017363707
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261120-173637
+	- Opened by: me, the nov20c gate's 2M release fuzz
+	- Related IDs: 2026110613470311, 2026111012160121, 2026110712372271
+	- Version and build: dev at `f9f1a9fc`, and nov20c at `63a34d6b`
+	- Steps to reproduce: `printf '# the list\nhosts:\n\t#- a\n\n\t# b is the spare\n\t- b\nz: 1\n' > f.shcl`, then `printf 'literal\thosts\tb\n' | shcl set f.shcl`.
+	- Incorrect behavior: the output is `# the list`, `#- a`, a blank, `# b is the spare`, then `hosts: b`. The blank under `#- a` moves up with the comments among the items, so `# the list` is set off from the field and `comments("hosts")` gives only `# b is the spare`. A merge that writes the list as a bracket array does the same. Fuzz `dderx` fails on it at iteration 172087 of the 2M release run on nov20c, op 10, a merge.
+	- Expected behavior: the comments among the items go right above the field's line, under its own comment, with no blank among them, as corpus `221-list-replace-comments` has for a blank between 2 items. With `- a` in place of `#- a` the blank goes.
+	- Reproduced: 20261120, the Rust CLI on dev at `f9f1a9fc` with the steps. The fuzz input's base and merge give the same text through the Rust library on dev and on nov20c at `63a34d6b`, and the placement property's merge check is the same on both. Corpus 223 shifted the seeds, so dev's run never reached it. Not tried in Go, Python or C.
+	- Possible cause: `adopt` drops a blank between items, but not one under a comment that sits where an item was.
+	- Note: the placement property excuses it with `blank_kept` in `fuzz_smoke.rs`, keyed by this ID. The fix takes it out.
+	- Verified: 20261120 on nov20c-fix, with `blank_kept` forced false `dderx` fails at iteration 172087 at 200,000 in release, and with it `dderx`, `dd3t9` and `df50j` pass at 200,000.
+	- Estimated effort: Low
+	- Reproduced: 20261121, the Rust CLI on nov21 at `2bd7d20f`, the same output. With `# x` above `- a` in place of `#- a`, the blank between the 2 comments stays too.
+	- Actual cause [Bug]: `adopt_heir` cleared only the blank above the first line it moved. design.md kept a blank between 2 moved lines on purpose, so a blank above a comment among the items split the run above the field, and the field's own comments and the moved ones above that blank read as the line above's.
+	- Actual fix [Bug]: `adopt_heir` clears the blank above every comment it moves, in all 4 bindings (`adopt_heir` in `lib.rs` and `shcl.h`, `adoptHeir` in `shcl.go`, `_adopt_heir` in `shcl.py`). A blank above a kept line among them stays. The `blank_kept` excuse is out of `placement_slips`. design.md's "Lines an edit takes from their node" and the changelog say so.
+	- Actual effort: Low
+	- Against: the 2026110712372271 decision and design.md's "A blank between 2 of the lines that moved stays".
+	- Decisions:
+		- me, 20261121: a blank above a moved comment goes, whether a comment or an item sat above it, since keeping it cuts the field's own comments off from the field. One above a kept line stays, since kept lines stay as built and `df50j` pins that blank. Dropping every blank among the moved lines was the other option.
+	- Swept: both callers of `adopt_heir` in each binding, `unstack` (the setter's list replace and the merge's `bracket`) and the settle's move of kept lines from among a list's items through `adopt`'s `Takes` heir. `adopt`'s other heirs don't merge lines into a node's own run.
+	- Test case: placement rows `2026112017363707-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dderx`, `dd3t9`, `df50j`.
+	- Verified: the 3 rows fail on the Python library at `2bd7d20f` and pass on the change (`placement-watch.py`). `dderx` at 200,000 in release fails at iteration 172087 on the Rust library at `2bd7d20f` with the excuse out, and passes on the change, with `dd3t9` and `df50j`. `--skip=check-docs --backlog-run-quick rust go python c` passed all 5 steps, the 4 placement runners included. check-docs alone failed only `dc0c8` on a line committed on nov21 before this change. mdcheck and markdownlint gave no new findings.
+	- Needs local test suite run?: No
+	- Branch: `nov21-2026112017363707`
+	- Acceptance signoff: me, 20261121. Each new row was seen to fail without the fix, and `dderx` passes its failing iteration.
+	- Closed: 20261121-103024
+	- Closed reason: Done
+
+- `--from-2x` is an unknown option now, with no pointer to `--from=2.0`
+	- ID: 2026112108444472
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261121-084444
+	- Opened by: me, on rereading the 2026111919213947 answer in questions.md
+	- Related IDs: 2026111919213947
+	- Version and build: dev at `8d981f5e`
+	- Steps to reproduce: `shcl upgrade --from-2x f.shcl`, or the same with `migrate`.
+	- Incorrect behavior: `unknown option: --from-2x (see --help)`, exit 1. A near typo gets more help, since `--from-2` gives `did you mean '--from'?`.
+	- Expected behavior: the message says the flag is `--from=2.0` now. Still exit 1.
+	- Reproduced: 20261121, the Rust and Python CLIs on dev at `8d981f5e`. Go and C not tried.
+	- Requirements:
+		- The same message in all 4 CLIs, for `upgrade` and `migrate`.
+		- A cli-regress row.
+	- Estimated effort: Low
+	- Decisions:
+		- No alias (me, 20261121). beta1 is a pre-release, and an alias would stay in the help, the man page, and the completions for good. The dropped words `version`, `about`, and `donate` get a pointer and no alias too.
+		- For beta.2, though it's Low (me, 20261121). JC is fine with lower-priority work in beta.2.
+		- me, 20261121: the message reads `unknown option: --from-2x; it's '--from=2.0' now (see --help)`, in the place a typo's `did you mean` goes. A table of renamed options (`RENAMED_OPTS`, read by `option_hint`) serves both places an unknown option is reported, so it's said before the subcommand too, and with a value such as `--from-2x=1`. It's said for every subcommand, as `did you mean` is, since the options are read before the subcommand judges them.
+	- Note: beta.2 is the first release without the flag, so the pointer is needed then. beta1's `H007` hint and its docs say to run `shcl upgrade --from-2x`, and a program built on beta1 keeps saying it.
+	- Actual effort: Low
+	- Actual fix: `option_hint` in the 4 CLIs, in place of the bare `suggest` call at both unknown-option sites.
+	- Verified: `dfkvt` and `dfkvv` fail on the C CLI built from the round's tree, and pass on all 4 new CLIs. cli-regress over the 4 CLIs (689 rows, 4043 checks), `--backlog-run-quick rust go python c cli` (all 5 steps) and `lint-report.bash --check --no-mark` passed. A probe of `upgrade --from-2x`, `migrate --from-2x`, `--from-2x upgrade` and `--from-2` gave the same output from all 4.
+	- Swept: both unknown-option sites in each of the 4 CLIs (the option parse and the word before the subcommand). The help, man page and completions don't name `--from-2x`. The changelog's `--from=FORMAT` line names the pointer.
+	- Test case: cli-regress `dfkvt`, `dfkvv`.
+	- Branch: `nov21-2026112108444472`
+	- Commit: `bd6216b8`
+	- Acceptance signoff: Self-closed: the new rows were seen to fail on the old CLI, and the named gates passed.
+	- Closed: 20261121-104500
+	- Closed reason: Done
+
+- `shcl migrate --from=3.0` on a file with no stamp says the file already names its format
+	- ID: 2026111920301167
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261119-203011
+	- Opened by: me
+	- Related IDs: 2026111919213947
+	- Steps to reproduce: `printf 'x: "a\\tb"\n' | shcl migrate --from=3.0 -`, or `--from=3.0-9ef`, or any format whose steps are all the same as this one's.
+	- Incorrect behavior: exit 0 with `nothing to migrate: the file already names its format`, though the file has no stamp. It's `--from` that named the format. All 4 CLIs say it.
+	- Expected behavior: the message says the named format reads the same under these rules, or names `--from`.
+	- Cause: the CLIs had one message for `current`, written when only a stamp could set it. A `--from` whose steps all rewrite nothing sets it too.
+	- Decisions:
+		- me, 20261121: with `--from`, the CLI asks `migrate` again without it. If that isn't current either, it was `--from` that made the file current, and the message is `nothing to migrate: --from=FORMAT reads the same as the current format`, with the name as given. Otherwise it stays `the file already names its format`, which is right for a pin's `--from` on a file stamped `3.0`. The second call runs only on this path, and uses the public API alone, so the 4 CLIs stay alike.
+	- Actual effort: Low
+	- Actual fix: the `current` branch of `do_migrate` in the 4 CLIs.
+	- Verified: `dfkvw` fails on the C CLI built from the round's tree, and passes on all 4 new CLIs. `dfkvx` (a pin's `--from` on a `3.0`-stamped file) passes on both, as the control. The gates named on 2026112108444472 passed. `--from=3.0`, `3.0-9ef` and `3` on an unstamped file, and a stamped file with and without `--from`, gave the same output from all 4.
+	- Swept: the one `current` message in each CLI's `migrate`. `upgrade` says `nothing to upgrade, left as is`, which holds either way.
+	- Test case: cli-regress `dfkvw`, `dfkvx`.
+	- Branch: `nov21-2026112108444472`
+	- Commit: `bd6216b8`
+	- Acceptance signoff: Self-closed: the new row was seen to fail on the old CLI, and the named gates passed.
+	- Closed: 20261121-104500
+	- Closed reason: Done
+
+- The C++ veneer smoke doesn't build with SHCL_NO_FILE_IO
+	- ID: 2026111814490325
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Opened: 20261118-144903
+	- Opened by:
+	- Progress log:
+		- veneer_smoke.cpp declares a_save_names_this_format inside the file I/O guard but calls it outside it, so a -DSHCL_NO_FILE_IO build fails to compile. No gate builds that combination. Found in round nov18 while working 2026111708542868.
+	- Target version: v3.0.0-beta.2
+	- Related IDs: 2026111919581254
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Origin: `ff279feb` (stamp on save), which put `a_save_names_this_format` inside the file I/O guard while `main` calls it in both arms. Confirmed.
+	- Decisions: 20261121: the function moves out of the guard rather than its call into the guard, since it only parses, merges and builds text, so it runs with file I/O out. A new cross check, "veneer smoke with file I/O compiled out", builds the smoke with `-DSHCL_NO_FILE_IO` under the gate's `-Werror` flags and runs it, beside the C library's. It costs about 13 s of CPU per run.
+	- Verified: the new cross check fails on the old smoke (`a_save_names_this_format` not declared) and passes with the fix, where `dfe66` runs. The smoke built and ran both ways, `--backlog-run-quick c` passed with the new check in it, shell-regress `de4bg` passed, and `lint-report.bash --check --no-mark` passed. check-push-gate passed its first 72 rows before a 270 s cap stopped it, so its full run waits for the round's gate step.
+	- Swept: `main`'s `#else` arm calls no other function from inside a guard, since the smoke now builds. The C runner and `oom_recover` don't build with `SHCL_NO_FILE_IO` either, but have no guards and never supported it. `oom_hook` and `mem_bounds` build.
+	- Test case: cross check "veneer smoke with file I/O compiled out" in `cicd/config.bash`, which runs veneer `dfe66` and the other checks that need no file.
+	- Branch: `nov21-2026111814490325`
+	- Commit: `887f6510`
+	- Acceptance signoff: Self-closed: mechanical, and the new check was seen to fail without the fix.
+	- Closed: 20261121-120527
+	- Closed reason: Done
+
+- shell-regress de1a8 and dc0b5 fail on dev
+	- ID: 2026111711415580
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261117-114155
+	- Opened by:
+	- Progress log:
+		- 20261117: both fail on dev at 635440bb, before round nov17b. de1a8: check-docs.bash:1396, the loop over found reads a capture that skips fFeedBad. dc0b5: the check-completions fixture did not build, anchor not found: _shcl: the paths description.
+	- Actual cause: de1a8: check-docs `dfdpp` filled `found` with `grep ... || true` inside the capture, so a grep error read as no hits (fbab0831). dc0b5: the zsh completions' paths description became "print every field path in the document" (b15a5c0f), and the fixture's anchor kept the old wording.
+	- Actual fix: `dfdpp` fills `found` through `fGrepOrNone` with `|| fFeedBad $?`. The dc0b5 fixture anchors on the new description.
+	- Swept: de1a8's own scan lists every capture check-docs feeds a loop from, and `found` was the only one unguarded. The other 5 anchors in the dc0b5 fixture still match.
+	- Verified: both rows failed with the unfixed check-docs.bash and shell-regress.bash and pass with the fix. shell-regress passed but the known `dcvej`. check-docs, `shellcheck -x`, `lint-report.bash --check --no-mark` and `--backlog-run-quick python` passed.
+	- Test case: shell-regress `de1a8` and `dc0b5`.
+	- Branch: `nov21-2026111711415580`
+	- Commit: `d13b8461`
+	- Acceptance signoff: Self-closed: both rows failed before the fix and pass after.
+	- Closed: 20261121-113915
+	- Closed reason: Done
+
+- codeql-scan fails de5aj on an empty except in the Python CLI's gone_since_read
+	- ID: 2026111709183317
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261117-091833
+	- Opened by: nov17b-2026111016205704
+	- Steps to reproduce: run cicd/utility/codeql-scan.bash.
+	- Incorrect behavior: de5aj fails with py/empty-except at source/python/cmd/shcl/main.py's gone_since_read, an except clause that only passes with no comment.
+	- Estimated effort: Low
+	- Origin: Confirmed. 1bbee68b (2026-11-11, beta2 bits), older than round nov17b.
+	- Actual fix: the clause returns False, with a comment saying the changed check decides. Same result as before, as in the Rust and C CLIs, where only a missing file counts as gone.
+	- Swept: every `pass` in an except clause in the Python CLI, the library and its tests. The rest have a comment or an `else`.
+	- Verified: codeql-scan.bash passed, `de5aj` included, where the nov18, nov19 and nov20b runs failed it. ruff and `--backlog-run-quick python` passed.
+	- Test case: codeql-scan `de5aj`.
+	- Actual effort: Low
+	- Branch: `nov21-2026111711415580`
+	- Commit: `d13b8461`
+	- Acceptance signoff: Self-closed: the scan row failed before and passes after.
+	- Closed: 20261121-113915
+	- Closed reason: Done
+
+- H001 on a case-only repeat gives the same hint as a real repeat
+	- ID: 2026111217560122
+	- Type: Bug
+	- Status: Closed
+	- Needs local test suite run?: No
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261112-175601
+	- Opened by: shcl feedback (tukzmon round, 20261112)
+	- Related IDs: 2026111016205711
+	- Steps to reproduce: `Order: a`, then `order: b`.
+	- Incorrect behavior: H001 says "did you mean 'order: [a, b]'?", the same hint as for a real repeat, and nothing says names ignore case.
+	- Expected behavior: the hint names both spellings and says they're one name.
+	- Estimated effort: Low
+	- Actual cause: the `H001` builder groups the repeat by the folded name and showed only that, so a repeat spelled 2 ways read like any other.
+	- Actual fix: when the lines spell the name more than one way, the hint ends with each spelling, cut at 3 like any list in a message, and says they're one name, in all 4: `'order' repeats as a bare leaf - did you mean 'order: [a, b]'? - 'Order', 'order' are spellings of one name, since names ignore case`. The head the schema suppressor matches is unchanged. `explain H001` in the 4 CLIs, spec.md's `H001` row and the changelog say so.
+	- Decisions:
+		- The suggestion keeps the folded name, which is 2026111016205711's part to change (me). The spellings go at the end, so the head the suppressor matches stays as it is.
+		- The spellings are kept apart through a hash set, so a name written in 40,000 case forms costs no more than 40,000 lines (me).
+	- Swept: the `H001` builder in all 4 (Rust `emit_repeated_leaf_hints`, Go `emitRepeatedLeafHints`, Python `_emit_repeated_leaf_hints`, C `emit_repeated_leaf_hints`), which is the only site that writes `H001`.
+	- Test case: cli-regress `dfkwf` (`h001-case-spellings`): 2 spellings, one spelling, and 4 spellings over 5 lines, exact text in all 4. Corpus `224-merged-plain-blocks` (`dfkwg`) has `Order: a` and `order: b` too.
+		- Verified: it fails on the unfixed C code and passes in all 4 with it.
+	- Verified: the same runs as 2026112015385902, from the same commit.
+	- Branch: nov21-2026112015385902
+	- Commit: `f179e254`
+	- Closed reason: Done
+	- Acceptance signoff: Self-closed: its test passed and cppcheck and analyze-c came back clean.
+	- Closed: 20261121-134520
+	- Verified: 20261121, analyze-c clean on nov21 86d615d1 (/mnt/ext/wip2/wip/tmp/shcl/20261121-121638_004/run.log), cppcheck clean on nov21 57895eae (/mnt/ext/wip2/wip/tmp/shcl/20261121-130836_008/run.log).
 
 - Format versions: find_format doesn't count a quoted value with a backslash pair, `a: "t\"wo"`, as a tell
 	- ID: 2026112016323606
