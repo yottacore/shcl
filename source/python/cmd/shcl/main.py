@@ -1182,7 +1182,9 @@ def gone_since_read(file):
 	except FileNotFoundError:
 		return True
 	except (OSError, ValueError):
-		pass
+		# Something is there that can't be looked at, so the changed check
+		# decides.
+		return False
 	return False
 
 

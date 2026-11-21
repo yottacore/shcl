@@ -1429,7 +1429,7 @@ fTest dfdpp edits-move-lines-only-through-adopt
 ##	movers may come back, in any binding (2026110616475902).
 retiredMovers='\b_?(leave_above|leave_last|leave_below|leave_orphans|hand_blank|set_blank|blank_below|refile_folded|folded_kept|folded_span|drop_banners|leaveAbove|leaveLast|leaveBelow|handBlank|setBlank|blankBelow|refileFolded|foldedKept|foldedSpan|dropBanners)\b'
 for src in source/rust/src source/go source/python source/c; do
-	found="$(grep -rnE --include='*.rs' --include='*.go' --include='*.py' --include='*.h' --include='*.c' --include='*.cpp' --include='*.hpp' "${retiredMovers}" "${repoDir}/${src}" || true)"
+	found="$(fGrepOrNone grep -rnE --include='*.rs' --include='*.go' --include='*.py' --include='*.h' --include='*.c' --include='*.cpp' --include='*.hpp' "${retiredMovers}" "${repoDir}/${src}")" || fFeedBad $?
 	if [[ -n "${found}" ]]; then
 		while IFS= read -r hit; do
 			fBad "a retired line mover is back, where adopt should do it: ${hit#"${repoDir}/"}"

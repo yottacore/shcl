@@ -552,17 +552,28 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - shell-regress de1a8 and dc0b5 fail on dev
 	- ID: 2026111711415580
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: Low
+	- Target version: v3.0.0
 	- Opened: 20261117-114155
 	- Opened by:
 	- Progress log:
 		- 20261117: both fail on dev at 635440bb, before round nov17b. de1a8: check-docs.bash:1396, the loop over found reads a capture that skips fFeedBad. dc0b5: the check-completions fixture did not build, anchor not found: _shcl: the paths description.
+	- Actual cause: de1a8: check-docs `dfdpp` filled `found` with `grep ... || true` inside the capture, so a grep error read as no hits (fbab0831). dc0b5: the zsh completions' paths description became "print every field path in the document" (b15a5c0f), and the fixture's anchor kept the old wording.
+	- Actual fix: `dfdpp` fills `found` through `fGrepOrNone` with `|| fFeedBad $?`. The dc0b5 fixture anchors on the new description.
+	- Swept: de1a8's own scan lists every capture check-docs feeds a loop from, and `found` was the only one unguarded. The other 5 anchors in the dc0b5 fixture still match.
+	- Verified: both rows failed with the unfixed check-docs.bash and shell-regress.bash and pass with the fix. shell-regress passed but the known `dcvej`. check-docs, `shellcheck -x`, `lint-report.bash --check --no-mark` and `--backlog-run-quick python` passed.
+	- Test case: shell-regress `de1a8` and `dc0b5`.
+	- Branch: `nov21-2026111711415580`
+	- Commit: `d13b8461`
+	- Acceptance signoff: Self-closed: both rows failed before the fix and pass after.
+	- Closed: 20261121-113915
+	- Closed reason: Done
 
 - codeql-scan fails de5aj on an empty except in the Python CLI's gone_since_read
 	- ID: 2026111709183317
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: Low
 	- Target version: v3.0.0
 	- Opened: 20261117-091833
@@ -571,6 +582,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: de5aj fails with py/empty-except at source/python/cmd/shcl/main.py's gone_since_read, an except clause that only passes with no comment.
 	- Estimated effort: Low
 	- Origin: Confirmed. 1bbee68b (2026-11-11, beta2 bits), older than round nov17b.
+	- Actual fix: the clause returns False, with a comment saying the changed check decides. Same result as before, as in the Rust and C CLIs, where only a missing file counts as gone.
+	- Swept: every `pass` in an except clause in the Python CLI, the library and its tests. The rest have a comment or an `else`.
+	- Verified: codeql-scan.bash passed, `de5aj` included, where the nov18, nov19 and nov20b runs failed it. ruff and `--backlog-run-quick python` passed.
+	- Test case: codeql-scan `de5aj`.
+	- Actual effort: Low
+	- Branch: `nov21-2026111711415580`
+	- Commit: `d13b8461`
+	- Acceptance signoff: Self-closed: the scan row failed before and passes after.
+	- Closed: 20261121-113915
+	- Closed reason: Done
 
 - H001 on a case-only repeat gives the same hint as a real repeat
 	- ID: 2026111217560122
