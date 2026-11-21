@@ -401,6 +401,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: `veneer FAIL: round 2, thread 7, call 0`, where got and want print the same up to a line end, then `FAIL de1a5 c++ reads_from_several_threads`.
 	- Expected behavior: the threads test passes every run.
 	- Note: control: the same source built with g++ and run 3 times alone passed every time. No C or C++ code changed in that tree.
+	- 20261120: failed again in nov20c's gate step quick run at `63a34d6b` (load about 25 on 32 cores), round 1, thread 2, call 0. The printed got and want are the same text and the same `T F 1` flags, so the compare saw something other than what it printed. 5 runs alone then passed.
 
 - The C++ veneer smoke doesn't build with SHCL_NO_FILE_IO
 	- ID: 2026111814490325
