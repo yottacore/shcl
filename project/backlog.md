@@ -38,7 +38,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: find_format doesn't count a quoted value with a backslash pair, `a: "t\"wo"`, as a tell
 	- ID: 2026112016323606
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: Low
 	- Target version: v3.0.0
 	- Opened: 20261120-163236
@@ -46,6 +46,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Related IDs: 2026112010395941, 2026111910270033
 	- Problem description: 1.0 to 3.0-a37 read `a: "t\"wo"` clean, as `t"wo`. 3.0-9ef on refuse it with `E017` and bind nothing, since the backslash is text there and the second quote closes the run. find_format counts no tell for it, so a file from 1.0 to 3.0-a37 with only such a line and a recent mtime reads as 3.0 and isn't converted.
 	- Origin: Confirmed against the v1.0.0 to 3.0 CLIs (2026112010395941). The `*` item `* "t\"wo"` is already told, by `E013`.
+	- Reproduced: the new test fails in all 4 runners with the new tell turned off. On the CLIs built at v1.0.0, v2.0.0, 3.0-1f8, 3.0-a37, 3.0-9ef and this tree, every format to 3.0-a37 reads `"t\"wo"`, `"a\" b"` and `"\"\""` clean, as `t"wo`, `a" b` and `""`, and 3.0-9ef on refuse each with `E017`. Every format refuses `"t\"wo`, `"t\"wo" x` and `'t\'wo`, and reads `"t\\"` clean.
+	- Actual cause: find_format counted `E017` on a quoted value only when the pins left a quote open in it and the 2.x rules closed every quote, the case of 2 quoted runs.
+	- Actual effort: Low
+	- Actual fix: a field value refused with `E017` is also a tell against 3.0-9ef on when both the pins' rules and the 2.x rules close every quote in it. `quote_runs` became `quote_tells`, which gives the formats the value counts against. A load with migrate or upgrade then finds such a file to be 3.0-a37, and `upgrade` gives `a: 't"wo'`.
+	- Decisions:
+		- me, 20261120: the tell needs the 2.x rules to close every quote as well as the pins' rules, so a value only the pins read clean isn't counted. No such value was found that the current rules refuse with `E017`, and counting it against 3.0-9ef on alone would favor 1.0 to 2.0, which refuse it too.
+		- me, 20261120: the `*` item stays told by `E013` alone, since `quote_tells` adds the same run there.
+	- Verified: the new test fails in all 4 runners with the new tell turned off, and passes with the fix. `--backlog-run-quick rust go python c cli` passed all 5 steps, and was stopped at about 5 minutes in its wrap-up after them. cargo fmt, gofmt, ruff check, cli-regress over the 4 CLIs, crosscheck over the corpus, `test-ids.py check`, `lint-report.bash --check --no-mark` and the markdown check passed. `shcl upgrade` on a file with only `a: "t\"wo"` gives `a: 't"wo'` in all 4 CLIs. analyze-c and cppcheck were not run.
+	- Swept: `line_tells` and `quote_tells` in Rust, Go (`lineTells`, `quoteTells`), Python (`_line_tells`, `_quote_tells`) and C (`line_tells`, `quote_tells`, `any_open`). C++ `find_format` wraps C. The `TELL_RUNS` comment in all 4. Docs: the design doc's Tells table and a dated note under its tells step, and the changelog's `find_format` entry.
+	- Branch: `nov20c-2026112016323606`
+	- Commit: `cc4fe119`
+	- Test case: `a_quoted_value_with_a_backslash_pair_is_a_tell` (Rust `dfjt5`, Go `dfjt6`, Python `dfjt7`, C `dfjt8`).
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the fix in all 4 runners, and the named gates passed.
+	- Closed: 20261120-165807
+	- Closed reason: Done
 
 - Format versions: the demo gif and its golden text show fmt output without the stamp
 	- ID: 2026111710564808

@@ -4544,6 +4544,37 @@ def main():
 		if shcl.find_format(qrtext, qrmtime) != qrwant:
 			raise SystemExit(f"find_format {qrtext!r} at {qrmtime}: {shcl.find_format(qrtext, qrmtime)!r}, want {qrwant!r}")
 
+	test_id("dfjt7", "a_quoted_value_with_a_backslash_pair_is_a_tell")
+	# A quoted value with a backslash pair that 1.0 to 3.0-a37 read as an
+	# escape, such as `"t\"wo"`, read clean there, and 3.0-9ef on refuse it
+	# (E017), so it tells them apart. Rust's
+	# a_quoted_value_with_a_backslash_pair_is_a_tell has the same rows. The
+	# mtimes are Unix seconds at UTC.
+	bqsep1 = 1788220800  # 2026-09-01, 1.0 to 2.0
+	bqoct20 = 1792454400  # 2026-10-20, to 3.0-9ef
+	bqnov10 = 1794268800  # 2026-11-10, every format
+	for bqtext, bqmtime, bqwant in (
+		('a: "t\\"wo"\n', bqnov10, "3.0-a37"),
+		('a: "t\\"wo"\n', None, "3.0-a37"),
+		('a: "t\\"wo"\n', bqoct20, "3.0-a37"),
+		('a: "t\\"wo"\n', bqsep1, "2.0"),
+		('a: "a\\" b"\n', bqnov10, "3.0-a37"),
+		('a: "\\"\\""\n', bqnov10, "3.0-a37"),
+		('s:\n\ta: "t\\"wo"  # c\n', bqnov10, "3.0-a37"),
+		('a:\n\t* "t\\"wo"\n', bqnov10, "3.0-a37"),
+		# 2 tells against 3.0-9ef on and one against 3.0-1f8 on.
+		('a: "t\\"wo"\nb: "x" "y"\n', bqnov10, "2.0"),
+		# One tell each way ties, and the tie goes to the newest.
+		('a: "t\\"wo"\nb:\n\t- z\n', bqnov10, "3.0"),
+		# Not tells.
+		('a: "t\\\\"\n', bqnov10, "3.0"),
+		('a: "t\\"wo\n', bqnov10, "3.0"),
+		('a: "t\\"wo" x\n', bqnov10, "3.0"),
+		("a: 't\\'wo\n", bqnov10, "3.0"),
+	):
+		if shcl.find_format(bqtext, bqmtime) != bqwant:
+			raise SystemExit(f"find_format {bqtext!r} at {bqmtime}: {shcl.find_format(bqtext, bqmtime)!r}, want {bqwant!r}")
+
 	test_id("dfj92", "a_file_format_reads_through_a_stamp_mtime_and_body_that_disagree")
 	# Every pairing of a stamp, an mtime and a body whose tells disagree reads
 	# as the design doc's 4 steps give it, from tables written here rather

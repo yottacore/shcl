@@ -3035,7 +3035,8 @@ def _pick_format(text: str, mtime: float | None, by_stamp: int) -> str:
 _TELL_RUNS = (
 	# Refused from the format 3 value syntax on: a comma list, `*` items, a
 	# bracket selector, a bare name led by a digit, a quote, a tab, a CR, a
-	# bracket or a loose colon in a bare value, an open backtick.
+	# bracket or a loose colon in a bare value, an open backtick, a quoted
+	# value with a backslash pair the older formats read as an escape.
 	("3.0-9ef", "3.0"),
 	# A bracketed value, which binds nothing.
 	("3.0-1f8", "3.0-a37"),
@@ -3124,10 +3125,7 @@ def _line_tells(rest: str, codes: list[str], tok: Tokens) -> int:
 	if rest.startswith("*"):
 		if "E013" not in codes:
 			return 0
-		run = _tell_run(_TELL_REFUSED_NOW)
-		if _quote_runs(rest, 1, tok):
-			run |= _tell_run(_TELL_QUOTE_RUNS)
-		return run
+		return _tell_run(_TELL_REFUSED_NOW) | _quote_tells(rest, 1, tok)
 	if _is_item(rest):
 		return 0 if codes else _tell_run(_TELL_NEW_SPELLING)
 	tokenize(rest, ":", False, Rules.Current, tok)
@@ -3145,8 +3143,8 @@ def _line_tells(rest: str, codes: list[str], tok: Tokens) -> int:
 	if codes:
 		plain = tok.fault is None and tok.array is None and all(s.selector is None for s in tok.segments)
 		sep = tok.sep
-		if plain and "E017" in codes and sep is not None and _quote_runs(rest, sep + 1, tok):
-			run |= _tell_run(_TELL_QUOTE_RUNS)
+		if plain and "E017" in codes and sep is not None:
+			run |= _quote_tells(rest, sep + 1, tok)
 		return run
 	if tok.array is not None:
 		run |= _tell_run(_TELL_BRACKETS)
@@ -3183,20 +3181,23 @@ def _value_told(codes: list[str], tok: Tokens) -> bool:
 	return False
 
 
-def _quote_runs(rest: str, from_: int, tok: Tokens) -> bool:
-	"""A value from the byte offset from_ with a piece a quote opens and the
-	same quote ends, with text between 2 quoted runs, such as `"x" "y"` or
-	`'x' 'y'`. The format 3 value syntax refuses it (E017), and so do the pins
-	from 3.0-1f8 to 3.0-a37, which keep the text as typed. 1.0 to 2.0 read it
-	whole, without its outer quotes. A piece the pins close, such as
-	`"t\\"wo"`, reads clean in them, and a piece the 2.x rules leave open was
-	refused by 1.0 to 2.0 as well, so neither is one. Leaves tok holding the
-	2.x reading."""
+def _quote_tells(rest: str, from_: int, tok: Tokens) -> int:
+	"""The formats that refuse a value from the byte offset from_ the format 3
+	value syntax refuses with E017, where 1.0 to 2.0 close every quote in it.
+	A piece a quote opens and the same quote ends, with text between 2 quoted
+	runs, such as `"x" "y"` or `'x' 'y'`, is refused by the pins from 3.0-1f8
+	to 3.0-a37 too, which keep the text as typed. 1.0 to 2.0 read it whole,
+	without its outer quotes. A backslash pair the pins and 1.0 to 2.0 read as
+	an escape, such as `"t\\"wo"`, is read clean by every format to 3.0-a37,
+	and only 3.0-9ef on refuse it. A piece the 2.x rules leave open was
+	refused by 1.0 to 2.0 as well, so it isn't one. Leaves tok holding the 2.x
+	reading."""
 	_lex_value(rest, from_, _Lex.Pin, tok)
-	if all(p.quote is not Quote.Open for p in tok.elements):
-		return False
+	pins_open = any(p.quote is Quote.Open for p in tok.elements)
 	_lex_value(rest, from_, _Lex.V2, tok)
-	return all(p.quote is not Quote.Open for p in tok.elements)
+	if any(p.quote is Quote.Open for p in tok.elements):
+		return 0
+	return _tell_run(_TELL_QUOTE_RUNS if pins_open else _TELL_REFUSED_NOW)
 
 
 class _StepKind(Enum):

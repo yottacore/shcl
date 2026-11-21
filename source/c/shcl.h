@@ -5120,7 +5120,8 @@ static ShclStep s_first_rewrite(const char *format) {
 static const char *const shcl_tell_runs[8][2] = {
 	/* Refused from the format 3 value syntax on: a comma list, `*` items, a
 	   bracket selector, a bare name led by a digit, a quote, a tab, a CR, a
-	   bracket or a loose colon in a bare value, an open backtick. */
+	   bracket or a loose colon in a bare value, an open backtick, a quoted
+	   value with a backslash pair the older formats read as an escape. */
 	{"3.0-9ef", "3.0"},
 	/* A bracketed value, which binds nothing. */
 	{"3.0-1f8", "3.0-a37"},
@@ -5179,25 +5180,28 @@ static int value_told(ShclArena *ta, ShclStr rest, unsigned errs, const ShclToke
 	return 0;
 }
 
-/* A value from `from` with a piece a quote opens and the same quote ends,
-   with text between 2 quoted runs, such as `"x" "y"` or `'x' 'y'`. The format
-   3 value syntax refuses it (E017), and so do the pins from 3.0-1f8 to
-   3.0-a37, which keep the text as typed. 1.0 to 2.0 read it whole, without
-   its outer quotes. A piece the pins close, such as `"t\"wo"`, reads clean in
-   them, and a piece the 2.x rules leave open was refused by 1.0 to 2.0 as
-   well, so neither is one. Leaves tok holding the 2.x reading. */
-static int quote_runs(ShclArena *ta, ShclStr rest, size_t from, ShclTokens *tok) {
+static int any_open(const ShclTokens *tok) {
+	for (size_t e = 0; e < tok->nelem; e++) {
+		if (tok->elements[e].quote == SHCL_QUOTE_OPEN) return 1;
+	}
+	return 0;
+}
+
+/* The formats that refuse a value from `from` the format 3 value syntax
+   refuses with E017, where 1.0 to 2.0 close every quote in it. A piece a quote
+   opens and the same quote ends, with text between 2 quoted runs, such as
+   `"x" "y"` or `'x' 'y'`, is refused by the pins from 3.0-1f8 to 3.0-a37 too,
+   which keep the text as typed. 1.0 to 2.0 read it whole, without its outer
+   quotes. A backslash pair the pins and 1.0 to 2.0 read as an escape, such as
+   `"t\"wo"`, is read clean by every format to 3.0-a37, and only 3.0-9ef on
+   refuse it. A piece the 2.x rules leave open was refused by 1.0 to 2.0 as
+   well, so it isn't one. Leaves tok holding the 2.x reading. */
+static uint32_t quote_tells(ShclArena *ta, ShclStr rest, size_t from, ShclTokens *tok) {
 	lex_value(ta, rest, from, SHCL_LEX_PIN, tok);
-	int opened = 0;
-	for (size_t e = 0; e < tok->nelem; e++) {
-		if (tok->elements[e].quote == SHCL_QUOTE_OPEN) { opened = 1; break; }
-	}
-	if (!opened) return 0;
+	int pins_open = any_open(tok);
 	lex_value(ta, rest, from, SHCL_LEX_V2, tok);
-	for (size_t e = 0; e < tok->nelem; e++) {
-		if (tok->elements[e].quote == SHCL_QUOTE_OPEN) return 0;
-	}
-	return 1;
+	if (any_open(tok)) return 0;
+	return tell_run(pins_open ? TELL_QUOTE_RUNS : TELL_REFUSED_NOW);
 }
 
 /* The formats a line's tells count against, as bits of shcl_format_days.
@@ -5208,9 +5212,7 @@ static int quote_runs(ShclArena *ta, ShclStr rest, size_t from, ShclTokens *tok)
 static uint32_t line_tells(ShclArena *ta, ShclStr rest, unsigned errs, ShclTokens *tok) {
 	if (rest.p[0] == '*') {
 		if (!(errs & TELL_ERR_E013)) return 0;
-		uint32_t run = tell_run(TELL_REFUSED_NOW);
-		if (quote_runs(ta, rest, 1, tok)) run |= tell_run(TELL_QUOTE_RUNS);
-		return run;
+		return tell_run(TELL_REFUSED_NOW) | quote_tells(ta, rest, 1, tok);
 	}
 	if (is_item(rest)) return errs ? 0 : tell_run(TELL_NEW_SPELLING);
 	tokenize(ta, rest, ':', 0, SHCL_RULES_CURRENT, tok);
@@ -5223,7 +5225,7 @@ static uint32_t line_tells(ShclArena *ta, ShclStr rest, unsigned errs, ShclToken
 		for (size_t k = 0; k < tok->nseg; k++) {
 			if (tok->segments[k].has_selector) plain = 0;
 		}
-		if (plain && (errs & TELL_ERR_E017) && tok->has_sep && quote_runs(ta, rest, tok->sep + 1, tok)) run |= tell_run(TELL_QUOTE_RUNS);
+		if (plain && (errs & TELL_ERR_E017) && tok->has_sep) run |= quote_tells(ta, rest, tok->sep + 1, tok);
 		return run;
 	}
 	if (tok->has_array) run |= tell_run(TELL_BRACKETS);

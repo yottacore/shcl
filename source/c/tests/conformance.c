@@ -5274,6 +5274,40 @@ int main(int argc, char **argv) {
 			if (!got || strcmp(got, qr[k].want)) fail("a_value_of_2_quoted_runs_is_a_tell", qr[k].text);
 		}
 	}
+	test_id("dfjt8", "a_quoted_value_with_a_backslash_pair_is_a_tell");
+	/* A quoted value with a backslash pair that 1.0 to 3.0-a37 read as an
+	   escape, such as `"t\"wo"`, read clean there, and 3.0-9ef on refuse it
+	   (E017), so it tells them apart. Rust's
+	   a_quoted_value_with_a_backslash_pair_is_a_tell has the same rows. The
+	   mtimes are Unix seconds at UTC, and has_mtime 0 passes none. */
+	{
+		const int64_t sep1 = 1788220800;  /* 2026-09-01, 1.0 to 2.0 */
+		const int64_t oct20 = 1792454400; /* 2026-10-20, to 3.0-9ef */
+		const int64_t nov10 = 1794268800; /* 2026-11-10, every format */
+		const struct { const char *text; int has_mtime; int64_t mtime; const char *want; } bq[] = {
+			{"a: \"t\\\"wo\"\n", 1, nov10, "3.0-a37"},
+			{"a: \"t\\\"wo\"\n", 0, 0, "3.0-a37"},
+			{"a: \"t\\\"wo\"\n", 1, oct20, "3.0-a37"},
+			{"a: \"t\\\"wo\"\n", 1, sep1, "2.0"},
+			{"a: \"a\\\" b\"\n", 1, nov10, "3.0-a37"},
+			{"a: \"\\\"\\\"\"\n", 1, nov10, "3.0-a37"},
+			{"s:\n\ta: \"t\\\"wo\"  # c\n", 1, nov10, "3.0-a37"},
+			{"a:\n\t* \"t\\\"wo\"\n", 1, nov10, "3.0-a37"},
+			/* 2 tells against 3.0-9ef on and one against 3.0-1f8 on. */
+			{"a: \"t\\\"wo\"\nb: \"x\" \"y\"\n", 1, nov10, "2.0"},
+			/* One tell each way ties, and the tie goes to the newest. */
+			{"a: \"t\\\"wo\"\nb:\n\t- z\n", 1, nov10, "3.0"},
+			/* Not tells. */
+			{"a: \"t\\\\\"\n", 1, nov10, "3.0"},
+			{"a: \"t\\\"wo\n", 1, nov10, "3.0"},
+			{"a: \"t\\\"wo\" x\n", 1, nov10, "3.0"},
+			{"a: 't\\'wo\n", 1, nov10, "3.0"},
+		};
+		for (size_t k = 0; k < sizeof bq / sizeof bq[0]; k++) {
+			const char *got = shcl_find_format(bq[k].text, strlen(bq[k].text), bq[k].has_mtime ? &bq[k].mtime : NULL);
+			if (!got || strcmp(got, bq[k].want)) fail("a_quoted_value_with_a_backslash_pair_is_a_tell", bq[k].text);
+		}
+	}
 	test_id("dfj93", "a_file_format_reads_through_a_stamp_mtime_and_body_that_disagree");
 	/* Every pairing of a stamp, an mtime and a body whose tells disagree reads
 	   as the design doc's 4 steps give it, from tables written here rather

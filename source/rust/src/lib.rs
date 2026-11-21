@@ -3263,7 +3263,8 @@ fn pick_format(text: &str, mtime: Option<i64>, by_stamp: u32) -> &'static str {
 const TELL_RUNS: [(&str, &str); 8] = [
 	// Refused from the format 3 value syntax on: a comma list, `*` items, a
 	// bracket selector, a bare name led by a digit, a quote, a tab, a CR, a
-	// bracket or a loose colon in a bare value, an open backtick.
+	// bracket or a loose colon in a bare value, an open backtick, a quoted
+	// value with a backslash pair the older formats read as an escape.
 	("3.0-9ef", "3.0"),
 	// A bracketed value, which binds nothing.
 	("3.0-1f8", "3.0-a37"),
@@ -3368,11 +3369,7 @@ fn line_tells(rest: &str, codes: &[(usize, &str)], tok: &mut Tokens) -> u32 {
 		if !has("E013") {
 			return 0;
 		}
-		let mut run = tell_run(TELL_REFUSED_NOW);
-		if quote_runs(rest, 1, tok) {
-			run |= tell_run(TELL_QUOTE_RUNS);
-		}
-		return run;
+		return tell_run(TELL_REFUSED_NOW) | quote_tells(rest, 1, tok);
 	}
 	if is_item(rest) {
 		return if codes.is_empty() {
@@ -3398,9 +3395,8 @@ fn line_tells(rest: &str, codes: &[(usize, &str)], tok: &mut Tokens) -> u32 {
 		let plain = tok.fault.is_none()
 			&& tok.array.is_none()
 			&& tok.segments.iter().all(|s| s.selector.is_none());
-		let from = tok.sep.filter(|_| plain && has("E017"));
-		if from.is_some_and(|sep| quote_runs(rest, sep + 1, tok)) {
-			run |= tell_run(TELL_QUOTE_RUNS);
+		if let Some(sep) = tok.sep.filter(|_| plain && has("E017")) {
+			run |= quote_tells(rest, sep + 1, tok);
 		}
 		return run;
 	}
@@ -3440,21 +3436,27 @@ fn value_told(rest: &str, codes: &[(usize, &str)], tok: &Tokens) -> bool {
 	})
 }
 
-/// A value from `from` with a piece a quote opens and the same quote ends,
-/// with text between 2 quoted runs, such as `"x" "y"` or `'x' 'y'`. The
-/// format 3 value syntax refuses it (`E017`), and so do the pins from
-/// 3.0-1f8 to 3.0-a37, which keep the text as typed. 1.0 to 2.0 read it
-/// whole, without its outer quotes. A piece the pins close, such as
-/// `"t\"wo"`, reads clean in them, and a piece the 2.x rules leave open was
-/// refused by 1.0 to 2.0 as well, so neither is one. Leaves `tok` holding the
+/// The formats that refuse a value from `from` the format 3 value syntax
+/// refuses with `E017`, where 1.0 to 2.0 close every quote in it. A piece a
+/// quote opens and the same quote ends, with text between 2 quoted runs,
+/// such as `"x" "y"` or `'x' 'y'`, is refused by the pins from 3.0-1f8 to
+/// 3.0-a37 too, which keep the text as typed. 1.0 to 2.0 read it whole,
+/// without its outer quotes. A backslash pair the pins and 1.0 to 2.0 read as
+/// an escape, such as `"t\"wo"`, is read clean by every format to 3.0-a37,
+/// and only 3.0-9ef on refuse it. A piece the 2.x rules leave open was
+/// refused by 1.0 to 2.0 as well, so it isn't one. Leaves `tok` holding the
 /// 2.x reading.
-fn quote_runs(rest: &str, from: usize, tok: &mut Tokens) -> bool {
+fn quote_tells(rest: &str, from: usize, tok: &mut Tokens) -> u32 {
 	lex_value(rest, from, Lex::Pin, tok);
-	if tok.elements.iter().all(|p| p.quote != Quote::Open) {
-		return false;
-	}
+	let pins_open = tok.elements.iter().any(|p| p.quote == Quote::Open);
 	lex_value(rest, from, Lex::V2, tok);
-	tok.elements.iter().all(|p| p.quote != Quote::Open)
+	if tok.elements.iter().any(|p| p.quote == Quote::Open) {
+		0
+	} else if pins_open {
+		tell_run(TELL_QUOTE_RUNS)
+	} else {
+		tell_run(TELL_REFUSED_NOW)
+	}
 }
 
 /// What turns a text in one format of `FORMAT_DAYS` into the next one's, as

@@ -5011,6 +5011,48 @@ fn a_value_of_2_quoted_runs_is_a_tell() {
 	}
 }
 
+/// A quoted value with a backslash pair that 1.0 to 3.0-a37 read as an
+/// escape, such as `"t\"wo"`, read clean there as `t"wo`. 3.0-9ef on refuse
+/// it (`E017`), since the backslash is text and the second quote closes the
+/// run, so it tells the formats to 3.0-a37 apart from them. A pair that both
+/// read clean isn't a tell, and neither is a run the older formats leave open
+/// (2026112016323606). The same rows are in every binding's runner.
+#[test]
+fn a_quoted_value_with_a_backslash_pair_is_a_tell() {
+	let _id = test_id("dfjt5");
+	let sep1 = Some(1788220800); // 2026-09-01, 1.0 to 2.0
+	let oct20 = Some(1792454400); // 2026-10-20, to 3.0-9ef
+	let nov10 = Some(1794268800); // 2026-11-10, every format
+	let cases: [(&str, Option<i64>, &str); 14] = [
+		("a: \"t\\\"wo\"\n", nov10, "3.0-a37"),
+		("a: \"t\\\"wo\"\n", None, "3.0-a37"),
+		("a: \"t\\\"wo\"\n", oct20, "3.0-a37"),
+		("a: \"t\\\"wo\"\n", sep1, "2.0"),
+		("a: \"a\\\" b\"\n", nov10, "3.0-a37"),
+		("a: \"\\\"\\\"\"\n", nov10, "3.0-a37"),
+		("s:\n\ta: \"t\\\"wo\"  # c\n", nov10, "3.0-a37"),
+		("a:\n\t* \"t\\\"wo\"\n", nov10, "3.0-a37"),
+		// 2 tells against 3.0-9ef on and one against 3.0-1f8 on.
+		("a: \"t\\\"wo\"\nb: \"x\" \"y\"\n", nov10, "2.0"),
+		// One tell each way ties, and the tie goes to the newest.
+		("a: \"t\\\"wo\"\nb:\n\t- z\n", nov10, "3.0"),
+		// Not tells.
+		("a: \"t\\\\\"\n", nov10, "3.0"),
+		("a: \"t\\\"wo\n", nov10, "3.0"),
+		("a: \"t\\\"wo\" x\n", nov10, "3.0"),
+		("a: 't\\'wo\n", nov10, "3.0"),
+	];
+	for (text, mtime, want) in cases {
+		assert_eq!(
+			find_format(text, mtime),
+			Some(want),
+			"{:?} at {:?}",
+			text,
+			mtime
+		);
+	}
+}
+
 /// Every pairing of a stamp, an mtime and a body whose tells disagree reads
 /// as the design doc's 4 steps give it, from tables written here rather than
 /// the library's: what each stamp leaves, the newest format each mtime

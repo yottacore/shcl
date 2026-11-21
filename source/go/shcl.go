@@ -3541,7 +3541,8 @@ func pickFormat(text string, mtime *int64, byStamp uint32) string {
 var tellRuns = [...][2]string{
 	// Refused from the format 3 value syntax on: a comma list, `*` items, a
 	// bracket selector, a bare name led by a digit, a quote, a tab, a CR, a
-	// bracket or a loose colon in a bare value, an open backtick.
+	// bracket or a loose colon in a bare value, an open backtick, a quoted
+	// value with a backslash pair the older formats read as an escape.
 	{"3.0-9ef", "3.0"},
 	// A bracketed value, which binds nothing.
 	{"3.0-1f8", "3.0-a37"},
@@ -3665,11 +3666,7 @@ func lineTells(rest string, codes []string, tok *Tokens) uint32 {
 		if !has("E013") {
 			return 0
 		}
-		run := tellRun(tellRefusedNow)
-		if quoteRuns(rest, 1, tok) {
-			run |= tellRun(tellQuoteRuns)
-		}
-		return run
+		return tellRun(tellRefusedNow) | quoteTells(rest, 1, tok)
 	}
 	if isItem(rest) {
 		if len(codes) == 0 {
@@ -3690,8 +3687,8 @@ func lineTells(rest string, codes []string, tok *Tokens) uint32 {
 				plain = false
 			}
 		}
-		if sep := tok.Sep; plain && has("E017") && sep >= 0 && quoteRuns(rest, sep+1, tok) {
-			run |= tellRun(tellQuoteRuns)
+		if sep := tok.Sep; plain && has("E017") && sep >= 0 {
+			run |= quoteTells(rest, sep+1, tok)
 		}
 		return run
 	}
@@ -3754,33 +3751,34 @@ func valueTold(rest string, has func(string) bool, tok *Tokens) bool {
 	return false
 }
 
-// quoteRuns is a value from `from` with a piece a quote opens and the same
-// quote ends, with text between 2 quoted runs, such as `"x" "y"` or
-// `'x' 'y'`. The format 3 value syntax refuses it (E017), and so do the pins
-// from 3.0-1f8 to 3.0-a37, which keep the text as typed. 1.0 to 2.0 read it
-// whole, without its outer quotes. A piece the pins close, such as
-// `"t\"wo"`, reads clean in them, and a piece the 2.x rules leave open was
-// refused by 1.0 to 2.0 as well, so neither is one. Leaves tok holding the
-// 2.x reading.
-func quoteRuns(rest string, from int, tok *Tokens) bool {
-	lexValue(rest, from, lexPin, tok)
-	opened := false
-	for _, p := range tok.Elements {
-		if p.Quote == QuoteOpen {
-			opened = true
-			break
+// quoteTells is the formats that refuse a value from `from` the format 3
+// value syntax refuses with E017, where 1.0 to 2.0 close every quote in it. A
+// piece a quote opens and the same quote ends, with text between 2 quoted
+// runs, such as `"x" "y"` or `'x' 'y'`, is refused by the pins from 3.0-1f8
+// to 3.0-a37 too, which keep the text as typed. 1.0 to 2.0 read it whole,
+// without its outer quotes. A backslash pair the pins and 1.0 to 2.0 read as
+// an escape, such as `"t\"wo"`, is read clean by every format to 3.0-a37,
+// and only 3.0-9ef on refuse it. A piece the 2.x rules leave open was refused
+// by 1.0 to 2.0 as well, so it isn't one. Leaves tok holding the 2.x reading.
+func quoteTells(rest string, from int, tok *Tokens) uint32 {
+	opened := func() bool {
+		for _, p := range tok.Elements {
+			if p.Quote == QuoteOpen {
+				return true
+			}
 		}
-	}
-	if !opened {
 		return false
 	}
+	lexValue(rest, from, lexPin, tok)
+	pinsOpen := opened()
 	lexValue(rest, from, lexV2, tok)
-	for _, p := range tok.Elements {
-		if p.Quote == QuoteOpen {
-			return false
-		}
+	switch {
+	case opened():
+		return 0
+	case pinsOpen:
+		return tellRun(tellQuoteRuns)
 	}
-	return true
+	return tellRun(tellRefusedNow)
 }
 
 // SchemaRef is the schema a document's `##    Schema   REF` line names: a
