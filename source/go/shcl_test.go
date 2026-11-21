@@ -4785,6 +4785,61 @@ func TestAValueTheFormat3SyntaxRefusesIsATell(t *testing.T) {
 	}
 }
 
+// TestAValueOf2QuotedRunsIsATell: a value a quote opens and the same quote
+// ends, with text between 2 quoted runs, such as `"x" "y"`, read whole in 1.0
+// to 2.0, and 3.0-1f8 on refuse it (E017), so it tells them apart. Rust's
+// a_value_of_2_quoted_runs_is_a_tell has the same rows. The mtimes are Unix
+// seconds at UTC.
+func TestAValueOf2QuotedRunsIsATell(t *testing.T) {
+	defer testID(t, "dfjsa")
+	at := func(n int64) *int64 { return &n }
+	sep1 := at(1788220800)  // 2026-09-01, 1.0 to 2.0
+	oct20 := at(1792454400) // 2026-10-20, to 3.0-9ef
+	nov10 := at(1794268800) // 2026-11-10, every format
+	cases := []struct {
+		text  string
+		mtime *int64
+		want  string
+	}{
+		{"a: \"x\" \"y\"\n", nov10, "2.0"},
+		{"a: \"x\" \"y\"\n", nil, "2.0"},
+		{"a: \"x\" \"y\"\n", oct20, "2.0"},
+		{"a: \"x\" \"y\"\n", sep1, "2.0"},
+		{"a: 'x' 'y'\n", nov10, "2.0"},
+		{"a: \"x\"\"y\"\n", nov10, "2.0"},
+		{"a: \"x\" \"y\" \"z\"\n", nov10, "2.0"},
+		{"a: \"x\" \"y #c\"\n", nov10, "2.0"},
+		{"a: \"x, y\" \"z\"\n", nov10, "2.0"},
+		{"a: \"x\\\" \"y\"\n", nov10, "2.0"},
+		{"a: z, \"x\" \"y\"\n", nov10, "2.0"},
+		{"s:\n\ta: \"x\" \"y\"  # c\n", nov10, "2.0"},
+		{"a:\n\t* \"x\" \"y\"\n", nov10, "2.0"},
+		{"a: \"x\" \"y\"\nb: x\"y\n", nov10, "2.0"},
+		// An apostrophe the pins read as the close, which 2.x read escaped.
+		{"a: 't\\'wo'\n", nov10, "2.0"},
+		// One tell each way ties, and the tie goes to the newest.
+		{"a: \"x\" \"y\"\nb:\n\t- z\n", nov10, "3.0"},
+		// Not tells.
+		{"a: \"x\" y\n", nov10, "3.0"},
+		{"a: \"x\"y\n", nov10, "3.0"},
+		{"a: \"x\" 'y'\n", nov10, "3.0"},
+		{"a: \"x\" \"y\n", nov10, "3.0"},
+		{"a: \"x\" \"y\\\"\n", nov10, "3.0"},
+		{"a: \"x\" \"y\", \"q\n", nov10, "3.0"},
+		{"a:\n\t- \"x\" \"y\"\n", nov10, "3.0"},
+		{"\"x\" \"y\": 1\n", nov10, "3.0"},
+		// The pins read these, so they're the format 3 value syntax's own
+		// tells, a backtick and a `*` item.
+		{"a: `x` \"y\"\n", nov10, "3.0-a37"},
+		{"a:\n\t* \"t\\\"wo\"\n", nov10, "3.0-a37"},
+	}
+	for _, c := range cases {
+		if got, ok := FindFormat(c.text, c.mtime); !ok || got != c.want {
+			t.Errorf("%q at %v: %q, want %q", c.text, c.mtime, got, c.want)
+		}
+	}
+}
+
 // TestAFileFormatReadsThroughAStampMtimeAndBodyThatDisagree: every pairing of
 // a stamp, an mtime and a body whose tells disagree reads as the design doc's
 // 4 steps give it, from tables written here rather than the library's. Then

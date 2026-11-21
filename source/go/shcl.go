@@ -3553,6 +3553,9 @@ var tellRuns = [...][2]string{
 	{"1.1", "2.0"},
 	{"3.0-1f8", "3.0-1f8"},
 	{"3.0-30d", "3.0"},
+	// A value a quote opens and closes with text between 2 runs, such as
+	// `"x" "y"`, which 1.0 to 2.0 read whole.
+	{"3.0-1f8", "3.0"},
 }
 
 const (
@@ -3563,6 +3566,7 @@ const (
 	tellFooter2
 	tellFooter1f8
 	tellFooter3
+	tellQuoteRuns
 )
 
 // tellFooters are the Syntax line of each footer, and the tell it is.
@@ -3658,10 +3662,14 @@ func lineTells(rest string, codes []string, tok *Tokens) uint32 {
 		return false
 	}
 	if strings.HasPrefix(rest, "*") {
-		if has("E013") {
-			return tellRun(tellRefusedNow)
+		if !has("E013") {
+			return 0
 		}
-		return 0
+		run := tellRun(tellRefusedNow)
+		if quoteRuns(rest, 1, tok) {
+			run |= tellRun(tellQuoteRuns)
+		}
+		return run
 	}
 	if isItem(rest) {
 		if len(codes) == 0 {
@@ -3671,13 +3679,22 @@ func lineTells(rest string, codes []string, tok *Tokens) uint32 {
 	}
 	Tokenize(rest, ':', false, RulesCurrent, tok)
 	ledByDigit := tok.Misspelled >= 0 && tok.Misspelled < len(rest) && rest[tok.Misspelled] >= '0' && rest[tok.Misspelled] <= '9'
+	run := uint32(0)
 	if has("E026") || has("E029") || (has("E025") && strings.Contains(rest, "\r")) || (has("E014") && ledByDigit) || valueTold(rest, has, tok) {
-		return tellRun(tellRefusedNow)
+		run |= tellRun(tellRefusedNow)
 	}
 	if len(codes) > 0 {
-		return 0
+		plain := tok.Fault < 0 && tok.Array < 0
+		for _, seg := range tok.Segments {
+			if seg.Selector != nil {
+				plain = false
+			}
+		}
+		if sep := tok.Sep; plain && has("E017") && sep >= 0 && quoteRuns(rest, sep+1, tok) {
+			run |= tellRun(tellQuoteRuns)
+		}
+		return run
 	}
-	run := uint32(0)
 	if tok.Array >= 0 {
 		run |= tellRun(tellBrackets)
 	}
@@ -3735,6 +3752,35 @@ func valueTold(rest string, has func(string) bool, tok *Tokens) bool {
 		}
 	}
 	return false
+}
+
+// quoteRuns is a value from `from` with a piece a quote opens and the same
+// quote ends, with text between 2 quoted runs, such as `"x" "y"` or
+// `'x' 'y'`. The format 3 value syntax refuses it (E017), and so do the pins
+// from 3.0-1f8 to 3.0-a37, which keep the text as typed. 1.0 to 2.0 read it
+// whole, without its outer quotes. A piece the pins close, such as
+// `"t\"wo"`, reads clean in them, and a piece the 2.x rules leave open was
+// refused by 1.0 to 2.0 as well, so neither is one. Leaves tok holding the
+// 2.x reading.
+func quoteRuns(rest string, from int, tok *Tokens) bool {
+	lexValue(rest, from, lexPin, tok)
+	opened := false
+	for _, p := range tok.Elements {
+		if p.Quote == QuoteOpen {
+			opened = true
+			break
+		}
+	}
+	if !opened {
+		return false
+	}
+	lexValue(rest, from, lexV2, tok)
+	for _, p := range tok.Elements {
+		if p.Quote == QuoteOpen {
+			return false
+		}
+	}
+	return true
 }
 
 // SchemaRef is the schema a document's `##    Schema   REF` line names: a

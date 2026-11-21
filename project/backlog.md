@@ -35,6 +35,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Format versions: find_format doesn't count a quoted value with a backslash pair, `a: "t\"wo"`, as a tell
+	- ID: 2026112016323606
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261120-163236
+	- Opened by: me
+	- Related IDs: 2026112010395941, 2026111910270033
+	- Problem description: 1.0 to 3.0-a37 read `a: "t\"wo"` clean, as `t"wo`. 3.0-9ef on refuse it with `E017` and bind nothing, since the backslash is text there and the second quote closes the run. find_format counts no tell for it, so a file from 1.0 to 3.0-a37 with only such a line and a recent mtime reads as 3.0 and isn't converted.
+	- Origin: Confirmed against the v1.0.0 to 3.0 CLIs (2026112010395941). The `*` item `* "t\"wo"` is already told, by `E013`.
+
 - Format versions: the demo gif and its golden text show fmt output without the stamp
 	- ID: 2026111710564808
 	- Type: Feature
@@ -323,7 +335,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: find_format doesn't count a value of 2 quoted runs, `a: "x" "y"`, as a tell
 	- ID: 2026112010395941
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: Low
 	- Target version: v3.0.0
 	- Opened: 20261120-103959
@@ -331,6 +343,22 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Related IDs: 2026111910270033
 	- Problem description: 1.0 to 2.0 read `a: "x" "y"` clean, as `x" "y`. 3.0-1f8 on refuse it with `E017`, the pins binding the text as typed and 3.0-9ef on binding nothing. find_format counts no tell for it, so a 2.0 file with only such a line and a recent mtime reads as 3.0 and isn't converted.
 	- Origin: Confirmed against the v2.0.0 and 3.0-1f8 to 3.0 CLIs (2026111910270033).
+	- Reproduced: the new test fails in all 4 runners with the new tell turned off. On the format CLIs, 1.0 to 2.0 read `"x" "y"`, `'x' 'y'`, `"x""y"`, `"x" "y #c"`, `"x, y" "z"` and `'t\'wo'` clean, without the outer quotes, and 3.0-1f8 on refuse each with `E017`. `"x" y`, `"x"y`, `"x" 'y'`, `"x" "y` and `"x" "y\"` are refused by every format.
+	- Actual cause: find_format counted `E017` only on a value a backtick opens.
+	- Actual effort: Avg
+	- Actual fix: a field value refused with `E017`, or a `*` item, is a tell against 3.0-1f8 on when the pins' rules leave a quote open in it and the 2.x rules close every quote. A load with migrate or upgrade then finds such a file to be 2.0, and the 2.x step quotes the value, as `a: 'x" "y'`.
+	- Decisions:
+		- me, 20261120: the tell is read off the value lexed by the pins' rules and by the 2.x rules, rather than off the shape of 2 runs. So `'t\'wo'`, which the pins refuse and 1.0 to 2.0 read with the backslash pair, counts too, and `"t\"wo"`, which the pins read, doesn't. Its own run, 3.0-1f8 to 3.0, is a new `TELL_RUNS` row.
+		- me, 20261120: a `*` item counts too, since the pins refuse `* "x" "y"` with `E017` and 1.0 to 2.0 read it clean. A `-` item doesn't, since every format to 3.0-a37 refuses those.
+		- me, 20261120: `a: "t\"wo"`, which 1.0 to 3.0-a37 read clean and 3.0-9ef on refuse, isn't counted either. It's filed apart as 2026112016323606.
+	- Verified: the new test fails in all 4 runners with the new tell turned off, and in Rust with the 2.x check dropped or the pins' rules swapped for the current ones, and passes with the fix. `--backlog-run-quick rust go python c cli` passed all 5 steps, and was stopped at 4 minutes in its wrap-up after them. cargo test, clippy and rustfmt, gofmt, ruff check, cli-regress over the 4 CLIs, crosscheck over the corpus, the C runner under ASan and UBSan with `SHCL_ARENA_MALLOC`, `test-ids.py check`, `lint-report.bash --check --no-mark` and the markdown check passed. `shcl upgrade` on a file with only `a: "x" "y"` gives `a: 'x" "y'` in all 4 CLIs. analyze-c and cppcheck were not run.
+	- Swept: `line_tells` and the new `quote_runs` in Rust, Go (`lineTells`, `quoteRuns`), Python (`_line_tells`, `_quote_runs`) and C (`line_tells`, `quote_runs`). C++ `find_format` wraps C. `TELL_RUNS` in all 4. Docs: the design doc's Tells table and a dated note under its tells step, and the changelog's `find_format` entry.
+	- Branch: `nov20c-2026112010395941`
+	- Commit: `364817b5`
+	- Test case: `a_value_of_2_quoted_runs_is_a_tell` (Rust `dfjs9`, Go `dfjsa`, Python `dfjsb`, C `dfjsc`).
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the fix in all 4 runners, and the named gates passed.
+	- Closed: 20261120-163500
+	- Closed reason: Done
 
 - `shcl migrate --from=3.0` on a file with no stamp says the file already names its format
 	- ID: 2026111920301167

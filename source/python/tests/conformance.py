@@ -4499,6 +4499,51 @@ def main():
 		if shcl.find_format(vttext, vtmtime) != vtwant:
 			raise SystemExit(f"find_format {vttext!r} at {vtmtime}: {shcl.find_format(vttext, vtmtime)!r}, want {vtwant!r}")
 
+	test_id("dfjsb", "a_value_of_2_quoted_runs_is_a_tell")
+	# A value a quote opens and the same quote ends, with text between 2
+	# quoted runs, such as `"x" "y"`, read whole in 1.0 to 2.0, and 3.0-1f8 on
+	# refuse it (E017), so it tells them apart. Rust's
+	# a_value_of_2_quoted_runs_is_a_tell has the same rows. The mtimes are
+	# Unix seconds at UTC.
+	qrsep1 = 1788220800  # 2026-09-01, 1.0 to 2.0
+	qroct20 = 1792454400  # 2026-10-20, to 3.0-9ef
+	qrnov10 = 1794268800  # 2026-11-10, every format
+	for qrtext, qrmtime, qrwant in (
+		('a: "x" "y"\n', qrnov10, "2.0"),
+		('a: "x" "y"\n', None, "2.0"),
+		('a: "x" "y"\n', qroct20, "2.0"),
+		('a: "x" "y"\n', qrsep1, "2.0"),
+		("a: 'x' 'y'\n", qrnov10, "2.0"),
+		('a: "x""y"\n', qrnov10, "2.0"),
+		('a: "x" "y" "z"\n', qrnov10, "2.0"),
+		('a: "x" "y #c"\n', qrnov10, "2.0"),
+		('a: "x, y" "z"\n', qrnov10, "2.0"),
+		('a: "x\\" "y"\n', qrnov10, "2.0"),
+		('a: z, "x" "y"\n', qrnov10, "2.0"),
+		('s:\n\ta: "x" "y"  # c\n', qrnov10, "2.0"),
+		('a:\n\t* "x" "y"\n', qrnov10, "2.0"),
+		('a: "x" "y"\nb: x"y\n', qrnov10, "2.0"),
+		# An apostrophe the pins read as the close, which 2.x read escaped.
+		("a: 't\\'wo'\n", qrnov10, "2.0"),
+		# One tell each way ties, and the tie goes to the newest.
+		('a: "x" "y"\nb:\n\t- z\n', qrnov10, "3.0"),
+		# Not tells.
+		('a: "x" y\n', qrnov10, "3.0"),
+		('a: "x"y\n', qrnov10, "3.0"),
+		("a: \"x\" 'y'\n", qrnov10, "3.0"),
+		('a: "x" "y\n', qrnov10, "3.0"),
+		('a: "x" "y\\"\n', qrnov10, "3.0"),
+		('a: "x" "y", "q\n', qrnov10, "3.0"),
+		('a:\n\t- "x" "y"\n', qrnov10, "3.0"),
+		('"x" "y": 1\n', qrnov10, "3.0"),
+		# The pins read these, so they're the format 3 value syntax's own
+		# tells, a backtick and a `*` item.
+		('a: `x` "y"\n', qrnov10, "3.0-a37"),
+		('a:\n\t* "t\\"wo"\n', qrnov10, "3.0-a37"),
+	):
+		if shcl.find_format(qrtext, qrmtime) != qrwant:
+			raise SystemExit(f"find_format {qrtext!r} at {qrmtime}: {shcl.find_format(qrtext, qrmtime)!r}, want {qrwant!r}")
+
 	test_id("dfj92", "a_file_format_reads_through_a_stamp_mtime_and_body_that_disagree")
 	# Every pairing of a stamp, an mtime and a body whose tells disagree reads
 	# as the design doc's 4 steps give it, from tables written here rather

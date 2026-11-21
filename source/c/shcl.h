@@ -5117,7 +5117,7 @@ static ShclStep s_first_rewrite(const char *format) {
    against, by their first and last format. A footer's run is the formats
    whose `init` wrote it, and it counts against the rest. A spelling 2 formats
    both read clean, such as an escape, isn't a tell here. */
-static const char *const shcl_tell_runs[7][2] = {
+static const char *const shcl_tell_runs[8][2] = {
 	/* Refused from the format 3 value syntax on: a comma list, `*` items, a
 	   bracket selector, a bare name led by a digit, a quote, a tab, a CR, a
 	   bracket or a loose colon in a bare value, an open backtick. */
@@ -5132,9 +5132,12 @@ static const char *const shcl_tell_runs[7][2] = {
 	{"1.1", "2.0"},
 	{"3.0-1f8", "3.0-1f8"},
 	{"3.0-30d", "3.0"},
+	/* A value a quote opens and closes with text between 2 runs, such as
+	   `"x" "y"`, which 1.0 to 2.0 read whole. */
+	{"3.0-1f8", "3.0"},
 };
 
-enum { TELL_REFUSED_NOW, TELL_BRACKETS, TELL_NEW_SPELLING, TELL_APOSTROPHE, TELL_FOOTER_2, TELL_FOOTER_1F8, TELL_FOOTER_3 };
+enum { TELL_REFUSED_NOW, TELL_BRACKETS, TELL_NEW_SPELLING, TELL_APOSTROPHE, TELL_FOOTER_2, TELL_FOOTER_1F8, TELL_FOOTER_3, TELL_QUOTE_RUNS };
 
 /* The Syntax line of each footer, and the tell it is. */
 static const struct { const char *head, *tag; int tell; } shcl_tell_footers[3] = {
@@ -5176,20 +5179,53 @@ static int value_told(ShclArena *ta, ShclStr rest, unsigned errs, const ShclToke
 	return 0;
 }
 
+/* A value from `from` with a piece a quote opens and the same quote ends,
+   with text between 2 quoted runs, such as `"x" "y"` or `'x' 'y'`. The format
+   3 value syntax refuses it (E017), and so do the pins from 3.0-1f8 to
+   3.0-a37, which keep the text as typed. 1.0 to 2.0 read it whole, without
+   its outer quotes. A piece the pins close, such as `"t\"wo"`, reads clean in
+   them, and a piece the 2.x rules leave open was refused by 1.0 to 2.0 as
+   well, so neither is one. Leaves tok holding the 2.x reading. */
+static int quote_runs(ShclArena *ta, ShclStr rest, size_t from, ShclTokens *tok) {
+	lex_value(ta, rest, from, SHCL_LEX_PIN, tok);
+	int opened = 0;
+	for (size_t e = 0; e < tok->nelem; e++) {
+		if (tok->elements[e].quote == SHCL_QUOTE_OPEN) { opened = 1; break; }
+	}
+	if (!opened) return 0;
+	lex_value(ta, rest, from, SHCL_LEX_V2, tok);
+	for (size_t e = 0; e < tok->nelem; e++) {
+		if (tok->elements[e].quote == SHCL_QUOTE_OPEN) return 0;
+	}
+	return 1;
+}
+
 /* The formats a line's tells count against, as bits of shcl_format_days.
    errs are the errors these rules give the line. What these rules refuse is
    told by its code, and what they read clean by its tokens. A line these rules
    refuse for another reason has no tell, since the other formats refuse it
    too. */
 static uint32_t line_tells(ShclArena *ta, ShclStr rest, unsigned errs, ShclTokens *tok) {
-	if (rest.p[0] == '*') return (errs & TELL_ERR_E013) ? tell_run(TELL_REFUSED_NOW) : 0;
+	if (rest.p[0] == '*') {
+		if (!(errs & TELL_ERR_E013)) return 0;
+		uint32_t run = tell_run(TELL_REFUSED_NOW);
+		if (quote_runs(ta, rest, 1, tok)) run |= tell_run(TELL_QUOTE_RUNS);
+		return run;
+	}
 	if (is_item(rest)) return errs ? 0 : tell_run(TELL_NEW_SPELLING);
 	tokenize(ta, rest, ':', 0, SHCL_RULES_CURRENT, tok);
 	int led_by_digit = tok->has_misspelled && tok->misspelled < rest.n && rest.p[tok->misspelled] >= '0' && rest.p[tok->misspelled] <= '9';
-	if ((errs & (TELL_ERR_E026 | TELL_ERR_E029)) || ((errs & TELL_ERR_E025) && memchr(rest.p, '\r', rest.n)) || ((errs & TELL_ERR_E014) && led_by_digit) || value_told(ta, rest, errs, tok))
-		return tell_run(TELL_REFUSED_NOW);
-	if (errs) return 0;
 	uint32_t run = 0;
+	if ((errs & (TELL_ERR_E026 | TELL_ERR_E029)) || ((errs & TELL_ERR_E025) && memchr(rest.p, '\r', rest.n)) || ((errs & TELL_ERR_E014) && led_by_digit) || value_told(ta, rest, errs, tok))
+		run |= tell_run(TELL_REFUSED_NOW);
+	if (errs) {
+		int plain = !tok->has_fault && !tok->has_array;
+		for (size_t k = 0; k < tok->nseg; k++) {
+			if (tok->segments[k].has_selector) plain = 0;
+		}
+		if (plain && (errs & TELL_ERR_E017) && tok->has_sep && quote_runs(ta, rest, tok->sep + 1, tok)) run |= tell_run(TELL_QUOTE_RUNS);
+		return run;
+	}
 	if (tok->has_array) run |= tell_run(TELL_BRACKETS);
 	for (size_t k = 0; k < tok->nseg; k++) {
 		if (tok->segments[k].has_selector) { run |= tell_run(TELL_NEW_SPELLING); break; }

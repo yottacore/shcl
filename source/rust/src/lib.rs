@@ -3260,7 +3260,7 @@ fn pick_format(text: &str, mtime: Option<i64>, by_stamp: u32) -> &'static str {
 /// against, by their first and last format. A footer's run is the formats
 /// whose `init` wrote it, and it counts against the rest. A spelling 2
 /// formats both read clean, such as an escape, isn't a tell here.
-const TELL_RUNS: [(&str, &str); 7] = [
+const TELL_RUNS: [(&str, &str); 8] = [
 	// Refused from the format 3 value syntax on: a comma list, `*` items, a
 	// bracket selector, a bare name led by a digit, a quote, a tab, a CR, a
 	// bracket or a loose colon in a bare value, an open backtick.
@@ -3275,6 +3275,9 @@ const TELL_RUNS: [(&str, &str); 7] = [
 	("1.1", "2.0"),
 	("3.0-1f8", "3.0-1f8"),
 	("3.0-30d", "3.0"),
+	// A value a quote opens and closes with text between 2 runs, such as
+	// `"x" "y"`, which 1.0 to 2.0 read whole.
+	("3.0-1f8", "3.0"),
 ];
 
 const TELL_REFUSED_NOW: usize = 0;
@@ -3284,6 +3287,7 @@ const TELL_APOSTROPHE: usize = 3;
 const TELL_FOOTER_2: usize = 4;
 const TELL_FOOTER_1F8: usize = 5;
 const TELL_FOOTER_3: usize = 6;
+const TELL_QUOTE_RUNS: usize = 7;
 
 /// The Syntax line of each footer, and the tell it is.
 const TELL_FOOTERS: [(&str, &str, usize); 3] = [
@@ -3361,11 +3365,14 @@ fn most_legal(text: &str, left: u32) -> u32 {
 fn line_tells(rest: &str, codes: &[(usize, &str)], tok: &mut Tokens) -> u32 {
 	let has = |c: &str| codes.iter().any(|r| r.1 == c);
 	if rest.starts_with('*') {
-		return if has("E013") {
-			tell_run(TELL_REFUSED_NOW)
-		} else {
-			0
-		};
+		if !has("E013") {
+			return 0;
+		}
+		let mut run = tell_run(TELL_REFUSED_NOW);
+		if quote_runs(rest, 1, tok) {
+			run |= tell_run(TELL_QUOTE_RUNS);
+		}
+		return run;
 	}
 	if is_item(rest) {
 		return if codes.is_empty() {
@@ -3378,18 +3385,25 @@ fn line_tells(rest: &str, codes: &[(usize, &str)], tok: &mut Tokens) -> u32 {
 	let led_by_digit = tok
 		.misspelled
 		.is_some_and(|at| rest.as_bytes().get(at).is_some_and(u8::is_ascii_digit));
+	let mut run = 0;
 	if has("E026")
 		|| has("E029")
 		|| (has("E025") && rest.contains('\r'))
 		|| (has("E014") && led_by_digit)
 		|| value_told(rest, codes, tok)
 	{
-		return tell_run(TELL_REFUSED_NOW);
+		run |= tell_run(TELL_REFUSED_NOW);
 	}
 	if !codes.is_empty() {
-		return 0;
+		let plain = tok.fault.is_none()
+			&& tok.array.is_none()
+			&& tok.segments.iter().all(|s| s.selector.is_none());
+		let from = tok.sep.filter(|_| plain && has("E017"));
+		if from.is_some_and(|sep| quote_runs(rest, sep + 1, tok)) {
+			run |= tell_run(TELL_QUOTE_RUNS);
+		}
+		return run;
 	}
-	let mut run = 0;
 	if tok.array.is_some() {
 		run |= tell_run(TELL_BRACKETS);
 	}
@@ -3424,6 +3438,23 @@ fn value_told(rest: &str, codes: &[(usize, &str)], tok: &Tokens) -> bool {
 		Quote::Open => has("E017") && rest.as_bytes().get(p.start) == Some(&b'`'),
 		_ => false,
 	})
+}
+
+/// A value from `from` with a piece a quote opens and the same quote ends,
+/// with text between 2 quoted runs, such as `"x" "y"` or `'x' 'y'`. The
+/// format 3 value syntax refuses it (`E017`), and so do the pins from
+/// 3.0-1f8 to 3.0-a37, which keep the text as typed. 1.0 to 2.0 read it
+/// whole, without its outer quotes. A piece the pins close, such as
+/// `"t\"wo"`, reads clean in them, and a piece the 2.x rules leave open was
+/// refused by 1.0 to 2.0 as well, so neither is one. Leaves `tok` holding the
+/// 2.x reading.
+fn quote_runs(rest: &str, from: usize, tok: &mut Tokens) -> bool {
+	lex_value(rest, from, Lex::Pin, tok);
+	if tok.elements.iter().all(|p| p.quote != Quote::Open) {
+		return false;
+	}
+	lex_value(rest, from, Lex::V2, tok);
+	tok.elements.iter().all(|p| p.quote != Quote::Open)
 }
 
 /// What turns a text in one format of `FORMAT_DAYS` into the next one's, as

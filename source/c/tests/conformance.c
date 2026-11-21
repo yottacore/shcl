@@ -5226,6 +5226,54 @@ int main(int argc, char **argv) {
 			if (!got || strcmp(got, vt[k].want)) fail("a_value_the_format_3_syntax_refuses_is_a_tell", vt[k].text);
 		}
 	}
+	test_id("dfjsc", "a_value_of_2_quoted_runs_is_a_tell");
+	/* A value a quote opens and the same quote ends, with text between 2
+	   quoted runs, such as `"x" "y"`, read whole in 1.0 to 2.0, and 3.0-1f8 on
+	   refuse it (E017), so it tells them apart. Rust's
+	   a_value_of_2_quoted_runs_is_a_tell has the same rows. The mtimes are
+	   Unix seconds at UTC, and has_mtime 0 passes none. */
+	{
+		const int64_t sep1 = 1788220800;  /* 2026-09-01, 1.0 to 2.0 */
+		const int64_t oct20 = 1792454400; /* 2026-10-20, to 3.0-9ef */
+		const int64_t nov10 = 1794268800; /* 2026-11-10, every format */
+		const struct { const char *text; int has_mtime; int64_t mtime; const char *want; } qr[] = {
+			{"a: \"x\" \"y\"\n", 1, nov10, "2.0"},
+			{"a: \"x\" \"y\"\n", 0, 0, "2.0"},
+			{"a: \"x\" \"y\"\n", 1, oct20, "2.0"},
+			{"a: \"x\" \"y\"\n", 1, sep1, "2.0"},
+			{"a: 'x' 'y'\n", 1, nov10, "2.0"},
+			{"a: \"x\"\"y\"\n", 1, nov10, "2.0"},
+			{"a: \"x\" \"y\" \"z\"\n", 1, nov10, "2.0"},
+			{"a: \"x\" \"y #c\"\n", 1, nov10, "2.0"},
+			{"a: \"x, y\" \"z\"\n", 1, nov10, "2.0"},
+			{"a: \"x\\\" \"y\"\n", 1, nov10, "2.0"},
+			{"a: z, \"x\" \"y\"\n", 1, nov10, "2.0"},
+			{"s:\n\ta: \"x\" \"y\"  # c\n", 1, nov10, "2.0"},
+			{"a:\n\t* \"x\" \"y\"\n", 1, nov10, "2.0"},
+			{"a: \"x\" \"y\"\nb: x\"y\n", 1, nov10, "2.0"},
+			/* An apostrophe the pins read as the close, which 2.x read escaped. */
+			{"a: 't\\'wo'\n", 1, nov10, "2.0"},
+			/* One tell each way ties, and the tie goes to the newest. */
+			{"a: \"x\" \"y\"\nb:\n\t- z\n", 1, nov10, "3.0"},
+			/* Not tells. */
+			{"a: \"x\" y\n", 1, nov10, "3.0"},
+			{"a: \"x\"y\n", 1, nov10, "3.0"},
+			{"a: \"x\" 'y'\n", 1, nov10, "3.0"},
+			{"a: \"x\" \"y\n", 1, nov10, "3.0"},
+			{"a: \"x\" \"y\\\"\n", 1, nov10, "3.0"},
+			{"a: \"x\" \"y\", \"q\n", 1, nov10, "3.0"},
+			{"a:\n\t- \"x\" \"y\"\n", 1, nov10, "3.0"},
+			{"\"x\" \"y\": 1\n", 1, nov10, "3.0"},
+			/* The pins read these, so they're the format 3 value syntax's own
+			   tells, a backtick and a `*` item. */
+			{"a: `x` \"y\"\n", 1, nov10, "3.0-a37"},
+			{"a:\n\t* \"t\\\"wo\"\n", 1, nov10, "3.0-a37"},
+		};
+		for (size_t k = 0; k < sizeof qr / sizeof qr[0]; k++) {
+			const char *got = shcl_find_format(qr[k].text, strlen(qr[k].text), qr[k].has_mtime ? &qr[k].mtime : NULL);
+			if (!got || strcmp(got, qr[k].want)) fail("a_value_of_2_quoted_runs_is_a_tell", qr[k].text);
+		}
+	}
 	test_id("dfj93", "a_file_format_reads_through_a_stamp_mtime_and_body_that_disagree");
 	/* Every pairing of a stamp, an mtime and a body whose tells disagree reads
 	   as the design doc's 4 steps give it, from tables written here rather

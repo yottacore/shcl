@@ -3047,6 +3047,9 @@ _TELL_RUNS = (
 	("1.1", "2.0"),
 	("3.0-1f8", "3.0-1f8"),
 	("3.0-30d", "3.0"),
+	# A value a quote opens and closes with text between 2 runs, such as
+	# `"x" "y"`, which 1.0 to 2.0 read whole.
+	("3.0-1f8", "3.0"),
 )
 
 _TELL_REFUSED_NOW = 0
@@ -3056,6 +3059,7 @@ _TELL_APOSTROPHE = 3
 _TELL_FOOTER_2 = 4
 _TELL_FOOTER_1F8 = 5
 _TELL_FOOTER_3 = 6
+_TELL_QUOTE_RUNS = 7
 
 # The Syntax line of each footer, and the tell it is.
 _TELL_FOOTERS = (
@@ -3118,12 +3122,18 @@ def _line_tells(rest: str, codes: list[str], tok: Tokens) -> int:
 	rules refuse for another reason has no tell, since the other formats
 	refuse it too."""
 	if rest.startswith("*"):
-		return _tell_run(_TELL_REFUSED_NOW) if "E013" in codes else 0
+		if "E013" not in codes:
+			return 0
+		run = _tell_run(_TELL_REFUSED_NOW)
+		if _quote_runs(rest, 1, tok):
+			run |= _tell_run(_TELL_QUOTE_RUNS)
+		return run
 	if _is_item(rest):
 		return 0 if codes else _tell_run(_TELL_NEW_SPELLING)
 	tokenize(rest, ":", False, Rules.Current, tok)
 	src = tok.src
 	led_by_digit = tok.misspelled is not None and tok.misspelled < len(src) and 0x30 <= src[tok.misspelled] <= 0x39
+	run = 0
 	if (
 		"E026" in codes
 		or "E029" in codes
@@ -3131,10 +3141,13 @@ def _line_tells(rest: str, codes: list[str], tok: Tokens) -> int:
 		or ("E014" in codes and led_by_digit)
 		or _value_told(codes, tok)
 	):
-		return _tell_run(_TELL_REFUSED_NOW)
+		run |= _tell_run(_TELL_REFUSED_NOW)
 	if codes:
-		return 0
-	run = 0
+		plain = tok.fault is None and tok.array is None and all(s.selector is None for s in tok.segments)
+		sep = tok.sep
+		if plain and "E017" in codes and sep is not None and _quote_runs(rest, sep + 1, tok):
+			run |= _tell_run(_TELL_QUOTE_RUNS)
+		return run
 	if tok.array is not None:
 		run |= _tell_run(_TELL_BRACKETS)
 	if any(s.selector is not None for s in tok.segments):
@@ -3168,6 +3181,22 @@ def _value_told(codes: list[str], tok: Tokens) -> bool:
 		elif p.quote is Quote.Open and "E017" in codes and src[p.start : p.start + 1] == b"`":
 			return True
 	return False
+
+
+def _quote_runs(rest: str, from_: int, tok: Tokens) -> bool:
+	"""A value from the byte offset from_ with a piece a quote opens and the
+	same quote ends, with text between 2 quoted runs, such as `"x" "y"` or
+	`'x' 'y'`. The format 3 value syntax refuses it (E017), and so do the pins
+	from 3.0-1f8 to 3.0-a37, which keep the text as typed. 1.0 to 2.0 read it
+	whole, without its outer quotes. A piece the pins close, such as
+	`"t\\"wo"`, reads clean in them, and a piece the 2.x rules leave open was
+	refused by 1.0 to 2.0 as well, so neither is one. Leaves tok holding the
+	2.x reading."""
+	_lex_value(rest, from_, _Lex.Pin, tok)
+	if all(p.quote is not Quote.Open for p in tok.elements):
+		return False
+	_lex_value(rest, from_, _Lex.V2, tok)
+	return all(p.quote is not Quote.Open for p in tok.elements)
 
 
 class _StepKind(Enum):
