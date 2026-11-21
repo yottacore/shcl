@@ -35,21 +35,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- Without a schema, 2 plain blocks that merge and repeat their children get only a hint
-	- ID: 2026112015385902
-	- Type: Bug
-	- Status: Waiting for answers
-		- Waits on the 2026112015385902 question in questions.md: a new warning severity, or a sharper hint.
-	- Severity: Avg
-	- Target version: v3.0.0
-	- Opened: 20261120-153859
-	- Opened by: me
-	- Parent ID: 2026111016205701
-	- Steps to reproduce: load `planet:` twice with no schema, each with a `name:` and an `r:` under it.
-	- Incorrect behavior: 0 errors, `count("planet")` is 1, and the only sign is `H001` on `name` and `r`, which nothing shows by default.
-	- Requirements: a repeated block whose children repeat as bare leaves is a warning rather than a hint, with no schema.
-	- Note: SHCL has no warning severity, only Error and Hint. With a schema, the same file is `V008` since the parent.
-
 - Format versions: the demo gif and its golden text show fmt output without the stamp
 	- ID: 2026111710564808
 	- Type: Feature
@@ -63,6 +48,34 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: rerender assets/demo.gif and refresh cicd/demo/expected.txt (the gif stage, or gen-demo-gif.py), so shell-regress dcvej matches the CLI again. Only a tool run.
 	- Estimated effort: Low
 	- Note: until then shell-regress dcvej fails, since every fmt now ends with the stamp.
+
+- Without a schema, 2 plain blocks that merge and repeat their children get only the array hint
+	- ID: 2026112015385902
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261120-153859
+	- Opened by: me
+	- Parent ID: 2026111016205701
+	- Steps to reproduce: load `planet:` twice with no schema, each with a `name:` and an `r:` under it.
+	- Incorrect behavior: 0 errors, `count("planet")` is 1, and the only sign is `H001` on `name` and `r`. Its advice is `name: [Earth, Mars]`, and nothing says the 2 blocks became one.
+	- Expected behavior: a hint on the second `planet:` line says it's one block with the first, and how to write 2.
+	- Requirements:
+		- A new hint code in all 4, `H009` if it's still free.
+		- It goes on a line with no value that opens a block an earlier such line under the same parent opened, next to it or not, when a child under it gets `H001` for repeating a child under the earlier one.
+		- The message names the earlier line and the children that repeat, and says to give each block a value, as in `planet: Earth`.
+		- `H001` and `H002` report as before. The array may be what was meant, so each reading gets its advice.
+		- A schema drops it when it drops the `H001` of every child the hint names.
+		- A row in spec.md's code table and design.md's outcome table, `explain` in the 4 CLIs, and a corpus case.
+	- Estimated effort: Avg
+	- Decisions:
+		- A hint with its own code, and no `Warning` severity (me, 20261121).
+			- The 6 consumers checked show only `Error` lines: tradeclanker, slodworld2, silkterm, gitniblet, shclwrap, and convert-base-v2. A new level would show in none of them until each changed its filter, which is the same work as showing one hint code.
+			- An error is a line that was skipped or repaired, and a hint is legal text that looks like a slip. The merged blocks are the second. A `Warning` would be a second word for it, and `H005` to `H008` would each need the same call.
+			- A program that wants this to stop a load has the schema, where it's `V008`.
+		- Decided against: an `E` error (me). The file is legal, and a hint never fails a load.
+	- Note: SHCL has no warning severity, only Error and Hint. With a schema, the same file is `V008` since the parent.
 
 - check-migrate wants a file stamped `Format 3.0` that loads with an error left alone by `upgrade --from=2.0`, which converts it
 	- ID: 2026112017370795
@@ -119,7 +132,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Add a `V` error in all 4 for a repeated field or merged block that the schema doesn't give a `repeat` above 1.
 		- Without a schema, a repeated block whose children repeat as bare leaves is a warning rather than a hint.
-			- That part is child 2026112015385902, which waits on a question, since SHCL has no warning severity.
+			- That part is child 2026112015385902. SHCL has no warning severity and doesn't get one, so the child adds a hint with its own code (me, 20261121).
 	- Actual cause: validation checked each node a path resolves to, and counted them only against a declared `repeat`. With no `repeat`, any number of lines passed.
 	- Estimated effort: Avg
 	- Actual effort: Avg
@@ -128,7 +141,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A merged block is covered through its children: 2 plain `planet:` blocks merge into one, and their `name` lines then repeat under it (me).
 		- A `(*)` leaf names its instances and a `*` leaf has no one name, so neither is checked. A faulted `repeat` counts as none (me).
 		- `V008` is a new code rather than `V007` with an implied bound, since the count is per parent, not per context (me).
-		- The schema-side choice has a `Check:` entry in questions.md.
+		- The schema-side rule stays as built (me, 20261121). A field with no `repeat` reads as one value, with no exception to learn.
+			- A schema that asks for 2 values of such a field is told so by `init --schema`: `repeated field at 'a': 2 lines, and the schema has no repeat for it`. With `repeat: [1, 2]` on `a` it generates.
+		- Decided against: counting instances with children (me). It would flag every `server: web` table whose schema has no `repeat`.
+		- Decided against: reading a path that selects by value, such as `a(b)`, as a `repeat` for `a` (me). A line elsewhere in the schema would turn the check off for any count, and it needs a schema-wide lookup in all 4.
 	- Actual fix: `v_repeated` (Go `vRepeated`, Python `_v_repeated`) runs where `repeat` is absent, in all 4. `V008` is in the spec's table and every CLI's `explain` list.
 		- 20261120: assert values changed for this item. The `expected-validate.txt` goldens of corpus 036, 039, 054, 078 and 196 each gained their `V008` lines. The Rust generation grid in `generated_starters_load_and_validate_clean` went from 1029 to 1014, for the 15 that pair a required `a` with a required `a(b)`. The veneer smoke's clean schema gives `city` a `repeat: [1, 2]`, since its document writes `city` twice.
 	- Swept: the count site in all 4 `v_check_from`; the generator's self-check, which reports `V008` as `V097` through the same validate; the 4 `explain` lists; check-docs `dd5gs` matches them to the spec.
