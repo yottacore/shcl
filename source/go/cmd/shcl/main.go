@@ -508,6 +508,11 @@ E029|error|a selector in brackets, the old spelling
   value, the lines under it still load, under the instance it names. On a
   command line, quote the path, since a bare ( is a syntax error in most
   shells.
+E030|error|a from that names no format, on a load with migrate
+  A program loaded the file with migrate and a from that names no format,
+  such as 1.2, or 2.0.0, a release number in place of a format. Nothing
+  was converted, and the file was read as it is. Pass a name --from takes,
+  such as 2.0 or 3.0-a37, or the major alone.
 H001|hint|repeated bare leaf (an array written as repeated lines)
   Repeated leaves are legal, since that's how instances are written. But
   'tags: red' twice and 'tags: [red, blue]' look alike, so the parser says
@@ -966,16 +971,6 @@ func asciiLower(s string) string {
 
 // Record the first competing pair. Only the first is kept: the line is already
 // a usage error, and a second pair would just change which one gets named.
-// knownFormat: a name from reads, one in FormatNames or the major of one alone.
-func knownFormat(name string) bool {
-	for _, row := range shcl.FormatNames {
-		if row[0] == name || strings.SplitN(row[0], ".", 2)[0] == name {
-			return true
-		}
-	}
-	return false
-}
-
 func (o *opts) noteClash(opt, a, b string) {
 	if !o.clash {
 		o.clash, o.clashOpt, o.clashA, o.clashB = true, opt, a, b
@@ -1028,7 +1023,7 @@ func setValueOpt(o *opts, name, v string) error {
 		o.schemaSet = true
 		o.seen = append(o.seen, "--schema")
 	case "--from":
-		if !knownFormat(v) {
+		if !shcl.KnownFormat(v) {
 			return fmt.Errorf("bad --from value (no format has that name): %s (see --help)", v)
 		}
 		if o.from != "" && o.from != v {

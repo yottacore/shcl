@@ -5,9 +5,9 @@
 //! so the exit codes and flags below are a stable surface, not conveniences.
 
 use shcl::{
-	Diagnostic, Document, DurationUnit, FORMAT_MAJOR, FORMAT_NAMES, GEN_BANNER, Piece, Quote,
-	Rules, SaveError, SaveOptions, SchemaStatus, Severity, SizeUnit, Status, Strictness, Tokens,
-	UpgradeError, format_diagnostic, format_float, format_version, generate, migrate,
+	Diagnostic, Document, DurationUnit, FORMAT_MAJOR, GEN_BANNER, Piece, Quote, Rules, SaveError,
+	SaveOptions, SchemaStatus, Severity, SizeUnit, Status, Strictness, Tokens, UpgradeError,
+	format_diagnostic, format_float, format_version, generate, known_format, migrate,
 	parse_datetime, read_named_schema, suppress_declared_reopens, suppress_declared_repeats,
 	tokenize, upgrade_dated, upgrade_file, write_backup, write_file_atomic,
 };
@@ -655,6 +655,11 @@ E029|error|a selector in brackets, the old spelling
   value, the lines under it still load, under the instance it names. On a
   command line, quote the path, since a bare ( is a syntax error in most
   shells.
+E030|error|a from that names no format, on a load with migrate
+  A program loaded the file with migrate and a from that names no format,
+  such as 1.2, or 2.0.0, a release number in place of a format. Nothing
+  was converted, and the file was read as it is. Pass a name --from takes,
+  such as 2.0 or 3.0-a37, or the major alone.
 H001|hint|repeated bare leaf (an array written as repeated lines)
   Repeated leaves are legal, since that's how instances are written. But
   'tags: red' twice and 'tags: [red, blue]' look alike, so the parser says
@@ -1272,13 +1277,6 @@ fn parse_opts(argv: &[String]) -> Result<Opts, String> {
 
 /// Record the first competing pair. Only the first is kept: the line is already
 /// a usage error, and a second pair would just change which one gets named.
-/// A name `from` reads: one in FORMAT_NAMES, or the major of one alone.
-fn known_format(name: &str) -> bool {
-	FORMAT_NAMES
-		.iter()
-		.any(|(n, _)| *n == name || n.split('.').next() == Some(name))
-}
-
 fn note_clash(o: &mut Opts, opt: Option<&'static str>, a: &str, b: &str) {
 	if o.clash.is_none() {
 		o.clash_opt = opt;

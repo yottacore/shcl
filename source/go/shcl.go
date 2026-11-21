@@ -3305,6 +3305,10 @@ type Migration struct {
 	// program that writes the version line itself after MigrateUnstamped
 	// leaves it off too, or the next run takes the file as current.
 	Unfinished bool
+	// BadFrom: from names no format KnownFormat takes, such as `1.2` or
+	// `2.0.0`, so nothing was converted: Text is the input, and Unfinished
+	// is set.
+	BadFrom bool
 }
 
 // migrating keeps the counters a line rewrite reports back, and the one
@@ -3491,9 +3495,24 @@ func namedFormats(name string) uint32 {
 	return left
 }
 
+// KnownFormat says whether from takes name: a name in FormatNames, or the
+// major of one alone, such as `2`. Every call that takes from refuses any
+// other name but "", which is none, a newer format's and a pin no row has
+// included, and converts nothing, since a mistyped name read as no from
+// would quietly do something else.
+func KnownFormat(name string) bool {
+	for _, row := range FormatNames {
+		if row[0] == name || strings.SplitN(row[0], ".", 2)[0] == name {
+			return true
+		}
+	}
+	return false
+}
+
 // fromFormat is what a caller's from names, read as a stamp naming it would
 // be, in place of the text's own stamp. told is false when from is "" or
-// names no format shcl knows, so the text's stamp and the scan decide. ok is
+// names no format shcl knows, so the text's stamp and the scan decide. A
+// caller checks KnownFormat first. ok is
 // false for a newer format than this reader's, which leaves nothing to do. A
 // major alone, such as `1`, leaves its formats to the mtime and the tells.
 func fromFormat(text string, mtime *int64, from string) (format string, ok, told bool) {
@@ -4265,9 +4284,9 @@ func stampHint(stamp Read[int]) (Diagnostic, bool) {
 // and the rewrite is that format's step: from 1.0 to 2.0, the 2.x rewrite with
 // that format's reads of a quoted name and a selector, and from 3.0-1f8 to
 // 3.0-a37, that pin's. Without it, "" here, a quoted name with a backslash
-// pair stays as typed and counts in Lost. A name no format has, such as `1.2`,
-// is no from. A format whose steps rewrite nothing, and a newer one, leave the
-// file untouched, and so does a pin's when the file's stamp names this format
+// pair stays as typed and counts in Lost. A name KnownFormat refuses, such as
+// `1.2`, converts nothing and sets BadFrom. A format whose steps rewrite
+// nothing leaves the file untouched, and so does a pin's when the file's stamp names this format
 // whole, which is what a rewrite from a pin names.
 func Migrate(text string, from string) Migration {
 	return migrateFrom(text, from, true)
@@ -4283,6 +4302,9 @@ func MigrateUnstamped(text string, from string) Migration {
 // migrateFrom is Migrate's reading of from, as Upgrade's with no mtime, into
 // the step the rewrite takes.
 func migrateFrom(text, from string, stamp bool) Migration {
+	if from != "" && !KnownFormat(from) {
+		return Migration{Text: text, Unfinished: true, BadFrom: true}
+	}
 	format, ok, told := fromFormat(text, nil, from)
 	s := step{kind: stepV2}
 	if told {
@@ -4727,6 +4749,10 @@ type Upgraded struct {
 	// since the next run with from would take the fresh text for that format
 	// again.
 	ErrorsLeft []int
+	// BadFrom: from names no format KnownFormat takes, such as `1.2` or
+	// `2.0.0`, so nothing was converted and Text is the input. Current is
+	// false, since nothing said the file needs nothing.
+	BadFrom bool
 }
 
 // Upgrade is a config file written for an older format, made over for this
@@ -4744,9 +4770,10 @@ type Upgraded struct {
 // rules, since a program calling this on every start must never rewrite a good
 // file. from names the format the file was written in, by a name in
 // FormatNames or a major alone, read as a stamp naming it would be, in place
-// of the file's stamp and what FindFormat reads off it. "" is none, and so is
-// a name no format has, such as `1.2`, and a newer format's leaves the file
-// alone, as does a stamp naming a newer one. With a 2.x or older format, a
+// of the file's stamp and what FindFormat reads off it. "" is none. A name
+// KnownFormat refuses, such as `1.2`, a newer format's or a pin no row has,
+// converts nothing and sets BadFrom. A stamp naming a newer format leaves the
+// file alone. With a 2.x or older format, a
 // file that loads clean is still made over when Migrate would change it, as
 // it would `p: a,b`, an array under 2.x and one string now. One it would not
 // change that names an older format gets this format on that Format line, and
@@ -4783,6 +4810,10 @@ func UpgradeDated(text string, mtime *int64, from string, banner bool) Upgraded 
 	up := Upgraded{Text: text, Current: true, Format: 2}
 	if hasVersion {
 		up.Format = version
+	}
+	if from != "" && !KnownFormat(from) {
+		up.Current, up.BadFrom = false, true
+		return up
 	}
 	if namesNewer(named) {
 		return up
@@ -11411,15 +11442,21 @@ const (
 	// UpgradeErrorsLeft: with from, the fresh text would still have an
 	// error on the input's Lines (Upgraded.ErrorsLeft).
 	UpgradeErrorsLeft
+	// UpgradeBadFrom: From names no format KnownFormat takes
+	// (Upgraded.BadFrom).
+	UpgradeBadFrom
 )
 
 // UpgradeError is the error UpgradeFile and WriteBackup return, so a caller
 // can tell the cases apart with errors.As rather than by the message.
 type UpgradeError struct {
 	Kind UpgradeErrorKind
-	// Path is the file for UpgradeNotFound, UpgradeAmbiguous and
-	// UpgradeErrorsLeft, and the backup's name for UpgradeBackupTaken.
+	// Path is the file for UpgradeNotFound, UpgradeAmbiguous,
+	// UpgradeErrorsLeft and UpgradeBadFrom, and the backup's name for
+	// UpgradeBackupTaken.
 	Path string
+	// From is the name given, for UpgradeBadFrom.
+	From string
 	// Count is Upgraded.Ambiguous, for UpgradeAmbiguous.
 	Count int
 	// Lines is Upgraded.ErrorsLeft, for UpgradeErrorsLeft.
@@ -11446,6 +11483,8 @@ func (e *UpgradeError) Error() string {
 		}
 		return fmt.Sprintf("%s: line(s) %s would still have an error once converted from 2.x; nothing written",
 			e.Path, strings.Join(lines, ", "))
+	case UpgradeBadFrom:
+		return fmt.Sprintf("%s: no format has the name %s given as from; nothing written", e.Path, oneLineIn(e.From, "'", "'"))
 	}
 	return e.Err.Error()
 }
@@ -11578,6 +11617,9 @@ func checkKeptFile(path string) error {
 // On success Backup names the copy when one was made, and Text is what the
 // path now holds. A failure is an *UpgradeError.
 func UpgradeFile(path, from string, banner bool) (Upgraded, error) {
+	if from != "" && !KnownFormat(from) {
+		return Upgraded{}, &UpgradeError{Kind: UpgradeBadFrom, Path: path, From: from}
+	}
 	if err := checkKeptFile(path); err != nil {
 		return Upgraded{}, err
 	}
@@ -11882,7 +11924,9 @@ type LoadOptions struct {
 	Migrate bool
 	// From is the format the file was written in, by a name in FormatNames
 	// or a major alone, as Upgrade's from. It overrides the file's stamp and
-	// what FindFormat reads off it. "" is none. Ignored without Migrate.
+	// what FindFormat reads off it. "" is none. Ignored without Migrate. A
+	// name KnownFormat refuses converts nothing: the file is read as it is,
+	// with an E030 at line 0.
 	From string
 }
 
@@ -11917,7 +11961,10 @@ func loadFileAny(path string, level Strictness, keep, migrate bool, from string)
 		return doc, st
 	}
 	parsed, mig := text, Migration{}
-	if migrate {
+	// A name no format has converts nothing, and the load says so, as a
+	// schema that doesn't load is a V099 at line 0.
+	badFrom := migrate && from != "" && !KnownFormat(from)
+	if migrate && !badFrom {
 		// from names the format, whatever the stamp and the mtime say.
 		mtime := fileMtime(path)
 		format, ok, told := fromFormat(text, mtime, from)
@@ -11931,6 +11978,10 @@ func loadFileAny(path string, level Strictness, keep, migrate bool, from string)
 	// migrate's count, summed as a merge sums a layer's. Its lines are gone
 	// before the parse sees the text, so the funnel never meets them.
 	doc.lost += mig.Lost
+	if badFrom {
+		msg := "no format has the name " + oneLineIn(from, "'", "'") + " given as from, so the file was read as it is"
+		doc.diags = append([]Diagnostic{{Line: 0, Severity: SeverityError, Message: msg, Code: "E030"}}, doc.diags...)
+	}
 	if keep {
 		doc.keepSource(parsed)
 	}

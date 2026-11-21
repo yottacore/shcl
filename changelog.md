@@ -16,11 +16,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `upgrade()` and `upgrade_file()` work out the format of a file stamped beta1's `##    Format   3`, or a dev pin such as `3.0-a37`, as the load does, and convert it by that format's steps. They used to leave such a file alone, where a load with `migrate` converted it. A file stamped `3.0` is still left alone.
 
-- `upgrade()`, `upgrade_dated()`, `upgrade_file()` and `LoadOptions` take `from` in place of `from_v2` (each binding's spelling), naming the format the file was written in, such as `2.0`, `3.0-a37` or a major alone, `1`. It overrides the file's stamp and what `find_format()` reads off it. `from_v2` was `from` `2.0`. A name no format has is no `from`, and a newer format's leaves the file alone.
+- `upgrade()`, `upgrade_dated()`, `upgrade_file()` and `LoadOptions` take `from` in place of `from_v2` (each binding's spelling), naming the format the file was written in, such as `2.0`, `3.0-a37` or a major alone, `1`. It overrides the file's stamp and what `find_format()` reads off it. `from_v2` was `from` `2.0`. `known_format()` says whether `from` takes a name. Any other name, such as `1.2`, `2.0.0`, a newer format's or a pin no format has, converts nothing. `upgrade()` and `migrate()` give the input back with `bad_from` set, `upgrade_file()` gives a `BadFrom` error and writes nothing, and a load with `migrate` reads the file as it is, with an `E030` error at line 0, so a Strict load fails.
 
 - `migrate()` and `migrate_unstamped()` take `from` in place of `from_v2` too, and convert by the named format's step, so `from` `2.0` gives a quoted name with a backslash pair its 2.0 reading, where `from_v2` kept it as typed and counted it lost.
 
-- `shcl migrate` and `shcl upgrade` take `--from=FORMAT` in place of `--from-2x`, and pass it to the library's `from`. `--from-2x` was `--from=2.0`. A name no format has is a usage error, exit 1. The `H007` hint names `--from=FORMAT` too.
+- `shcl migrate` and `shcl upgrade` take `--from=FORMAT` in place of `--from-2x`, and pass it to the library's `from`. `--from-2x` was `--from=2.0`. A name no format has is a usage error, exit 1, by the library's `known_format()`. The `H007` hint names `--from=FORMAT` too.
 
 - `upgrade()` and `upgrade_file()` take a `banner` argument after `from` (each binding's spelling). With it they write the info block as before. Without it, an old block comes off and the fresh text ends with the stamp a save writes. `shcl upgrade` still writes the block.
 

@@ -251,13 +251,15 @@ void tokenize_value(std::string_view text, std::size_t from, Rules rules, Tokens
 // bound a value on that nothing binds now, or with a quoted name 1.2 and 2.0
 // read two ways, unfinished when migrate left the version line off, since
 // ambiguous is nonzero or a raw block never closes, so a caller of
-// migrate_unstamped leaves it off too.
+// migrate_unstamped leaves it off too, bad_from when from names no format
+// known_format() takes, so nothing was converted and text is the input.
 struct Migration {
 	std::string text;
 	bool current = false;
 	std::size_t ambiguous = 0;
 	std::size_t lost = 0;
 	bool unfinished = false;
+	bool bad_from = false;
 };
 // A document written under the 2.x lexical rules, rewritten so this parser
 // reads the same tree; text to text, no document involved. from names the
@@ -287,6 +289,9 @@ Read<std::uint32_t> read_format_version(std::string_view text);
 // format than this reader's. shcl_find_format has the rules. Text from no file
 // passes no mtime.
 std::optional<std::string_view> find_format(std::string_view text, std::optional<std::int64_t> mtime);
+// Whether from takes name: a name in FORMAT_NAMES, or the major of one alone.
+// Every call that takes from refuses any other name and converts nothing.
+bool known_format(std::string_view name);
 // The schema a document's Schema line names, a path or a URL; none when no
 // line names one, or when it names nothing. The first line naming one wins,
 // and a relative path is the caller's to resolve, from the config file's
@@ -311,6 +316,8 @@ Read<std::string> read_schema_ref(std::string_view text);
 // current. backup: where upgrade_file() put the original, empty from
 // upgrade() and when nothing was written. errors_left: with from, the input's
 // lines still in error once converted; any means nothing is written.
+// bad_from: from names no format known_format() takes, so nothing was
+// converted, text is the input, and current is false.
 struct Upgrade {
 	std::string text;
 	bool current = false;
@@ -320,6 +327,7 @@ struct Upgrade {
 	std::vector<Diagnostic> diagnostics;
 	std::string backup;
 	std::vector<std::size_t> errors_left;
+	bool bad_from = false;
 };
 // A config file written for an older format, made over for this one: migrated
 // without the stamp, saved keeping its lines, so each line stays where it was.
@@ -332,8 +340,9 @@ struct Upgrade {
 // under these rules, comes back current and untouched. from names the format
 // the file was written in, by a name in FORMAT_NAMES or a major alone, read as
 // a stamp naming it would be, in place of the file's stamp and what
-// find_format reads off it. A name no format has, such as `1.2`, is no from,
-// and a newer format's leaves the file alone. With a 2.x or older format, a
+// find_format reads off it. A name known_format() refuses, such as `1.2`, a
+// newer format's or a pin no row has, converts nothing and sets bad_from.
+// With a 2.x or older format, a
 // clean file is still made over when migrate would change it, as it would
 // `p: a,b`; with a pin, unless its stamp names this format whole. With from,
 // any file is made over only when the fresh text loads clean (errors_left).
@@ -436,8 +445,9 @@ NamedSchema read_named_schema(std::string_view text, const std::string &file);
 // Why upgrade_file or write_backup wrote nothing, or not all of it. message
 // is worded as the other bindings word the error; count is
 // Upgrade::ambiguous, for Ambiguous; status says why, for Io; lines is
-// Upgrade::errors_left, for ErrorsLeft.
-enum class UpgradeErrorKind { NotFound, Ambiguous, BackupTaken, Io, ErrorsLeft };
+// Upgrade::errors_left, for ErrorsLeft. BadFrom: from names no format
+// known_format() takes (Upgrade::bad_from).
+enum class UpgradeErrorKind { NotFound, Ambiguous, BackupTaken, Io, ErrorsLeft, BadFrom };
 struct UpgradeError {
 	UpgradeErrorKind kind{};
 	std::string message{};
@@ -888,7 +898,8 @@ static_assert(static_cast<int>(SchemaStatus::Good) == SHCL_SCHEMA_GOOD && static
 // The C enum puts OK first, so each kind sits one past its C value.
 static_assert(static_cast<int>(UpgradeErrorKind::NotFound) + 1 == SHCL_UPGRADE_NOT_FOUND && static_cast<int>(UpgradeErrorKind::Ambiguous) + 1 == SHCL_UPGRADE_AMBIGUOUS
 	&& static_cast<int>(UpgradeErrorKind::BackupTaken) + 1 == SHCL_UPGRADE_BACKUP_TAKEN && static_cast<int>(UpgradeErrorKind::Io) + 1 == SHCL_UPGRADE_IO
-	&& static_cast<int>(UpgradeErrorKind::ErrorsLeft) + 1 == SHCL_UPGRADE_ERRORS_LEFT, "UpgradeErrorKind drifted from shcl_upgrade_error");
+	&& static_cast<int>(UpgradeErrorKind::ErrorsLeft) + 1 == SHCL_UPGRADE_ERRORS_LEFT && static_cast<int>(UpgradeErrorKind::BadFrom) + 1 == SHCL_UPGRADE_BAD_FROM,
+	"UpgradeErrorKind drifted from shcl_upgrade_error");
 #endif
 static_assert(MAX_DEPTH == SHCL_MAX_DEPTH && FORMAT_MAJOR == SHCL_FORMAT_MAJOR, "a constant drifted from shcl.h");
 static_assert(FORMAT_MINOR == SHCL_FORMAT_MINOR && std::tuple_size<decltype(FORMAT_NAMES)>::value == SHCL_FORMAT_NAME_COUNT, "a constant drifted from shcl.h");
@@ -1053,7 +1064,7 @@ static Held fresh(const Document &d) {
 static Migration migration(shcl_migration m) {
 	// Owned from the call on, so a throw below cannot leak the C buffer.
 	std::unique_ptr<char, void (*)(void *)> p(m.text, &std::free);
-	return Migration{std::string(p.get(), m.len), m.current != 0, m.ambiguous, m.lost, m.unfinished != 0};
+	return Migration{std::string(p.get(), m.len), m.current != 0, m.ambiguous, m.lost, m.unfinished != 0, m.bad_from != 0};
 }
 
 static std::vector<Diagnostic> diags(const shcl_doc *d) {
@@ -1082,6 +1093,7 @@ static Upgrade upgraded(const shcl_upgraded &c) {
 	if (c.diagnostics) u.diagnostics = diags(c.diagnostics);
 	if (c.backup) u.backup = c.backup;
 	if (c.errors_left) u.errors_left.assign(c.errors_left, c.errors_left + c.errors_left_n);
+	u.bad_from = c.bad_from != 0;
 	return u;
 }
 
@@ -1171,6 +1183,12 @@ Read<std::uint32_t> read_format_version(std::string_view text) {
 	return {static_cast<std::uint32_t>(r.value), detail::st(r.status)};
 }
 
+bool known_format(std::string_view name) {
+	if (name.find('\0') != std::string_view::npos) return false;
+	std::string buf(name);
+	return shcl_known_format(buf.c_str()) != 0;
+}
+
 std::optional<std::string_view> find_format(std::string_view text, std::optional<std::int64_t> mtime) {
 	const char *f = shcl_find_format(text.data(), text.size(), mtime ? &*mtime : nullptr);
 	if (!f) return std::nullopt;
@@ -1203,10 +1221,15 @@ Read<std::string> read_schema_ref(std::string_view text) {
 
 namespace detail {
 // from for the C call, NUL-terminated in buf. One holding a NUL names no
-// format, so it's none, as it is in the other bindings.
+// format, as in the other bindings, so each NUL goes to C as U+FFFD, which no
+// name has either, rather than cutting it short into a name that might be one.
 static const char *from_c(std::optional<std::string_view> from, std::string &buf) {
-	if (!from || from->find('\0') != std::string_view::npos) return nullptr;
-	buf.assign(*from);
+	if (!from) return nullptr;
+	buf.clear();
+	for (char ch : *from) {
+		if (ch == '\0') buf += "\xEF\xBF\xBD";
+		else buf += ch;
+	}
 	return buf.c_str();
 }
 } // namespace detail

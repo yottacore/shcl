@@ -9128,8 +9128,9 @@ int main(int argc, char **argv) {
 	}
 	test_id("dfhjf", "migrate_reads_from_as_upgrade_does");
 	/* shcl_migrate reads a caller's from as shcl_upgrade does, with no mtime,
-	   and takes that format's step. A format whose steps rewrite nothing, and
-	   a newer one, leave the text alone, and a name no format has is no from.
+	   and takes that format's step. A format whose steps rewrite nothing
+	   leaves the text alone, and a name no format has is refused, as dfkst
+	   checks.
 	   A pin's rewrite names this format whole, so a second run with the same
 	   pin leaves it alone (2026111919213927). Same table in every runner. */
 	{
@@ -9145,8 +9146,6 @@ int main(int argc, char **argv) {
 			{sq, "1", sq_made},
 			{sq, "3.0", sq},
 			{sq, "3.0-9ef", sq},
-			{sq, "3.1", sq},
-			{sq, "4", sq},
 			{tab, "3.0-a37", tab_made},
 			{tab, "3.0-231", tab_made},
 			{tab_made, "3.0-a37", tab_made},
@@ -9158,10 +9157,6 @@ int main(int argc, char **argv) {
 			if (mm.current != want_current || mm.len != strlen(rows[i].want) || memcmp(mm.text, rows[i].want, mm.len) != 0) fail("migrate_from", mm.text);
 			free(mm.text);
 		}
-		shcl_migration none = shcl_migrate(sq, strlen(sq), NULL), unknown = shcl_migrate(sq, strlen(sq), "1.2");
-		if (none.len != unknown.len || memcmp(none.text, unknown.text, none.len) != 0 || none.ambiguous != unknown.ambiguous || none.lost != unknown.lost) fail("migrate_from", unknown.text);
-		free(none.text);
-		free(unknown.text);
 		shcl_migration bare = shcl_migrate_unstamped(tab, strlen(tab), "3.0-a37");
 		if (strcmp(bare.text, "a: \"x" MK "TAB" MK "y\"\n") != 0) fail("migrate_from", bare.text);
 		free(bare.text);
@@ -9201,8 +9196,8 @@ int main(int argc, char **argv) {
 	{
 		/* from names the format, read as a stamp naming it would be, in place
 		   of the file's own stamp and what shcl_find_format reads off it, in
-		   shcl_upgrade and the load. A name no format has is no from, and a
-		   newer format's leaves the file alone. A file stamped this format
+		   shcl_upgrade and the load. A name no format has is refused, as dfkst
+		   checks. A file stamped this format
 		   whole is what a told upgrade writes, so a second run leaves it alone
 		   (2026111918111481). Same rows in every runner. */
 		#define MK "\xe2\x97\x89"
@@ -9229,9 +9224,6 @@ int main(int argc, char **argv) {
 			{tab, nov10, "3.0-9ef", tab},
 			{tab, oct10, NULL, tab_made},
 			{tab, oct10, "3.0", tab},
-			{tab, oct10, "3.1", tab},
-			{tab, oct10, "4", tab},
-			{tab, oct10, "1.2", tab_made},
 			{pinned, nov10, NULL, pinned},
 			{pinned, nov10, "3.0-a37", tab_made},
 			{tab_made, nov10, "3.0-a37", tab_made},
@@ -9276,6 +9268,84 @@ int main(int argc, char **argv) {
 		}
 		dir_clear(fdir);
 		#undef MK
+	}
+	test_id("dfkst", "a_from_that_names_no_format_is_refused");
+	{
+		/* from takes a name in shcl_format_names or the major of one alone, as
+		   shcl_known_format says. Any other name converts nothing, and each
+		   call says so: bad_from from the text calls, SHCL_UPGRADE_BAD_FROM
+		   from shcl_upgrade_file, which writes nothing, and an E030 at line 0
+		   from a load with migrate, which reads the file as it is
+		   (2026112108444603). Same rows in every runner. */
+		const char *at = "bad_from";
+		for (size_t i = 0; i < SHCL_FORMAT_NAME_COUNT; i++) {
+			char major[16];
+			snprintf(major, sizeof major, "%.*s", (int)strcspn(shcl_format_names[i][0], "."), shcl_format_names[i][0]);
+			if (!shcl_known_format(shcl_format_names[i][0]) || !shcl_known_format(shcl_format_names[i][1]) || !shcl_known_format(major)) fail(at, shcl_format_names[i][0]);
+		}
+		if (shcl_known_format(NULL)) fail(at, "NULL");
+		const char *text = "p: a,b\nq: \"C:\\new\"\n";
+		size_t n = strlen(text);
+		shcl_upgraded good = shcl_upgrade(text, n, "2.0", 0);
+		if (good.bad_from || good.current || up_is(&good, text)) fail(at, "upgrade from 2.0");
+		shcl_upgraded_free(&good);
+		shcl_migration two = shcl_migrate(text, n, "2");
+		if (two.bad_from) fail(at, "migrate from 2");
+		free(two.text);
+		char fdir[256], f[320];
+		up_dir(fdir, sizeof fdir, "badfrom");
+		snprintf(f, sizeof f, "%s/f.shcl", fdir);
+		put_file(f, text);
+		/* Not "", which is no from in Go. */
+		static const char *const bad_names[] = {"1.2", "2.0.0", "v2.0", "02", "3.1", "4", "3.0-zzz", " 2.0", "2.0\n"};
+		const int64_t nov10 = 1794268800;
+		for (size_t i = 0; i < sizeof bad_names / sizeof bad_names[0]; i++) {
+			const char *name = bad_names[i];
+			if (shcl_known_format(name)) fail(at, name);
+			shcl_upgraded up = shcl_upgrade_dated(text, n, &nov10, name, 1);
+			if (!up_is(&up, text) || up.current || !up.bad_from || up.ambiguous || up.lost || up.diagnostics || up.errors_left_n) fail(at, name);
+			shcl_upgraded_free(&up);
+			shcl_upgraded plain_up = shcl_upgrade(text, n, name, 0);
+			if (!plain_up.bad_from) fail(at, name);
+			shcl_upgraded_free(&plain_up);
+			shcl_migration ms[2];
+			ms[0] = shcl_migrate(text, n, name);
+			ms[1] = shcl_migrate_unstamped(text, n, name);
+			for (int k = 0; k < 2; k++) {
+				if (ms[k].len != n || memcmp(ms[k].text, text, n) != 0 || ms[k].current || !ms[k].bad_from || !ms[k].unfinished || ms[k].ambiguous || ms[k].lost) fail(at, name);
+				free(ms[k].text);
+			}
+			shcl_upgraded out;
+			char *msg = NULL;
+			shcl_upgrade_error e = shcl_upgrade_file(f, name, 0, &out, &msg, NULL);
+			if (e != SHCL_UPGRADE_BAD_FROM || !msg || !strstr(msg, f)) fail(at, msg ? msg : name);
+			free(msg);
+			shcl_upgraded_free(&out);
+			if (!file_is(f, text) || dir_entries(fdir) != 1) fail(at, "upgrade_file wrote");
+			shcl_load_options opts = {0};
+			opts.migrate = 1;
+			opts.from = name;
+			shcl_file_status st = SHCL_FILE_CLEAN;
+			shcl_doc *doc = shcl_load_file_opts(f, SHCL_STANDARD, opts, &st);
+			shcl_doc *plain = shcl_load_file(f, NULL);
+			size_t nd = shcl_diag_count(doc), np = shcl_diag_count(plain);
+			if (nd != np + 1 || shcl_diag_line(doc, 0) != 0 || shcl_diag_severity(doc, 0) != SHCL_SEV_ERROR || strcmp(shcl_diag_code(doc, 0), "E030") != 0) fail(at, "load");
+			for (size_t k = 0; k + 1 < nd && k < np; k++)
+				if (shcl_diag_line(doc, k + 1) != shcl_diag_line(plain, k) || strcmp(shcl_diag_code(doc, k + 1), shcl_diag_code(plain, k)) != 0) fail(at, "load diagnostics");
+			shcl_str a = shcl_to_canonical(doc), b = shcl_to_canonical(plain);
+			if (st != SHCL_FILE_HAD_ERRORS || a.n != b.n || memcmp(a.p, b.p, a.n) != 0) fail(at, "load text");
+			shcl_free(doc);
+			shcl_free(plain);
+			doc = shcl_load_file_opts(f, SHCL_STRICT, opts, NULL);
+			if (!shcl_strict_failed(doc)) fail(at, "strict load");
+			shcl_free(doc);
+			opts.migrate = 0;
+			doc = shcl_load_file_opts(f, SHCL_STANDARD, opts, NULL);
+			for (size_t k = 0; k < shcl_diag_count(doc); k++)
+				if (strcmp(shcl_diag_code(doc, k), "E030") == 0) fail(at, "load without migrate");
+			shcl_free(doc);
+		}
+		dir_clear(fdir);
 	}
 	/* Every text a save writes names this format: a stamp is rewritten where
 	   it is, with its own head, and a text with none gets one as its last

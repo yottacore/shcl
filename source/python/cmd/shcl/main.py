@@ -497,6 +497,11 @@ E029|error|a selector in brackets, the old spelling
   value, the lines under it still load, under the instance it names. On a
   command line, quote the path, since a bare ( is a syntax error in most
   shells.
+E030|error|a from that names no format, on a load with migrate
+  A program loaded the file with migrate and a from that names no format,
+  such as 1.2, or 2.0.0, a release number in place of a format. Nothing
+  was converted, and the file was read as it is. Pass a name --from takes,
+  such as 2.0 or 3.0-a37, or the major alone.
 H001|hint|repeated bare leaf (an array written as repeated lines)
   Repeated leaves are legal, since that's how instances are written. But
   'tags: red' twice and 'tags: [red, blue]' look alike, so the parser says
@@ -692,11 +697,6 @@ def known_option(name):
 	return name == "-w" or name in option_names()
 
 
-def known_format(name):
-	"""A name from_ reads: one in FORMAT_NAMES, or the major of one alone."""
-	return any(n == name or n.split(".")[0] == name for n, _ in shcl.FORMAT_NAMES)
-
-
 def note_clash(o, opt, a, b):
 	# Record the first competing pair. Only the first is kept: the line is already
 	# a usage error, and a second pair would just change which one gets named.
@@ -737,7 +737,7 @@ def _set_value_opt(o, name, v):
 		o.schema = v
 		o.seen.append("--schema")
 	elif name == "--from":
-		if not known_format(v):
+		if not shcl.known_format(v):
 			raise ValueError(f"bad --from value (no format has that name): {v} (see --help)")
 		if o.from_ is not None and o.from_ != v:
 			note_clash(o, "--from", o.from_, v)

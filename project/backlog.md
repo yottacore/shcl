@@ -52,7 +52,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A `from` that names no format is read as no `from`, and nothing says so
 	- ID: 2026112108444603
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261121-084446
@@ -78,6 +78,116 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- For beta.2 (me, 20261121). It's the first release with `from`, so the results change once, before any program has adopted them. JC is fine with lower-priority work in beta.2.
 		- Decided against: only the check and the `upgrade_file` error (me). The text calls and the load would stay quiet, and the same slip does the same harm there.
 		- Decided against: a new file status for the load (me). The status is about the file, and every program that matches on it would have to change.
+	- Note: split into Rust and the docs (2026112109191634), Go (2026112109191655), Python (2026112109192615), and C with C++ (2026112109192636). All 4 closed in one job.
+	- Actual effort: Avg
+	- Actual fix: every call that takes `from` checks it with the new public `known_format` first, and a name it refuses converts nothing. See the children.
+	- Test case: `a_from_that_names_no_format_is_refused` (Rust `dfksh`, Go `dfkss`, Python `dfksj`, C `dfkst`, veneer `dfksv`).
+	- Branch: `nov21-2026112108444603`
+	- Commit: `b4ad4254`
+	- Acceptance signoff: Self-closed: each new test was seen to fail with the guard taken out, and the named gates passed. What a refused `from` gives back is a `Check:` entry in questions.md.
+	- Closed: 20261121-094900
+	- Closed reason: Done
+
+- A `from` that names no format is read as no `from` in the Rust library, and nothing says so
+	- ID: 2026112109191634
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261121-091916
+	- Opened by: me
+	- Parent ID: 2026112108444603
+	- Requirements: the parent's requirements in the Rust reference and the Rust CLI, plus `E030` in spec.md, design.md's Load outcomes, the man page and the explain table of all 4 CLIs, so the code lists stay in step.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261121: the check is `known_format`, the CLIs' own name for it, now public, and the 4 CLIs call it in place of their copies. The field is `bad_from` and the error `UpgradeError::BadFrom { path, from }`, named for the CLI's `bad --from value`.
+		- me, 20261121: with `bad_from`, `current` is false, since nothing said the file needs nothing, and a migration's `unfinished` is set, so a program that writes the stamp itself leaves it off. `upgrade_file` refuses before it reads the file. The load's `E030` goes first, at line 0, and the file is parsed as it is. Without `migrate`, `from` is still ignored. `E030`'s message and the error quote the name the way a message quotes a value. A `Check:` entry in questions.md has these.
+		- me, 20261121: design.md's Load outcomes table lists line codes only, and has no `E029` either, so `E030` isn't added there. The man page's code list is about a file's lines, so it isn't either.
+		- 20261121: `dfhgc` wanted `current` and the input for `from` `3.1` and `4`, and the `find_format` result for `1.2`. Those rows moved to `dfksh`, which wants `bad_from`, `current` false, and the input. `dfhjc` wanted `current` for `3.1` and `4`, and `1.2` to give what no `from` gives. Those moved to `dfksh` too. The twins in Go, Python and C changed the same way.
+	- Verified: `dfksh` fails with the 4 guards taken out, and passes with them. cargo test (all suites), `--backlog-run-quick rust go python c cli` (all 5 steps passed, check-docs `dd5gs` included), cli-regress over the 4 CLIs (685 rows, 4027 checks), `lint-report.bash --check --no-mark`, the markdown check on the touched docs (no new findings) and `explain E030` in the Rust CLI.
+	- Swept: every caller of `upgrade`, `upgrade_dated`, `upgrade_file`, `migrate`, `migrate_unstamped` and `LoadOptions::from` in `src/`, `tests/` and the Rust CLI, which checks `--from` before any call, so it never meets `BadFrom`. Every `Migration` and `Upgrade` literal in `lib.rs`. Docs: the doc comments on `LoadOptions::from`, `Migration`, `Upgrade`, `upgrade`, `migrate`, `UpgradeError` and `from_format`, spec.md's `UpgradeFile` and `LoadFileOpts` bullets and code table, design.md's `from` decisions, the format versions design doc, the changelog, the style guide's Python error list, and the explain table in all 4 CLIs.
+	- Actual fix: `known_format` in `lib.rs`, checked first in `upgrade_dated`, `migrate_from`, `upgrade_file` and `load_file_any`. `E030` in spec.md and all 4 explain tables.
+	- Test case: `a_from_that_names_no_format_is_refused` (Rust `dfksh`).
+	- Branch: `nov21-2026112108444603`
+	- Commit: `b4ad4254`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the change, and the named gates passed.
+	- Closed: 20261121-094900
+	- Closed reason: Done
+
+- A `from` that names no format is read as no `from` in the Go library, and nothing says so
+	- ID: 2026112109191655
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261121-091916
+	- Opened by: me
+	- Parent ID: 2026112108444603
+	- Prereq IDs: 2026112109191634
+	- Requirements: mirror the Rust child's `known_format`, refusal field, error kind, `E030` load error and tests in Go, by parity over idiom. The Go CLI's `--from` check uses `KnownFormat`.
+	- Estimated effort: Avg
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261121: Go's `from` is a `string` with `""` as none, so `""` stays none, and the shared rows leave it out. `KnownFormat` is public, `Migration.BadFrom` and `Upgraded.BadFrom` are the fields, and `UpgradeError` gets the kind `UpgradeBadFrom` and a `From` field with the name.
+	- Verified: `dfkss` fails with the 4 guards taken out, and passes with them. `go test -count=1` in both modules, gofmt and go vet, and the quick gate and cli-regress named on 2026112109191634.
+	- Swept: every Go caller of `Upgrade`, `UpgradeDated`, `UpgradeFile`, `Migrate`, `MigrateUnstamped` and `LoadOptions.From`, in `shcl.go`, the tests and the Go CLI, which calls `KnownFormat` for `--from`. The doc comments on `KnownFormat`, `fromFormat`, `Migration`, `Migrate`, `Upgraded`, `Upgrade`, `UpgradeError` and `LoadOptions.From`.
+	- Test case: `TestAFromThatNamesNoFormatIsRefused` (Go `dfkss`, twin of Rust `dfksh`).
+	- Branch: `nov21-2026112108444603`
+	- Commit: `b4ad4254`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the change, and the named gates passed.
+	- Closed: 20261121-094900
+	- Closed reason: Done
+
+- A `from` that names no format is read as no `from` in the Python library, and nothing says so
+	- ID: 2026112109192615
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261121-091926
+	- Opened by: me
+	- Parent ID: 2026112108444603
+	- Prereq IDs: 2026112109191634
+	- Requirements: mirror the Rust child's `known_format`, refusal field, error kind, `E030` load error and tests in Python, by parity over idiom. The Python CLI's `--from` check uses `shcl.known_format`, which goes in `__all__`.
+	- Estimated effort: Avg
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261121: `known_format` and `UpgradeBadFrom` are public and in `__all__`, and `UpgradeBadFrom` has `path` and `from_`. check-docs' Python-only list and the style guide's deviations name `UpgradeBadFrom`, as they name the other per-variant classes.
+	- Verified: `dfksj` fails with the 4 guards taken out, and passes with them. The Python runner, ruff and mypy, check-docs `ddydt`, and the quick gate and cli-regress named on 2026112109191634.
+	- Swept: every Python caller of `upgrade`, `upgrade_dated`, `upgrade_file`, `migrate`, `migrate_unstamped` and `LoadOptions.from_`, in `shcl.py`, the runner and the Python CLI, which calls `shcl.known_format` for `--from`. The docstrings of `known_format`, `_from_format`, `Migration`, `migrate`, `Upgrade`, `upgrade`, `UpgradeBadFrom` and `LoadOptions`.
+	- Test case: `a_from_that_names_no_format_is_refused` (Python `dfksj`, twin of Rust `dfksh`).
+	- Branch: `nov21-2026112108444603`
+	- Commit: `b4ad4254`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the change, and the named gates passed.
+	- Closed: 20261121-094900
+	- Closed reason: Done
+
+- A `from` that names no format is read as no `from` in the C library and the C++ interface, and nothing says so
+	- ID: 2026112109192636
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261121-091926
+	- Opened by: me
+	- Parent ID: 2026112108444603
+	- Prereq IDs: 2026112109191634
+	- Requirements: mirror the Rust child's `known_format`, refusal field, error kind, `E030` load error and tests in C and `shcl.hpp`, by parity over idiom. The C CLI's `--from` check uses `shcl_known_format`. analyze-c and cppcheck wait for the round's gate step.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261121: `shcl_known_format(const char *)` is public, with NULL as no name. `shcl_migration` and `shcl_upgraded` end with `int bad_from`, and `shcl_upgrade_error` ends with `SHCL_UPGRADE_BAD_FROM`. The load builds `E030`'s message in the document's arena and moves it to the front.
+		- me, 20261121: C++ has `known_format`, `Migration::bad_from`, `Upgrade::bad_from` and `UpgradeErrorKind::BadFrom`. A `from` holding a NUL went to C as none. It now goes with each NUL as U+FFFD, so C refuses it, as the other bindings refuse such a name, where cutting it at the NUL could name a format.
+		- 20261121: veneer `dfhhw` wanted `current` for `from` `4` and for `3.0-a37` with a NUL, and `dfhjg` wanted `current` for `4` and no `from`'s text for the NUL name. Both now want `bad_from`.
+	- Verified: `dfkst` fails with the 4 guards taken out, and passes with them. The C runner and the veneer smoke under their `-Werror` flags, the C library compiled with `SHCL_NO_FILE_IO`, the quick gate's C area, and cli-regress over the C CLI. analyze-c and cppcheck weren't run here, and wait for the round's gate step. The veneer smoke doesn't build with `SHCL_NO_FILE_IO` on dev either (`a_save_names_this_format`), so that wasn't tried.
+	- Swept: every C and C++ caller of `shcl_upgrade`, `shcl_upgrade_dated`, `shcl_upgrade_file`, `shcl_migrate`, `shcl_migrate_unstamped` and `shcl_load_options.from` and their C++ spellings, in `shcl.h`, `shcl.hpp`, the C runner, the veneer smoke and the C CLI, which calls `shcl_known_format` for `--from`. `detail::from_c` is the only place C++ hands `from` to C. The static_assert on `UpgradeErrorKind` covers the new kind.
+	- Test case: `a_from_that_names_no_format_is_refused` (C `dfkst`, C++ veneer `dfksv`, twins of Rust `dfksh`).
+	- Branch: `nov21-2026112108444603`
+	- Commit: `b4ad4254`
+	- Acceptance signoff: Self-closed: the new test was seen to fail without the change, and the named gates passed.
+	- Closed: 20261121-094900
+	- Closed reason: Done
 
 - Without a schema, 2 plain blocks that merge and repeat their children get only the array hint
 	- ID: 2026112015385902

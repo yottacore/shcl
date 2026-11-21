@@ -245,7 +245,9 @@ pub struct LoadOptions<'a> {
 	pub migrate: bool,
 	/// The format the file was written in, by a name in `FORMAT_NAMES` or a
 	/// major alone, as `upgrade`'s `from`. It overrides the file's stamp and
-	/// what `find_format` reads off it. Ignored without `migrate`.
+	/// what `find_format` reads off it. Ignored without `migrate`. A name
+	/// `known_format` refuses converts nothing: the file is read as it is,
+	/// with an `E030` at line 0.
 	pub from: Option<&'a str>,
 }
 
@@ -3056,6 +3058,10 @@ pub struct Migration {
 	/// that writes the version line itself after `migrate_unstamped` leaves it
 	/// off too, or the next run takes the file as current.
 	pub unfinished: bool,
+	/// `from` names no format `known_format` takes, such as `1.2` or
+	/// `2.0.0`, so nothing was converted: `text` is the input, and
+	/// `unfinished` is set.
+	pub bad_from: bool,
 }
 
 /// The counters a line rewrite reports back, and the one thing it asks.
@@ -3215,11 +3221,23 @@ fn named_formats(name: &str) -> u32 {
 	left
 }
 
+/// Whether `from` takes `name`: a name in `FORMAT_NAMES`, or the major of one
+/// alone, such as `2`. Every call that takes `from` refuses any other name,
+/// a newer format's and a pin no row has included, and converts nothing,
+/// since a mistyped name read as no `from` would quietly do something else.
+#[must_use]
+pub fn known_format(name: &str) -> bool {
+	FORMAT_NAMES
+		.iter()
+		.any(|(n, _)| *n == name || n.split('.').next() == Some(name))
+}
+
 /// What a caller's `from` names, read as a stamp naming it would be, in
 /// place of the text's own stamp: None when there's no `from`, or it names
 /// no format shcl knows, so the text's stamp and the scan decide. Some(None)
 /// for a newer format than this reader's, which leaves nothing to do. A
 /// major alone, such as `1`, leaves its formats to the mtime and the tells.
+/// A caller checks `known_format` first.
 fn from_format(text: &str, mtime: Option<i64>, from: Option<&str>) -> Option<Option<&'static str>> {
 	let from = from?;
 	if stamp_format(from).is_some_and(|f| f > (FORMAT_MAJOR, FORMAT_MINOR)) {
@@ -3550,6 +3568,7 @@ fn convert(text: &str, format: Option<&str>, told: bool) -> Migration {
 			ambiguous: 0,
 			lost: 0,
 			unfinished: false,
+			bad_from: false,
 		},
 	}
 }
@@ -3951,10 +3970,11 @@ fn opens_raw(rest: &str, tok: &mut Tokens) -> Option<(u8, usize)> {
 /// it, and the rewrite is that format's step: from 1.0 to 2.0, the 2.x
 /// rewrite with that format's reads of a quoted name and a selector, and from
 /// 3.0-1f8 to 3.0-a37, that pin's. Without it, a quoted name with a backslash
-/// pair stays as typed and counts in `lost`. A name no format has, such as
-/// `1.2`, is no `from`. A format whose steps rewrite nothing, and a newer one,
-/// leave the file untouched, and so does a pin's when the file's stamp names
-/// this format whole, which is what a rewrite from a pin names.
+/// pair stays as typed and counts in `lost`. A name `known_format` refuses,
+/// such as `1.2`, converts nothing and sets `bad_from`. A format whose steps
+/// rewrite nothing leaves the file untouched, and so does a pin's when the
+/// file's stamp names this format whole, which is what a rewrite from a pin
+/// names.
 pub fn migrate(text: &str, from: Option<&str>) -> Migration {
 	migrate_from(text, from, true)
 }
@@ -3969,6 +3989,16 @@ pub fn migrate_unstamped(text: &str, from: Option<&str>) -> Migration {
 /// migrate's reading of `from`, as upgrade's with no mtime, into the step the
 /// rewrite takes.
 fn migrate_from(text: &str, from: Option<&str>, stamp: bool) -> Migration {
+	if from.is_some_and(|f| !known_format(f)) {
+		return Migration {
+			text: text.to_string(),
+			current: false,
+			ambiguous: 0,
+			lost: 0,
+			unfinished: true,
+			bad_from: true,
+		};
+	}
 	let told = from_format(text, None, from);
 	let step = match told.map(first_rewrite) {
 		None => Step::V2(V2Read::Either),
@@ -4195,6 +4225,7 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool, step: Step) 
 			ambiguous: 0,
 			lost: 0,
 			unfinished: false,
+			bad_from: false,
 		};
 	}
 	let mut st = Migrating {
@@ -4362,6 +4393,7 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool, step: Step) 
 		ambiguous: st.ambiguous,
 		lost: st.lost,
 		unfinished,
+		bad_from: false,
 	}
 }
 
@@ -4399,6 +4431,10 @@ pub struct Upgrade {
 	/// Nonempty means nothing is written and `text` is the input, since the
 	/// next run with `from` would take the fresh text for that format again.
 	pub errors_left: Vec<usize>,
+	/// `from` names no format `known_format` takes, such as `1.2` or
+	/// `2.0.0`, so nothing was converted and `text` is the input. `current`
+	/// is false, since nothing said the file needs nothing.
+	pub bad_from: bool,
 }
 
 /// A config file written for an older format, made over for this one: the
@@ -4416,9 +4452,10 @@ pub struct Upgrade {
 /// these rules, since a program calling this on every start must never rewrite
 /// a good file. `from` names the format the file was written in, by a name in
 /// `FORMAT_NAMES` or a major alone, read as a stamp naming it would be, in
-/// place of the file's stamp and what `find_format` reads off it. A name no
-/// format has, such as `1.2`, is no `from`, and a newer format's leaves the
-/// file alone, as does a stamp naming a newer one. With a 2.x or older
+/// place of the file's stamp and what `find_format` reads off it. A name
+/// `known_format` refuses, such as `1.2`, a newer format's or a pin no row
+/// has, converts nothing and sets `bad_from`. A stamp naming a newer format
+/// leaves the file alone. With a 2.x or older
 /// format, a file that loads clean is still made over when `migrate` would
 /// change it, as it would `p: a,b`, an array under 2.x and one string now. One
 /// it would not change that names an older format gets this format on that
@@ -4461,7 +4498,13 @@ pub fn upgrade_dated(text: &str, mtime: Option<i64>, from: Option<&str>, banner:
 		diagnostics: Vec::new(),
 		backup: String::new(),
 		errors_left: Vec::new(),
+		bad_from: false,
 	};
+	if from.is_some_and(|f| !known_format(f)) {
+		up.current = false;
+		up.bad_from = true;
+		return up;
+	}
 	if names_newer(&named) {
 		return up;
 	}
@@ -8284,6 +8327,10 @@ impl Document {
 			// so its bytes are as unread as a parsed document's.
 			Err(st) => return (Parser::new().parse("", level), st),
 		};
+		// A name no format has converts nothing, and the load says so, as a
+		// schema that doesn't load is a V099 at line 0.
+		let bad_from = migrate.flatten().filter(|f| !known_format(f));
+		let migrate = migrate.filter(|_| bad_from.is_none());
 		// `from` names the format, whatever the stamp and the mtime say.
 		let mig = migrate.map(|from| {
 			let mtime = file_mtime(path);
@@ -8297,6 +8344,20 @@ impl Document {
 		// before the parse sees the text, so the funnel never meets them.
 		if let Some(mig) = &mig {
 			doc.lost += mig.lost;
+		}
+		if let Some(f) = bad_from {
+			doc.diags.insert(
+				0,
+				Diagnostic {
+					line: 0,
+					severity: Severity::Error,
+					code: "E030",
+					message: format!(
+						"no format has the name {} given as from, so the file was read as it is",
+						one_line_in(f, "'", "'")
+					),
+				},
+			);
 		}
 		let st = if doc.error_count() > 0 {
 			FileStatus::HadErrors
@@ -11397,6 +11458,8 @@ pub enum UpgradeError {
 	/// With `from`, the fresh text would still have an error on these
 	/// lines of the input (`Upgrade::errors_left`).
 	ErrorsLeft { path: String, lines: Vec<usize> },
+	/// `from` names no format `known_format` takes (`Upgrade::bad_from`).
+	BadFrom { path: String, from: String },
 }
 
 impl std::fmt::Display for UpgradeError {
@@ -11423,6 +11486,12 @@ impl std::fmt::Display for UpgradeError {
 					.map(ToString::to_string)
 					.collect::<Vec<_>>()
 					.join(", ")
+			),
+			UpgradeError::BadFrom { path, from } => write!(
+				f,
+				"{}: no format has the name {} given as from; nothing written",
+				path,
+				one_line_in(from, "'", "'")
 			),
 		}
 	}
@@ -11570,6 +11639,12 @@ fn create_backup(file: &str, name: &str) -> std::io::Result<std::fs::File> {
 /// has no need of it. On success `backup` names the copy when one was made,
 /// and `text` is what the path now holds.
 pub fn upgrade_file(path: &str, from: Option<&str>, banner: bool) -> Result<Upgrade, UpgradeError> {
+	if let Some(f) = from.filter(|f| !known_format(f)) {
+		return Err(UpgradeError::BadFrom {
+			path: path.to_string(),
+			from: f.to_string(),
+		});
+	}
 	check_kept_file(path)?;
 	// Not read_file, whose one status for every failure would hide the
 	// system's reason (2026101514324707).

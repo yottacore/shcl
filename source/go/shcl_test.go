@@ -9295,8 +9295,9 @@ func TestAFileWhoseStampMtimeAndContentDisagreeLoadsAndUpgradesByItsRead(t *test
 }
 
 // TestMigrateReadsFromAsUpgradeDoes: Migrate reads a caller's from as
-// Upgrade does, with no mtime, and takes that format's step. A format whose steps rewrite nothing, and a newer one,
-// leave the text alone, and a name no format has is no from. A pin's rewrite
+// Upgrade does, with no mtime, and takes that format's step. A format whose
+// steps rewrite nothing leaves the text alone, and a name no format has is
+// refused, as dfkss checks. A pin's rewrite
 // names this format whole, so a second run with the same pin leaves it alone
 // (2026111919213927). Same table in every runner.
 func TestMigrateReadsFromAsUpgradeDoes(t *testing.T) {
@@ -9313,8 +9314,6 @@ func TestMigrateReadsFromAsUpgradeDoes(t *testing.T) {
 		{sq, "1", sqMade},
 		{sq, "3.0", sq},
 		{sq, "3.0-9ef", sq},
-		{sq, "3.1", sq},
-		{sq, "4", sq},
 		{tab, "3.0-a37", tabMade},
 		{tab, "3.0-231", tabMade},
 		{tabMade, "3.0-a37", tabMade},
@@ -9325,10 +9324,6 @@ func TestMigrateReadsFromAsUpgradeDoes(t *testing.T) {
 		if m.Current != (c[2] == c[0]) || m.Text != c[2] {
 			t.Errorf("%q, from %s: current %v, got %q, want %q", c[0], c[1], m.Current, m.Text, c[2])
 		}
-	}
-	none, unknown := Migrate(sq, ""), Migrate(sq, "1.2")
-	if unknown.Text != none.Text || unknown.Ambiguous != none.Ambiguous || unknown.Lost != none.Lost {
-		t.Errorf("from 1.2 %+v, none %+v", unknown, none)
 	}
 	if got, want := MigrateUnstamped(tab, "3.0-a37").Text, "a: \"x\u25c9TAB\u25c9y\"\n"; got != want {
 		t.Errorf("got %q, want %q", got, want)
@@ -9372,7 +9367,7 @@ func TestMigrateSaysWhenItCouldNotFinish(t *testing.T) {
 // TestACallerNamesTheFormatWithFrom: a caller's from names the format a file
 // was written in, by a name in FormatNames or a major alone, in place of its
 // stamp and what FindFormat reads off it, in Upgrade and the load. A name no
-// format has is no from, and a newer format's leaves the file alone. A file
+// format has is refused, as dfkss checks. A file
 // stamped this format whole is what a told upgrade writes, so a second run
 // leaves it alone (2026111918111481). Same rows in every runner.
 func TestACallerNamesTheFormatWithFrom(t *testing.T) {
@@ -9406,9 +9401,6 @@ func TestACallerNamesTheFormatWithFrom(t *testing.T) {
 		{tab, nov10, "3.0-9ef", tab},
 		{tab, oct10, "", tabMade},
 		{tab, oct10, "3.0", tab},
-		{tab, oct10, "3.1", tab},
-		{tab, oct10, "4", tab},
-		{tab, oct10, "1.2", tabMade},
 		{pinned, nov10, "", pinned},
 		{pinned, nov10, "3.0-a37", tabMade},
 		{tabMade, nov10, "3.0-a37", tabMade},
@@ -9445,6 +9437,93 @@ func TestACallerNamesTheFormatWithFrom(t *testing.T) {
 		doc, _, _ := LoadFileOpts(f, Standard, LoadOptions{KeepLines: true, Migrate: true, From: c.from})
 		if got, _, err := doc.ToTextKeepLines(); err != nil || got != c.want {
 			t.Errorf("load, from %q: gave %q, %v; want %q", c.from, got, err, c.want)
+		}
+	}
+}
+
+// TestAFromThatNamesNoFormatIsRefused: from takes a name in FormatNames or the
+// major of one alone, as KnownFormat says. Any other name converts nothing,
+// and each call says so: BadFrom from the text calls, UpgradeBadFrom from
+// UpgradeFile, which writes nothing, and an E030 at line 0 from a load with
+// Migrate, which reads the file as it is (2026112108444603). Same rows in
+// every runner.
+func TestAFromThatNamesNoFormatIsRefused(t *testing.T) {
+	defer testID(t, "dfkss")
+	for _, row := range FormatNames {
+		major := strings.SplitN(row[0], ".", 2)[0]
+		if !KnownFormat(row[0]) || !KnownFormat(row[1]) || !KnownFormat(major) {
+			t.Errorf("KnownFormat(%q)", row[0])
+		}
+	}
+	text := "p: a,b\nq: \"C:\\new\"\n"
+	if up := Upgrade(text, "2.0", false); up.BadFrom || up.Current || up.Text == text {
+		t.Errorf("from 2.0: %+v", up)
+	}
+	if Migrate(text, "2").BadFrom {
+		t.Errorf("migrate from 2: BadFrom")
+	}
+	dir := t.TempDir()
+	f := filepath.Join(dir, "f.shcl")
+	if err := os.WriteFile(f, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Not "", which is none here.
+	for _, name := range []string{"1.2", "2.0.0", "v2.0", "02", "3.1", "4", "3.0-zzz", " 2.0", "2.0\n"} {
+		if KnownFormat(name) {
+			t.Errorf("KnownFormat(%q)", name)
+		}
+		mtime := int64(1794268800)
+		up := UpgradeDated(text, &mtime, name, true)
+		if up.Text != text || up.Current || !up.BadFrom || up.Ambiguous != 0 || up.Lost != 0 || len(up.Diagnostics) != 0 || len(up.ErrorsLeft) != 0 {
+			t.Errorf("upgrade, from %q: %+v", name, up)
+		}
+		if !Upgrade(text, name, false).BadFrom {
+			t.Errorf("upgrade, from %q: not BadFrom", name)
+		}
+		for _, m := range []Migration{Migrate(text, name), MigrateUnstamped(text, name)} {
+			if m.Text != text || m.Current || !m.BadFrom || !m.Unfinished || m.Ambiguous != 0 || m.Lost != 0 {
+				t.Errorf("migrate, from %q: %+v", name, m)
+			}
+		}
+		_, err := UpgradeFile(f, name, false)
+		var ue *UpgradeError
+		if !errors.As(err, &ue) || ue.Kind != UpgradeBadFrom || ue.Path != f || ue.From != name {
+			t.Errorf("upgrade_file, from %q: %v", name, err)
+		}
+		if b, err := os.ReadFile(f); err != nil || string(b) != text {
+			t.Errorf("upgrade_file, from %q: holds %q, %v", name, b, err)
+		}
+		if ents, err := os.ReadDir(dir); err != nil || len(ents) != 1 {
+			t.Errorf("upgrade_file, from %q: %d entries, %v", name, len(ents), err)
+		}
+		opts := LoadOptions{Migrate: true, From: name}
+		doc, st, err := LoadFileOpts(f, Standard, opts)
+		plain, _ := LoadFile(f)
+		ds := doc.Diagnostics()
+		if err != nil || len(ds) == 0 || ds[0].Line != 0 || ds[0].Severity != SeverityError || ds[0].Code != "E030" {
+			t.Fatalf("load, from %q: %v, %+v", name, err, ds)
+		}
+		pds := plain.Diagnostics()
+		if len(ds[1:]) != len(pds) {
+			t.Errorf("load, from %q: %+v, plain %+v", name, ds, pds)
+		} else {
+			for i, d := range pds {
+				if ds[i+1].Line != d.Line || ds[i+1].Code != d.Code {
+					t.Errorf("load, from %q: %+v, plain %+v", name, ds[i+1], d)
+				}
+			}
+		}
+		if st != FileHadErrors || doc.ToCanonical() != plain.ToCanonical() {
+			t.Errorf("load, from %q: %v", name, st)
+		}
+		if _, _, err := LoadFileOpts(f, Strict, opts); err == nil {
+			t.Errorf("strict load, from %q: no error", name)
+		}
+		off, _, _ := LoadFileOpts(f, Standard, LoadOptions{From: name})
+		for _, d := range off.Diagnostics() {
+			if d.Code == "E030" {
+				t.Errorf("load without Migrate, from %q: E030", name)
+			}
 		}
 	}
 }

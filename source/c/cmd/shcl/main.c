@@ -536,6 +536,11 @@ static const char *CODES =
 	"  value, the lines under it still load, under the instance it names. On a\n"
 	"  command line, quote the path, since a bare ( is a syntax error in most\n"
 	"  shells.\n"
+	"E030|error|a from that names no format, on a load with migrate\n"
+	"  A program loaded the file with migrate and a from that names no format,\n"
+	"  such as 1.2, or 2.0.0, a release number in place of a format. Nothing\n"
+	"  was converted, and the file was read as it is. Pass a name --from takes,\n"
+	"  such as 2.0 or 3.0-a37, or the major alone.\n"
 	"H001|hint|repeated bare leaf (an array written as repeated lines)\n"
 	"  Repeated leaves are legal, since that's how instances are written. But\n"
 	"  'tags: red' twice and 'tags: [red, blue]' look alike, so the parser says\n"
@@ -2379,16 +2384,6 @@ static void opts_free(Opts *o) {
 
 // Record the first competing pair. Only the first is kept: the line is already
 // a usage error, and a second pair would just change which one gets named.
-/* A name from reads: one in shcl_format_names, or the major of one alone. */
-static int known_format(const char *name) {
-	for (size_t i = 0; i < SHCL_FORMAT_NAME_COUNT; i++) {
-		const char *n = shcl_format_names[i][0];
-		size_t major = strcspn(n, ".");
-		if (!strcmp(n, name) || (strlen(name) == major && !strncmp(n, name, major))) return 1;
-	}
-	return 0;
-}
-
 static void note_clash(Opts *o, const char *opt, const char *a, const char *b) {
 	if (!o->clash[0]) { o->clash_opt = opt; o->clash[0] = a; o->clash[1] = b; }
 }
@@ -2419,7 +2414,7 @@ static int set_value_opt(Opts *o, const char *name, const char *v) {
 		if (o->schema && strcmp(o->schema, v)) note_clash(o, "--schema", o->schema, v);
 		o->schema = v; opt_seen(o, "--schema");
 	} else if (!strcmp(name, "--from")) {
-		if (!known_format(v)) { fprintf(stderr, "bad --from value (no format has that name): %s (see --help)\n", v); return 1; }
+		if (!shcl_known_format(v)) { fprintf(stderr, "bad --from value (no format has that name): %s (see --help)\n", v); return 1; }
 		if (o->from && strcmp(o->from, v)) note_clash(o, "--from", o->from, v);
 		o->from = v; opt_seen(o, "--from");
 	} else if (!strcmp(name, "--unit")) {
