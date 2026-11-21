@@ -35,6 +35,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- check-migrate reads a file stamped only `## SHCL format 3.0` as 2.x
+	- ID: 2026112110133815
+	- Type: Bug
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261121-101338
+	- Opened by:
+	- Progress log:
+		- Found while fixing 2026112017370795: `fNamesFormat3` looks only for `Format` lines, so such a file takes the 2.x comparison path. No run has hit it yet.
+
 - Format versions: the demo gif and its golden text show fmt output without the stamp
 	- ID: 2026111710564808
 	- Type: Feature
