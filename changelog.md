@@ -16,11 +16,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `upgrade()` and `upgrade_file()` work out the format of a file stamped beta1's `##    Format   3`, or a dev pin such as `3.0-a37`, as the load does, and convert it by that format's steps. They used to leave such a file alone, where a load with `migrate` converted it. A file stamped `3.0` is still left alone.
 
-- `upgrade()`, `upgrade_dated()`, `upgrade_file()` and `LoadOptions` take `from` in place of `from_v2` (each binding's spelling), naming the format the file was written in, such as `2.0`, `3.0-a37` or a major alone, `1`. It overrides the file's stamp and what `find_format()` reads off it. `from_v2` was `from` `2.0`. A name no format has is no `from`, and a newer format's leaves the file alone.
+- `upgrade()`, `upgrade_dated()`, `upgrade_file()` and `LoadOptions` take `from` in place of `from_v2` (each binding's spelling), naming the format the file was written in, such as `2.0`, `3.0-a37` or a major alone, `1`. It overrides the file's stamp and what `find_format()` reads off it. `from_v2` was `from` `2.0`. `known_format()` says whether `from` takes a name. Any other name, such as `1.2`, `2.0.0`, a newer format's or a pin no format has, converts nothing. `upgrade()` and `migrate()` give the input back with `bad_from` set, `upgrade_file()` gives a `BadFrom` error and writes nothing, and a load with `migrate` reads the file as it is, with an `E030` error at line 0, so a Strict load fails.
 
 - `migrate()` and `migrate_unstamped()` take `from` in place of `from_v2` too, and convert by the named format's step, so `from` `2.0` gives a quoted name with a backslash pair its 2.0 reading, where `from_v2` kept it as typed and counted it lost.
 
-- `shcl migrate` and `shcl upgrade` take `--from=FORMAT` in place of `--from-2x`, and pass it to the library's `from`. `--from-2x` was `--from=2.0`. A name no format has is a usage error, exit 1. The `H007` hint names `--from=FORMAT` too.
+- `shcl migrate` and `shcl upgrade` take `--from=FORMAT` in place of `--from-2x`, and pass it to the library's `from`. `--from-2x` was `--from=2.0`. A name no format has is a usage error, exit 1, by the library's `known_format()`. The `H007` hint names `--from=FORMAT` too. `--from-2x` is refused with a pointer to `--from=2.0`, since beta1's hint and docs still name it.
 
 - `upgrade()` and `upgrade_file()` take a `banner` argument after `from` (each binding's spelling). With it they write the info block as before. Without it, an old block comes off and the fresh text ends with the stamp a save writes. `shcl upgrade` still writes the block.
 
@@ -58,7 +58,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `load_file_opts()` with `migrate` loads a file that may be older than this format by converting it in memory, from the format `find_format()` gives its text and its mtime. A save of that document over the file gets every check a save does, a newer format's refusal included.
 
+- Hint `H009`: 2 plain blocks that merge into one, such as `planet:` twice, each with a `name:` under it, get a hint on the later block's line. It names the earlier line and the children that repeat, and says to give each block a value, as in `planet: Earth`. `H001` still reports, since arrays may be what was meant.
+
 ### Fixed
+
+- The `H001` hint on a repeat spelled 2 ways, as in `Order: a` then `order: b`, read like any other repeat. It now lists each spelling and says they're one name, since names ignore case.
+
+- `shcl migrate --from=FORMAT` on a file with no stamp said the file already names its format when that format reads the same as this one, such as `--from=3.0`. It now says that `--from` reads the same as the current format.
 
 - `migrate()` and `migrate_unstamped()` say when the migration couldn't finish, in a new `unfinished` field (each binding's spelling). It's set for text that reads 2 ways or a raw block that never closes, which is when `migrate()` leaves its stamp off, so a program that writes the info block itself after `migrate_unstamped()` can leave the Format line off too. It used to get the same result as a migration that finished.
 
@@ -69,6 +75,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - A quote in the middle of a value that never closes kept the rest of the line in the value under 2.x, commas and a `#` included, so `open: don't, stop` was one string. `migrate()` and the conversion from 1.0, 1.1 or 2.0 wrote it as 2, `["don't", stop]`. They write `"don't, stop"` now.
 
 - A comment added above a field, by `set_comment` or as the note a default form leaves on the value it replaced, went above the field's blank line when a line kept for an error sat above the field. So the blank went above that kept line's comments, away from the field. The new comment goes under the blank now, right above the field, in every binding.
+
+- A setter or a merge that rewrites a stacked list kept a blank line from above a comment among its items, so the field's own comment ended up set off from the field and `comments` no longer read it. The comments among the items now go right above the field's line as one run under its own, in every binding.
 
 - `clear_comments` and `comments` on a field took or read the comments above a line kept for an error that sat right above the field, as well as the field's own. Those comments are the kept line's, so they stay now, as a remove of the field leaves them, in every binding.
 

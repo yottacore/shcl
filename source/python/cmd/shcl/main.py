@@ -497,10 +497,17 @@ E029|error|a selector in brackets, the old spelling
   value, the lines under it still load, under the instance it names. On a
   command line, quote the path, since a bare ( is a syntax error in most
   shells.
+E030|error|a from that names no format, on a load with migrate
+  A program loaded the file with migrate and a from that names no format,
+  such as 1.2, or 2.0.0, a release number in place of a format. Nothing
+  was converted, and the file was read as it is. Pass a name --from takes,
+  such as 2.0 or 3.0-a37, or the major alone.
 H001|hint|repeated bare leaf (an array written as repeated lines)
   Repeated leaves are legal, since that's how instances are written. But
   'tags: red' twice and 'tags: [red, blue]' look alike, so the parser says
   which one it read. A schema's repeat bound above 1 turns the hint off.
+  Names ignore case, so 'Order: a' and 'order: b' repeat one name, and the
+  hint names each spelling.
 H002|hint|a binding merged with a non-adjacent earlier one
   The two have the same name and value, so they combine. That's legal, and
   only the parser can see it happened. The prose names the earlier line,
@@ -531,6 +538,14 @@ H008|hint|a '#' against text opens a comment
   array element, a selector body, or a fence label, or right after it where
   that piece is empty. A blank before it, as in port: 80  # main, makes a
   plain comment. A fence label can't contain a '#'.
+H009|hint|2 plain blocks merged into one, so their children repeat
+  A line with no value that opens a block an earlier such line opened,
+  under the same parent, joins that block, as 'planet:' twice does. A
+  child under it that repeats one from before gets H001, and this hint
+  names them on the later block's line. If 2 blocks were meant, give each
+  a value, as in 'planet: Earth'. If arrays were meant, H001 has that
+  advice. A schema's repeat bound above 1 on every child it names turns
+  it off.
 V001|error|unknown field
   No schema path matches it. Only the topmost unknown node is reported,
   and its subtree is skipped. The prose has the did-you-mean suggestion.
@@ -686,15 +701,25 @@ def _ascii_upper(s):
 	return "".join(chr(ord(c) - 32) if "a" <= c <= "z" else c for c in s)
 
 
+# Options a release took that a later one renamed, with the spelling that took
+# over. beta1's own hint names --from-2x, so a program built on it keeps sending
+# people to a flag that's gone.
+RENAMED_OPTS = (("--from-2x", "--from=2.0"),)
+
+
+def option_hint(name):
+	# What an unknown option's message adds: where a renamed one went, or the
+	# nearest real one.
+	for old, new in RENAMED_OPTS:
+		if old == name:
+			return f"; it's '{new}' now"
+	return suggest(option_names(), name)
+
+
 def known_option(name):
 	# A real option by any spelling, -w included. The suggestions draw on
 	# option_names alone, which leaves the short form out.
 	return name == "-w" or name in option_names()
-
-
-def known_format(name):
-	"""A name from_ reads: one in FORMAT_NAMES, or the major of one alone."""
-	return any(n == name or n.split(".")[0] == name for n, _ in shcl.FORMAT_NAMES)
 
 
 def note_clash(o, opt, a, b):
@@ -737,7 +762,7 @@ def _set_value_opt(o, name, v):
 		o.schema = v
 		o.seen.append("--schema")
 	elif name == "--from":
-		if not known_format(v):
+		if not shcl.known_format(v):
 			raise ValueError(f"bad --from value (no format has that name): {v} (see --help)")
 		if o.from_ is not None and o.from_ != v:
 			note_clash(o, "--from", o.from_, v)
@@ -1031,7 +1056,7 @@ def parse_opts(argv):
 			# given a value. Calling it unknown would suggest it back.
 			if known_option(name):
 				raise ValueError(f"option {name} takes no value (see --help)")
-			raise ValueError(f"unknown option: {a}{suggest(option_names(), name)} (see --help)")
+			raise ValueError(f"unknown option: {a}{option_hint(name)} (see --help)")
 		else:
 			o.args.append(a)
 		i += 1
@@ -1157,7 +1182,9 @@ def gone_since_read(file):
 	except FileNotFoundError:
 		return True
 	except (OSError, ValueError):
-		pass
+		# Something is there that can't be looked at, so the changed check
+		# decides.
+		return False
 	return False
 
 
@@ -1838,7 +1865,12 @@ def do_migrate(o):
 	# The file says it was written for these rules, so there is nothing to do
 	# and nothing to write. Saying so beats printing the input back silently.
 	if m.current:
-		sys.stderr.write(f"{file}: nothing to migrate: the file already names its format\n")
+		# Without --from, only the file's own stamp makes it current. With it,
+		# a format whose steps rewrite nothing does too, stamp or not.
+		if o.from_ is not None and not shcl.migrate(text, None).current:
+			sys.stderr.write(f"{file}: nothing to migrate: --from={o.from_} reads the same as the current format\n")
+		else:
+			sys.stderr.write(f"{file}: nothing to migrate: the file already names its format\n")
 		if not o.write and not o.check:
 			sys.stdout.write(m.text)
 		return 0
@@ -2853,7 +2885,7 @@ def run(argv):
 				# nothing about what is actually wrong.
 				sys.stderr.write(f"option {name} goes after the subcommand (see --help)\n")
 			else:
-				sys.stderr.write(f"unknown option: {cmd}{suggest(option_names(), name)} (see --help)\n")
+				sys.stderr.write(f"unknown option: {cmd}{option_hint(name)} (see --help)\n")
 		else:
 			sys.stderr.write(f"unknown command: {cmd}{suggest(command_names(), cmd)} (see --help)\n")
 		return 1

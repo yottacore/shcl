@@ -1,0 +1,24 @@
+# 2 plain blocks with no value merge into one
+planet:
+	name: Earth
+	r: 6371
+planet:
+	name: Mars
+	r: 3389
+moon:
+	name: Luna
+star: Sun
+moon:
+	name: Phobos
+ring:
+	a: 1
+	b: 1
+ring:
+	a: 2
+	b: 2
+sun: x
+	name: Sol
+sun: x
+	name: Helios
+Order: a
+order: b

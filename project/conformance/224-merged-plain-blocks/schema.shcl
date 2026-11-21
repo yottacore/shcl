@@ -1,0 +1,22 @@
+field: planet
+field: planet.name
+	type: string
+	repeat: [1, 2]
+field: planet.r
+	type: int
+	repeat: [1, 2]
+field: moon
+field: moon.name
+	type: string
+field: star
+field: ring
+field: ring.a
+	type: int
+	repeat: [1, 2]
+field: ring.b
+	type: int
+field: sun
+field: sun.name
+	repeat: [1, 2]
+field: order
+	repeat: [1, 2]

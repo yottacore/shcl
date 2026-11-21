@@ -1,0 +1,12 @@
+line 5: Hint: H009
+line 6: Hint: H001
+line 7: Hint: H001
+line 11: Hint: H002
+line 11: Hint: H009
+line 12: Hint: H001
+line 16: Hint: H009
+line 17: Hint: H001
+line 18: Hint: H001
+line 22: Hint: H001
+line 24: Hint: H001
+ok (11 diagnostic(s))

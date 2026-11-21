@@ -7184,8 +7184,8 @@ def main():
 
 	test_id("dfhje", "migrate_reads_from_as_upgrade_does")
 	# migrate reads a caller's from_ as upgrade does, with no mtime, and takes
-	# that format's step. A format whose steps rewrite nothing, and a newer
-	# one, leave the text alone, and a name no format has is no from_. A pin's
+	# that format's step. A format whose steps rewrite nothing leaves the text
+	# alone, and a name no format has is refused, as dfksj checks. A pin's
 	# rewrite names this format whole, so a second run with the same pin
 	# leaves it alone (2026111919213927). Same table in every runner.
 	mnote = "##    Format   3.0\n##    Migrated from SHCL 2.x.\n"
@@ -7200,8 +7200,6 @@ def main():
 		(msq, "1", msq_made),
 		(msq, "3.0", msq),
 		(msq, "3.0-9ef", msq),
-		(msq, "3.1", msq),
-		(msq, "4", msq),
 		(mtab, "3.0-a37", mtab_made),
 		(mtab, "3.0-231", mtab_made),
 		(mtab_made, "3.0-a37", mtab_made),
@@ -7210,9 +7208,6 @@ def main():
 		mm = shcl.migrate(mt, mfrom)
 		if (mm.current, mm.text) != (mwant == mt, mwant):
 			raise SystemExit(f"{mt!r}, from_ {mfrom}: current {mm.current}, {mm.text!r}")
-	mnone, munknown = shcl.migrate(msq, None), shcl.migrate(msq, "1.2")
-	if (munknown.text, munknown.ambiguous, munknown.lost) != (mnone.text, mnone.ambiguous, mnone.lost):
-		raise SystemExit(f"from_ 1.2 {munknown!r}, none {mnone!r}")
 	if shcl.migrate_unstamped(mtab, "3.0-a37").text != "a: \"x\u25c9TAB\u25c9y\"\n":
 		raise SystemExit("migrate_unstamped from_ 3.0-a37")
 
@@ -7244,7 +7239,7 @@ def main():
 	# A caller's from_ names the format a file was written in, by a name in
 	# FORMAT_NAMES or a major alone, in place of its stamp and what
 	# find_format reads off it, in upgrade and the load. A name no format has
-	# is no from_, and a newer format's leaves the file alone. A file stamped
+	# is refused, as dfksj checks. A file stamped
 	# this format whole is what a told upgrade writes, so a second run leaves
 	# it alone (2026111918111481). Same rows in every runner.
 	foct10 = 1791590400  # 2026-10-10, to 3.0-a37
@@ -7269,9 +7264,6 @@ def main():
 		(ftab, fnov10, "3.0-9ef", ftab),
 		(ftab, foct10, None, ftab_made),
 		(ftab, foct10, "3.0", ftab),
-		(ftab, foct10, "3.1", ftab),
-		(ftab, foct10, "4", ftab),
-		(ftab, foct10, "1.2", ftab_made),
 		(fpinned, fnov10, None, fpinned),
 		(fpinned, fnov10, "3.0-a37", ftab_made),
 		(ftab_made, fnov10, "3.0-a37", ftab_made),
@@ -7297,6 +7289,70 @@ def main():
 			fgot = fdoc.to_text_keep_lines()[0]
 			if fgot != fwant:
 				raise SystemExit(f"load, from {ffrom!r}: {fgot!r}, want {fwant!r}")
+
+	test_id("dfksj", "a_from_that_names_no_format_is_refused")
+	# from_ takes a name in FORMAT_NAMES or the major of one alone, as
+	# known_format says. Any other name converts nothing, and each call says
+	# so: bad_from from the text calls, UpgradeBadFrom from upgrade_file,
+	# which writes nothing, and an E030 at line 0 from a load with migrate,
+	# which reads the file as it is (2026112108444603). Same rows in every
+	# runner.
+	for bname, bformat in shcl.FORMAT_NAMES:
+		if not (shcl.known_format(bname) and shcl.known_format(bformat) and shcl.known_format(bname.split(".")[0])):
+			raise SystemExit(f"known_format {bname!r}")
+	btext = 'p: a,b\nq: "C:\\new"\n'
+	bup = shcl.upgrade(btext, "2.0", False)
+	if bup.bad_from or bup.current or bup.text == btext:
+		raise SystemExit("upgrade from_ 2.0")
+	if shcl.migrate(btext, "2").bad_from:
+		raise SystemExit("migrate from_ 2")
+	with tempfile.TemporaryDirectory() as bd:
+		bf = os.path.join(bd, "f.shcl")
+		with open(bf, "w", encoding="utf-8", newline="") as fh:
+			fh.write(btext)
+		# Not "", which is no from in Go.
+		for bname in ("1.2", "2.0.0", "v2.0", "02", "3.1", "4", "3.0-zzz", " 2.0", "2.0\n"):
+			if shcl.known_format(bname):
+				raise SystemExit(f"known_format {bname!r}")
+			bup = shcl.upgrade_dated(btext, 1794268800, bname, True)
+			if (bup.text, bup.current, bup.bad_from, bup.ambiguous, bup.lost) != (btext, False, True, 0, 0):
+				raise SystemExit(f"upgrade, from_ {bname!r}: {(bup.text, bup.current, bup.bad_from, bup.ambiguous, bup.lost)!r}")
+			if bup.diagnostics or bup.errors_left or not shcl.upgrade(btext, bname, False).bad_from:
+				raise SystemExit(f"upgrade, from_ {bname!r}")
+			for bm in (shcl.migrate(btext, bname), shcl.migrate_unstamped(btext, bname)):
+				if (bm.text, bm.current, bm.bad_from, bm.unfinished, bm.ambiguous, bm.lost) != (btext, False, True, True, 0, 0):
+					raise SystemExit(f"migrate, from_ {bname!r}")
+			try:
+				shcl.upgrade_file(bf, bname, False)
+				raise SystemExit(f"upgrade_file, from_ {bname!r}: no error")
+			except shcl.UpgradeBadFrom as e:
+				if (e.path, e.from_) != (bf, bname):
+					raise SystemExit(f"upgrade_file, from_ {bname!r}: {(e.path, e.from_)!r}") from None
+			with open(bf, encoding="utf-8", newline="") as fh:
+				if fh.read() != btext:
+					raise SystemExit(f"upgrade_file, from_ {bname!r}: the file changed")
+			if len(os.listdir(bd)) != 1:
+				raise SystemExit(f"upgrade_file, from_ {bname!r}: {os.listdir(bd)!r}")
+			bopts = shcl.LoadOptions(migrate=True, from_=bname)
+			bdoc, bst = shcl.Document.load_file_opts(bf, shcl.Strictness.Standard, bopts)
+			bplain, _ = shcl.Document.load_file(bf)
+			bfirst = bdoc.diagnostics()[0]
+			if (bfirst.line, bfirst.severity, bfirst.code) != (0, shcl.Severity.Error, "E030"):
+				raise SystemExit(f"load, from_ {bname!r}: {bfirst!r}")
+			if [(d.line, d.code) for d in bdoc.diagnostics()[1:]] != [(d.line, d.code) for d in bplain.diagnostics()]:
+				raise SystemExit(f"load, from_ {bname!r}: diagnostics")
+			if bst != shcl.FileStatus.HadErrors or bdoc.to_canonical() != bplain.to_canonical():
+				raise SystemExit(f"load, from_ {bname!r}: {bst!r}")
+			bstrict = None
+			try:
+				shcl.Document.load_file_opts(bf, shcl.Strictness.Strict, bopts)
+			except shcl.LoadError as e:
+				bstrict = e
+			if bstrict is None:
+				raise SystemExit(f"strict load, from_ {bname!r}: no error")
+			boff, _ = shcl.Document.load_file_opts(bf, shcl.Strictness.Standard, shcl.LoadOptions(from_=bname))
+			if any(d.code == "E030" for d in boff.diagnostics()):
+				raise SystemExit(f"load without migrate, from_ {bname!r}: E030")
 
 	test_id("ddrnd", "default_fills_what_does_not_read")
 	# A default form writes where the field is missing, empty or does not read

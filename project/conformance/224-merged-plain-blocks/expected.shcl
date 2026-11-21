@@ -1,0 +1,21 @@
+# 2 plain blocks with no value merge into one
+planet:
+	name: Earth
+	r: 6371
+	name: Mars
+	r: 3389
+moon:
+	name: Luna
+	name: Phobos
+star: Sun
+ring:
+	a: 1
+	b: 1
+	a: 2
+	b: 2
+sun: x
+	name: Sol
+	name: Helios
+order: a
+order: b
+## SHCL format 3.0

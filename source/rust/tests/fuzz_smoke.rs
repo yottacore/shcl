@@ -2772,35 +2772,26 @@ fn info_block_inside(text: &str) -> bool {
 	})
 }
 
-/// 2026112017363707: a list rewrite keeps the blank under a comment that sat
-/// in an item's place, which sets the field's own comments off from its line.
-/// True when the list had such a blank, and the comments over the field's line
-/// past blanks hold `want` in order.
-fn blank_kept(before: &str, a: &Anchor, after: &str, b: &Anchor, want: &[String]) -> bool {
-	let tabs = |l: &str| l.len() - l.trim_start_matches('\t').len();
-	let was: Vec<&str> = before.lines().collect();
-	let block: Vec<&str> = was[a.line + 1..]
-		.iter()
-		.take_while(|l| l.trim_matches(BLANKS).is_empty() || tabs(l) > a.depth)
-		.copied()
+/// 2026112112314153: a merge writes the layer's comments under a block, which a
+/// blank sets off from the line below, at the end of that block, so they join
+/// the run of the base's next field. True when the lines over `want` in `lead`
+/// are all such comments in the layer's canonical text.
+fn layer_tail_joined(layer: &str, lead: &[String], want: &[String]) -> bool {
+	let text = Document::parse(layer).to_canonical();
+	let lines: Vec<&str> = text.lines().map(|l| l.trim_matches(BLANKS)).collect();
+	let tails: std::collections::HashSet<&str> = (0..lines.len())
+		.filter(|&k| {
+			lines[k].starts_with('#')
+				&& lines[k + 1..]
+					.iter()
+					.find(|l| !l.starts_with('#'))
+					.is_some_and(|l| l.is_empty())
+		})
+		.map(|k| lines[k])
 		.collect();
-	let had = block.windows(2).any(|w| {
-		w[0].trim_matches(BLANKS).starts_with('#') && w[1].trim_matches(BLANKS).is_empty()
-	});
-	let now: Vec<&str> = after.lines().collect();
-	let mut over: Vec<&str> = now[..b.line]
-		.iter()
-		.rev()
-		.map(|l| l.trim_matches(BLANKS))
-		.take_while(|t| t.is_empty() || t.starts_with('#'))
-		.filter(|t| !t.is_empty())
-		.collect();
-	over.reverse();
-	let mut rest = over.iter();
-	had && want
-		.iter()
-		.filter(|w| !w.is_empty())
-		.all(|w| rest.any(|l| l == w))
+	(1..=lead.len()).any(|p| {
+		lead[p..].starts_with(want) && lead[..p].iter().all(|l| tails.contains(l.as_str()))
+	})
 }
 
 /// Where a comment must be after an edit, from the 2 canonical texts alone
@@ -2960,7 +2951,9 @@ fn placement_slips(
 				g.line > a.line && (below(&a.key, &g.key) || g.key.starts_with('~') && g.line < end)
 			};
 			let moved: Vec<&str> = was.iter().filter(mine).map(|g| g.text.as_str()).collect();
-			for gone in was.iter().filter(mine).filter(|g| went(g)) {
+			// An item of a list under a misplaced line goes with its own list.
+			let theirs = |g: &&Anchor| g.key.starts_with('~') && item(g);
+			for gone in was.iter().filter(mine).filter(|g| went(g) && !theirs(g)) {
 				let commented = format!("# {}", gone.text);
 				let gone_as = |t: &str| after.lines().any(|l| l.trim_matches(BLANKS) == t);
 				if gone.text.starts_with("- ") && !gone_as(&commented) {
@@ -3039,8 +3032,9 @@ fn placement_slips(
 			}
 			_ => lead == want,
 		};
-		let excused = rewritten && blank_kept(before, a, after, b, &want);
-		if !placed && !excused {
+		let excused =
+			|| edit == Placed::Merge && !rewritten && layer_tail_joined(layer, &lead, &want);
+		if !placed && !excused() {
 			slips.push(format!("{}: comments {want:?} are now {lead:?}", a.key));
 		}
 		// A run a blank sets off from it stays between it and the line above
@@ -3313,6 +3307,21 @@ fn the_placement_property_reads_a_list_replace() {
 		"a:\n\t# note 0\n\t- name:\n\t\"q.k\": [3\n\t\t\"q.k\": 4, 4\n\t\t\t# note 5\n\tb:\n\t\ta.b: 8, 8\n## SHCL format 3.0\n"
 	);
 	let slips = placement_slips(&before, &after, "a.b", Placed::Set, "");
+	assert!(slips.is_empty(), "{slips:?}");
+	// A merge that writes 2 lists as bracket arrays moves the comments of
+	// each to its own field, a list under a misplaced line after the first
+	// one's items too.
+	let before = "hosts:\n\t- a\n\t- b\n~rv:\n\ttags:\n\t\t- x\n\t\t- y  # why\n";
+	let layer = "a.b(x): [0\n";
+	let mut doc = Document::parse(before);
+	doc.merge(&Document::parse(layer));
+	let after = doc.to_canonical();
+	assert_eq!(
+		after,
+		"hosts: [a, b]\n~rv:\n\t# why\n\ttags: [x, y]\na.b(x): [0\n## SHCL format 3.0\n"
+	);
+	let before = Document::parse(before).to_canonical();
+	let slips = placement_slips(&before, &after, "z", Placed::Merge, layer);
 	assert!(slips.is_empty(), "{slips:?}");
 }
 

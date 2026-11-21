@@ -1200,6 +1200,13 @@ rows=(
 	'dfhky|migrate-from-2x-gone|migrate --from-2x -|p: 1\n|1||^unknown option: --from-2x'
 	'dfhkz|migrate-from-major|migrate --from 2 -|x: a,b\n|0|x: [a, b]\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
 	'dfhm0|migrate-from-pin|migrate --from=3.0-a37 -|x: "a\\tb"\n|0|x: "a\xe2\x97\x89TAB\xe2\x97\x89b"\n##    Format   3.0\n|-'
+	## 2026112108444472: beta1's H007 hint names --from-2x, so the refusal says
+	## what took its place. 2026111920301167: a file with no stamp is current
+	## under a --from whose steps rewrite nothing, and that's what's said.
+	'dfkvt|migrate-from-2x-pointer|migrate --from-2x -|p: 1\n|1||^unknown option: --from-2x; it.s .--from=2\.0. now \(see --help\)$'
+	'dfkvv|upgrade-from-2x-pointer|upgrade --from-2x -|p: 1\n|1||^unknown option: --from-2x; it.s .--from=2\.0. now \(see --help\)$'
+	'dfkvw|migrate-from-same-format|migrate --from=3.0 -|x: "a\\tb"\n|0|x: "a\\tb"\n|^-: nothing to migrate: --from=3\.0 reads the same as the current format$'
+	'dfkvx|migrate-from-pin-stamped|migrate --from=3.0-a37 -|x: 1\n##    Format   3.0\n|0|x: 1\n##    Format   3.0\n|^-: nothing to migrate: the file already names its format$'
 	## The 2.x tab went in as it was, since "C:\temp" was E024 (2026100115323227).
 	## It is the TAB escape since 2026100207032800.
 	#'dcq6r|migrate-from-2x|migrate --from=2.0 %BS%|-|0|p: "C:\\temp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
@@ -3115,6 +3122,56 @@ for b in "${bindings[@]}"; do
 	done
 done
 
+## 2 plain blocks that merge, so their children repeat, get H009 on the later
+## block's line, naming the earlier one and the children, with the same bytes
+## in all 4 (2026112015385902). A schema drops it once every child it lists
+## is disavowed, and keeps it while one isn't.
+fTest dfkwe merged-block-hint
+printf 'planet:\n\tname: Earth\n\tr: 6371\nplanet:\n\tname: Mars\n\tr: 3389\n' > "${tmpDir}/twoblocks.shcl"
+printf 'field: planet\nfield: planet.name\n\trepeat: [1, 2]\nfield: planet.r\n\trepeat: [1, 2]\n' > "${tmpDir}/twoblocks-all.shcl"
+printf 'field: planet\nfield: planet.name\n\trepeat: [1, 2]\nfield: planet.r\n' > "${tmpDir}/twoblocks-one.shcl"
+blockHint="line 4: Hint: H009 'name', 'r' repeat in 'planet', since this line and line 1 both open it with no value, so they are one block - for separate blocks, give each a value, as in 'planet: Earth'"
+blockWant=(
+	"plain|check ${tmpDir}/twoblocks.shcl|${blockHint}"
+	"all-disavowed|check --schema=${tmpDir}/twoblocks-all.shcl ${tmpDir}/twoblocks.shcl|"
+	"one-disavowed|check --schema=${tmpDir}/twoblocks-one.shcl ${tmpDir}/twoblocks.shcl|${blockHint}"
+)
+for b in "${bindings[@]}"; do
+	name="${b%%|*}"; cli="${b#*|}"
+	for w in "${blockWant[@]}"; do
+		IFS='|' read -r what cmd want <<<"${w}"
+		read -r -a cmdArgv <<<"${cmd}"
+		nRun+=1
+		"${cli}" "${cmdArgv[@]}" >/dev/null 2>"${tmpDir}/blockerr" || true
+		got="$(grep -E ' H009 ' "${tmpDir}/blockerr" || true)"
+		if [[ "${got}" != "${want}" ]]; then
+			echo "cli-regress: merged-block-hint [${name}]: ${what}: got: $(head -c 300 <<<"${got}")" >&2; nBad+=1
+		fi
+	done
+done
+
+## Names ignore case, so a repeat spelled 2 ways is one H001, and the hint
+## lists each spelling (2026111217560122).
+fTest dfkwf h001-case-spellings
+spellWant=(
+	"two|Order: a\norder: b\n|line 2: Hint: H001 'order' repeats as a bare leaf - did you mean 'order: [a, b]'? - 'Order', 'order' are spellings of one name, since names ignore case"
+	"same|order: a\norder: b\n|line 2: Hint: H001 'order' repeats as a bare leaf - did you mean 'order: [a, b]'?"
+	"many|Aa: 1\naA: 2\nAA: 3\naa: 4\nAa: 5\n|line 5: Hint: H001 'aa' repeats as a bare leaf - did you mean 'aa: [1, 2, 3, ...]'? (and 2 more) - 'Aa', 'aA', 'AA', ... (and 1 more) are spellings of one name, since names ignore case"
+)
+for b in "${bindings[@]}"; do
+	name="${b%%|*}"; cli="${b#*|}"
+	for w in "${spellWant[@]}"; do
+		IFS='|' read -r what text want <<<"${w}"
+		nRun+=1
+		# shellcheck disable=SC2059  ## the row's text is the format, for its \n
+		printf "${text}" | "${cli}" check - >/dev/null 2>"${tmpDir}/spellerr" || true
+		got="$(grep -E ' H001 ' "${tmpDir}/spellerr" | head -n 1 || true)"
+		if [[ "${got}" != "${want}" ]]; then
+			echo "cli-regress: h001-case-spellings [${name}]: ${what}: got: $(head -c 300 <<<"${got}")" >&2; nBad+=1
+		fi
+	done
+done
+
 ##	2026100814455655: --json has to read back through the two readers the help
 ##	names. jq -c . writes each line back byte for byte, which pins the escaping
 ##	to jq's, and jq and PowerShell's ConvertFrom-Json have to decode the same
@@ -3467,3 +3524,4 @@ echo "cli-regress: OK: ${#rows[@]} row(s) across ${#bindings[@]} binding(s), ${n
 ##		2026-11-01  version-then-copyright counts lines on BSD wc, which pads.
 ##		2026-11-07  @dir, and set --write to a folder or a directory-shaped path.
 ##		2026-11-20  --from=FORMAT, in place of --from-2x, which is a usage error now.
+##		2026-11-21  --from-2x points at --from=2.0, and migrate says when --from made a file current.

@@ -5,9 +5,9 @@
 //! so the exit codes and flags below are a stable surface, not conveniences.
 
 use shcl::{
-	Diagnostic, Document, DurationUnit, FORMAT_MAJOR, FORMAT_NAMES, GEN_BANNER, Piece, Quote,
-	Rules, SaveError, SaveOptions, SchemaStatus, Severity, SizeUnit, Status, Strictness, Tokens,
-	UpgradeError, format_diagnostic, format_float, format_version, generate, migrate,
+	Diagnostic, Document, DurationUnit, FORMAT_MAJOR, GEN_BANNER, Piece, Quote, Rules, SaveError,
+	SaveOptions, SchemaStatus, Severity, SizeUnit, Status, Strictness, Tokens, UpgradeError,
+	format_diagnostic, format_float, format_version, generate, known_format, migrate,
 	parse_datetime, read_named_schema, suppress_declared_reopens, suppress_declared_repeats,
 	tokenize, upgrade_dated, upgrade_file, write_backup, write_file_atomic,
 };
@@ -655,10 +655,17 @@ E029|error|a selector in brackets, the old spelling
   value, the lines under it still load, under the instance it names. On a
   command line, quote the path, since a bare ( is a syntax error in most
   shells.
+E030|error|a from that names no format, on a load with migrate
+  A program loaded the file with migrate and a from that names no format,
+  such as 1.2, or 2.0.0, a release number in place of a format. Nothing
+  was converted, and the file was read as it is. Pass a name --from takes,
+  such as 2.0 or 3.0-a37, or the major alone.
 H001|hint|repeated bare leaf (an array written as repeated lines)
   Repeated leaves are legal, since that's how instances are written. But
   'tags: red' twice and 'tags: [red, blue]' look alike, so the parser says
   which one it read. A schema's repeat bound above 1 turns the hint off.
+  Names ignore case, so 'Order: a' and 'order: b' repeat one name, and the
+  hint names each spelling.
 H002|hint|a binding merged with a non-adjacent earlier one
   The two have the same name and value, so they combine. That's legal, and
   only the parser can see it happened. The prose names the earlier line,
@@ -689,6 +696,14 @@ H008|hint|a '#' against text opens a comment
   array element, a selector body, or a fence label, or right after it where
   that piece is empty. A blank before it, as in port: 80  # main, makes a
   plain comment. A fence label can't contain a '#'.
+H009|hint|2 plain blocks merged into one, so their children repeat
+  A line with no value that opens a block an earlier such line opened,
+  under the same parent, joins that block, as 'planet:' twice does. A
+  child under it that repeats one from before gets H001, and this hint
+  names them on the later block's line. If 2 blocks were meant, give each
+  a value, as in 'planet: Earth'. If arrays were meant, H001 has that
+  advice. A schema's repeat bound above 1 on every child it names turns
+  it off.
 V001|error|unknown field
   No schema path matches it. Only the topmost unknown node is reported,
   and its subtree is skipped. The prose has the did-you-mean suggestion.
@@ -1112,6 +1127,20 @@ fn option_names() -> Vec<&'static str> {
 	v
 }
 
+/// Options a release took that a later one renamed, with the spelling that
+/// took over. beta1's own hint names `--from-2x`, so a program built on it
+/// keeps sending people to a flag that's gone.
+const RENAMED_OPTS: [(&str, &str); 1] = [("--from-2x", "--from=2.0")];
+
+/// What an unknown option's message adds: where a renamed one went, or the
+/// nearest real one.
+fn option_hint(name: &str) -> String {
+	match RENAMED_OPTS.iter().find(|(old, _)| *old == name) {
+		Some((_, new)) => format!("; it's '{}' now", new),
+		None => suggest(&option_names(), name),
+	}
+}
+
 /// A real option by any spelling, `-w` included. The suggestions draw on
 /// `option_names` alone, which leaves the short form out.
 fn known_option(name: &str) -> bool {
@@ -1260,7 +1289,7 @@ fn parse_opts(argv: &[String]) -> Result<Opts, String> {
 				return Err(format!(
 					"unknown option: {}{} (see --help)",
 					a,
-					suggest(&option_names(), name)
+					option_hint(name)
 				));
 			}
 			_ => o.args.push(argv[i].clone()),
@@ -1272,13 +1301,6 @@ fn parse_opts(argv: &[String]) -> Result<Opts, String> {
 
 /// Record the first competing pair. Only the first is kept: the line is already
 /// a usage error, and a second pair would just change which one gets named.
-/// A name `from` reads: one in FORMAT_NAMES, or the major of one alone.
-fn known_format(name: &str) -> bool {
-	FORMAT_NAMES
-		.iter()
-		.any(|(n, _)| *n == name || n.split('.').next() == Some(name))
-}
-
 fn note_clash(o: &mut Opts, opt: Option<&'static str>, a: &str, b: &str) {
 	if o.clash.is_none() {
 		o.clash_opt = opt;
@@ -2632,10 +2654,19 @@ fn do_migrate(o: &Opts) -> u8 {
 	// The file says it was written for these rules, so there is nothing to do
 	// and nothing to write. Saying so beats printing the input back silently.
 	if m.current {
-		errln!(
-			"{}: nothing to migrate: the file already names its format",
-			file
-		);
+		// Without --from, only the file's own stamp makes it current. With it,
+		// a format whose steps rewrite nothing does too, stamp or not.
+		match o.from.as_deref() {
+			Some(f) if !migrate(&text, None).current => errln!(
+				"{}: nothing to migrate: --from={} reads the same as the current format",
+				file,
+				f
+			),
+			_ => errln!(
+				"{}: nothing to migrate: the file already names its format",
+				file
+			),
+		}
 		if !o.write && !o.check {
 			out!("{}", m.text);
 		}
@@ -4098,11 +4129,7 @@ fn run_cli() -> u8 {
 				// nothing about what is actually wrong.
 				errln!("option {} goes after the subcommand (see --help)", name);
 			} else {
-				errln!(
-					"unknown option: {}{} (see --help)",
-					cmd,
-					suggest(&option_names(), name)
-				);
+				errln!("unknown option: {}{} (see --help)", cmd, option_hint(name));
 			}
 		} else {
 			errln!(

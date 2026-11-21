@@ -834,6 +834,12 @@ size_t shcl_tokens_element_count(const shcl_tokens *t);
 // version that read it, and pre-releases fold into their release.
 #define SHCL_FORMAT_NAME_COUNT 19
 extern const char *const shcl_format_names[SHCL_FORMAT_NAME_COUNT][2];
+// Whether from takes name, NUL-terminated: a name in shcl_format_names, or
+// the major of one alone, such as `2`. Every call that takes from refuses any
+// other name, a newer format's and a pin no row has included, and converts
+// nothing, since a mistyped name read as no from would quietly do something
+// else. NULL is none, and is no name.
+int shcl_known_format(const char *name);
 #define SHCL_MIGRATED_LINE "##    Migrated from SHCL 2.x."
 // The start of a line naming the file's schema, written like the Format line,
 // for check and for editors: `##    Schema   ./app.schema.shcl`.
@@ -859,8 +865,10 @@ extern const char *const shcl_format_names[SHCL_FORMAT_NAME_COUNT][2];
 // never closes under either rule set, where the line would be one more line
 // of its content. A program that writes the version line itself after
 // shcl_migrate_unstamped leaves it off too, or the next run takes the file as
-// current.
-typedef struct { char *text; size_t len; int current; size_t ambiguous; size_t lost; int unfinished; } shcl_migration;
+// current. bad_from: from names no format shcl_known_format takes, such as
+// `1.2` or `2.0.0`, so nothing was converted: text is the input, and
+// unfinished is set.
+typedef struct { char *text; size_t len; int current; size_t ambiguous; size_t lost; int unfinished; int bad_from; } shcl_migration;
 
 // Rewrite a document written under the 2.x lexical rules so this parser reads
 // the same tree; everything the two rule sets agree on comes through as
@@ -952,6 +960,9 @@ shcl_read_str shcl_read_schema_ref(const char *text, size_t len);
 // with from, the input's lines still in error once converted, malloc'd (NULL
 // when none); any means nothing is written and text is the input, since the
 // next run with from would take the fresh text for that format again.
+// bad_from: from names no format shcl_known_format takes, such as `1.2` or
+// `2.0.0`, so nothing was converted and text is the input; current is 0,
+// since nothing said the file needs nothing.
 typedef struct {
 	char *text; size_t len;
 	int current;
@@ -961,6 +972,7 @@ typedef struct {
 	shcl_doc *diagnostics;
 	char *backup;
 	size_t *errors_left; size_t errors_left_n;
+	int bad_from;
 } shcl_upgraded;
 // A config file written for an older format, made over for this one: the
 // input run through shcl_migrate_unstamped, then saved keeping its lines, so
@@ -978,8 +990,9 @@ typedef struct {
 // from names the format the file was written in, by a name in
 // shcl_format_names or a major alone, NUL-terminated, read as a stamp naming
 // it would be, in place of the file's stamp and what shcl_find_format reads
-// off it; NULL for none. A name no format has, such as `1.2`, is no from, and
-// a newer format's leaves the file alone, as does a stamp naming a newer one.
+// off it; NULL for none. A name shcl_known_format refuses, such as `1.2`, a
+// newer format's or a pin no row has, converts nothing and sets bad_from. A
+// stamp naming a newer format leaves the file alone.
 // With a 2.x or older format, a file that loads clean is still made over when
 // migrate would change it, as it would `p: a,b`, an array under 2.x and one
 // string now. One it would not change that names an older format gets this
@@ -1028,7 +1041,8 @@ typedef enum {
 	SHCL_UPGRADE_AMBIGUOUS,    // the file does not say which rules it was written for, and some of it reads two ways; from settles it
 	SHCL_UPGRADE_BACKUP_TAKEN, // something is already at the backup's name; it is never written over
 	SHCL_UPGRADE_IO,           // a read or write failed; the message names the file, and *why says why
-	SHCL_UPGRADE_ERRORS_LEFT   // with from, the fresh text would still have an error on the lines errors_left names
+	SHCL_UPGRADE_ERRORS_LEFT,  // with from, the fresh text would still have an error on the lines errors_left names
+	SHCL_UPGRADE_BAD_FROM      // from names no format shcl_known_format takes (shcl_upgraded's bad_from)
 } shcl_upgrade_error;
 // Keep text, the bytes last read from file, under shcl_backup_file_name,
 // before something replaces them. The create is exclusive, so an earlier
@@ -4744,7 +4758,7 @@ static shcl_migration migrate_text(const char *text, size_t len, int from_v2, in
 	st.pin = pinned ? step.pin : SHCL_PIN_FROM_A37;
 	st.v2 = step.kind == SHCL_STEP_V2 ? step.v2 : SHCL_V2_EITHER;
 	st.from_v2 = from_v2 || pinned;
-	shcl_migration m; m.current = 0;
+	shcl_migration m; memset(&m, 0, sizeof m);
 	ShclStr r = migrate(own, in, &st, &m.current, stamp, beta);
 	m.ambiguous = st.ambiguous; m.lost = st.lost; m.unfinished = st.unfinished; m.len = r.n;
 	m.text = (char *)malloc(r.n + 1);
@@ -4815,6 +4829,11 @@ static int from_format(const char *text, size_t len, const int64_t *mtime, const
    step the rewrite takes. */
 static shcl_migration migrate_from(const char *text, size_t len, const char *from, int stamp) {
 	if (!text) { text = ""; len = 0; }
+	if (from && !shcl_known_format(from)) {
+		shcl_migration m = migration_as_is(text, len);
+		m.current = 0; m.unfinished = 1; m.bad_from = 1;
+		return m;
+	}
 	const char *format = NULL;
 	int told = from_format(text, len, NULL, from, &format);
 	ShclStep step = {SHCL_STEP_V2, SHCL_PIN_FROM_30D, SHCL_V2_EITHER};
@@ -4908,7 +4927,10 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 	   tells. */
 	ShclStep step = {SHCL_STEP_SAME, SHCL_PIN_FROM_30D, SHCL_V2_EITHER};
 	int told = 0;
-	if (!newer) {
+	if (from && !shcl_known_format(from)) {
+		up->current = 0;
+		up->bad_from = 1;
+	} else if (!newer) {
 		const char *format = NULL;
 		told = from_format(text, len, mtime, from, &format);
 		step = s_first_rewrite(told ? format : shcl_find_format(text, len, mtime));
@@ -5352,9 +5374,20 @@ static uint32_t named_formats(ShclStr name) {
 	return left;
 }
 
+int shcl_known_format(const char *name) {
+	if (!name) return 0;
+	for (size_t i = 0; i < SHCL_FORMAT_NAME_COUNT; i++) {
+		const char *n = shcl_format_names[i][0];
+		size_t major = strcspn(n, ".");
+		if (!strcmp(n, name) || (strlen(name) == major && !strncmp(n, name, major))) return 1;
+	}
+	return 0;
+}
+
 /* What a caller's from names, read as a stamp naming it would be, in place
    of the text's own stamp: 0 when there's no from, or it names no format
-   shcl knows, so the text's stamp and the scan decide. Else 1, with the
+   shcl knows, so the text's stamp and the scan decide. A caller checks
+   shcl_known_format first. Else 1, with the
    format in *format, NULL for a newer format than this reader's, which leaves
    nothing to do. A major alone, such as `1`, leaves its formats to the mtime
    and the tells. */
@@ -6338,9 +6371,13 @@ typedef struct { ShclHeirKind kind; size_t node; ShclSpot spot; size_t at; } Shc
 
 /* adopt for what takes the place of what went, which a list's settle needs
    outside a document: right above its line, after its own comments, with
-   its blank above them. */
+   its blank above them. A blank above a comment among them goes, since it
+   would set the heir's own comments off from its line (2026112017363707).
+   One above a kept line stays, as kept lines do. */
 static void adopt_heir(shcl_doc *d, ShclNode *nd, ShclVecLead lines) {
 	if (!lines.len) return;
+	for (size_t i = 0; i < lines.len; i++)
+		if (!lead_is_kept_line(&lines.data[i])) lines.data[i].blank_before = 0;
 	lines.data[0].blank_before = nd->blank_before;
 	nd->blank_before = 0;
 	ShclTrivia *t = triv_mut(&d->arena, nd);
@@ -7882,6 +7919,26 @@ static void stamp_hint(ShclParser *P, ShclStr text) {
 	arena_reset(P->hints);
 }
 
+/* Re-open lines by node, then line, for H009. */
+static int reopen_cmp(const void *pa, const void *pb) {
+	const ShclFoldRec *x = (const ShclFoldRec *)pa, *y = (const ShclFoldRec *)pb;
+	if (x->node != y->node) return x->node < y->node ? -1 : 1;
+	return x->line < y->line ? -1 : x->line > y->line;
+}
+
+/* The single H009 wording site for one child name, as the hint lists it and
+   the suppressor matches it. */
+static ShclStr h009_item(ShclArena *a, ShclStr name) {
+	ShclSB s = {0};
+	sb_putc(a, &s, '\'');
+	sb_putS(a, &s, diag_name(a, name));
+	sb_putc(a, &s, '\'');
+	return sb_S(&s);
+}
+
+/* A block opened again by a line with no value, whose children then repeat
+   ones from before it, gets H009 on that line too: 2 plain blocks became
+   one. */
 static void emit_repeated_leaf_hints(ShclParser *P) {
 	ShclArena *a = &P->d->arena;
 	/* Grouping bookkeeping (name buckets, member lists, joined displays) is
@@ -7895,12 +7952,34 @@ static void emit_repeated_leaf_hints(ShclParser *P) {
 	/* The member list is made only when a name repeats. Nearly every name is
 	   seen once, and a list per child was most of what this pass allocated. */
 	typedef struct { size_t first; ShclVecSize nodes; } Group;
+	typedef struct { ShclVecS names; ShclStr example; } Joined;
+	/* Node -> the later lines that opened it again, each with no value, in the
+	   parse's scratch, which outlives this pass. */
+	ShclFoldRec *ro = NULL; size_t nro = 0, rk = 0;
+	if (P->folded.len) {
+		ro = (ShclFoldRec *)arena_alloc(P->tmp, P->folded.len * sizeof *ro);
+		for (size_t k = 0; k < P->folded.len; k++) {
+			ShclFoldRec f = P->folded.data[k];
+			if (f.line != NODE(P->d, f.node).line && NODE(P->d, f.node).value.kind == V_EMPTY) ro[nro++] = f;
+		}
+		if (nro > 1) qsort(ro, nro, sizeof *ro, reopen_cmp);
+	}
 	for (size_t parent = 0; parent < P->d->nodes.len; parent++) {
 		ShclVecSize ch = NODE(P->d, parent).children;
+		size_t rlo = rk;
+		while (rk < nro && ro[rk].node == parent) rk++;
 		if (ch.len < 2) continue;
 		/* p_diag copies the message out, so nothing from one parent is needed
 		   by the next. */
 		arena_reset(tmp);
+		size_t nopen = 0; size_t *opens = NULL; Joined *joined = NULL;
+		if (rk > rlo) {
+			opens = (size_t *)arena_alloc(tmp, (rk - rlo) * sizeof *opens);
+			for (size_t k = rlo; k < rk; k++)
+				if (!nopen || opens[nopen - 1] != ro[k].line) opens[nopen++] = ro[k].line;
+			joined = (Joined *)arena_alloc(tmp, nopen * sizeof *joined);
+			memset(joined, 0, nopen * sizeof *joined);
+		}
 		ShclVecS names = {0}; Group *groups = NULL; size_t ngroups = 0, cgroups = 0;
 		ShclCMap group_of; memset(&group_of, 0, sizeof group_of);
 		for (size_t k = 0; k < ch.len; k++) {
@@ -7933,7 +8012,63 @@ static void emit_repeated_leaf_hints(ShclParser *P) {
 			ShclSB m = {0}; sb_putS(tmp, &m, h001_head(tmp, names.data[gi])); sb_putc(tmp, &m, '[');
 			for (size_t k = 0; k < grp.len && k < SHCL_DIAG_LIST_MAX; k++) { if (k) sb_puts(tmp, &m, ", "); sb_putS(tmp, &m, diag_value(tmp, &NODE(P->d, grp.data[k]).value)); }
 			diag_list_end(tmp, &m, grp.len, "]'?");
+			/* Spellings that fold to one name, in first-appearance order. */
+			ShclVecS spell = {0};
+			ShclCMap seen; memset(&seen, 0, sizeof seen);
+			for (size_t k = 0; k < grp.len; k++) {
+				ShclStr au = node_authored(&NODE(P->d, grp.data[k]));
+				uint64_t h = cmap_hash(au, s_empty());
+				int dup = 0;
+				for (ShclCMapEnt *e = cmap_first(&seen, h); e; e = cmap_next(e, h)) // a hit names an entry pushed beside it
+					SHCL_ANALYZER_SKIP if (s_eq(spell.data[e->val], au)) { dup = 1; break; }
+				if (!dup) { cmap_put(tmp, &seen, h, spell.len); ShclVecS_push(tmp, &spell, au); }
+			}
+			if (spell.len > 1) {
+				sb_puts(tmp, &m, " - ");
+				for (size_t k = 0; k < spell.len && k < SHCL_DIAG_LIST_MAX; k++) { if (k) sb_puts(tmp, &m, ", "); sb_putS(tmp, &m, h009_item(tmp, spell.data[k])); }
+				if (spell.len > SHCL_DIAG_LIST_MAX) sb_puts(tmp, &m, ", ...");
+				if (spell.len > SHCL_DIAG_LIST_MAX) {
+					char n[48];
+					snprintf(n, sizeof n, " (and %zu more)", spell.len - SHCL_DIAG_LIST_MAX);
+					sb_puts(tmp, &m, n);
+				}
+				sb_puts(tmp, &m, " are spellings of one name, since names ignore case");
+			}
 			p_diag(P, maxline, SHCL_SEV_HINT, "H001", sb_S(&m));
+			if (!nopen) continue;
+			/* A member past re-open k, with one before it: the block that line
+			   opened repeats a child from before. */
+			size_t first = grp.data[0];
+			for (size_t k = 1; k < grp.len; k++)
+				if (NODE(P->d, grp.data[k]).line < NODE(P->d, first).line) first = grp.data[k];
+			size_t earliest = NODE(P->d, first).line;
+			for (size_t k = 0; k < grp.len; k++) {
+				size_t ln = NODE(P->d, grp.data[k]).line, lo = 0, hi = nopen;
+				while (lo < hi) { size_t mid = lo + (hi - lo) / 2; if (opens[mid] < ln) lo = mid + 1; else hi = mid; }
+				if (lo == 0 || earliest >= opens[lo - 1]) continue;
+				Joined *j = &joined[lo - 1];
+				if (j->names.len && s_eq(j->names.data[j->names.len - 1], names.data[gi])) continue;
+				if (!j->names.len) j->example = diag_value(tmp, &NODE(P->d, first).value);
+				ShclVecS_push(tmp, &j->names, names.data[gi]);
+			}
+		}
+		for (size_t k = 0; k < nopen; k++) {
+			ShclVecS jn = joined[k].names;
+			if (!jn.len) continue;
+			ShclSB m = {0};
+			for (size_t q = 0; q < jn.len && q < SHCL_DIAG_LIST_MAX; q++) { if (q) sb_puts(tmp, &m, ", "); sb_putS(tmp, &m, h009_item(tmp, jn.data[q])); }
+			diag_list_end(tmp, &m, jn.len, "");
+			ShclStr block = diag_name(tmp, NODE(P->d, parent).name);
+			sb_puts(tmp, &m, jn.len == 1 ? " repeats in '" : " repeat in '");
+			sb_putS(tmp, &m, block);
+			sb_puts(tmp, &m, "', since this line and line ");
+			sb_put_u64(tmp, &m, NODE(P->d, parent).line);
+			sb_puts(tmp, &m, " both open it with no value, so they are one block - for separate blocks, give each a value, as in '");
+			sb_putS(tmp, &m, block);
+			sb_puts(tmp, &m, ": ");
+			sb_putS(tmp, &m, joined[k].example);
+			sb_putc(tmp, &m, '\'');
+			p_diag(P, opens[k], SHCL_SEV_HINT, "H009", sb_S(&m));
 		}
 	}
 	arena_free(tmp);
@@ -15483,8 +15618,9 @@ static ShclVecS v_disavowed_names(shcl_doc *schema, ShclArena *tmp, int (*pick)(
 static void suppress_repeats_in(ShclArena *tmp, shcl_doc *schema, shcl_doc *doc) { // NOLINT(bugprone-easily-swappable-parameters): one caller, shcl_load_and_validate_with
 	ShclVecS names = v_disavowed_names(schema, tmp, v_pick_repeat);
 	if (!names.len) return;
-	ShclVecS heads = {0};
+	ShclVecS heads = {0}, items = {0};
 	for (size_t k = 0; k < names.len; k++) ShclVecS_push(tmp, &heads, h001_head(tmp, names.data[k]));
+	for (size_t k = 0; k < names.len; k++) ShclVecS_push(tmp, &items, h009_item(tmp, names.data[k]));
 	size_t w = 0;
 	for (size_t i = 0; i < doc->diags.len; i++) {
 		ShclDiag dg = doc->diags.data[i];
@@ -15494,6 +15630,22 @@ static void suppress_repeats_in(ShclArena *tmp, shcl_doc *schema, shcl_doc *doc)
 			for (size_t k = 0; k < heads.len; k++) {
 				ShclStr h = heads.data[k];
 				if (m.n >= h.n && memcmp(m.p, h.p, h.n) == 0) { drop = 1; break; }
+			}
+		} else if (strcmp(dg.code, "H009") == 0) {
+			/* H009 goes with the H001s of the children it names, so it goes
+			   when every one it shows is disavowed. It lists them first, and
+			   they're matched against the builder's own pieces. */
+			ShclStr rest = dg.message;
+			for (;;) {
+				size_t hit = (size_t)-1;
+				for (size_t k = 0; k < items.len; k++) {
+					ShclStr it = items.data[k];
+					if (rest.n >= it.n && memcmp(rest.p, it.p, it.n) == 0) { hit = k; break; }
+				}
+				if (hit == (size_t)-1) break;
+				rest.p += items.data[hit].n; rest.n -= items.data[hit].n;
+				if (!(rest.n >= 3 && memcmp(rest.p, ", '", 3) == 0)) { drop = 1; break; }
+				rest.p += 2; rest.n -= 2;
 			}
 		}
 		if (!drop) doc->diags.data[w++] = dg;
@@ -16804,7 +16956,10 @@ static shcl_doc *s_load_file_any(const char *path, shcl_strictness s, int keep, 
 	char *buf = shcl_read_file(path, 0, &len, &st);
 	if (status) *status = st;
 	shcl_doc *d;
-	if (buf && migrate) {
+	// A name no format has converts nothing, and the load says so, as a
+	// schema that doesn't load is a V099 at line 0.
+	int bad_from = migrate && from && !shcl_known_format(from);
+	if (buf && migrate && !bad_from) {
 		// from names the format, whatever the stamp and the mtime say.
 		int64_t mtime = 0;
 		const int64_t *mt = s_file_mtime(path, &mtime) ? &mtime : NULL;
@@ -16820,6 +16975,16 @@ static shcl_doc *s_load_file_any(const char *path, shcl_strictness s, int keep, 
 		if (d) d->lost += mig.lost;
 	} else {
 		d = !buf ? shcl_parse_with("", 0, s) : keep ? shcl_parse_keep_lines(buf, len, s) : shcl_parse_with(buf, len, s);
+	}
+	if (d && buf && bad_from) {
+		ShclSB m = {0};
+		sb_puts(&d->arena, &m, "no format has the name ");
+		sb_putS(&d->arena, &m, v_one_line_in(&d->arena, s_lit(from), "'", "'"));
+		sb_puts(&d->arena, &m, " given as from, so the file was read as it is");
+		push_diag(d, 0, SHCL_SEV_ERROR, "E030", sb_S(&m));
+		ShclDiag first = d->diags.data[d->diags.len - 1];
+		memmove(d->diags.data + 1, d->diags.data, (d->diags.len - 1) * sizeof *d->diags.data);
+		d->diags.data[0] = first;
 	}
 	// The file's own bytes, so a save over it is no change.
 	if (d && buf) { d->read_text = buf; d->read_len = len; buf = NULL; }
@@ -17122,6 +17287,13 @@ shcl_upgrade_error shcl_upgrade_file(const char *path, const char *from, int ban
 	if (message) *message = NULL;
 	if (why) *why = SHCL_WRITE_OK;
 	memset(out, 0, sizeof *out);
+	if (from && !shcl_known_format(from)) {
+		ShclArena a = {0, 0, 0, 0, 0};
+		ShclStr shown = v_one_line_in(&a, s_lit(from), "'", "'");
+		shcl_upgrade_error r = upgrade_fail(message, SHCL_UPGRADE_BAD_FROM, "%s: no format has the name %.*s given as from; nothing written", path, (int)shown.n, shown.p);
+		arena_free(&a);
+		return r;
+	}
 	shcl_upgrade_error kept = s_check_kept_file(path, message, why);
 	if (kept != SHCL_UPGRADE_OK) return kept;
 	size_t len = 0;

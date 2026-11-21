@@ -275,8 +275,54 @@ static int a_caller_names_the_format_with_from() {
 	const auto up = shcl::upgrade_dated(tab, nov10, "3.0-a37", false);
 	CHECK(!up.current && up.text == made);
 	CHECK(shcl::upgrade_dated(made, nov10, "3.0-a37", false).current);
-	CHECK(shcl::upgrade_dated(tab, nov10, "4", false).current);
-	CHECK(shcl::upgrade_dated(tab, nov10, std::string_view("3.0-a37\0", 8), false).current);
+	CHECK(shcl::upgrade_dated(tab, nov10, "4", false).bad_from);
+	CHECK(shcl::upgrade_dated(tab, nov10, std::string_view("3.0-a37\0", 8), false).bad_from);
+	return test_id_end(fails);
+}
+
+// A from that names no format converts nothing, and each call says so
+// (2026112108444603). Some of the C runner's rows, through the veneer, and a
+// name holding a NUL, which names no format either.
+static int a_from_that_names_no_format_is_refused() {
+	test_id("dfksv", "a_from_that_names_no_format_is_refused");
+	const std::string text = "p: a,b\nq: \"C:\\new\"\n";
+	CHECK(shcl::known_format("2.0") && shcl::known_format("2") && shcl::known_format("3.0-231"));
+	CHECK(!shcl::upgrade(text, "2.0", false).bad_from);
+	for (const std::string_view name : {std::string_view("1.2"), std::string_view("2.0.0"), std::string_view("4"), std::string_view("2.0\0", 4)}) {
+		CHECK(!shcl::known_format(name));
+		const auto up = shcl::upgrade_dated(text, 1794268800, name, false);
+		CHECK(up.bad_from && !up.current && up.text == text && up.diagnostics.empty());
+		const auto m = shcl::migrate_unstamped(text, name);
+		CHECK(m.bad_from && !m.current && m.unfinished && m.text == text);
+	}
+#ifndef SHCL_NO_FILE_IO
+	const char *tmp = std::getenv("TMPDIR");
+	if (!tmp || !*tmp) tmp = std::getenv("TEMP");
+	if (!tmp || !*tmp) tmp = std::getenv("TMP");
+	const std::string dir = std::string(tmp && *tmp ? tmp : "/tmp") + "/shcl-veneer-badfrom-" + std::to_string((long)getpid());
+#ifdef _WIN32
+	CHECK(_mkdir(dir.c_str()) == 0);
+#else
+	CHECK(mkdir(dir.c_str(), 0700) == 0);
+#endif
+	const std::string f = dir + "/f.shcl";
+	CHECK(shcl::write_file_atomic(f, text) == shcl::WriteStatus::Ok);
+	const auto up = shcl::upgrade_file(f, "2.0.0", false);
+	CHECK(up.second && up.second->kind == shcl::UpgradeErrorKind::BadFrom);
+	CHECK(shcl::read_file(f).first == text);
+	shcl::LoadOptions opts;
+	opts.migrate = true;
+	opts.from = "2.0.0";
+	const auto loaded = shcl::Document::load_file_opts(f, shcl::Strictness::Standard, opts);
+	const auto ds = loaded.first.diagnostics();
+	CHECK(loaded.second == shcl::FileStatus::HadErrors && !ds.empty() && ds[0].line == 0 && ds[0].code == "E030");
+	CHECK(std::remove(f.c_str()) == 0);
+#ifdef _WIN32
+	CHECK(_rmdir(dir.c_str()) == 0);
+#else
+	CHECK(rmdir(dir.c_str()) == 0);
+#endif
+#endif
 	return test_id_end(fails);
 }
 
@@ -291,10 +337,10 @@ static int migrate_reads_from_as_upgrade_does() {
 	const auto m = shcl::migrate(tab, "3.0-a37");
 	CHECK(!m.current && m.text == made);
 	CHECK(shcl::migrate(made, "3.0-a37").current);
-	CHECK(shcl::migrate(tab, "4").current);
+	CHECK(shcl::migrate(tab, "4").bad_from);
 	CHECK(shcl::migrate(tab, "3.0").current);
 	CHECK(shcl::migrate_unstamped(tab, "3.0-a37").text == "a: \"x\xe2\x97\x89TAB\xe2\x97\x89y\"\n");
-	CHECK(shcl::migrate(tab, std::string_view("3.0-a37\0", 8)).text == shcl::migrate(tab, std::nullopt).text);
+	CHECK(shcl::migrate(tab, std::string_view("3.0-a37\0", 8)).bad_from);
 	return test_id_end(fails);
 }
 
@@ -312,12 +358,6 @@ static int migrate_says_when_it_could_not_finish() {
 	return test_id_end(fails);
 }
 
-#ifndef SHCL_NO_FILE_IO
-// A save over the file a load read refuses when another program changed
-// it since, writes nothing, and writes with force. A save over a file the
-// document never read, a parse's included, is refused the same way, and
-// nothing at the path is written (2026102910482342, 2026110613470307,
-// 2026110907535001). The C runner's fixture, through the veneer.
 // Every text a save writes names this format: a stamp is rewritten where it
 // is, with its own head, and a text with none gets one as its last line. A
 // newer format's stamp stays, and so does a kept text that ends in a raw block
@@ -349,6 +389,12 @@ static int a_save_names_this_format() {
 	return test_id_end(fails);
 }
 
+#ifndef SHCL_NO_FILE_IO
+// A save over the file a load read refuses when another program changed
+// it since, writes nothing, and writes with force. A save over a file the
+// document never read, a parse's included, is refused the same way, and
+// nothing at the path is written (2026102910482342, 2026110613470307,
+// 2026110907535001). The C runner's fixture, through the veneer.
 static int a_save_over_a_file_changed_since_the_load_is_refused() {
 	test_id("dekkn", "a_save_over_a_file_changed_since_the_load_is_refused");
 	const char *tmp = std::getenv("TMPDIR");
@@ -1638,6 +1684,8 @@ int main() {
 	fails = 0;
 	const int mig_from = migrate_reads_from_as_upgrade_does();
 	fails = 0;
+	const int bad_from = a_from_that_names_no_format_is_refused();
+	fails = 0;
 	const int unfinished = migrate_says_when_it_could_not_finish();
 	fails = 0;
 #ifndef SHCL_NO_FILE_IO
@@ -1655,8 +1703,8 @@ int main() {
 	fails = 0;
 	const int no_banner = upgrade_can_leave_the_info_block_off();
 	fails = 0;
-	return changed | spellings | created | newer | migrating | with_banner | no_banner | a_path_holding_a_nul_is_refused() | threads | stamped | no_text | found | upconv | told | mig_from | unfinished | smoke;
+	return changed | spellings | created | newer | migrating | with_banner | no_banner | a_path_holding_a_nul_is_refused() | threads | stamped | no_text | found | upconv | told | mig_from | bad_from | unfinished | smoke;
 #else
-	return threads | stamped | no_text | found | upconv | told | mig_from | unfinished | smoke;
+	return threads | stamped | no_text | found | upconv | told | mig_from | bad_from | unfinished | smoke;
 #endif
 }

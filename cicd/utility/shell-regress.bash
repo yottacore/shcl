@@ -3865,7 +3865,7 @@ for name in ("shcl.bash", "_shcl"):
     if name == "shcl.bash":
         c = sub(c, "paths migrate upgrade tokens explain help", "paths migrate upgrade tokens explain ping help", name + ": the command list")
     else:
-        pl = TAB * 2 + "'paths:every field path in the document'"
+        pl = TAB * 2 + "'paths:print every field path in the document'"
         c = sub(c, pl, pl + NL + TAB * 2 + "'ping:say nothing'", name + ": the paths description")
     open(fix + "/source/completions/" + name, "w").write(c)
 PYEOF

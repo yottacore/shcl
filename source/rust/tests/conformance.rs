@@ -8208,12 +8208,12 @@ fn a_file_whose_stamp_mtime_and_content_disagree_loads_and_upgrades_by_its_read(
 /// A caller's `from` names the format a file was written in, by a name in
 /// `FORMAT_NAMES` or a major alone, in place of its stamp and what
 /// `find_format` reads off it, in `upgrade` and the load. A name no format
-/// has is no `from`, and a newer format's leaves the file alone. A file
+/// has is refused, as `dfksh` checks. A file
 /// stamped this format whole is what a told upgrade writes, so a second run
 /// leaves it alone (2026111918111481). Same rows in every runner.
 // migrate reads a caller's `from` as upgrade does, with no mtime, and takes
-// that format's step. A format whose steps rewrite nothing, and a newer one,
-// leave the text alone, and a name no format has is no `from`. A pin's
+// that format's step. A format whose steps rewrite nothing leaves the text
+// alone, and a name no format has is refused, as `dfksh` checks. A pin's
 // rewrite names this format whole, so a second run with the same pin leaves
 // it alone (2026111919213927). Same table in every runner.
 #[test]
@@ -8226,13 +8226,11 @@ fn migrate_reads_from_as_upgrade_does() {
 	let tab_made = "a: \"x\u{25c9}TAB\u{25c9}y\"\n##    Format   3.0\n";
 	// The text, from, and the text migrate gives, which is the input when
 	// it's current.
-	let cases: [(&str, &str, &str); 10] = [
+	let cases: [(&str, &str, &str); 8] = [
 		(sq, "2.0", &sq_made),
 		(sq, "1", &sq_made),
 		(sq, "3.0", sq),
 		(sq, "3.0-9ef", sq),
-		(sq, "3.1", sq),
-		(sq, "4", sq),
 		(tab, "3.0-a37", tab_made),
 		(tab, "3.0-231", tab_made),
 		(tab_made, "3.0-a37", tab_made),
@@ -8246,12 +8244,6 @@ fn migrate_reads_from_as_upgrade_does() {
 			"{text:?}, from {from}"
 		);
 	}
-	let none = migrate(sq, None);
-	let unknown = migrate(sq, Some("1.2"));
-	assert_eq!(
-		(unknown.text, unknown.ambiguous, unknown.lost),
-		(none.text, none.ambiguous, none.lost)
-	);
 	assert_eq!(
 		migrate_unstamped(tab, Some("3.0-a37")).text,
 		"a: \"x\u{25c9}TAB\u{25c9}y\"\n"
@@ -8311,7 +8303,7 @@ fn a_caller_names_the_format_with_from() {
 	let pinned = format!("{tab}## SHCL format 3.0-9ef\n");
 	// The text, the mtime, from, and the text upgrade gives, which is the
 	// input when it's current.
-	let cases: [(&str, i64, Option<&str>, &str); 16] = [
+	let cases: [(&str, i64, Option<&str>, &str); 13] = [
 		(sq, nov10, None, sq),
 		(sq, nov10, Some("2.0"), &sq_made),
 		(sq, nov10, Some("1"), &sq_made),
@@ -8322,9 +8314,6 @@ fn a_caller_names_the_format_with_from() {
 		(tab, nov10, Some("3.0-9ef"), tab),
 		(tab, oct10, None, &tab_made),
 		(tab, oct10, Some("3.0"), tab),
-		(tab, oct10, Some("3.1"), tab),
-		(tab, oct10, Some("4"), tab),
-		(tab, oct10, Some("1.2"), &tab_made),
 		(&pinned, nov10, None, &pinned),
 		(&pinned, nov10, Some("3.0-a37"), &tab_made),
 		(&tab_made, nov10, Some("3.0-a37"), &tab_made),
@@ -8364,6 +8353,110 @@ fn a_caller_names_the_format_with_from() {
 			doc.to_text_keep_lines().map(|t| t.0),
 			Ok(want),
 			"load, from {from:?}"
+		);
+	}
+	let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `from` takes a name in `FORMAT_NAMES` or the major of one alone, as
+/// `known_format` says. Any other name converts nothing, and each call says
+/// so: `bad_from` from the text calls, `BadFrom` from `upgrade_file`, which
+/// writes nothing, and an `E030` at line 0 from a load with `migrate`, which
+/// reads the file as it is (2026112108444603). Same rows in every runner.
+#[test]
+fn a_from_that_names_no_format_is_refused() {
+	let _id = test_id("dfksh");
+	use shcl::{FileStatus, LoadOptions, Severity, UpgradeError, known_format};
+	for (name, format) in FORMAT_NAMES {
+		let major = name.split('.').next().unwrap();
+		assert!(
+			known_format(name) && known_format(format) && known_format(major),
+			"{name}"
+		);
+	}
+	let text = "p: a,b\nq: \"C:\\new\"\n";
+	let up = upgrade(text, Some("2.0"), false);
+	assert!(!up.bad_from && !up.current && up.text != text);
+	assert!(!migrate(text, Some("2")).bad_from);
+	let dir = std::env::temp_dir().join(format!("shcl-bad-from-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(&dir).unwrap();
+	let f = dir.join("f.shcl").to_str().unwrap().to_string();
+	std::fs::write(&f, text).unwrap();
+	// Not "", which is no `from` in Go.
+	for name in [
+		"1.2", "2.0.0", "v2.0", "02", "3.1", "4", "3.0-zzz", " 2.0", "2.0\n",
+	] {
+		assert!(!known_format(name), "{name:?}");
+		let up = upgrade_dated(text, Some(1794268800), Some(name), true);
+		assert_eq!(
+			(
+				up.text.as_str(),
+				up.current,
+				up.bad_from,
+				up.ambiguous,
+				up.lost
+			),
+			(text, false, true, 0, 0),
+			"upgrade, from {name:?}"
+		);
+		assert!(
+			up.diagnostics.is_empty() && up.errors_left.is_empty(),
+			"{name:?}"
+		);
+		assert!(upgrade(text, Some(name), false).bad_from, "{name:?}");
+		for m in [
+			migrate(text, Some(name)),
+			migrate_unstamped(text, Some(name)),
+		] {
+			assert_eq!(
+				(m.text.as_str(), m.current, m.bad_from, m.unfinished),
+				(text, false, true, true),
+				"migrate, from {name:?}"
+			);
+			assert_eq!((m.ambiguous, m.lost), (0, 0), "{name:?}");
+		}
+		match upgrade_file(&f, Some(name), false) {
+			Err(UpgradeError::BadFrom { path, from }) => {
+				assert_eq!((path, from.as_str()), (f.clone(), name))
+			}
+			other => panic!("upgrade_file, from {name:?}: {other:?}"),
+		}
+		assert_eq!(std::fs::read_to_string(&f).unwrap(), text);
+		assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "{name:?}");
+		let opts = LoadOptions {
+			keep_lines: false,
+			migrate: true,
+			from: Some(name),
+		};
+		let (doc, st) = Document::load_file_opts(&f, Strictness::Standard, &opts).unwrap();
+		let (plain, _) = Document::load_file(&f);
+		let first = &doc.diagnostics()[0];
+		assert_eq!(
+			(first.line, first.severity, first.code),
+			(0, Severity::Error, "E030"),
+			"load, from {name:?}"
+		);
+		let codes = |d: &[shcl::Diagnostic]| d.iter().map(|d| (d.line, d.code)).collect::<Vec<_>>();
+		assert_eq!(
+			codes(&doc.diagnostics()[1..]),
+			codes(plain.diagnostics()),
+			"{name:?}"
+		);
+		assert_eq!(st, FileStatus::HadErrors, "{name:?}");
+		assert_eq!(doc.to_canonical(), plain.to_canonical(), "{name:?}");
+		assert!(
+			Document::load_file_opts(&f, Strictness::Strict, &opts).is_err(),
+			"{name:?}"
+		);
+		let off = LoadOptions {
+			migrate: false,
+			..opts
+		};
+		let (doc, _) = Document::load_file_opts(&f, Strictness::Standard, &off).unwrap();
+		assert!(
+			doc.diagnostics().iter().all(|d| d.code != "E030"),
+			"{name:?}"
 		);
 	}
 	let _ = std::fs::remove_dir_all(&dir);

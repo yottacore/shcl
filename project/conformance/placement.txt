@@ -1158,3 +1158,81 @@ k: 1, , 2
 a: 1, , 2
 	b: 1
 ## SHCL format 3.0
+
+:: row 2026112017363707-1 a rewritten list's comments go right under the field's own, with no blank from under a commented-out item among them
+:: before
+# the list
+hosts:
+	#- a
+
+	# b is the spare
+	- b
+z: 1
+:: ops
+literal	hosts	b
+:: expected
+# the list
+#- a
+# b is the spare
+hosts: b
+z: 1
+## SHCL format 3.0
+:: keep
+# the list
+#- a
+# b is the spare
+hosts: b
+z: 1
+## SHCL format 3.0
+
+:: row 2026112017363707-2 a merge that writes the list in brackets puts its comments right under the field's own
+:: before
+# the list
+hosts:
+	#- a
+
+	# b is the spare
+	- b
+z: 1
+:: merge
+# the list
+hosts:
+	#- a
+
+	# b is the spare
+	- b
+z: 1
+:: expected
+# the list
+#- a
+# b is the spare
+hosts: [b]
+z: 1
+## SHCL format 3.0
+
+:: row 2026112017363707-3 a blank between 2 items with comments on both sides goes with the list rewrite
+:: before
+# the list
+hosts:
+	# x
+	- a
+
+	# b is the spare
+	- b
+z: 1
+:: ops
+literal	hosts	b
+:: expected
+# the list
+# x
+# b is the spare
+hosts: b
+z: 1
+## SHCL format 3.0
+:: keep
+# the list
+# x
+# b is the spare
+hosts: b
+z: 1
+## SHCL format 3.0

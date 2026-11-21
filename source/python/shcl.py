@@ -90,6 +90,7 @@ __all__ = [
 	"Upgrade",
 	"UpgradeAmbiguous",
 	"UpgradeBackupTaken",
+	"UpgradeBadFrom",
 	"UpgradeError",
 	"UpgradeErrorsLeft",
 	"UpgradeFailed",
@@ -105,6 +106,7 @@ __all__ = [
 	"format_value",
 	"format_version",
 	"generate",
+	"known_format",
 	"migrate",
 	"migrate_unstamped",
 	"parse_datetime",
@@ -447,7 +449,9 @@ class LoadOptions:
 	the file gets every check a plain load's does. from_ is the format the
 	file was written in, by a name in FORMAT_NAMES or a major alone, as
 	upgrade()'s from_. It overrides the file's stamp and what find_format()
-	reads off it. It is ignored without migrate."""
+	reads off it. It is ignored without migrate. A name known_format()
+	refuses converts nothing: the file is read as it is, with an E030 at
+	line 0."""
 	__slots__ = ("keep_lines", "migrate", "from_")
 
 	def __init__(self, keep_lines: bool = False, migrate: bool = False, from_: str | None = None) -> None:
@@ -1372,9 +1376,14 @@ _SPOT_LEADING, _SPOT_AFTER, _SPOT_HEAD, _SPOT_INSIDE, _SPOT_FOOTER = 0, 1, 2, 3,
 def _adopt_heir(nd, lines):
 	"""_adopt() for what takes the place of what went, which a list's settle
 	needs outside a document: right above its line, after its own comments,
-	with its blank above them."""
+	with its blank above them. A blank above a comment among them goes,
+	since it would set the heir's own comments off from its line
+	(2026112017363707). One above a kept line stays, as kept lines do."""
 	if not lines:
 		return
+	for ln in lines:
+		if not ln.is_kept_line():
+			ln.blank_before = False
 	lines[0].blank_before = nd.blank_before
 	nd.blank_before = False
 	nd._triv().leading.extend(lines)
@@ -2817,18 +2826,27 @@ class Migration:
 	off: ambiguous is nonzero, or a raw block never closes under either rule
 	set, where the line would be one more line of its content. A program that
 	writes the version line itself after migrate_unstamped leaves it off too,
-	or the next run takes the file as current."""
+	or the next run takes the file as current. bad_from: from_ names no
+	format known_format() takes, such as `1.2` or `2.0.0`, so nothing was
+	converted: text is the input, and unfinished is set."""
 
-	__slots__ = ("text", "current", "ambiguous", "lost", "unfinished")
+	__slots__ = ("text", "current", "ambiguous", "lost", "unfinished", "bad_from")
 
 	def __init__(
-		self, text: str, current: bool = False, ambiguous: int = 0, lost: int = 0, unfinished: bool = False
+		self,
+		text: str,
+		current: bool = False,
+		ambiguous: int = 0,
+		lost: int = 0,
+		unfinished: bool = False,
+		bad_from: bool = False,
 	) -> None:
 		self.text = text
 		self.current = current
 		self.ambiguous = ambiguous
 		self.lost = lost
 		self.unfinished = unfinished
+		self.bad_from = bad_from
 
 
 class _Migrating:
@@ -2992,11 +3010,19 @@ def _named_formats(name: str) -> int:
 	return left
 
 
+def known_format(name: str) -> bool:
+	"""Whether from_ takes name: a name in FORMAT_NAMES, or the major of one
+	alone, such as `2`. Every call that takes from_ refuses any other name,
+	a newer format's and a pin no row has included, and converts nothing,
+	since a mistyped name read as no from_ would quietly do something else."""
+	return any(n == name or n.split(".")[0] == name for n, _ in FORMAT_NAMES)
+
+
 def _from_format(text: str, mtime: float | None, from_: str | None) -> tuple[bool, str | None]:
 	"""What a caller's from_ names, read as a stamp naming it would be, in
 	place of the text's own stamp, and whether it was taken. Not taken when
 	there's no from_, or it names no format shcl knows, so the text's stamp
-	and the scan decide. None for a newer format than this reader's, which
+	and the scan decide. A caller checks known_format() first. None for a newer format than this reader's, which
 	leaves nothing to do. A major alone, such as `1`, leaves its formats to
 	the mtime and the tells."""
 	if from_ is None:
@@ -3581,9 +3607,9 @@ def migrate(text: str, from_: str | None) -> Migration:
 	it, and the rewrite is that format's step: from 1.0 to 2.0, the 2.x
 	rewrite with that format's reads of a quoted name and a selector, and from
 	3.0-1f8 to 3.0-a37, that pin's. Without it, a quoted name with a backslash
-	pair stays as typed and counts in lost. A name no format has, such as
-	`1.2`, is no from_. A format whose steps rewrite nothing, and a newer one,
-	leave the file untouched, and so does a pin's when the file's stamp names
+	pair stays as typed and counts in lost. A name known_format() refuses,
+	such as `1.2`, converts nothing and sets bad_from. A format whose steps
+	rewrite nothing leaves the file untouched, and so does a pin's when the file's stamp names
 	this format whole, which is what a rewrite from a pin names."""
 	return _migrate_from(text, from_, True)
 
@@ -3598,6 +3624,8 @@ def migrate_unstamped(text: str, from_: str | None) -> Migration:
 def _migrate_from(text: str, from_: str | None, stamp: bool) -> Migration:
 	"""migrate's reading of from_, as upgrade's with no mtime, into the step
 	the rewrite takes."""
+	if from_ is not None and not known_format(from_):
+		return Migration(text, unfinished=True, bad_from=True)
 	told, fmt = _from_format(text, None, from_)
 	step: _Step | None = _Step(_StepKind.V2, v2=_V2Read.EITHER)
 	if told:
@@ -3909,9 +3937,12 @@ class Upgrade:
 	from upgrade(), and when nothing was written. errors_left: with from_, the
 	input's lines still in error once converted; nonempty means nothing is
 	written and text is the input, since the next run with from_ would take
-	the fresh text for that format again."""
+	the fresh text for that format again. bad_from: from_ names no format
+	known_format() takes, such as `1.2` or `2.0.0`, so nothing was converted
+	and text is the input; current is False, since nothing said the file
+	needs nothing."""
 
-	__slots__ = ("text", "current", "format", "ambiguous", "lost", "diagnostics", "backup", "errors_left")
+	__slots__ = ("text", "current", "format", "ambiguous", "lost", "diagnostics", "backup", "errors_left", "bad_from")
 
 	def __init__(self, text: str, current: bool, format: int) -> None:
 		self.text = text
@@ -3922,6 +3953,7 @@ class Upgrade:
 		self.diagnostics: list[Diagnostic] = []
 		self.backup = ""
 		self.errors_left: list[int] = []
+		self.bad_from = False
 
 
 def upgrade(text: str, from_: str | None, banner: bool) -> Upgrade:
@@ -3941,10 +3973,11 @@ def upgrade(text: str, from_: str | None, banner: bool) -> Upgrade:
 	file. from_ names the format the file was written in, by a name in
 	FORMAT_NAMES or a major alone, read as a stamp naming it would be, in place
 	of the file's stamp and what find_format() reads off it. `from` is a
-	keyword, hence the underscore. A name no format has, such as `1.2`, is no
-	from_, and a newer format's leaves the file alone, as does a stamp naming a
-	newer one. With a 2.x or older format, a file that loads clean is still
-	made over when migrate would change it, as it would `p: a,b`, an array
+	keyword, hence the underscore. A name known_format() refuses, such as
+	`1.2`, a newer format's or a pin no row has, converts nothing and sets
+	bad_from. A stamp naming a newer format leaves the file alone. With a
+	2.x or older format, a file that loads clean is still made over when
+	migrate would change it, as it would `p: a,b`, an array
 	under 2.x and one string now. One it would not change that names an older
 	format gets this format on that Format line, and nothing else. A file
 	naming this major that loads with an error is taken as that format, as
@@ -3976,6 +4009,10 @@ def upgrade_dated(text: str, mtime: float | None, from_: str | None, banner: boo
 	named = read_format_version(text)
 	version = named.value if named.status is Status.Good else None
 	up = Upgrade(text, True, version if version is not None else 2)
+	if from_ is not None and not known_format(from_):
+		up.current = False
+		up.bad_from = True
+		return up
 	if _names_newer(named):
 		return up
 	# The load's step table, in its upgrade form, so a format whose run is
@@ -6021,12 +6058,23 @@ class _Parser:
 
 	def _emit_repeated_leaf_hints(self):
 		"""Legal input that looks like a common mistake: a field repeating as a bare
-		scalar leaf. Mandatory hint per spec (never fails a load)."""
+		scalar leaf. Mandatory hint per spec (never fails a load). A block opened
+		again by a line with no value, whose children then repeat ones from
+		before it, gets H009 on that line too: 2 plain blocks became one."""
 		hints = []
+		# Node -> the later lines that opened it again, each with no value.
+		reopens: dict = {}
+		for n, line, _ in self.folded:
+			if line != self.arena[n].line and self.arena[n].value.kind == "empty":
+				reopens.setdefault(n, []).append(line)
 		for parent in range(len(self.arena)):
 			children = self.arena[parent].children
 			if len(children) < 2:
 				continue
+			opens = sorted(set(reopens.pop(parent, ())))
+			# Per re-open line: the repeating names under it, and the value of
+			# the first one's earliest line, for the example.
+			joined: list = [[[], ""] for _ in opens]
 			# Group by name in first-appearance order: hint order must be
 			# deterministic or the cross-binding check can't compare `check` output.
 			# The member list is made only when a name repeats. Nearly every
@@ -6052,12 +6100,44 @@ class _Parser:
 					and self.arena[c].value.kind == "cell"
 					for c in group
 				)
-				if all_scalar_leaves:
-					line = max(self.arena[c].line for c in group)
-					shown = _diag_list((_diag_value(self.arena[c].value) for c in group), len(group))
-					hints.append((line, f"{_h001_head(name)}[{shown}]'?{_diag_more(len(group))}"))
-		for line, message in hints:
-			self._diag(Diagnostic(line, Severity.Hint, message, "H001"))
+				if not all_scalar_leaves:
+					continue
+				line = max(self.arena[c].line for c in group)
+				shown = _diag_list((_diag_value(self.arena[c].value) for c in group), len(group))
+				message = f"{_h001_head(name)}[{shown}]'?{_diag_more(len(group))}"
+				spellings = list(dict.fromkeys(self.arena[c].name_src for c in group))
+				if len(spellings) > 1:
+					names = _diag_list((f"'{_diag_name(a)}'" for a in spellings), len(spellings))
+					message += f" - {names}{_diag_more(len(spellings))} are spellings of one name, since names ignore case"
+				hints.append((line, message, "H001"))
+				if not opens:
+					continue
+				# A member past re-open k, with one before it: the block that
+				# line opened repeats a child from before.
+				first = min(group, key=lambda c: self.arena[c].line)
+				earliest = self.arena[first].line
+				for c in group:
+					k = bisect.bisect_left(opens, self.arena[c].line)
+					if k == 0 or earliest >= opens[k - 1]:
+						continue
+					j = joined[k - 1]
+					if not j[0] or j[0][-1] != name:
+						if not j[0]:
+							j[1] = _diag_value(self.arena[first].value)
+						j[0].append(name)
+			for k, (names, example) in enumerate(joined):
+				if not names:
+					continue
+				shown = _diag_list((_h009_item(n) for n in names), len(names))
+				verb = "repeats" if len(names) == 1 else "repeat"
+				block = _diag_name(self.arena[parent].name)
+				hints.append((opens[k], (
+					f"{shown}{_diag_more(len(names))} {verb} in '{block}', since this line and line "
+					f"{self.arena[parent].line} both open it with no value, so they are one block - "
+					f"for separate blocks, give each a value, as in '{block}: {example}'"
+				), "H009"))
+		for line, message, code in hints:
+			self._diag(Diagnostic(line, Severity.Hint, message, code))
 
 	def parse(self, text: str, strictness: Strictness) -> Document:
 		# UTF-8 BOM strip, then split keeping raw lines (CR stripped per line).
@@ -7975,6 +8055,11 @@ class Document:
 			# so its bytes are as unread as a parsed document's.
 			return doc, st
 		parsed, mig = text, None
+		# A name no format has converts nothing, and the load says so, as a
+		# schema that doesn't load is a V099 at line 0.
+		bad_from = migrate[0] if migrate is not None and migrate[0] is not None and not known_format(migrate[0]) else None
+		if bad_from is not None:
+			migrate = None
 		if migrate is not None:
 			# from_ names the format, whatever the stamp and the mtime say.
 			mtime = _file_mtime(path)
@@ -7988,6 +8073,10 @@ class Document:
 		# before the parse sees the text, so the funnel never meets them.
 		if mig is not None:
 			doc._lost += mig.lost
+		if bad_from is not None:
+			shown = _one_line_in(bad_from, "'", "'")
+			msg = f"no format has the name {shown} given as from, so the file was read as it is"
+			doc.diags.insert(0, Diagnostic(0, Severity.Error, msg, "E030"))
 		if keep:
 			doc._keep_source(parsed)
 		# The file's own bytes, so a save over it is no change.
@@ -11540,12 +11629,37 @@ def suppress_declared_repeats(schema: Document, diags: list[Diagnostic]) -> None
 	if not names:
 		return
 	heads = [_h001_head(n) for n in names]
+	# H009 goes with the H001s of the children it names, so it goes when
+	# every one it shows is disavowed.
+	items = [_h009_item(n) for n in names]
 	kept = []
 	for d in diags:
 		if d.code == "H001" and any(d.message.startswith(h) for h in heads):
 			continue
+		if d.code == "H009" and _h009_disavowed(d.message, items):
+			continue
 		kept.append(d)
 	diags[:] = kept
+
+
+def _h009_item(name):
+	"""The single H009 wording site for one child name, as the hint lists it
+	and the suppressor matches it."""
+	return f"'{_diag_name(name)}'"
+
+
+def _h009_disavowed(message, items):
+	"""Whether every child an H009 message lists, which it does first, is one
+	of items. Matched against the builder's own pieces, never re-parsed."""
+	rest = message
+	while True:
+		item = next((i for i in items if rest.startswith(i)), None)
+		if item is None:
+			return False
+		rest = rest[len(item):]
+		if not rest.startswith(", '"):
+			return True
+		rest = rest[2:]
 
 
 class FileStatus(Enum):
@@ -12359,6 +12473,18 @@ class UpgradeErrorsLeft(UpgradeError):
 		super().__init__(f"{path}: line(s) {', '.join(str(n) for n in lines)} would still have an error once converted from 2.x; nothing written")
 
 
+class UpgradeBadFrom(UpgradeError):
+	"""from_ names no format known_format() takes (Upgrade.bad_from)."""
+	path: str
+	from_: str
+
+	def __init__(self, path: str, from_: str):
+		self.path = path
+		self.from_ = from_
+		shown = _one_line_in(from_, "'", "'")
+		super().__init__(f"{path}: no format has the name {shown} given as from; nothing written")
+
+
 class UpgradeFailed(UpgradeError):
 	"""A read or write failed; the message is what was reported, and status
 	says why."""
@@ -12486,6 +12612,8 @@ def upgrade_file(path: str | os.PathLike[str], from_: str | None, banner: bool) 
 	one was made, and text is what the path now holds.
 	Raises an UpgradeError subclass for what it could not do."""
 	path = os.fspath(path)   # an int is a TypeError here, not a descriptor (see read_file)
+	if from_ is not None and not known_format(from_):
+		raise UpgradeBadFrom(path, from_)
 	_check_kept_file(path)
 	# Not read_file, whose one status for every failure would hide the
 	# system's reason (2026101514324707).

@@ -48,6 +48,7 @@ NOT_AN_EXAMPLE = {
 	"- value": "the spelling the row's message points to, not the fault",
 	"route: [GET, POST]": "the fault needs lines under it, which a table cell can't show",
 	"p: a,b": "the hint needs an older Format line above it",
+	"planet: Earth": "the fix the row's message points to, not the fault",
 }
 
 

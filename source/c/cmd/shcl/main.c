@@ -536,10 +536,17 @@ static const char *CODES =
 	"  value, the lines under it still load, under the instance it names. On a\n"
 	"  command line, quote the path, since a bare ( is a syntax error in most\n"
 	"  shells.\n"
+	"E030|error|a from that names no format, on a load with migrate\n"
+	"  A program loaded the file with migrate and a from that names no format,\n"
+	"  such as 1.2, or 2.0.0, a release number in place of a format. Nothing\n"
+	"  was converted, and the file was read as it is. Pass a name --from takes,\n"
+	"  such as 2.0 or 3.0-a37, or the major alone.\n"
 	"H001|hint|repeated bare leaf (an array written as repeated lines)\n"
 	"  Repeated leaves are legal, since that's how instances are written. But\n"
 	"  'tags: red' twice and 'tags: [red, blue]' look alike, so the parser says\n"
 	"  which one it read. A schema's repeat bound above 1 turns the hint off.\n"
+	"  Names ignore case, so 'Order: a' and 'order: b' repeat one name, and the\n"
+	"  hint names each spelling.\n"
 	"H002|hint|a binding merged with a non-adjacent earlier one\n"
 	"  The two have the same name and value, so they combine. That's legal, and\n"
 	"  only the parser can see it happened. The prose names the earlier line,\n"
@@ -570,6 +577,14 @@ static const char *CODES =
 	"  array element, a selector body, or a fence label, or right after it where\n"
 	"  that piece is empty. A blank before it, as in port: 80  # main, makes a\n"
 	"  plain comment. A fence label can't contain a '#'.\n"
+	"H009|hint|2 plain blocks merged into one, so their children repeat\n"
+	"  A line with no value that opens a block an earlier such line opened,\n"
+	"  under the same parent, joins that block, as 'planet:' twice does. A\n"
+	"  child under it that repeats one from before gets H001, and this hint\n"
+	"  names them on the later block's line. If 2 blocks were meant, give each\n"
+	"  a value, as in 'planet: Earth'. If arrays were meant, H001 has that\n"
+	"  advice. A schema's repeat bound above 1 on every child it names turns\n"
+	"  it off.\n"
 	"V001|error|unknown field\n"
 	"  No schema path matches it. Only the topmost unknown node is reported,\n"
 	"  and its subtree is skipped. The prose has the did-you-mean suggestion.\n"
@@ -1519,7 +1534,16 @@ static int do_migrate(const Opts *o) {
 	// The file says it was written for these rules, so there is nothing to do
 	// and nothing to write. Saying so beats printing the input back silently.
 	if (m.current) {
-		fprintf(stderr, "%s: nothing to migrate: the file already names its format\n", file);
+		// Without --from, only the file's own stamp makes it current. With it,
+		// a format whose steps rewrite nothing does too, stamp or not.
+		int stamped = 1;
+		if (o->from) {
+			shcl_migration bare = shcl_migrate(text, len, NULL);
+			stamped = bare.current;
+			free(bare.text);
+		}
+		if (stamped) fprintf(stderr, "%s: nothing to migrate: the file already names its format\n", file);
+		else fprintf(stderr, "%s: nothing to migrate: --from=%s reads the same as the current format\n", file, o->from);
 		if (!o->write && !o->check) fwrite(m.text, 1, m.len, stdout);
 		shcl_free(d); free(m.text); free(text);
 		return 0;
@@ -2379,16 +2403,6 @@ static void opts_free(Opts *o) {
 
 // Record the first competing pair. Only the first is kept: the line is already
 // a usage error, and a second pair would just change which one gets named.
-/* A name from reads: one in shcl_format_names, or the major of one alone. */
-static int known_format(const char *name) {
-	for (size_t i = 0; i < SHCL_FORMAT_NAME_COUNT; i++) {
-		const char *n = shcl_format_names[i][0];
-		size_t major = strcspn(n, ".");
-		if (!strcmp(n, name) || (strlen(name) == major && !strncmp(n, name, major))) return 1;
-	}
-	return 0;
-}
-
 static void note_clash(Opts *o, const char *opt, const char *a, const char *b) {
 	if (!o->clash[0]) { o->clash_opt = opt; o->clash[0] = a; o->clash[1] = b; }
 }
@@ -2419,7 +2433,7 @@ static int set_value_opt(Opts *o, const char *name, const char *v) {
 		if (o->schema && strcmp(o->schema, v)) note_clash(o, "--schema", o->schema, v);
 		o->schema = v; opt_seen(o, "--schema");
 	} else if (!strcmp(name, "--from")) {
-		if (!known_format(v)) { fprintf(stderr, "bad --from value (no format has that name): %s (see --help)\n", v); return 1; }
+		if (!shcl_known_format(v)) { fprintf(stderr, "bad --from value (no format has that name): %s (see --help)\n", v); return 1; }
 		if (o->from && strcmp(o->from, v)) note_clash(o, "--from", o->from, v);
 		o->from = v; opt_seen(o, "--from");
 	} else if (!strcmp(name, "--unit")) {
@@ -2455,6 +2469,22 @@ static int known_option(const char *name) {
 	size_t n = option_names(cands, sizeof cands / sizeof cands[0]);
 	for (size_t k = 0; k < n; k++) if (!strcmp(cands[k], name)) return 1;
 	return 0;
+}
+
+// Options a release took that a later one renamed, with the spelling that took
+// over. beta1's own hint names --from-2x, so a program built on it keeps
+// sending people to a flag that's gone.
+static const char *const RENAMED_OPTS[][2] = { { "--from-2x", "--from=2.0" } };
+
+// What an unknown option's message adds: where a renamed one went, or the
+// nearest real one.
+static void option_hint(char *out, size_t outsz, const char *name) {
+	for (size_t i = 0; i < sizeof RENAMED_OPTS / sizeof RENAMED_OPTS[0]; i++) {
+		if (!strcmp(RENAMED_OPTS[i][0], name)) { snprintf(out, outsz, "; it's '%s' now", RENAMED_OPTS[i][1]); return; }
+	}
+	const char *cands[64];
+	size_t n = option_names(cands, sizeof cands / sizeof cands[0]);
+	suggest(out, outsz, cands, n, name);
 }
 
 static int parse_opts(int argc, char **argv, int from, Opts *o) {
@@ -2508,7 +2538,6 @@ static int parse_opts(int argc, char **argv, int from, Opts *o) {
 		else if (a[0] == '-' && a[1] != '\0') {
 			// The suggestion is against the name half: `--stricness=1` is a typo
 			// in the option, not in a spelling that includes a value.
-			const char *cands[64];
 			char hint[96] = {0}, name[64] = {0};
 			const char *eq = strchr(a, '=');
 			size_t len = eq ? (size_t)(eq - a) : strlen(a);
@@ -2518,8 +2547,7 @@ static int parse_opts(int argc, char **argv, int from, Opts *o) {
 			// Every value option is matched above, so a real name here is a flag
 			// given a value. Calling it unknown would suggest it back.
 			if (known_option(name)) { fprintf(stderr, "option %s takes no value (see --help)\n", name); return 1; }
-			size_t n = option_names(cands, sizeof cands / sizeof cands[0]);
-			suggest(hint, sizeof hint, cands, n, name);
+			option_hint(hint, sizeof hint, name);
 			fprintf(stderr, "unknown option: %s%s (see --help)\n", a, hint);
 			return 1;
 		}
@@ -3200,14 +3228,13 @@ static int cli_main(int argc, char **argv) {
 			if (len >= sizeof name) len = sizeof name - 1;
 			memcpy(name, cmd, len);
 			name[len] = '\0';
-			size_t n = option_names(cands, sizeof cands / sizeof cands[0]);
 			if (known_option(name)) {
 				// It is a real option, just in front of the subcommand. Calling
 				// it unknown and then suggesting the same spelling back says
 				// nothing about what is actually wrong.
 				fprintf(stderr, "option %s goes after the subcommand (see --help)\n", name);
 			} else {
-				suggest(hint, sizeof hint, cands, n, name);
+				option_hint(hint, sizeof hint, name);
 				fprintf(stderr, "unknown option: %s%s (see --help)\n", cmd, hint);
 			}
 		} else {

@@ -278,7 +278,7 @@ rs = open(f"{root}/source/rust/src/lib.rs", encoding="utf-8").read()
 guide = open(f"{root}/project/style-guide_code.md", encoding="utf-8").read()
 # Python raises one exception class per variant of the reference's error
 # enums, and StatusError where get_* returns Err. Zone is a tuple in Python.
-python_only = {"SaveRefused", "SaveFailed", "SaveChanged", "SaveExists", "SaveTooNew", "UpgradeNotFound", "UpgradeAmbiguous", "UpgradeBackupTaken", "UpgradeFailed", "UpgradeErrorsLeft", "StatusError"}
+python_only = {"SaveRefused", "SaveFailed", "SaveChanged", "SaveExists", "SaveTooNew", "UpgradeNotFound", "UpgradeAmbiguous", "UpgradeBackupTaken", "UpgradeFailed", "UpgradeErrorsLeft", "UpgradeBadFrom", "StatusError"}
 rust_only = {"Zone"}
 def bound(body):
 	for st in body:
@@ -1429,7 +1429,7 @@ fTest dfdpp edits-move-lines-only-through-adopt
 ##	movers may come back, in any binding (2026110616475902).
 retiredMovers='\b_?(leave_above|leave_last|leave_below|leave_orphans|hand_blank|set_blank|blank_below|refile_folded|folded_kept|folded_span|drop_banners|leaveAbove|leaveLast|leaveBelow|handBlank|setBlank|blankBelow|refileFolded|foldedKept|foldedSpan|dropBanners)\b'
 for src in source/rust/src source/go source/python source/c; do
-	found="$(grep -rnE --include='*.rs' --include='*.go' --include='*.py' --include='*.h' --include='*.c' --include='*.cpp' --include='*.hpp' "${retiredMovers}" "${repoDir}/${src}" || true)"
+	found="$(fGrepOrNone grep -rnE --include='*.rs' --include='*.go' --include='*.py' --include='*.h' --include='*.c' --include='*.cpp' --include='*.hpp' "${retiredMovers}" "${repoDir}/${src}")" || fFeedBad $?
 	if [[ -n "${found}" ]]; then
 		while IFS= read -r hit; do
 			fBad "a retired line mover is back, where adopt should do it: ${hit#"${repoDir}/"}"

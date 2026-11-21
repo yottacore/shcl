@@ -1501,10 +1501,17 @@ type heir struct {
 
 // adoptHeir is adopt for what takes the place of what went, which a list's
 // settle needs outside a document: right above its line, after its own
-// comments, with its blank above them.
+// comments, with its blank above them. A blank above a comment among them
+// goes, since it would set the heir's own comments off from its line
+// (2026112017363707). One above a kept line stays, as kept lines do.
 func adoptHeir(nd *nodeData, lines []lead) {
 	if len(lines) == 0 {
 		return
+	}
+	for k := range lines {
+		if !lines[k].isKeptLine() {
+			lines[k].blankBefore = false
+		}
 	}
 	lines[0].blankBefore = nd.blankBefore
 	nd.blankBefore = false
@@ -3305,6 +3312,10 @@ type Migration struct {
 	// program that writes the version line itself after MigrateUnstamped
 	// leaves it off too, or the next run takes the file as current.
 	Unfinished bool
+	// BadFrom: from names no format KnownFormat takes, such as `1.2` or
+	// `2.0.0`, so nothing was converted: Text is the input, and Unfinished
+	// is set.
+	BadFrom bool
 }
 
 // migrating keeps the counters a line rewrite reports back, and the one
@@ -3491,9 +3502,24 @@ func namedFormats(name string) uint32 {
 	return left
 }
 
+// KnownFormat says whether from takes name: a name in FormatNames, or the
+// major of one alone, such as `2`. Every call that takes from refuses any
+// other name but "", which is none, a newer format's and a pin no row has
+// included, and converts nothing, since a mistyped name read as no from
+// would quietly do something else.
+func KnownFormat(name string) bool {
+	for _, row := range FormatNames {
+		if row[0] == name || strings.SplitN(row[0], ".", 2)[0] == name {
+			return true
+		}
+	}
+	return false
+}
+
 // fromFormat is what a caller's from names, read as a stamp naming it would
 // be, in place of the text's own stamp. told is false when from is "" or
-// names no format shcl knows, so the text's stamp and the scan decide. ok is
+// names no format shcl knows, so the text's stamp and the scan decide. A
+// caller checks KnownFormat first. ok is
 // false for a newer format than this reader's, which leaves nothing to do. A
 // major alone, such as `1`, leaves its formats to the mtime and the tells.
 func fromFormat(text string, mtime *int64, from string) (format string, ok, told bool) {
@@ -4265,9 +4291,9 @@ func stampHint(stamp Read[int]) (Diagnostic, bool) {
 // and the rewrite is that format's step: from 1.0 to 2.0, the 2.x rewrite with
 // that format's reads of a quoted name and a selector, and from 3.0-1f8 to
 // 3.0-a37, that pin's. Without it, "" here, a quoted name with a backslash
-// pair stays as typed and counts in Lost. A name no format has, such as `1.2`,
-// is no from. A format whose steps rewrite nothing, and a newer one, leave the
-// file untouched, and so does a pin's when the file's stamp names this format
+// pair stays as typed and counts in Lost. A name KnownFormat refuses, such as
+// `1.2`, converts nothing and sets BadFrom. A format whose steps rewrite
+// nothing leaves the file untouched, and so does a pin's when the file's stamp names this format
 // whole, which is what a rewrite from a pin names.
 func Migrate(text string, from string) Migration {
 	return migrateFrom(text, from, true)
@@ -4283,6 +4309,9 @@ func MigrateUnstamped(text string, from string) Migration {
 // migrateFrom is Migrate's reading of from, as Upgrade's with no mtime, into
 // the step the rewrite takes.
 func migrateFrom(text, from string, stamp bool) Migration {
+	if from != "" && !KnownFormat(from) {
+		return Migration{Text: text, Unfinished: true, BadFrom: true}
+	}
 	format, ok, told := fromFormat(text, nil, from)
 	s := step{kind: stepV2}
 	if told {
@@ -4727,6 +4756,10 @@ type Upgraded struct {
 	// since the next run with from would take the fresh text for that format
 	// again.
 	ErrorsLeft []int
+	// BadFrom: from names no format KnownFormat takes, such as `1.2` or
+	// `2.0.0`, so nothing was converted and Text is the input. Current is
+	// false, since nothing said the file needs nothing.
+	BadFrom bool
 }
 
 // Upgrade is a config file written for an older format, made over for this
@@ -4744,9 +4777,10 @@ type Upgraded struct {
 // rules, since a program calling this on every start must never rewrite a good
 // file. from names the format the file was written in, by a name in
 // FormatNames or a major alone, read as a stamp naming it would be, in place
-// of the file's stamp and what FindFormat reads off it. "" is none, and so is
-// a name no format has, such as `1.2`, and a newer format's leaves the file
-// alone, as does a stamp naming a newer one. With a 2.x or older format, a
+// of the file's stamp and what FindFormat reads off it. "" is none. A name
+// KnownFormat refuses, such as `1.2`, a newer format's or a pin no row has,
+// converts nothing and sets BadFrom. A stamp naming a newer format leaves the
+// file alone. With a 2.x or older format, a
 // file that loads clean is still made over when Migrate would change it, as
 // it would `p: a,b`, an array under 2.x and one string now. One it would not
 // change that names an older format gets this format on that Format line, and
@@ -4783,6 +4817,10 @@ func UpgradeDated(text string, mtime *int64, from string, banner bool) Upgraded 
 	up := Upgraded{Text: text, Current: true, Format: 2}
 	if hasVersion {
 		up.Format = version
+	}
+	if from != "" && !KnownFormat(from) {
+		up.Current, up.BadFrom = false, true
+		return up
 	}
 	if namesNewer(named) {
 		return up
@@ -7548,7 +7586,9 @@ func (p *parser) keepAmong(parent int, indent string) {
 // emitRepeatedLeafHints flags legal input that looks like a common mistake: a
 // field repeating as a bare scalar leaf. Mandatory hint per spec (never fails
 // a load). Groups are in first-appearance order so hint order is deterministic
-// across bindings.
+// across bindings. A block opened again by a line with no value, whose
+// children then repeat ones from before it, gets H009 on that line too: 2
+// plain blocks became one.
 func (p *parser) emitRepeatedLeafHints() {
 	// The node list is made only when a name repeats. Nearly every name is
 	// seen once, and a list per child was most of what this pass allocated.
@@ -7557,11 +7597,37 @@ func (p *parser) emitRepeatedLeafHints() {
 		first int
 		nodes []int
 	}
+	type joinRec struct {
+		names   []string
+		example string
+	}
+	// Node -> the later lines that opened it again, each with no value.
+	reopens := make(map[int][]int)
+	for _, f := range p.folded {
+		if f.line != p.arena[f.node].line && p.arena[f.node].value.kind == vEmpty {
+			reopens[f.node] = append(reopens[f.node], f.line)
+		}
+	}
 	for parent := range p.arena {
 		children := p.arena[parent].children
 		if len(children) < 2 {
 			continue
 		}
+		opens := reopens[parent]
+		if len(opens) > 0 {
+			sort.Ints(opens)
+			w := 1
+			for _, o := range opens[1:] {
+				if o != opens[w-1] {
+					opens[w] = o
+					w++
+				}
+			}
+			opens = opens[:w]
+		}
+		// Per re-open line: the repeating names under it, and the value of
+		// the first one's earliest line, for the example.
+		joined := make([]joinRec, len(opens))
 		byName := make([]group, 0, len(children))
 		groupOf := make(map[string]int)
 		for _, c := range children {
@@ -7593,6 +7659,8 @@ func (p *parser) emitRepeatedLeafHints() {
 			}
 			line := 0
 			vals := make([]string, 0, diagListMax)
+			var spellings []string
+			var seen map[string]bool
 			for _, c := range g.nodes {
 				if p.arena[c].line > line {
 					line = p.arena[c].line
@@ -7600,12 +7668,78 @@ func (p *parser) emitRepeatedLeafHints() {
 				if len(vals) < diagListMax {
 					vals = append(vals, diagValue(&p.arena[c].value))
 				}
+				if a := p.arena[c].authored(); !seen[a] {
+					if seen == nil {
+						seen = make(map[string]bool)
+					}
+					seen[a] = true
+					spellings = append(spellings, a)
+				}
+			}
+			message := fmt.Sprintf("%s[%s]'?%s", h001Head(g.name), diagList(vals, len(g.nodes)), diagMore(len(g.nodes)))
+			if len(spellings) > 1 {
+				shown := make([]string, 0, diagListMax)
+				for _, a := range spellings {
+					if len(shown) < diagListMax {
+						shown = append(shown, "'"+diagName(a)+"'")
+					}
+				}
+				message += fmt.Sprintf(" - %s%s are spellings of one name, since names ignore case", diagList(shown, len(spellings)), diagMore(len(spellings)))
 			}
 			p.diag(Diagnostic{
 				Line:     line,
 				Severity: SeverityHint,
-				Message:  fmt.Sprintf("%s[%s]'?%s", h001Head(g.name), diagList(vals, len(g.nodes)), diagMore(len(g.nodes))),
+				Message:  message,
 				Code:     "H001",
+			})
+			if len(opens) == 0 {
+				continue
+			}
+			// A member past re-open k, with one before it: the block that
+			// line opened repeats a child from before.
+			first := g.nodes[0]
+			for _, c := range g.nodes {
+				if p.arena[c].line < p.arena[first].line {
+					first = c
+				}
+			}
+			earliest := p.arena[first].line
+			for _, c := range g.nodes {
+				k := sort.SearchInts(opens, p.arena[c].line)
+				if k == 0 || earliest >= opens[k-1] {
+					continue
+				}
+				j := &joined[k-1]
+				if len(j.names) == 0 || j.names[len(j.names)-1] != g.name {
+					if len(j.names) == 0 {
+						j.example = diagValue(&p.arena[first].value)
+					}
+					j.names = append(j.names, g.name)
+				}
+			}
+		}
+		for k, j := range joined {
+			if len(j.names) == 0 {
+				continue
+			}
+			shown := make([]string, 0, diagListMax)
+			for _, n := range j.names {
+				if len(shown) < diagListMax {
+					shown = append(shown, h009Item(n))
+				}
+			}
+			verb := "repeat"
+			if len(j.names) == 1 {
+				verb = "repeats"
+			}
+			block := diagName(p.arena[parent].name)
+			p.diag(Diagnostic{
+				Line:     opens[k],
+				Severity: SeverityHint,
+				Message: fmt.Sprintf(
+					"%s%s %s in '%s', since this line and line %d both open it with no value, so they are one block - for separate blocks, give each a value, as in '%s: %s'",
+					diagList(shown, len(j.names)), diagMore(len(j.names)), verb, block, p.arena[parent].line, block, j.example),
+				Code: "H009",
 			})
 		}
 	}
@@ -10879,8 +11013,10 @@ func SuppressDeclaredRepeats(schema *Document, diags []Diagnostic) []Diagnostic 
 		return append([]Diagnostic(nil), diags...)
 	}
 	heads := make([]string, len(names))
+	items := make([]string, len(names))
 	for i, n := range names {
 		heads[i] = h001Head(n)
+		items[i] = h009Item(n)
 	}
 	// Filter into a fresh slice: the input commonly IS the document's own
 	// diagnostics list, so filtering in place would corrupt the caller's data.
@@ -10898,9 +11034,43 @@ func SuppressDeclaredRepeats(schema *Document, diags []Diagnostic) []Diagnostic 
 				continue
 			}
 		}
+		if d.Code == "H009" && h009Disavowed(d.Message, items) {
+			continue
+		}
 		kept = append(kept, d)
 	}
 	return kept
+}
+
+// h009Item is the single H009 wording site for one child name, as the hint
+// lists it and the suppressor matches it.
+func h009Item(name string) string {
+	return "'" + diagName(name) + "'"
+}
+
+// h009Disavowed says whether every child an H009 message lists, which it
+// does first, is one of items. Matched against the builder's own pieces,
+// never re-parsed.
+func h009Disavowed(message string, items []string) bool {
+	rest := message
+	for {
+		found := ""
+		for _, it := range items {
+			if strings.HasPrefix(rest, it) {
+				found = it
+				break
+			}
+		}
+		if found == "" {
+			return false
+		}
+		rest = rest[len(found):]
+		r, ok := strings.CutPrefix(rest, ", ")
+		if !ok || !strings.HasPrefix(r, "'") {
+			return true
+		}
+		rest = r
+	}
 }
 
 // fileMtime is path's mtime in Unix seconds, or nil when it can't be read or
@@ -11411,15 +11581,21 @@ const (
 	// UpgradeErrorsLeft: with from, the fresh text would still have an
 	// error on the input's Lines (Upgraded.ErrorsLeft).
 	UpgradeErrorsLeft
+	// UpgradeBadFrom: From names no format KnownFormat takes
+	// (Upgraded.BadFrom).
+	UpgradeBadFrom
 )
 
 // UpgradeError is the error UpgradeFile and WriteBackup return, so a caller
 // can tell the cases apart with errors.As rather than by the message.
 type UpgradeError struct {
 	Kind UpgradeErrorKind
-	// Path is the file for UpgradeNotFound, UpgradeAmbiguous and
-	// UpgradeErrorsLeft, and the backup's name for UpgradeBackupTaken.
+	// Path is the file for UpgradeNotFound, UpgradeAmbiguous,
+	// UpgradeErrorsLeft and UpgradeBadFrom, and the backup's name for
+	// UpgradeBackupTaken.
 	Path string
+	// From is the name given, for UpgradeBadFrom.
+	From string
 	// Count is Upgraded.Ambiguous, for UpgradeAmbiguous.
 	Count int
 	// Lines is Upgraded.ErrorsLeft, for UpgradeErrorsLeft.
@@ -11446,6 +11622,8 @@ func (e *UpgradeError) Error() string {
 		}
 		return fmt.Sprintf("%s: line(s) %s would still have an error once converted from 2.x; nothing written",
 			e.Path, strings.Join(lines, ", "))
+	case UpgradeBadFrom:
+		return fmt.Sprintf("%s: no format has the name %s given as from; nothing written", e.Path, oneLineIn(e.From, "'", "'"))
 	}
 	return e.Err.Error()
 }
@@ -11578,6 +11756,9 @@ func checkKeptFile(path string) error {
 // On success Backup names the copy when one was made, and Text is what the
 // path now holds. A failure is an *UpgradeError.
 func UpgradeFile(path, from string, banner bool) (Upgraded, error) {
+	if from != "" && !KnownFormat(from) {
+		return Upgraded{}, &UpgradeError{Kind: UpgradeBadFrom, Path: path, From: from}
+	}
 	if err := checkKeptFile(path); err != nil {
 		return Upgraded{}, err
 	}
@@ -11882,7 +12063,9 @@ type LoadOptions struct {
 	Migrate bool
 	// From is the format the file was written in, by a name in FormatNames
 	// or a major alone, as Upgrade's from. It overrides the file's stamp and
-	// what FindFormat reads off it. "" is none. Ignored without Migrate.
+	// what FindFormat reads off it. "" is none. Ignored without Migrate. A
+	// name KnownFormat refuses converts nothing: the file is read as it is,
+	// with an E030 at line 0.
 	From string
 }
 
@@ -11917,7 +12100,10 @@ func loadFileAny(path string, level Strictness, keep, migrate bool, from string)
 		return doc, st
 	}
 	parsed, mig := text, Migration{}
-	if migrate {
+	// A name no format has converts nothing, and the load says so, as a
+	// schema that doesn't load is a V099 at line 0.
+	badFrom := migrate && from != "" && !KnownFormat(from)
+	if migrate && !badFrom {
 		// from names the format, whatever the stamp and the mtime say.
 		mtime := fileMtime(path)
 		format, ok, told := fromFormat(text, mtime, from)
@@ -11931,6 +12117,10 @@ func loadFileAny(path string, level Strictness, keep, migrate bool, from string)
 	// migrate's count, summed as a merge sums a layer's. Its lines are gone
 	// before the parse sees the text, so the funnel never meets them.
 	doc.lost += mig.Lost
+	if badFrom {
+		msg := "no format has the name " + oneLineIn(from, "'", "'") + " given as from, so the file was read as it is"
+		doc.diags = append([]Diagnostic{{Line: 0, Severity: SeverityError, Message: msg, Code: "E030"}}, doc.diags...)
+	}
 	if keep {
 		doc.keepSource(parsed)
 	}
