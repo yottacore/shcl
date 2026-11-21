@@ -220,7 +220,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - check-migrate wants a file stamped `Format 3.0` that loads with an error left alone by `upgrade --from=2.0`, which converts it
 	- ID: 2026112017370795
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261120-173707
@@ -233,6 +233,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261120. The Rust CLI on dev at `f9f1a9fc` and on nov20c rewrites `fuzz_00042` with `--from=2.0` to the same fresh file, and leaves it alone without. `key: 1`, `~x`, a blank, then `##    Format   3.0` does the same. check-migrate.bash is the same on both. Corpus 223 shifted the seeds, so dev's dump never had such a file.
 	- Possible cause: `fUpConverts3`, its `sed`, and the `elif` in `fUpFormat3` match only `Format   3` with nothing after it, which is beta1's spelling. Info blocks name `3.0` since 2026111708125373, so a `3.0` file falls to the branch that wants it untouched.
 	- Estimated effort: Low
+	- Actual cause: as the possible cause says. The 3 matches took only beta1's `Format   3`, so a file naming `3.0` that loads with an error fell to the branch that wants it untouched, though `--from=2.0` converts it as spec.md says.
+	- Actual effort: Low
+	- Actual fix: one pattern, `format3Ere`, takes a Format line naming `3`, `3.0` or a 3.0 pin and no newer minor, and `fUpConverts3`, its `sed` and the `elif` in `fUpFormat3` go through it. `ddmp8` has a fourth fixed file, `format30-bad` (`key: 1`, `~x`, a blank, `##    Format   3.0`), so the case no longer hangs on the fuzz seeds.
+	- Swept: every Format 3 match in check-migrate.bash. `fNamesFormat3` and the `ddmp8` loop already take `[3-9]`, and the swap check at line 156 does too. No other cicd or test script has `fUpConverts3`, `fUpFormat3` or the old pattern.
+	- Verified: check-migrate passed, 646 documents, 1 of the 18 naming format 3 converted with `--from=2.0`. A copy with the old pattern put back failed `ddmp7` on `fuzz_00042` and `ddmp8` on `format30-bad` and the count. shellcheck and `lint-report.bash --check --no-mark` passed.
+	- Branch: `nov21-2026112017370795`
+	- Test case: check-migrate `ddmp8` (`format30-bad`) and `ddmp7`.
+	- Acceptance signoff: Self-closed: reproduced, the new check failed with the old pattern and passes with the fix.
+	- Closed: 20261121-100622
+	- Closed reason: Done
+	- Decisions: me, 20261121: the pattern takes a 3.0 pin such as `3.0-a37` too, since spec.md says `from` takes any file naming this major that loads with an error. A newer minor such as `3.1` stays out, since the spec leaves that file alone whatever `from` says.
+	- Note: shell-regress failed 3 checks this change doesn't reach: `dcvej` (demo gif), `de1a8` (check-docs.bash) and `dc0b5` (completions fixture). The other 195 passed.
+	- 20261121: check-migrate `ddmp8` expected 2 fixed files that `--from=2.0` converts. It now expects 3, with `format30-bad` added.
 
 - A list rewrite keeps the blank under a comment that sits in an item's place, which cuts the field's own comment off from it
 	- ID: 2026112017363707
