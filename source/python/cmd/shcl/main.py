@@ -691,6 +691,21 @@ def _ascii_upper(s):
 	return "".join(chr(ord(c) - 32) if "a" <= c <= "z" else c for c in s)
 
 
+# Options a release took that a later one renamed, with the spelling that took
+# over. beta1's own hint names --from-2x, so a program built on it keeps sending
+# people to a flag that's gone.
+RENAMED_OPTS = (("--from-2x", "--from=2.0"),)
+
+
+def option_hint(name):
+	# What an unknown option's message adds: where a renamed one went, or the
+	# nearest real one.
+	for old, new in RENAMED_OPTS:
+		if old == name:
+			return f"; it's '{new}' now"
+	return suggest(option_names(), name)
+
+
 def known_option(name):
 	# A real option by any spelling, -w included. The suggestions draw on
 	# option_names alone, which leaves the short form out.
@@ -1031,7 +1046,7 @@ def parse_opts(argv):
 			# given a value. Calling it unknown would suggest it back.
 			if known_option(name):
 				raise ValueError(f"option {name} takes no value (see --help)")
-			raise ValueError(f"unknown option: {a}{suggest(option_names(), name)} (see --help)")
+			raise ValueError(f"unknown option: {a}{option_hint(name)} (see --help)")
 		else:
 			o.args.append(a)
 		i += 1
@@ -1838,7 +1853,12 @@ def do_migrate(o):
 	# The file says it was written for these rules, so there is nothing to do
 	# and nothing to write. Saying so beats printing the input back silently.
 	if m.current:
-		sys.stderr.write(f"{file}: nothing to migrate: the file already names its format\n")
+		# Without --from, only the file's own stamp makes it current. With it,
+		# a format whose steps rewrite nothing does too, stamp or not.
+		if o.from_ is not None and not shcl.migrate(text, None).current:
+			sys.stderr.write(f"{file}: nothing to migrate: --from={o.from_} reads the same as the current format\n")
+		else:
+			sys.stderr.write(f"{file}: nothing to migrate: the file already names its format\n")
 		if not o.write and not o.check:
 			sys.stdout.write(m.text)
 		return 0
@@ -2853,7 +2873,7 @@ def run(argv):
 				# nothing about what is actually wrong.
 				sys.stderr.write(f"option {name} goes after the subcommand (see --help)\n")
 			else:
-				sys.stderr.write(f"unknown option: {cmd}{suggest(option_names(), name)} (see --help)\n")
+				sys.stderr.write(f"unknown option: {cmd}{option_hint(name)} (see --help)\n")
 		else:
 			sys.stderr.write(f"unknown command: {cmd}{suggest(command_names(), cmd)} (see --help)\n")
 		return 1

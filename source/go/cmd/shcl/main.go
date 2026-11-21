@@ -1175,6 +1175,22 @@ func optionNames() []string {
 	return v
 }
 
+// renamedOpts is the options a release took that a later one renamed, with the
+// spelling that took over. beta1's own hint names --from-2x, so a program built
+// on it keeps sending people to a flag that's gone.
+var renamedOpts = [][2]string{{"--from-2x", "--from=2.0"}}
+
+// optionHint is what an unknown option's message adds: where a renamed one
+// went, or the nearest real one.
+func optionHint(name string) string {
+	for _, r := range renamedOpts {
+		if r[0] == name {
+			return "; it's '" + r[1] + "' now"
+		}
+	}
+	return suggest(optionNames(), name)
+}
+
 // knownOption is a real option by any spelling, -w included. The suggestions
 // draw on optionNames alone, which leaves the short form out.
 func knownOption(name string) bool {
@@ -1308,7 +1324,7 @@ func parseOpts(argv []string) (*opts, error) {
 				return nil, fmt.Errorf("option %s takes no value (see --help)", name)
 			}
 			return nil, fmt.Errorf("unknown option: %s%s (see --help)", a,
-				suggest(optionNames(), name))
+				optionHint(name))
 		default:
 			o.args = append(o.args, a)
 		}
@@ -2490,7 +2506,13 @@ func doMigrate(o *opts) int {
 	// The file says it was written for these rules, so there is nothing to do
 	// and nothing to write. Saying so beats printing the input back silently.
 	if m.Current {
-		fmt.Fprintf(os.Stderr, "%s: nothing to migrate: the file already names its format\n", file)
+		// Without --from, only the file's own stamp makes it current. With it,
+		// a format whose steps rewrite nothing does too, stamp or not.
+		if from != "" && !shcl.Migrate(text, "").Current {
+			fmt.Fprintf(os.Stderr, "%s: nothing to migrate: --from=%s reads the same as the current format\n", file, from)
+		} else {
+			fmt.Fprintf(os.Stderr, "%s: nothing to migrate: the file already names its format\n", file)
+		}
 		if !o.write && !o.check {
 			outs(m.Text)
 		}
@@ -3930,7 +3952,7 @@ func run() int {
 				fmt.Fprintf(os.Stderr, "option %s goes after the subcommand (see --help)\n", name)
 			} else {
 				fmt.Fprintf(os.Stderr, "unknown option: %s%s (see --help)\n",
-					cmd, suggest(optionNames(), name))
+					cmd, optionHint(name))
 			}
 		} else {
 			fmt.Fprintf(os.Stderr, "unknown command: %s%s (see --help)\n",

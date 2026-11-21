@@ -20,7 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `migrate()` and `migrate_unstamped()` take `from` in place of `from_v2` too, and convert by the named format's step, so `from` `2.0` gives a quoted name with a backslash pair its 2.0 reading, where `from_v2` kept it as typed and counted it lost.
 
-- `shcl migrate` and `shcl upgrade` take `--from=FORMAT` in place of `--from-2x`, and pass it to the library's `from`. `--from-2x` was `--from=2.0`. A name no format has is a usage error, exit 1, by the library's `known_format()`. The `H007` hint names `--from=FORMAT` too.
+- `shcl migrate` and `shcl upgrade` take `--from=FORMAT` in place of `--from-2x`, and pass it to the library's `from`. `--from-2x` was `--from=2.0`. A name no format has is a usage error, exit 1, by the library's `known_format()`. The `H007` hint names `--from=FORMAT` too. `--from-2x` is refused with a pointer to `--from=2.0`, since beta1's hint and docs still name it.
 
 - `upgrade()` and `upgrade_file()` take a `banner` argument after `from` (each binding's spelling). With it they write the info block as before. Without it, an old block comes off and the fresh text ends with the stamp a save writes. `shcl upgrade` still writes the block.
 
@@ -59,6 +59,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `load_file_opts()` with `migrate` loads a file that may be older than this format by converting it in memory, from the format `find_format()` gives its text and its mtime. A save of that document over the file gets every check a save does, a newer format's refusal included.
 
 ### Fixed
+
+- `shcl migrate --from=FORMAT` on a file with no stamp said the file already names its format when that format reads the same as this one, such as `--from=3.0`. It now says that `--from` reads the same as the current format.
 
 - `migrate()` and `migrate_unstamped()` say when the migration couldn't finish, in a new `unfinished` field (each binding's spelling). It's set for text that reads 2 ways or a raw block that never closes, which is when `migrate()` leaves its stamp off, so a program that writes the info block itself after `migrate_unstamped()` can leave the Format line off too. It used to get the same result as a migration that finished.
 

@@ -1117,6 +1117,20 @@ fn option_names() -> Vec<&'static str> {
 	v
 }
 
+/// Options a release took that a later one renamed, with the spelling that
+/// took over. beta1's own hint names `--from-2x`, so a program built on it
+/// keeps sending people to a flag that's gone.
+const RENAMED_OPTS: [(&str, &str); 1] = [("--from-2x", "--from=2.0")];
+
+/// What an unknown option's message adds: where a renamed one went, or the
+/// nearest real one.
+fn option_hint(name: &str) -> String {
+	match RENAMED_OPTS.iter().find(|(old, _)| *old == name) {
+		Some((_, new)) => format!("; it's '{}' now", new),
+		None => suggest(&option_names(), name),
+	}
+}
+
 /// A real option by any spelling, `-w` included. The suggestions draw on
 /// `option_names` alone, which leaves the short form out.
 fn known_option(name: &str) -> bool {
@@ -1265,7 +1279,7 @@ fn parse_opts(argv: &[String]) -> Result<Opts, String> {
 				return Err(format!(
 					"unknown option: {}{} (see --help)",
 					a,
-					suggest(&option_names(), name)
+					option_hint(name)
 				));
 			}
 			_ => o.args.push(argv[i].clone()),
@@ -2630,10 +2644,19 @@ fn do_migrate(o: &Opts) -> u8 {
 	// The file says it was written for these rules, so there is nothing to do
 	// and nothing to write. Saying so beats printing the input back silently.
 	if m.current {
-		errln!(
-			"{}: nothing to migrate: the file already names its format",
-			file
-		);
+		// Without --from, only the file's own stamp makes it current. With it,
+		// a format whose steps rewrite nothing does too, stamp or not.
+		match o.from.as_deref() {
+			Some(f) if !migrate(&text, None).current => errln!(
+				"{}: nothing to migrate: --from={} reads the same as the current format",
+				file,
+				f
+			),
+			_ => errln!(
+				"{}: nothing to migrate: the file already names its format",
+				file
+			),
+		}
 		if !o.write && !o.check {
 			out!("{}", m.text);
 		}
@@ -4096,11 +4119,7 @@ fn run_cli() -> u8 {
 				// nothing about what is actually wrong.
 				errln!("option {} goes after the subcommand (see --help)", name);
 			} else {
-				errln!(
-					"unknown option: {}{} (see --help)",
-					cmd,
-					suggest(&option_names(), name)
-				);
+				errln!("unknown option: {}{} (see --help)", cmd, option_hint(name));
 			}
 		} else {
 			errln!(

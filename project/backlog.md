@@ -451,7 +451,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `--from-2x` is an unknown option now, with no pointer to `--from=2.0`
 	- ID: 2026112108444472
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: Low
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261121-084444
@@ -469,12 +469,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- No alias (me, 20261121). beta1 is a pre-release, and an alias would stay in the help, the man page, and the completions for good. The dropped words `version`, `about`, and `donate` get a pointer and no alias too.
 		- For beta.2, though it's Low (me, 20261121). JC is fine with lower-priority work in beta.2.
+		- me, 20261121: the message reads `unknown option: --from-2x; it's '--from=2.0' now (see --help)`, in the place a typo's `did you mean` goes. A table of renamed options (`RENAMED_OPTS`, read by `option_hint`) serves both places an unknown option is reported, so it's said before the subcommand too, and with a value such as `--from-2x=1`. It's said for every subcommand, as `did you mean` is, since the options are read before the subcommand judges them.
 	- Note: beta.2 is the first release without the flag, so the pointer is needed then. beta1's `H007` hint and its docs say to run `shcl upgrade --from-2x`, and a program built on beta1 keeps saying it.
+	- Actual effort: Low
+	- Actual fix: `option_hint` in the 4 CLIs, in place of the bare `suggest` call at both unknown-option sites.
+	- Verified: `dfkvt` and `dfkvv` fail on the C CLI built from the round's tree, and pass on all 4 new CLIs. cli-regress over the 4 CLIs (689 rows, 4043 checks), `--backlog-run-quick rust go python c cli` (all 5 steps) and `lint-report.bash --check --no-mark` passed. A probe of `upgrade --from-2x`, `migrate --from-2x`, `--from-2x upgrade` and `--from-2` gave the same output from all 4.
+	- Swept: both unknown-option sites in each of the 4 CLIs (the option parse and the word before the subcommand). The help, man page and completions don't name `--from-2x`. The changelog's `--from=FORMAT` line names the pointer.
+	- Test case: cli-regress `dfkvt`, `dfkvv`.
+	- Branch: `nov21-2026112108444472`
+	- Commit: `bd6216b8`
+	- Acceptance signoff: Self-closed: the new rows were seen to fail on the old CLI, and the named gates passed.
+	- Closed: 20261121-104500
+	- Closed reason: Done
 
 - `shcl migrate --from=3.0` on a file with no stamp says the file already names its format
 	- ID: 2026111920301167
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: Low
 	- Target version: v3.0.0
 	- Opened: 20261119-203011
@@ -483,6 +494,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Steps to reproduce: `printf 'x: "a\\tb"\n' | shcl migrate --from=3.0 -`, or `--from=3.0-9ef`, or any format whose steps are all the same as this one's.
 	- Incorrect behavior: exit 0 with `nothing to migrate: the file already names its format`, though the file has no stamp. It's `--from` that named the format. All 4 CLIs say it.
 	- Expected behavior: the message says the named format reads the same under these rules, or names `--from`.
+	- Cause: the CLIs had one message for `current`, written when only a stamp could set it. A `--from` whose steps all rewrite nothing sets it too.
+	- Decisions:
+		- me, 20261121: with `--from`, the CLI asks `migrate` again without it. If that isn't current either, it was `--from` that made the file current, and the message is `nothing to migrate: --from=FORMAT reads the same as the current format`, with the name as given. Otherwise it stays `the file already names its format`, which is right for a pin's `--from` on a file stamped `3.0`. The second call runs only on this path, and uses the public API alone, so the 4 CLIs stay alike.
+	- Actual effort: Low
+	- Actual fix: the `current` branch of `do_migrate` in the 4 CLIs.
+	- Verified: `dfkvw` fails on the C CLI built from the round's tree, and passes on all 4 new CLIs. `dfkvx` (a pin's `--from` on a `3.0`-stamped file) passes on both, as the control. The gates named on 2026112108444472 passed. `--from=3.0`, `3.0-9ef` and `3` on an unstamped file, and a stamped file with and without `--from`, gave the same output from all 4.
+	- Swept: the one `current` message in each CLI's `migrate`. `upgrade` says `nothing to upgrade, left as is`, which holds either way.
+	- Test case: cli-regress `dfkvw`, `dfkvx`.
+	- Branch: `nov21-2026112108444472`
+	- Commit: `bd6216b8`
+	- Acceptance signoff: Self-closed: the new row was seen to fail on the old CLI, and the named gates passed.
+	- Closed: 20261121-104500
+	- Closed reason: Done
 
 - The C++ veneer's `de1a5` failed once under the quick gate, and passed 3 runs alone
 	- ID: 2026111912330703

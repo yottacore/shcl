@@ -1524,7 +1524,16 @@ static int do_migrate(const Opts *o) {
 	// The file says it was written for these rules, so there is nothing to do
 	// and nothing to write. Saying so beats printing the input back silently.
 	if (m.current) {
-		fprintf(stderr, "%s: nothing to migrate: the file already names its format\n", file);
+		// Without --from, only the file's own stamp makes it current. With it,
+		// a format whose steps rewrite nothing does too, stamp or not.
+		int stamped = 1;
+		if (o->from) {
+			shcl_migration bare = shcl_migrate(text, len, NULL);
+			stamped = bare.current;
+			free(bare.text);
+		}
+		if (stamped) fprintf(stderr, "%s: nothing to migrate: the file already names its format\n", file);
+		else fprintf(stderr, "%s: nothing to migrate: --from=%s reads the same as the current format\n", file, o->from);
 		if (!o->write && !o->check) fwrite(m.text, 1, m.len, stdout);
 		shcl_free(d); free(m.text); free(text);
 		return 0;
@@ -2452,6 +2461,22 @@ static int known_option(const char *name) {
 	return 0;
 }
 
+// Options a release took that a later one renamed, with the spelling that took
+// over. beta1's own hint names --from-2x, so a program built on it keeps
+// sending people to a flag that's gone.
+static const char *const RENAMED_OPTS[][2] = { { "--from-2x", "--from=2.0" } };
+
+// What an unknown option's message adds: where a renamed one went, or the
+// nearest real one.
+static void option_hint(char *out, size_t outsz, const char *name) {
+	for (size_t i = 0; i < sizeof RENAMED_OPTS / sizeof RENAMED_OPTS[0]; i++) {
+		if (!strcmp(RENAMED_OPTS[i][0], name)) { snprintf(out, outsz, "; it's '%s' now", RENAMED_OPTS[i][1]); return; }
+	}
+	const char *cands[64];
+	size_t n = option_names(cands, sizeof cands / sizeof cands[0]);
+	suggest(out, outsz, cands, n, name);
+}
+
 static int parse_opts(int argc, char **argv, int from, Opts *o) {
 	o->kind = "string"; o->kind_opt = o->kind_text = NULL; o->clash_opt = NULL; o->clash[0] = o->clash[1] = NULL;
 	o->array = 0; o->slots = 0; o->json = 0; o->paths = 0; o->deflt = NULL; o->on_bad = "flag"; o->on_bad_arg = NULL; o->on_bad_text = NULL;
@@ -2503,7 +2528,6 @@ static int parse_opts(int argc, char **argv, int from, Opts *o) {
 		else if (a[0] == '-' && a[1] != '\0') {
 			// The suggestion is against the name half: `--stricness=1` is a typo
 			// in the option, not in a spelling that includes a value.
-			const char *cands[64];
 			char hint[96] = {0}, name[64] = {0};
 			const char *eq = strchr(a, '=');
 			size_t len = eq ? (size_t)(eq - a) : strlen(a);
@@ -2513,8 +2537,7 @@ static int parse_opts(int argc, char **argv, int from, Opts *o) {
 			// Every value option is matched above, so a real name here is a flag
 			// given a value. Calling it unknown would suggest it back.
 			if (known_option(name)) { fprintf(stderr, "option %s takes no value (see --help)\n", name); return 1; }
-			size_t n = option_names(cands, sizeof cands / sizeof cands[0]);
-			suggest(hint, sizeof hint, cands, n, name);
+			option_hint(hint, sizeof hint, name);
 			fprintf(stderr, "unknown option: %s%s (see --help)\n", a, hint);
 			return 1;
 		}
@@ -3195,14 +3218,13 @@ static int cli_main(int argc, char **argv) {
 			if (len >= sizeof name) len = sizeof name - 1;
 			memcpy(name, cmd, len);
 			name[len] = '\0';
-			size_t n = option_names(cands, sizeof cands / sizeof cands[0]);
 			if (known_option(name)) {
 				// It is a real option, just in front of the subcommand. Calling
 				// it unknown and then suggesting the same spelling back says
 				// nothing about what is actually wrong.
 				fprintf(stderr, "option %s goes after the subcommand (see --help)\n", name);
 			} else {
-				suggest(hint, sizeof hint, cands, n, name);
+				option_hint(hint, sizeof hint, name);
 				fprintf(stderr, "unknown option: %s%s (see --help)\n", cmd, hint);
 			}
 		} else {

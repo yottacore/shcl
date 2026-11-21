@@ -1200,6 +1200,13 @@ rows=(
 	'dfhky|migrate-from-2x-gone|migrate --from-2x -|p: 1\n|1||^unknown option: --from-2x'
 	'dfhkz|migrate-from-major|migrate --from 2 -|x: a,b\n|0|x: [a, b]\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
 	'dfhm0|migrate-from-pin|migrate --from=3.0-a37 -|x: "a\\tb"\n|0|x: "a\xe2\x97\x89TAB\xe2\x97\x89b"\n##    Format   3.0\n|-'
+	## 2026112108444472: beta1's H007 hint names --from-2x, so the refusal says
+	## what took its place. 2026111920301167: a file with no stamp is current
+	## under a --from whose steps rewrite nothing, and that's what's said.
+	'dfkvt|migrate-from-2x-pointer|migrate --from-2x -|p: 1\n|1||^unknown option: --from-2x; it.s .--from=2\.0. now \(see --help\)$'
+	'dfkvv|upgrade-from-2x-pointer|upgrade --from-2x -|p: 1\n|1||^unknown option: --from-2x; it.s .--from=2\.0. now \(see --help\)$'
+	'dfkvw|migrate-from-same-format|migrate --from=3.0 -|x: "a\\tb"\n|0|x: "a\\tb"\n|^-: nothing to migrate: --from=3\.0 reads the same as the current format$'
+	'dfkvx|migrate-from-pin-stamped|migrate --from=3.0-a37 -|x: 1\n##    Format   3.0\n|0|x: 1\n##    Format   3.0\n|^-: nothing to migrate: the file already names its format$'
 	## The 2.x tab went in as it was, since "C:\temp" was E024 (2026100115323227).
 	## It is the TAB escape since 2026100207032800.
 	#'dcq6r|migrate-from-2x|migrate --from=2.0 %BS%|-|0|p: "C:\\temp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
@@ -3467,3 +3474,4 @@ echo "cli-regress: OK: ${#rows[@]} row(s) across ${#bindings[@]} binding(s), ${n
 ##		2026-11-01  version-then-copyright counts lines on BSD wc, which pads.
 ##		2026-11-07  @dir, and set --write to a folder or a directory-shaped path.
 ##		2026-11-20  --from=FORMAT, in place of --from-2x, which is a usage error now.
+##		2026-11-21  --from-2x points at --from=2.0, and migrate says when --from made a file current.
