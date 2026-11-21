@@ -35,6 +35,82 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- A merge of a layer with a kept `- name:` line loses one kept line from the canonical save, with a lost count of 0
+	- ID: 2026112113032005
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261121-130320
+	- Opened by: me, the nov21 gate's 2M release fuzz
+	- Related IDs: 2026112112314153
+	- Version and build: dev at `393765cb`, and nov21 at `86d615d1`
+	- Steps to reproduce: fuzz `dderx` at 2,000,000 in release, iteration 1757912. In Rust string form, base `"\n        srv: [1\n        - 2\n    - name:\n    - name:\n    - name:\nblk:\n\tbad name: ~~~\n\trun: 1\n\t~~~\na: \"a\u{25c9}Q\u{25c9}b\"\n"` through `parse_keep_lines`, `remove("blk")`, then a merge of `"\n\n        \"q.k\": 2\n            b: 3, 3\n        a: 4, 4\n    b: [5\n        \"q.k\": 6\n            a.b(x): [7\n    - name:\n"`.
+	- Incorrect behavior: the canonical save writes 3 `# - name:` lines where the base and the layer had 4 kept `- name:` lines, and `lost_count()` is 0, so the save isn't refused. `dderx` fails: "the canonical save lost kept line(s) [\"- name:\"]".
+	- Expected behavior: every kept line is written, or the lost count says so and the save refuses.
+	- Reproduced: 20261121, the steps through the Python library on dev at `393765cb`, on `2bd7d20f` and on nov21 at `86d615d1` give the same text. Smaller cases with one `- name:` line in the base and the layer keep both. Not judged yet whether the property misreads the 4 copies of one text or the merge drops one.
+	- Estimated effort: Avg
+
+- The placement property takes the items of a list under a misplaced line for the items of the list above it
+	- ID: 2026112113030549
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261121-130305
+	- Opened by: me, the nov21 gate's 2M release fuzz
+	- Related IDs: 2026111012160121
+	- Version and build: dev at `393765cb`, and nov21 at `86d615d1`
+	- Incorrect behavior: `dderx` failed at iteration 605071 of the 2M release run on a merge that wrote `hosts` and `~rv.tags` as bracket arrays: "hosts: comments [... \"# why\"] are now [...]". `# why` trails `- y` under `~rv.tags`, a misplaced line after `hosts`' items, and the merge put it above `tags:`, as design.md says. The property counted it among the lines `hosts` takes in.
+	- Reproduced: 20261121, `dderx` on dev at `393765cb` with corpus 224 added fails at the same iteration. The library gives the same text on dev and on nov21.
+	- Actual cause [Bug]: `placement_slips` took every anchor under a misplaced line before the next field as among the list's items, the items of a list under it that the merge rewrote too.
+	- Actual fix [Bug]: an item of a list under a misplaced line goes with its own list (`theirs` in `placement_slips`).
+	- Branch: `nov21-fix`
+	- Verified: the new `df50j` row fails with `theirs` off and passes with it. `dderx` passes past iteration 605071 in the 2M release run on nov21-fix.
+	- Swept: `mine` is used once more, for the lines `lead_over` reads, which this doesn't change. No other property reads a misplaced line's block.
+	- Test case: `df50j` (`the_placement_property_reads_a_list_replace`), a new row for the merge, and `dderx`.
+	- Acceptance signoff: Self-closed: a property misread, watched to fail on its new row.
+	- Closed: 20261121-130305
+	- Closed reason: Done
+
+- check-migrate checks a fuzz document its trim left naming format 3 as a 2.x file
+	- ID: 2026112112352726
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261121-123527
+	- Opened by: me, the nov21 gate's check-migrate
+	- Related IDs: 2026112017370795, 2026112110133815
+	- Version and build: dev at `393765cb`, and nov21 at `86d615d1`
+	- Steps to reproduce: run `cicd/utility/check-migrate.bash` on nov21. Its fuzz dump's `fuzz_00480` has `'C:\': ~~~` and a raw body with `##    Format   3` in it, indented. The trim takes the line that opens the block, since 2.x read the backslash as escaping the quote, so the indented Format line is outside any block.
+	- Incorrect behavior: `ddmp7` fails. `upgrade --from=2.0` backs the trimmed file up under `format-v3` rather than `format-v2`, and without `--from` it says "nothing to upgrade" at exit 0 with the file's error kept. The load reads the indented line as the file's Format line, but `fNamesFormat3` matches only one at the line start, so the check takes the file for 2.x.
+	- Expected behavior: `ddmp7` passes. A document the trim leaves naming format 3 is checked as one, or left out, since it is no 2.x file any more.
+	- Reproduced: 20261121, check-migrate on nov21 at `86d615d1` and on dev at `393765cb` with corpus 224's input added fail the same 7 lines on `fuzz_00480`. The fuzz dump is the same on both, so corpus 224 shifted the seeds onto it. The Rust CLI on dev and on nov21 gives the same upgrade results on the file with the block's opening line taken out.
+	- Possible cause: `fNamesFormat3` runs on the document before the trim, and its pattern, `formatHeadEre`, is anchored at the line start with no indent.
+	- Estimated effort: Low
+	- Note: check-migrate's `fUpgradeCheck` leaves such a document out, keyed by this ID: one with an error, an indented Format line naming 3 or later, and `migrate` saying it names its format. The OK line counts them. The fix takes it out.
+	- Verified: 20261121 on nov21-fix, check-migrate passes with the excuse, which leaves out only `fuzz_00480`, and failed `ddmp7` on it without.
+
+- A merge puts a comment the layer had under a block, above a blank, onto the next field in the base
+	- ID: 2026112112314153
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261121-123141
+	- Opened by: me, the nov21 gate's 2M release fuzz
+	- Related IDs: 2026112017363707, 2026110712372276, 2026111012160121
+	- Version and build: dev at `393765cb`, and nov21 at `86d615d1`
+	- Steps to reproduce: `printf 'a:\n\tb: y\n# about e\ne: y\n' > base.shcl`, `printf 'a:\n\tb: 2\n# note 6\n\nz: 1\n' > layer.shcl`, then `shcl fmt --layer=base.shcl layer.shcl`.
+	- Incorrect behavior: the output has `# note 6` right above `# about e`, then `e: y`, and the blank moves down above `z: 1`. So `comments("e")` gives both, though in the layer `# note 6` is set off from the line below it and reads as the line above's. All 4 CLIs give the same text. Fuzz `dderx` fails on it at iteration 98734 of the 2M release run on nov21, op 10, a merge.
+	- Expected behavior: `# note 6` stays with `a`'s block, with a blank between it and `# about e`, so `comments("e")` is `# about e` alone, since a run a blank sets off belongs to the line above (2026110712372276).
+	- Reproduced: 20261121, the steps in the Rust, Go and C CLIs on nov21 at `86d615d1`, and the Rust CLI and the Python library on dev at `393765cb`. `dderx` at 100,000 in release fails at iteration 98734 on dev with corpus 224 added, so it is older than the round. Corpus 224 shifted the seeds onto it.
+	- Possible cause: the merge writes the layer's trailing comments on a block at the end of that block, and the blank under them goes with the layer's next line, so they join the base's next run.
+	- Estimated effort: Avg
+	- Note: `placement_slips` in `fuzz_smoke.rs` excuses it with `layer_tail_joined`, keyed by this ID: on a merge, comments over a field's own run that the layer had above a blank under a block. The fix takes it out.
+	- Verified: 20261121 on nov21-fix, `dderx` in release fails at iteration 98734 without the excuse and passes 620,000 with it.
+
 - check-migrate reads a file stamped only `## SHCL format 3.0` as 2.x
 	- ID: 2026112110133815
 	- Type: Bug
