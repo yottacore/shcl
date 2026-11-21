@@ -1376,9 +1376,14 @@ _SPOT_LEADING, _SPOT_AFTER, _SPOT_HEAD, _SPOT_INSIDE, _SPOT_FOOTER = 0, 1, 2, 3,
 def _adopt_heir(nd, lines):
 	"""_adopt() for what takes the place of what went, which a list's settle
 	needs outside a document: right above its line, after its own comments,
-	with its blank above them."""
+	with its blank above them. A blank above a comment among them goes,
+	since it would set the heir's own comments off from its line
+	(2026112017363707). One above a kept line stays, as kept lines do."""
 	if not lines:
 		return
+	for ln in lines:
+		if not ln.is_kept_line():
+			ln.blank_before = False
 	lines[0].blank_before = nd.blank_before
 	nd.blank_before = False
 	nd._triv().leading.extend(lines)

@@ -70,6 +70,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A comment added above a field, by `set_comment` or as the note a default form leaves on the value it replaced, went above the field's blank line when a line kept for an error sat above the field. So the blank went above that kept line's comments, away from the field. The new comment goes under the blank now, right above the field, in every binding.
 
+- A setter or a merge that rewrites a stacked list kept a blank line from above a comment among its items, so the field's own comment ended up set off from the field and `comments` no longer read it. The comments among the items now go right above the field's line as one run under its own, in every binding.
+
 - `clear_comments` and `comments` on a field took or read the comments above a line kept for an error that sat right above the field, as well as the field's own. Those comments are the kept line's, so they stay now, as a remove of the field leaves them, in every binding.
 
 - A remove that took the last field under a field opened by a line kept for an error, with a misplaced line among the kept lines above it, moved every comment among those lines down with the misplaced line. A comment above a kept field line now stays above it, as when the removed line is cut by hand and the file is formatted.

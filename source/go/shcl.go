@@ -1501,10 +1501,17 @@ type heir struct {
 
 // adoptHeir is adopt for what takes the place of what went, which a list's
 // settle needs outside a document: right above its line, after its own
-// comments, with its blank above them.
+// comments, with its blank above them. A blank above a comment among them
+// goes, since it would set the heir's own comments off from its line
+// (2026112017363707). One above a kept line stays, as kept lines do.
 func adoptHeir(nd *nodeData, lines []lead) {
 	if len(lines) == 0 {
 		return
+	}
+	for k := range lines {
+		if !lines[k].isKeptLine() {
+			lines[k].blankBefore = false
+		}
 	}
 	lines[0].blankBefore = nd.blankBefore
 	nd.blankBefore = false

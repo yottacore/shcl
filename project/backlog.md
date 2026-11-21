@@ -260,7 +260,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A list rewrite keeps the blank under a comment that sits in an item's place, which cuts the field's own comment off from it
 	- ID: 2026112017363707
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261120-173637
@@ -275,6 +275,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: the placement property excuses it with `blank_kept` in `fuzz_smoke.rs`, keyed by this ID. The fix takes it out.
 	- Verified: 20261120 on nov20c-fix, with `blank_kept` forced false `dderx` fails at iteration 172087 at 200,000 in release, and with it `dderx`, `dd3t9` and `df50j` pass at 200,000.
 	- Estimated effort: Low
+	- Reproduced: 20261121, the Rust CLI on nov21 at `2bd7d20f`, the same output. With `# x` above `- a` in place of `#- a`, the blank between the 2 comments stays too.
+	- Actual cause [Bug]: `adopt_heir` cleared only the blank above the first line it moved. design.md kept a blank between 2 moved lines on purpose, so a blank above a comment among the items split the run above the field, and the field's own comments and the moved ones above that blank read as the line above's.
+	- Actual fix [Bug]: `adopt_heir` clears the blank above every comment it moves, in all 4 bindings (`adopt_heir` in `lib.rs` and `shcl.h`, `adoptHeir` in `shcl.go`, `_adopt_heir` in `shcl.py`). A blank above a kept line among them stays. The `blank_kept` excuse is out of `placement_slips`. design.md's "Lines an edit takes from their node" and the changelog say so.
+	- Actual effort: Low
+	- Against: the 2026110712372271 decision and design.md's "A blank between 2 of the lines that moved stays".
+	- Decisions:
+		- me, 20261121: a blank above a moved comment goes, whether a comment or an item sat above it, since keeping it cuts the field's own comments off from the field. One above a kept line stays, since kept lines stay as built and `df50j` pins that blank. Dropping every blank among the moved lines was the other option.
+	- Swept: both callers of `adopt_heir` in each binding, `unstack` (the setter's list replace and the merge's `bracket`) and the settle's move of kept lines from among a list's items through `adopt`'s `Takes` heir. `adopt`'s other heirs don't merge lines into a node's own run.
+	- Test case: placement rows `2026112017363707-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dderx`, `dd3t9`, `df50j`.
+	- Verified: the 3 rows fail on the Python library at `2bd7d20f` and pass on the change (`placement-watch.py`). `dderx` at 200,000 in release fails at iteration 172087 on the Rust library at `2bd7d20f` with the excuse out, and passes on the change, with `dd3t9` and `df50j`. `--skip=check-docs --backlog-run-quick rust go python c` passed all 5 steps, the 4 placement runners included. check-docs alone failed only `dc0c8` on a line committed on nov21 before this change. mdcheck and markdownlint gave no new findings.
+	- Needs local test suite run?: No
+	- Branch: `nov21-2026112017363707`
+	- Acceptance signoff: me, 20261121. Each new row was seen to fail without the fix, and `dderx` passes its failing iteration.
+	- Closed: 20261121-103024
+	- Closed reason: Done
 
 - A repeat the schema doesn't allow passes Strict, and a near-miss table merges with only a hint
 	- ID: 2026111016205701

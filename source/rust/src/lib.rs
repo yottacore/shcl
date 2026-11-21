@@ -1442,8 +1442,13 @@ enum Spot {
 
 /// adopt() for what takes the place of what went, which a list's settle
 /// needs outside a document: right above its line, after its own comments,
-/// with its blank above them.
+/// with its blank above them. A blank above a comment among them goes,
+/// since it would set the heir's own comments off from its line
+/// (2026112017363707). One above a kept line stays, as kept lines do.
 fn adopt_heir(heir: &mut NodeData, mut lines: Vec<Lead>) {
+	for l in lines.iter_mut().filter(|l| !l.is_kept_line()) {
+		l.blank_before = false;
+	}
 	let Some(first) = lines.first_mut() else {
 		return;
 	};

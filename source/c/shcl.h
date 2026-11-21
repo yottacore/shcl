@@ -6371,9 +6371,13 @@ typedef struct { ShclHeirKind kind; size_t node; ShclSpot spot; size_t at; } Shc
 
 /* adopt for what takes the place of what went, which a list's settle needs
    outside a document: right above its line, after its own comments, with
-   its blank above them. */
+   its blank above them. A blank above a comment among them goes, since it
+   would set the heir's own comments off from its line (2026112017363707).
+   One above a kept line stays, as kept lines do. */
 static void adopt_heir(shcl_doc *d, ShclNode *nd, ShclVecLead lines) {
 	if (!lines.len) return;
+	for (size_t i = 0; i < lines.len; i++)
+		if (!lead_is_kept_line(&lines.data[i])) lines.data[i].blank_before = 0;
 	lines.data[0].blank_before = nd->blank_before;
 	nd->blank_before = 0;
 	ShclTrivia *t = triv_mut(&d->arena, nd);
