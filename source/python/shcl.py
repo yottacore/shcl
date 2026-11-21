@@ -6058,12 +6058,23 @@ class _Parser:
 
 	def _emit_repeated_leaf_hints(self):
 		"""Legal input that looks like a common mistake: a field repeating as a bare
-		scalar leaf. Mandatory hint per spec (never fails a load)."""
+		scalar leaf. Mandatory hint per spec (never fails a load). A block opened
+		again by a line with no value, whose children then repeat ones from
+		before it, gets H009 on that line too: 2 plain blocks became one."""
 		hints = []
+		# Node -> the later lines that opened it again, each with no value.
+		reopens: dict = {}
+		for n, line, _ in self.folded:
+			if line != self.arena[n].line and self.arena[n].value.kind == "empty":
+				reopens.setdefault(n, []).append(line)
 		for parent in range(len(self.arena)):
 			children = self.arena[parent].children
 			if len(children) < 2:
 				continue
+			opens = sorted(set(reopens.pop(parent, ())))
+			# Per re-open line: the repeating names under it, and the value of
+			# the first one's earliest line, for the example.
+			joined: list = [[[], ""] for _ in opens]
 			# Group by name in first-appearance order: hint order must be
 			# deterministic or the cross-binding check can't compare `check` output.
 			# The member list is made only when a name repeats. Nearly every
@@ -6089,12 +6100,44 @@ class _Parser:
 					and self.arena[c].value.kind == "cell"
 					for c in group
 				)
-				if all_scalar_leaves:
-					line = max(self.arena[c].line for c in group)
-					shown = _diag_list((_diag_value(self.arena[c].value) for c in group), len(group))
-					hints.append((line, f"{_h001_head(name)}[{shown}]'?{_diag_more(len(group))}"))
-		for line, message in hints:
-			self._diag(Diagnostic(line, Severity.Hint, message, "H001"))
+				if not all_scalar_leaves:
+					continue
+				line = max(self.arena[c].line for c in group)
+				shown = _diag_list((_diag_value(self.arena[c].value) for c in group), len(group))
+				message = f"{_h001_head(name)}[{shown}]'?{_diag_more(len(group))}"
+				spellings = list(dict.fromkeys(self.arena[c].name_src for c in group))
+				if len(spellings) > 1:
+					names = _diag_list((f"'{_diag_name(a)}'" for a in spellings), len(spellings))
+					message += f" - {names}{_diag_more(len(spellings))} are spellings of one name, since names ignore case"
+				hints.append((line, message, "H001"))
+				if not opens:
+					continue
+				# A member past re-open k, with one before it: the block that
+				# line opened repeats a child from before.
+				first = min(group, key=lambda c: self.arena[c].line)
+				earliest = self.arena[first].line
+				for c in group:
+					k = bisect.bisect_left(opens, self.arena[c].line)
+					if k == 0 or earliest >= opens[k - 1]:
+						continue
+					j = joined[k - 1]
+					if not j[0] or j[0][-1] != name:
+						if not j[0]:
+							j[1] = _diag_value(self.arena[first].value)
+						j[0].append(name)
+			for k, (names, example) in enumerate(joined):
+				if not names:
+					continue
+				shown = _diag_list((_h009_item(n) for n in names), len(names))
+				verb = "repeats" if len(names) == 1 else "repeat"
+				block = _diag_name(self.arena[parent].name)
+				hints.append((opens[k], (
+					f"{shown}{_diag_more(len(names))} {verb} in '{block}', since this line and line "
+					f"{self.arena[parent].line} both open it with no value, so they are one block - "
+					f"for separate blocks, give each a value, as in '{block}: {example}'"
+				), "H009"))
+		for line, message, code in hints:
+			self._diag(Diagnostic(line, Severity.Hint, message, code))
 
 	def parse(self, text: str, strictness: Strictness) -> Document:
 		# UTF-8 BOM strip, then split keeping raw lines (CR stripped per line).
@@ -11586,12 +11629,37 @@ def suppress_declared_repeats(schema: Document, diags: list[Diagnostic]) -> None
 	if not names:
 		return
 	heads = [_h001_head(n) for n in names]
+	# H009 goes with the H001s of the children it names, so it goes when
+	# every one it shows is disavowed.
+	items = [_h009_item(n) for n in names]
 	kept = []
 	for d in diags:
 		if d.code == "H001" and any(d.message.startswith(h) for h in heads):
 			continue
+		if d.code == "H009" and _h009_disavowed(d.message, items):
+			continue
 		kept.append(d)
 	diags[:] = kept
+
+
+def _h009_item(name):
+	"""The single H009 wording site for one child name, as the hint lists it
+	and the suppressor matches it."""
+	return f"'{_diag_name(name)}'"
+
+
+def _h009_disavowed(message, items):
+	"""Whether every child an H009 message lists, which it does first, is one
+	of items. Matched against the builder's own pieces, never re-parsed."""
+	rest = message
+	while True:
+		item = next((i for i in items if rest.startswith(i)), None)
+		if item is None:
+			return False
+		rest = rest[len(item):]
+		if not rest.startswith(", '"):
+			return True
+		rest = rest[2:]
 
 
 class FileStatus(Enum):

@@ -664,6 +664,8 @@ H001|hint|repeated bare leaf (an array written as repeated lines)
   Repeated leaves are legal, since that's how instances are written. But
   'tags: red' twice and 'tags: [red, blue]' look alike, so the parser says
   which one it read. A schema's repeat bound above 1 turns the hint off.
+  Names ignore case, so 'Order: a' and 'order: b' repeat one name, and the
+  hint names each spelling.
 H002|hint|a binding merged with a non-adjacent earlier one
   The two have the same name and value, so they combine. That's legal, and
   only the parser can see it happened. The prose names the earlier line,
@@ -694,6 +696,14 @@ H008|hint|a '#' against text opens a comment
   array element, a selector body, or a fence label, or right after it where
   that piece is empty. A blank before it, as in port: 80  # main, makes a
   plain comment. A fence label can't contain a '#'.
+H009|hint|2 plain blocks merged into one, so their children repeat
+  A line with no value that opens a block an earlier such line opened,
+  under the same parent, joins that block, as 'planet:' twice does. A
+  child under it that repeats one from before gets H001, and this hint
+  names them on the later block's line. If 2 blocks were meant, give each
+  a value, as in 'planet: Earth'. If arrays were meant, H001 has that
+  advice. A schema's repeat bound above 1 on every child it names turns
+  it off.
 V001|error|unknown field
   No schema path matches it. Only the topmost unknown node is reported,
   and its subtree is skipped. The prose has the did-you-mean suggestion.

@@ -3122,6 +3122,56 @@ for b in "${bindings[@]}"; do
 	done
 done
 
+## 2 plain blocks that merge, so their children repeat, get H009 on the later
+## block's line, naming the earlier one and the children, with the same bytes
+## in all 4 (2026112015385902). A schema drops it once every child it lists
+## is disavowed, and keeps it while one isn't.
+fTest dfkwe merged-block-hint
+printf 'planet:\n\tname: Earth\n\tr: 6371\nplanet:\n\tname: Mars\n\tr: 3389\n' > "${tmpDir}/twoblocks.shcl"
+printf 'field: planet\nfield: planet.name\n\trepeat: [1, 2]\nfield: planet.r\n\trepeat: [1, 2]\n' > "${tmpDir}/twoblocks-all.shcl"
+printf 'field: planet\nfield: planet.name\n\trepeat: [1, 2]\nfield: planet.r\n' > "${tmpDir}/twoblocks-one.shcl"
+blockHint="line 4: Hint: H009 'name', 'r' repeat in 'planet', since this line and line 1 both open it with no value, so they are one block - for separate blocks, give each a value, as in 'planet: Earth'"
+blockWant=(
+	"plain|check ${tmpDir}/twoblocks.shcl|${blockHint}"
+	"all-disavowed|check --schema=${tmpDir}/twoblocks-all.shcl ${tmpDir}/twoblocks.shcl|"
+	"one-disavowed|check --schema=${tmpDir}/twoblocks-one.shcl ${tmpDir}/twoblocks.shcl|${blockHint}"
+)
+for b in "${bindings[@]}"; do
+	name="${b%%|*}"; cli="${b#*|}"
+	for w in "${blockWant[@]}"; do
+		IFS='|' read -r what cmd want <<<"${w}"
+		read -r -a cmdArgv <<<"${cmd}"
+		nRun+=1
+		"${cli}" "${cmdArgv[@]}" >/dev/null 2>"${tmpDir}/blockerr" || true
+		got="$(grep -E ' H009 ' "${tmpDir}/blockerr" || true)"
+		if [[ "${got}" != "${want}" ]]; then
+			echo "cli-regress: merged-block-hint [${name}]: ${what}: got: $(head -c 300 <<<"${got}")" >&2; nBad+=1
+		fi
+	done
+done
+
+## Names ignore case, so a repeat spelled 2 ways is one H001, and the hint
+## lists each spelling (2026111217560122).
+fTest dfkwf h001-case-spellings
+spellWant=(
+	"two|Order: a\norder: b\n|line 2: Hint: H001 'order' repeats as a bare leaf - did you mean 'order: [a, b]'? - 'Order', 'order' are spellings of one name, since names ignore case"
+	"same|order: a\norder: b\n|line 2: Hint: H001 'order' repeats as a bare leaf - did you mean 'order: [a, b]'?"
+	"many|Aa: 1\naA: 2\nAA: 3\naa: 4\nAa: 5\n|line 5: Hint: H001 'aa' repeats as a bare leaf - did you mean 'aa: [1, 2, 3, ...]'? (and 2 more) - 'Aa', 'aA', 'AA', ... (and 1 more) are spellings of one name, since names ignore case"
+)
+for b in "${bindings[@]}"; do
+	name="${b%%|*}"; cli="${b#*|}"
+	for w in "${spellWant[@]}"; do
+		IFS='|' read -r what text want <<<"${w}"
+		nRun+=1
+		# shellcheck disable=SC2059  ## the row's text is the format, for its \n
+		printf "${text}" | "${cli}" check - >/dev/null 2>"${tmpDir}/spellerr" || true
+		got="$(grep -E ' H001 ' "${tmpDir}/spellerr" | head -n 1 || true)"
+		if [[ "${got}" != "${want}" ]]; then
+			echo "cli-regress: h001-case-spellings [${name}]: ${what}: got: $(head -c 300 <<<"${got}")" >&2; nBad+=1
+		fi
+	done
+done
+
 ##	2026100814455655: --json has to read back through the two readers the help
 ##	names. jq -c . writes each line back byte for byte, which pins the escaping
 ##	to jq's, and jq and PowerShell's ConvertFrom-Json have to decode the same

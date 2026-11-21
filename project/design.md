@@ -374,6 +374,16 @@ Both points that were left open are settled:
 
 - Suppression works the same way as the H001 one, with a single wording site and a leaf-name match, and it's dropped where diagnostics and a schema meet.
 
+**2 plain blocks that merge and repeat their children get `H009`** (2026112015385902). `planet:` twice, each with a `name:` and an `r:`, is one block by the merge rule, since both lines have the same name and no value. Before, the only sign was `H001` on `name` and `r`, whose advice is an array, and nothing said the 2 blocks had become one. The hint goes on the later line that opened the block again, and names the earlier line and the children that repeat. It says to give each block a value, which is how 2 instances are written. `H001` and `H002` still report, since an array may be what was meant, and each reading gets its advice.
+
+- It's a hint with its own code, not a `Warning`. SHCL has 2 severities, and every consumer checked filters on Error, so a third level would show in none of them. A program that wants it to stop a load uses a schema, where it's `V008`.
+
+- A child is under the later block when its line is between that line and the next line that opens the block again. A dotted line further down that reaches the block counts with the last one, which is rare and only changes which line the hint is on.
+
+- The example value is the first repeating child's value under the earlier block, so `name: Earth` gives `planet: Earth`.
+
+- The prose lists the children first, so the suppressor matches them against the same pieces the builder wrote, as with `H001`. A list is cut at 3 like any list in a message, and the suppressor goes by the names it shows, which errs toward quiet, as the `H001` one does.
+
 **`* key: value` was a string with a hint (`H003`) rather than an error.** It was superseded with format 3. `- key: value` is `E027`, kept as written, and `H003` is retired. A colon before whitespace in a bare piece is an error everywhere now, so the hint had nothing left to point at. What follows is the 2.x record. `* key: value` is how YAML writes a list of objects, and it loaded silently as the string `key: value`, while the spec said an element didn't have a colon.
 
 - An error would refuse a value the bare-value rule takes everywhere else. `a: b: c` binds `b: c`, and `* note: text` means the same text.
@@ -597,6 +607,7 @@ The table is the rule. If a code's behavior ever disagrees with its row, the cod
 | `H003` | hint          | retired: the case is `E025` or `E027`
 | `H004` | hint          | retired: became `E024`, which is retired too
 | `H008` | hint          | changes nothing: the line has the outcome it has without it
+| `H009` | hint          | changes nothing: the block merges as the merge rule says, and the hint only says so
 
 - `spec.md` has what each code means, and [the value syntax design](design_docs/20261002-132445_value-syntax.md) explains why `E013`, `E014`, `E017`, `E019`, `E023`, and `E025` to `E028` work as they do. Format 3 moved `E017` from bound to retained, since reading an open quote as bare text would break the quote rule.
 

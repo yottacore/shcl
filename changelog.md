@@ -58,7 +58,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `load_file_opts()` with `migrate` loads a file that may be older than this format by converting it in memory, from the format `find_format()` gives its text and its mtime. A save of that document over the file gets every check a save does, a newer format's refusal included.
 
+- Hint `H009`: 2 plain blocks that merge into one, such as `planet:` twice, each with a `name:` under it, get a hint on the later block's line. It names the earlier line and the children that repeat, and says to give each block a value, as in `planet: Earth`. `H001` still reports, since arrays may be what was meant.
+
 ### Fixed
+
+- The `H001` hint on a repeat spelled 2 ways, as in `Order: a` then `order: b`, read like any other repeat. It now lists each spelling and says they're one name, since names ignore case.
 
 - `shcl migrate --from=FORMAT` on a file with no stamp said the file already names its format when that format reads the same as this one, such as `--from=3.0`. It now says that `--from` reads the same as the current format.
 

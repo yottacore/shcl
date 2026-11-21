@@ -7586,7 +7586,9 @@ func (p *parser) keepAmong(parent int, indent string) {
 // emitRepeatedLeafHints flags legal input that looks like a common mistake: a
 // field repeating as a bare scalar leaf. Mandatory hint per spec (never fails
 // a load). Groups are in first-appearance order so hint order is deterministic
-// across bindings.
+// across bindings. A block opened again by a line with no value, whose
+// children then repeat ones from before it, gets H009 on that line too: 2
+// plain blocks became one.
 func (p *parser) emitRepeatedLeafHints() {
 	// The node list is made only when a name repeats. Nearly every name is
 	// seen once, and a list per child was most of what this pass allocated.
@@ -7595,11 +7597,37 @@ func (p *parser) emitRepeatedLeafHints() {
 		first int
 		nodes []int
 	}
+	type joinRec struct {
+		names   []string
+		example string
+	}
+	// Node -> the later lines that opened it again, each with no value.
+	reopens := make(map[int][]int)
+	for _, f := range p.folded {
+		if f.line != p.arena[f.node].line && p.arena[f.node].value.kind == vEmpty {
+			reopens[f.node] = append(reopens[f.node], f.line)
+		}
+	}
 	for parent := range p.arena {
 		children := p.arena[parent].children
 		if len(children) < 2 {
 			continue
 		}
+		opens := reopens[parent]
+		if len(opens) > 0 {
+			sort.Ints(opens)
+			w := 1
+			for _, o := range opens[1:] {
+				if o != opens[w-1] {
+					opens[w] = o
+					w++
+				}
+			}
+			opens = opens[:w]
+		}
+		// Per re-open line: the repeating names under it, and the value of
+		// the first one's earliest line, for the example.
+		joined := make([]joinRec, len(opens))
 		byName := make([]group, 0, len(children))
 		groupOf := make(map[string]int)
 		for _, c := range children {
@@ -7631,6 +7659,8 @@ func (p *parser) emitRepeatedLeafHints() {
 			}
 			line := 0
 			vals := make([]string, 0, diagListMax)
+			var spellings []string
+			var seen map[string]bool
 			for _, c := range g.nodes {
 				if p.arena[c].line > line {
 					line = p.arena[c].line
@@ -7638,12 +7668,78 @@ func (p *parser) emitRepeatedLeafHints() {
 				if len(vals) < diagListMax {
 					vals = append(vals, diagValue(&p.arena[c].value))
 				}
+				if a := p.arena[c].authored(); !seen[a] {
+					if seen == nil {
+						seen = make(map[string]bool)
+					}
+					seen[a] = true
+					spellings = append(spellings, a)
+				}
+			}
+			message := fmt.Sprintf("%s[%s]'?%s", h001Head(g.name), diagList(vals, len(g.nodes)), diagMore(len(g.nodes)))
+			if len(spellings) > 1 {
+				shown := make([]string, 0, diagListMax)
+				for _, a := range spellings {
+					if len(shown) < diagListMax {
+						shown = append(shown, "'"+diagName(a)+"'")
+					}
+				}
+				message += fmt.Sprintf(" - %s%s are spellings of one name, since names ignore case", diagList(shown, len(spellings)), diagMore(len(spellings)))
 			}
 			p.diag(Diagnostic{
 				Line:     line,
 				Severity: SeverityHint,
-				Message:  fmt.Sprintf("%s[%s]'?%s", h001Head(g.name), diagList(vals, len(g.nodes)), diagMore(len(g.nodes))),
+				Message:  message,
 				Code:     "H001",
+			})
+			if len(opens) == 0 {
+				continue
+			}
+			// A member past re-open k, with one before it: the block that
+			// line opened repeats a child from before.
+			first := g.nodes[0]
+			for _, c := range g.nodes {
+				if p.arena[c].line < p.arena[first].line {
+					first = c
+				}
+			}
+			earliest := p.arena[first].line
+			for _, c := range g.nodes {
+				k := sort.SearchInts(opens, p.arena[c].line)
+				if k == 0 || earliest >= opens[k-1] {
+					continue
+				}
+				j := &joined[k-1]
+				if len(j.names) == 0 || j.names[len(j.names)-1] != g.name {
+					if len(j.names) == 0 {
+						j.example = diagValue(&p.arena[first].value)
+					}
+					j.names = append(j.names, g.name)
+				}
+			}
+		}
+		for k, j := range joined {
+			if len(j.names) == 0 {
+				continue
+			}
+			shown := make([]string, 0, diagListMax)
+			for _, n := range j.names {
+				if len(shown) < diagListMax {
+					shown = append(shown, h009Item(n))
+				}
+			}
+			verb := "repeat"
+			if len(j.names) == 1 {
+				verb = "repeats"
+			}
+			block := diagName(p.arena[parent].name)
+			p.diag(Diagnostic{
+				Line:     opens[k],
+				Severity: SeverityHint,
+				Message: fmt.Sprintf(
+					"%s%s %s in '%s', since this line and line %d both open it with no value, so they are one block - for separate blocks, give each a value, as in '%s: %s'",
+					diagList(shown, len(j.names)), diagMore(len(j.names)), verb, block, p.arena[parent].line, block, j.example),
+				Code: "H009",
 			})
 		}
 	}
@@ -10917,8 +11013,10 @@ func SuppressDeclaredRepeats(schema *Document, diags []Diagnostic) []Diagnostic 
 		return append([]Diagnostic(nil), diags...)
 	}
 	heads := make([]string, len(names))
+	items := make([]string, len(names))
 	for i, n := range names {
 		heads[i] = h001Head(n)
+		items[i] = h009Item(n)
 	}
 	// Filter into a fresh slice: the input commonly IS the document's own
 	// diagnostics list, so filtering in place would corrupt the caller's data.
@@ -10936,9 +11034,43 @@ func SuppressDeclaredRepeats(schema *Document, diags []Diagnostic) []Diagnostic 
 				continue
 			}
 		}
+		if d.Code == "H009" && h009Disavowed(d.Message, items) {
+			continue
+		}
 		kept = append(kept, d)
 	}
 	return kept
+}
+
+// h009Item is the single H009 wording site for one child name, as the hint
+// lists it and the suppressor matches it.
+func h009Item(name string) string {
+	return "'" + diagName(name) + "'"
+}
+
+// h009Disavowed says whether every child an H009 message lists, which it
+// does first, is one of items. Matched against the builder's own pieces,
+// never re-parsed.
+func h009Disavowed(message string, items []string) bool {
+	rest := message
+	for {
+		found := ""
+		for _, it := range items {
+			if strings.HasPrefix(rest, it) {
+				found = it
+				break
+			}
+		}
+		if found == "" {
+			return false
+		}
+		rest = rest[len(found):]
+		r, ok := strings.CutPrefix(rest, ", ")
+		if !ok || !strings.HasPrefix(r, "'") {
+			return true
+		}
+		rest = r
+	}
 }
 
 // fileMtime is path's mtime in Unix seconds, or nil when it can't be read or

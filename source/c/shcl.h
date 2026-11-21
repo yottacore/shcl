@@ -7919,6 +7919,26 @@ static void stamp_hint(ShclParser *P, ShclStr text) {
 	arena_reset(P->hints);
 }
 
+/* Re-open lines by node, then line, for H009. */
+static int reopen_cmp(const void *pa, const void *pb) {
+	const ShclFoldRec *x = (const ShclFoldRec *)pa, *y = (const ShclFoldRec *)pb;
+	if (x->node != y->node) return x->node < y->node ? -1 : 1;
+	return x->line < y->line ? -1 : x->line > y->line;
+}
+
+/* The single H009 wording site for one child name, as the hint lists it and
+   the suppressor matches it. */
+static ShclStr h009_item(ShclArena *a, ShclStr name) {
+	ShclSB s = {0};
+	sb_putc(a, &s, '\'');
+	sb_putS(a, &s, diag_name(a, name));
+	sb_putc(a, &s, '\'');
+	return sb_S(&s);
+}
+
+/* A block opened again by a line with no value, whose children then repeat
+   ones from before it, gets H009 on that line too: 2 plain blocks became
+   one. */
 static void emit_repeated_leaf_hints(ShclParser *P) {
 	ShclArena *a = &P->d->arena;
 	/* Grouping bookkeeping (name buckets, member lists, joined displays) is
@@ -7932,12 +7952,34 @@ static void emit_repeated_leaf_hints(ShclParser *P) {
 	/* The member list is made only when a name repeats. Nearly every name is
 	   seen once, and a list per child was most of what this pass allocated. */
 	typedef struct { size_t first; ShclVecSize nodes; } Group;
+	typedef struct { ShclVecS names; ShclStr example; } Joined;
+	/* Node -> the later lines that opened it again, each with no value, in the
+	   parse's scratch, which outlives this pass. */
+	ShclFoldRec *ro = NULL; size_t nro = 0, rk = 0;
+	if (P->folded.len) {
+		ro = (ShclFoldRec *)arena_alloc(P->tmp, P->folded.len * sizeof *ro);
+		for (size_t k = 0; k < P->folded.len; k++) {
+			ShclFoldRec f = P->folded.data[k];
+			if (f.line != NODE(P->d, f.node).line && NODE(P->d, f.node).value.kind == V_EMPTY) ro[nro++] = f;
+		}
+		if (nro > 1) qsort(ro, nro, sizeof *ro, reopen_cmp);
+	}
 	for (size_t parent = 0; parent < P->d->nodes.len; parent++) {
 		ShclVecSize ch = NODE(P->d, parent).children;
+		size_t rlo = rk;
+		while (rk < nro && ro[rk].node == parent) rk++;
 		if (ch.len < 2) continue;
 		/* p_diag copies the message out, so nothing from one parent is needed
 		   by the next. */
 		arena_reset(tmp);
+		size_t nopen = 0; size_t *opens = NULL; Joined *joined = NULL;
+		if (rk > rlo) {
+			opens = (size_t *)arena_alloc(tmp, (rk - rlo) * sizeof *opens);
+			for (size_t k = rlo; k < rk; k++)
+				if (!nopen || opens[nopen - 1] != ro[k].line) opens[nopen++] = ro[k].line;
+			joined = (Joined *)arena_alloc(tmp, nopen * sizeof *joined);
+			memset(joined, 0, nopen * sizeof *joined);
+		}
 		ShclVecS names = {0}; Group *groups = NULL; size_t ngroups = 0, cgroups = 0;
 		ShclCMap group_of; memset(&group_of, 0, sizeof group_of);
 		for (size_t k = 0; k < ch.len; k++) {
@@ -7970,7 +8012,63 @@ static void emit_repeated_leaf_hints(ShclParser *P) {
 			ShclSB m = {0}; sb_putS(tmp, &m, h001_head(tmp, names.data[gi])); sb_putc(tmp, &m, '[');
 			for (size_t k = 0; k < grp.len && k < SHCL_DIAG_LIST_MAX; k++) { if (k) sb_puts(tmp, &m, ", "); sb_putS(tmp, &m, diag_value(tmp, &NODE(P->d, grp.data[k]).value)); }
 			diag_list_end(tmp, &m, grp.len, "]'?");
+			/* Spellings that fold to one name, in first-appearance order. */
+			ShclVecS spell = {0};
+			ShclCMap seen; memset(&seen, 0, sizeof seen);
+			for (size_t k = 0; k < grp.len; k++) {
+				ShclStr au = node_authored(&NODE(P->d, grp.data[k]));
+				uint64_t h = cmap_hash(au, s_empty());
+				int dup = 0;
+				for (ShclCMapEnt *e = cmap_first(&seen, h); e; e = cmap_next(e, h)) // a hit names an entry pushed beside it
+					SHCL_ANALYZER_SKIP if (s_eq(spell.data[e->val], au)) { dup = 1; break; }
+				if (!dup) { cmap_put(tmp, &seen, h, spell.len); ShclVecS_push(tmp, &spell, au); }
+			}
+			if (spell.len > 1) {
+				sb_puts(tmp, &m, " - ");
+				for (size_t k = 0; k < spell.len && k < SHCL_DIAG_LIST_MAX; k++) { if (k) sb_puts(tmp, &m, ", "); sb_putS(tmp, &m, h009_item(tmp, spell.data[k])); }
+				if (spell.len > SHCL_DIAG_LIST_MAX) sb_puts(tmp, &m, ", ...");
+				if (spell.len > SHCL_DIAG_LIST_MAX) {
+					char n[48];
+					snprintf(n, sizeof n, " (and %zu more)", spell.len - SHCL_DIAG_LIST_MAX);
+					sb_puts(tmp, &m, n);
+				}
+				sb_puts(tmp, &m, " are spellings of one name, since names ignore case");
+			}
 			p_diag(P, maxline, SHCL_SEV_HINT, "H001", sb_S(&m));
+			if (!nopen) continue;
+			/* A member past re-open k, with one before it: the block that line
+			   opened repeats a child from before. */
+			size_t first = grp.data[0];
+			for (size_t k = 1; k < grp.len; k++)
+				if (NODE(P->d, grp.data[k]).line < NODE(P->d, first).line) first = grp.data[k];
+			size_t earliest = NODE(P->d, first).line;
+			for (size_t k = 0; k < grp.len; k++) {
+				size_t ln = NODE(P->d, grp.data[k]).line, lo = 0, hi = nopen;
+				while (lo < hi) { size_t mid = lo + (hi - lo) / 2; if (opens[mid] < ln) lo = mid + 1; else hi = mid; }
+				if (lo == 0 || earliest >= opens[lo - 1]) continue;
+				Joined *j = &joined[lo - 1];
+				if (j->names.len && s_eq(j->names.data[j->names.len - 1], names.data[gi])) continue;
+				if (!j->names.len) j->example = diag_value(tmp, &NODE(P->d, first).value);
+				ShclVecS_push(tmp, &j->names, names.data[gi]);
+			}
+		}
+		for (size_t k = 0; k < nopen; k++) {
+			ShclVecS jn = joined[k].names;
+			if (!jn.len) continue;
+			ShclSB m = {0};
+			for (size_t q = 0; q < jn.len && q < SHCL_DIAG_LIST_MAX; q++) { if (q) sb_puts(tmp, &m, ", "); sb_putS(tmp, &m, h009_item(tmp, jn.data[q])); }
+			diag_list_end(tmp, &m, jn.len, "");
+			ShclStr block = diag_name(tmp, NODE(P->d, parent).name);
+			sb_puts(tmp, &m, jn.len == 1 ? " repeats in '" : " repeat in '");
+			sb_putS(tmp, &m, block);
+			sb_puts(tmp, &m, "', since this line and line ");
+			sb_put_u64(tmp, &m, NODE(P->d, parent).line);
+			sb_puts(tmp, &m, " both open it with no value, so they are one block - for separate blocks, give each a value, as in '");
+			sb_putS(tmp, &m, block);
+			sb_puts(tmp, &m, ": ");
+			sb_putS(tmp, &m, joined[k].example);
+			sb_putc(tmp, &m, '\'');
+			p_diag(P, opens[k], SHCL_SEV_HINT, "H009", sb_S(&m));
 		}
 	}
 	arena_free(tmp);
@@ -15520,8 +15618,9 @@ static ShclVecS v_disavowed_names(shcl_doc *schema, ShclArena *tmp, int (*pick)(
 static void suppress_repeats_in(ShclArena *tmp, shcl_doc *schema, shcl_doc *doc) { // NOLINT(bugprone-easily-swappable-parameters): one caller, shcl_load_and_validate_with
 	ShclVecS names = v_disavowed_names(schema, tmp, v_pick_repeat);
 	if (!names.len) return;
-	ShclVecS heads = {0};
+	ShclVecS heads = {0}, items = {0};
 	for (size_t k = 0; k < names.len; k++) ShclVecS_push(tmp, &heads, h001_head(tmp, names.data[k]));
+	for (size_t k = 0; k < names.len; k++) ShclVecS_push(tmp, &items, h009_item(tmp, names.data[k]));
 	size_t w = 0;
 	for (size_t i = 0; i < doc->diags.len; i++) {
 		ShclDiag dg = doc->diags.data[i];
@@ -15531,6 +15630,22 @@ static void suppress_repeats_in(ShclArena *tmp, shcl_doc *schema, shcl_doc *doc)
 			for (size_t k = 0; k < heads.len; k++) {
 				ShclStr h = heads.data[k];
 				if (m.n >= h.n && memcmp(m.p, h.p, h.n) == 0) { drop = 1; break; }
+			}
+		} else if (strcmp(dg.code, "H009") == 0) {
+			/* H009 goes with the H001s of the children it names, so it goes
+			   when every one it shows is disavowed. It lists them first, and
+			   they're matched against the builder's own pieces. */
+			ShclStr rest = dg.message;
+			for (;;) {
+				size_t hit = (size_t)-1;
+				for (size_t k = 0; k < items.len; k++) {
+					ShclStr it = items.data[k];
+					if (rest.n >= it.n && memcmp(rest.p, it.p, it.n) == 0) { hit = k; break; }
+				}
+				if (hit == (size_t)-1) break;
+				rest.p += items.data[hit].n; rest.n -= items.data[hit].n;
+				if (!(rest.n >= 3 && memcmp(rest.p, ", '", 3) == 0)) { drop = 1; break; }
+				rest.p += 2; rest.n -= 2;
 			}
 		}
 		if (!drop) doc->diags.data[w++] = dg;

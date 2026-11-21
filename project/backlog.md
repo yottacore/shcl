@@ -202,7 +202,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Without a schema, 2 plain blocks that merge and repeat their children get only the array hint
 	- ID: 2026112015385902
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: the 2M release fuzz and `check-migrate.bash` on `f179e254`, since corpus 224 shifts the seeds, and cppcheck and analyze-c for the `shcl.h` change.
 	- Severity: Avg
 	- Target version: v3.0.0
 	- Opened: 20261120-153859
@@ -225,7 +226,22 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- An error is a line that was skipped or repaired, and a hint is legal text that looks like a slip. The merged blocks are the second. A `Warning` would be a second word for it, and `H005` to `H008` would each need the same call.
 			- A program that wants this to stop a load has the schema, where it's `V008`.
 		- Decided against: an `E` error (me). The file is legal, and a hint never fails a load.
+		- Each line that opens the block again gets its own `H009`, as `H002` does for each re-open (me). A table written as 100 plain blocks gets 99, each naming line 1.
+		- A child is under a later block when its line falls between that line and the next one that opens the block again (me). A dotted line further down that reaches the block counts with the last one. It's rare, and only moves the hint.
+		- The example value is the first repeating child's value under the earlier block, so `name: Earth` gives `planet: Earth` (me). With `r` first it would be `planet: 6371`.
+		- The block's first line counts as an earlier line with no value even when a dotted line such as `planet.name: x` opened it (me). The advice is the same.
+		- The prose lists the children first, and the suppressor matches the builder's own pieces against it, as for `H001`. A list over 3 is cut, and the suppressor goes by the names it shows, which errs toward quiet, as the `H001` one does (me).
 	- Note: SHCL has no warning severity, only Error and Hint. With a schema, the same file is `V008` since the parent.
+	- Actual cause: the merge rule joins 2 lines with the same name and no value into one block, and only `H001` on the children it then repeats said anything. An adjacent re-open gets no `H002`.
+	- Actual fix: the `H001` pass also takes the lines that opened each block again with no value, and puts `H009` on each one whose children repeat one from before it, in all 4. The schema's `H001` suppressor drops it when every child it lists is disavowed. `explain` in the 4 CLIs, a row in spec.md's code table and design.md's outcome table, a design note, and the changelog.
+		- 20261121: assert values changed for this item. Corpus 223's `expected-diags.txt` and `expected-validate.txt` each gained `line 7: Hint: H009`, since its 2 `planet:` blocks merge. Its `name` has no `repeat`, so the schema keeps it.
+		- `doc-tables.py` skips `planet: Earth` in the code table as the fix the message names, not an example of `H009`.
+	- Swept: the `H001` builder and its suppressor in all 4 (Rust `emit_repeated_leaf_hints` and `suppress_declared_repeats`, Go `emitRepeatedLeafHints` and `SuppressDeclaredRepeats`, Python `_emit_repeated_leaf_hints` and `suppress_declared_repeats`, C `emit_repeated_leaf_hints` and `suppress_repeats_in`). Both suppressor callers, `check --schema` and load-and-validate, go through it. The re-open lines come from the fold list every binding already keeps for `adopt_folded`, which takes parse-time re-mentions and late folds alike.
+	- Test case: corpus `224-merged-plain-blocks` (`dfkwg`) in all 4 runners and the crosscheck, and cli-regress `dfkwe` (`merged-block-hint`), exact text in all 4, with and without a schema that disavows every child or one.
+		- Verified: both fail on the unfixed C code, along with corpus 223, and pass in all 4 with it. A suppressor that never drops left `H009` in the all-disavowed run.
+	- Verified: the quick gate's rust, go, python, c and cli areas; the 4 conformance suites; cli-regress; crosscheck; check-docs; check-doc-examples; perf-gate; the 2 shell-regress rows that read cli-regress (`dcmcq`, `dct57`); test-ids check; gcc-15 with the gate's warnings. 40,000 merged blocks load in time linear with 20,000 in all 4.
+	- Branch: nov21-2026112015385902
+	- Commit: `f179e254`
 
 - check-migrate wants a file stamped `Format 3.0` that loads with an error left alone by `upgrade --from=2.0`, which converts it
 	- ID: 2026112017370795
@@ -559,8 +575,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - H001 on a case-only repeat gives the same hint as a real repeat
 	- ID: 2026111217560122
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: cppcheck and analyze-c for the `shcl.h` change in `f179e254`.
 	- Severity: Low
+	- Target version: v3.0.0
 	- Opened: 20261112-175601
 	- Opened by: shcl feedback (tukzmon round, 20261112)
 	- Related IDs: 2026111016205711
@@ -568,6 +586,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: H001 says "did you mean 'order: [a, b]'?", the same hint as for a real repeat, and nothing says names ignore case.
 	- Expected behavior: the hint names both spellings and says they're one name.
 	- Estimated effort: Low
+	- Actual cause: the `H001` builder groups the repeat by the folded name and showed only that, so a repeat spelled 2 ways read like any other.
+	- Actual fix: when the lines spell the name more than one way, the hint ends with each spelling, cut at 3 like any list in a message, and says they're one name, in all 4: `'order' repeats as a bare leaf - did you mean 'order: [a, b]'? - 'Order', 'order' are spellings of one name, since names ignore case`. The head the schema suppressor matches is unchanged. `explain H001` in the 4 CLIs, spec.md's `H001` row and the changelog say so.
+	- Decisions:
+		- The suggestion keeps the folded name, which is 2026111016205711's part to change (me). The spellings go at the end, so the head the suppressor matches stays as it is.
+		- The spellings are kept apart through a hash set, so a name written in 40,000 case forms costs no more than 40,000 lines (me).
+	- Swept: the `H001` builder in all 4 (Rust `emit_repeated_leaf_hints`, Go `emitRepeatedLeafHints`, Python `_emit_repeated_leaf_hints`, C `emit_repeated_leaf_hints`), which is the only site that writes `H001`.
+	- Test case: cli-regress `dfkwf` (`h001-case-spellings`): 2 spellings, one spelling, and 4 spellings over 5 lines, exact text in all 4. Corpus `224-merged-plain-blocks` (`dfkwg`) has `Order: a` and `order: b` too.
+		- Verified: it fails on the unfixed C code and passes in all 4 with it.
+	- Verified: the same runs as 2026112015385902, from the same commit.
+	- Branch: nov21-2026112015385902
+	- Commit: `f179e254`
 
 - install.ps1 lists a drop-ins line in the plan for a release that has none
 	- ID: 2026110915493402

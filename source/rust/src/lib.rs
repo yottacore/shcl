@@ -7340,14 +7340,30 @@ impl<'a> Parser<'a> {
 	}
 
 	/// Legal input that looks like a common mistake: a field repeating as a bare
-	/// scalar leaf. Mandatory hint per spec (never fails a load).
+	/// scalar leaf. Mandatory hint per spec (never fails a load). A block opened
+	/// again by a line with no value, whose children then repeat ones from
+	/// before it, gets H009 on that line too: 2 plain blocks became one.
 	fn emit_repeated_leaf_hints(&mut self) {
-		let mut hints: Vec<(usize, String)> = Vec::new();
+		let mut hints: Vec<(usize, String, &'static str)> = Vec::new();
+		// Node -> the later lines that opened it again, each with no value.
+		let mut reopens: HashMap<usize, Vec<usize>> = HashMap::new();
+		for &(n, line, _) in &self.folded {
+			if line != self.arena[n].line && matches!(self.arena[n].value, Value::Empty) {
+				reopens.entry(n).or_default().push(line);
+			}
+		}
 		for parent in 0..self.arena.len() {
 			let children = &self.arena[parent].children;
 			if children.len() < 2 {
 				continue;
 			}
+			let mut opens: Vec<usize> = reopens.remove(&parent).unwrap_or_default();
+			opens.sort_unstable();
+			opens.dedup();
+			// Per re-open line: the repeating names under it, and the value
+			// of the first one's earliest line, for the example.
+			let mut joined: Vec<(Vec<&str>, String)> =
+				vec![(Vec::new(), String::new()); opens.len()];
 			// Group by name in first-appearance order: hint order must be
 			// deterministic or the cross-binding check can't compare `check` output.
 			// The member list is made only when a name repeats. Nearly every
@@ -7385,19 +7401,82 @@ impl<'a> Parser<'a> {
 						group.iter().map(|&c| diag_value(&self.arena[c].value)),
 						group.len(),
 					);
-					hints.push((
-						line,
-						format!("{}[{}]'?{}", h001_head(name), shown, diag_more(group.len())),
-					));
+					let mut message =
+						format!("{}[{}]'?{}", h001_head(name), shown, diag_more(group.len()));
+					let mut seen: HashSet<&str> = HashSet::new();
+					let mut spellings: Vec<&str> = Vec::new();
+					for &c in &group {
+						let a = self.arena[c].authored();
+						if seen.insert(a) {
+							spellings.push(a);
+						}
+					}
+					if spellings.len() > 1 {
+						message.push_str(&format!(
+							" - {}{} are spellings of one name, since names ignore case",
+							diag_list(
+								spellings.iter().map(|a| format!("'{}'", diag_name(a))),
+								spellings.len()
+							),
+							diag_more(spellings.len())
+						));
+					}
+					hints.push((line, message, "H001")); // repeated bare leaf
+					if opens.is_empty() {
+						continue;
+					}
+					// A member past re-open k, with one before it: the block
+					// that line opened repeats a child from before.
+					let first = group
+						.iter()
+						.copied()
+						.min_by_key(|&c| self.arena[c].line)
+						.unwrap_or(0);
+					let earliest = self.arena[first].line;
+					for &c in &group {
+						let k = opens.partition_point(|&o| o < self.arena[c].line);
+						if k == 0 || earliest >= opens[k - 1] {
+							continue;
+						}
+						let j = &mut joined[k - 1];
+						if j.0.last() != Some(&name) {
+							if j.0.is_empty() {
+								j.1 = diag_value(&self.arena[first].value);
+							}
+							j.0.push(name);
+						}
+					}
 				}
 			}
+			for (k, (names, example)) in joined.into_iter().enumerate() {
+				if names.is_empty() {
+					continue;
+				}
+				let shown = diag_list(names.iter().map(|n| h009_item(n)), names.len());
+				let block = diag_name(&self.arena[parent].name);
+				// 2 plain blocks merged, so their children repeat
+				hints.push((
+					opens[k],
+					format!(
+						"{}{} {} in '{}', since this line and line {} both open it with no value, so they are one block - for separate blocks, give each a value, as in '{}: {}'",
+						shown,
+						diag_more(names.len()),
+						if names.len() == 1 { "repeats" } else { "repeat" },
+						block,
+						self.arena[parent].line,
+						block,
+						example
+					),
+					"H009",
+				));
+			}
 		}
-		for (line, message) in hints {
+		for (line, message, code) in hints {
 			self.diag(Diagnostic {
 				line,
 				severity: Severity::Hint,
 				message,
-				code: "H001", // repeated bare leaf
+				code,
 			});
 		}
 	}
@@ -12555,6 +12634,32 @@ pub fn suppress_declared_repeats(schema: &Document, diags: &mut Vec<Diagnostic>)
 	}
 	let heads: Vec<String> = names.iter().map(|n| h001_head(n)).collect();
 	diags.retain(|d| d.code != "H001" || !heads.iter().any(|h| d.message.starts_with(h.as_str())));
+	// H009 goes with the H001s of the children it names, so it goes when
+	// every one it shows is disavowed.
+	let items: Vec<String> = names.iter().map(|n| h009_item(n)).collect();
+	diags.retain(|d| d.code != "H009" || !h009_disavowed(&d.message, &items));
+}
+
+/// The single H009 wording site for one child name, as the hint lists it and
+/// the suppressor matches it.
+fn h009_item(name: &str) -> String {
+	format!("'{}'", diag_name(name))
+}
+
+/// Whether every child an H009 message lists, which it does first, is one of
+/// `items`. Matched against the builder's own pieces, never re-parsed.
+fn h009_disavowed(message: &str, items: &[String]) -> bool {
+	let mut rest = message;
+	loop {
+		let Some(item) = items.iter().find(|i| rest.starts_with(i.as_str())) else {
+			return false;
+		};
+		rest = &rest[item.len()..];
+		match rest.strip_prefix(", ") {
+			Some(r) if r.starts_with('\'') => rest = r,
+			_ => return true,
+		}
+	}
 }
 
 /// Leaf names of the schema entries `pick` accepts, top-level fields and every

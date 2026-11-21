@@ -1,4 +1,5 @@
 line 3: Hint: H001
+line 7: Hint: H009
 line 8: Hint: H001
 line 15: Hint: H001
 line 18: Hint: H001
@@ -6,4 +7,4 @@ line 20: Hint: H001
 line 3: Error: V008
 line 8: Error: V008
 line 0: Error: V007
-failed: 8 diagnostic(s), 3 error(s)
+failed: 9 diagnostic(s), 3 error(s)

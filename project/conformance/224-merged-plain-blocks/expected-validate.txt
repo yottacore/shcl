@@ -1,0 +1,6 @@
+line 11: Hint: H002
+line 16: Hint: H009
+line 18: Hint: H001
+line 12: Error: V008
+line 18: Error: V008
+failed: 5 diagnostic(s), 2 error(s)
