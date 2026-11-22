@@ -20,6 +20,7 @@
 ##		--hooks-only   skip the toolchain and only point git at the tracked
 ##		               hooks, for a box that already has the tools.
 ##		--version      print this installer's version and exit.
+##		--help | -h    print the options and exit.
 ##
 ##	What a full dev box needs, each at its pin in cicd/config.bash. See "How to
 ##	develop" in contributing.md.
@@ -40,7 +41,7 @@
 
 set -euo pipefail
 
-installer_version="1.2.0"
+installer_version="1.2.1"
 REPO_URL="https://github.com/yottacore/shcl"
 clone_dir="./shcl"
 assume_yes=0
@@ -77,6 +78,7 @@ Options:
                  for a box that already has the tools. It needs an existing
                  clone, so run it inside one, or name one with --dir.
   --version      print this installer's version and exit.
+  --help, -h     print this text and exit.
 
 What a full dev box needs, each at its pin in cicd/config.bash. See "How to
 develop" in contributing.md. Anything missing or at another version is named,

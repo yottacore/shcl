@@ -29,6 +29,7 @@
 ##		                         /usr/local/bin/shcl (sudo if not root).
 ##		--yes | -y               skip the confirmation prompt.
 ##		--version                print this installer's version and exit.
+##		--help | -h              print the options and exit.
 ##		--uninstall              remove what an install of the same --target
 ##		                         laid down (binary, symlinks, code/, man/,
 ##		                         completions/, and an older install's
@@ -55,7 +56,7 @@
 
 set -euo pipefail
 
-installer_version="1.5.0"
+installer_version="1.6.0"
 REPO="yottacore/shcl"
 release="stable"
 target="user"
@@ -115,6 +116,7 @@ Options (both --opt=VALUE and --opt VALUE work):
                            /usr/local/bin/shcl (sudo if not root).
   --yes, -y                skip the confirmation prompt.
   --version                print this installer's version and exit.
+  --help, -h               print this text and exit.
   --uninstall              remove what an install of the same --target laid
                            down (binary, symlinks, code/, man/, completions/,
                            and an older install's scripts/), and nothing else.
@@ -436,10 +438,23 @@ fi
 printf 'shcl %s (%s, %s-%s) -> %s (%s)\n' "${version}" "${channel}" "${osname}" "${arch}" "${dest}" "${existing}"
 printf '  from     https://github.com/%s/releases/tag/%s\n' "${REPO}" "${tag}"
 printf '  binary   %s/shcl (symlink %s)\n' "${dest}" "${link}"
-printf '  drop-ins %s/code/\n' "${dest}"
+## The release's asset list says whether it has a drop-in payload, which also
+## carries the man page and completions, so the plan doesn't promise what a
+## release without it can't lay down. The signed sums file still decides what's
+## installed. What a newer release left goes when this one has none, the same
+## rule as fLayDown.
+dropins="shcl-${version}-dropins.tar.gz"
+if grep -qF "\"${dropins}\"" "${tmp}/rel.json"; then
+	printf '  drop-ins %s/code/\n' "${dest}"
+	printf '  man page %s (symlink %s)\n' "${dest}/man/shcl.1" "${manlink}"
+	printf '  compl.   %s/completions/ (enable by hand, as the note at the end says)\n' "${dest}"
+elif [[ "${installed}" != "${version}" ]]; then
+	planDrop=""
+	[[ -d "${dest}/code" ]] && planDrop="the drop-ins in ${dest}/code/"
+	[[ -d "${dest}/man" || -d "${dest}/completions" ]] && planDrop="${planDrop:+${planDrop}, }the man page and completions"
+	[[ -n "${planDrop}" ]] && printf "  removes  %s, since this release doesn't include them\n" "${planDrop}"
+fi
 [[ -d "${dest}/scripts" ]] && printf '  removes  the retired wrappers in %s/scripts/\n' "${dest}"
-printf '  man page %s (symlink %s)\n' "${dest}/man/shcl.1" "${manlink}"
-printf '  compl.   %s/completions/ (enable by hand, as the note at the end says)\n' "${dest}"
 [[ -n "${asroot}" ]] && printf '  uses sudo for %s and %s\n' "${dest}" "${link}"
 (( older )) && [[ "${release}" == stable ]] && printf '  note     to keep %s, re-run with --release dev\n' "${installed}"
 if (( ! assume_yes )); then
@@ -523,7 +538,6 @@ if [[ "${smoke_status}" != 0 ]]; then
 	fDie "the prebuilt ${osname}-${arch} binary doesn't run here, since it needs ${needs}. Install from source instead: cargo install shcl"
 fi
 
-dropins="shcl-${version}-dropins.tar.gz"
 want_src="$(grep " ${dropins}\$" "${tmp}/sums" | cut -d' ' -f1 || true)"
 have_dropins=0
 have_docs=0
@@ -653,7 +667,10 @@ fi
 if [[ -n "${man_note}" ]]; then
 	printf "note: %s, so it was left alone and this install's man page isn't linked there\n" "${man_note}"
 fi
-(( have_dropins )) || printf "note: this release doesn't have a signed drop-in payload, so %s/code was skipped - take the files from the repo if you want them\n" "${dest}"
+## One note covers a release without drop-ins. Where the old ones were removed,
+## the note above says so.
+(( have_dropins )) || [[ "${dropped}" == "the drop-ins"* ]] \
+	|| printf "note: this release doesn't have a signed drop-in payload, so %s/code was skipped - take the files from the repo if you want them\n" "${dest}"
 ## Completions are laid down but not turned on. No one directory works for
 ## everyone. The bash autoload dir depends on the bash-completion version, zsh
 ## wants a dir on $fpath, and writing into the distro's own /usr/share would
