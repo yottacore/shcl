@@ -8766,6 +8766,8 @@ static ShclResolved resolve_from(shcl_doc *d, const size_t *start, size_t nstart
 		}
 		case SEL_INDEX: {
 			ShclVecSize f = {0};
+			// Infer: index < len means a push filled next.data, so it isn't NULL here.
+			// @infer-ignore NULLPTR_DEREFERENCE
 			if (seg->sel.index < next.len) ShclVecSize_push(a, &f, next.data[seg->sel.index]);
 			cur = f; break;
 		}
@@ -12147,6 +12149,8 @@ static ShclStr commented(ShclArena *a, ShclStr text) {
 }
 
 /* A path in a note, kept to one line, the way schema_text shows one. */
+// Infer: the builder's block is on a's list, which arena_free frees.
+// @infer-ignore MEMORY_LEAK_C
 static void put_note_text(ShclArena *a, ShclSB *b, ShclStr s) { v_put_shown(a, b, s, escape_mark); }
 
 #if !defined(_WIN32) || defined(SHCL_NO_FILE_IO)
@@ -12873,6 +12877,8 @@ static int settle_kept_once(shcl_doc *d) {
 	d->walked = e.walked;
 	if (e.kept_near.len > d->kept_near_cap) {
 		size_t *grown = (size_t *)realloc(d->kept_near, e.kept_near.len * sizeof(size_t));
+		// Infer: the emit's blocks stay on d->scratch, which shcl_free frees.
+		// @infer-ignore MEMORY_LEAK_C
 		if (!grown) arena_panic(d->panic);
 		d->kept_near = grown; d->kept_near_cap = e.kept_near.len;
 	}
@@ -12929,6 +12935,8 @@ static int settle_kept_once(shcl_doc *d) {
 	   written, so its blank goes the way the load's did. */
 	if (among) settle_first_blank(d);
 	return among > 0;
+	// Infer: the emit's blocks stay on d->scratch, which shcl_free frees.
+	// @infer-ignore MEMORY_LEAK_C
 }
 
 /* Make a misplaced line kept as written into the comment the emitter writes it
@@ -14971,6 +14979,8 @@ static void v_contexts(ShclArena *a, shcl_doc *d, const size_t *start, size_t ns
 			}
 			case SEL_INDEX: {
 				ShclVecSize f = {0};
+				// Infer: index < len means a push filled next.data, so it isn't NULL here.
+				// @infer-ignore NULLPTR_DEREFERENCE
 				if (seg->sel.index < next.len) ShclVecSize_push(a, &f, next.data[seg->sel.index]);
 				cur = f; break;
 			}

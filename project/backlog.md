@@ -35,6 +35,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Infer 1.3.0 reports more sites in `shcl.h` that nobody has judged
+	- ID: 2026112121124344
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261121-211243
+	- Opened by: 2026111016205714
+	- Related IDs: 2026111016205714
+	- Steps to reproduce: `infer run -- cc -Isource/c -c source/c/cmd/shcl/main.c -o /dev/null` with Infer 1.3.0.
+	- Incorrect behavior: past the sites 2026111016205714 covers, Infer reports 5 use-after-free (`shcl_resolve_target`, `s_fopen_regular`, `s_read_schema_file` twice, main.c's `xrealloc`), a null dereference in `upgrade_fail`, a leak and a dead store in `shcl_validate`, and 119 uninitialized values.
+	- Expected behavior: each site is judged, a real one is fixed, and the rest are suppressed at the line with a reason, as 2026111016205714 did.
+	- Estimated effort: Avg
+	- Note: the ones read so far look false. The use-after-free reports are on paths where realloc or fdopen failed, and the `upgrade_fail` one is `vsnprintf(NULL, 0, ...)`. Infer 1.2.0 doesn't read `@infer-ignore`.
+
 - `--list` names tests that a step's skip filter leaves out
 	- ID: 2026112120314617
 	- Type: Bug
@@ -712,7 +727,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Infer reports a null dereference, 2 leaks and 2 dead stores in `shcl.h`
 	- ID: 2026111016205714
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Severity: Low
 	- Target version: v3.0.0
 	- Opened: 20261110-162057
@@ -722,8 +737,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Run Infer over beta1's `shcl.h`.
 	- Incorrect behavior: Infer reports a null dereference of `next.data` in `resolve_from`, leaks of arena blocks in `settle_kept_once` and `put_note_text`, and 2 dead stores in `w_place`.
 	- Expected behavior: each site is judged, a real one is fixed, and the rest are suppressed at the line with a reason.
-	- Reproduced: No. Read from the code on dev. Each `next.data` use in `resolve_from` is under a `next.len` bound, so that one looks false. The leaks are of blocks still on the arena list.
+	- Reproduced: Yes for 3 of the 5, with the release builds over `main.c`. Infer 1.3.0 reports the `resolve_from` null dereference and the `put_note_text` leak. Infer 1.2.0 reports the `put_note_text` leak and 2 `settle_kept_once` leaks. Neither reports a dead store in `w_place`.
 	- Estimated effort: Low
+	- Actual cause: none in the code. Each is a false report. `next.data` is read only under `index < next.len`, so a push filled it. The leaked blocks are still on the arena list, which `arena_reset` and `shcl_free` free.
+	- Actual fix: a reason line and an `@infer-ignore` line above each site: `resolve_from`, its twin in `v_contexts`, `put_note_text`, and the 2 `settle_kept_once` lines. `w_place` is unchanged, since `v` is read by the call on the next line.
+	- Decisions:
+		- me: the reason goes on its own comment line above the directive. Infer reads every word after `@infer-ignore` as an issue type, so a reason on that line breaks it.
+		- me: no suppression in `w_place`, since neither release reports a dead store there and a directive that matches nothing can't be checked.
+		- me: the 2 `settle_kept_once` directives are unverified. Infer 1.2.0 reports those lines but doesn't read `@infer-ignore`, and 1.3.0 doesn't report them.
+	- Swept: the `next.data[seg->sel.index]` pattern is in `resolve_from`, `v_contexts` and `resolve_slots` (grep). Infer reports the first 2, and `resolve_slots` has no directive since nothing reports it. Other Infer reports are Bug 2026112121124344.
+	- Verified: with Infer 1.3.0, the 3 sites it reports in this item show as suppressed in `report.json`, and before the edit they were reported. `--backlog-run-quick c` passes.
+	- Needs local test suite run?: the cppcheck line from `LINT_EXTRA` and `analyze-c.bash` over `shcl.h`.
+	- Test case: none. Infer isn't a gate here, per 2026101707582803.
+	- Branch: `nov22-2026111016205714`
 
 - Rust's file calls can't save to a path that isn't UTF-8
 	- ID: 2026111217560157
