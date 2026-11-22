@@ -400,7 +400,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - install.ps1 lists a drop-ins line in the plan for a release that has none
 	- ID: 2026110915493402
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs external testing: b29w, user target, the r1109 steps: install 2.0.0, then a copy of install.ps1 pinned to v1.2.0. The plan has a `removes  the drop-ins in ...\code\` line and no `drop-ins` line, and the receipt has the one removed note.
 	- Severity: Low
 	- Target version: v3.0.0
 	- Opened: 20261109-154934
@@ -408,7 +409,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Steps to reproduce: on b29w, install 2.0.0 to the user target, then run a copy of install.ps1 pinned to v1.2.0, which has no drop-in payload.
 	- Incorrect behavior: the plan still lists a drop-ins line for code\, and the receipt prints both the removed drop-ins note and the no signed drop-in payload line.
 	- Expected behavior: the plan doesn't list a drop-ins line, and one receipt line says the old drop-ins were removed.
+	- Actual cause: the plan is printed before the sums file is read, so it can't know whether the release has a payload, and the no-payload note didn't check whether the removed note had already said so. install.bash had the same 2 faults, for the man page and completions too.
+	- Actual fix: both plans read the release's asset list from the API answer. A release with the payload plans it. One without it plans nothing for it, and over a newer install names the removal on a `removes` line. The no-payload note is skipped when the removed note is printed. install.ps1 1.4.0, install.bash 1.6.0.
 	- Estimated effort: Low
+	- Decisions:
+		- 20261122: the plan names the removal of a newer install's drop-ins on a `removes` line, like the retired wrappers' line, rather than saying nothing. Taking files away without the plan saying so would surprise more than one extra line.
+		- 20261122: the plan reads the API's asset list, rather than fetching the sums before the prompt. Nothing is downloaded before the user says yes, and the shell-regress plan rows stay offline. The signed sums still decide what's installed, so an asset list that disagrees changes only the plan.
+	- Swept: install.bash's plan and receipt (same 2 faults, fixed, with the man page and completions). install-dev.bash doesn't install a release. The uninstall paths don't plan drop-ins.
+	- Test case: shell-regress `dfmdh` (install.ps1 plan, with and without the payload) and `df38m` (install.bash plan and the single receipt note, extended). Both fail on the old scripts and pass now. The install.ps1 receipt needs Windows past the plan, so it's in the Needs row.
+	- Branch: nov22-2026110915493402
+	- Commit: `cf9de5d0`
 
 - The veneer smoke linked against the DLLs dies at start on b29w
 	- ID: 2026110710374327
@@ -515,7 +525,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Installer odds and ends
 	- ID: 2026110215285718
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs external testing: b29w, user target. With write access to `HKCU\Environment` denied, an install and an uninstall each end at exit 0 with the PATH note and no raw error. `$o = & ([scriptblock]::Create((irm ...))) -Version` and the same with `-Help` leave `$o` empty on Windows PowerShell 5.1 and pwsh 7, with the text still on the console.
 	- Severity: Low
 	- Target version: v3.0.0
 	- Opened: 20261102-152857
@@ -529,6 +540,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: the registry refusal gets a plain message, the sums file is fetched first, UI text goes to the console only, `--help` is listed, and each change bumps the version.
 	- Origin: Confirmed, by reading.
 	- Estimated effort: Low
+	- Actual fix:
+		- `Update-ShclPath` turns any registry failure into one plain line, and the install and both uninstall paths print it as a note and carry on.
+		- install.ps1 fetches and checks the signed sums first, and stops with "release ... doesn't have a windows-ARCH binary" before any binary download.
+		- Every UI line in install.ps1 goes through `Write-Host`, with the analyzer's `PSAvoidUsingWriteHost` suppressed at the top and the reason given. The receipt's `--version` lines are written one per line.
+		- `--help, -h` is in both usage texts and both headers.
+		- install.ps1 1.4.0, install.bash 1.6.0, install-dev.bash 1.2.1, with changelog lines.
+	- Decisions:
+		- 20261122: a refused PATH edit is a note at exit 0, not an error. The files are in place and run by full path, and install.bash treats a link dir off PATH the same way.
+		- 20261122: `Write-Host` rather than `[Console]::Out`, since it reaches the host in every PowerShell, ISE included, and a caller can still take it with `6>`.
+	- Swept: every `Write-Output` in install.ps1 (all now `Write-Host`), every `Update-ShclPath` call (3), every download in install.ps1 (sums, signature, binary, payload), and the option loops of install.bash and install-dev.bash against their usage.
+	- Test case: shell-regress `dfmdj` (UI text off the pipeline), `dfmdk` (registry refusal as a note, on Linux pwsh, where there isn't any registry), `dfmdm` (sums before the binary, by line order, as install.bash's row does), and `dc0bt` (every long option is in each bash installer's help). All 4 fail on the old scripts and pass now. A real policy lock, and 5.1, need b29w.
+	- Branch: nov22-2026110915493402
+	- Commit: `cf9de5d0`
 
 - check-boxes shows only the last lines of a failed box suite, so its FAIL lines are cut off
 	- ID: 2026110119584589

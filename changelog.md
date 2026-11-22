@@ -98,6 +98,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - install.ps1 extracts the drop-in payload with Windows' own `tar`. A GNU tar from Git for Windows, MSYS2, or Cygwin ahead of it on PATH failed the unpack.
 
+- Both installers listed drop-ins in the plan for a release that has none, and the receipt then said twice that there weren't any. The plan lists them only when the release has them, and names the removal of a newer install's drop-ins where it has none. install.bash does the same for the man page and completions.
+
+- install.ps1 downloaded the binary before the sums file, so a release without a `windows-arm64` build failed as an HTTP 404. It reads the signed sums first and says the release has no build for the platform, as install.bash does.
+
+- install.ps1 stopped on a raw registry error, after the files were written, when a policy locks `HKCU\Environment`. The install or uninstall finishes and a note says the PATH wasn't changed. Its plan, notes and receipt go to the console only, where they used to go into the pipeline of a caller that captured the script block.
+
+- `install.bash --help` lists `--help` among its options.
+
 - Under a `TMPDIR` with `..` inside a folder name, such as `tmp sp..x`, install.bash installed, then refused to remove its temp folder and exited 1. Both installers take only a whole `vX.Y.Z` or `vX.Y.Z-suffix` tag, where a tag such as `v2.0.0x` passed before.
 
 - A setter or a merge that replaced a stacked list put the comments among its items above the field's blank line, so they read as part of the block above. They go right above the field now, with the blank above them.
