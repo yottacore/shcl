@@ -33,6 +33,8 @@ $ErrorActionPreference = 'Stop'
 ## Children inherit BelowNormal, so every case runs at low priority too.
 (Get-Process -Id $PID).PriorityClass = 'BelowNormal'
 Set-Location -LiteralPath $PSScriptRoot
+## So a stale sweep on the box leaves this folder while the run is live.
+Set-Content -LiteralPath (Join-Path -Path $PSScriptRoot -ChildPath 'run.pid') -Value $PID -Encoding ascii
 
 & tar.exe -xf in.tar
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath cases.tsv)) { exit 91 }
@@ -141,3 +143,4 @@ exit $LASTEXITCODE
 ##		2026-10-30  Created, for 2026103016433921.
 ##		2026-10-31  Runs win-runners.bash over a source tree in src\, for 2026103016433943.
 ##		2026-10-31  Runs perf-gate.bash over shcl.exe with p\ in the tar, for 2026103016433965.
+##		2026-11-22  Writes its PID in run.pid, for 2026110218511914.

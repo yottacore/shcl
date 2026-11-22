@@ -494,7 +494,7 @@ TEST_EXTRA=('cicd/utility/stub-ids.bash' 'if [[ -n "${STUB_SKIP:-}" ]]; then ech
 ## A test that leaves scratch in TMPDIR, a read-only dir in it too, and one
 ## that stops the run. TERM, as INT is ignored in a run started in the
 ## background.
-TEST_EXTRA+=('if [[ -n "${STUB_TMPDIR:-}" ]]; then echo "${TMPDIR}" > "${STUB_TMPDIR}"; echo "${TEMP:-}|${TMP:-}" > "${STUB_TMPDIR}.vars"; mkdir -p "${TMPDIR}/left/deep" "${TMPDIR}/left/ro"; : > "${TMPDIR}/left/deep/f"; : > "${TMPDIR}/left/ro/f"; chmod 555 "${TMPDIR}/left/ro"; fi' 'if [[ -n "${STUB_STOP:-}" ]]; then kill -TERM $$; fi')
+TEST_EXTRA+=('if [[ -n "${STUB_TMPDIR:-}" ]]; then echo "${TMPDIR}" > "${STUB_TMPDIR}"; echo "${TEMP:-}|${TMP:-}" > "${STUB_TMPDIR}.vars"; echo "${SHCL_KEEP_TEMP:-unset}" > "${STUB_TMPDIR}.keep"; mkdir -p "${TMPDIR}/left/deep" "${TMPDIR}/left/ro"; : > "${TMPDIR}/left/deep/f"; : > "${TMPDIR}/left/ro/f"; chmod 555 "${TMPDIR}/left/ro"; fi' 'if [[ -n "${STUB_STOP:-}" ]]; then kill -TERM $$; fi')
 ## A test that hangs in a child process, which a stop has to take down.
 ## A cargo target dir the run makes (der3w).
 TEST_EXTRA+=('if [[ -n "${STUB_CARGO_MK:-}" ]]; then mkdir -p "${STUB_CARGO_MK}"; fi')
@@ -1490,7 +1490,7 @@ fTest depk4 no bare recursive removal in the hook, the gate scripts or install.b
 # shellcheck disable=SC2016  ## the two guards' own lines, as text
 bareRm="$(grep -nE '(^|[^[:alnum:]_-])rm[[:space:]]+(-[[:alnum:]]*[rR]|--recursive)' "${root}/cicd/hooks/pre-push" "${root}/install.bash" "${root}/cicd/utility/"*.bash \
 	| grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' \
-	| grep -vF -e 'rm -rf ${oneFs} -- "${p}"' -e '[ ! -h "${w}" ] && rm -rf -- "${w}"' || true)"
+	| grep -vF -e 'rm -rf ${oneFs} -- "${p}"' -e '[ ! -h "$1" ] && rm -rf -- "$1"' || true)"
 [[ -z "${bareRm}" ]] || fail "a bare recursive removal: ${bareRm//$'\n'/; }"
 fTest dee5y --list prints the steps the other flags would run and runs none
 ## 2026102515494634: the leak checks by length show it, and nothing runs, is
@@ -1843,6 +1843,30 @@ if [[ "$(uname -m)" == x86_64 ]]; then
 else
 	fTestSkipBlock
 fi
+fTest dfme3 --keep-temp keeps every container a run starts, the image reads and those of the gate scripts too
+## 2026110218511914: the passwd and group reads ran with --rm, and so did a
+## gate script's own run in the image, which hears of the flag only through
+## SHCL_KEEP_TEMP. A run without the flag drops one it was handed.
+rm -f "${work}/keep2-args.txt"
+fCtr STUB_DOCKER_ARGS="${work}/keep2-args.txt" STUB_DOCKER_NOIMAGE=1 STUB_DOCKER_ZIG='512\t0.16.0\t0.16.0' STUB_MOUNTS="${work}/keep-lbl.tsv" -- -y --no-sync --keep-temp
+keepAll="$(grep -c '^run ' "${work}/keep2-args.txt" 2>/dev/null || true)"
+keepReads="$(grep '^run ' "${work}/keep2-args.txt" 2>/dev/null | grep -cE -- '--name shcl-[^ ]+-(build|fmt)-(passwd|group) ' || true)"
+keepRm="$(grep '^run ' "${work}/keep2-args.txt" 2>/dev/null | grep -cF -- ' --rm ' || true)"
+((engRc == 0 && keepReads >= 4 && keepRm == 0)) || fail "--keep-temp in the image: exit ${engRc}, ${keepAll} run(s), ${keepReads} passwd or group read(s), ${keepRm} with --rm: $(tail -3 "${work}/eng.log")"
+for keepCase in "1|0" "|1"; do
+	fMemSelf "${work}/keep-self.txt" SHCL_KEEP_TEMP="${keepCase%|*}"
+	keepRm="$(grep '^run ' "${work}/keep-self.txt" 2>/dev/null | grep -cF -- ' --rm ' || true)"
+	((memSelfRc == 0 && keepRm == ${keepCase#*|})) || fail "fCtrRunSelf with SHCL_KEEP_TEMP='${keepCase%|*}': exit ${memSelfRc}, ${keepRm} run(s) with --rm: $(tail -2 "${work}/mem-self.log")"
+done
+for keepCase in "--keep-temp|1" "|unset"; do
+	rm -f "${work}/eng.tmpdir" "${work}/eng.tmpdir.keep"
+	keepArgs=(--gate); if [[ -n "${keepCase%|*}" ]]; then keepArgs+=("${keepCase%|*}"); fi
+	fEngine STUB_TMPDIR="${work}/eng.tmpdir" SHCL_KEEP_TEMP=1 -- "${keepArgs[@]}" 2>/dev/null
+	keepSeen="$(cat "${work}/eng.tmpdir.keep" 2>/dev/null || true)"
+	((engRc == 0)) && [[ "${keepSeen}" == "${keepCase#*|}" ]] || fail "cicd.bash ${keepArgs[*]}: exit ${engRc}, a step saw SHCL_KEEP_TEMP '${keepSeen}', wanted '${keepCase#*|}': $(tail -3 "${work}/eng.log")"
+	keptTmp="$(sed -n "/^\[ kept this run's temp folder: /{s/^\[ kept this run's temp folder: \(.*\) \]\$/\1/p;q;}" "${work}/eng.log" || true)"
+	if [[ -n "${keptTmp}" && -d "${keptTmp}" ]]; then chmod -R u+rwX -- "${keptTmp}"; fi
+done
 fTest ded0z a run that fails stops and removes its containers by its run label
 ## 2026102416250030: on any exit, not only a whole run, and only this run's.
 rm -f "${work}/gone.txt"
@@ -1952,3 +1976,4 @@ exit "${rc}"
 ##		- 2026-11-04: --quick and the test boxes, and an image that won't build.
 ##		- 2026-11-07: The guards take a folder with .. inside a name (2026110613470318).
 ##		- 2026-11-09: The memory cap on each container, and the run under a user scope at it.
+##		- 2026-11-22: --keep-temp keeps the image reads and fCtrRunSelf's container too (2026110218511914).

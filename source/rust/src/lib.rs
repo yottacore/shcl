@@ -1313,6 +1313,26 @@ fn refile_pair(arena: &mut [NodeData], n: usize, i: usize) {
 	}
 }
 
+/// True when child `pos` of `kids` has lines under its block at its own level
+/// that a blank sets off from the next child, so they are its own.
+fn set_off_tail(arena: &[NodeData], kids: &[usize], pos: usize) -> bool {
+	arena[kids[pos]].after().iter().any(|l| l.depth == 0)
+		&& kids.get(pos + 1).is_some_and(|&n| {
+			let nd = &arena[n];
+			nd.leading()
+				.first()
+				.map_or(nd.blank_before, |l| l.blank_before)
+		})
+}
+
+/// A blank above the node's comments, else above its line.
+fn blank_over(nd: &mut NodeData) {
+	match nd.trivia.as_mut().and_then(|t| t.leading.first_mut()) {
+		Some(l) => l.blank_before = true,
+		None => nd.blank_before = true,
+	}
+}
+
 /// A raw block after an empty binding of its name is written with the fence on
 /// the binding's line, where no comment can follow it, so the emitter writes
 /// its trailing comment on a line of its own above, after the node's blank. A
@@ -15540,6 +15560,10 @@ impl Document {
 	) {
 		touched.push(base_parent);
 		let over_kids = &over.arena[over_parent].children;
+		// A child's lines under its block, which a blank set off from the next
+		// line in its own file, keep a blank under them: the base's, the ones
+		// the layer gives a matched child, and a copied child's.
+		let mut tails: HashSet<usize> = HashSet::new();
 		// Over side: name -> node bucket, in first-appearance order.
 		let mut order: Vec<&str> = Vec::new();
 		let mut groups: HashMap<&str, Vec<(usize, usize)>> = HashMap::new();
@@ -15581,6 +15605,11 @@ impl Document {
 					.or_insert(Slot::One(b));
 			}
 		}
+		for j in 0..base_kids.len() {
+			if set_off_tail(&self.arena, &base_kids, j) {
+				tails.insert(base_kids[j]);
+			}
+		}
 		// Decide per name. A name whose over-side nodes are all leaves is an
 		// override - but only when the base side of the group is leaf-shaped
 		// too. Against a base container, a childless over-node is a wrapper
@@ -15603,6 +15632,11 @@ impl Document {
 					.iter()
 					.map(|&(pos, ok)| (pos, self.clone_subtree(over, ok, base_parent)))
 					.collect();
+				for &(pos, c) in &clones {
+					if set_off_tail(&over.arena, over_kids, pos) {
+						tails.insert(c);
+					}
+				}
 				if in_base {
 					// The replaced leaf's comments go with it, which the spec
 					// allows; a content-malformed line retained on it is
@@ -15703,40 +15737,65 @@ impl Document {
 							// A stacked spelling no kept line holds is gone on
 							// a reload, so it may not decide how the lines the
 							// other layer brings are written (20260926 item 4).
+							if set_off_tail(&over.arena, over_kids, pos) {
+								tails.insert(b);
+							}
 							self.adopt_trivia(b, over, ok);
 							self.overlay(b, over, ok, touched);
 							bracket(&mut self.arena[b]);
 						}
 						None => {
 							let c = self.clone_subtree(over, ok, base_parent);
+							if set_off_tail(&over.arena, over_kids, pos) {
+								tails.insert(c);
+							}
 							appended.push((pos, c));
 						}
 					}
 				}
 			}
 		}
-		if replace.is_empty() && appended.is_empty() {
-			return;
-		}
-		// Rebuild once: each replaced group goes to its name's first original
-		// position (dropped nodes stay in the arena, unreferenced - reads and
-		// emit walk children from the root), appends go at the end.
-		let mut newkids: Vec<usize> = Vec::with_capacity(base_kids.len() + appended.len());
-		let mut spliced: std::collections::HashSet<&str> = std::collections::HashSet::new();
-		for &b in &base_kids {
-			let name = self.arena[b].name.as_str();
-			match replace.get(name) {
-				Some(clones) => {
-					if spliced.insert(name) {
-						newkids.extend(clones.iter().copied());
+		if !replace.is_empty() || !appended.is_empty() {
+			// Rebuild once: each replaced group goes to its name's first original
+			// position (dropped nodes stay in the arena, unreferenced - reads and
+			// emit walk children from the root), appends go at the end.
+			let mut newkids: Vec<usize> = Vec::with_capacity(base_kids.len() + appended.len());
+			let mut spliced: std::collections::HashSet<&str> = std::collections::HashSet::new();
+			for &b in &base_kids {
+				let name = self.arena[b].name.as_str();
+				match replace.get(name) {
+					Some(clones) => {
+						if spliced.insert(name) {
+							newkids.extend(clones.iter().copied());
+						}
 					}
+					None => newkids.push(b),
 				}
-				None => newkids.push(b),
 			}
+			appended.sort_by_key(|&(pos, _)| pos);
+			newkids.extend(appended.iter().map(|&(_, c)| c));
+			self.arena[base_parent].children = newkids;
 		}
-		appended.sort_by_key(|&(pos, _)| pos);
-		newkids.extend(appended.iter().map(|&(_, c)| c));
-		self.arena[base_parent].children = newkids;
+		// The layer's opening lines of this block, and the lines under a child
+		// in `tails`, keep the blank under them. Else the settle files them as
+		// the next child's comments, which is where a reload of the text
+		// without the blank puts them (2026112112314153). The top of the file
+		// is merge_top()'s.
+		let kids = &self.arena[base_parent].children;
+		let mut under: Vec<usize> = Vec::new();
+		if base_parent != ROOT && !over.arena[over_parent].head().is_empty() {
+			under.extend(kids.first().copied());
+		}
+		if !tails.is_empty() {
+			under.extend(
+				kids.windows(2)
+					.filter(|w| tails.contains(&w[0]))
+					.map(|w| w[1]),
+			);
+		}
+		for n in under {
+			blank_over(&mut self.arena[n]);
+		}
 	}
 
 	/// Deep-copy `over`'s subtree at `oi` into self's arena under `parent`.

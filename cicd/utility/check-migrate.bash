@@ -55,7 +55,8 @@
 ##		A document that names format 3 is not a 2.x file. It is checked for
 ##		being left as written by migrate, and by upgrade but for that one case,
 ##		and is not compared with 2.x (fNamesFormat3, asserted on a corpus
-##		case).
+##		case). One that names it once the trim has taken lines out, as on an
+##		indented line a raw block held, is left out.
 ##	Syntax:
 ##		check-migrate.bash [--corpus DIR] [--iters N] [--min N] [--min-corpus N] [--min-fuzz N]
 ##		  --corpus DIR  conformance corpus root (default project/conformance)
@@ -547,9 +548,13 @@ fRawIndent2x(){ fValue2x rawindent "$1"; }
 ##	corpus input with the info block is one. So it is checked for that and
 ##	not compared with 2.x. Taken only when the text has the line and migrate
 ##	says so too, so a 2.x file migrate wrongly passes over still compares.
+##	Given `lead`, the line may be indented: the trim can take the line that
+##	opens a raw block and leave an indented Format line in its body outside
+##	any block, which the load reads as the file's (2026112112352726).
 fNamesFormat3(){
-	local err
-	grep -qE "${formatHeadEre}"'[3-9]' "$1" || return 1
+	local err ere="${formatHeadEre}"
+	[[ "${2:-}" == lead ]] && ere="^[[:space:]]*${formatHeadEre#^}"
+	grep -qE "${ere}"'[3-9]' "$1" || return 1
 	err="$("${newCli}" migrate --from=2.0 "$1" 2>&1 >/dev/null || true)"
 	[[ "${err}" == *"nothing to migrate: the file already names its format"* ]]
 }
@@ -582,7 +587,7 @@ fTrim(){
 ##	document. The backup's name has the test clock's time in it.
 upDir="${tmpDir}/up"; upClock="2026-10-04 00:15:00 -420 PDT"
 upBackup="cfg_backup_20261004-001500_format-v2.shcl"
-declare -i nUpBad=0 nUpRewritten=0 nUpCleanRewritten=0 nUpCurrent=0 nUpPlain=0 nUpAmbiguous=0 nUpTrimmed3=0
+declare -i nUpBad=0 nUpRewritten=0 nUpCleanRewritten=0 nUpCurrent=0 nUpPlain=0 nUpAmbiguous=0
 
 ##	Errors the current rules find on a load. Hints don't count; `upgrade`
 ##	leaves a file with only those alone.
@@ -705,16 +710,8 @@ fUpFormat3(){
 ##	reads two ways, as `migrate` refuses it.
 fUpgradeCheck(){
 	upName="$1"; upSrc="$2"
-	local migrated="$3" migReads="$4" errs changed=0 reads err
+	local migrated="$3" migReads="$4" errs changed=0 reads
 	errs="$(fErrors "${upSrc}")"
-	## 2026112112352726: the trim can take the line that opens a raw block and
-	## leave an indented Format line in its body outside any block, which the
-	## load reads as the file's, so upgrade takes one with an error as format 3.
-	## Left out here until that Bug closes.
-	if ((errs)) && grep -qE '^[[:space:]]+##[[:space:]]+(SHCL[[:space:]]+format|Format)[[:space:]]+[3-9]' "${upSrc}"; then
-		err="$("${newCli}" migrate "${upSrc}" 2>&1 >/dev/null || true)"
-		if [[ "${err}" == *"nothing to migrate: the file already names its format"* ]]; then nUpTrimmed3+=1; return; fi
-	fi
 	fMigrateChanged "${upSrc}" "${migrated}" && changed=1
 	fUpgradeRun "${upSrc}" --from=2.0
 	if ((errs || changed)); then
@@ -744,7 +741,7 @@ fUpgradeCheck(){
 	fi
 }
 
-declare -i nCompared=0 nCorpus=0 nTrimmed=0 nSkipped=0 nBad=0 nLostChecked=0 nRawOpen=0 nNamed3=0
+declare -i nCompared=0 nCorpus=0 nTrimmed=0 nSkipped=0 nBad=0 nLostChecked=0 nRawOpen=0 nNamed3=0 nTrimmed3=0
 fTest dcqf3 corpus and fuzz documents migrate to the tree 2.x read
 for f in "${corpus}"/*/input.shcl "${brackets}"/*.shcl "${dump}"/*.shcl; do
 	[[ -f "${f}" ]] || continue
@@ -795,6 +792,8 @@ for f in "${corpus}"/*/input.shcl "${brackets}"/*.shcl "${dump}"/*.shcl; do
 		fi
 	fi
 	if ! fTrim "${f}" "${tmpDir}/original.shcl" "${check2x}"; then nSkipped+=1; continue; fi
+	## What the trim left names format 3, so it is no 2.x file any more.
+	if fNamesFormat3 "${tmpDir}/original.shcl" lead; then nTrimmed3+=1; continue; fi
 	cmp -s "${f}" "${tmpDir}/original.shcl" || nTrimmed+=1
 	f="${tmpDir}/original.shcl"
 	rc=0; "${newCli}" migrate --from=2.0 "${f}" > "${tmpDir}/migrated.shcl" 2>"${tmpDir}/migrate.err" || rc=$?
@@ -923,6 +922,13 @@ fTest ddrgn a 2.x document is not taken for format 3
 printf 'a: 1\n## Format 3 is in a comment here\n' > "${tmpDir}/not3.shcl"
 ! fNamesFormat3 "${tmpDir}/not3.shcl" \
 	|| { echo "check-migrate: a 2.x document with no Format line was taken for format 3" >&2; nBad+=1; }
+fTest dfmch a document the trim leaves naming format 3 on an indented line is taken for format 3
+## 2.x reads the backslash as escaping the quote, so the trim takes the line
+## that opens the block, and its indented Format line is outside any block.
+printf '%s\n' ame "'C:\\': ~~~" $'\t##    Format   3' $'\t~~~' 'port: 8080' > "${tmpDir}/trim3.shcl"
+{ fTrim "${tmpDir}/trim3.shcl" "${tmpDir}/trim3.left" "$(fCheck2x "${tmpDir}/trim3.shcl")" \
+	&& ! grep -qF "C:" "${tmpDir}/trim3.left" && fNamesFormat3 "${tmpDir}/trim3.left" lead; } \
+	|| { echo "check-migrate: a document the trim leaves naming format 3 on an indented line was not taken for format 3" >&2; nBad+=1; }
 ##	The third has no corpus case - a new one shifts the fuzz seed set, which
 ##	costs a gate round - so it is checked against a document built here: 2.x
 ##	reads both elements, the current parser places only the first, and the write
@@ -948,7 +954,7 @@ if ((nBad)); then
 	echo "check-migrate: ${nBad} divergence(s) over ${nCompared} document(s) (${nSkipped} skipped)" >&2
 	exit 1
 fi
-echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, ${nCorpus} corpus cases, $((nCompared - nCorpus)) fuzz-dumped and ${nTrimmed} with lines taken out first; ${nLostChecked} lost count(s) match; ${nRawOpen} refused for an open raw block; ${nNamed3} naming format 3 left as written; ${nSkipped} skipped; upgrade rewrote ${nUpRewritten} with --from=2.0 (${nUpCleanRewritten} that loaded clean) and ${nUpPlain} without, left ${nUpCurrent} and ${nFormat3} naming format 3, refused ${nUpAmbiguous} at 7; ${nUpFormat3Soup} of the ${nNamed3} naming format 3 converted with --from=2.0; ${nUpTrimmed3} the trim left naming format 3 not upgraded"
+echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, ${nCorpus} corpus cases, $((nCompared - nCorpus)) fuzz-dumped and ${nTrimmed} with lines taken out first; ${nLostChecked} lost count(s) match; ${nRawOpen} refused for an open raw block; ${nNamed3} naming format 3 left as written; ${nSkipped} skipped; upgrade rewrote ${nUpRewritten} with --from=2.0 (${nUpCleanRewritten} that loaded clean) and ${nUpPlain} without, left ${nUpCurrent} and ${nFormat3} naming format 3, refused ${nUpAmbiguous} at 7; ${nUpFormat3Soup} of the ${nNamed3} naming format 3 converted with --from=2.0; ${nTrimmed3} the trim left naming format 3 not compared"
 
 ##	History:
 ##		2026-09-08  Created with the 3.0 lexical cut, pinned on the funnel merge.
@@ -1002,3 +1008,5 @@ echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, 
 ##		            as beta1's `Format 3` is.
 ##		2026-11-21  A document the trim leaves naming format 3 on an indented
 ##		            line is left out of the upgrade checks (2026112112352726).
+##		2026-11-21  Such a document is left out of the comparison too, as no
+##		            2.x file, rather than excused by the Bug's ID.

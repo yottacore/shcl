@@ -274,17 +274,18 @@ SHELLCHECK_TARGETS=(
 ## libtest-quiet.bash drops libtest's per-test lines, since each test prints
 ## its own with its test ID. The filesystem property tests run in
 ## fs-property.bash instead, on the run's tmpfs, so each of these skips them.
-TEST_CMD=(cicd/utility/libtest-quiet.bash env SHCL_FUZZ_ITERS=200000 cargo test --manifest-path "${MANIFEST}" -- --skip the_save_checks_hold)
+## The heap soak is a leak check, in LEAKCHECK_FAST.
+TEST_CMD=(cicd/utility/libtest-quiet.bash env SHCL_FUZZ_ITERS=200000 cargo test --manifest-path "${MANIFEST}" -- --skip the_save_checks_hold --skip heap_holds_steady_over_rounds)
 ## --quick swaps in this test command: same suites, fuzz at the old 20k gate
 ## depth - the minute-scale 200k soak is what the fast loop sheds.
-TEST_QUICK_CMD=(cicd/utility/libtest-quiet.bash env SHCL_FUZZ_ITERS=20000 cargo test --manifest-path "${MANIFEST}" -- --skip the_save_checks_hold)
+TEST_QUICK_CMD=(cicd/utility/libtest-quiet.bash env SHCL_FUZZ_ITERS=20000 cargo test --manifest-path "${MANIFEST}" -- --skip the_save_checks_hold --skip heap_holds_steady_over_rounds)
 ## -count=1: the corpus sits outside the Go module, so go's test cache cannot
 ## see a changed case and answers `ok (cached)` over a broken golden. The
 ## library is one package, named by directory rather than ./..., since a
 ## package list hides a passing package's output and with it the per-test
 ## status lines.
 TEST_EXTRA=(
-	'GOMAXPROCS="${CPU_CAP}" go -C source/go test -count=1 -skip TestTheSaveChecksHold'
+	'GOMAXPROCS="${CPU_CAP}" go -C source/go test -count=1 -skip "TestTheSaveChecksHold|TestSoakHeapSettles"'
 	'GOMAXPROCS="${CPU_CAP}" go -C source/go/cmd test -count=1 ./...'
 	## spec.md says Go reads can share a document across goroutines, and the
 	## race detector sees that break where a plain run can miss it. The whole
@@ -296,10 +297,8 @@ TEST_EXTRA=(
 	## and their answers held to Rust's (2026111010012287).
 	'cicd/utility/fs-property.bash "${FS_PROPERTY_TESTS[@]}"'
 	## -X dev and the ResourceWarning filter make a file nobody closed an
-	## error, which the runner's unraisable hook turns into a failure. The soak
-	## takes about 15 s here, half of it tracemalloc's (2026101711273980).
+	## error, which the runner's unraisable hook turns into a failure.
 	'python3 -X dev -W error::ResourceWarning source/python/tests/conformance.py'
-	'python3 -X dev -W error::ResourceWarning source/python/tests/soak.py'
 	'cbin="$(mktemp)"; cc -std=c11 -O2 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -Isource/c source/c/tests/conformance.c -o "${cbin}" -lm -lpthread && "${cbin}" project/conformance; crc=$?; rm -f "${cbin}"; ((crc==0))'
 	'vbin="$(mktemp)"; g++ -std=c++17 -O2 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -Isource/c source/c/tests/veneer_smoke.cpp -o "${vbin}" -lm -pthread && "${vbin}"; vrc=$?; rm -f "${vbin}"; ((vrc==0))'
 	'obin="$(mktemp)"; cc -std=c11 -O2 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -Isource/c source/c/tests/oom_hook.c -o "${obin}" -lm && "${obin}"; orc=$?; rm -f "${obin}"; ((orc==0))'
@@ -365,6 +364,13 @@ LEAKCHECK_FAST=(
 	## The veneer smoke in libstdc++'s debug mode, which changes the ABI and
 	## so has a build of its own.
 	'cicd/utility/sanitize-c.bash --glibcxx-debug'
+	## The heap soaks of Rust, Go and Python, out of their suites so
+	## --no-leakcheck drops them too (2026110215285705). Rust's under dhat,
+	## Go's by MemStats, Python's under tracemalloc and -X dev, about 15 s
+	## here, half of it tracemalloc's (2026101711273980).
+	'cicd/utility/libtest-quiet.bash cargo test -j "${CPU_CAP}" --manifest-path source/rust/Cargo.toml --test soak'
+	'GOMAXPROCS="${CPU_CAP}" go -C source/go test -count=1 -run TestSoakHeapSettles'
+	'python3 -X dev -W error::ResourceWarning source/python/tests/soak.py'
 )
 LEAKCHECK_STEPS=(
 	## CodeQL's security-and-quality suites over all 5 languages, in the
@@ -764,8 +770,13 @@ if [[ "${SHCL_CTR_IMAGE:-}" == alpine ]]; then
 		if [[ ! "${x}" =~ ${ctrSkip} ]]; then ctrKeep+=("${x}"); fi
 	done
 	TEST_EXTRA=("${ctrKeep[@]}")
-	## Every one needs glibc, a sanitizer, or a tool the image doesn't have.
-	LEAKCHECK_FAST=(); LEAKCHECK_STEPS=(); LEAKCHECK_LONG=()
+	## Every one needs glibc, a sanitizer, or a tool the image doesn't have,
+	## but the soaks of Rust, Go and Python.
+	ctrKeep=()
+	for x in "${LEAKCHECK_FAST[@]}"; do
+		if [[ "${x}" == *soak* && "${x}" != *soak-c.bash* ]]; then ctrKeep+=("${x}"); fi
+	done
+	LEAKCHECK_FAST=("${ctrKeep[@]}"); LEAKCHECK_STEPS=(); LEAKCHECK_LONG=()
 	unset ctrSkip ctrKeep x
 fi
 
@@ -815,3 +826,4 @@ PUBLISH_AUTO_MESSAGE=""
 ##		- 2026-11-01: CARGO_CACHE_DIRS, the target dirs a toolchain or lockfile change empties.
 ##		- 2026-11-02 JC: The hosted macos job runs under --long only.
 ##		- 2026-11-04: CTR_BUILDER is gone, since the images build on docker's default builder again.
+##		- 2026-11-22: The Rust, Go and Python soaks are fast leak checks, out of the suites.

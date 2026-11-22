@@ -62,6 +62,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- A merge put a comment that a blank set off under a block right above the comments of the field below it, so `comments` gave it as that field's. That happened for a layer's comment under a block it shares with the base, a layer's comment that opens such a block, and a comment over a field the layer replaces. The blank under the comment now stays.
+
 - The `H001` hint on a repeat spelled 2 ways, as in `Order: a` then `order: b`, read like any other repeat. It now lists each spelling and says they're one name, since names ignore case.
 
 - `shcl migrate --from=FORMAT` on a file with no stamp said the file already names its format when that format reads the same as this one, such as `--from=3.0`. It now says that `--from` reads the same as the current format.
@@ -95,6 +97,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The Windows setup's uninstall rewrote a machine PATH that had an empty segment, such as a trailing `;`, even when it didn't have a shcl folder in it, and its install dropped the empty segments. It writes only its own segment now, as install.ps1 does.
 
 - install.ps1 extracts the drop-in payload with Windows' own `tar`. A GNU tar from Git for Windows, MSYS2, or Cygwin ahead of it on PATH failed the unpack.
+
+- Both installers listed drop-ins in the plan for a release that has none, and the receipt then said twice that there weren't any. The plan lists them only when the release has them, and names the removal of a newer install's drop-ins where it has none. install.bash does the same for the man page and completions.
+
+- install.ps1 downloaded the binary before the sums file, so a release without a `windows-arm64` build failed as an HTTP 404. It reads the signed sums first and says the release has no build for the platform, as install.bash does.
+
+- install.ps1 stopped on a raw registry error, after the files were written, when a policy locks `HKCU\Environment`. The install or uninstall finishes and a note says the PATH wasn't changed. Its plan, notes and receipt go to the console only, where they used to go into the pipeline of a caller that captured the script block.
+
+- `install.bash --help` lists `--help` among its options.
 
 - Under a `TMPDIR` with `..` inside a folder name, such as `tmp sp..x`, install.bash installed, then refused to remove its temp folder and exited 1. Both installers take only a whole `vX.Y.Z` or `vX.Y.Z-suffix` tag, where a tag such as `v2.0.0x` passed before.
 

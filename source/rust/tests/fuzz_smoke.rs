@@ -2772,14 +2772,13 @@ fn info_block_inside(text: &str) -> bool {
 	})
 }
 
-/// 2026112112314153: a merge writes the layer's comments under a block, which a
-/// blank sets off from the line below, at the end of that block, so they join
-/// the run of the base's next field. True when the lines over `want` in `lead`
-/// are all such comments in the layer's canonical text.
-fn layer_tail_joined(layer: &str, lead: &[String], want: &[String]) -> bool {
+/// The comments in a layer's canonical text that a blank sets off from the
+/// line below, which are the line above's. A merge keeps that blank under them
+/// (2026112112314153).
+fn set_off_in(layer: &str) -> std::collections::HashSet<String> {
 	let text = Document::parse(layer).to_canonical();
 	let lines: Vec<&str> = text.lines().map(|l| l.trim_matches(BLANKS)).collect();
-	let tails: std::collections::HashSet<&str> = (0..lines.len())
+	(0..lines.len())
 		.filter(|&k| {
 			lines[k].starts_with('#')
 				&& lines[k + 1..]
@@ -2787,11 +2786,8 @@ fn layer_tail_joined(layer: &str, lead: &[String], want: &[String]) -> bool {
 					.find(|l| !l.starts_with('#'))
 					.is_some_and(|l| l.is_empty())
 		})
-		.map(|k| lines[k])
-		.collect();
-	(1..=lead.len()).any(|p| {
-		lead[p..].starts_with(want) && lead[..p].iter().all(|l| tails.contains(l.as_str()))
-	})
+		.map(|k| lines[k].to_string())
+		.collect()
 }
 
 /// Where a comment must be after an edit, from the 2 canonical texts alone
@@ -2889,6 +2885,11 @@ fn placement_slips(
 		.collect();
 	let had: std::collections::HashSet<&str> =
 		before.lines().map(|l| l.trim_matches(BLANKS)).collect();
+	let set_off = if edit == Placed::Merge {
+		set_off_in(layer)
+	} else {
+		Default::default()
+	};
 	let mut slips = Vec::new();
 	for a in &was {
 		if one_anchor(&was, &a.key).is_none() {
@@ -3032,9 +3033,7 @@ fn placement_slips(
 			}
 			_ => lead == want,
 		};
-		let excused =
-			|| edit == Placed::Merge && !rewritten && layer_tail_joined(layer, &lead, &want);
-		if !placed && !excused() {
+		if !placed {
 			slips.push(format!("{}: comments {want:?} are now {lead:?}", a.key));
 		}
 		// A run a blank sets off from it stays between it and the line above
@@ -3071,7 +3070,18 @@ fn placement_slips(
 		// A remove hands the blank above what it took to the line now in its
 		// place (2026111623191917).
 		let handed = edit == Placed::Remove && blank && !a.blank && by_target(a.above, &was);
-		let unheld = a.first || b.first || noted || handed;
+		// A merge keeps a blank under the layer's comments it writes above
+		// the run, where a blank set them off in the layer.
+		let brought: Vec<&String> = b
+			.run
+			.iter()
+			.filter(|l| !l.is_empty() && !a.run.contains(l))
+			.collect();
+		let kept_off = edit == Placed::Merge
+			&& blank && !a.blank
+			&& !brought.is_empty()
+			&& brought.iter().all(|l| set_off.contains(l.as_str()));
+		let unheld = a.first || b.first || noted || handed || kept_off;
 		if fresh && !unheld && a.blank != blank {
 			slips.push(format!(
 				"{}: blank above its comments {} is now {}",
@@ -4251,11 +4261,25 @@ fn footer(canon: &str) -> Vec<(usize, &str)> {
 /// table: a footer line the base's footer already has, at the same depth. A
 /// field-like one with a deeper one after it goes in whole, so neither of the
 /// two is skipped. Read from both canonical texts, where the footer is written
-/// last and each line at its depth.
+/// last and each line at its depth. A kept line the save writes as a comment
+/// looks like any comment there, so such a line counts only when the layer's
+/// kept lines have it.
 fn footer_skips(before: &str, layer: &str) -> Vec<String> {
 	let had = footer(before);
 	let canon = Document::parse(layer).to_canonical();
 	let theirs = footer(&canon);
+	let mut left: Vec<String> = kept_text(layer).lines.into_iter().map(|l| l.1).collect();
+	let mut settled = vec![false; theirs.len()];
+	for k in 0..theirs.len() {
+		let t = unsettled(theirs[k].1);
+		if theirs[k].1.starts_with('#')
+			&& had.contains(&theirs[k])
+			&& let Some(j) = left.iter().position(|l| l == t)
+		{
+			left.remove(j);
+			settled[k] = true;
+		}
+	}
 	let fields: Vec<usize> = (0..theirs.len())
 		.filter(|&k| !theirs[k].1.starts_with('#'))
 		.collect();
@@ -4267,8 +4291,10 @@ fn footer_skips(before: &str, layer: &str) -> Vec<String> {
 		}
 	}
 	(0..theirs.len())
-		.filter(|&k| !theirs[k].1.starts_with('#') && !whole[k] && had.contains(&theirs[k]))
-		.map(|k| theirs[k].1.trim_matches(BLANKS).to_string())
+		.filter(|&k| {
+			settled[k] || (!theirs[k].1.starts_with('#') && !whole[k] && had.contains(&theirs[k]))
+		})
+		.map(|k| unsettled(theirs[k].1.trim_matches(BLANKS)).to_string())
 		.collect()
 }
 
@@ -4674,6 +4700,25 @@ fn a_misplaced_tail_line_is_no_skipped_copy() {
 	assert!(footer_piled(&before, layer, &after, &skipped).is_empty());
 	let piled = "a: 1\nq: [5]\n- name:\n# - name:\n- name:\n";
 	assert_eq!(footer_piled(&before, layer, piled, &skipped), skipped);
+	// A kept line the save writes as a comment is skipped the same way when
+	// the base's footer has it, since a remove left the base no field
+	// (2026112113032005).
+	let mut doc = Document::parse_keep_lines(
+		"\n        srv: [1\n        - 2\n    - name:\n    - name:\n    - name:\nblk:\n\tbad name: ~~~\n\trun: 1\n\t~~~\na: \"a\u{25c9}Q\u{25c9}b\"\n",
+		Strictness::Standard,
+	)
+	.unwrap_or_else(|e| e.document);
+	assert_eq!(doc.remove("blk"), 1);
+	let before = doc.to_canonical();
+	let layer = "\n\n        \"q.k\": 2\n            b: 3, 3\n        a: 4, 4\n    b: [5\n        \"q.k\": 6\n            a.b(x): [7\n    - name:\n";
+	let skipped = footer_skips(&before, layer);
+	assert_eq!(skipped, ["- name:"]);
+	doc.merge(&Document::parse(layer));
+	let after = doc.to_canonical();
+	assert_eq!(after.matches("# - name:").count(), 3);
+	assert!(footer_piled(&before, layer, &after, &skipped).is_empty());
+	// The same text as a plain comment in the layer is no kept line.
+	assert!(footer_skips(&before, "a: 4\n# - name:\n").is_empty());
 }
 
 // The two merge exceptions in the property go by where a line sits, and a

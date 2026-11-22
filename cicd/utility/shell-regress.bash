@@ -462,6 +462,75 @@ SRVEOF
 		fi
 	done
 
+	fTest dfmdh 2026110915493402-install-ps1-plan-without-drop-ins
+	##	2026110915493402: the plan listed drop-ins for a release that has none,
+	##	since it was printed before the sums were read. The release's asset
+	##	list decides it now. Over a newer install with code\ the plan names
+	##	the removal, and a release that has the payload still plans it.
+	printf '[{"tag_name":"v1.2.0","prerelease":false,"draft":false,"assets":[{"name":"shcl-1.2.0-windows-x86_64.exe"}]},{"tag_name":"v3.0.0-beta1","prerelease":true,"draft":false,"assets":[{"name":"shcl-3.0.0-beta1-dropins.tar.gz"}]}]\n' > "${tmpDir}/reldrop.json"
+	sed "s|${tmpDir}/rel.json|${tmpDir}/reldrop.json|" "${tmpDir}/fakeapi.ps1" > "${tmpDir}/fakedrop.ps1"
+	mkdir -p "${tmpDir}/laddrop/Programs/Shcl/code"
+	printf '#!/bin/sh\necho "shcl v2.0.0"\n' > "${tmpDir}/laddrop/Programs/Shcl/shcl.exe"; printf 'x\n' > "${tmpDir}/laddrop/Programs/Shcl/code/lib.rs"
+	chmod 755 "${tmpDir}/laddrop/Programs/Shcl/shcl.exe"
+	for release in stable dev; do
+		out="$(env -u DISPLAY PROCESSOR_ARCHITECTURE=AMD64 SystemRoot="${tmpDir}/sysroot" LOCALAPPDATA="${tmpDir}/laddrop" pwsh -NoProfile -NonInteractive -File "${tmpDir}/fakedrop.ps1" -Release "${release}" < /dev/null 2>&1 || true)"
+		if [[ "${release}" == stable ]]; then
+			[[ "${out}" == *"shcl 1.2.0 (stable, windows-x86_64)"* && "${out}" != *"  drop-ins "* \
+				&& "${out}" == *$'\n'"  removes  the drop-ins in ${tmpDir}/laddrop/Programs/Shcl\\code\\, since this release doesn't include them"$'\n'* ]] \
+				|| fBad "install.ps1 plans drop-ins for a release without them, or not their removal: ${out@Q}"
+		else
+			[[ "${out}" == *"shcl 3.0.0-beta1 (dev, windows-x86_64)"* && "${out}" == *$'\n'"  drop-ins ${tmpDir}/laddrop/Programs/Shcl\\code\\"$'\n'* && "${out}" != *"  removes "* ]] \
+				|| fBad "install.ps1 does not plan the drop-ins its release has: ${out@Q}"
+		fi
+	done
+	[[ -f "${tmpDir}/laddrop/Programs/Shcl/code/lib.rs" ]] || fBad "install.ps1 removed drop-ins at the plan"
+
+	fTest dfmdj 2026110215285718-install-ps1-ui-text-off-the-pipeline
+	##	2026110215285718: the plan, notes and receipt went down the output
+	##	stream, so a caller that captured the script block got them as data.
+	#  shellcheck disable=2016  ## PowerShell's own $variables, quoted so bash leaves them alone.
+	{
+		echo "\$sb = [scriptblock]::Create((Get-Content '${repoDir}/install.ps1' -Raw))"
+		echo '$v = & $sb -Version'
+		echo '$h = & $sb -Help'
+		echo 'Write-Output ("captured=" + @($v).Count + "," + @($h).Count)'
+	} > "${tmpDir}/capture.ps1"
+	out="$(pwsh -NoProfile -NonInteractive -File "${tmpDir}/capture.ps1" 2>&1 || true)"
+	[[ "${out}" == *"captured=0,0"* && "${out}" == *"install.ps1 "* ]] || fBad "install.ps1 sends its UI text down the pipeline: ${out@Q}"
+
+	fTest dfmdk 2026110215285718-install-ps1-registry-refusal
+	##	2026110215285718: a registry that refuses the PATH edit, as a policy
+	##	lock on HKCU\Environment does, threw a raw error after the files were
+	##	written. Linux pwsh has no registry at all, which takes the same path
+	##	to the note. Linux has no ProgramFiles either, which the empty
+	##	uninstall reads.
+	mkdir -p "${tmpDir}/lad/Programs/Shcl/code"
+	printf 'x\n' > "${tmpDir}/lad/Programs/Shcl/shcl.exe"; printf 'x\n' > "${tmpDir}/lad/Programs/Shcl/code/lib.rs"
+	rc=0; out="$(fNoNet -Uninstall -Target user -Yes)" || rc=$?
+	[[ "${rc}" == 0 && "${out}" == *$'\n'"removed"$'\n'"note: couldn't take "*" out of the User PATH, since the registry refused the change ("*") - remove it by hand" ]] \
+		|| fBad "install.ps1 -Uninstall does not turn a registry refusal into a note (exit ${rc}): ${out@Q}"
+	rc=0; out="$(ProgramFiles="${tmpDir}/pf" fNoNet -Uninstall -Target user -Yes)" || rc=$?
+	[[ "${rc}" == 0 && "${out}" == *"nothing to remove"*$'\n'"note: couldn't check the User PATH for "*", since the registry refused the change ("* ]] \
+		|| fBad "install.ps1 -Uninstall with nothing there does not turn a registry refusal into a note (exit ${rc}): ${out@Q}"
+	# shellcheck disable=SC2016  ## install.ps1's own text, matched literally
+	grep -qF 'try { $pathAdded = Update-ShclPath -Scope $pathScope -Dir $pathDir } catch' "${repoDir}/install.ps1" \
+		|| fBad "install.ps1's install no longer catches a registry refusal"
+
+	fTest dfmdm 2026110215285718-install-ps1-sums-before-binary
+	##	2026110215285718: the binary came down before the sums, so a release
+	##	without a windows-arm64 build failed as an HTTP 404. install.bash's
+	##	order: the signed sums, then the check that the binary is listed, then
+	##	the download.
+	# shellcheck disable=SC2016  ## install.ps1's own text, matched literally
+	{
+		sumsLine="$( { grep -n 'Save-ReleaseAsset -Uri "$base/shcl-$version-sha256sums.txt" ' "${repoDir}/install.ps1" || true; } | head -n1 | cut -d: -f1)"
+		listLine="$( { grep -n 'binary - pick a newer release' "${repoDir}/install.ps1" || true; } | head -n1 | cut -d: -f1)"
+		binLine="$( { grep -n 'Save-ReleaseAsset -Uri "$base/$asset"' "${repoDir}/install.ps1" || true; } | head -n1 | cut -d: -f1)"
+	}
+	if [[ -z "${sumsLine}" || -z "${listLine}" || -z "${binLine}" ]] || (( sumsLine > listLine || listLine > binLine )); then
+		fBad "install.ps1 fetches the binary before it knows the release has one (${sumsLine:-?} ${listLine:-?} ${binLine:-?})"
+	fi
+
 	fTest dcz7z 20260921-idea6-install-ps1-uninstall-held-file
 	##	20260921 idea 6: a file the uninstall could not remove, which a running
 	##	shcl.exe causes on Windows, went unsaid, and the dir it kept was blamed
@@ -2070,7 +2139,7 @@ if fHave setsid && fHave openssl; then
 	( cd "${ui}/x" && tar -czf "${ui}/rel/shcl-3.0.0-beta1-dropins.tar.gz" source )
 	printf '#!/bin/sh\necho "shcl v3.0.0-beta1"\n' > "${ui}/rel/shcl-3.0.0-beta1-linux-x86_64"
 	( cd "${ui}/rel" && sha256sum shcl-3.0.0-beta1-linux-x86_64 shcl-3.0.0-beta1-dropins.tar.gz > "${ui}/sums" )
-	printf '[{"tag_name":"v3.0.0-beta1","prerelease":true,"draft":false}]\n' > "${ui}/rel.json"
+	printf '[{"tag_name":"v3.0.0-beta1","prerelease":true,"draft":false,"assets":[{"name":"shcl-3.0.0-beta1-dropins.tar.gz"}]}]\n' > "${ui}/rel.json"
 	cat > "${ui}/bin/curl" <<-STUB
 		#!/bin/sh
 		out=""; url=""
@@ -2118,6 +2187,9 @@ if fHave setsid && fHave openssl; then
 	out="$(HOME="${uh}" PATH="${ui}/bin:${PATH}" setsid -w bash "${repoDir}/install.bash" --release dev --yes </dev/null 2>&1 || true)"
 	[[ "${out}" == *"installed shcl 3.0.0-beta1"* && "${out}" != *"retired wrappers"* && ! -e "${uh}/.local/share/shcl/scripts" ]] \
 		|| fBad "install.bash fresh install: ${out@Q}"
+	##	2026110915493402: a release whose asset list has the payload plans it.
+	[[ "${out}" == *$'\n'"  drop-ins ${uh}/.local/share/shcl/code/"$'\n'* && "${out}" != *"removes "* ]] \
+		|| fBad "install.bash fresh install does not plan the drop-ins its release has: ${out@Q}"
 
 	fTest df0ak 2026110613470318-install-bash-dots-in-tmpdir
 	##	2026110613470318: the guard refused any `..` in the temp folder's path, so
@@ -2168,6 +2240,13 @@ if fHave setsid && fHave openssl; then
 		|| fBad "install.bash's receipt does not name the move back: ${out@Q}"
 	[[ "${out}" == *$'\n'"note: removed the drop-ins, the man page and completions the 3.0.0-beta1 install had, since this release doesn't include them"$'\n'* ]] \
 		|| fBad "install.bash does not say what it removed: ${out@Q}"
+	##	2026110915493402: the plan listed the drop-ins, man page and completions
+	##	this release doesn't have, and the receipt added the no-payload note to
+	##	the one above. The plan names the removal instead.
+	[[ "${out}" != *"  drop-ins "* && "${out}" != *"  man page "* && "${out}" != *"  compl. "* && "${out}" != *"signed drop-in payload"* ]] \
+		|| fBad "install.bash plans drop-ins for a release without them, or says so twice: ${out@Q}"
+	[[ "${out}" == *$'\n'"  removes  the drop-ins in ${bd}/code/, the man page and completions, since this release doesn't include them"$'\n'* ]] \
+		|| fBad "install.bash does not plan the removal of the beta's drop-ins: ${out@Q}"
 	[[ -e "${bd}/code" || -e "${bd}/man" || -e "${bd}/completions" || -e "${bh}/.local/share/man/man1/shcl.1" || -L "${bh}/.local/share/man/man1/shcl.1" ]] \
 		&& fBad "install.bash left the beta's drop-ins, man page or completions beside 2.0.0"
 	cmp -s "${bd}/shcl" "${bk}/rel/shcl-2.0.0-linux-x86_64" || fBad "install.bash did not put 2.0.0 in place"
@@ -2176,6 +2255,8 @@ if fHave setsid && fHave openssl; then
 	out="$(HOME="${bh}" PATH="${bk}/bin:${PATH}" setsid -w bash "${repoDir}/install.bash" --yes </dev/null 2>&1 || true)"
 	[[ "${out}" == *"(updates the existing install)"* && "${out}" != *"older"* && "${out}" != *"removed"* ]] \
 		|| fBad "install.bash calls a rerun of the same version a move back: ${out@Q}"
+	[[ "${out}" != *"  removes "* && "${out}" == *$'\n'"note: this release doesn't have a signed drop-in payload, so ${bd}/code was skipped"* ]] \
+		|| fBad "install.bash rerun without drop-ins plans a removal, or doesn't say the payload is missing: ${out@Q}"
 else
 	fTestSkipBlock
 fi
@@ -3032,7 +3113,40 @@ fTest dc7gb 20260904-24-publish-identity-fallbacks
 ##	Both lines need their fallback.
 pub="${repoDir}/cicd/utility/n8git_backup-and-publish"
 [[ "$(grep -cE 'git config user\.(name|email)[^|]*\|\|' "${pub}" || true)" == 2 ]] || fBad "n8git_backup-and-publish reads the git identity without a fallback"
-grep -qE 'sshHost="\$\(git remote get-url origin[^)]*\|\| true\)"' "${pub}" || fBad "n8git_backup-and-publish assigns sshHost without a fallback"
+grep -qE 'originUrl="\$\(git remote get-url origin[^)]*\|\| true\)"' "${pub}" || fBad "n8git_backup-and-publish reads the origin URL without a fallback"
+
+fTest dfmez 2026111011285666-publish-ssh-host-of-remote
+##	2026111011285666: the ssh key check read no host from a local-path or
+##	file:// origin and fell back to git@github.com, and read '..' from a
+##	relative path. The host parse is cut out of the script and run on each
+##	form. An empty answer means no probe. dfmf0 checks the call site.
+nBadBefore="${nBad}"
+(
+	hostFn="$(sed -n '/^fSshHostOf(){$/,/^}$/p' "${pub}")"
+	[[ "${hostFn}" == *$'\n}' ]] || { fBad "n8git_backup-and-publish: fSshHostOf not found to cut out"; exit 1; }
+	eval "${hostFn}"
+	while IFS='|' read -r url want; do
+		got="$(fSshHostOf "${url}")"
+		[[ "${got}" == "${want}" ]] || fBad "n8git_backup-and-publish read ssh host ${got@Q} from ${url@Q}, not ${want@Q}"
+	done <<-'EOF'
+		git@github.com:a/b.git|github.com
+		gh-work:a/b.git|gh-work
+		ssh://git@example.com/a/b.git|example.com
+		ssh://git@example.com:2222/a/b.git|example.com
+		ssh://example.com/a/b.git|example.com
+		git+ssh://git@example.com/a.git|example.com
+		/mnt/x/origin.git|
+		file:///mnt/x/origin.git|
+		../origin.git|
+		./origin.git|
+		origin.git|
+		dir/with:colon.git|
+		https://github.com/a/b.git|
+		git://example.com/a.git|
+		|
+	EOF
+	exit $((nBad - nBadBefore))
+) || nBad=$((nBad + 1))
 
 fTest dcnmq 20260909-29-gfs-keep-values-not-run
 ##	20260909 item 29: a GFS_KEEP_* value reached arithmetic, where bash runs a
@@ -3124,6 +3238,39 @@ if command -v git >/dev/null 2>&1; then
 	if grep -qiE 'stash drop|drop it' <<< "${popOut}"; then fBad "n8git_backup-and-publish said to drop the only copy of an untracked file: ${popOut@Q}"; fi
 	grep -qE '^  notes\.txt$' <<< "${popOut}" || fBad "n8git_backup-and-publish did not name the untracked file it left in the stash: ${popOut@Q}"
 	if grep -qE '^  also\.txt$' <<< "${popOut}"; then fBad "n8git_backup-and-publish named an untracked file that was put back: ${popOut@Q}"; fi
+fi
+
+fTest dfmf0 2026111011285679-publish-from-linked-worktree
+##	2026111011285679: the publish script looked only for .git/HEAD, and a
+##	linked worktree's .git is a file, so it refused to run there. A publish from
+##	a worktree of a scratch remote, with the prompts off but not quiet, so the
+##	ssh key check runs too. Its origin is a local path, so the stub ssh must not
+##	be called (2026111011285666).
+if command -v git >/dev/null 2>&1; then
+	out="$(
+		unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX GIT_CONFIG_COUNT
+		git(){ GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 command git "$@" ;}
+		sb="${tmpDir}/publish-worktree"
+		mkdir -p "${sb}/bin"
+		printf '#!/bin/sh\nexit 0\n' > "${sb}/bin/rar"; chmod +x "${sb}/bin/rar"
+		# shellcheck disable=SC2016  ## the $* is for the stub
+		printf '#!/bin/sh\necho "$*" >> %q\n' "${sb}/ssh-called" > "${sb}/bin/ssh"; chmod +x "${sb}/bin/ssh"
+		gitBin="$(dirname "$(type -P git)")"
+		git init -q --bare -b main "${sb}/remote.git"
+		git clone -q "${sb}/remote.git" "${sb}/a/github" 2>/dev/null
+		git -C "${sb}/a/github" config user.name t; git -C "${sb}/a/github" config user.email t@t.invalid
+		echo 1 > "${sb}/a/github/f"; git -C "${sb}/a/github" add f; git -C "${sb}/a/github" commit -qm f; git -C "${sb}/a/github" push -q -u origin HEAD 2>/dev/null
+		git -C "${sb}/a/github" worktree add -q -b side "${sb}/a/wt" 2>/dev/null
+		echo 2 > "${sb}/a/wt/f"
+		rc=0; (cd "${sb}/a/wt" && GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 PATH="${sb}/bin:${gitBin}:/usr/bin:/bin" GIT_BACKUP_AND_PUBLISH_NOBACKUP=1 "${BASH}" "${pub}" --no-prompt --message from-wt > "${sb}/out.txt" 2>&1 < /dev/null) || rc=$?
+		printf '%s %s %s\n' "${rc}" "$(git -C "${sb}/remote.git" log -1 --format=%s side 2>/dev/null || echo none)" "$([[ -e "${sb}/ssh-called" ]] && echo called || echo skipped)"
+		cat "${sb}/out.txt"
+	)" || true
+	read -r wtRc wtMsg wtSsh <<< "${out%%$'\n'*}"
+	wtOut="${out#*$'\n'}"
+	[[ "${wtRc}" == 0 && "${wtMsg}" == from-wt ]] || fBad "n8git_backup-and-publish did not publish from a linked worktree (exit ${wtRc}, remote has ${wtMsg}): ${wtOut@Q}"
+	[[ "${wtSsh}" == skipped ]] || fBad "n8git_backup-and-publish probed ssh for a local-path origin"
+	[[ "${wtOut}" == *"(origin isn't an ssh remote)"* ]] || fBad "n8git_backup-and-publish did not say the origin isn't an ssh remote: ${wtOut@Q}"
 fi
 
 fTest dd5hj 20260819-1-remote-sync-stage
@@ -3893,6 +4040,11 @@ for inst in install.bash install-dev.bash; do
 		fBad "${inst} --help prints hard tabs, which render raggedly off tab width 8"
 	fi
 	[[ -n "${help}" ]] || fBad "${inst} --help printed nothing"
+	##	2026110215285718: --help was missing from both option lists. Every long
+	##	option the argument loop takes is listed.
+	while IFS= read -r opt; do
+		grep -qE -- "^  ${opt}[ ,]" <<<"${help}" || fBad "${inst} --help does not list ${opt}"
+	done < <(grep -oE '^		(-[a-z]\|)?--[a-z-]+' "${repoDir}/${inst}" | grep -oE -- '--[a-z-]+$' | sort -u)
 	##	20260803 item 24: the help was read back out of the script's own file,
 	##	which the one-liner's pipe does not leave, so it printed nothing at exit
 	##	0. And an option given no value ended the run with nothing said.
@@ -4944,6 +5096,65 @@ fsDir="$(cat "${tmpDir}/fs-a.dir" 2> /dev/null || true)"
 [[ "${fsRc}" == 0 && "${fsOut}" == *"cases on the temp folder, at ${tmpDir}/win temp/shcl-fs."* && "${fsDir}" == "W:${tmpDir}/win temp/shcl-fs."?* && "${fsOut}" == *"SKIP df4ch "* && "${fsOut}" != *note:* ]] || fBad "fs-property.bash on Windows: exit ${fsRc}: ${fsOut@Q}, dir ${fsDir@Q}"
 [[ -z "$(ls -A "${tmpDir}/win temp")" ]] || fBad "fs-property.bash left $(ls -A "${tmpDir}/win temp") in TEMP"
 
+fTest dfme4 2026110218511914-box-stale-work-folders
+##	A dropped ssh skips the box half's trap, so its work folder stayed on the
+##	box. Each box run writes run.pid, and in plain sh removes the box's work
+##	folders over 2 days old whose run.pid names no live process. A live one, a
+##	new one, one with no run.pid, a link and a folder of another shape stay.
+bxTemp="${tmpDir}/box-temp"; bxBase="${bxTemp}/shcl"; bxDead=2147483646
+mkdir -p "${bxBase}/20200101-000000_001/ro" "${bxBase}/20200101-000000_002" "${bxBase}/20200101-000000_003" "${bxBase}/20200101-000000_005" "${bxBase}/old-shape" "${tmpDir}/box-elsewhere" "${tmpDir}/box-in"
+echo "${bxDead}" > "${bxBase}/20200101-000000_001/run.pid"; : > "${bxBase}/20200101-000000_001/ro/f"; chmod 555 "${bxBase}/20200101-000000_001/ro"
+echo "$$" > "${bxBase}/20200101-000000_002/run.pid"
+echo none > "${bxBase}/20200101-000000_005/run.pid"
+echo "${bxDead}" > "${tmpDir}/box-elsewhere/run.pid"; ln -s "${tmpDir}/box-elsewhere" "${bxBase}/20200101-000000_004"
+echo "${bxDead}" > "${bxBase}/old-shape/run.pid"
+bxNew="$(date -d '-1 hour' +%Y%m%d-%H%M%S)_001"; mkdir "${bxBase}/${bxNew}"; echo "${bxDead}" > "${bxBase}/${bxNew}/run.pid"
+printf 'mkdir o; cat run.pid\n' > "${tmpDir}/box-in/run.sh"
+tar -cf "${tmpDir}/box-in.tar" -C "${tmpDir}/box-in" run.sh
+bxRc=0; bxPid="$(eval "$(sed -n '/^fBoxScript()/,/^EOF$/p' "${repoDir}/cicd/utility/check-boxes.bash")"$'\n}'
+	HOST_TEMP="${bxTemp}" sh -c "$(fBoxScript)" < "${tmpDir}/box-in.tar" | tar -xOf - rc.lst)" || bxRc=$?
+bxLeft="$(find "${bxBase}" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | paste -sd' ')"
+bxWant="$(printf '%s\n' 20200101-000000_002 20200101-000000_003 20200101-000000_004 "${bxNew}" old-shape | LC_ALL=C sort | paste -sd' ')"
+[[ "${bxRc}" == 0 && "${bxPid}" =~ ^[0-9]+$ && "${bxLeft}" == "${bxWant}" && -f "${tmpDir}/box-elsewhere/run.pid" ]] || fBad "the box half's stale sweep: exit ${bxRc}, run.pid ${bxPid@Q}, left ${bxLeft@Q}, wanted ${bxWant@Q}"
+chmod -R u+rwX -- "${bxTemp}" 2> /dev/null || true
+## A Windows box's work folder is made and swept by fWinMkdir, in PowerShell.
+# shellcheck disable=SC2016  ## PowerShell's own text, matched literally
+for bxText in '-ChildPath '\''run.pid'\'') -Value $PID' 'AddDays(-2)' 'Get-Process -Id $id' 'ReparsePoint)) { continue }'; do
+	sed -n '/^fWinMkdir()/,/^EOF$/p' "${repoDir}/cicd/utility/check-boxes.bash" | grep -qF -- "${bxText}" || fBad "fWinMkdir no longer has ${bxText@Q}"
+done
+grep -qF -- "-ChildPath 'run.pid') -Value \$PID" "${repoDir}/cicd/utility/box-cases.ps1" || fBad "box-cases.ps1 no longer puts its PID in run.pid"
+
+fTest dfme5 2026110215285705-soaks-are-leak-checks
+##	The Rust and Go heap soaks ran inside their suites and Python's was a test
+##	step, so --no-leakcheck kept all 3. Each soak in the tree is a fast leak
+##	check, and no test step runs it.
+mapfile -t skRust < <(sed -n '/#\[test\]/{n;s/^fn \([a-z_0-9]*\).*/\1/p}' "${repoDir}"/source/rust/tests/soak*.rs)
+mapfile -t skGo < <(grep -ho '^func Test[A-Za-z0-9_]*Soak[A-Za-z0-9_]*' "${repoDir}"/source/go/*_test.go | sed 's/^func //')
+mapfile -t skPy < <(cd "${repoDir}" && ls source/python/tests/soak*.py)
+((${#skRust[@]} && ${#skGo[@]} && ${#skPy[@]})) || fBad "found no soak: rust ${skRust[*]}, go ${skGo[*]}, python ${skPy[*]}"
+# shellcheck disable=SC2016  ## the inner shell's own variables
+skOut="$(cd "${repoDir}" && CPU_CAP=1 bash -c 'set +u; source cicd/config.bash
+	for x in "${TEST_CMD[*]}" "${TEST_QUICK_CMD[*]}"; do printf "cmd\t%s\n" "${x}"; done
+	for x in "${TEST_EXTRA[@]}"; do printf "extra\t%s\n" "${x}"; done
+	for x in "${LEAKCHECK_FAST[@]}"; do printf "fast\t%s\n" "${x}"; done' 2>&1)"
+skHas(){ grep -qF -- "$2" <<< "$(grep "^$1"$'\t' <<< "${skOut}" || true)"; }
+skNot(){ ! skHas "$@"; }
+for t in "${skRust[@]}"; do
+	while IFS=$'\t' read -r _ x; do [[ "${x}" == *" --skip ${t}"* ]] || fBad "a Rust suite runs the soak ${t}: ${x}"; done < <(grep '^cmd'$'\t' <<< "${skOut}")
+done
+if ! skHas fast 'cargo test' || ! skHas fast '--test soak'; then fBad "no fast leak check runs the Rust soak"; fi
+for t in "${skGo[@]}"; do
+	while IFS=$'\t' read -r _ x; do
+		[[ "${x}" == *'go -C source/go test'* && "${x}" != *' -race '* ]] || continue
+		[[ "${x}" =~ -skip\ \"[^\"]*${t} ]] || fBad "a Go suite runs the soak ${t}: ${x}"
+	done < <(grep '^extra'$'\t' <<< "${skOut}")
+	skHas fast "-run ${t}" || fBad "no fast leak check runs the Go soak ${t}"
+done
+for t in "${skPy[@]}"; do
+	skNot extra "${t}" || fBad "a test step runs the soak ${t}"
+	skHas fast "${t}" || fBad "no fast leak check runs the soak ${t}"
+done
+
 fTestEnd
 
 if ((nBad)); then
@@ -4980,3 +5191,4 @@ echo "shell-regress: OK: installers, one-liner scope, packaging, comparison work
 ##		2026-10-31  The PowerShell safe removal guard, for 2026103114555334.
 ##		2026-11-01  cicd.bash stamps every build before the debug build and hands the stamp to the image; a cut drops the date.
 ##		2026-11-07  shclpath.ps1 writes only its segment, install.ps1 unpacks through the System32 tar, install.bash under a TMPDIR with .. in its name, anchored tag filters.
+##		2026-11-22  A box run sweeps the box's stale work folders, and the soaks are leak checks.

@@ -339,6 +339,9 @@ if ((backlog_quick)); then quick=1; quick_flag=--backlog-run-quick; fi
 if ((leakcheck_flag && no_leakcheck)); then echo "--leakcheck and --no-leakcheck can't go together (try --help)" >&2; exit 2; fi
 if ((quick && long_run)); then echo "--quick and --long can't go together (try --help)" >&2; exit 2; fi
 if [[ -n "${ctr_image}" ]] && ((no_container)); then echo "--container and --no-container can't go together (try --help)" >&2; exit 2; fi
+## So the gate scripts that start the image keep their containers too. Not
+## from the caller, since a stub engine under a kept run is a run of its own.
+if ((keep_temp)); then export SHCL_KEEP_TEMP=1; else unset SHCL_KEEP_TEMP; fi
 
 ## The run modes: correctness only, deterministic, side-effect free. --merge-gate
 ## has every check of a run with no flags: the release and cross builds, their
@@ -1057,8 +1060,10 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 	## need the second group a runner's user has. So the image's passwd and
 	## group files plus the caller's entries, and the caller's groups.
 	local etc gid gname; etc="$(mktemp -d)"
-	"${engine}" run --rm "${labels[@]}" --name "$(fCtrName "${step}-passwd")" --cpus 1 --cpu-shares 256 "${mem[@]}" "${tag}" cat /etc/passwd > "${etc}/passwd" || fDie "couldn't read the image's /etc/passwd"
-	"${engine}" run --rm "${labels[@]}" --name "$(fCtrName "${step}-group")" --cpus 1 --cpu-shares 256 "${mem[@]}" "${tag}" cat /etc/group > "${etc}/group" || fDie "couldn't read the image's /etc/group"
+	local -a rmArg=(--rm)
+	if ((keep_temp)); then rmArg=(); fi
+	"${engine}" run "${rmArg[@]}" "${labels[@]}" --name "$(fCtrName "${step}-passwd")" --cpus 1 --cpu-shares 256 "${mem[@]}" "${tag}" cat /etc/passwd > "${etc}/passwd" || fDie "couldn't read the image's /etc/passwd"
+	"${engine}" run "${rmArg[@]}" "${labels[@]}" --name "$(fCtrName "${step}-group")" --cpus 1 --cpu-shares 256 "${mem[@]}" "${tag}" cat /etc/group > "${etc}/group" || fDie "couldn't read the image's /etc/group"
 	printf '%s:x:%s:%s::/cache/home:/bin/bash\n' "${USER:-builder}" "$(id -u)" "$(id -g)" >> "${etc}/passwd"
 	for gid in $(id -G); do
 		if grep -q "^[^:]*:[^:]*:${gid}:" "${etc}/group"; then continue; fi
@@ -1105,8 +1110,6 @@ fRunContainer(){   ## fRunContainer TREE [PART]
 	## nice on this side doesn't reach the container, so a CPU quota and a low
 	## share; the engine inside renices itself. The memory cap has no swap, so
 	## a step over it is killed in here, and the run exits 137.
-	local -a rmArg=(--rm)
-	if ((keep_temp)); then rmArg=(); fi
 	local greenOut=""
 	if [[ "${part}" != fmt ]]; then greenOut="$(fGreenOut "${tree}")"; env+=(-e "SHCL_GREEN_OUT=${greenOut}"); fi
 	"${engine}" run "${rmArg[@]}" --init --cidfile "${cidfile}" "${labels[@]}" --name "$(fCtrName "${step}")" --cpus "${CPU_CAP}" --cpu-shares 256 "${mem[@]}" --user "$(id -u):$(id -g)" "${groups[@]}" "${mounts[@]}" "${env[@]}" -w "${tree}" \
@@ -2094,3 +2097,4 @@ exit 0
 ##		- 2026-11-04: The images build on docker's default builder again, and a run prunes no build cache.
 ##		- 2026-11-04: --quick leaves out the test boxes. A run that picked the main image itself goes on here when it won't build.
 ##		- 2026-11-09: A memory cap with no swap, CICD_MEM_CAP: the run under a user scope, and each container it starts.
+##		- 2026-11-22: --keep-temp keeps the image reads and the gate scripts' containers too, through SHCL_KEEP_TEMP.
