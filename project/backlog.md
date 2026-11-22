@@ -96,22 +96,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Note: until then shell-regress dcvej fails, since every fmt now ends with the stamp.
 
-- A merge of a layer with a kept `- name:` line loses one kept line from the canonical save, with a lost count of 0
-	- ID: 2026112113032005
-	- Type: Bug
-	- Status: Queued
-	- Severity: Avg
-	- Target version: v3.0.0
-	- Opened: 20261121-130320
-	- Opened by: me, the nov21 gate's 2M release fuzz
-	- Related IDs: 2026112112314153
-	- Version and build: dev at `393765cb`, and nov21 at `86d615d1`
-	- Steps to reproduce: fuzz `dderx` at 2,000,000 in release, iteration 1757912. In Rust string form, base `"\n        srv: [1\n        - 2\n    - name:\n    - name:\n    - name:\nblk:\n\tbad name: ~~~\n\trun: 1\n\t~~~\na: \"a\u{25c9}Q\u{25c9}b\"\n"` through `parse_keep_lines`, `remove("blk")`, then a merge of `"\n\n        \"q.k\": 2\n            b: 3, 3\n        a: 4, 4\n    b: [5\n        \"q.k\": 6\n            a.b(x): [7\n    - name:\n"`.
-	- Incorrect behavior: the canonical save writes 3 `# - name:` lines where the base and the layer had 4 kept `- name:` lines, and `lost_count()` is 0, so the save isn't refused. `dderx` fails: "the canonical save lost kept line(s) [\"- name:\"]".
-	- Expected behavior: every kept line is written, or the lost count says so and the save refuses.
-	- Reproduced: 20261121, the steps through the Python library on dev at `393765cb`, on `2bd7d20f` and on nov21 at `86d615d1` give the same text. Smaller cases with one `- name:` line in the base and the layer keep both. Not judged yet whether the property misreads the 4 copies of one text or the merge drops one.
-	- Estimated effort: Avg
-
 - A merge puts a comment the layer had under a block, above a blank, onto the next field in the base
 	- ID: 2026112112314153
 	- Type: Bug
@@ -287,6 +271,37 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Add a read that gives every value across repeats and arrays, in file order.
 		- The `_or` doc says a repeat gives the default, and points to that read.
 	- Estimated effort: Avg
+
+- The kept-line property counts a footer line the merge leaves out as lost, when the save writes it as a comment
+	- ID: 2026112113032005
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261121-130320
+	- Opened by: me, the nov21 gate's 2M release fuzz
+	- Related IDs: 2026112112314153, 2026112015385902
+	- Version and build: dev at `393765cb`, and nov21 at `86d615d1`
+	- Steps to reproduce: fuzz `dderx` at 2,000,000 in release, iteration 1757912. In Rust string form, base `"\n        srv: [1\n        - 2\n    - name:\n    - name:\n    - name:\nblk:\n\tbad name: ~~~\n\trun: 1\n\t~~~\na: \"a\u{25c9}Q\u{25c9}b\"\n"` through `parse_keep_lines`, `remove("blk")`, then a merge of `"\n\n        \"q.k\": 2\n            b: 3, 3\n        a: 4, 4\n    b: [5\n        \"q.k\": 6\n            a.b(x): [7\n    - name:\n"`.
+	- Incorrect behavior: `dderx` fails: "the canonical save lost kept line(s) [\"- name:\"]". The canonical save writes 3 `# - name:` lines where the base and the layer had 4 kept `- name:` lines, and `lost_count()` is 0.
+	- Expected behavior: `dderx` passes. The fourth line is the layer's last footer line, and the base's footer already has it, so the merge leaves it out, as design.md's "Kept lines under edits" table says.
+	- Reproduced: 20261121, the steps through the Python library on dev at `393765cb`, on `2bd7d20f` and on nov21 at `86d615d1` give the same text. Smaller cases with one `- name:` line in the base and the layer keep both.
+	- Reproduced: 20261121, the Python library on dev at `edaf8fa3`, the same text.
+	- Actual cause [Bug]:
+		- After `remove("blk")` the base has no field left, so its 6 kept lines are its footer, 3 of them `# - name:` at depth 0. The layer's footer ends with the same line at the same depth. The merge leaves that one out and takes it off the kept lines it counts, which is the table's exception for a footer line the base already has.
+		- `footer_skips` in `fuzz_smoke.rs` passes over every footer line that starts with `#`. So the property never expects the merge to leave out a kept line that the save writes as a comment. It does expect one written as typed, such as `a: 4, 4`.
+	- Requirements:
+		- `footer_skips` also gives a layer's footer line that the canonical text writes as a comment, when it's one of the layer's kept lines and the base's footer has the same line at the same depth.
+			- Canonical text can't tell such a line from a plain comment, so it goes by the layer's kept lines from `kept_text`.
+		- A case in the helpers' own test, `ddj46` or one beside it, that fails without the change.
+		- The 2M release fuzz passes iteration 1757912.
+		- No library change.
+	- Estimated effort: Low
+	- Decisions:
+		- me, 20261121: the merge is right, and the property misreads it. The exception is about a line the base's footer already has, whichever way the save writes that line.
+			- With `blk` left in, the base's 3 lines sit above a field. Its footer doesn't have the line then, and the merge writes all 4.
+			- `x: 1` and `a: 4, 4`, merged with `y: 2` and `a: 4, 4`, writes `a: 4, 4` once for the same reason, and the property already expects that.
+		- me, 20261121: beta.2, at Low. No 2M release fuzz passes until it's fixed, and 2026112015385902, which is on dev, still waits for that run. The fix is test code only.
 
 - check-migrate checks a fuzz document its trim left naming format 3 as a 2.x file
 	- ID: 2026112112352726
@@ -1091,13 +1106,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- For beta.2 (me, 20261121). It's the first release with `from`, so the results change once, before any program has adopted them. JC is fine with lower-priority work in beta.2.
 		- Decided against: only the check and the `upgrade_file` error (me). The text calls and the load would stay quiet, and the same slip does the same harm there.
 		- Decided against: a new file status for the load (me). The status is about the file, and every program that matches on it would have to change.
+		- What a refused `from` gives back stays as built (me, 20261121, checked after the close):
+			- `current` is false with `bad_from`. A program that checks only `current` then takes the file as not converted, which is true. With `current` true it would read its 2.0 file as 3.0.
+			- `bad_from` is a bool beside `current` and `unfinished`. Decided against: a status enum on the result (me). It would add a type to all 4 bindings and C++ one release before v4 gives each binding its own API.
+			- Go's `""` is still no `from`, since that's how Go leaves an argument out. A name left out takes the path every program takes on start, which never rewrites a file that loads clean. Rust's `Some("")`, Python's `""`, and C's `""` are refused. All 4 CLIs refuse `--from=` at exit 1.
+			- C++ refuses a name with a NUL in it, as Rust does. Cutting it at the NUL would read `"2.0\0x"` as `2.0`.
 	- Note: split into Rust and the docs (2026112109191634), Go (2026112109191655), Python (2026112109192615), and C with C++ (2026112109192636). All 4 closed in one job.
 	- Actual effort: Avg
 	- Actual fix: every call that takes `from` checks it with the new public `known_format` first, and a name it refuses converts nothing. See the children.
 	- Test case: `a_from_that_names_no_format_is_refused` (Rust `dfksh`, Go `dfkss`, Python `dfksj`, C `dfkst`, veneer `dfksv`).
 	- Branch: `nov21-2026112108444603`
 	- Commit: `b4ad4254`
-	- Acceptance signoff: Self-closed: each new test was seen to fail with the guard taken out, and the named gates passed. What a refused `from` gives back is a `Check:` entry in questions.md.
+	- Acceptance signoff: Self-closed: each new test was seen to fail with the guard taken out, and the named gates passed. What a refused `from` gives back was checked on 20261121 and kept as built.
 	- Closed: 20261121-094900
 	- Closed reason: Done
 
@@ -1257,6 +1277,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Against: the 2026110712372271 decision and design.md's "A blank between 2 of the lines that moved stays".
 	- Decisions:
 		- me, 20261121: a blank above a moved comment goes, whether a comment or an item sat above it, since keeping it cuts the field's own comments off from the field. One above a kept line stays, since kept lines stay as built and `df50j` pins that blank. Dropping every blank among the moved lines was the other option.
+		- me, 20261121, checked again after the close: it stays as built. After the steps, `comments("hosts")` gives all 3 comments, and with the blank left in it gives only `# b is the spare`. A change to a list's values shouldn't change which comments its field has.
+			- The blank above a kept line changes nothing `comments` reads, since a field's own comments start after the last kept line. Dropping it too would only change `df50j`'s case.
 	- Swept: both callers of `adopt_heir` in each binding, `unstack` (the setter's list replace and the merge's `bracket`) and the settle's move of kept lines from among a list's items through `adopt`'s `Takes` heir. `adopt`'s other heirs don't merge lines into a node's own run.
 	- Test case: placement rows `2026112017363707-1` to `-3` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dderx`, `dd3t9`, `df50j`.
 	- Verified: the 3 rows fail on the Python library at `2bd7d20f` and pass on the change (`placement-watch.py`). `dderx` at 200,000 in release fails at iteration 172087 on the Rust library at `2bd7d20f` with the excuse out, and passes on the change, with `dd3t9` and `df50j`. `--skip=check-docs --backlog-run-quick rust go python c` passed all 5 steps, the 4 placement runners included. check-docs alone failed only `dc0c8` on a line committed on nov21 before this change. mdcheck and markdownlint gave no new findings.
@@ -17048,6 +17070,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- A program can replace the comment it set before, and leave the other comments above the key alone.
 		- Needs better design: how shcl tells the program's comment from the user's.
+			- me, 20261121: by a mark the program passes with the call, such as `## ` or `## myapp: `. A comment line of the key's own that starts with the mark is the program's, and every other line is the user's. shcl gives no comment a meaning of its own.
+	- Decisions:
+		- me, 20261121: the call takes a mark and the text. It takes off the key's own comment lines that start with the mark, out of the lines `comments` reads. It writes the mark and then the text in the first one's place, or where `set_comment` would put it when there wasn't one. What it writes starts with the mark, so the next call finds it. With empty text it only takes the marked lines off.
+			- It needs no format change and nothing stored. `set_comment` already writes text that starts with `#` as typed, and `comments` gives each line from its `#` on.
+			- A program that follows the generator's `##` for prose passes `## `. One whose users write `##` themselves passes a longer mark.
+			- Tools that manage lines in a file a person also edits go by a marker the tool picks, as Ansible's `marker` does.
+		- Decided against: a fixed `##` (me). design.md says nothing depends on `##`, and that an author may write a comment with any number of `#`. A user's own `##` line above the key would go, and the program would have no way to avoid it.
+		- Decided against: matching the old text (me). The program would have to keep every wording it ever wrote, and one it forgot stacks again.
+		- Decided against: a new comment mark in the format (me). It changes what a 3.0 file's comments mean to a reader, which v4's goals rule out.
+		- Decided against: remembering the line in the document (me). That doesn't outlast a save.
 	- Note: moved from shclwrap 2026101513330022.
 	- Note: with v4 (me).
 
