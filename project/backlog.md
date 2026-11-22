@@ -430,8 +430,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - install.ps1 lists a drop-ins line in the plan for a release that has none
 	- ID: 2026110915493402
 	- Type: Bug
-	- Status: Waiting on automated testing
-	- Needs external testing: b29w, user target, the r1109 steps: install 2.0.0, then a copy of install.ps1 pinned to v1.2.0. The plan has a `removes  the drop-ins in ...\code\` line and no `drop-ins` line, and the receipt has the one removed note.
+	- Status: Closed
 	- Severity: Low
 	- Target version: v3.0.0
 	- Opened: 20261109-154934
@@ -446,9 +445,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261122: the plan names the removal of a newer install's drop-ins on a `removes` line, like the retired wrappers' line, rather than saying nothing. Taking files away without the plan saying so would surprise more than one extra line.
 		- 20261122: the plan reads the API's asset list, rather than fetching the sums before the prompt. Nothing is downloaded before the user says yes, and the shell-regress plan rows stay offline. The signed sums still decide what's installed, so an asset list that disagrees changes only the plan.
 	- Swept: install.bash's plan and receipt (same 2 faults, fixed, with the man page and completions). install-dev.bash doesn't install a release. The uninstall paths don't plan drop-ins.
-	- Test case: shell-regress `dfmdh` (install.ps1 plan, with and without the payload) and `df38m` (install.bash plan and the single receipt note, extended). Both fail on the old scripts and pass now. The install.ps1 receipt needs Windows past the plan, so it's in the Needs row.
+	- Test case: shell-regress `dfmdh` (install.ps1 plan, with and without the payload) and `df38m` (install.bash plan and the single receipt note, extended). Both fail on the old scripts and pass now. The install.ps1 receipt needs Windows past the plan, so it ran on b29w.
+	- Verified: on b29w, user target, the round's install.ps1 installed 2.0.0 with its drop-ins, then a copy pinned to v1.2.0 ran over it at exit 0. Its plan had the `removes  the drop-ins in ...\code\` line and no `drop-ins` line. The receipt had only the removed note, with no no-payload line, and `code\` was gone after.
 	- Branch: nov22-2026110915493402
 	- Commit: `cf9de5d0`
+	- Acceptance signoff: Self-closed: the r1109 steps passed on b29w.
+	- Closed: 20261121-213500
+	- Closed reason: Done
 
 - The veneer smoke linked against the DLLs dies at start on b29w
 	- ID: 2026110710374327
@@ -524,7 +527,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Gate containers under `--keep-temp`, and stale work folders on the test boxes
 	- ID: 2026110218511914
 	- Type: Bug
-	- Status: Waiting on automated testing
+	- Status: Closed
 	- Severity: Low
 	- Target version: v3.0.0
 	- Opened: 20261102-185119
@@ -536,7 +539,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: `--keep-temp` keeps only the run's main containers, and nothing on a box sweeps a work folder its trap didn't get to remove.
 	- Expected behavior: `--keep-temp` keeps every container the run starts. Each box run removes that box's own stale work folders, by the same rule as the run folders here: older than 2 days, with no live process left.
 	- Estimated effort: Avg
-	- Needs external testing: check-boxes on vmFreeBSD, b26 or vmKt6m, and b29w, each with a work folder planted under the box's `shcl/` temp folder, dated over 2 days back with a dead `run.pid`, and one with a live `run.pid`. The first goes and the second stays. That runs the BSD `date -v` path, the macOS sh, and the PowerShell sweep, none of which ran here.
 	- Actual cause: the image reads and `fCtrRunSelf` set `--rm` themselves, and a gate script heard nothing of `--keep-temp`. The box half wrote no `run.pid` and swept nothing.
 	- Actual fix:
 		- cicd.bash exports `SHCL_KEEP_TEMP=1` under `--keep-temp`, and unsets it otherwise. The passwd and group reads, `fCtrRunSelf` (analyze-c, soak-c, codeql-scan) and the Zig trim drop `--rm` under it.
@@ -550,8 +552,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: `fWinMkdir`'s script under pwsh on Linux, a stand-in for Windows, over the same planted folders: the dead and unreadable `run.pid` ones went, the rest stayed, and the new folder had pwsh's PID in `run.pid`. PSScriptAnalyzer passes on box-cases.ps1.
 	- Verified: check-push-gate passes whole, `dfme3` included. On the old cicd.bash and ctr-image.bash, `dfme3` fails all 3 parts: 4 reads with `--rm`, `fCtrRunSelf` with `--rm`, and a run without the flag passing on the one it was handed. shell-regress passes but the known `dcvej`, and `--backlog-run-quick go` passes.
 	- Swept: every `docker run` under `cicd/`: cicd.bash's 3 in `fRunContainer`, and ctr-image.bash's `fCtrRunSelf` and `fCtrZigTrim`. A gate script starts the image only through `fCtrRunSelf`. On the box side, `fBoxScript` and `fWinMkdir` are the only places a work folder is made.
+	- Verified: check-boxes' box half, run once over ssh as check-boxes sends it, on vmFreeBSD (`date -v` path) and b26 (macOS sh), with folders planted under the box's `shcl/` temp folder and dated 20261101. The one with a dead `run.pid` went, and the ones with `run.pid` naming PID 1 or with no `run.pid` stayed.
+	- Verified: `fWinMkdir` on b29w over the same kind of planted folders: the dead and unreadable `run.pid` ones went, the one naming a live system process and the one without `run.pid` stayed, and the new folder had its PID in `run.pid`.
 	- Branch: `nov22-2026110218511914`
 	- Test case: check-push-gate `dfme3` (no `--rm` on any run under `--keep-temp`, `fCtrRunSelf` by `SHCL_KEEP_TEMP`, and a run without the flag drops it) and shell-regress `dfme4` (the box half's stale sweep, and the Windows sweep's text).
+	- Acceptance signoff: Self-closed: the sweep passed on the 3 boxes the item names.
+	- Closed: 20261121-213500
+	- Closed reason: Done
 
 - `--no-leakcheck` still runs the soak tests
 	- ID: 2026110215285705
@@ -585,8 +592,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Installer odds and ends
 	- ID: 2026110215285718
 	- Type: Bug
-	- Status: Waiting on automated testing
-	- Needs external testing: b29w, user target. With write access to `HKCU\Environment` denied, an install and an uninstall each end at exit 0 with the PATH note and no raw error. `$o = & ([scriptblock]::Create((irm ...))) -Version` and the same with `-Help` leave `$o` empty on Windows PowerShell 5.1 and pwsh 7, with the text still on the console.
+	- Status: Closed
 	- Severity: Low
 	- Target version: v3.0.0
 	- Opened: 20261102-152857
@@ -610,9 +616,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261122: a refused PATH edit is a note at exit 0, not an error. The files are in place and run by full path, and install.bash treats a link dir off PATH the same way.
 		- 20261122: `Write-Host` rather than `[Console]::Out`, since it reaches the host in every PowerShell, ISE included, and a caller can still take it with `6>`.
 	- Swept: every `Write-Output` in install.ps1 (all now `Write-Host`), every `Update-ShclPath` call (3), every download in install.ps1 (sums, signature, binary, payload), and the option loops of install.bash and install-dev.bash against their usage.
-	- Test case: shell-regress `dfmdj` (UI text off the pipeline), `dfmdk` (registry refusal as a note, on Linux pwsh, where there isn't any registry), `dfmdm` (sums before the binary, by line order, as install.bash's row does), and `dc0bt` (every long option is in each bash installer's help). All 4 fail on the old scripts and pass now. A real policy lock, and 5.1, need b29w.
+	- Test case: shell-regress `dfmdj` (UI text off the pipeline), `dfmdk` (registry refusal as a note, on Linux pwsh, where there isn't any registry), `dfmdm` (sums before the binary, by line order, as install.bash's row does), and `dc0bt` (every long option is in each bash installer's help). All 4 fail on the old scripts and pass now. A real policy lock, and 5.1, ran on b29w.
+	- Verified: on b29w, user target, with a deny rule for SetValue on `HKCU\Environment` for the user, an install and then an uninstall each ended at exit 0 with the plain PATH note and no raw error. The rule came off after, and the key took writes again.
+	- Verified: on b29w, `$o = & ([scriptblock]::Create(...)) -Version`, and the same with `-Help`, left `$o` empty on Windows PowerShell 5.1 and pwsh 7, with the text on the console. The script's text came from the file rather than `irm`, which gives the same text.
 	- Branch: nov22-2026110915493402
 	- Commit: `cf9de5d0`
+	- Acceptance signoff: Self-closed: the Windows steps passed on b29w.
+	- Closed: 20261121-213500
+	- Closed reason: Done
 
 - check-boxes shows only the last lines of a failed box suite, so its FAIL lines are cut off
 	- ID: 2026110119584589
