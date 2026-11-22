@@ -275,7 +275,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The kept-line property counts a footer line the merge leaves out as lost, when the save writes it as a comment
 	- ID: 2026112113032005
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Severity: Low
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261121-130320
@@ -302,6 +302,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 			- With `blk` left in, the base's 3 lines sit above a field. Its footer doesn't have the line then, and the merge writes all 4.
 			- `x: 1` and `a: 4, 4`, merged with `y: 2` and `a: 4, 4`, writes `a: 4, 4` once for the same reason, and the property already expects that.
 		- me, 20261121: beta.2, at Low. No 2M release fuzz passes until it's fixed, and 2026112015385902, which is on dev, still waits for that run. The fix is test code only.
+		- 20261121: each of the layer's kept lines counts for one footer comment, so a plain comment with the same text as a kept line counts only when that kept line isn't used up. A kept line with the same text elsewhere in the layer can still count for a footer comment, which only takes one line off what the property expects.
+	- Actual fix [Bug]: `footer_skips` also gives a footer line the layer's canonical text writes as a comment, when the base's footer has it at the same depth and the layer's kept lines from `kept_text` have its text. It gives the line as the kept line reads, without the comment mark. No library change.
+	- Swept: the 3 callers of `footer_skips` (`dderx`'s merge step, `ddj46` and `ddhda`), and `footer_piled`, which already counts a line written either way.
+	- Test case: `ddj46` (`a_misplaced_tail_line_is_no_skipped_copy`), with the issue's base and layer, and a plain comment that isn't skipped. `dderx` at iteration 1757912.
+	- Verified: `ddj46` fails on the unfixed `footer_skips` with no line skipped, and passes with the change. `ddhda` passes. `--backlog-run-quick rust` passed all 5 steps, and lint-report `--check` passed.
+	- Needs local test suite run?: the 2M release fuzz, `dderx` past iteration 1757912. `dderx` alone in release didn't reach it in under 4 minutes.
+	- Branch: nov22-2026112113032005
+	- Commit: `895813d6`
 
 - check-migrate checks a fuzz document its trim left naming format 3 as a 2.x file
 	- ID: 2026112112352726

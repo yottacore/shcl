@@ -4251,11 +4251,25 @@ fn footer(canon: &str) -> Vec<(usize, &str)> {
 /// table: a footer line the base's footer already has, at the same depth. A
 /// field-like one with a deeper one after it goes in whole, so neither of the
 /// two is skipped. Read from both canonical texts, where the footer is written
-/// last and each line at its depth.
+/// last and each line at its depth. A kept line the save writes as a comment
+/// looks like any comment there, so such a line counts only when the layer's
+/// kept lines have it.
 fn footer_skips(before: &str, layer: &str) -> Vec<String> {
 	let had = footer(before);
 	let canon = Document::parse(layer).to_canonical();
 	let theirs = footer(&canon);
+	let mut left: Vec<String> = kept_text(layer).lines.into_iter().map(|l| l.1).collect();
+	let mut settled = vec![false; theirs.len()];
+	for k in 0..theirs.len() {
+		let t = unsettled(theirs[k].1);
+		if theirs[k].1.starts_with('#')
+			&& had.contains(&theirs[k])
+			&& let Some(j) = left.iter().position(|l| l == t)
+		{
+			left.remove(j);
+			settled[k] = true;
+		}
+	}
 	let fields: Vec<usize> = (0..theirs.len())
 		.filter(|&k| !theirs[k].1.starts_with('#'))
 		.collect();
@@ -4267,8 +4281,10 @@ fn footer_skips(before: &str, layer: &str) -> Vec<String> {
 		}
 	}
 	(0..theirs.len())
-		.filter(|&k| !theirs[k].1.starts_with('#') && !whole[k] && had.contains(&theirs[k]))
-		.map(|k| theirs[k].1.trim_matches(BLANKS).to_string())
+		.filter(|&k| {
+			settled[k] || (!theirs[k].1.starts_with('#') && !whole[k] && had.contains(&theirs[k]))
+		})
+		.map(|k| unsettled(theirs[k].1.trim_matches(BLANKS)).to_string())
 		.collect()
 }
 
@@ -4674,6 +4690,25 @@ fn a_misplaced_tail_line_is_no_skipped_copy() {
 	assert!(footer_piled(&before, layer, &after, &skipped).is_empty());
 	let piled = "a: 1\nq: [5]\n- name:\n# - name:\n- name:\n";
 	assert_eq!(footer_piled(&before, layer, piled, &skipped), skipped);
+	// A kept line the save writes as a comment is skipped the same way when
+	// the base's footer has it, since a remove left the base no field
+	// (2026112113032005).
+	let mut doc = Document::parse_keep_lines(
+		"\n        srv: [1\n        - 2\n    - name:\n    - name:\n    - name:\nblk:\n\tbad name: ~~~\n\trun: 1\n\t~~~\na: \"a\u{25c9}Q\u{25c9}b\"\n",
+		Strictness::Standard,
+	)
+	.unwrap_or_else(|e| e.document);
+	assert_eq!(doc.remove("blk"), 1);
+	let before = doc.to_canonical();
+	let layer = "\n\n        \"q.k\": 2\n            b: 3, 3\n        a: 4, 4\n    b: [5\n        \"q.k\": 6\n            a.b(x): [7\n    - name:\n";
+	let skipped = footer_skips(&before, layer);
+	assert_eq!(skipped, ["- name:"]);
+	doc.merge(&Document::parse(layer));
+	let after = doc.to_canonical();
+	assert_eq!(after.matches("# - name:").count(), 3);
+	assert!(footer_piled(&before, layer, &after, &skipped).is_empty());
+	// The same text as a plain comment in the layer is no kept line.
+	assert!(footer_skips(&before, "a: 4\n# - name:\n").is_empty());
 }
 
 // The two merge exceptions in the property go by where a line sits, and a
