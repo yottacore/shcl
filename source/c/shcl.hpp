@@ -1454,7 +1454,9 @@ std::string Document::to_canonical() const { return detail::str(shcl_to_canonica
 std::tuple<SaveResult, std::string, bool> Document::to_text_keep_lines() const {
 	int k = 0;
 	shcl_str t;
-	auto r = static_cast<SaveResult>(shcl_to_text_keep_lines(detail::fresh(*this), &t, &k));
+	// The text is in the read arena, so it is copied before the lock goes.
+	auto h = detail::fresh(*this);
+	auto r = static_cast<SaveResult>(shcl_to_text_keep_lines(h, &t, &k));
 	return {r, detail::str(t), k != 0};
 }
 

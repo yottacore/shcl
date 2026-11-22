@@ -373,7 +373,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The C++ veneer's `de1a5` failed once under the quick gate, and passed 3 runs alone
 	- ID: 2026111912330703
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Priority: Low
 	- Target version: v3.0.0
 	- Opened: 20261119-123307
@@ -383,6 +383,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: `veneer FAIL: round 2, thread 7, call 0`, where got and want print the same up to a line end, then `FAIL de1a5 c++ reads_from_several_threads`.
 	- Expected behavior: the threads test passes every run.
 	- Note: control: the same source built with g++ and run 3 times alone passed every time. No C or C++ code changed in that tree.
+	- Reproduced: 20261121. The smoke's TSan build, with sanitize-c's flags, reported a race in `to_text_keep_lines` in 5 runs of 5. A plain build passed 40 runs on a lightly loaded box.
+	- Actual cause: confirmed. The C++ `to_text_keep_lines` let go of the document's lock before it copied the text, which is in the read arena. Another thread's next read resets that arena and writes over it, so the first compare saw other bytes, and the retry that printed them saw the right ones.
+	- Origin: `6a040f86` (2026-11-18), which moved the text to an out-parameter copied after the call. sanitize-c `de1a6` catches it, and the quick run skips it.
+	- Actual fix: the call holds the lock in a named local until the text is copied, as the other reads do.
+	- Swept: every lock site in `shcl.hpp`. The others copy their answer inside the call, or under a named lock. `read_authored_name` copies after the lock goes, but the name it reads is in the node's own storage, which a read never writes.
+	- Test case: C++ `de1a5` (`reads_from_several_threads`), and sanitize-c `de1a6` for its TSan build, which fails before the fix and passes after.
+	- Verified: the TSan build failed 5 of 5 before the fix and passed 5 of 5 after. `--backlog-run-quick c` passed, `de1a5` included. The whole sanitize-c script wasn't run, only its TSan build of the smoke.
+	- Branch: `nov22-2026111912330703`
+	- Acceptance signoff: Self-closed: the race is gone under TSan, which caught it every run before the fix.
+	- Closed: 20261121-195449
+	- Closed reason: Done
+	- Commit: `77c492c3`
 	- 20261120: failed again in nov20c's gate step quick run at `63a34d6b` (load about 25 on 32 cores), round 1, thread 2, call 0. The printed got and want are the same text and the same `T F 1` flags, so the compare saw something other than what it printed. 5 runs alone then passed.
 
 - install.ps1 lists a drop-ins line in the plan for a release that has none
