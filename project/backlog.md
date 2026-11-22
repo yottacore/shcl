@@ -647,7 +647,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The publisher's ssh key check asks github.com about a remote that's a local path
 	- ID: 2026111011285666
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: Low
 	- Target version: v3.0.0
 	- Opened: 20261110-112856
@@ -664,12 +664,27 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Don't probe for a local path, a `file://` URL, or a relative path.
 		- Apply the same patch to the canonical copy under the synced tree. The other projects' copies get it as each one is refreshed.
+	- Actual cause: the sed cut whatever came before the first `:` or `/`, so a local path gave an empty host or `..`, and the empty one fell back to `github.com`.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Decisions:
+		- me: the host comes from git's own rule. A URL with no scheme is scp-style only when a `:` comes before any `/`, so `origin.git` and `./x` are local too. Only `ssh://`, `git+ssh://` and `ssh+git://` URLs count as ssh.
+		- me: an `https://` or `git://` origin skips the probe too, since it has no ssh host. The intro already warns that the remote should be `git@`.
+		- me: no origin at all prints `(no origin remote)`, and the `github.com` fallback is gone.
+		- me, 20261121: shell-regress `dc7gb` now looks for the fallback on `originUrl="$(git remote get-url origin ... || true)"`, where it looked for it on `sshHost=`. The host is parsed in its own function now. The rest of the row is as it was.
+	- Actual fix: `fSshHostOf` gives the ssh host or nothing, and the key check runs only for a host, else it prints `(origin isn't an ssh remote)`. The canonical copy in the synced `linux/bash` folder has the same change, with the old one kept in the private upstream folder under `2026111011285666/`.
+	- Verified: `dfmez` and `dfmf0` fail on the old script and pass now. With only the call site put back, `dfmf0` fails on the ssh stub being called. shell-regress passes but for `dcvej`, the demo gif check, which reads none of the changed files. shellcheck passes on both copies.
+	- Swept: `ssh` and `remote get-url` in the publisher, the only probe. The canonical copy matches the repo's but for 3 older history and comment lines.
+	- Branch: `nov22-2026111011285666`
+	- Test case: shell-regress `dfmez` (the host parse on 15 remote forms) and `dfmf0` (a publish with a local-path origin never calls the stub ssh).
+	- Acceptance signoff: Self-closed: its tests failed on the old script and pass.
+	- Closed: 20261121-210000
+	- Closed reason: Done
 
 - The publisher refuses to run in a linked worktree
 	- ID: 2026111011285679
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: Low
 	- Target version: v3.0.0
 	- Opened: 20261110-112856
@@ -684,6 +699,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Accept a `.git` file too, as tukfs-hash's copy does: `[[ -f "${dirPath_GitProj}/.git/HEAD" || -f "${dirPath_GitProj}/.git" ]]`.
 		- Apply the same patch to the canonical copy under the synced tree.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: the check takes a `.git` file too, as the requirement gives it. The canonical copy in the synced `linux/bash` folder has the same change.
+	- Verified: `dfmf0` publishes from a linked worktree of a scratch remote, and the branch reaches the remote. The old script stopped at the project-folder check, exit 1, and the new one passes.
+	- Swept: every `.git` in the publisher. The link walk's `find -name .git` prunes a file as well as a dir. The rar exclude `*/.git` has no wildcard in its last part, so by the script's own notes it takes a file too, unverified, since `dfmf0` runs with the backup off.
+	- Branch: `nov22-2026111011285666`
+	- Test case: shell-regress `dfmf0`.
+	- Acceptance signoff: Self-closed: its test failed on the old script and passes.
+	- Closed: 20261121-210000
+	- Closed reason: Done
 
 - Infer reports a null dereference, 2 leaks and 2 dead stores in `shcl.h`
 	- ID: 2026111016205714

@@ -3113,7 +3113,40 @@ fTest dc7gb 20260904-24-publish-identity-fallbacks
 ##	Both lines need their fallback.
 pub="${repoDir}/cicd/utility/n8git_backup-and-publish"
 [[ "$(grep -cE 'git config user\.(name|email)[^|]*\|\|' "${pub}" || true)" == 2 ]] || fBad "n8git_backup-and-publish reads the git identity without a fallback"
-grep -qE 'sshHost="\$\(git remote get-url origin[^)]*\|\| true\)"' "${pub}" || fBad "n8git_backup-and-publish assigns sshHost without a fallback"
+grep -qE 'originUrl="\$\(git remote get-url origin[^)]*\|\| true\)"' "${pub}" || fBad "n8git_backup-and-publish reads the origin URL without a fallback"
+
+fTest dfmez 2026111011285666-publish-ssh-host-of-remote
+##	2026111011285666: the ssh key check read no host from a local-path or
+##	file:// origin and fell back to git@github.com, and read '..' from a
+##	relative path. The host parse is cut out of the script and run on each
+##	form. An empty answer means no probe. dfmf0 checks the call site.
+nBadBefore="${nBad}"
+(
+	hostFn="$(sed -n '/^fSshHostOf(){$/,/^}$/p' "${pub}")"
+	[[ "${hostFn}" == *$'\n}' ]] || { fBad "n8git_backup-and-publish: fSshHostOf not found to cut out"; exit 1; }
+	eval "${hostFn}"
+	while IFS='|' read -r url want; do
+		got="$(fSshHostOf "${url}")"
+		[[ "${got}" == "${want}" ]] || fBad "n8git_backup-and-publish read ssh host ${got@Q} from ${url@Q}, not ${want@Q}"
+	done <<-'EOF'
+		git@github.com:a/b.git|github.com
+		gh-work:a/b.git|gh-work
+		ssh://git@example.com/a/b.git|example.com
+		ssh://git@example.com:2222/a/b.git|example.com
+		ssh://example.com/a/b.git|example.com
+		git+ssh://git@example.com/a.git|example.com
+		/mnt/x/origin.git|
+		file:///mnt/x/origin.git|
+		../origin.git|
+		./origin.git|
+		origin.git|
+		dir/with:colon.git|
+		https://github.com/a/b.git|
+		git://example.com/a.git|
+		|
+	EOF
+	exit $((nBad - nBadBefore))
+) || nBad=$((nBad + 1))
 
 fTest dcnmq 20260909-29-gfs-keep-values-not-run
 ##	20260909 item 29: a GFS_KEEP_* value reached arithmetic, where bash runs a
@@ -3205,6 +3238,39 @@ if command -v git >/dev/null 2>&1; then
 	if grep -qiE 'stash drop|drop it' <<< "${popOut}"; then fBad "n8git_backup-and-publish said to drop the only copy of an untracked file: ${popOut@Q}"; fi
 	grep -qE '^  notes\.txt$' <<< "${popOut}" || fBad "n8git_backup-and-publish did not name the untracked file it left in the stash: ${popOut@Q}"
 	if grep -qE '^  also\.txt$' <<< "${popOut}"; then fBad "n8git_backup-and-publish named an untracked file that was put back: ${popOut@Q}"; fi
+fi
+
+fTest dfmf0 2026111011285679-publish-from-linked-worktree
+##	2026111011285679: the publish script looked only for .git/HEAD, and a
+##	linked worktree's .git is a file, so it refused to run there. A publish from
+##	a worktree of a scratch remote, with the prompts off but not quiet, so the
+##	ssh key check runs too. Its origin is a local path, so the stub ssh must not
+##	be called (2026111011285666).
+if command -v git >/dev/null 2>&1; then
+	out="$(
+		unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX GIT_CONFIG_COUNT
+		git(){ GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 command git "$@" ;}
+		sb="${tmpDir}/publish-worktree"
+		mkdir -p "${sb}/bin"
+		printf '#!/bin/sh\nexit 0\n' > "${sb}/bin/rar"; chmod +x "${sb}/bin/rar"
+		# shellcheck disable=SC2016  ## the $* is for the stub
+		printf '#!/bin/sh\necho "$*" >> %q\n' "${sb}/ssh-called" > "${sb}/bin/ssh"; chmod +x "${sb}/bin/ssh"
+		gitBin="$(dirname "$(type -P git)")"
+		git init -q --bare -b main "${sb}/remote.git"
+		git clone -q "${sb}/remote.git" "${sb}/a/github" 2>/dev/null
+		git -C "${sb}/a/github" config user.name t; git -C "${sb}/a/github" config user.email t@t.invalid
+		echo 1 > "${sb}/a/github/f"; git -C "${sb}/a/github" add f; git -C "${sb}/a/github" commit -qm f; git -C "${sb}/a/github" push -q -u origin HEAD 2>/dev/null
+		git -C "${sb}/a/github" worktree add -q -b side "${sb}/a/wt" 2>/dev/null
+		echo 2 > "${sb}/a/wt/f"
+		rc=0; (cd "${sb}/a/wt" && GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 PATH="${sb}/bin:${gitBin}:/usr/bin:/bin" GIT_BACKUP_AND_PUBLISH_NOBACKUP=1 "${BASH}" "${pub}" --no-prompt --message from-wt > "${sb}/out.txt" 2>&1 < /dev/null) || rc=$?
+		printf '%s %s %s\n' "${rc}" "$(git -C "${sb}/remote.git" log -1 --format=%s side 2>/dev/null || echo none)" "$([[ -e "${sb}/ssh-called" ]] && echo called || echo skipped)"
+		cat "${sb}/out.txt"
+	)" || true
+	read -r wtRc wtMsg wtSsh <<< "${out%%$'\n'*}"
+	wtOut="${out#*$'\n'}"
+	[[ "${wtRc}" == 0 && "${wtMsg}" == from-wt ]] || fBad "n8git_backup-and-publish did not publish from a linked worktree (exit ${wtRc}, remote has ${wtMsg}): ${wtOut@Q}"
+	[[ "${wtSsh}" == skipped ]] || fBad "n8git_backup-and-publish probed ssh for a local-path origin"
+	[[ "${wtOut}" == *"(origin isn't an ssh remote)"* ]] || fBad "n8git_backup-and-publish did not say the origin isn't an ssh remote: ${wtOut@Q}"
 fi
 
 fTest dd5hj 20260819-1-remote-sync-stage

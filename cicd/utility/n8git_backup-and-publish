@@ -141,7 +141,8 @@ fMain(){
 	local -r filePath_Rar="${dirPath_Rar}/${dirName_Top}_${serialDT}.rar"
 
 	## Validate. Before the excludes, which walk '..' for links.
-	[[ -f "${dirPath_GitProj}/.git/HEAD" ]]  ||  { fSyntax; fThrowError "Not in git project base directory."; }
+	## A linked worktree's .git is a file that points at the main repo.
+	[[ -f "${dirPath_GitProj}/.git/HEAD" || -f "${dirPath_GitProj}/.git" ]]  ||  { fSyntax; fThrowError "Not in git project base directory."; }
 
 	## Backup excludes. Keep what would hurt to lose, drop what a command
 	## regenerates. Release builds, installers, packages, source, project docs, and
@@ -265,11 +266,14 @@ fMain(){
 		## Test the repo's actual remote host, not a hardcoded one, so the
 		## per-repo ssh alias/key is exercised (a generic github.com falls
 		## back to default key resolution and can report the wrong account).
-		## Handle every remote form: ssh:// scheme, scp-style git@host:path,
-		## and a bare alias:path with no user@ (the ssh-config Host supplies
-		## it) - the old '.*@' pattern silently failed on that last one.
-		local sshHost; sshHost="$(git remote get-url origin 2>/dev/null | sed -E 's|^[a-z][a-z0-9+.-]*://||; s|^[^@/]*@||; s|[:/].*$||' || true)"
-		ssh -nTv git@${sshHost:-github.com} 2>&1 | grep -iE "offering|successfully authenticated" | sed 's/debug1: //' || true  ## -n: don't read stdin, else it eats the next prompt's input
+		## A remote that isn't reached over ssh has no key to show.
+		local originUrl; originUrl="$(git remote get-url origin 2>/dev/null || true)"
+		local sshHost;   sshHost="$(fSshHostOf "${originUrl}")"
+		if [[ -n "${sshHost}" ]]; then
+			ssh -nTv "git@${sshHost}" 2>&1 | grep -iE "offering|successfully authenticated" | sed 's/debug1: //' || true  ## -n: don't read stdin, else it eats the next prompt's input
+		elif [[ -n "${originUrl}" ]]; then echo "(origin isn't an ssh remote)"
+		else                               echo "(no origin remote)"
+		fi
 		fIntroPromptToContinue  ""
 		fEcho_Clean
 	fi
@@ -443,6 +447,22 @@ fAddLinkExcludes(){
 ## Git that talks to the remote goes through gitsby where it is installed, so the
 ## pull and push use the key and account the repo belongs to. Plain git without it.
 fGitRemote(){ if command -v gitsby >/dev/null 2>&1; then gitsby raw git "$@"; else git "$@"; fi; }
+
+## The ssh host in a remote URL, or nothing when git wouldn't use ssh for it.
+## Takes ssh:// URLs, scp-style [user@]host:path, and a bare alias:path whose
+## user comes from the ssh config. As git reads it, a URL with no scheme is
+## scp-style only when a ':' comes before any '/', so /a/b, ../a and a.git are
+## local paths. file://, http(s):// and git:// aren't ssh.
+fSshHostOf(){
+	local url="${1:-}"
+	case "${url}" in
+		ssh://*|git+ssh://*|ssh+git://*)  url="${url#*://}" ;;
+		*://*)                            return 0 ;;
+		*)                                [[ "${url}" =~ ^[^/]*: ]] || return 0 ;;
+	esac
+	[[ "${url}" =~ ^[^@/:]*@ ]] && url="${url#*@}"
+	printf '%s\n' "${url%%[:/]*}"
+}
 
 ## The untracked files in the newest stash that aren't back in the tree as
 ## stashed, one per line. A pop that finds a pulled file in the way of one
@@ -814,3 +834,7 @@ fMain  "${@}"
 ##		- 20261106: A failed stash pop names the untracked files it couldn't put
 ##		  back and says to keep the stash, rather than advising a drop that
 ##		  deletes their only copy.
+##		- 20261121:
+##			- Runs in a linked worktree, whose .git is a file.
+##			- The ssh key check skips a remote that isn't reached over ssh, such as
+##			  a local path or a file:// URL, rather than probing github.com.
