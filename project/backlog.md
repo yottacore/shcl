@@ -35,103 +35,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- Infer 1.3.0 reports more sites in `shcl.h` that nobody has judged
-	- ID: 2026112121124344
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Target version: v3.0.0
-	- Opened: 20261121-211243
-	- Opened by: 2026111016205714
-	- Related IDs: 2026111016205714
-	- Steps to reproduce: `infer run -- cc -Isource/c -c source/c/cmd/shcl/main.c -o /dev/null` with Infer 1.3.0.
-	- Incorrect behavior: past the sites 2026111016205714 covers, Infer reports 5 use-after-free (`shcl_resolve_target`, `s_fopen_regular`, `s_read_schema_file` twice, main.c's `xrealloc`), a null dereference in `upgrade_fail`, a leak and a dead store in `shcl_validate`, and 119 uninitialized values.
-	- Expected behavior: each site is judged, a real one is fixed, and the rest are suppressed at the line with a reason, as 2026111016205714 did.
-	- Estimated effort: Avg
-	- Note: the ones read so far look false. The use-after-free reports are on paths where realloc or fdopen failed, and the `upgrade_fail` one is `vsnprintf(NULL, 0, ...)`. Infer 1.2.0 doesn't read `@infer-ignore`.
-
-- `--list` names tests that a step's skip filter leaves out
-	- ID: 2026112120314617
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Target version: v3.0.0
-	- Opened: 20261121-203146
-	- Opened by: 2026110215285705
-	- Related IDs: 2026110215285705
-	- Steps to reproduce:
-		- `cicd/cicd.bash --list --no-leakcheck`.
-	- Incorrect behavior: the Rust and Go suite steps list every test ID in their files, the soaks' `de2ns` and `de2w0` included, though the steps skip them. `fs_property.rs`'s IDs show under the Rust suite the same way.
-	- Expected behavior: a step lists only the tests it runs, so a `--skip`, `-skip`, `-run` or `--test` filter narrows its IDs.
-	- Estimated effort: Low
-
-- A merge doesn't put a blank between a nested block's opening lines and the layer's opening lines it adds
-	- ID: 2026112119250496
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Target version: v3.0.0
-	- Opened: 20261121-192504
-	- Opened by: me, found while working 2026112112314153
-	- Related IDs: 2026112112314153
-	- Version and build: nov22 at 1cef3b94, with 2026112112314153's change
-	- Steps to reproduce: `printf 'a:\n\t# base open\n\n\tc: y\n' > base.shcl`, `printf 'a:\n\t# layer open\n\n\tz: 1\n' > layer.shcl`, then `shcl fmt --layer=base.shcl layer.shcl`.
-	- Incorrect behavior: `# layer open` goes right under `# base open`, with no blank between them. The top of the file gets that blank, and design.md's "Lines an edit takes from their node" says both do. Both lines stay the block's opening lines either way, so `comments` reads the same.
-	- Expected behavior: a blank between `# base open` and `# layer open`, as for the top of the file.
-	- Possible cause: `adopt_trivia` appends the layer's opening lines without a blank above, where `merge_top` sets one.
-	- Estimated effort: Low
-
-- Without a schema, 2 plain blocks that merge and repeat their children get only the array hint
-	- ID: 2026112015385902
-	- Type: Bug
-	- Status: Closed
-	- Needs local test suite run?: No
-	- Severity: Avg
-	- Target version: v3.0.0
-	- Opened: 20261120-153859
-	- Opened by: me
-	- Parent ID: 2026111016205701
-	- Steps to reproduce: load `planet:` twice with no schema, each with a `name:` and an `r:` under it.
-	- Incorrect behavior: 0 errors, `count("planet")` is 1, and the only sign is `H001` on `name` and `r`. Its advice is `name: [Earth, Mars]`, and nothing says the 2 blocks became one.
-	- Expected behavior: a hint on the second `planet:` line says it's one block with the first, and how to write 2.
-	- Requirements:
-		- A new hint code in all 4, `H009` if it's still free.
-		- It goes on a line with no value that opens a block an earlier such line under the same parent opened, next to it or not, when a child under it gets `H001` for repeating a child under the earlier one.
-		- The message names the earlier line and the children that repeat, and says to give each block a value, as in `planet: Earth`.
-		- `H001` and `H002` report as before. The array may be what was meant, so each reading gets its advice.
-		- A schema drops it when it drops the `H001` of every child the hint names.
-		- A row in spec.md's code table and design.md's outcome table, `explain` in the 4 CLIs, and a corpus case.
-	- Estimated effort: Avg
-	- Decisions:
-		- A hint with its own code, and no `Warning` severity (me, 20261121).
-			- The 6 consumers checked show only `Error` lines: tradeclanker, slodworld2, silkterm, gitniblet, shclwrap, and convert-base-v2. A new level would show in none of them until each changed its filter, which is the same work as showing one hint code.
-			- An error is a line that was skipped or repaired, and a hint is legal text that looks like a slip. The merged blocks are the second. A `Warning` would be a second word for it, and `H005` to `H008` would each need the same call.
-			- A program that wants this to stop a load has the schema, where it's `V008`.
-		- Decided against: an `E` error (me). The file is legal, and a hint never fails a load.
-		- Each line that opens the block again gets its own `H009`, as `H002` does for each re-open (me). A table written as 100 plain blocks gets 99, each naming line 1.
-		- A child is under a later block when its line falls between that line and the next one that opens the block again (me). A dotted line further down that reaches the block counts with the last one. It's rare, and only moves the hint.
-		- The example value is the first repeating child's value under the earlier block, so `name: Earth` gives `planet: Earth` (me). With `r` first it would be `planet: 6371`.
-		- The block's first line counts as an earlier line with no value even when a dotted line such as `planet.name: x` opened it (me). The advice is the same.
-		- The prose lists the children first, and the suppressor matches the builder's own pieces against it, as for `H001`. A list over 3 is cut, and the suppressor goes by the names it shows, which errs toward quiet, as the `H001` one does (me).
-	- Note: SHCL has no warning severity, only Error and Hint. With a schema, the same file is `V008` since the parent.
-	- Actual cause: the merge rule joins 2 lines with the same name and no value into one block, and only `H001` on the children it then repeats said anything. An adjacent re-open gets no `H002`.
-	- Actual fix: the `H001` pass also takes the lines that opened each block again with no value, and puts `H009` on each one whose children repeat one from before it, in all 4. The schema's `H001` suppressor drops it when every child it lists is disavowed. `explain` in the 4 CLIs, a row in spec.md's code table and design.md's outcome table, a design note, and the changelog.
-		- 20261121: assert values changed for this item. Corpus 223's `expected-diags.txt` and `expected-validate.txt` each gained `line 7: Hint: H009`, since its 2 `planet:` blocks merge. Its `name` has no `repeat`, so the schema keeps it.
-		- `doc-tables.py` skips `planet: Earth` in the code table as the fix the message names, not an example of `H009`.
-	- Swept: the `H001` builder and its suppressor in all 4 (Rust `emit_repeated_leaf_hints` and `suppress_declared_repeats`, Go `emitRepeatedLeafHints` and `SuppressDeclaredRepeats`, Python `_emit_repeated_leaf_hints` and `suppress_declared_repeats`, C `emit_repeated_leaf_hints` and `suppress_repeats_in`). Both suppressor callers, `check --schema` and load-and-validate, go through it. The re-open lines come from the fold list every binding already keeps for `adopt_folded`, which takes parse-time re-mentions and late folds alike.
-	- Test case: corpus `224-merged-plain-blocks` (`dfkwg`) in all 4 runners and the crosscheck, and cli-regress `dfkwe` (`merged-block-hint`), exact text in all 4, with and without a schema that disavows every child or one.
-		- Verified: both fail on the unfixed C code, along with corpus 223, and pass in all 4 with it. A suppressor that never drops left `H009` in the all-disavowed run.
-	- Verified: the quick gate's rust, go, python, c and cli areas; the 4 conformance suites; cli-regress; crosscheck; check-docs; check-doc-examples; perf-gate; the 2 shell-regress rows that read cli-regress (`dcmcq`, `dct57`); test-ids check; gcc-15 with the gate's warnings. 40,000 merged blocks load in time linear with 20,000 in all 4.
-	- Branch: nov21-2026112015385902
-	- Commit: `f179e254`
-	- Prereq IDs: 2026112113032005
-	- 20261121: the round's 2M release fuzz on nov21 stopped at 3 finds that fail on dev with corpus 224 too, filed as 2026112112314153, 2026112113030549 and 2026112113032005. check-migrate passed on nov21 a0b82b38 with the 2026112112352726 excuse. analyze-c passed on nov21 86d615d1. cppcheck found an uninitialized `bad_from` (from 2026112108444603), fixed in 57895eae.
-	- Verified: 20261121, cppcheck clean on nov21 57895eae.
-	- Acceptance signoff: Self-closed: the 2M fuzz that 2026112113032005 blocked passes.
-	- Closed: 20261121-213717
-	- Closed reason: Done
-	- Verified: 20261122, the 2M release fuzz of all fuzz_smoke passed on nov22 (34 tests, dderx, dd3t9 and df50j included; run dir 20261121-212505_004).
-
 - Format versions: the demo gif and its golden text show fmt output without the stamp
 	- ID: 2026111710564808
 	- Type: Feature
@@ -145,82 +48,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: rerender assets/demo.gif and refresh cicd/demo/expected.txt (the gif stage, or gen-demo-gif.py), so shell-regress dcvej matches the CLI again. Only a tool run.
 	- Estimated effort: Low
 	- Note: until then shell-regress dcvej fails, since every fmt now ends with the stamp.
-
-- A merge puts a comment the layer had under a block, above a blank, onto the next field in the base
-	- ID: 2026112112314153
-	- Type: Bug
-	- Status: Waiting on automated testing
-	- Severity: Avg
-	- Target version: v3.0.0
-	- Opened: 20261121-123141
-	- Opened by: me, the nov21 gate's 2M release fuzz
-	- Related IDs: 2026112017363707, 2026110712372276, 2026111012160121
-	- Version and build: dev at `393765cb`, and nov21 at `86d615d1`
-	- Steps to reproduce: `printf 'a:\n\tb: y\n# about e\ne: y\n' > base.shcl`, `printf 'a:\n\tb: 2\n# note 6\n\nz: 1\n' > layer.shcl`, then `shcl fmt --layer=base.shcl layer.shcl`.
-	- Incorrect behavior: the output has `# note 6` right above `# about e`, then `e: y`, and the blank moves down above `z: 1`. So `comments("e")` gives both, though in the layer `# note 6` is set off from the line below it and reads as the line above's. All 4 CLIs give the same text. Fuzz `dderx` fails on it at iteration 98734 of the 2M release run on nov21, op 10, a merge.
-	- Expected behavior: `# note 6` stays with `a`'s block, with a blank between it and `# about e`, so `comments("e")` is `# about e` alone, since a run a blank sets off belongs to the line above (2026110712372276).
-	- Reproduced: 20261121, the steps in the Rust, Go and C CLIs on nov21 at `86d615d1`, and the Rust CLI and the Python library on dev at `393765cb`. `dderx` at 100,000 in release fails at iteration 98734 on dev with corpus 224 added, so it is older than the round. Corpus 224 shifted the seeds onto it.
-	- Possible cause: the merge writes the layer's trailing comments on a block at the end of that block, and the blank under them goes with the layer's next line, so they join the base's next run.
-	- Estimated effort: Avg
-	- Note: `placement_slips` in `fuzz_smoke.rs` excuses it with `layer_tail_joined`, keyed by this ID: on a merge, comments over a field's own run that the layer had above a blank under a block. The fix takes it out.
-	- Verified: 20261121 on nov21-fix, `dderx` in release fails at iteration 98734 without the excuse and passes 620,000 with it.
-	- Reproduced: 20261122, the steps in the Rust CLI on nov22 at `1cef3b94`. The same loss hits a layer's comments that open a block it shares with the base, a layer's comment under a leaf it replaces, and the base's comment under a block when the layer replaces the field below it. A block's last child with no blank under its comments isn't hit.
-	- Actual cause [Bug]: the merge moves a node's trailing lines without the blank under them, which in the layer was the next line's or, for a replaced leaf, went with the leaf. The settle then files them as the next child's comments, as a reload of that text does.
-	- Actual fix [Bug]: each level of the overlay notes every child whose trailing lines a blank set off from the next line in its own file, the base's, a matched child's from the layer, or a copied child's, and puts a blank above whatever child follows it once the child list is final. A block whose layer had opening lines gets a blank above its first child. In all 4 bindings (`set_off_tail` and `blank_over` in `lib.rs`, `shcl.py` and `shcl.h`, `setOffTail` and `blankOver` in `shcl.go`, with C's level end in `keep_set_off`). The `layer_tail_joined` excuse is out of `placement_slips`. design.md's "Lines an edit takes from their node" and the changelog say so.
-	- Actual effort: Avg
-	- Decisions:
-		- me, 20261122: the property allows the blank the merge now writes above a field's comments, where the lines over it are comments the layer had set off by a blank (`kept_off` in `placement_slips`), since that blank is the issue's expected text.
-		- me, 20261122: the replaced leaf and the opening lines are the same loss in the same code, so they're fixed here rather than filed. Trailing lines at the end of a block, with no blank under them, still go to a child the merge adds after them, as a new child's settle does.
-	- Swept: every place the overlay puts a child in a list, in all 4: the matched child (`adopt_trivia`), the replaced leaf's copy, the unmatched instance's copy, and the base's own children. `merge_top` already sets the blank under the top of the file. The footer's dedup is its own rule. A nested block's opening lines get no blank between the base's and the layer's, filed as Bug 2026112119250496.
-	- Test case: placement rows `2026112112314153-1` to `-5` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dderx`, `dd3t9`, `df50j`.
-	- Verified: the 5 rows fail on the Python library at `1cef3b94` and pass on the change (`placement-watch.py`). With the excuse out and the new property rule in, `dderx` at 100,000 in release fails at iteration 98734 on `1cef3b94`'s library and passes on the change. `dderx`, `dd3t9` and `df50j` pass 200,000 in release, and so do `dab72` and `dd16k`. The issue's steps and the 3 other cases give the same text through the Rust, Go, C and Python CLIs. `--backlog-run-quick rust go python c` passed all 5 steps, the 4 placement runners included. Crosscheck over the corpus (24024 comparisons), lint-report, mdcheck and markdownlint passed.
-	- Needs local test suite run?: the cppcheck line from LINT_EXTRA, since shcl.h changed (running in nov22's gate step). The 2M fuzz and analyze-c passed.
-	- Branch: `nov22-2026112112314153`
-	- Verified: 20261122, the 2M release fuzz of all fuzz_smoke passed on nov22 (34 tests, dderx, dd3t9 and df50j included; run dir 20261121-212505_004). analyze-c passed too (run dir 20261121-211412_003).
-
-- A repeat the schema doesn't allow passes Strict, and a near-miss table merges with only a hint
-	- ID: 2026111016205701
-	- Type: Bug
-	- Status: Closed
-	- Severity: Avg
-	- Target version: v3.0.0
-	- Opened: 20261110-162057
-	- Opened by: tradeclanker and slodworld1 feedback
-	- Related IDs: 2026102911041660
-	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
-	- Steps to reproduce:
-		- `bot:\n\tname: a\n\tname: b\n` through `load_and_validate_with` at Strict, with a schema that declares `bot.name` as a string and no `repeat`.
-		- Load `planet:` twice with no schema, each with a `name:` and an `r:` under it.
-	- Incorrect behavior: the first gives only `H001`, and `read_string("bot.name")` is `Multiple`, so a file that passed Strict can't be read. The second gives 0 errors and `count("planet")` 1. The only sign is `H001` on `name`, which nothing shows by default.
-	- Expected behavior: validation refuses a repeat the schema doesn't declare. A table written as repeated plain blocks gets at least a warning.
-	- Reproduced: Yes, 20261110, Python on dev `5626194a`. Both cases reproduce.
-	- Requirements:
-		- Add a `V` error in all 4 for a repeated field or merged block that the schema doesn't give a `repeat` above 1.
-		- Without a schema, a repeated block whose children repeat as bare leaves is a warning rather than a hint.
-			- That part is child 2026112015385902. SHCL has no warning severity and doesn't get one, so the child adds a hint with its own code (me, 20261121).
-	- Actual cause: validation checked each node a path resolves to, and counted them only against a declared `repeat`. With no `repeat`, any number of lines passed.
-	- Estimated effort: Avg
-	- Actual effort: Avg
-	- Decisions:
-		- With no `repeat`, 2 or more lines of a field under one parent, none with children, are `V008` at the second line (me). Instances with children are the table idiom, so they stay legal, and so does the same leaf under 2 parents, since that repeat is the parent's.
-		- A merged block is covered through its children: 2 plain `planet:` blocks merge into one, and their `name` lines then repeat under it (me).
-		- A `(*)` leaf names its instances and a `*` leaf has no one name, so neither is checked. A faulted `repeat` counts as none (me).
-		- `V008` is a new code rather than `V007` with an implied bound, since the count is per parent, not per context (me).
-		- The schema-side rule stays as built (me, 20261121). A field with no `repeat` reads as one value, with no exception to learn.
-			- A schema that asks for 2 values of such a field is told so by `init --schema`: `repeated field at 'a': 2 lines, and the schema has no repeat for it`. With `repeat: [1, 2]` on `a` it generates.
-		- Decided against: counting instances with children (me). It would flag every `server: web` table whose schema has no `repeat`.
-		- Decided against: reading a path that selects by value, such as `a(b)`, as a `repeat` for `a` (me). A line elsewhere in the schema would turn the check off for any count, and it needs a schema-wide lookup in all 4.
-	- Actual fix: `v_repeated` (Go `vRepeated`, Python `_v_repeated`) runs where `repeat` is absent, in all 4. `V008` is in the spec's table and every CLI's `explain` list.
-		- 20261120: assert values changed for this item. The `expected-validate.txt` goldens of corpus 036, 039, 054, 078 and 196 each gained their `V008` lines. The Rust generation grid in `generated_starters_load_and_validate_clean` went from 1029 to 1014, for the 15 that pair a required `a` with a required `a(b)`. The veneer smoke's clean schema gives `city` a `repeat: [1, 2]`, since its document writes `city` twice.
-	- Swept: the count site in all 4 `v_check_from`; the generator's self-check, which reports `V008` as `V097` through the same validate; the 4 `explain` lists; check-docs `dd5gs` matches them to the spec.
-	- Branch: nov20c-2026111016205701
-	- Commit: `6ac1a643`
-	- Test case: its children's: 2026112015385902: corpus `224-merged-plain-blocks` (`dfkwg`) in all 4 runners and the crosscheck, and cli-regress `dfkwe` (`merged-block-hint`), exact text in all 4, with and without a schema that disavows every child or one.
-		- Verified: it fails with the Rust fix taken out, along with the 5 updated goldens, and passes in all 4 with it.
-	- Verified: the quick gate, all areas; crosscheck; cli-regress; check-docs.
-	- Note: 20261120, corpus 223 shifted the fuzz seeds. check-migrate `ddmp7` then failed on `63a34d6b` on a dump file stamped `Format 3.0` with an error, which dev's CLI rewrites the same way. The check is wrong there, not the library: Bug 2026112017370795. The 2M fuzz's `dderx` failure is Bug 2026112017363707, from dev too.
-	- Closed: 20261121-213718
-	- Closed reason: Done
 
 - `Document::merge` drops the base file's comments on every leaf the upper layer names
 	- ID: 2026111217560140
@@ -337,132 +164,51 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The `_or` doc says a repeat gives the default, and points to that read.
 	- Estimated effort: Avg
 
-- The kept-line property counts a footer line the merge leaves out as lost, when the save writes it as a comment
-	- ID: 2026112113032005
+- Infer 1.3.0 reports more sites in `shcl.h` that nobody has judged
+	- ID: 2026112121124344
 	- Type: Bug
-	- Status: Closed
-	- Severity: Low
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261121-130320
-	- Opened by: me, the nov21 gate's 2M release fuzz
-	- Related IDs: 2026112112314153, 2026112015385902
-	- Version and build: dev at `393765cb`, and nov21 at `86d615d1`
-	- Steps to reproduce: fuzz `dderx` at 2,000,000 in release, iteration 1757912. In Rust string form, base `"\n        srv: [1\n        - 2\n    - name:\n    - name:\n    - name:\nblk:\n\tbad name: ~~~\n\trun: 1\n\t~~~\na: \"a\u{25c9}Q\u{25c9}b\"\n"` through `parse_keep_lines`, `remove("blk")`, then a merge of `"\n\n        \"q.k\": 2\n            b: 3, 3\n        a: 4, 4\n    b: [5\n        \"q.k\": 6\n            a.b(x): [7\n    - name:\n"`.
-	- Incorrect behavior: `dderx` fails: "the canonical save lost kept line(s) [\"- name:\"]". The canonical save writes 3 `# - name:` lines where the base and the layer had 4 kept `- name:` lines, and `lost_count()` is 0.
-	- Expected behavior: `dderx` passes. The fourth line is the layer's last footer line, and the base's footer already has it, so the merge leaves it out, as design.md's "Kept lines under edits" table says.
-	- Reproduced: 20261121, the steps through the Python library on dev at `393765cb`, on `2bd7d20f` and on nov21 at `86d615d1` give the same text. Smaller cases with one `- name:` line in the base and the layer keep both.
-	- Reproduced: 20261121, the Python library on dev at `edaf8fa3`, the same text.
-	- Actual cause [Bug]:
-		- After `remove("blk")` the base has no field left, so its 6 kept lines are its footer, 3 of them `# - name:` at depth 0. The layer's footer ends with the same line at the same depth. The merge leaves that one out and takes it off the kept lines it counts, which is the table's exception for a footer line the base already has.
-		- `footer_skips` in `fuzz_smoke.rs` passes over every footer line that starts with `#`. So the property never expects the merge to leave out a kept line that the save writes as a comment. It does expect one written as typed, such as `a: 4, 4`.
-	- Requirements:
-		- `footer_skips` also gives a layer's footer line that the canonical text writes as a comment, when it's one of the layer's kept lines and the base's footer has the same line at the same depth.
-			- Canonical text can't tell such a line from a plain comment, so it goes by the layer's kept lines from `kept_text`.
-		- A case in the helpers' own test, `ddj46` or one beside it, that fails without the change.
-		- The 2M release fuzz passes iteration 1757912.
-		- No library change.
-	- Estimated effort: Low
-	- Decisions:
-		- me, 20261121: the merge is right, and the property misreads it. The exception is about a line the base's footer already has, whichever way the save writes that line.
-			- With `blk` left in, the base's 3 lines sit above a field. Its footer doesn't have the line then, and the merge writes all 4.
-			- `x: 1` and `a: 4, 4`, merged with `y: 2` and `a: 4, 4`, writes `a: 4, 4` once for the same reason, and the property already expects that.
-		- me, 20261121: beta.2, at Low. No 2M release fuzz passes until it's fixed, and 2026112015385902, which is on dev, still waits for that run. The fix is test code only.
-		- 20261121: each of the layer's kept lines counts for one footer comment, so a plain comment with the same text as a kept line counts only when that kept line isn't used up. A kept line with the same text elsewhere in the layer can still count for a footer comment, which only takes one line off what the property expects.
-	- Actual fix [Bug]: `footer_skips` also gives a footer line the layer's canonical text writes as a comment, when the base's footer has it at the same depth and the layer's kept lines from `kept_text` have its text. It gives the line as the kept line reads, without the comment mark. No library change.
-	- Swept: the 3 callers of `footer_skips` (`dderx`'s merge step, `ddj46` and `ddhda`), and `footer_piled`, which already counts a line written either way.
-	- Test case: `ddj46` (`a_misplaced_tail_line_is_no_skipped_copy`), with the issue's base and layer, and a plain comment that isn't skipped. `dderx` at iteration 1757912.
-	- Verified: `ddj46` fails on the unfixed `footer_skips` with no line skipped, and passes with the change. `ddhda` passes. `--backlog-run-quick rust` passed all 5 steps, and lint-report `--check` passed.
-	- Needs local test suite run?: No
-	- Branch: nov22-2026112113032005
-	- Commit: `895813d6`
-	- Acceptance signoff: Self-closed: the 2M fuzz passes dderx past iteration 1757912.
-	- Closed: 20261121-213717
-	- Closed reason: Done
-	- Verified: 20261122, the 2M release fuzz of all fuzz_smoke passed on nov22 (34 tests, dderx, dd3t9 and df50j included; run dir 20261121-212505_004).
-
-- check-migrate checks a fuzz document its trim left naming format 3 as a 2.x file
-	- ID: 2026112112352726
-	- Type: Bug
-	- Status: Closed
+	- Status: Queued
 	- Severity: Low
 	- Target version: v3.0.0
-	- Opened: 20261121-123527
-	- Opened by: me, the nov21 gate's check-migrate
-	- Related IDs: 2026112017370795, 2026112110133815
-	- Version and build: dev at `393765cb`, and nov21 at `86d615d1`
-	- Steps to reproduce: run `cicd/utility/check-migrate.bash` on nov21. Its fuzz dump's `fuzz_00480` has `'C:\': ~~~` and a raw body with `##    Format   3` in it, indented. The trim takes the line that opens the block, since 2.x read the backslash as escaping the quote, so the indented Format line is outside any block.
-	- Incorrect behavior: `ddmp7` fails. `upgrade --from=2.0` backs the trimmed file up under `format-v3` rather than `format-v2`, and without `--from` it says "nothing to upgrade" at exit 0 with the file's error kept. The load reads the indented line as the file's Format line, but `fNamesFormat3` matches only one at the line start, so the check takes the file for 2.x.
-	- Expected behavior: `ddmp7` passes. A document the trim leaves naming format 3 is checked as one, or left out, since it is no 2.x file any more.
-	- Reproduced: 20261121, check-migrate on nov21 at `86d615d1` and on dev at `393765cb` with corpus 224's input added fail the same 7 lines on `fuzz_00480`. The fuzz dump is the same on both, so corpus 224 shifted the seeds onto it. The Rust CLI on dev and on nov21 gives the same upgrade results on the file with the block's opening line taken out.
-	- Possible cause: `fNamesFormat3` runs on the document before the trim, and its pattern, `formatHeadEre`, is anchored at the line start with no indent.
-	- Estimated effort: Low
-	- Note: check-migrate's `fUpgradeCheck` leaves such a document out, keyed by this ID: one with an error, an indented Format line naming 3 or later, and `migrate` saying it names its format. The OK line counts them. The fix takes it out.
-	- Verified: 20261121 on nov21-fix, check-migrate passes with the excuse, which leaves out only `fuzz_00480`, and failed `ddmp7` on it without.
-	- Actual cause: as the possible cause says. The check asked whether a document names format 3 only before the trim, and only at the line start.
-	- Actual effort: Low
-	- Actual fix: after the trim, `fNamesFormat3 FILE lead` asks again, with the Format line allowed an indent, and `migrate` still has to say the file names its format. Such a document is left out of the comparison and the upgrade checks, and the OK line counts it as `N the trim left naming format 3 not compared`. The excuse keyed by this ID in `fUpgradeCheck` is gone. New check `dfmch` trims a fixed document like `fuzz_00480` and wants it taken for format 3.
-	- Decisions: me, 20261121: left out rather than checked as format 3. `fUpConverts3` works out a conversion by renaming the Format line to 2 and running `migrate`, and on this file that refuses over a raw block that never closes, while `upgrade --from=2.0` converts it. A trimmed fragment is not worth a second oracle. It leaves out 5 documents in this dump, where the excuse left out 1. The other 4 load clean and compared equal before, but `migrate` passes each over as format 3, so that comparison checked nothing about 2.x.
-	- Swept: every `formatHeadEre` and `fNamesFormat3` use in check-migrate.bash. The source-document check stays anchored, so a 2.x file with an indented Format line in a raw body still compares. No other cicd or test script has `fNamesFormat3` or the old counter.
-	- Verified: check-migrate passed, 649 documents, 5 the trim left naming format 3. A copy with the `lead` form turned off failed `ddmp7` on `fuzz_00480` (7 lines) and `dfmch`. shellcheck, `test-ids.py check`, `lint-report.bash --check --no-mark`, and shell-regress rows `dct58`, `debqj` and `de7cy` passed.
-	- Test case: check-migrate `dfmch`, and `ddmp7`.
-	- Branch: `nov22-2026112112352726`
-	- Commit: `4b8f4ac7`
-	- Acceptance signoff: Self-closed: reproduced, the new check fails without the fix and passes with it.
-	- Closed: 20261121-194102
-	- Closed reason: Done
+	- Opened: 20261121-211243
+	- Opened by: 2026111016205714
+	- Related IDs: 2026111016205714
+	- Steps to reproduce: `infer run -- cc -Isource/c -c source/c/cmd/shcl/main.c -o /dev/null` with Infer 1.3.0.
+	- Incorrect behavior: past the sites 2026111016205714 covers, Infer reports 5 use-after-free (`shcl_resolve_target`, `s_fopen_regular`, `s_read_schema_file` twice, main.c's `xrealloc`), a null dereference in `upgrade_fail`, a leak and a dead store in `shcl_validate`, and 119 uninitialized values.
+	- Expected behavior: each site is judged, a real one is fixed, and the rest are suppressed at the line with a reason, as 2026111016205714 did.
+	- Estimated effort: Avg
+	- Note: the ones read so far look false. The use-after-free reports are on paths where realloc or fdopen failed, and the `upgrade_fail` one is `vsnprintf(NULL, 0, ...)`. Infer 1.2.0 doesn't read `@infer-ignore`.
 
-- The C++ veneer's `de1a5` failed once under the quick gate, and passed 3 runs alone
-	- ID: 2026111912330703
+- `--list` names tests that a step's skip filter leaves out
+	- ID: 2026112120314617
 	- Type: Bug
-	- Status: Closed
-	- Priority: Low
-	- Target version: v3.0.0
-	- Opened: 20261119-123307
-	- Opened by: me
-	- Version and build: nov19b at `33313a39` plus Rust-only changes
-	- Steps to reproduce: `cicd/cicd.bash --backlog-run-quick rust go python c cli` on a loaded box. Seen once, 20261119.
-	- Incorrect behavior: `veneer FAIL: round 2, thread 7, call 0`, where got and want print the same up to a line end, then `FAIL de1a5 c++ reads_from_several_threads`.
-	- Expected behavior: the threads test passes every run.
-	- Note: control: the same source built with g++ and run 3 times alone passed every time. No C or C++ code changed in that tree.
-	- Reproduced: 20261121. The smoke's TSan build, with sanitize-c's flags, reported a race in `to_text_keep_lines` in 5 runs of 5. A plain build passed 40 runs on a lightly loaded box.
-	- Actual cause: confirmed. The C++ `to_text_keep_lines` let go of the document's lock before it copied the text, which is in the read arena. Another thread's next read resets that arena and writes over it, so the first compare saw other bytes, and the retry that printed them saw the right ones.
-	- Origin: `6a040f86` (2026-11-18), which moved the text to an out-parameter copied after the call. sanitize-c `de1a6` catches it, and the quick run skips it.
-	- Actual fix: the call holds the lock in a named local until the text is copied, as the other reads do.
-	- Swept: every lock site in `shcl.hpp`. The others copy their answer inside the call, or under a named lock. `read_authored_name` copies after the lock goes, but the name it reads is in the node's own storage, which a read never writes.
-	- Test case: C++ `de1a5` (`reads_from_several_threads`), and sanitize-c `de1a6` for its TSan build, which fails before the fix and passes after.
-	- Verified: the TSan build failed 5 of 5 before the fix and passed 5 of 5 after. `--backlog-run-quick c` passed, `de1a5` included. The whole sanitize-c script wasn't run, only its TSan build of the smoke.
-	- Branch: `nov22-2026111912330703`
-	- Acceptance signoff: Self-closed: the race is gone under TSan, which caught it every run before the fix.
-	- Closed: 20261121-195449
-	- Closed reason: Done
-	- Commit: `77c492c3`
-	- 20261120: failed again in nov20c's gate step quick run at `63a34d6b` (load about 25 on 32 cores), round 1, thread 2, call 0. The printed got and want are the same text and the same `T F 1` flags, so the compare saw something other than what it printed. 5 runs alone then passed.
-
-- install.ps1 lists a drop-ins line in the plan for a release that has none
-	- ID: 2026110915493402
-	- Type: Bug
-	- Status: Closed
+	- Status: Queued
 	- Severity: Low
 	- Target version: v3.0.0
-	- Opened: 20261109-154934
-	- Opened by: me, from the r1109 test batch on b29w (2026110613470322)
-	- Steps to reproduce: on b29w, install 2.0.0 to the user target, then run a copy of install.ps1 pinned to v1.2.0, which has no drop-in payload.
-	- Incorrect behavior: the plan still lists a drop-ins line for code\, and the receipt prints both the removed drop-ins note and the no signed drop-in payload line.
-	- Expected behavior: the plan doesn't list a drop-ins line, and one receipt line says the old drop-ins were removed.
-	- Actual cause: the plan is printed before the sums file is read, so it can't know whether the release has a payload, and the no-payload note didn't check whether the removed note had already said so. install.bash had the same 2 faults, for the man page and completions too.
-	- Actual fix: both plans read the release's asset list from the API answer. A release with the payload plans it. One without it plans nothing for it, and over a newer install names the removal on a `removes` line. The no-payload note is skipped when the removed note is printed. install.ps1 1.4.0, install.bash 1.6.0.
+	- Opened: 20261121-203146
+	- Opened by: 2026110215285705
+	- Related IDs: 2026110215285705
+	- Steps to reproduce:
+		- `cicd/cicd.bash --list --no-leakcheck`.
+	- Incorrect behavior: the Rust and Go suite steps list every test ID in their files, the soaks' `de2ns` and `de2w0` included, though the steps skip them. `fs_property.rs`'s IDs show under the Rust suite the same way.
+	- Expected behavior: a step lists only the tests it runs, so a `--skip`, `-skip`, `-run` or `--test` filter narrows its IDs.
 	- Estimated effort: Low
-	- Decisions:
-		- 20261122: the plan names the removal of a newer install's drop-ins on a `removes` line, like the retired wrappers' line, rather than saying nothing. Taking files away without the plan saying so would surprise more than one extra line.
-		- 20261122: the plan reads the API's asset list, rather than fetching the sums before the prompt. Nothing is downloaded before the user says yes, and the shell-regress plan rows stay offline. The signed sums still decide what's installed, so an asset list that disagrees changes only the plan.
-	- Swept: install.bash's plan and receipt (same 2 faults, fixed, with the man page and completions). install-dev.bash doesn't install a release. The uninstall paths don't plan drop-ins.
-	- Test case: shell-regress `dfmdh` (install.ps1 plan, with and without the payload) and `df38m` (install.bash plan and the single receipt note, extended). Both fail on the old scripts and pass now. The install.ps1 receipt needs Windows past the plan, so it ran on b29w.
-	- Verified: on b29w, user target, the round's install.ps1 installed 2.0.0 with its drop-ins, then a copy pinned to v1.2.0 ran over it at exit 0. Its plan had the `removes  the drop-ins in ...\code\` line and no `drop-ins` line. The receipt had only the removed note, with no no-payload line, and `code\` was gone after.
-	- Branch: nov22-2026110915493402
-	- Commit: `cf9de5d0`
-	- Acceptance signoff: Self-closed: the r1109 steps passed on b29w.
-	- Closed: 20261121-213500
-	- Closed reason: Done
+
+- A merge doesn't put a blank between a nested block's opening lines and the layer's opening lines it adds
+	- ID: 2026112119250496
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261121-192504
+	- Opened by: me, found while working 2026112112314153
+	- Related IDs: 2026112112314153
+	- Version and build: nov22 at 1cef3b94, with 2026112112314153's change
+	- Steps to reproduce: `printf 'a:\n\t# base open\n\n\tc: y\n' > base.shcl`, `printf 'a:\n\t# layer open\n\n\tz: 1\n' > layer.shcl`, then `shcl fmt --layer=base.shcl layer.shcl`.
+	- Incorrect behavior: `# layer open` goes right under `# base open`, with no blank between them. The top of the file gets that blank, and design.md's "Lines an edit takes from their node" says both do. Both lines stay the block's opening lines either way, so `comments` reads the same.
+	- Expected behavior: a blank between `# base open` and `# layer open`, as for the top of the file.
+	- Possible cause: `adopt_trivia` appends the layer's opening lines without a blank above, where `merge_top` sets one.
+	- Estimated effort: Low
 
 - The veneer smoke linked against the DLLs dies at start on b29w
 	- ID: 2026110710374327
@@ -509,136 +255,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: this needs b29w with a short-name TEMP, the way `private/claude_simple/tools/winbox-savetests/` runs it.
 	- Estimated effort: Low
 
-- A failed run skips most of the cleanup and the closing blank line
-	- ID: 2026110215285704
-	- Type: Bug
-	- Status: Closed
-	- Severity: Low
-	- Target version: v3.0.0
-	- Opened: 20261102-152857
-	- Opened by: Code review 20261102 item 4
-	- Steps to reproduce:
-		- Any run that fails a step, such as `run_20261101-092811`.
-	- Incorrect behavior: the EXIT trap removes the run's containers only. The image sweep, the Zig volume trim, and `docker builder prune` run only at the end of a clean run. The log ends on the cleanup line, without a blank line after it.
-	- Expected behavior: the run does the same cleanup on failure and Ctrl+C, and ends on a blank line.
-	- Also:
-		- Gate scripts' own containers and the helper containers run with `--rm` even under `--keep-temp`.
-		- A box's work folder is removed only by the box's own trap, so a dropped ssh leaves it there. Nothing sweeps stale ones on the box.
-		- Those 2 are in child 2026110218511914.
-	- Origin: Confirmed, by reading and from the 2 logs.
-	- Estimated effort: Avg
-	- Actual cause: the docker part of fCleanup ran only at the end of a whole run, and the EXIT trap's cleanup line printed nothing after it.
-	- Progress log:
-		- 20261102: the sweep, the Zig volume trim, and the build cache prune are one function, `fCtrTidy`, which a whole run and the EXIT trap of a failed or stopped one both call. The trap's cleanup line names what went, with docker's sizes before and after, as a whole run's does. A blank line follows it, and so do the kept-folder lines under `--keep-temp`.
-		- Verified: check-push-gate `desm7` and `de8j8` pass. Against the scripts from before, `desm7` fails, with nothing swept or pruned and no blank line last, and so does `de8j8`'s new prune check. A real `--backlog-run-quick cicd` that failed on `dcbc2` in the image ended on its cleanup line, with docker's sizes, and a blank line.
-		- Verified: 20261122, check-push-gate desm7 and de8j8 passed in nov22's gate quick run (run dir 20261121-211412_001); child 2026110218511914 closed.
-	- Swept: both cleanup lines, a whole run's and the trap's, and every caller of fCtrSweep, fCtrZigTrim and fCtrPrune. The run inside the image and the frozen copy's run leave all of it to the run outside, as before.
-	- Branch: `r1103`
-	- Test case: its children's: 2026110218511914: check-push-gate `dfme3` (no `--rm` on any run under `--keep-temp`, `fCtrRunSelf` by `SHCL_KEEP_TEMP`, and a run without the flag drops it) and shell-regress `dfme4` (the box half's stale sweep, and the Windows sweep's text).
-	- Closed: 20261121-213250
-	- Closed reason: Done
-
-- Gate containers under `--keep-temp`, and stale work folders on the test boxes
-	- ID: 2026110218511914
-	- Type: Bug
-	- Status: Closed
-	- Severity: Low
-	- Target version: v3.0.0
-	- Opened: 20261102-185119
-	- Opened by: 2026110215285704
-	- Parent ID: 2026110215285704
-	- Steps to reproduce:
-		- Run a gate script that starts the image, such as analyze-c, with `--keep-temp` on the run. Its container goes with `--rm`, as do the `-passwd` and `-group` reads in cicd.bash.
-		- Drop the ssh link to a test box during check-boxes. Its work folder stays on the box.
-	- Incorrect behavior: `--keep-temp` keeps only the run's main containers, and nothing on a box sweeps a work folder its trap didn't get to remove.
-	- Expected behavior: `--keep-temp` keeps every container the run starts. Each box run removes that box's own stale work folders, by the same rule as the run folders here: older than 2 days, with no live process left.
-	- Estimated effort: Avg
-	- Actual cause: the image reads and `fCtrRunSelf` set `--rm` themselves, and a gate script heard nothing of `--keep-temp`. The box half wrote no `run.pid` and swept nothing.
-	- Actual fix:
-		- cicd.bash exports `SHCL_KEEP_TEMP=1` under `--keep-temp`, and unsets it otherwise. The passwd and group reads, `fCtrRunSelf` (analyze-c, soak-c, codeql-scan) and the Zig trim drop `--rm` under it.
-		- check-boxes' box half writes `run.pid` and removes work folders under the box's `shcl/` over 2 days old by the name's stamp whose `run.pid` names no live process, in plain sh. A Windows box does the same in `fWinMkdir`, and box-cases.ps1 puts its own PID in `run.pid` once it starts.
-		- contributing.md says so.
-	- Decisions:
-		- me: a folder with no `run.pid`, or of another shape, stays, as in cicd.bash's sweep, so a folder made by hand isn't taken.
-		- me: on Windows the mkdir's short-lived PID is in `run.pid` only until box-cases.ps1 starts, seconds later, so a live run never looks stale.
-		- me: the sweep runs on every box run, before the cases, rather than as a step of its own.
-	- Verified: shell-regress `dfme4` passes, and fails on the old check-boxes.bash and box-cases.ps1. It runs the box half under this box's `/bin/sh` (dash) with GNU `date`.
-	- Verified: `fWinMkdir`'s script under pwsh on Linux, a stand-in for Windows, over the same planted folders: the dead and unreadable `run.pid` ones went, the rest stayed, and the new folder had pwsh's PID in `run.pid`. PSScriptAnalyzer passes on box-cases.ps1.
-	- Verified: check-push-gate passes whole, `dfme3` included. On the old cicd.bash and ctr-image.bash, `dfme3` fails all 3 parts: 4 reads with `--rm`, `fCtrRunSelf` with `--rm`, and a run without the flag passing on the one it was handed. shell-regress passes but the known `dcvej`, and `--backlog-run-quick go` passes.
-	- Swept: every `docker run` under `cicd/`: cicd.bash's 3 in `fRunContainer`, and ctr-image.bash's `fCtrRunSelf` and `fCtrZigTrim`. A gate script starts the image only through `fCtrRunSelf`. On the box side, `fBoxScript` and `fWinMkdir` are the only places a work folder is made.
-	- Verified: check-boxes' box half, run once over ssh as check-boxes sends it, on vmFreeBSD (`date -v` path) and b26 (macOS sh), with folders planted under the box's `shcl/` temp folder and dated 20261101. The one with a dead `run.pid` went, and the ones with `run.pid` naming PID 1 or with no `run.pid` stayed.
-	- Verified: `fWinMkdir` on b29w over the same kind of planted folders: the dead and unreadable `run.pid` ones went, the one naming a live system process and the one without `run.pid` stayed, and the new folder had its PID in `run.pid`.
-	- Branch: `nov22-2026110218511914`
-	- Test case: check-push-gate `dfme3` (no `--rm` on any run under `--keep-temp`, `fCtrRunSelf` by `SHCL_KEEP_TEMP`, and a run without the flag drops it) and shell-regress `dfme4` (the box half's stale sweep, and the Windows sweep's text).
-	- Acceptance signoff: Self-closed: the sweep passed on the 3 boxes the item names.
-	- Closed: 20261121-213500
-	- Closed reason: Done
-
-- `--no-leakcheck` still runs the soak tests
-	- ID: 2026110215285705
-	- Type: Bug
-	- Status: Closed
-	- Severity: Low
-	- Target version: v3.0.0
-	- Opened: 20261102-152857
-	- Opened by: Code review 20261102 item 5
-	- Steps to reproduce:
-		- `cicd/cicd.bash --list --no-leakcheck`.
-	- Incorrect behavior: the Rust dhat soak and the Go soak run inside the ordinary test suites, and the Python soak is a test step of its own. `LEAKCHECK_TESTS` lists only the 2 sanitizer scripts, so all 3 soaks run in `--quick`, `--gate`, and `--no-leakcheck`.
-	- Expected behavior: a soak counts as a leak check, so `--no-leakcheck` drops it and its length decides which runs take it.
-	- Origin: Confirmed, by reading.
-	- Estimated effort: Low
-	- Actual cause: each soak sat in a suite or a test step, and `LEAKCHECK_TESTS` matched only the sanitizer scripts.
-	- Actual fix: the 3 soaks are steps of `LEAKCHECK_FAST`: `cargo test --test soak`, `go test -run TestSoakHeapSettles`, and `soak.py`. The Rust suite skips `heap_holds_steady_over_rounds`, the Go suite skips `TestSoakHeapSettles`, and `soak.py` is out of `TEST_EXTRA`. The alpine image keeps the 3 soaks while it clears the other leak checks. contributing.md says so.
-	- Decisions:
-		- me: all 3 are fast, since each took under 30 s here, so `--quick` and the default run keep them, and `--backlog-run-quick` drops them with the other leak checks.
-		- me: the box suites and the hosted jobs still run each soak inside its suite. Those are their own tests of another platform, and `--no-leakcheck` already doesn't reach them.
-		- me: `--list` still names `de2ns` and `de2w0` under the suite steps, since it lists by file. That's Bug 2026112120314617.
-	- Verified: the 3 leak steps pass as written in config.bash (Rust 24 s with its build, Go 6 to 28 s, Python 27 s at a load of 7 to 10). With the suites' skip filters the soaks don't run. `cicd.bash --list` shows the 3 under `--quick` and a run with no flags, and none under `--no-leakcheck` or `--backlog-run-quick`.
-	- Verified: shell-regress `dfme5` passes, and fails on the old config.bash.
-	- Swept: every soak in the tree: Rust's `tests/soak.rs`, Go's `soak_test.go`, Python's `soak.py`, and C's `soak-c.bash`, which was a leak check already. Go's race run skips its soak itself.
-	- Branch: `nov22-2026110218511914`
-	- Test case: shell-regress `dfme5` (each soak in the tree is a fast leak check and no test step runs it).
-	- Acceptance signoff: Self-closed: the steps the item names run where it asks, and the test failed before the fix.
-	- Closed: 20261121-203300
-	- Closed reason: Done
-
-- Installer odds and ends
-	- ID: 2026110215285718
-	- Type: Bug
-	- Status: Closed
-	- Severity: Low
-	- Target version: v3.0.0
-	- Opened: 20261102-152857
-	- Opened by: Code review 20261102 item 18
-	- Incorrect behavior:
-		- A policy-locked `HKCU\Environment` makes `Update-ShclPath` throw a raw error, after the files are written.
-		- `install.ps1` downloads the binary before the sums file, so a release with no `windows-arm64` build fails as an HTTP 404. install.bash checks the sums first and says the release has no build for the platform.
-		- `install.ps1` prints its plan and receipt with `Write-Output`, so they go into a caller's pipeline when the script block is captured.
-		- `--help` is missing from the option lists in `install.bash` and `install-dev.bash`'s usage text.
-		- The installer versions haven't moved since `cee64cc4` (20261008), though 3 behavior changes went in since.
-	- Expected behavior: the registry refusal gets a plain message, the sums file is fetched first, UI text goes to the console only, `--help` is listed, and each change bumps the version.
-	- Origin: Confirmed, by reading.
-	- Estimated effort: Low
-	- Actual fix:
-		- `Update-ShclPath` turns any registry failure into one plain line, and the install and both uninstall paths print it as a note and carry on.
-		- install.ps1 fetches and checks the signed sums first, and stops with "release ... doesn't have a windows-ARCH binary" before any binary download.
-		- Every UI line in install.ps1 goes through `Write-Host`, with the analyzer's `PSAvoidUsingWriteHost` suppressed at the top and the reason given. The receipt's `--version` lines are written one per line.
-		- `--help, -h` is in both usage texts and both headers.
-		- install.ps1 1.4.0, install.bash 1.6.0, install-dev.bash 1.2.1, with changelog lines.
-	- Decisions:
-		- 20261122: a refused PATH edit is a note at exit 0, not an error. The files are in place and run by full path, and install.bash treats a link dir off PATH the same way.
-		- 20261122: `Write-Host` rather than `[Console]::Out`, since it reaches the host in every PowerShell, ISE included, and a caller can still take it with `6>`.
-	- Swept: every `Write-Output` in install.ps1 (all now `Write-Host`), every `Update-ShclPath` call (3), every download in install.ps1 (sums, signature, binary, payload), and the option loops of install.bash and install-dev.bash against their usage.
-	- Test case: shell-regress `dfmdj` (UI text off the pipeline), `dfmdk` (registry refusal as a note, on Linux pwsh, where there isn't any registry), `dfmdm` (sums before the binary, by line order, as install.bash's row does), and `dc0bt` (every long option is in each bash installer's help). All 4 fail on the old scripts and pass now. A real policy lock, and 5.1, ran on b29w.
-	- Verified: on b29w, user target, with a deny rule for SetValue on `HKCU\Environment` for the user, an install and then an uninstall each ended at exit 0 with the plain PATH note and no raw error. The rule came off after, and the key took writes again.
-	- Verified: on b29w, `$o = & ([scriptblock]::Create(...)) -Version`, and the same with `-Help`, left `$o` empty on Windows PowerShell 5.1 and pwsh 7, with the text on the console. The script's text came from the file rather than `irm`, which gives the same text.
-	- Branch: nov22-2026110915493402
-	- Commit: `cf9de5d0`
-	- Acceptance signoff: Self-closed: the Windows steps passed on b29w.
-	- Closed: 20261121-213500
-	- Closed reason: Done
-
 - check-boxes shows only the last lines of a failed box suite, so its FAIL lines are cut off
 	- ID: 2026110119584589
 	- Type: Bug
@@ -683,98 +299,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Add a perf-gate workload with a kept index line and bulk writes. None of today's workloads has a kept line and writes together, so nothing failed.
 	- Origin: Confirmed. `90870748`, 2026-10-29, round r1029b. No earlier round saw it.
 	- Estimated effort: Avg
-
-- The publisher's ssh key check asks github.com about a remote that's a local path
-	- ID: 2026111011285666
-	- Type: Bug
-	- Status: Closed
-	- Severity: Low
-	- Target version: v3.0.0
-	- Opened: 20261110-112856
-	- Opened by: tukfs-hash feedback
-	- Related IDs: Done item 24 of the old format, "the publish stage aborts before doing anything in a repository with no git identity"
-	- Version and build: dev at `5d974733`
-	- Steps to reproduce:
-		- Run the host parse at line 271 of `cicd/utility/n8git_backup-and-publish` on each origin form.
-	- Incorrect behavior: `/mnt/x/origin.git` and `file:///mnt/x/origin.git` give an empty host, so line 272 probes `git@github.com`. `../origin.git` gives `..` and probes `git@..`. The run goes on, but the key check prints auth lines for a host the repo never talks to.
-	- Expected behavior: a remote with no ssh host skips the probe and says so.
-	- Reproduced: Yes, 20261110, the sed from line 271 on the 4 forms. `git@github.com:a/b.git` gives `github.com` as it should.
-	- Note: item 24's note says the `${sshHost:-github.com}` fallback can never fire. It fires for every local-path remote.
-	- Note: tukfs-hash's copy skips the probe on an empty host since 2026-10-23 and prints `(origin isn't an ssh remote)`. It still probes `git@..` for a relative path, so that copy isn't the whole fix.
-	- Requirements:
-		- Don't probe for a local path, a `file://` URL, or a relative path.
-		- Apply the same patch to the canonical copy under the synced tree. The other projects' copies get it as each one is refreshed.
-	- Actual cause: the sed cut whatever came before the first `:` or `/`, so a local path gave an empty host or `..`, and the empty one fell back to `github.com`.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Decisions:
-		- me: the host comes from git's own rule. A URL with no scheme is scp-style only when a `:` comes before any `/`, so `origin.git` and `./x` are local too. Only `ssh://`, `git+ssh://` and `ssh+git://` URLs count as ssh.
-		- me: an `https://` or `git://` origin skips the probe too, since it has no ssh host. The intro already warns that the remote should be `git@`.
-		- me: no origin at all prints `(no origin remote)`, and the `github.com` fallback is gone.
-		- me, 20261121: shell-regress `dc7gb` now looks for the fallback on `originUrl="$(git remote get-url origin ... || true)"`, where it looked for it on `sshHost=`. The host is parsed in its own function now. The rest of the row is as it was.
-	- Actual fix: `fSshHostOf` gives the ssh host or nothing, and the key check runs only for a host, else it prints `(origin isn't an ssh remote)`. The canonical copy in the synced `linux/bash` folder has the same change, with the old one kept in the private upstream folder under `2026111011285666/`.
-	- Verified: `dfmez` and `dfmf0` fail on the old script and pass now. With only the call site put back, `dfmf0` fails on the ssh stub being called. shell-regress passes but for `dcvej`, the demo gif check, which reads none of the changed files. shellcheck passes on both copies.
-	- Swept: `ssh` and `remote get-url` in the publisher, the only probe. The canonical copy matches the repo's but for 3 older history and comment lines.
-	- Branch: `nov22-2026111011285666`
-	- Test case: shell-regress `dfmez` (the host parse on 15 remote forms) and `dfmf0` (a publish with a local-path origin never calls the stub ssh).
-	- Acceptance signoff: Self-closed: its tests failed on the old script and pass.
-	- Closed: 20261121-210000
-	- Closed reason: Done
-
-- The publisher refuses to run in a linked worktree
-	- ID: 2026111011285679
-	- Type: Bug
-	- Status: Closed
-	- Severity: Low
-	- Target version: v3.0.0
-	- Opened: 20261110-112856
-	- Opened by: tukfs-hash feedback
-	- Version and build: dev at `5d974733`
-	- Steps to reproduce:
-		- `git worktree add ../wt`, then run `cicd/utility/n8git_backup-and-publish` from `../wt`.
-	- Incorrect behavior: it stops with "Not in git project base directory." Line 144 looks only for `.git/HEAD`, and a linked worktree's `.git` is a file.
-	- Expected behavior: a linked worktree counts as a git project folder.
-	- Reproduced: No, read from the code. tukfs-hash hit it and fixed its copy on 2026-10-23.
-	- Requirements:
-		- Accept a `.git` file too, as tukfs-hash's copy does: `[[ -f "${dirPath_GitProj}/.git/HEAD" || -f "${dirPath_GitProj}/.git" ]]`.
-		- Apply the same patch to the canonical copy under the synced tree.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Actual fix: the check takes a `.git` file too, as the requirement gives it. The canonical copy in the synced `linux/bash` folder has the same change.
-	- Verified: `dfmf0` publishes from a linked worktree of a scratch remote, and the branch reaches the remote. The old script stopped at the project-folder check, exit 1, and the new one passes.
-	- Swept: every `.git` in the publisher. The link walk's `find -name .git` prunes a file as well as a dir. The rar exclude `*/.git` has no wildcard in its last part, so by the script's own notes it takes a file too, unverified, since `dfmf0` runs with the backup off.
-	- Branch: `nov22-2026111011285666`
-	- Test case: shell-regress `dfmf0`.
-	- Acceptance signoff: Self-closed: its test failed on the old script and passes.
-	- Closed: 20261121-210000
-	- Closed reason: Done
-
-- Infer reports a null dereference, 2 leaks and 2 dead stores in `shcl.h`
-	- ID: 2026111016205714
-	- Type: Bug
-	- Status: Waiting on automated testing
-	- Severity: Low
-	- Target version: v3.0.0
-	- Opened: 20261110-162057
-	- Opened by: slodworld1 feedback
-	- Version and build: `3.0.0-beta1`
-	- Steps to reproduce:
-		- Run Infer over beta1's `shcl.h`.
-	- Incorrect behavior: Infer reports a null dereference of `next.data` in `resolve_from`, leaks of arena blocks in `settle_kept_once` and `put_note_text`, and 2 dead stores in `w_place`.
-	- Expected behavior: each site is judged, a real one is fixed, and the rest are suppressed at the line with a reason.
-	- Reproduced: Yes for 3 of the 5, with the release builds over `main.c`. Infer 1.3.0 reports the `resolve_from` null dereference and the `put_note_text` leak. Infer 1.2.0 reports the `put_note_text` leak and 2 `settle_kept_once` leaks. Neither reports a dead store in `w_place`.
-	- Estimated effort: Low
-	- Actual cause: none in the code. Each is a false report. `next.data` is read only under `index < next.len`, so a push filled it. The leaked blocks are still on the arena list, which `arena_reset` and `shcl_free` free.
-	- Actual fix: a reason line and an `@infer-ignore` line above each site: `resolve_from`, its twin in `v_contexts`, `put_note_text`, and the 2 `settle_kept_once` lines. `w_place` is unchanged, since `v` is read by the call on the next line.
-	- Decisions:
-		- me: the reason goes on its own comment line above the directive. Infer reads every word after `@infer-ignore` as an issue type, so a reason on that line breaks it.
-		- me: no suppression in `w_place`, since neither release reports a dead store there and a directive that matches nothing can't be checked.
-		- me: the 2 `settle_kept_once` directives are unverified. Infer 1.2.0 reports those lines but doesn't read `@infer-ignore`, and 1.3.0 doesn't report them.
-	- Swept: the `next.data[seg->sel.index]` pattern is in `resolve_from`, `v_contexts` and `resolve_slots` (grep). Infer reports the first 2, and `resolve_slots` has no directive since nothing reports it. Other Infer reports are Bug 2026112121124344.
-	- Verified: with Infer 1.3.0, the 3 sites it reports in this item show as suppressed in `report.json`, and before the edit they were reported. `--backlog-run-quick c` passes.
-	- Needs local test suite run?: the cppcheck line from `LINT_EXTRA` and `analyze-c.bash` over `shcl.h`.
-	- Test case: none. Infer isn't a gate here, per 2026101707582803.
-	- Branch: `nov22-2026111016205714`
 
 - Rust's file calls can't save to a path that isn't UTF-8
 	- ID: 2026111217560157
@@ -1239,6 +763,490 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- spec.md and the `upgrade` docs say 2.x includes 1.x, and that a 1.x file's backup is named `format-v2`.
 		- The next changelog's upgrading notes say C's `SHCL_SET_OK` is 0, so old code testing a setter `!= 0` reads every success as a failure, and that a string read of an array gives its bracket text. The released beta1 section stays as it is.
 	- Estimated effort: Low
+
+- Without a schema, 2 plain blocks that merge and repeat their children get only the array hint
+	- ID: 2026112015385902
+	- Type: Bug
+	- Status: Closed
+	- Needs local test suite run?: No
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261120-153859
+	- Opened by: me
+	- Parent ID: 2026111016205701
+	- Steps to reproduce: load `planet:` twice with no schema, each with a `name:` and an `r:` under it.
+	- Incorrect behavior: 0 errors, `count("planet")` is 1, and the only sign is `H001` on `name` and `r`. Its advice is `name: [Earth, Mars]`, and nothing says the 2 blocks became one.
+	- Expected behavior: a hint on the second `planet:` line says it's one block with the first, and how to write 2.
+	- Requirements:
+		- A new hint code in all 4, `H009` if it's still free.
+		- It goes on a line with no value that opens a block an earlier such line under the same parent opened, next to it or not, when a child under it gets `H001` for repeating a child under the earlier one.
+		- The message names the earlier line and the children that repeat, and says to give each block a value, as in `planet: Earth`.
+		- `H001` and `H002` report as before. The array may be what was meant, so each reading gets its advice.
+		- A schema drops it when it drops the `H001` of every child the hint names.
+		- A row in spec.md's code table and design.md's outcome table, `explain` in the 4 CLIs, and a corpus case.
+	- Estimated effort: Avg
+	- Decisions:
+		- A hint with its own code, and no `Warning` severity (me, 20261121).
+			- The 6 consumers checked show only `Error` lines: tradeclanker, slodworld2, silkterm, gitniblet, shclwrap, and convert-base-v2. A new level would show in none of them until each changed its filter, which is the same work as showing one hint code.
+			- An error is a line that was skipped or repaired, and a hint is legal text that looks like a slip. The merged blocks are the second. A `Warning` would be a second word for it, and `H005` to `H008` would each need the same call.
+			- A program that wants this to stop a load has the schema, where it's `V008`.
+		- Decided against: an `E` error (me). The file is legal, and a hint never fails a load.
+		- Each line that opens the block again gets its own `H009`, as `H002` does for each re-open (me). A table written as 100 plain blocks gets 99, each naming line 1.
+		- A child is under a later block when its line falls between that line and the next one that opens the block again (me). A dotted line further down that reaches the block counts with the last one. It's rare, and only moves the hint.
+		- The example value is the first repeating child's value under the earlier block, so `name: Earth` gives `planet: Earth` (me). With `r` first it would be `planet: 6371`.
+		- The block's first line counts as an earlier line with no value even when a dotted line such as `planet.name: x` opened it (me). The advice is the same.
+		- The prose lists the children first, and the suppressor matches the builder's own pieces against it, as for `H001`. A list over 3 is cut, and the suppressor goes by the names it shows, which errs toward quiet, as the `H001` one does (me).
+	- Note: SHCL has no warning severity, only Error and Hint. With a schema, the same file is `V008` since the parent.
+	- Actual cause: the merge rule joins 2 lines with the same name and no value into one block, and only `H001` on the children it then repeats said anything. An adjacent re-open gets no `H002`.
+	- Actual fix: the `H001` pass also takes the lines that opened each block again with no value, and puts `H009` on each one whose children repeat one from before it, in all 4. The schema's `H001` suppressor drops it when every child it lists is disavowed. `explain` in the 4 CLIs, a row in spec.md's code table and design.md's outcome table, a design note, and the changelog.
+		- 20261121: assert values changed for this item. Corpus 223's `expected-diags.txt` and `expected-validate.txt` each gained `line 7: Hint: H009`, since its 2 `planet:` blocks merge. Its `name` has no `repeat`, so the schema keeps it.
+		- `doc-tables.py` skips `planet: Earth` in the code table as the fix the message names, not an example of `H009`.
+	- Swept: the `H001` builder and its suppressor in all 4 (Rust `emit_repeated_leaf_hints` and `suppress_declared_repeats`, Go `emitRepeatedLeafHints` and `SuppressDeclaredRepeats`, Python `_emit_repeated_leaf_hints` and `suppress_declared_repeats`, C `emit_repeated_leaf_hints` and `suppress_repeats_in`). Both suppressor callers, `check --schema` and load-and-validate, go through it. The re-open lines come from the fold list every binding already keeps for `adopt_folded`, which takes parse-time re-mentions and late folds alike.
+	- Test case: corpus `224-merged-plain-blocks` (`dfkwg`) in all 4 runners and the crosscheck, and cli-regress `dfkwe` (`merged-block-hint`), exact text in all 4, with and without a schema that disavows every child or one.
+		- Verified: both fail on the unfixed C code, along with corpus 223, and pass in all 4 with it. A suppressor that never drops left `H009` in the all-disavowed run.
+	- Verified: the quick gate's rust, go, python, c and cli areas; the 4 conformance suites; cli-regress; crosscheck; check-docs; check-doc-examples; perf-gate; the 2 shell-regress rows that read cli-regress (`dcmcq`, `dct57`); test-ids check; gcc-15 with the gate's warnings. 40,000 merged blocks load in time linear with 20,000 in all 4.
+	- Branch: nov21-2026112015385902
+	- Commit: `f179e254`
+	- Prereq IDs: 2026112113032005
+	- 20261121: the round's 2M release fuzz on nov21 stopped at 3 finds that fail on dev with corpus 224 too, filed as 2026112112314153, 2026112113030549 and 2026112113032005. check-migrate passed on nov21 a0b82b38 with the 2026112112352726 excuse. analyze-c passed on nov21 86d615d1. cppcheck found an uninitialized `bad_from` (from 2026112108444603), fixed in 57895eae.
+	- Verified: 20261121, cppcheck clean on nov21 57895eae.
+	- Acceptance signoff: Self-closed: the 2M fuzz that 2026112113032005 blocked passes.
+	- Closed: 20261121-213717
+	- Closed reason: Done
+	- Verified: 20261122, the 2M release fuzz of all fuzz_smoke passed on nov22 (34 tests, dderx, dd3t9 and df50j included; run dir 20261121-212505_004).
+
+- A merge puts a comment the layer had under a block, above a blank, onto the next field in the base
+	- ID: 2026112112314153
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261121-123141
+	- Opened by: me, the nov21 gate's 2M release fuzz
+	- Related IDs: 2026112017363707, 2026110712372276, 2026111012160121
+	- Version and build: dev at `393765cb`, and nov21 at `86d615d1`
+	- Steps to reproduce: `printf 'a:\n\tb: y\n# about e\ne: y\n' > base.shcl`, `printf 'a:\n\tb: 2\n# note 6\n\nz: 1\n' > layer.shcl`, then `shcl fmt --layer=base.shcl layer.shcl`.
+	- Incorrect behavior: the output has `# note 6` right above `# about e`, then `e: y`, and the blank moves down above `z: 1`. So `comments("e")` gives both, though in the layer `# note 6` is set off from the line below it and reads as the line above's. All 4 CLIs give the same text. Fuzz `dderx` fails on it at iteration 98734 of the 2M release run on nov21, op 10, a merge.
+	- Expected behavior: `# note 6` stays with `a`'s block, with a blank between it and `# about e`, so `comments("e")` is `# about e` alone, since a run a blank sets off belongs to the line above (2026110712372276).
+	- Reproduced: 20261121, the steps in the Rust, Go and C CLIs on nov21 at `86d615d1`, and the Rust CLI and the Python library on dev at `393765cb`. `dderx` at 100,000 in release fails at iteration 98734 on dev with corpus 224 added, so it is older than the round. Corpus 224 shifted the seeds onto it.
+	- Possible cause: the merge writes the layer's trailing comments on a block at the end of that block, and the blank under them goes with the layer's next line, so they join the base's next run.
+	- Estimated effort: Avg
+	- Note: `placement_slips` in `fuzz_smoke.rs` excuses it with `layer_tail_joined`, keyed by this ID: on a merge, comments over a field's own run that the layer had above a blank under a block. The fix takes it out.
+	- Verified: 20261121 on nov21-fix, `dderx` in release fails at iteration 98734 without the excuse and passes 620,000 with it.
+	- Reproduced: 20261122, the steps in the Rust CLI on nov22 at `1cef3b94`. The same loss hits a layer's comments that open a block it shares with the base, a layer's comment under a leaf it replaces, and the base's comment under a block when the layer replaces the field below it. A block's last child with no blank under its comments isn't hit.
+	- Actual cause [Bug]: the merge moves a node's trailing lines without the blank under them, which in the layer was the next line's or, for a replaced leaf, went with the leaf. The settle then files them as the next child's comments, as a reload of that text does.
+	- Actual fix [Bug]: each level of the overlay notes every child whose trailing lines a blank set off from the next line in its own file, the base's, a matched child's from the layer, or a copied child's, and puts a blank above whatever child follows it once the child list is final. A block whose layer had opening lines gets a blank above its first child. In all 4 bindings (`set_off_tail` and `blank_over` in `lib.rs`, `shcl.py` and `shcl.h`, `setOffTail` and `blankOver` in `shcl.go`, with C's level end in `keep_set_off`). The `layer_tail_joined` excuse is out of `placement_slips`. design.md's "Lines an edit takes from their node" and the changelog say so.
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261122: the property allows the blank the merge now writes above a field's comments, where the lines over it are comments the layer had set off by a blank (`kept_off` in `placement_slips`), since that blank is the issue's expected text.
+		- me, 20261122: the replaced leaf and the opening lines are the same loss in the same code, so they're fixed here rather than filed. Trailing lines at the end of a block, with no blank under them, still go to a child the merge adds after them, as a new child's settle does.
+	- Swept: every place the overlay puts a child in a list, in all 4: the matched child (`adopt_trivia`), the replaced leaf's copy, the unmatched instance's copy, and the base's own children. `merge_top` already sets the blank under the top of the file. The footer's dedup is its own rule. A nested block's opening lines get no blank between the base's and the layer's, filed as Bug 2026112119250496.
+	- Test case: placement rows `2026112112314153-1` to `-5` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dderx`, `dd3t9`, `df50j`.
+	- Verified: the 5 rows fail on the Python library at `1cef3b94` and pass on the change (`placement-watch.py`). With the excuse out and the new property rule in, `dderx` at 100,000 in release fails at iteration 98734 on `1cef3b94`'s library and passes on the change. `dderx`, `dd3t9` and `df50j` pass 200,000 in release, and so do `dab72` and `dd16k`. The issue's steps and the 3 other cases give the same text through the Rust, Go, C and Python CLIs. `--backlog-run-quick rust go python c` passed all 5 steps, the 4 placement runners included. Crosscheck over the corpus (24024 comparisons), lint-report, mdcheck and markdownlint passed.
+	- Needs local test suite run?: No
+	- Branch: `nov22-2026112112314153`
+	- Verified: 20261122, the 2M release fuzz of all fuzz_smoke passed on nov22 (34 tests, dderx, dd3t9 and df50j included; run dir 20261121-212505_004). analyze-c passed too (run dir 20261121-211412_003).
+	- Acceptance signoff: Self-closed: every named check ran green on the round branch.
+	- Closed: 20261121-215347
+	- Closed reason: Done
+	- Verified: 20261122, on nov22 the cppcheck line from LINT_EXTRA exits 0 (run dir 20261121-211412_002, rerun from its cache) and analyze-c passes, de2x3 and de2x4 included (20261121-211412_003).
+
+- A repeat the schema doesn't allow passes Strict, and a near-miss table merges with only a hint
+	- ID: 2026111016205701
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261110-162057
+	- Opened by: tradeclanker and slodworld1 feedback
+	- Related IDs: 2026102911041660
+	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
+	- Steps to reproduce:
+		- `bot:\n\tname: a\n\tname: b\n` through `load_and_validate_with` at Strict, with a schema that declares `bot.name` as a string and no `repeat`.
+		- Load `planet:` twice with no schema, each with a `name:` and an `r:` under it.
+	- Incorrect behavior: the first gives only `H001`, and `read_string("bot.name")` is `Multiple`, so a file that passed Strict can't be read. The second gives 0 errors and `count("planet")` 1. The only sign is `H001` on `name`, which nothing shows by default.
+	- Expected behavior: validation refuses a repeat the schema doesn't declare. A table written as repeated plain blocks gets at least a warning.
+	- Reproduced: Yes, 20261110, Python on dev `5626194a`. Both cases reproduce.
+	- Requirements:
+		- Add a `V` error in all 4 for a repeated field or merged block that the schema doesn't give a `repeat` above 1.
+		- Without a schema, a repeated block whose children repeat as bare leaves is a warning rather than a hint.
+			- That part is child 2026112015385902. SHCL has no warning severity and doesn't get one, so the child adds a hint with its own code (me, 20261121).
+	- Actual cause: validation checked each node a path resolves to, and counted them only against a declared `repeat`. With no `repeat`, any number of lines passed.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- With no `repeat`, 2 or more lines of a field under one parent, none with children, are `V008` at the second line (me). Instances with children are the table idiom, so they stay legal, and so does the same leaf under 2 parents, since that repeat is the parent's.
+		- A merged block is covered through its children: 2 plain `planet:` blocks merge into one, and their `name` lines then repeat under it (me).
+		- A `(*)` leaf names its instances and a `*` leaf has no one name, so neither is checked. A faulted `repeat` counts as none (me).
+		- `V008` is a new code rather than `V007` with an implied bound, since the count is per parent, not per context (me).
+		- The schema-side rule stays as built (me, 20261121). A field with no `repeat` reads as one value, with no exception to learn.
+			- A schema that asks for 2 values of such a field is told so by `init --schema`: `repeated field at 'a': 2 lines, and the schema has no repeat for it`. With `repeat: [1, 2]` on `a` it generates.
+		- Decided against: counting instances with children (me). It would flag every `server: web` table whose schema has no `repeat`.
+		- Decided against: reading a path that selects by value, such as `a(b)`, as a `repeat` for `a` (me). A line elsewhere in the schema would turn the check off for any count, and it needs a schema-wide lookup in all 4.
+	- Actual fix: `v_repeated` (Go `vRepeated`, Python `_v_repeated`) runs where `repeat` is absent, in all 4. `V008` is in the spec's table and every CLI's `explain` list.
+		- 20261120: assert values changed for this item. The `expected-validate.txt` goldens of corpus 036, 039, 054, 078 and 196 each gained their `V008` lines. The Rust generation grid in `generated_starters_load_and_validate_clean` went from 1029 to 1014, for the 15 that pair a required `a` with a required `a(b)`. The veneer smoke's clean schema gives `city` a `repeat: [1, 2]`, since its document writes `city` twice.
+	- Swept: the count site in all 4 `v_check_from`; the generator's self-check, which reports `V008` as `V097` through the same validate; the 4 `explain` lists; check-docs `dd5gs` matches them to the spec.
+	- Branch: nov20c-2026111016205701
+	- Commit: `6ac1a643`
+	- Test case: its children's: 2026112015385902: corpus `224-merged-plain-blocks` (`dfkwg`) in all 4 runners and the crosscheck, and cli-regress `dfkwe` (`merged-block-hint`), exact text in all 4, with and without a schema that disavows every child or one.
+		- Verified: it fails with the Rust fix taken out, along with the 5 updated goldens, and passes in all 4 with it.
+	- Verified: the quick gate, all areas; crosscheck; cli-regress; check-docs.
+	- Note: 20261120, corpus 223 shifted the fuzz seeds. check-migrate `ddmp7` then failed on `63a34d6b` on a dump file stamped `Format 3.0` with an error, which dev's CLI rewrites the same way. The check is wrong there, not the library: Bug 2026112017370795. The 2M fuzz's `dderx` failure is Bug 2026112017363707, from dev too.
+	- Closed: 20261121-213718
+	- Closed reason: Done
+
+- The kept-line property counts a footer line the merge leaves out as lost, when the save writes it as a comment
+	- ID: 2026112113032005
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261121-130320
+	- Opened by: me, the nov21 gate's 2M release fuzz
+	- Related IDs: 2026112112314153, 2026112015385902
+	- Version and build: dev at `393765cb`, and nov21 at `86d615d1`
+	- Steps to reproduce: fuzz `dderx` at 2,000,000 in release, iteration 1757912. In Rust string form, base `"\n        srv: [1\n        - 2\n    - name:\n    - name:\n    - name:\nblk:\n\tbad name: ~~~\n\trun: 1\n\t~~~\na: \"a\u{25c9}Q\u{25c9}b\"\n"` through `parse_keep_lines`, `remove("blk")`, then a merge of `"\n\n        \"q.k\": 2\n            b: 3, 3\n        a: 4, 4\n    b: [5\n        \"q.k\": 6\n            a.b(x): [7\n    - name:\n"`.
+	- Incorrect behavior: `dderx` fails: "the canonical save lost kept line(s) [\"- name:\"]". The canonical save writes 3 `# - name:` lines where the base and the layer had 4 kept `- name:` lines, and `lost_count()` is 0.
+	- Expected behavior: `dderx` passes. The fourth line is the layer's last footer line, and the base's footer already has it, so the merge leaves it out, as design.md's "Kept lines under edits" table says.
+	- Reproduced: 20261121, the steps through the Python library on dev at `393765cb`, on `2bd7d20f` and on nov21 at `86d615d1` give the same text. Smaller cases with one `- name:` line in the base and the layer keep both.
+	- Reproduced: 20261121, the Python library on dev at `edaf8fa3`, the same text.
+	- Actual cause [Bug]:
+		- After `remove("blk")` the base has no field left, so its 6 kept lines are its footer, 3 of them `# - name:` at depth 0. The layer's footer ends with the same line at the same depth. The merge leaves that one out and takes it off the kept lines it counts, which is the table's exception for a footer line the base already has.
+		- `footer_skips` in `fuzz_smoke.rs` passes over every footer line that starts with `#`. So the property never expects the merge to leave out a kept line that the save writes as a comment. It does expect one written as typed, such as `a: 4, 4`.
+	- Requirements:
+		- `footer_skips` also gives a layer's footer line that the canonical text writes as a comment, when it's one of the layer's kept lines and the base's footer has the same line at the same depth.
+			- Canonical text can't tell such a line from a plain comment, so it goes by the layer's kept lines from `kept_text`.
+		- A case in the helpers' own test, `ddj46` or one beside it, that fails without the change.
+		- The 2M release fuzz passes iteration 1757912.
+		- No library change.
+	- Estimated effort: Low
+	- Decisions:
+		- me, 20261121: the merge is right, and the property misreads it. The exception is about a line the base's footer already has, whichever way the save writes that line.
+			- With `blk` left in, the base's 3 lines sit above a field. Its footer doesn't have the line then, and the merge writes all 4.
+			- `x: 1` and `a: 4, 4`, merged with `y: 2` and `a: 4, 4`, writes `a: 4, 4` once for the same reason, and the property already expects that.
+		- me, 20261121: beta.2, at Low. No 2M release fuzz passes until it's fixed, and 2026112015385902, which is on dev, still waits for that run. The fix is test code only.
+		- 20261121: each of the layer's kept lines counts for one footer comment, so a plain comment with the same text as a kept line counts only when that kept line isn't used up. A kept line with the same text elsewhere in the layer can still count for a footer comment, which only takes one line off what the property expects.
+	- Actual fix [Bug]: `footer_skips` also gives a footer line the layer's canonical text writes as a comment, when the base's footer has it at the same depth and the layer's kept lines from `kept_text` have its text. It gives the line as the kept line reads, without the comment mark. No library change.
+	- Swept: the 3 callers of `footer_skips` (`dderx`'s merge step, `ddj46` and `ddhda`), and `footer_piled`, which already counts a line written either way.
+	- Test case: `ddj46` (`a_misplaced_tail_line_is_no_skipped_copy`), with the issue's base and layer, and a plain comment that isn't skipped. `dderx` at iteration 1757912.
+	- Verified: `ddj46` fails on the unfixed `footer_skips` with no line skipped, and passes with the change. `ddhda` passes. `--backlog-run-quick rust` passed all 5 steps, and lint-report `--check` passed.
+	- Needs local test suite run?: No
+	- Branch: nov22-2026112113032005
+	- Commit: `895813d6`
+	- Acceptance signoff: Self-closed: the 2M fuzz passes dderx past iteration 1757912.
+	- Closed: 20261121-213717
+	- Closed reason: Done
+	- Verified: 20261122, the 2M release fuzz of all fuzz_smoke passed on nov22 (34 tests, dderx, dd3t9 and df50j included; run dir 20261121-212505_004).
+
+- check-migrate checks a fuzz document its trim left naming format 3 as a 2.x file
+	- ID: 2026112112352726
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261121-123527
+	- Opened by: me, the nov21 gate's check-migrate
+	- Related IDs: 2026112017370795, 2026112110133815
+	- Version and build: dev at `393765cb`, and nov21 at `86d615d1`
+	- Steps to reproduce: run `cicd/utility/check-migrate.bash` on nov21. Its fuzz dump's `fuzz_00480` has `'C:\': ~~~` and a raw body with `##    Format   3` in it, indented. The trim takes the line that opens the block, since 2.x read the backslash as escaping the quote, so the indented Format line is outside any block.
+	- Incorrect behavior: `ddmp7` fails. `upgrade --from=2.0` backs the trimmed file up under `format-v3` rather than `format-v2`, and without `--from` it says "nothing to upgrade" at exit 0 with the file's error kept. The load reads the indented line as the file's Format line, but `fNamesFormat3` matches only one at the line start, so the check takes the file for 2.x.
+	- Expected behavior: `ddmp7` passes. A document the trim leaves naming format 3 is checked as one, or left out, since it is no 2.x file any more.
+	- Reproduced: 20261121, check-migrate on nov21 at `86d615d1` and on dev at `393765cb` with corpus 224's input added fail the same 7 lines on `fuzz_00480`. The fuzz dump is the same on both, so corpus 224 shifted the seeds onto it. The Rust CLI on dev and on nov21 gives the same upgrade results on the file with the block's opening line taken out.
+	- Possible cause: `fNamesFormat3` runs on the document before the trim, and its pattern, `formatHeadEre`, is anchored at the line start with no indent.
+	- Estimated effort: Low
+	- Note: check-migrate's `fUpgradeCheck` leaves such a document out, keyed by this ID: one with an error, an indented Format line naming 3 or later, and `migrate` saying it names its format. The OK line counts them. The fix takes it out.
+	- Verified: 20261121 on nov21-fix, check-migrate passes with the excuse, which leaves out only `fuzz_00480`, and failed `ddmp7` on it without.
+	- Actual cause: as the possible cause says. The check asked whether a document names format 3 only before the trim, and only at the line start.
+	- Actual effort: Low
+	- Actual fix: after the trim, `fNamesFormat3 FILE lead` asks again, with the Format line allowed an indent, and `migrate` still has to say the file names its format. Such a document is left out of the comparison and the upgrade checks, and the OK line counts it as `N the trim left naming format 3 not compared`. The excuse keyed by this ID in `fUpgradeCheck` is gone. New check `dfmch` trims a fixed document like `fuzz_00480` and wants it taken for format 3.
+	- Decisions: me, 20261121: left out rather than checked as format 3. `fUpConverts3` works out a conversion by renaming the Format line to 2 and running `migrate`, and on this file that refuses over a raw block that never closes, while `upgrade --from=2.0` converts it. A trimmed fragment is not worth a second oracle. It leaves out 5 documents in this dump, where the excuse left out 1. The other 4 load clean and compared equal before, but `migrate` passes each over as format 3, so that comparison checked nothing about 2.x.
+	- Swept: every `formatHeadEre` and `fNamesFormat3` use in check-migrate.bash. The source-document check stays anchored, so a 2.x file with an indented Format line in a raw body still compares. No other cicd or test script has `fNamesFormat3` or the old counter.
+	- Verified: check-migrate passed, 649 documents, 5 the trim left naming format 3. A copy with the `lead` form turned off failed `ddmp7` on `fuzz_00480` (7 lines) and `dfmch`. shellcheck, `test-ids.py check`, `lint-report.bash --check --no-mark`, and shell-regress rows `dct58`, `debqj` and `de7cy` passed.
+	- Test case: check-migrate `dfmch`, and `ddmp7`.
+	- Branch: `nov22-2026112112352726`
+	- Commit: `4b8f4ac7`
+	- Acceptance signoff: Self-closed: reproduced, the new check fails without the fix and passes with it.
+	- Closed: 20261121-194102
+	- Closed reason: Done
+
+- The C++ veneer's `de1a5` failed once under the quick gate, and passed 3 runs alone
+	- ID: 2026111912330703
+	- Type: Bug
+	- Status: Closed
+	- Priority: Low
+	- Target version: v3.0.0
+	- Opened: 20261119-123307
+	- Opened by: me
+	- Version and build: nov19b at `33313a39` plus Rust-only changes
+	- Steps to reproduce: `cicd/cicd.bash --backlog-run-quick rust go python c cli` on a loaded box. Seen once, 20261119.
+	- Incorrect behavior: `veneer FAIL: round 2, thread 7, call 0`, where got and want print the same up to a line end, then `FAIL de1a5 c++ reads_from_several_threads`.
+	- Expected behavior: the threads test passes every run.
+	- Note: control: the same source built with g++ and run 3 times alone passed every time. No C or C++ code changed in that tree.
+	- Reproduced: 20261121. The smoke's TSan build, with sanitize-c's flags, reported a race in `to_text_keep_lines` in 5 runs of 5. A plain build passed 40 runs on a lightly loaded box.
+	- Actual cause: confirmed. The C++ `to_text_keep_lines` let go of the document's lock before it copied the text, which is in the read arena. Another thread's next read resets that arena and writes over it, so the first compare saw other bytes, and the retry that printed them saw the right ones.
+	- Origin: `6a040f86` (2026-11-18), which moved the text to an out-parameter copied after the call. sanitize-c `de1a6` catches it, and the quick run skips it.
+	- Actual fix: the call holds the lock in a named local until the text is copied, as the other reads do.
+	- Swept: every lock site in `shcl.hpp`. The others copy their answer inside the call, or under a named lock. `read_authored_name` copies after the lock goes, but the name it reads is in the node's own storage, which a read never writes.
+	- Test case: C++ `de1a5` (`reads_from_several_threads`), and sanitize-c `de1a6` for its TSan build, which fails before the fix and passes after.
+	- Verified: the TSan build failed 5 of 5 before the fix and passed 5 of 5 after. `--backlog-run-quick c` passed, `de1a5` included. The whole sanitize-c script wasn't run, only its TSan build of the smoke.
+	- Branch: `nov22-2026111912330703`
+	- Acceptance signoff: Self-closed: the race is gone under TSan, which caught it every run before the fix.
+	- Closed: 20261121-195449
+	- Closed reason: Done
+	- Commit: `77c492c3`
+	- 20261120: failed again in nov20c's gate step quick run at `63a34d6b` (load about 25 on 32 cores), round 1, thread 2, call 0. The printed got and want are the same text and the same `T F 1` flags, so the compare saw something other than what it printed. 5 runs alone then passed.
+
+- install.ps1 lists a drop-ins line in the plan for a release that has none
+	- ID: 2026110915493402
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261109-154934
+	- Opened by: me, from the r1109 test batch on b29w (2026110613470322)
+	- Steps to reproduce: on b29w, install 2.0.0 to the user target, then run a copy of install.ps1 pinned to v1.2.0, which has no drop-in payload.
+	- Incorrect behavior: the plan still lists a drop-ins line for code\, and the receipt prints both the removed drop-ins note and the no signed drop-in payload line.
+	- Expected behavior: the plan doesn't list a drop-ins line, and one receipt line says the old drop-ins were removed.
+	- Actual cause: the plan is printed before the sums file is read, so it can't know whether the release has a payload, and the no-payload note didn't check whether the removed note had already said so. install.bash had the same 2 faults, for the man page and completions too.
+	- Actual fix: both plans read the release's asset list from the API answer. A release with the payload plans it. One without it plans nothing for it, and over a newer install names the removal on a `removes` line. The no-payload note is skipped when the removed note is printed. install.ps1 1.4.0, install.bash 1.6.0.
+	- Estimated effort: Low
+	- Decisions:
+		- 20261122: the plan names the removal of a newer install's drop-ins on a `removes` line, like the retired wrappers' line, rather than saying nothing. Taking files away without the plan saying so would surprise more than one extra line.
+		- 20261122: the plan reads the API's asset list, rather than fetching the sums before the prompt. Nothing is downloaded before the user says yes, and the shell-regress plan rows stay offline. The signed sums still decide what's installed, so an asset list that disagrees changes only the plan.
+	- Swept: install.bash's plan and receipt (same 2 faults, fixed, with the man page and completions). install-dev.bash doesn't install a release. The uninstall paths don't plan drop-ins.
+	- Test case: shell-regress `dfmdh` (install.ps1 plan, with and without the payload) and `df38m` (install.bash plan and the single receipt note, extended). Both fail on the old scripts and pass now. The install.ps1 receipt needs Windows past the plan, so it ran on b29w.
+	- Verified: on b29w, user target, the round's install.ps1 installed 2.0.0 with its drop-ins, then a copy pinned to v1.2.0 ran over it at exit 0. Its plan had the `removes  the drop-ins in ...\code\` line and no `drop-ins` line. The receipt had only the removed note, with no no-payload line, and `code\` was gone after.
+	- Branch: nov22-2026110915493402
+	- Commit: `cf9de5d0`
+	- Acceptance signoff: Self-closed: the r1109 steps passed on b29w.
+	- Closed: 20261121-213500
+	- Closed reason: Done
+
+- A failed run skips most of the cleanup and the closing blank line
+	- ID: 2026110215285704
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 4
+	- Steps to reproduce:
+		- Any run that fails a step, such as `run_20261101-092811`.
+	- Incorrect behavior: the EXIT trap removes the run's containers only. The image sweep, the Zig volume trim, and `docker builder prune` run only at the end of a clean run. The log ends on the cleanup line, without a blank line after it.
+	- Expected behavior: the run does the same cleanup on failure and Ctrl+C, and ends on a blank line.
+	- Also:
+		- Gate scripts' own containers and the helper containers run with `--rm` even under `--keep-temp`.
+		- A box's work folder is removed only by the box's own trap, so a dropped ssh leaves it there. Nothing sweeps stale ones on the box.
+		- Those 2 are in child 2026110218511914.
+	- Origin: Confirmed, by reading and from the 2 logs.
+	- Estimated effort: Avg
+	- Actual cause: the docker part of fCleanup ran only at the end of a whole run, and the EXIT trap's cleanup line printed nothing after it.
+	- Progress log:
+		- 20261102: the sweep, the Zig volume trim, and the build cache prune are one function, `fCtrTidy`, which a whole run and the EXIT trap of a failed or stopped one both call. The trap's cleanup line names what went, with docker's sizes before and after, as a whole run's does. A blank line follows it, and so do the kept-folder lines under `--keep-temp`.
+		- Verified: check-push-gate `desm7` and `de8j8` pass. Against the scripts from before, `desm7` fails, with nothing swept or pruned and no blank line last, and so does `de8j8`'s new prune check. A real `--backlog-run-quick cicd` that failed on `dcbc2` in the image ended on its cleanup line, with docker's sizes, and a blank line.
+		- Verified: 20261122, check-push-gate desm7 and de8j8 passed in nov22's gate quick run (run dir 20261121-211412_001); child 2026110218511914 closed.
+	- Swept: both cleanup lines, a whole run's and the trap's, and every caller of fCtrSweep, fCtrZigTrim and fCtrPrune. The run inside the image and the frozen copy's run leave all of it to the run outside, as before.
+	- Branch: `r1103`
+	- Test case: its children's: 2026110218511914: check-push-gate `dfme3` (no `--rm` on any run under `--keep-temp`, `fCtrRunSelf` by `SHCL_KEEP_TEMP`, and a run without the flag drops it) and shell-regress `dfme4` (the box half's stale sweep, and the Windows sweep's text).
+	- Closed: 20261121-213250
+	- Closed reason: Done
+
+- Gate containers under `--keep-temp`, and stale work folders on the test boxes
+	- ID: 2026110218511914
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261102-185119
+	- Opened by: 2026110215285704
+	- Parent ID: 2026110215285704
+	- Steps to reproduce:
+		- Run a gate script that starts the image, such as analyze-c, with `--keep-temp` on the run. Its container goes with `--rm`, as do the `-passwd` and `-group` reads in cicd.bash.
+		- Drop the ssh link to a test box during check-boxes. Its work folder stays on the box.
+	- Incorrect behavior: `--keep-temp` keeps only the run's main containers, and nothing on a box sweeps a work folder its trap didn't get to remove.
+	- Expected behavior: `--keep-temp` keeps every container the run starts. Each box run removes that box's own stale work folders, by the same rule as the run folders here: older than 2 days, with no live process left.
+	- Estimated effort: Avg
+	- Actual cause: the image reads and `fCtrRunSelf` set `--rm` themselves, and a gate script heard nothing of `--keep-temp`. The box half wrote no `run.pid` and swept nothing.
+	- Actual fix:
+		- cicd.bash exports `SHCL_KEEP_TEMP=1` under `--keep-temp`, and unsets it otherwise. The passwd and group reads, `fCtrRunSelf` (analyze-c, soak-c, codeql-scan) and the Zig trim drop `--rm` under it.
+		- check-boxes' box half writes `run.pid` and removes work folders under the box's `shcl/` over 2 days old by the name's stamp whose `run.pid` names no live process, in plain sh. A Windows box does the same in `fWinMkdir`, and box-cases.ps1 puts its own PID in `run.pid` once it starts.
+		- contributing.md says so.
+	- Decisions:
+		- me: a folder with no `run.pid`, or of another shape, stays, as in cicd.bash's sweep, so a folder made by hand isn't taken.
+		- me: on Windows the mkdir's short-lived PID is in `run.pid` only until box-cases.ps1 starts, seconds later, so a live run never looks stale.
+		- me: the sweep runs on every box run, before the cases, rather than as a step of its own.
+	- Verified: shell-regress `dfme4` passes, and fails on the old check-boxes.bash and box-cases.ps1. It runs the box half under this box's `/bin/sh` (dash) with GNU `date`.
+	- Verified: `fWinMkdir`'s script under pwsh on Linux, a stand-in for Windows, over the same planted folders: the dead and unreadable `run.pid` ones went, the rest stayed, and the new folder had pwsh's PID in `run.pid`. PSScriptAnalyzer passes on box-cases.ps1.
+	- Verified: check-push-gate passes whole, `dfme3` included. On the old cicd.bash and ctr-image.bash, `dfme3` fails all 3 parts: 4 reads with `--rm`, `fCtrRunSelf` with `--rm`, and a run without the flag passing on the one it was handed. shell-regress passes but the known `dcvej`, and `--backlog-run-quick go` passes.
+	- Swept: every `docker run` under `cicd/`: cicd.bash's 3 in `fRunContainer`, and ctr-image.bash's `fCtrRunSelf` and `fCtrZigTrim`. A gate script starts the image only through `fCtrRunSelf`. On the box side, `fBoxScript` and `fWinMkdir` are the only places a work folder is made.
+	- Verified: check-boxes' box half, run once over ssh as check-boxes sends it, on vmFreeBSD (`date -v` path) and b26 (macOS sh), with folders planted under the box's `shcl/` temp folder and dated 20261101. The one with a dead `run.pid` went, and the ones with `run.pid` naming PID 1 or with no `run.pid` stayed.
+	- Verified: `fWinMkdir` on b29w over the same kind of planted folders: the dead and unreadable `run.pid` ones went, the one naming a live system process and the one without `run.pid` stayed, and the new folder had its PID in `run.pid`.
+	- Branch: `nov22-2026110218511914`
+	- Test case: check-push-gate `dfme3` (no `--rm` on any run under `--keep-temp`, `fCtrRunSelf` by `SHCL_KEEP_TEMP`, and a run without the flag drops it) and shell-regress `dfme4` (the box half's stale sweep, and the Windows sweep's text).
+	- Acceptance signoff: Self-closed: the sweep passed on the 3 boxes the item names.
+	- Closed: 20261121-213500
+	- Closed reason: Done
+
+- `--no-leakcheck` still runs the soak tests
+	- ID: 2026110215285705
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 5
+	- Steps to reproduce:
+		- `cicd/cicd.bash --list --no-leakcheck`.
+	- Incorrect behavior: the Rust dhat soak and the Go soak run inside the ordinary test suites, and the Python soak is a test step of its own. `LEAKCHECK_TESTS` lists only the 2 sanitizer scripts, so all 3 soaks run in `--quick`, `--gate`, and `--no-leakcheck`.
+	- Expected behavior: a soak counts as a leak check, so `--no-leakcheck` drops it and its length decides which runs take it.
+	- Origin: Confirmed, by reading.
+	- Estimated effort: Low
+	- Actual cause: each soak sat in a suite or a test step, and `LEAKCHECK_TESTS` matched only the sanitizer scripts.
+	- Actual fix: the 3 soaks are steps of `LEAKCHECK_FAST`: `cargo test --test soak`, `go test -run TestSoakHeapSettles`, and `soak.py`. The Rust suite skips `heap_holds_steady_over_rounds`, the Go suite skips `TestSoakHeapSettles`, and `soak.py` is out of `TEST_EXTRA`. The alpine image keeps the 3 soaks while it clears the other leak checks. contributing.md says so.
+	- Decisions:
+		- me: all 3 are fast, since each took under 30 s here, so `--quick` and the default run keep them, and `--backlog-run-quick` drops them with the other leak checks.
+		- me: the box suites and the hosted jobs still run each soak inside its suite. Those are their own tests of another platform, and `--no-leakcheck` already doesn't reach them.
+		- me: `--list` still names `de2ns` and `de2w0` under the suite steps, since it lists by file. That's Bug 2026112120314617.
+	- Verified: the 3 leak steps pass as written in config.bash (Rust 24 s with its build, Go 6 to 28 s, Python 27 s at a load of 7 to 10). With the suites' skip filters the soaks don't run. `cicd.bash --list` shows the 3 under `--quick` and a run with no flags, and none under `--no-leakcheck` or `--backlog-run-quick`.
+	- Verified: shell-regress `dfme5` passes, and fails on the old config.bash.
+	- Swept: every soak in the tree: Rust's `tests/soak.rs`, Go's `soak_test.go`, Python's `soak.py`, and C's `soak-c.bash`, which was a leak check already. Go's race run skips its soak itself.
+	- Branch: `nov22-2026110218511914`
+	- Test case: shell-regress `dfme5` (each soak in the tree is a fast leak check and no test step runs it).
+	- Acceptance signoff: Self-closed: the steps the item names run where it asks, and the test failed before the fix.
+	- Closed: 20261121-203300
+	- Closed reason: Done
+
+- Installer odds and ends
+	- ID: 2026110215285718
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 18
+	- Incorrect behavior:
+		- A policy-locked `HKCU\Environment` makes `Update-ShclPath` throw a raw error, after the files are written.
+		- `install.ps1` downloads the binary before the sums file, so a release with no `windows-arm64` build fails as an HTTP 404. install.bash checks the sums first and says the release has no build for the platform.
+		- `install.ps1` prints its plan and receipt with `Write-Output`, so they go into a caller's pipeline when the script block is captured.
+		- `--help` is missing from the option lists in `install.bash` and `install-dev.bash`'s usage text.
+		- The installer versions haven't moved since `cee64cc4` (20261008), though 3 behavior changes went in since.
+	- Expected behavior: the registry refusal gets a plain message, the sums file is fetched first, UI text goes to the console only, `--help` is listed, and each change bumps the version.
+	- Origin: Confirmed, by reading.
+	- Estimated effort: Low
+	- Actual fix:
+		- `Update-ShclPath` turns any registry failure into one plain line, and the install and both uninstall paths print it as a note and carry on.
+		- install.ps1 fetches and checks the signed sums first, and stops with "release ... doesn't have a windows-ARCH binary" before any binary download.
+		- Every UI line in install.ps1 goes through `Write-Host`, with the analyzer's `PSAvoidUsingWriteHost` suppressed at the top and the reason given. The receipt's `--version` lines are written one per line.
+		- `--help, -h` is in both usage texts and both headers.
+		- install.ps1 1.4.0, install.bash 1.6.0, install-dev.bash 1.2.1, with changelog lines.
+	- Decisions:
+		- 20261122: a refused PATH edit is a note at exit 0, not an error. The files are in place and run by full path, and install.bash treats a link dir off PATH the same way.
+		- 20261122: `Write-Host` rather than `[Console]::Out`, since it reaches the host in every PowerShell, ISE included, and a caller can still take it with `6>`.
+	- Swept: every `Write-Output` in install.ps1 (all now `Write-Host`), every `Update-ShclPath` call (3), every download in install.ps1 (sums, signature, binary, payload), and the option loops of install.bash and install-dev.bash against their usage.
+	- Test case: shell-regress `dfmdj` (UI text off the pipeline), `dfmdk` (registry refusal as a note, on Linux pwsh, where there isn't any registry), `dfmdm` (sums before the binary, by line order, as install.bash's row does), and `dc0bt` (every long option is in each bash installer's help). All 4 fail on the old scripts and pass now. A real policy lock, and 5.1, ran on b29w.
+	- Verified: on b29w, user target, with a deny rule for SetValue on `HKCU\Environment` for the user, an install and then an uninstall each ended at exit 0 with the plain PATH note and no raw error. The rule came off after, and the key took writes again.
+	- Verified: on b29w, `$o = & ([scriptblock]::Create(...)) -Version`, and the same with `-Help`, left `$o` empty on Windows PowerShell 5.1 and pwsh 7, with the text on the console. The script's text came from the file rather than `irm`, which gives the same text.
+	- Branch: nov22-2026110915493402
+	- Commit: `cf9de5d0`
+	- Acceptance signoff: Self-closed: the Windows steps passed on b29w.
+	- Closed: 20261121-213500
+	- Closed reason: Done
+
+- The publisher's ssh key check asks github.com about a remote that's a local path
+	- ID: 2026111011285666
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261110-112856
+	- Opened by: tukfs-hash feedback
+	- Related IDs: Done item 24 of the old format, "the publish stage aborts before doing anything in a repository with no git identity"
+	- Version and build: dev at `5d974733`
+	- Steps to reproduce:
+		- Run the host parse at line 271 of `cicd/utility/n8git_backup-and-publish` on each origin form.
+	- Incorrect behavior: `/mnt/x/origin.git` and `file:///mnt/x/origin.git` give an empty host, so line 272 probes `git@github.com`. `../origin.git` gives `..` and probes `git@..`. The run goes on, but the key check prints auth lines for a host the repo never talks to.
+	- Expected behavior: a remote with no ssh host skips the probe and says so.
+	- Reproduced: Yes, 20261110, the sed from line 271 on the 4 forms. `git@github.com:a/b.git` gives `github.com` as it should.
+	- Note: item 24's note says the `${sshHost:-github.com}` fallback can never fire. It fires for every local-path remote.
+	- Note: tukfs-hash's copy skips the probe on an empty host since 2026-10-23 and prints `(origin isn't an ssh remote)`. It still probes `git@..` for a relative path, so that copy isn't the whole fix.
+	- Requirements:
+		- Don't probe for a local path, a `file://` URL, or a relative path.
+		- Apply the same patch to the canonical copy under the synced tree. The other projects' copies get it as each one is refreshed.
+	- Actual cause: the sed cut whatever came before the first `:` or `/`, so a local path gave an empty host or `..`, and the empty one fell back to `github.com`.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Decisions:
+		- me: the host comes from git's own rule. A URL with no scheme is scp-style only when a `:` comes before any `/`, so `origin.git` and `./x` are local too. Only `ssh://`, `git+ssh://` and `ssh+git://` URLs count as ssh.
+		- me: an `https://` or `git://` origin skips the probe too, since it has no ssh host. The intro already warns that the remote should be `git@`.
+		- me: no origin at all prints `(no origin remote)`, and the `github.com` fallback is gone.
+		- me, 20261121: shell-regress `dc7gb` now looks for the fallback on `originUrl="$(git remote get-url origin ... || true)"`, where it looked for it on `sshHost=`. The host is parsed in its own function now. The rest of the row is as it was.
+	- Actual fix: `fSshHostOf` gives the ssh host or nothing, and the key check runs only for a host, else it prints `(origin isn't an ssh remote)`. The canonical copy in the synced `linux/bash` folder has the same change, with the old one kept in the private upstream folder under `2026111011285666/`.
+	- Verified: `dfmez` and `dfmf0` fail on the old script and pass now. With only the call site put back, `dfmf0` fails on the ssh stub being called. shell-regress passes but for `dcvej`, the demo gif check, which reads none of the changed files. shellcheck passes on both copies.
+	- Swept: `ssh` and `remote get-url` in the publisher, the only probe. The canonical copy matches the repo's but for 3 older history and comment lines.
+	- Branch: `nov22-2026111011285666`
+	- Test case: shell-regress `dfmez` (the host parse on 15 remote forms) and `dfmf0` (a publish with a local-path origin never calls the stub ssh).
+	- Acceptance signoff: Self-closed: its tests failed on the old script and pass.
+	- Closed: 20261121-210000
+	- Closed reason: Done
+
+- The publisher refuses to run in a linked worktree
+	- ID: 2026111011285679
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261110-112856
+	- Opened by: tukfs-hash feedback
+	- Version and build: dev at `5d974733`
+	- Steps to reproduce:
+		- `git worktree add ../wt`, then run `cicd/utility/n8git_backup-and-publish` from `../wt`.
+	- Incorrect behavior: it stops with "Not in git project base directory." Line 144 looks only for `.git/HEAD`, and a linked worktree's `.git` is a file.
+	- Expected behavior: a linked worktree counts as a git project folder.
+	- Reproduced: No, read from the code. tukfs-hash hit it and fixed its copy on 2026-10-23.
+	- Requirements:
+		- Accept a `.git` file too, as tukfs-hash's copy does: `[[ -f "${dirPath_GitProj}/.git/HEAD" || -f "${dirPath_GitProj}/.git" ]]`.
+		- Apply the same patch to the canonical copy under the synced tree.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: the check takes a `.git` file too, as the requirement gives it. The canonical copy in the synced `linux/bash` folder has the same change.
+	- Verified: `dfmf0` publishes from a linked worktree of a scratch remote, and the branch reaches the remote. The old script stopped at the project-folder check, exit 1, and the new one passes.
+	- Swept: every `.git` in the publisher. The link walk's `find -name .git` prunes a file as well as a dir. The rar exclude `*/.git` has no wildcard in its last part, so by the script's own notes it takes a file too, unverified, since `dfmf0` runs with the backup off.
+	- Branch: `nov22-2026111011285666`
+	- Test case: shell-regress `dfmf0`.
+	- Acceptance signoff: Self-closed: its test failed on the old script and passes.
+	- Closed: 20261121-210000
+	- Closed reason: Done
+
+- Infer reports a null dereference, 2 leaks and 2 dead stores in `shcl.h`
+	- ID: 2026111016205714
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261110-162057
+	- Opened by: slodworld1 feedback
+	- Version and build: `3.0.0-beta1`
+	- Steps to reproduce:
+		- Run Infer over beta1's `shcl.h`.
+	- Incorrect behavior: Infer reports a null dereference of `next.data` in `resolve_from`, leaks of arena blocks in `settle_kept_once` and `put_note_text`, and 2 dead stores in `w_place`.
+	- Expected behavior: each site is judged, a real one is fixed, and the rest are suppressed at the line with a reason.
+	- Reproduced: Yes for 3 of the 5, with the release builds over `main.c`. Infer 1.3.0 reports the `resolve_from` null dereference and the `put_note_text` leak. Infer 1.2.0 reports the `put_note_text` leak and 2 `settle_kept_once` leaks. Neither reports a dead store in `w_place`.
+	- Estimated effort: Low
+	- Actual cause: none in the code. Each is a false report. `next.data` is read only under `index < next.len`, so a push filled it. The leaked blocks are still on the arena list, which `arena_reset` and `shcl_free` free.
+	- Actual fix: a reason line and an `@infer-ignore` line above each site: `resolve_from`, its twin in `v_contexts`, `put_note_text`, and the 2 `settle_kept_once` lines. `w_place` is unchanged, since `v` is read by the call on the next line.
+	- Decisions:
+		- me: the reason goes on its own comment line above the directive. Infer reads every word after `@infer-ignore` as an issue type, so a reason on that line breaks it.
+		- me: no suppression in `w_place`, since neither release reports a dead store there and a directive that matches nothing can't be checked.
+		- me: the 2 `settle_kept_once` directives are unverified. Infer 1.2.0 reports those lines but doesn't read `@infer-ignore`, and 1.3.0 doesn't report them.
+	- Swept: the `next.data[seg->sel.index]` pattern is in `resolve_from`, `v_contexts` and `resolve_slots` (grep). Infer reports the first 2, and `resolve_slots` has no directive since nothing reports it. Other Infer reports are Bug 2026112121124344.
+	- Verified: with Infer 1.3.0, the 3 sites it reports in this item show as suppressed in `report.json`, and before the edit they were reported. `--backlog-run-quick c` passes.
+	- Needs local test suite run?: No
+	- Test case: none. Infer isn't a gate here, per 2026101707582803.
+	- Branch: `nov22-2026111016205714`
+	- Acceptance signoff: Self-closed: every named check ran green on the round branch.
+	- Closed: 20261121-215347
+	- Closed reason: Done
+	- Verified: 20261122, on nov22 the cppcheck line from LINT_EXTRA exits 0 (run dir 20261121-211412_002, rerun from its cache) and analyze-c passes, de2x3 and de2x4 included (20261121-211412_003).
 
 - The placement property takes the items of a list under a misplaced line for the items of the list above it
 	- ID: 2026112113030549
