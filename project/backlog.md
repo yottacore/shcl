@@ -84,8 +84,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Without a schema, 2 plain blocks that merge and repeat their children get only the array hint
 	- ID: 2026112015385902
 	- Type: Bug
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: the 2M release fuzz, once Bug 2026112113032005 stops it at iteration 1757912.
+	- Status: Closed
+	- Needs local test suite run?: No
 	- Severity: Avg
 	- Target version: v3.0.0
 	- Opened: 20261120-153859
@@ -127,6 +127,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Prereq IDs: 2026112113032005
 	- 20261121: the round's 2M release fuzz on nov21 stopped at 3 finds that fail on dev with corpus 224 too, filed as 2026112112314153, 2026112113030549 and 2026112113032005. check-migrate passed on nov21 a0b82b38 with the 2026112112352726 excuse. analyze-c passed on nov21 86d615d1. cppcheck found an uninitialized `bad_from` (from 2026112108444603), fixed in 57895eae.
 	- Verified: 20261121, cppcheck clean on nov21 57895eae.
+	- Acceptance signoff: Self-closed: the 2M fuzz that 2026112113032005 blocked passes.
+	- Closed: 20261121-213717
+	- Closed reason: Done
+	- Verified: 20261122, the 2M release fuzz of all fuzz_smoke passed on nov22 (34 tests, dderx, dd3t9 and df50j included; run dir 20261121-212505_004).
 
 - Format versions: the demo gif and its golden text show fmt output without the stamp
 	- ID: 2026111710564808
@@ -170,13 +174,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: every place the overlay puts a child in a list, in all 4: the matched child (`adopt_trivia`), the replaced leaf's copy, the unmatched instance's copy, and the base's own children. `merge_top` already sets the blank under the top of the file. The footer's dedup is its own rule. A nested block's opening lines get no blank between the base's and the layer's, filed as Bug 2026112119250496.
 	- Test case: placement rows `2026112112314153-1` to `-5` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dderx`, `dd3t9`, `df50j`.
 	- Verified: the 5 rows fail on the Python library at `1cef3b94` and pass on the change (`placement-watch.py`). With the excuse out and the new property rule in, `dderx` at 100,000 in release fails at iteration 98734 on `1cef3b94`'s library and passes on the change. `dderx`, `dd3t9` and `df50j` pass 200,000 in release, and so do `dab72` and `dd16k`. The issue's steps and the 3 other cases give the same text through the Rust, Go, C and Python CLIs. `--backlog-run-quick rust go python c` passed all 5 steps, the 4 placement runners included. Crosscheck over the corpus (24024 comparisons), lint-report, mdcheck and markdownlint passed.
-	- Needs local test suite run?: the 2M release fuzz of all fuzz_smoke, since the change touches trivia. analyze-c and the cppcheck line from `LINT_EXTRA`, since `shcl.h` changed. analyze-c didn't finish in 4 minutes.
+	- Needs local test suite run?: the cppcheck line from LINT_EXTRA, since shcl.h changed (running in nov22's gate step). The 2M fuzz and analyze-c passed.
 	- Branch: `nov22-2026112112314153`
+	- Verified: 20261122, the 2M release fuzz of all fuzz_smoke passed on nov22 (34 tests, dderx, dd3t9 and df50j included; run dir 20261121-212505_004). analyze-c passed too (run dir 20261121-211412_003).
 
 - A repeat the schema doesn't allow passes Strict, and a near-miss table merges with only a hint
 	- ID: 2026111016205701
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: Avg
 	- Target version: v3.0.0
 	- Opened: 20261110-162057
@@ -210,10 +215,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: the count site in all 4 `v_check_from`; the generator's self-check, which reports `V008` as `V097` through the same validate; the 4 `explain` lists; check-docs `dd5gs` matches them to the spec.
 	- Branch: nov20c-2026111016205701
 	- Commit: `6ac1a643`
-	- Test case: corpus `223-undeclared-repeat` (`dfjr5`) in all 4 runners and the crosscheck.
+	- Test case: its children's: 2026112015385902: corpus `224-merged-plain-blocks` (`dfkwg`) in all 4 runners and the crosscheck, and cli-regress `dfkwe` (`merged-block-hint`), exact text in all 4, with and without a schema that disavows every child or one.
 		- Verified: it fails with the Rust fix taken out, along with the 5 updated goldens, and passes in all 4 with it.
 	- Verified: the quick gate, all areas; crosscheck; cli-regress; check-docs.
 	- Note: 20261120, corpus 223 shifted the fuzz seeds. check-migrate `ddmp7` then failed on `63a34d6b` on a dump file stamped `Format 3.0` with an error, which dev's CLI rewrites the same way. The check is wrong there, not the library: Bug 2026112017370795. The 2M fuzz's `dderx` failure is Bug 2026112017363707, from dev too.
+	- Closed: 20261121-213718
+	- Closed reason: Done
 
 - `Document::merge` drops the base file's comments on every leaf the upper layer names
 	- ID: 2026111217560140
@@ -333,7 +340,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The kept-line property counts a footer line the merge leaves out as lost, when the save writes it as a comment
 	- ID: 2026112113032005
 	- Type: Bug
-	- Status: Waiting on automated testing
+	- Status: Closed
 	- Severity: Low
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261121-130320
@@ -365,9 +372,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: the 3 callers of `footer_skips` (`dderx`'s merge step, `ddj46` and `ddhda`), and `footer_piled`, which already counts a line written either way.
 	- Test case: `ddj46` (`a_misplaced_tail_line_is_no_skipped_copy`), with the issue's base and layer, and a plain comment that isn't skipped. `dderx` at iteration 1757912.
 	- Verified: `ddj46` fails on the unfixed `footer_skips` with no line skipped, and passes with the change. `ddhda` passes. `--backlog-run-quick rust` passed all 5 steps, and lint-report `--check` passed.
-	- Needs local test suite run?: the 2M release fuzz, `dderx` past iteration 1757912. `dderx` alone in release didn't reach it in under 4 minutes.
+	- Needs local test suite run?: No
 	- Branch: nov22-2026112113032005
 	- Commit: `895813d6`
+	- Acceptance signoff: Self-closed: the 2M fuzz passes dderx past iteration 1757912.
+	- Closed: 20261121-213717
+	- Closed reason: Done
+	- Verified: 20261122, the 2M release fuzz of all fuzz_smoke passed on nov22 (34 tests, dderx, dd3t9 and df50j included; run dir 20261121-212505_004).
 
 - check-migrate checks a fuzz document its trim left naming format 3 as a 2.x file
 	- ID: 2026112112352726
@@ -501,7 +512,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A failed run skips most of the cleanup and the closing blank line
 	- ID: 2026110215285704
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: Low
 	- Target version: v3.0.0
 	- Opened: 20261102-152857
@@ -520,9 +531,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Progress log:
 		- 20261102: the sweep, the Zig volume trim, and the build cache prune are one function, `fCtrTidy`, which a whole run and the EXIT trap of a failed or stopped one both call. The trap's cleanup line names what went, with docker's sizes before and after, as a whole run's does. A blank line follows it, and so do the kept-folder lines under `--keep-temp`.
 		- Verified: check-push-gate `desm7` and `de8j8` pass. Against the scripts from before, `desm7` fails, with nothing swept or pruned and no blank line last, and so does `de8j8`'s new prune check. A real `--backlog-run-quick cicd` that failed on `dcbc2` in the image ended on its cleanup line, with docker's sizes, and a blank line.
+		- Verified: 20261122, check-push-gate desm7 and de8j8 passed in nov22's gate quick run (run dir 20261121-211412_001); child 2026110218511914 closed.
 	- Swept: both cleanup lines, a whole run's and the trap's, and every caller of fCtrSweep, fCtrZigTrim and fCtrPrune. The run inside the image and the frozen copy's run leave all of it to the run outside, as before.
 	- Branch: `r1103`
-	- Test case: check-push-gate `desm7` (a failed run sweeps, trims, prunes, and ends on a blank line) and `de8j8` (a stopped run prunes too).
+	- Test case: its children's: 2026110218511914: check-push-gate `dfme3` (no `--rm` on any run under `--keep-temp`, `fCtrRunSelf` by `SHCL_KEEP_TEMP`, and a run without the flag drops it) and shell-regress `dfme4` (the box half's stale sweep, and the Windows sweep's text).
+	- Closed: 20261121-213250
+	- Closed reason: Done
 
 - Gate containers under `--keep-temp`, and stale work folders on the test boxes
 	- ID: 2026110218511914
