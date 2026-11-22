@@ -61,7 +61,11 @@ Print the options and exit.
 .EXAMPLE
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/yottacore/shcl/main/install.ps1))) -Target system -Yes
 #>
+## The plan, the prompt and the receipt are for the person at the console. Sent
+## down the output stream, they went into the pipeline of a caller that captured
+## the script block.
 [CmdletBinding()]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'UI text, not output')]
 param(
 	[ValidateSet('dev', 'development', 'stable')] [string]$Release = 'stable',
 	[ValidateSet('user', 'system')] [string]$Target = 'user',
@@ -87,14 +91,14 @@ param(
 	Set-StrictMode -Version Latest
 	$ErrorActionPreference = 'Stop'
 
-	$installerVersion = '1.3.0'
+	$installerVersion = '1.4.0'
 
 	## Every run opens with a blank line and ends with one, errors included.
-	Write-Output ''
+	Write-Host ''
 
 	if ($ShowVersion) {
-		Write-Output "install.ps1 $installerVersion"
-		Write-Output ''
+		Write-Host "install.ps1 $installerVersion"
+		Write-Host ''
 		return
 	}
 
@@ -125,8 +129,8 @@ Options:
 It needs Windows PowerShell 5.1 or pwsh 7. The release signature is checked
 before any checksum is read out of the sums file. Nothing unverified is
 installed.
-"@ | Write-Output
-		Write-Output ''
+"@ | Write-Host
+		Write-Host ''
 		return
 	}
 
@@ -166,16 +170,26 @@ installed.
 	## returning, and Set writes the result back as REG_SZ, which freezes every
 	## reference and downgrades the value type. User PATHs often contain
 	## %USERPROFILE%. Reading unexpanded and writing REG_EXPAND_SZ leaves the
-	## stored value intact. It returns true when it wrote.
+	## stored value intact. It returns true when it wrote. A policy can lock
+	## HKCU\Environment, and the raw registry error that gave, after the files
+	## were written, didn't say the install itself was fine. So any failure
+	## throws one plain line, which the callers turn into a note.
 	function Update-ShclPath {
 		## The installer's own confirm prompt is the gate. A nested -WhatIf
 		## would dead-end at the irm|iex one-liner anyway.
 		[CmdletBinding()]
 		[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
 		param([string]$Scope, [string]$Dir, [switch]$Remove)
-		$hive = if ($Scope -eq 'Machine') { [Microsoft.Win32.Registry]::LocalMachine } else { [Microsoft.Win32.Registry]::CurrentUser }
-		$subkey = if ($Scope -eq 'Machine') { 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment' } else { 'Environment' }
-		$envKey = $hive.OpenSubKey($subkey, $true)
+		try {
+			$hive = if ($Scope -eq 'Machine') { [Microsoft.Win32.Registry]::LocalMachine } else { [Microsoft.Win32.Registry]::CurrentUser }
+			$subkey = if ($Scope -eq 'Machine') { 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment' } else { 'Environment' }
+			$envKey = $hive.OpenSubKey($subkey, $true)
+		} catch {
+			$ex = $_.Exception
+			while ($ex.InnerException) { $ex = $ex.InnerException }
+			throw "the registry refused the change ($($ex.Message.TrimEnd('.')))"
+		}
+		if (-not $envKey) { throw "the registry doesn't have the $Scope environment key" }
 		try {
 			$current = [string]$envKey.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
 			if ($Remove) {
@@ -192,6 +206,10 @@ installed.
 			$joined = if ($current -and -not $current.EndsWith(';')) { "$current;$Dir" } else { "$current$Dir" }
 			$envKey.SetValue('Path', $joined, [Microsoft.Win32.RegistryValueKind]::ExpandString)
 			return $true
+		} catch {
+			$ex = $_.Exception
+			while ($ex.InnerException) { $ex = $ex.InnerException }
+			throw "the registry refused the change ($($ex.Message.TrimEnd('.')))"
 		} finally {
 			$envKey.Close()
 		}
@@ -545,16 +563,20 @@ installed.
 		## "removed". The usual case is a system install from before user became
 		## the default. A PATH entry left behind still goes.
 		if (-not (Test-Path -LiteralPath $dest)) {
-			if (Update-ShclPath -Scope $pathScope -Dir $pathDir -Remove) {
-				Write-Output "removed the $pathScope PATH entry; nothing else of shcl was in $dest"
+			$pathProblem = ''
+			$pathRemoved = $false
+			try { $pathRemoved = Update-ShclPath -Scope $pathScope -Dir $pathDir -Remove } catch { $pathProblem = "$($_.Exception.Message)" }
+			if ($pathRemoved) {
+				Write-Host "removed the $pathScope PATH entry; nothing else of shcl was in $dest"
 			} else {
-				Write-Output "nothing to remove: no shcl install in $dest"
+				Write-Host "nothing to remove: no shcl install in $dest"
 			}
+			if ($pathProblem) { Write-Host "note: couldn't check the $pathScope PATH for $pathDir, since $pathProblem" }
 			$programFiles = if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }
 			if ($Target -eq 'user' -and (Test-Path -LiteralPath (Join-Path -Path $programFiles -ChildPath 'Shcl'))) {
-				Write-Output "a system install is in $programFiles\Shcl; -Target system removes that one, from an elevated shell"
+				Write-Host "a system install is in $programFiles\Shcl; -Target system removes that one, from an elevated shell"
 			}
-			Write-Output ''
+			Write-Host ''
 			return
 		}
 		## The setup .exe writes this same directory and registers itself with
@@ -565,12 +587,12 @@ installed.
 		if (Test-Path -LiteralPath $setupUninstaller) {
 			Exit-Install "$dest was installed by the shcl setup - remove it from Add/Remove Programs, or run $setupUninstaller"
 		}
-		Write-Output "removing shcl: $dest (and the $pathScope PATH entry)"
+		Write-Host "removing shcl: $dest (and the $pathScope PATH entry)"
 		if (-not $Yes) {
 			$reply = Read-Host 'Proceed? [y/N]'
 			if ($reply -notin @('y', 'Y', 'yes', 'Yes', 'YES')) {
-				Write-Output 'aborted'
-				Write-Output ''
+				Write-Host 'aborted'
+				Write-Host ''
 				if ($invokedAsFile) { exit 1 }
 				return
 			}
@@ -581,14 +603,16 @@ installed.
 		if ($removal.Stuck.Count -gt 0) {
 			Exit-Install "couldn't remove $($removal.Stuck -join ', ') - close any running shcl and run the uninstall again"
 		}
-		$null = Update-ShclPath -Scope $pathScope -Dir $pathDir -Remove
+		$pathProblem = ''
+		try { $null = Update-ShclPath -Scope $pathScope -Dir $pathDir -Remove } catch { $pathProblem = "$($_.Exception.Message)" }
 		if ($removal.Foreign) {
-			Write-Output 'removed what this installer laid down'
-			Write-Output "left $dest in place, since it has files this installer didn't put there"
+			Write-Host 'removed what this installer laid down'
+			Write-Host "left $dest in place, since it has files this installer didn't put there"
 		} else {
-			Write-Output 'removed'
+			Write-Host 'removed'
 		}
-		Write-Output ''
+		if ($pathProblem) { Write-Host "note: couldn't take $pathDir out of the $pathScope PATH, since $pathProblem - remove it by hand" }
+		Write-Host ''
 		return
 	}
 
@@ -670,18 +694,30 @@ installed.
 			$existing = "replaces the newer $installed with an older release"
 		}
 	}
-	Write-Output "shcl $version ($channel, windows-$arch) -> $dest ($existing)"
-	Write-Output "  from     https://github.com/$repo/releases/tag/$tag"
-	Write-Output "  binary   $dest\shcl.exe"
-	Write-Output "  drop-ins $dest\code\"
-	if (Test-Path -LiteralPath (Join-Path -Path $dest -ChildPath 'scripts')) { Write-Output "  removes  the retired wrappers in $dest\scripts\" }
-	Write-Output "  adds $pathDir to the $pathScope PATH if missing"
-	if ($older -and $Release -eq 'stable') { Write-Output "  note     to keep $installed, re-run with -Release dev" }
+	Write-Host "shcl $version ($channel, windows-$arch) -> $dest ($existing)"
+	Write-Host "  from     https://github.com/$repo/releases/tag/$tag"
+	Write-Host "  binary   $dest\shcl.exe"
+	## The release's asset list says whether it has a drop-in payload, so the
+	## plan doesn't promise one that a release without it can't lay down. The
+	## signed sums file still decides what's installed. A newer release's
+	## drop-ins go when the release has none, the same rule as the install.
+	$dropins = "shcl-$version-dropins.tar.gz"
+	$assetList = $rel.PSObject.Properties['assets']
+	$planDropins = $assetList -and $assetList.Value -and (@($assetList.Value | ForEach-Object { "$($_.name)" }) -contains $dropins)
+	$codeDir = Join-Path -Path $dest -ChildPath 'code'
+	if ($planDropins) {
+		Write-Host "  drop-ins $dest\code\"
+	} elseif ($installed -ne $version -and (Test-Path -LiteralPath $codeDir -PathType Container)) {
+		Write-Host "  removes  the drop-ins in $dest\code\, since this release doesn't include them"
+	}
+	if (Test-Path -LiteralPath (Join-Path -Path $dest -ChildPath 'scripts')) { Write-Host "  removes  the retired wrappers in $dest\scripts\" }
+	Write-Host "  adds $pathDir to the $pathScope PATH if missing"
+	if ($older -and $Release -eq 'stable') { Write-Host "  note     to keep $installed, re-run with -Release dev" }
 	if (-not $Yes) {
 		$reply = Read-Host 'Proceed? [y/N]'
 		if ($reply -notin @('y', 'Y', 'yes', 'Yes', 'YES')) {
-			Write-Output 'aborted'
-			Write-Output ''
+			Write-Host 'aborted'
+			Write-Host ''
 			if ($invokedAsFile) { exit 1 }
 			return
 		}
@@ -697,15 +733,16 @@ installed.
 	$tmp = Join-Path -Path $tmpParent -ChildPath ('shcl-install-' + [IO.Path]::GetRandomFileName())
 	New-Item -ItemType Directory -Path $tmp | Out-Null
 	try {
-		## Download and verify the binary.
-		Write-Output ''
+		## Download and verify the binary. The signed sums come first, since they
+		## list every asset, so a release without a build for this platform, such
+		## as one from before the arm64 build, is reported as that instead of as
+		## an HTTP 404.
+		Write-Host ''
 		$asset = "shcl-$version-windows-$arch.exe"
 		$tmpExe = Join-Path -Path $tmp -ChildPath 'shcl.exe'
 		$sums = Join-Path -Path $tmp -ChildPath 'sums.txt'
 		$sumsSig = Join-Path -Path $tmp -ChildPath 'sums.txt.sig'
 		$base = "https://github.com/$repo/releases/download/$tag"
-		Write-Output "downloading $asset..."
-		Save-ReleaseAsset -Uri "$base/$asset" -OutFile $tmpExe -Name $asset
 		Save-ReleaseAsset -Uri "$base/shcl-$version-sha256sums.txt" -OutFile $sums -Name 'sha256sums'
 		Save-ReleaseAsset -Uri "$base/shcl-$version-sha256sums.txt.sig" -OutFile $sumsSig -Name 'sha256sums signature'
 
@@ -720,6 +757,9 @@ installed.
 		## match would take whichever of those came first once one asset name
 		## contains another.
 		$want = (Get-Content -LiteralPath $sums | Where-Object { $_ -cmatch ('\s' + [regex]::Escape($asset) + '$') } | ForEach-Object { ($_ -split '\s+')[0] } | Select-Object -First 1)
+		if (-not $want) { Exit-Install "release $tag doesn't have a windows-$arch binary - pick a newer release, or build from source: cargo install shcl" }
+		Write-Host "downloading $asset..."
+		Save-ReleaseAsset -Uri "$base/$asset" -OutFile $tmpExe -Name $asset
 		$got = (Get-FileHash -Algorithm SHA256 -LiteralPath $tmpExe).Hash.ToLower()
 		if (-not $want -or $got -ne $want.ToLower()) { Exit-Install "sha256 mismatch on $asset" }
 
@@ -727,12 +767,11 @@ installed.
 		## same signed sums file as the binary. They used to come from GitHub's
 		## generated source zipball, which doesn't have a signature or a
 		## checksum. A release from before the asset installs the binary alone.
-		$dropins = "shcl-$version-dropins.tar.gz"
 		$wantSrc = (Get-Content -LiteralPath $sums | Where-Object { $_ -cmatch ('\s' + [regex]::Escape($dropins) + '$') } | ForEach-Object { ($_ -split '\s+')[0] } | Select-Object -First 1)
 		$haveDropins = $false
 		$srcroot = $null
 		if ($wantSrc) {
-			Write-Output "downloading $dropins..."
+			Write-Host "downloading $dropins..."
 			Save-ReleaseAsset -Uri "$base/$dropins" -OutFile (Join-Path -Path $tmp -ChildPath 'dropins.tgz') -Name $dropins
 			$gotSrc = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path -Path $tmp -ChildPath 'dropins.tgz')).Hash.ToLower()
 			if ($gotSrc -ne $wantSrc.ToLower()) { Exit-Install "sha256 mismatch on $dropins" }
@@ -770,7 +809,6 @@ installed.
 			## left beside an older binary describe the wrong format. On the same
 			## version they can only have been put there by hand, so they stay.
 			$dropped = $false
-			$codeDir = Join-Path -Path $dest -ChildPath 'code'
 			if (-not $haveDropins -and $installed -ne $version -and (Test-Path -LiteralPath $codeDir -PathType Container)) {
 				foreach ($name in 'lib.rs', 'shcl.go', 'shcl.py', 'shcl.h', 'shcl.hpp') {
 					$path = Join-Path -Path $codeDir -ChildPath $name
@@ -786,8 +824,11 @@ installed.
 			Exit-Install "can't write $dest - $($ex.Message)"
 		}
 
-		if (Update-ShclPath -Scope $pathScope -Dir $pathDir) {
-			Write-Output "added $pathDir to the $pathScope PATH (new shells pick it up)"
+		$pathAdded = $false
+		$pathProblem = ''
+		try { $pathAdded = Update-ShclPath -Scope $pathScope -Dir $pathDir } catch { $pathProblem = "$($_.Exception.Message)" }
+		if ($pathAdded) {
+			Write-Host "added $pathDir to the $pathScope PATH (new shells pick it up)"
 			## Nudge running shells, if Windows lets us.
 			try {
 				$sig = '[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)] public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);'
@@ -795,28 +836,31 @@ installed.
 				$out = [UIntPtr]::Zero
 				$null = $w32::SendMessageTimeout([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$out)
 			} catch {
-				Write-Output 'PATH change broadcast skipped (new shells still pick it up)'
+				Write-Host 'PATH change broadcast skipped (new shells still pick it up)'
 			}
 		}
 
-		Write-Output ''
+		Write-Host ''
 		if ($older) {
-			Write-Output "installed shcl $version -> $dest\shcl.exe (older than the $installed it replaced)"
+			Write-Host "installed shcl $version -> $dest\shcl.exe (older than the $installed it replaced)"
 		} else {
-			Write-Output "installed shcl $version -> $dest\shcl.exe"
+			Write-Host "installed shcl $version -> $dest\shcl.exe"
 		}
 		if ($dropped) {
 			$was = if ($installed) { $installed } else { 'earlier' }
-			Write-Output "note: removed the drop-ins the $was install had, since this release doesn't include them"
+			Write-Host "note: removed the drop-ins the $was install had, since this release doesn't include them"
 		}
 		## After writing over a setup install, its Add/Remove Programs entry
 		## still names the version it put there, which isn't what's on disk now.
 		if (Test-Path -LiteralPath (Join-Path -Path $dest -ChildPath 'uninstall.exe')) {
-			Write-Output "note: $dest came from the shcl setup - its Add/Remove Programs entry still shows the version it installed"
+			Write-Host "note: $dest came from the shcl setup - its Add/Remove Programs entry still shows the version it installed"
 		}
-		if (-not $haveDropins) { Write-Output "note: this release doesn't have a signed drop-in payload, so $dest\code was skipped - take the files from the repo if you want them" }
+		## One note covers a release without drop-ins. Where the old ones were
+		## removed, the note above says so.
+		if (-not $haveDropins -and -not $dropped) { Write-Host "note: this release doesn't have a signed drop-in payload, so $dest\code was skipped - take the files from the repo if you want them" }
+		if ($pathProblem) { Write-Host "note: couldn't add $pathDir to the $pathScope PATH, since $pathProblem - run $dest\shcl.exe by its full path, or add the folder to PATH by hand" }
 		$rerun = if ($invokedAsFile) { "& '$scriptPath'" } else { '& ([scriptblock]::Create((irm https://raw.githubusercontent.com/yottacore/shcl/main/install.ps1)))' }
-		Write-Output "to remove it again: $rerun -Uninstall -Target $Target"
+		Write-Host "to remove it again: $rerun -Uninstall -Target $Target"
 		## Also say what `shcl` resolves to. The receipt below runs the copy just
 		## written, so another one earlier on PATH used to go unseen here. A user
 		## install can't get ahead of a machine one, since Windows puts the
@@ -824,12 +868,13 @@ installed.
 		## one is removed, and the note is all the installer can do about it.
 		$onPath = Get-ShclShadow -Installed "$dest\shcl.exe"
 		if ($onPath) {
-			Write-Output "note: the shcl on your PATH is $onPath, which comes before the copy just installed"
+			Write-Host "note: the shcl on your PATH is $onPath, which comes before the copy just installed"
 		}
-		## The smoke test above already ran it from the temp dir, so this line
-		## is only the receipt.
-		Write-Output $smokeOut
-		Write-Output ''
+		## The smoke test above already ran it from the temp dir, so these lines
+		## are only the receipt. One per line, since Write-Host joins an array
+		## with spaces.
+		foreach ($line in @($smokeOut)) { Write-Host "$line" }
+		Write-Host ''
 	} finally {
 		Remove-SafeTree -Parent $tmpParent -Path $tmp -ErrorAction Continue
 	}

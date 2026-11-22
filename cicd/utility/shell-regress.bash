@@ -462,6 +462,75 @@ SRVEOF
 		fi
 	done
 
+	fTest dfmdh 2026110915493402-install-ps1-plan-without-drop-ins
+	##	2026110915493402: the plan listed drop-ins for a release that has none,
+	##	since it was printed before the sums were read. The release's asset
+	##	list decides it now. Over a newer install with code\ the plan names
+	##	the removal, and a release that has the payload still plans it.
+	printf '[{"tag_name":"v1.2.0","prerelease":false,"draft":false,"assets":[{"name":"shcl-1.2.0-windows-x86_64.exe"}]},{"tag_name":"v3.0.0-beta1","prerelease":true,"draft":false,"assets":[{"name":"shcl-3.0.0-beta1-dropins.tar.gz"}]}]\n' > "${tmpDir}/reldrop.json"
+	sed "s|${tmpDir}/rel.json|${tmpDir}/reldrop.json|" "${tmpDir}/fakeapi.ps1" > "${tmpDir}/fakedrop.ps1"
+	mkdir -p "${tmpDir}/laddrop/Programs/Shcl/code"
+	printf '#!/bin/sh\necho "shcl v2.0.0"\n' > "${tmpDir}/laddrop/Programs/Shcl/shcl.exe"; printf 'x\n' > "${tmpDir}/laddrop/Programs/Shcl/code/lib.rs"
+	chmod 755 "${tmpDir}/laddrop/Programs/Shcl/shcl.exe"
+	for release in stable dev; do
+		out="$(env -u DISPLAY PROCESSOR_ARCHITECTURE=AMD64 SystemRoot="${tmpDir}/sysroot" LOCALAPPDATA="${tmpDir}/laddrop" pwsh -NoProfile -NonInteractive -File "${tmpDir}/fakedrop.ps1" -Release "${release}" < /dev/null 2>&1 || true)"
+		if [[ "${release}" == stable ]]; then
+			[[ "${out}" == *"shcl 1.2.0 (stable, windows-x86_64)"* && "${out}" != *"  drop-ins "* \
+				&& "${out}" == *$'\n'"  removes  the drop-ins in ${tmpDir}/laddrop/Programs/Shcl\\code\\, since this release doesn't include them"$'\n'* ]] \
+				|| fBad "install.ps1 plans drop-ins for a release without them, or not their removal: ${out@Q}"
+		else
+			[[ "${out}" == *"shcl 3.0.0-beta1 (dev, windows-x86_64)"* && "${out}" == *$'\n'"  drop-ins ${tmpDir}/laddrop/Programs/Shcl\\code\\"$'\n'* && "${out}" != *"  removes "* ]] \
+				|| fBad "install.ps1 does not plan the drop-ins its release has: ${out@Q}"
+		fi
+	done
+	[[ -f "${tmpDir}/laddrop/Programs/Shcl/code/lib.rs" ]] || fBad "install.ps1 removed drop-ins at the plan"
+
+	fTest dfmdj 2026110215285718-install-ps1-ui-text-off-the-pipeline
+	##	2026110215285718: the plan, notes and receipt went down the output
+	##	stream, so a caller that captured the script block got them as data.
+	#  shellcheck disable=2016  ## PowerShell's own $variables, quoted so bash leaves them alone.
+	{
+		echo "\$sb = [scriptblock]::Create((Get-Content '${repoDir}/install.ps1' -Raw))"
+		echo '$v = & $sb -Version'
+		echo '$h = & $sb -Help'
+		echo 'Write-Output ("captured=" + @($v).Count + "," + @($h).Count)'
+	} > "${tmpDir}/capture.ps1"
+	out="$(pwsh -NoProfile -NonInteractive -File "${tmpDir}/capture.ps1" 2>&1 || true)"
+	[[ "${out}" == *"captured=0,0"* && "${out}" == *"install.ps1 "* ]] || fBad "install.ps1 sends its UI text down the pipeline: ${out@Q}"
+
+	fTest dfmdk 2026110215285718-install-ps1-registry-refusal
+	##	2026110215285718: a registry that refuses the PATH edit, as a policy
+	##	lock on HKCU\Environment does, threw a raw error after the files were
+	##	written. Linux pwsh has no registry at all, which takes the same path
+	##	to the note. Linux has no ProgramFiles either, which the empty
+	##	uninstall reads.
+	mkdir -p "${tmpDir}/lad/Programs/Shcl/code"
+	printf 'x\n' > "${tmpDir}/lad/Programs/Shcl/shcl.exe"; printf 'x\n' > "${tmpDir}/lad/Programs/Shcl/code/lib.rs"
+	rc=0; out="$(fNoNet -Uninstall -Target user -Yes)" || rc=$?
+	[[ "${rc}" == 0 && "${out}" == *$'\n'"removed"$'\n'"note: couldn't take "*" out of the User PATH, since the registry refused the change ("*") - remove it by hand" ]] \
+		|| fBad "install.ps1 -Uninstall does not turn a registry refusal into a note (exit ${rc}): ${out@Q}"
+	rc=0; out="$(ProgramFiles="${tmpDir}/pf" fNoNet -Uninstall -Target user -Yes)" || rc=$?
+	[[ "${rc}" == 0 && "${out}" == *"nothing to remove"*$'\n'"note: couldn't check the User PATH for "*", since the registry refused the change ("* ]] \
+		|| fBad "install.ps1 -Uninstall with nothing there does not turn a registry refusal into a note (exit ${rc}): ${out@Q}"
+	# shellcheck disable=SC2016  ## install.ps1's own text, matched literally
+	grep -qF 'try { $pathAdded = Update-ShclPath -Scope $pathScope -Dir $pathDir } catch' "${repoDir}/install.ps1" \
+		|| fBad "install.ps1's install no longer catches a registry refusal"
+
+	fTest dfmdm 2026110215285718-install-ps1-sums-before-binary
+	##	2026110215285718: the binary came down before the sums, so a release
+	##	without a windows-arm64 build failed as an HTTP 404. install.bash's
+	##	order: the signed sums, then the check that the binary is listed, then
+	##	the download.
+	# shellcheck disable=SC2016  ## install.ps1's own text, matched literally
+	{
+		sumsLine="$( { grep -n 'Save-ReleaseAsset -Uri "$base/shcl-$version-sha256sums.txt" ' "${repoDir}/install.ps1" || true; } | head -n1 | cut -d: -f1)"
+		listLine="$( { grep -n 'binary - pick a newer release' "${repoDir}/install.ps1" || true; } | head -n1 | cut -d: -f1)"
+		binLine="$( { grep -n 'Save-ReleaseAsset -Uri "$base/$asset"' "${repoDir}/install.ps1" || true; } | head -n1 | cut -d: -f1)"
+	}
+	if [[ -z "${sumsLine}" || -z "${listLine}" || -z "${binLine}" ]] || (( sumsLine > listLine || listLine > binLine )); then
+		fBad "install.ps1 fetches the binary before it knows the release has one (${sumsLine:-?} ${listLine:-?} ${binLine:-?})"
+	fi
+
 	fTest dcz7z 20260921-idea6-install-ps1-uninstall-held-file
 	##	20260921 idea 6: a file the uninstall could not remove, which a running
 	##	shcl.exe causes on Windows, went unsaid, and the dir it kept was blamed
@@ -1953,7 +2022,7 @@ if fHave setsid && fHave openssl; then
 	( cd "${ui}/x" && tar -czf "${ui}/rel/shcl-3.0.0-beta1-dropins.tar.gz" source )
 	printf '#!/bin/sh\necho "shcl v3.0.0-beta1"\n' > "${ui}/rel/shcl-3.0.0-beta1-linux-x86_64"
 	( cd "${ui}/rel" && sha256sum shcl-3.0.0-beta1-linux-x86_64 shcl-3.0.0-beta1-dropins.tar.gz > "${ui}/sums" )
-	printf '[{"tag_name":"v3.0.0-beta1","prerelease":true,"draft":false}]\n' > "${ui}/rel.json"
+	printf '[{"tag_name":"v3.0.0-beta1","prerelease":true,"draft":false,"assets":[{"name":"shcl-3.0.0-beta1-dropins.tar.gz"}]}]\n' > "${ui}/rel.json"
 	cat > "${ui}/bin/curl" <<-STUB
 		#!/bin/sh
 		out=""; url=""
@@ -2001,6 +2070,9 @@ if fHave setsid && fHave openssl; then
 	out="$(HOME="${uh}" PATH="${ui}/bin:${PATH}" setsid -w bash "${repoDir}/install.bash" --release dev --yes </dev/null 2>&1 || true)"
 	[[ "${out}" == *"installed shcl 3.0.0-beta1"* && "${out}" != *"retired wrappers"* && ! -e "${uh}/.local/share/shcl/scripts" ]] \
 		|| fBad "install.bash fresh install: ${out@Q}"
+	##	2026110915493402: a release whose asset list has the payload plans it.
+	[[ "${out}" == *$'\n'"  drop-ins ${uh}/.local/share/shcl/code/"$'\n'* && "${out}" != *"removes "* ]] \
+		|| fBad "install.bash fresh install does not plan the drop-ins its release has: ${out@Q}"
 
 	fTest df0ak 2026110613470318-install-bash-dots-in-tmpdir
 	##	2026110613470318: the guard refused any `..` in the temp folder's path, so
@@ -2051,6 +2123,13 @@ if fHave setsid && fHave openssl; then
 		|| fBad "install.bash's receipt does not name the move back: ${out@Q}"
 	[[ "${out}" == *$'\n'"note: removed the drop-ins, the man page and completions the 3.0.0-beta1 install had, since this release doesn't include them"$'\n'* ]] \
 		|| fBad "install.bash does not say what it removed: ${out@Q}"
+	##	2026110915493402: the plan listed the drop-ins, man page and completions
+	##	this release doesn't have, and the receipt added the no-payload note to
+	##	the one above. The plan names the removal instead.
+	[[ "${out}" != *"  drop-ins "* && "${out}" != *"  man page "* && "${out}" != *"  compl. "* && "${out}" != *"signed drop-in payload"* ]] \
+		|| fBad "install.bash plans drop-ins for a release without them, or says so twice: ${out@Q}"
+	[[ "${out}" == *$'\n'"  removes  the drop-ins in ${bd}/code/, the man page and completions, since this release doesn't include them"$'\n'* ]] \
+		|| fBad "install.bash does not plan the removal of the beta's drop-ins: ${out@Q}"
 	[[ -e "${bd}/code" || -e "${bd}/man" || -e "${bd}/completions" || -e "${bh}/.local/share/man/man1/shcl.1" || -L "${bh}/.local/share/man/man1/shcl.1" ]] \
 		&& fBad "install.bash left the beta's drop-ins, man page or completions beside 2.0.0"
 	cmp -s "${bd}/shcl" "${bk}/rel/shcl-2.0.0-linux-x86_64" || fBad "install.bash did not put 2.0.0 in place"
@@ -2059,6 +2138,8 @@ if fHave setsid && fHave openssl; then
 	out="$(HOME="${bh}" PATH="${bk}/bin:${PATH}" setsid -w bash "${repoDir}/install.bash" --yes </dev/null 2>&1 || true)"
 	[[ "${out}" == *"(updates the existing install)"* && "${out}" != *"older"* && "${out}" != *"removed"* ]] \
 		|| fBad "install.bash calls a rerun of the same version a move back: ${out@Q}"
+	[[ "${out}" != *"  removes "* && "${out}" == *$'\n'"note: this release doesn't have a signed drop-in payload, so ${bd}/code was skipped"* ]] \
+		|| fBad "install.bash rerun without drop-ins plans a removal, or doesn't say the payload is missing: ${out@Q}"
 else
 	fTestSkipBlock
 fi
@@ -3642,6 +3723,11 @@ for inst in install.bash install-dev.bash; do
 		fBad "${inst} --help prints hard tabs, which render raggedly off tab width 8"
 	fi
 	[[ -n "${help}" ]] || fBad "${inst} --help printed nothing"
+	##	2026110215285718: --help was missing from both option lists. Every long
+	##	option the argument loop takes is listed.
+	while IFS= read -r opt; do
+		grep -qE -- "^  ${opt}[ ,]" <<<"${help}" || fBad "${inst} --help does not list ${opt}"
+	done < <(grep -oE '^		(-[a-z]\|)?--[a-z-]+' "${repoDir}/${inst}" | grep -oE -- '--[a-z-]+$' | sort -u)
 	##	20260803 item 24: the help was read back out of the script's own file,
 	##	which the one-liner's pipe does not leave, so it printed nothing at exit
 	##	0. And an option given no value ended the run with nothing said.
