@@ -53,7 +53,9 @@ sshOpts=(-o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=30)
 ##	The box half, plain sh for FreeBSD's sh and macOS's bash 3.2. Makes
 ##	${HOST_TEMP:-${TMPDIR:-/tmp}}/shcl/<stamp>_<NNN>, unpacks stdin there, runs
 ##	the cases at low priority (nice, and ionice where the box has it), sends the
-##	outputs back, and removes the folder. With a source tree in src/, it runs
+##	outputs back, and removes the folder. It writes run.pid there, and removes
+##	the box's stale work folders the way cicd.bash removes stale run folders,
+##	since a dropped ssh skips the trap (2026110218511914). With a source tree in src/, it runs
 ##	box-suites.bash there too, over the suites named in want, with
 ##	/usr/local/bin on PATH for the toolchains a BSD box keeps there.
 fBoxScript(){ cat <<'EOF'
@@ -65,11 +67,25 @@ while :; do
 	mkdir "${w}" 2>/dev/null && break
 	n=$((n + 1)); [ "${n}" -le 999 ] || exit 90
 done
+echo "$$" > "${w}/run.pid"
 gone(){
-	case "${w}" in */../*|*/..|*//*) return 0 ;; "${base}"/*_[0-9][0-9][0-9]) ;; *) return 0 ;; esac
-	[ -d "${w}" ] && [ ! -h "${w}" ] && rm -rf -- "${w}"
+	case "$1" in */../*|*/..|*//*) return 0 ;; "${base}"/[0-9]*_[0-9][0-9][0-9]) ;; *) return 0 ;; esac
+	[ -d "$1" ] && [ ! -h "$1" ] && rm -rf -- "$1"
 }
-trap gone EXIT
+trap 'gone "${w}"' EXIT
+##	Work folders a dropped ssh left: over 2 days old by the stamp in the name,
+##	with a run.pid that names no live process. One with no run.pid stays.
+cut="$(date -d '-2 days' +%Y%m%d%H%M%S 2>/dev/null || date -v-2d +%Y%m%d%H%M%S 2>/dev/null)" || cut=
+case "${cut}" in [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;; *) cut= ;; esac
+for old in "${base}"/[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]_[0-9][0-9][0-9]; do
+	[ -n "${cut}" ] && [ "${old}" != "${w}" ] && [ -d "${old}" ] && [ ! -h "${old}" ] && [ -f "${old}/run.pid" ] || continue
+	at="${old##*/}"; at="${at%_*}"; at="${at%-*}${at#*-}"
+	[ "${at}" -lt "${cut}" ] || continue
+	pid="$(head -n 1 "${old}/run.pid" 2>/dev/null)" || pid=
+	case "${pid}" in ''|*[!0-9]*) ;; *) ps -p "${pid}" > /dev/null 2>&1 && continue ;; esac
+	chmod -R u+rwX "${old}" 2> /dev/null
+	gone "${old}"
+done
 cd "${w}" && tar -xf - && [ -f run.sh ] || exit 91
 io="$(command -v ionice 2>/dev/null)" || io=
 case "${io}" in /*) "${io}" -c 3 true 2>/dev/null && io="${io} -c 3" || io= ;; *) io= ;; esac
@@ -106,16 +122,28 @@ EOF
 }
 
 ##	A Windows box's work folder, made the way fBoxScript makes one, under
-##	HOST_TEMP or else TEMP. Prints its path.
+##	HOST_TEMP or else TEMP, with the stale ones gone the same way. Prints its
+##	path. box-cases.ps1 puts its own PID in run.pid once it starts.
 fWinMkdir(){ cat <<'EOF'
 $ErrorActionPreference = 'Stop'
 $base = $env:HOST_TEMP; if (-not $base) { $base = $env:TEMP }
 $base = Join-Path -Path $base -ChildPath 'shcl'
 if (-not (Test-Path -LiteralPath $base)) { $null = New-Item -ItemType Directory -Path $base }
+$cut = [int64](Get-Date).AddDays(-2).ToString('yyyyMMddHHmmss')
+foreach ($i in @(Get-ChildItem -LiteralPath $base -Directory -Force -ErrorAction SilentlyContinue)) {
+	if ($i.Name -notmatch '^([0-9]{8})-([0-9]{6})_[0-9]{3}$' -or [int64]($Matches[1] + $Matches[2]) -ge $cut -or ($i.Attributes -band [IO.FileAttributes]::ReparsePoint)) { continue }
+	$p = Join-Path -Path $i.FullName -ChildPath 'run.pid'
+	if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { continue }
+	$id = 0; $line = Get-Content -LiteralPath $p -TotalCount 1 -ErrorAction SilentlyContinue
+	if ([int]::TryParse("$line", [ref]$id) -and (Get-Process -Id $id -ErrorAction SilentlyContinue)) { continue }
+	try { Remove-Item -LiteralPath $i.FullName -Recurse -Force } catch { $null = $_ }
+}
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 for ($n = 1; $n -le 999; $n++) {
 	$w = Join-Path -Path $base -ChildPath ('{0}_{1:d3}' -f $stamp, $n)
-	try { $null = New-Item -ItemType Directory -Path $w; $w; exit 0 } catch { $null = $_ }
+	try { $null = New-Item -ItemType Directory -Path $w } catch { continue }
+	Set-Content -LiteralPath (Join-Path -Path $w -ChildPath 'run.pid') -Value $PID -Encoding ascii
+	$w; exit 0
 }
 exit 90
 EOF
@@ -387,3 +415,4 @@ echo "check-boxes: OK"
 ##		2026-11-02  The VM state helper is SHCL_VM_STATE or vm-state on PATH, for 2026110215285701.
 ##		2026-11-07  The box guard refuses .. only as a whole path part, for 2026110613470318.
 ##		2026-11-11  The fs suite, each box's filesystem property tests on its own tmpfs route, for 2026111010331517.
+##		2026-11-22  Each box run writes run.pid and removes the box's stale work folders, for 2026110218511914.

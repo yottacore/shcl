@@ -5030,6 +5030,65 @@ fsDir="$(cat "${tmpDir}/fs-a.dir" 2> /dev/null || true)"
 [[ "${fsRc}" == 0 && "${fsOut}" == *"cases on the temp folder, at ${tmpDir}/win temp/shcl-fs."* && "${fsDir}" == "W:${tmpDir}/win temp/shcl-fs."?* && "${fsOut}" == *"SKIP df4ch "* && "${fsOut}" != *note:* ]] || fBad "fs-property.bash on Windows: exit ${fsRc}: ${fsOut@Q}, dir ${fsDir@Q}"
 [[ -z "$(ls -A "${tmpDir}/win temp")" ]] || fBad "fs-property.bash left $(ls -A "${tmpDir}/win temp") in TEMP"
 
+fTest dfme4 2026110218511914-box-stale-work-folders
+##	A dropped ssh skips the box half's trap, so its work folder stayed on the
+##	box. Each box run writes run.pid, and in plain sh removes the box's work
+##	folders over 2 days old whose run.pid names no live process. A live one, a
+##	new one, one with no run.pid, a link and a folder of another shape stay.
+bxTemp="${tmpDir}/box-temp"; bxBase="${bxTemp}/shcl"; bxDead=2147483646
+mkdir -p "${bxBase}/20200101-000000_001/ro" "${bxBase}/20200101-000000_002" "${bxBase}/20200101-000000_003" "${bxBase}/20200101-000000_005" "${bxBase}/old-shape" "${tmpDir}/box-elsewhere" "${tmpDir}/box-in"
+echo "${bxDead}" > "${bxBase}/20200101-000000_001/run.pid"; : > "${bxBase}/20200101-000000_001/ro/f"; chmod 555 "${bxBase}/20200101-000000_001/ro"
+echo "$$" > "${bxBase}/20200101-000000_002/run.pid"
+echo none > "${bxBase}/20200101-000000_005/run.pid"
+echo "${bxDead}" > "${tmpDir}/box-elsewhere/run.pid"; ln -s "${tmpDir}/box-elsewhere" "${bxBase}/20200101-000000_004"
+echo "${bxDead}" > "${bxBase}/old-shape/run.pid"
+bxNew="$(date -d '-1 hour' +%Y%m%d-%H%M%S)_001"; mkdir "${bxBase}/${bxNew}"; echo "${bxDead}" > "${bxBase}/${bxNew}/run.pid"
+printf 'mkdir o; cat run.pid\n' > "${tmpDir}/box-in/run.sh"
+tar -cf "${tmpDir}/box-in.tar" -C "${tmpDir}/box-in" run.sh
+bxRc=0; bxPid="$(eval "$(sed -n '/^fBoxScript()/,/^EOF$/p' "${repoDir}/cicd/utility/check-boxes.bash")"$'\n}'
+	HOST_TEMP="${bxTemp}" sh -c "$(fBoxScript)" < "${tmpDir}/box-in.tar" | tar -xOf - rc.lst)" || bxRc=$?
+bxLeft="$(find "${bxBase}" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | paste -sd' ')"
+bxWant="$(printf '%s\n' 20200101-000000_002 20200101-000000_003 20200101-000000_004 "${bxNew}" old-shape | LC_ALL=C sort | paste -sd' ')"
+[[ "${bxRc}" == 0 && "${bxPid}" =~ ^[0-9]+$ && "${bxLeft}" == "${bxWant}" && -f "${tmpDir}/box-elsewhere/run.pid" ]] || fBad "the box half's stale sweep: exit ${bxRc}, run.pid ${bxPid@Q}, left ${bxLeft@Q}, wanted ${bxWant@Q}"
+chmod -R u+rwX -- "${bxTemp}" 2> /dev/null || true
+## A Windows box's work folder is made and swept by fWinMkdir, in PowerShell.
+# shellcheck disable=SC2016  ## PowerShell's own text, matched literally
+for bxText in '-ChildPath '\''run.pid'\'') -Value $PID' 'AddDays(-2)' 'Get-Process -Id $id' 'ReparsePoint)) { continue }'; do
+	sed -n '/^fWinMkdir()/,/^EOF$/p' "${repoDir}/cicd/utility/check-boxes.bash" | grep -qF -- "${bxText}" || fBad "fWinMkdir no longer has ${bxText@Q}"
+done
+grep -qF -- "-ChildPath 'run.pid') -Value \$PID" "${repoDir}/cicd/utility/box-cases.ps1" || fBad "box-cases.ps1 no longer puts its PID in run.pid"
+
+fTest dfme5 2026110215285705-soaks-are-leak-checks
+##	The Rust and Go heap soaks ran inside their suites and Python's was a test
+##	step, so --no-leakcheck kept all 3. Each soak in the tree is a fast leak
+##	check, and no test step runs it.
+mapfile -t skRust < <(sed -n '/#\[test\]/{n;s/^fn \([a-z_0-9]*\).*/\1/p}' "${repoDir}"/source/rust/tests/soak*.rs)
+mapfile -t skGo < <(grep -ho '^func Test[A-Za-z0-9_]*Soak[A-Za-z0-9_]*' "${repoDir}"/source/go/*_test.go | sed 's/^func //')
+mapfile -t skPy < <(cd "${repoDir}" && ls source/python/tests/soak*.py)
+((${#skRust[@]} && ${#skGo[@]} && ${#skPy[@]})) || fBad "found no soak: rust ${skRust[*]}, go ${skGo[*]}, python ${skPy[*]}"
+# shellcheck disable=SC2016  ## the inner shell's own variables
+skOut="$(cd "${repoDir}" && CPU_CAP=1 bash -c 'set +u; source cicd/config.bash
+	for x in "${TEST_CMD[*]}" "${TEST_QUICK_CMD[*]}"; do printf "cmd\t%s\n" "${x}"; done
+	for x in "${TEST_EXTRA[@]}"; do printf "extra\t%s\n" "${x}"; done
+	for x in "${LEAKCHECK_FAST[@]}"; do printf "fast\t%s\n" "${x}"; done' 2>&1)"
+skHas(){ grep -qF -- "$2" <<< "$(grep "^$1"$'\t' <<< "${skOut}" || true)"; }
+skNot(){ ! skHas "$@"; }
+for t in "${skRust[@]}"; do
+	while IFS=$'\t' read -r _ x; do [[ "${x}" == *" --skip ${t}"* ]] || fBad "a Rust suite runs the soak ${t}: ${x}"; done < <(grep '^cmd'$'\t' <<< "${skOut}")
+done
+if ! skHas fast 'cargo test' || ! skHas fast '--test soak'; then fBad "no fast leak check runs the Rust soak"; fi
+for t in "${skGo[@]}"; do
+	while IFS=$'\t' read -r _ x; do
+		[[ "${x}" == *'go -C source/go test'* && "${x}" != *' -race '* ]] || continue
+		[[ "${x}" =~ -skip\ \"[^\"]*${t} ]] || fBad "a Go suite runs the soak ${t}: ${x}"
+	done < <(grep '^extra'$'\t' <<< "${skOut}")
+	skHas fast "-run ${t}" || fBad "no fast leak check runs the Go soak ${t}"
+done
+for t in "${skPy[@]}"; do
+	skNot extra "${t}" || fBad "a test step runs the soak ${t}"
+	skHas fast "${t}" || fBad "no fast leak check runs the soak ${t}"
+done
+
 fTestEnd
 
 if ((nBad)); then
@@ -5066,3 +5125,4 @@ echo "shell-regress: OK: installers, one-liner scope, packaging, comparison work
 ##		2026-10-31  The PowerShell safe removal guard, for 2026103114555334.
 ##		2026-11-01  cicd.bash stamps every build before the debug build and hands the stamp to the image; a cut drops the date.
 ##		2026-11-07  shclpath.ps1 writes only its segment, install.ps1 unpacks through the System32 tar, install.bash under a TMPDIR with .. in its name, anchored tag filters.
+##		2026-11-22  A box run sweeps the box's stale work folders, and the soaks are leak checks.

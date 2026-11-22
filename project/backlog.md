@@ -35,6 +35,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- `--list` names tests that a step's skip filter leaves out
+	- ID: 2026112120314617
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261121-203146
+	- Opened by: 2026110215285705
+	- Related IDs: 2026110215285705
+	- Steps to reproduce:
+		- `cicd/cicd.bash --list --no-leakcheck`.
+	- Incorrect behavior: the Rust and Go suite steps list every test ID in their files, the soaks' `de2ns` and `de2w0` included, though the steps skip them. `fs_property.rs`'s IDs show under the Rust suite the same way.
+	- Expected behavior: a step lists only the tests it runs, so a `--skip`, `-skip`, `-run` or `--test` filter narrows its IDs.
+	- Estimated effort: Low
+
 - A merge doesn't put a blank between a nested block's opening lines and the layer's opening lines it adds
 	- ID: 2026112119250496
 	- Type: Bug
@@ -494,7 +509,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Gate containers under `--keep-temp`, and stale work folders on the test boxes
 	- ID: 2026110218511914
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Severity: Low
 	- Target version: v3.0.0
 	- Opened: 20261102-185119
@@ -506,11 +521,27 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: `--keep-temp` keeps only the run's main containers, and nothing on a box sweeps a work folder its trap didn't get to remove.
 	- Expected behavior: `--keep-temp` keeps every container the run starts. Each box run removes that box's own stale work folders, by the same rule as the run folders here: older than 2 days, with no live process left.
 	- Estimated effort: Avg
+	- Needs external testing: check-boxes on vmFreeBSD, b26 or vmKt6m, and b29w, each with a work folder planted under the box's `shcl/` temp folder, dated over 2 days back with a dead `run.pid`, and one with a live `run.pid`. The first goes and the second stays. That runs the BSD `date -v` path, the macOS sh, and the PowerShell sweep, none of which ran here.
+	- Actual cause: the image reads and `fCtrRunSelf` set `--rm` themselves, and a gate script heard nothing of `--keep-temp`. The box half wrote no `run.pid` and swept nothing.
+	- Actual fix:
+		- cicd.bash exports `SHCL_KEEP_TEMP=1` under `--keep-temp`, and unsets it otherwise. The passwd and group reads, `fCtrRunSelf` (analyze-c, soak-c, codeql-scan) and the Zig trim drop `--rm` under it.
+		- check-boxes' box half writes `run.pid` and removes work folders under the box's `shcl/` over 2 days old by the name's stamp whose `run.pid` names no live process, in plain sh. A Windows box does the same in `fWinMkdir`, and box-cases.ps1 puts its own PID in `run.pid` once it starts.
+		- contributing.md says so.
+	- Decisions:
+		- me: a folder with no `run.pid`, or of another shape, stays, as in cicd.bash's sweep, so a folder made by hand isn't taken.
+		- me: on Windows the mkdir's short-lived PID is in `run.pid` only until box-cases.ps1 starts, seconds later, so a live run never looks stale.
+		- me: the sweep runs on every box run, before the cases, rather than as a step of its own.
+	- Verified: shell-regress `dfme4` passes, and fails on the old check-boxes.bash and box-cases.ps1. It runs the box half under this box's `/bin/sh` (dash) with GNU `date`.
+	- Verified: `fWinMkdir`'s script under pwsh on Linux, a stand-in for Windows, over the same planted folders: the dead and unreadable `run.pid` ones went, the rest stayed, and the new folder had pwsh's PID in `run.pid`. PSScriptAnalyzer passes on box-cases.ps1.
+	- Verified: check-push-gate passes whole, `dfme3` included. On the old cicd.bash and ctr-image.bash, `dfme3` fails all 3 parts: 4 reads with `--rm`, `fCtrRunSelf` with `--rm`, and a run without the flag passing on the one it was handed. shell-regress passes but the known `dcvej`, and `--backlog-run-quick go` passes.
+	- Swept: every `docker run` under `cicd/`: cicd.bash's 3 in `fRunContainer`, and ctr-image.bash's `fCtrRunSelf` and `fCtrZigTrim`. A gate script starts the image only through `fCtrRunSelf`. On the box side, `fBoxScript` and `fWinMkdir` are the only places a work folder is made.
+	- Branch: `nov22-2026110218511914`
+	- Test case: check-push-gate `dfme3` (no `--rm` on any run under `--keep-temp`, `fCtrRunSelf` by `SHCL_KEEP_TEMP`, and a run without the flag drops it) and shell-regress `dfme4` (the box half's stale sweep, and the Windows sweep's text).
 
 - `--no-leakcheck` still runs the soak tests
 	- ID: 2026110215285705
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: Low
 	- Target version: v3.0.0
 	- Opened: 20261102-152857
@@ -521,6 +552,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: a soak counts as a leak check, so `--no-leakcheck` drops it and its length decides which runs take it.
 	- Origin: Confirmed, by reading.
 	- Estimated effort: Low
+	- Actual cause: each soak sat in a suite or a test step, and `LEAKCHECK_TESTS` matched only the sanitizer scripts.
+	- Actual fix: the 3 soaks are steps of `LEAKCHECK_FAST`: `cargo test --test soak`, `go test -run TestSoakHeapSettles`, and `soak.py`. The Rust suite skips `heap_holds_steady_over_rounds`, the Go suite skips `TestSoakHeapSettles`, and `soak.py` is out of `TEST_EXTRA`. The alpine image keeps the 3 soaks while it clears the other leak checks. contributing.md says so.
+	- Decisions:
+		- me: all 3 are fast, since each took under 30 s here, so `--quick` and the default run keep them, and `--backlog-run-quick` drops them with the other leak checks.
+		- me: the box suites and the hosted jobs still run each soak inside its suite. Those are their own tests of another platform, and `--no-leakcheck` already doesn't reach them.
+		- me: `--list` still names `de2ns` and `de2w0` under the suite steps, since it lists by file. That's Bug 2026112120314617.
+	- Verified: the 3 leak steps pass as written in config.bash (Rust 24 s with its build, Go 6 to 28 s, Python 27 s at a load of 7 to 10). With the suites' skip filters the soaks don't run. `cicd.bash --list` shows the 3 under `--quick` and a run with no flags, and none under `--no-leakcheck` or `--backlog-run-quick`.
+	- Verified: shell-regress `dfme5` passes, and fails on the old config.bash.
+	- Swept: every soak in the tree: Rust's `tests/soak.rs`, Go's `soak_test.go`, Python's `soak.py`, and C's `soak-c.bash`, which was a leak check already. Go's race run skips its soak itself.
+	- Branch: `nov22-2026110218511914`
+	- Test case: shell-regress `dfme5` (each soak in the tree is a fast leak check and no test step runs it).
+	- Acceptance signoff: Self-closed: the steps the item names run where it asks, and the test failed before the fix.
+	- Closed: 20261121-203300
+	- Closed reason: Done
 
 - Installer odds and ends
 	- ID: 2026110215285718
