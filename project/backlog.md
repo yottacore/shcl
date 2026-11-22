@@ -35,6 +35,22 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- A merge doesn't put a blank between a nested block's opening lines and the layer's opening lines it adds
+	- ID: 2026112119250496
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261121-192504
+	- Opened by: me, found while working 2026112112314153
+	- Related IDs: 2026112112314153
+	- Version and build: nov22 at 1cef3b94, with 2026112112314153's change
+	- Steps to reproduce: `printf 'a:\n\t# base open\n\n\tc: y\n' > base.shcl`, `printf 'a:\n\t# layer open\n\n\tz: 1\n' > layer.shcl`, then `shcl fmt --layer=base.shcl layer.shcl`.
+	- Incorrect behavior: `# layer open` goes right under `# base open`, with no blank between them. The top of the file gets that blank, and design.md's "Lines an edit takes from their node" says both do. Both lines stay the block's opening lines either way, so `comments` reads the same.
+	- Expected behavior: a blank between `# base open` and `# layer open`, as for the top of the file.
+	- Possible cause: `adopt_trivia` appends the layer's opening lines without a blank above, where `merge_top` sets one.
+	- Estimated effort: Low
+
 - Without a schema, 2 plain blocks that merge and repeat their children get only the array hint
 	- ID: 2026112015385902
 	- Type: Bug
@@ -99,7 +115,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A merge puts a comment the layer had under a block, above a blank, onto the next field in the base
 	- ID: 2026112112314153
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Severity: Avg
 	- Target version: v3.0.0
 	- Opened: 20261121-123141
@@ -114,6 +130,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Avg
 	- Note: `placement_slips` in `fuzz_smoke.rs` excuses it with `layer_tail_joined`, keyed by this ID: on a merge, comments over a field's own run that the layer had above a blank under a block. The fix takes it out.
 	- Verified: 20261121 on nov21-fix, `dderx` in release fails at iteration 98734 without the excuse and passes 620,000 with it.
+	- Reproduced: 20261122, the steps in the Rust CLI on nov22 at `1cef3b94`. The same loss hits a layer's comments that open a block it shares with the base, a layer's comment under a leaf it replaces, and the base's comment under a block when the layer replaces the field below it. A block's last child with no blank under its comments isn't hit.
+	- Actual cause [Bug]: the merge moves a node's trailing lines without the blank under them, which in the layer was the next line's or, for a replaced leaf, went with the leaf. The settle then files them as the next child's comments, as a reload of that text does.
+	- Actual fix [Bug]: each level of the overlay notes every child whose trailing lines a blank set off from the next line in its own file, the base's, a matched child's from the layer, or a copied child's, and puts a blank above whatever child follows it once the child list is final. A block whose layer had opening lines gets a blank above its first child. In all 4 bindings (`set_off_tail` and `blank_over` in `lib.rs`, `shcl.py` and `shcl.h`, `setOffTail` and `blankOver` in `shcl.go`, with C's level end in `keep_set_off`). The `layer_tail_joined` excuse is out of `placement_slips`. design.md's "Lines an edit takes from their node" and the changelog say so.
+	- Actual effort: Avg
+	- Decisions:
+		- me, 20261122: the property allows the blank the merge now writes above a field's comments, where the lines over it are comments the layer had set off by a blank (`kept_off` in `placement_slips`), since that blank is the issue's expected text.
+		- me, 20261122: the replaced leaf and the opening lines are the same loss in the same code, so they're fixed here rather than filed. Trailing lines at the end of a block, with no blank under them, still go to a child the merge adds after them, as a new child's settle does.
+	- Swept: every place the overlay puts a child in a list, in all 4: the matched child (`adopt_trivia`), the replaced leaf's copy, the unmatched instance's copy, and the base's own children. `merge_top` already sets the blank under the top of the file. The footer's dedup is its own rule. A nested block's opening lines get no blank between the base's and the layer's, filed as Bug 2026112119250496.
+	- Test case: placement rows `2026112112314153-1` to `-5` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dderx`, `dd3t9`, `df50j`.
+	- Verified: the 5 rows fail on the Python library at `1cef3b94` and pass on the change (`placement-watch.py`). With the excuse out and the new property rule in, `dderx` at 100,000 in release fails at iteration 98734 on `1cef3b94`'s library and passes on the change. `dderx`, `dd3t9` and `df50j` pass 200,000 in release, and so do `dab72` and `dd16k`. The issue's steps and the 3 other cases give the same text through the Rust, Go, C and Python CLIs. `--backlog-run-quick rust go python c` passed all 5 steps, the 4 placement runners included. Crosscheck over the corpus (24024 comparisons), lint-report, mdcheck and markdownlint passed.
+	- Needs local test suite run?: the 2M release fuzz of all fuzz_smoke, since the change touches trivia. analyze-c and the cppcheck line from `LINT_EXTRA`, since `shcl.h` changed. analyze-c didn't finish in 4 minutes.
+	- Branch: `nov22-2026112112314153`
 
 - A repeat the schema doesn't allow passes Strict, and a near-miss table merges with only a hint
 	- ID: 2026111016205701

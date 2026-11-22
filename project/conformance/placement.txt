@@ -1236,3 +1236,102 @@ z: 1
 hosts: b
 z: 1
 ## SHCL format 3.0
+
+:: row 2026112112314153-1 a layer's comment under a block, set off by a blank, stays the block's over the base's next field and its comment
+:: before
+a:
+	b: y
+# about e
+e: y
+:: merge
+a:
+	b: 2
+# note 6
+
+z: 1
+:: expected
+a:
+	b: 2
+# note 6
+
+# about e
+e: y
+
+z: 1
+## SHCL format 3.0
+
+:: row 2026112112314153-2 a layer's comment under a block stays the block's over a base field with no comment
+:: before
+a:
+	b: y
+e: y
+:: merge
+a:
+	b: 2
+# note 6
+
+z: 1
+:: expected
+a:
+	b: 2
+# note 6
+
+e: y
+
+z: 1
+## SHCL format 3.0
+
+:: row 2026112112314153-3 a layer's comment that opens a block, set off by a blank, stays the block's over the base's first child and its comment
+:: before
+a:
+	# about c
+	c: y
+:: merge
+a:
+	# open
+
+	z: 1
+:: expected
+a:
+	# open
+
+	# about c
+	c: y
+
+	z: 1
+## SHCL format 3.0
+
+:: row 2026112112314153-4 the base's comment under a block, set off by a blank, stays the block's when the layer replaces the field below it
+:: before
+a:
+	b: y
+# tail a
+
+e: y
+:: merge
+e: 2
+:: expected
+a:
+	b: y
+# tail a
+
+e: 2
+## SHCL format 3.0
+
+:: row 2026112112314153-5 a layer's comment under a field it replaces, set off by a blank, stays that field's over the base's next field
+:: before
+e: y
+f: y
+:: merge
+e: 2
+# tail e
+
+z: 1
+:: expected
+e: 2
+# tail e
+
+f: y
+
+z: 1
+## SHCL format 3.0

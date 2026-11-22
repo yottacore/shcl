@@ -62,6 +62,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- A merge put a comment that a blank set off under a block right above the comments of the field below it, so `comments` gave it as that field's. That happened for a layer's comment under a block it shares with the base, a layer's comment that opens such a block, and a comment over a field the layer replaces. The blank under the comment now stays.
+
 - The `H001` hint on a repeat spelled 2 ways, as in `Order: a` then `order: b`, read like any other repeat. It now lists each spelling and says they're one name, since names ignore case.
 
 - `shcl migrate --from=FORMAT` on a file with no stamp said the file already names its format when that format reads the same as this one, such as `--from=3.0`. It now says that `--from` reads the same as the current format.

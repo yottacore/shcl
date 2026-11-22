@@ -2772,14 +2772,13 @@ fn info_block_inside(text: &str) -> bool {
 	})
 }
 
-/// 2026112112314153: a merge writes the layer's comments under a block, which a
-/// blank sets off from the line below, at the end of that block, so they join
-/// the run of the base's next field. True when the lines over `want` in `lead`
-/// are all such comments in the layer's canonical text.
-fn layer_tail_joined(layer: &str, lead: &[String], want: &[String]) -> bool {
+/// The comments in a layer's canonical text that a blank sets off from the
+/// line below, which are the line above's. A merge keeps that blank under them
+/// (2026112112314153).
+fn set_off_in(layer: &str) -> std::collections::HashSet<String> {
 	let text = Document::parse(layer).to_canonical();
 	let lines: Vec<&str> = text.lines().map(|l| l.trim_matches(BLANKS)).collect();
-	let tails: std::collections::HashSet<&str> = (0..lines.len())
+	(0..lines.len())
 		.filter(|&k| {
 			lines[k].starts_with('#')
 				&& lines[k + 1..]
@@ -2787,11 +2786,8 @@ fn layer_tail_joined(layer: &str, lead: &[String], want: &[String]) -> bool {
 					.find(|l| !l.starts_with('#'))
 					.is_some_and(|l| l.is_empty())
 		})
-		.map(|k| lines[k])
-		.collect();
-	(1..=lead.len()).any(|p| {
-		lead[p..].starts_with(want) && lead[..p].iter().all(|l| tails.contains(l.as_str()))
-	})
+		.map(|k| lines[k].to_string())
+		.collect()
 }
 
 /// Where a comment must be after an edit, from the 2 canonical texts alone
@@ -2889,6 +2885,11 @@ fn placement_slips(
 		.collect();
 	let had: std::collections::HashSet<&str> =
 		before.lines().map(|l| l.trim_matches(BLANKS)).collect();
+	let set_off = if edit == Placed::Merge {
+		set_off_in(layer)
+	} else {
+		Default::default()
+	};
 	let mut slips = Vec::new();
 	for a in &was {
 		if one_anchor(&was, &a.key).is_none() {
@@ -3032,9 +3033,7 @@ fn placement_slips(
 			}
 			_ => lead == want,
 		};
-		let excused =
-			|| edit == Placed::Merge && !rewritten && layer_tail_joined(layer, &lead, &want);
-		if !placed && !excused() {
+		if !placed {
 			slips.push(format!("{}: comments {want:?} are now {lead:?}", a.key));
 		}
 		// A run a blank sets off from it stays between it and the line above
@@ -3071,7 +3070,18 @@ fn placement_slips(
 		// A remove hands the blank above what it took to the line now in its
 		// place (2026111623191917).
 		let handed = edit == Placed::Remove && blank && !a.blank && by_target(a.above, &was);
-		let unheld = a.first || b.first || noted || handed;
+		// A merge keeps a blank under the layer's comments it writes above
+		// the run, where a blank set them off in the layer.
+		let brought: Vec<&String> = b
+			.run
+			.iter()
+			.filter(|l| !l.is_empty() && !a.run.contains(l))
+			.collect();
+		let kept_off = edit == Placed::Merge
+			&& blank && !a.blank
+			&& !brought.is_empty()
+			&& brought.iter().all(|l| set_off.contains(l.as_str()));
+		let unheld = a.first || b.first || noted || handed || kept_off;
 		if fresh && !unheld && a.blank != blank {
 			slips.push(format!(
 				"{}: blank above its comments {} is now {}",

@@ -11029,6 +11029,39 @@ static void adopt_trivia(shcl_doc *d, size_t base, const shcl_doc *over, size_t 
 	notes_sort(&bt->notes);
 }
 
+/* True when child pos of kids has lines under its block at its own level that
+   a blank sets off from the next child, so they are its own. */
+static int set_off_tail(const shcl_doc *over, ShclVecSize kids, size_t pos) {
+	ShclVecLead after = triv_after(&over->nodes.data[kids.data[pos]]);
+	int off = 0;
+	for (size_t i = 0; i < after.len && !off; i++) off = after.data[i].depth == 0;
+	if (!off || pos + 1 >= kids.len) return 0;
+	const ShclNode *nd = &over->nodes.data[kids.data[pos + 1]];
+	ShclVecLead lead = triv_leading(nd);
+	return lead.len ? lead.data[0].blank_before : nd->blank_before;
+}
+
+/* A blank above the node's comments, else above its line. */
+static void blank_over(ShclNode *nd) {
+	if (nd->trivia && nd->trivia->leading.len) nd->trivia->leading.data[0].blank_before = 1;
+	else nd->blank_before = 1;
+}
+
+/* The layer's opening lines of block bp, and the lines under a child in tails,
+   keep the blank under them. Else the settle files them as the next child's
+   comments, which is where a reload of the text without the blank puts them
+   (2026112112314153). The top of the file is merge_top's. */
+static void keep_set_off(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, const ShclCMap *tails) {
+	ShclVecSize kids = NODE(d, bp).children;
+	if (bp != ROOT && triv_head(&over->nodes.data[op]).len && kids.len) blank_over(&NODE(d, kids.data[0]));
+	if (!tails->len) return;
+	for (size_t i = 0; i + 1 < kids.len; i++) {
+		size_t c = kids.data[i];
+		for (ShclCMapEnt *e = cmap_first(tails, (uint64_t)c); e; e = cmap_next(e, (uint64_t)c))
+			if (e->val == c) { blank_over(&NODE(d, kids.data[i + 1])); break; }
+	}
+}
+
 // One grouping pass over each side, then a single children rebuild: the old
 // shape re-filtered the over side per distinct name and re-scanned (and
 // re-keyed) the base side per over node - three O(K^2) terms at one parent,
@@ -11040,6 +11073,10 @@ static void w_overlay_level(shcl_doc *d, size_t bp, const shcl_doc *over, size_t
 	ShclArena *a = &d->arena;
 	ShclArena *t = &d->scratch;
 	ShclVecSize okids = over->nodes.data[op].children; // const doc: stable
+	/* A child's lines under its block, which a blank set off from the next
+	   line in its own file, keep a blank under them: the base's, the ones the
+	   layer gives a matched child, and a copied child's. */
+	ShclCMap tails; memset(&tails, 0, sizeof tails);
 	// Over side: name -> bucket of child positions, in first-appearance
 	// order. Map hits verify against what the entry's value names (hash-only
 	// entries store no key).
@@ -11095,6 +11132,8 @@ static void w_overlay_level(shcl_doc *d, size_t bp, const shcl_doc *over, size_t
 			if (merge_eq(NODE(d, e->val).name, &NODE(d, e->val).value, nm, &NODE(d, b).value)) { seenk = 1; break; }
 		if (!seenk) cmap_put(t, &by_key, hk, b);
 	}
+	for (size_t j = 0; j < base.len; j++)
+		if (set_off_tail(d, base, j)) cmap_put(t, &tails, (uint64_t)base.data[j], base.data[j]);
 	// Decide per name. A name whose over-side nodes are all leaves is an
 	// override - but only when the base side of the group is leaf-shaped too.
 	// Against a base container, a childless over-node is a wrapper mention,
@@ -11127,6 +11166,7 @@ static void w_overlay_level(shcl_doc *d, size_t bp, const shcl_doc *over, size_t
 			for (size_t i = 0; i < grp.len; i++) {
 				size_t pos = grp.data[i];
 				size_t c = w_clone_subtree(d, over, okids.data[pos], bp, 1);
+				if (set_off_tail(over, okids, pos)) cmap_put(t, &tails, (uint64_t)c, c);
 				if (inb) ShclVecSize_push(t, &rep[gi], c);
 				else { app_at[pos] = c; nappended++; }
 			}
@@ -11222,15 +11262,19 @@ static void w_overlay_level(shcl_doc *d, size_t bp, const shcl_doc *over, size_t
 					}
 				}
 				if (b != (size_t)-1) {
+					if (set_off_tail(over, okids, pos)) cmap_put(t, &tails, (uint64_t)b, b);
 					adopt_trivia(d, b, over, ok);
 					ShclNodePair pr; pr.node = b; pr.from = ok;
 					ShclVecNodePair_push(t, pending, pr);
 				}
-				else { app_at[pos] = w_clone_subtree(d, over, ok, bp, 1); nappended++; }
+				else {
+					app_at[pos] = w_clone_subtree(d, over, ok, bp, 1); nappended++;
+					if (set_off_tail(over, okids, pos)) cmap_put(t, &tails, (uint64_t)app_at[pos], app_at[pos]);
+				}
 			}
 		}
 	}
-	if (!any_rep && nappended == 0) return;
+	if (!any_rep && nappended == 0) { keep_set_off(d, bp, over, op, &tails); return; }
 	// Rebuild once: each replaced group goes to its name's first original
 	// position (dropped nodes stay in the arena, unreferenced - reads and
 	// emit walk children from the root), appends go at the end. One splice
@@ -11270,6 +11314,7 @@ static void w_overlay_level(shcl_doc *d, size_t bp, const shcl_doc *over, size_t
 	for (size_t k = 0; k < nw.len; k++) kept.data[k] = nw.data[k];
 	kept.len = nw.len;
 	NODE(d, bp).children = kept;
+	keep_set_off(d, bp, over, op, &tails);
 }
 
 /* The reference recurses once per level here. This keeps its own stack, as

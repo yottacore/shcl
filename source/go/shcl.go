@@ -1343,6 +1343,32 @@ func refilePair(arena []nodeData, n, i int) {
 	restep(nt.leading)
 }
 
+// setOffTail: true when child pos of kids has lines under its block at its
+// own level that a blank sets off from the next child, so they are its own.
+func setOffTail(arena []nodeData, kids []int, pos int) bool {
+	off := false
+	for _, l := range arena[kids[pos]].after() {
+		off = off || l.depth == 0
+	}
+	if !off || pos+1 >= len(kids) {
+		return false
+	}
+	nd := &arena[kids[pos+1]]
+	if lead := nd.leading(); len(lead) > 0 {
+		return lead[0].blankBefore
+	}
+	return nd.blankBefore
+}
+
+// blankOver: a blank above the node's comments, else above its line.
+func blankOver(nd *nodeData) {
+	if nd.trivia != nil && len(nd.trivia.leading) > 0 {
+		nd.trivia.leading[0].blankBefore = true
+	} else {
+		nd.blankBefore = true
+	}
+}
+
 // settleFenceTrailing: a raw block after an empty binding of its name is
 // written with the fence on the binding's line, where no comment can follow
 // it, so the emitter writes its trailing comment on a line of its own above,
@@ -15561,6 +15587,10 @@ func (d *Document) mergeTop(over *Document) {
 func (d *Document) overlay(baseParent int, over *Document, overParent int, touched *[]int) {
 	*touched = append(*touched, baseParent)
 	overKids := over.arena[overParent].children
+	// A child's lines under its block, which a blank set off from the next
+	// line in its own file, keep a blank under them: the base's, the ones
+	// the layer gives a matched child, and a copied child's.
+	tails := map[int]bool{}
 	// Over side: name -> node bucket, in first-appearance order.
 	var order []string
 	type overKid struct{ pos, node int }
@@ -15595,6 +15625,11 @@ func (d *Document) overlay(baseParent int, over *Document, overParent int, touch
 			slotInsert(byKey, h, b)
 		}
 	}
+	for j := range baseKids {
+		if setOffTail(d.arena, baseKids, j) {
+			tails[baseKids[j]] = true
+		}
+	}
 	// Decide per name. A name whose over-side nodes are all leaves is an
 	// override - but only when the base side of the group is leaf-shaped
 	// too. Against a base container, a childless over-node is a wrapper
@@ -15620,6 +15655,9 @@ func (d *Document) overlay(baseParent int, over *Document, overParent int, touch
 			clones := make([]int, len(group))
 			for i, ok := range group {
 				clones[i] = d.cloneSubtree(over, ok.node, baseParent)
+				if setOffTail(over.arena, overKids, ok.pos) {
+					tails[clones[i]] = true
+				}
 			}
 			if inBase {
 				// The replaced leaf's comments go with it, which the spec
@@ -15722,40 +15760,65 @@ func (d *Document) overlay(baseParent int, over *Document, overParent int, touch
 					// A stacked spelling no kept line holds is gone on a reload,
 					// so it may not decide how the lines the other layer brings
 					// are written (20260926 item 4).
+					if setOffTail(over.arena, overKids, k.pos) {
+						tails[target] = true
+					}
 					d.adoptTrivia(target, over, ok)
 					d.overlay(target, over, ok, touched)
 					bracket(&d.arena[target])
 				} else {
 					c := d.cloneSubtree(over, ok, baseParent)
+					if setOffTail(over.arena, overKids, k.pos) {
+						tails[c] = true
+					}
 					appended = append(appended, overKid{k.pos, c})
 				}
 			}
 		}
 	}
-	if len(replace) == 0 && len(appended) == 0 {
-		return
-	}
-	// Rebuild once: each replaced group goes to its name's first original
-	// position (dropped nodes stay in the arena, unreferenced - reads and
-	// emit walk children from the root), appends go at the end.
-	newKids := make([]int, 0, len(baseKids)+len(appended))
-	spliced := map[string]bool{}
-	for _, b := range baseKids {
-		name := d.arena[b].name
-		if clones, rep := replace[name]; rep {
-			if !spliced[name] {
-				spliced[name] = true
-				newKids = append(newKids, clones...)
+	if len(replace) != 0 || len(appended) != 0 {
+		// Rebuild once: each replaced group goes to its name's first original
+		// position (dropped nodes stay in the arena, unreferenced - reads and
+		// emit walk children from the root), appends go at the end.
+		newKids := make([]int, 0, len(baseKids)+len(appended))
+		spliced := map[string]bool{}
+		for _, b := range baseKids {
+			name := d.arena[b].name
+			if clones, rep := replace[name]; rep {
+				if !spliced[name] {
+					spliced[name] = true
+					newKids = append(newKids, clones...)
+				}
+			} else {
+				newKids = append(newKids, b)
 			}
-		} else {
-			newKids = append(newKids, b)
+		}
+		sort.Slice(appended, func(i, j int) bool { return appended[i].pos < appended[j].pos })
+		for _, k := range appended {
+			newKids = append(newKids, k.node)
+		}
+		d.arena[baseParent].children = newKids
+	}
+	// The layer's opening lines of this block, and the lines under a child
+	// in `tails`, keep the blank under them. Else the settle files them as
+	// the next child's comments, which is where a reload of the text
+	// without the blank puts them (2026112112314153). The top of the file
+	// is mergeTop's.
+	kids := d.arena[baseParent].children
+	var under []int
+	if baseParent != root && len(over.arena[overParent].head()) > 0 && len(kids) > 0 {
+		under = append(under, kids[0])
+	}
+	if len(tails) > 0 {
+		for i := 0; i+1 < len(kids); i++ {
+			if tails[kids[i]] {
+				under = append(under, kids[i+1])
+			}
 		}
 	}
-	sort.Slice(appended, func(i, j int) bool { return appended[i].pos < appended[j].pos })
-	for _, k := range appended {
-		newKids = append(newKids, k.node)
+	for _, n := range under {
+		blankOver(&d.arena[n])
 	}
-	d.arena[baseParent].children = newKids
 }
 
 // cloneValue copies the value's storage too - a struct copy would share the

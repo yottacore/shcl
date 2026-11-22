@@ -1269,6 +1269,24 @@ def _refile_pair(arena, n, i):
 	_restep(nt.leading)
 
 
+def _set_off_tail(arena, kids, pos):
+	"""True when child `pos` of `kids` has lines under its block at its own
+	level that a blank sets off from the next child, so they are its own."""
+	if not any(ln.depth == 0 for ln in arena[kids[pos]].after()) or pos + 1 >= len(kids):
+		return False
+	nd = arena[kids[pos + 1]]
+	lead = nd.leading()
+	return lead[0].blank_before if lead else nd.blank_before
+
+
+def _blank_over(nd):
+	"""A blank above the node's comments, else above its line."""
+	if nd.trivia is not None and nd.trivia.leading:
+		nd.trivia.leading[0].blank_before = True
+	else:
+		nd.blank_before = True
+
+
 def _settle_fence_trailing(arena, n):
 	"""A raw block after an empty binding of its name is written with the fence
 	on the binding's line, where no comment can follow it, so the emitter writes
@@ -10686,6 +10704,10 @@ class Document:
 		"""One level of the overlay. Returns the (base, over) pairs whose subtrees
 		still have to be merged, in order."""
 		over_kids = over.arena[over_parent].children
+		# A child's lines under its block, which a blank set off from the next
+		# line in its own file, keep a blank under them: the base's, the ones
+		# the layer gives a matched child, and a copied child's.
+		tails: set[int] = set()
 		# Over side: name -> node bucket, in first-appearance order.
 		order = []
 		groups: dict = {}
@@ -10709,6 +10731,7 @@ class Document:
 			has_container[name] = has_container.get(name, False) or bool(self.arena[b].children)
 			by_name.setdefault(name, []).append(b)
 			by_key.setdefault(_merge_key(name, self.arena[b].value), b)
+		tails.update(b for j, b in enumerate(base_kids) if _set_off_tail(self.arena, base_kids, j))
 		# Decide per name. A name whose over-side nodes are all leaves is an
 		# override - but only when the base side of the group is leaf-shaped
 		# too. Against a base container, a childless over-node is a wrapper
@@ -10727,6 +10750,7 @@ class Document:
 			base_container = has_container.get(name, False)
 			if over_leafy and not base_container:
 				clones = [(pos, self._clone_subtree(over, ok, base_parent)) for pos, ok in group]
+				tails.update(c for pos, c in clones if _set_off_tail(over.arena, over_kids, pos))
 				if in_base:
 					# The replaced leaf's comments go with it, which the spec
 					# allows; a content-malformed line retained on it is content
@@ -10792,30 +10816,47 @@ class Document:
 							by_key.setdefault(okey, hit)
 							b = hit
 					if b is not None:
+						if _set_off_tail(over.arena, over_kids, pos):
+							tails.add(b)
 						self._adopt_trivia(b, over, ok)
 						# A name that reaches here is never in `replace`, so `b`
 						# survives the rebuild below and can wait for it.
 						pending.append((b, ok))
 					else:
-						appended.append((pos, self._clone_subtree(over, ok, base_parent)))
-		if not replace and not appended:
-			return pending
-		# Rebuild once: each replaced group goes to its name's first original
-		# position (dropped nodes stay in the arena, unreferenced - reads and
-		# emit walk children from the root), appends go at the end.
-		new_kids = []
-		spliced = set()
-		for b in base_kids:
-			name = self.arena[b].name
-			clones = replace.get(name)
-			if clones is None:
-				new_kids.append(b)
-			elif name not in spliced:
-				spliced.add(name)
-				new_kids.extend(clones)
-		appended.sort(key=lambda pc: pc[0])
-		new_kids.extend(c for _, c in appended)
-		self.arena[base_parent].children = new_kids
+						c = self._clone_subtree(over, ok, base_parent)
+						if _set_off_tail(over.arena, over_kids, pos):
+							tails.add(c)
+						appended.append((pos, c))
+		if replace or appended:
+			# Rebuild once: each replaced group goes to its name's first original
+			# position (dropped nodes stay in the arena, unreferenced - reads and
+			# emit walk children from the root), appends go at the end.
+			new_kids = []
+			spliced = set()
+			for b in base_kids:
+				name = self.arena[b].name
+				clones = replace.get(name)
+				if clones is None:
+					new_kids.append(b)
+				elif name not in spliced:
+					spliced.add(name)
+					new_kids.extend(clones)
+			appended.sort(key=lambda pc: pc[0])
+			new_kids.extend(c for _, c in appended)
+			self.arena[base_parent].children = new_kids
+		# The layer's opening lines of this block, and the lines under a child
+		# in `tails`, keep the blank under them. Else the settle files them as
+		# the next child's comments, which is where a reload of the text
+		# without the blank puts them (2026112112314153). The top of the file
+		# is _merge_top's.
+		kids = self.arena[base_parent].children
+		under = []
+		if base_parent != _ROOT and over.arena[over_parent].head() and kids:
+			under.append(kids[0])
+		if tails:
+			under.extend(kids[i + 1] for i in range(len(kids) - 1) if kids[i] in tails)
+		for n in under:
+			_blank_over(self.arena[n])
 		return pending
 
 	def _clone_subtree(self, over, oi, parent):
