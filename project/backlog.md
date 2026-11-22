@@ -342,7 +342,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - check-migrate checks a fuzz document its trim left naming format 3 as a 2.x file
 	- ID: 2026112112352726
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: Low
 	- Target version: v3.0.0
 	- Opened: 20261121-123527
@@ -357,6 +357,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Note: check-migrate's `fUpgradeCheck` leaves such a document out, keyed by this ID: one with an error, an indented Format line naming 3 or later, and `migrate` saying it names its format. The OK line counts them. The fix takes it out.
 	- Verified: 20261121 on nov21-fix, check-migrate passes with the excuse, which leaves out only `fuzz_00480`, and failed `ddmp7` on it without.
+	- Actual cause: as the possible cause says. The check asked whether a document names format 3 only before the trim, and only at the line start.
+	- Actual effort: Low
+	- Actual fix: after the trim, `fNamesFormat3 FILE lead` asks again, with the Format line allowed an indent, and `migrate` still has to say the file names its format. Such a document is left out of the comparison and the upgrade checks, and the OK line counts it as `N the trim left naming format 3 not compared`. The excuse keyed by this ID in `fUpgradeCheck` is gone. New check `dfmch` trims a fixed document like `fuzz_00480` and wants it taken for format 3.
+	- Decisions: me, 20261121: left out rather than checked as format 3. `fUpConverts3` works out a conversion by renaming the Format line to 2 and running `migrate`, and on this file that refuses over a raw block that never closes, while `upgrade --from=2.0` converts it. A trimmed fragment is not worth a second oracle. It leaves out 5 documents in this dump, where the excuse left out 1. The other 4 load clean and compared equal before, but `migrate` passes each over as format 3, so that comparison checked nothing about 2.x.
+	- Swept: every `formatHeadEre` and `fNamesFormat3` use in check-migrate.bash. The source-document check stays anchored, so a 2.x file with an indented Format line in a raw body still compares. No other cicd or test script has `fNamesFormat3` or the old counter.
+	- Verified: check-migrate passed, 649 documents, 5 the trim left naming format 3. A copy with the `lead` form turned off failed `ddmp7` on `fuzz_00480` (7 lines) and `dfmch`. shellcheck, `test-ids.py check`, `lint-report.bash --check --no-mark`, and shell-regress rows `dct58`, `debqj` and `de7cy` passed.
+	- Test case: check-migrate `dfmch`, and `ddmp7`.
+	- Branch: `nov22-2026112112352726`
+	- Commit: `4b8f4ac7`
+	- Acceptance signoff: Self-closed: reproduced, the new check fails without the fix and passes with it.
+	- Closed: 20261121-194102
+	- Closed reason: Done
 
 - The C++ veneer's `de1a5` failed once under the quick gate, and passed 3 runs alone
 	- ID: 2026111912330703
