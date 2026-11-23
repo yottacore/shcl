@@ -1335,3 +1335,51 @@ f: y
 
 z: 1
 ## SHCL format 3.0
+
+:: row 2026112119250496-1 a layer's comment that opens a nested block goes under the base's, with a blank between them
+:: before
+a:
+	# base open
+
+	c: y
+:: merge
+a:
+	# layer open
+
+	z: 1
+:: expected
+a:
+	# base open
+
+	# layer open
+
+	c: y
+
+	z: 1
+## SHCL format 3.0
+
+:: row 2026112119250496-2 a layer's line that opens a nested block is not written twice when the base's block has it
+:: before
+a:
+	b:
+		# base deep
+
+		c: 1
+:: merge
+a:
+	b:
+		# layer deep
+		# base deep
+
+		q: 1
+:: expected
+a:
+	b:
+		# base deep
+
+		# layer deep
+
+		c: 1
+
+		q: 1
+## SHCL format 3.0

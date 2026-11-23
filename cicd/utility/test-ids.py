@@ -28,11 +28,13 @@ from __future__ import annotations
 
 import fnmatch
 import re
+import shlex
 import subprocess
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 DIGITS = "0123456789abcdefghjkmnpqrstvwxyz"
 EPOCH_2000 = 946684800
@@ -128,6 +130,7 @@ CALLS: dict[str, list[str]] = {
 	"source/c/tests/conformance.c": [CORPUS],
 	"cicd/utility/check-docs.bash": ["cicd/utility/check-abnf.py"],
 	"cicd/utility/check-formats.bash": ["cicd/utility/check-format-reads.py"],
+	"cicd/utility/fs-property.bash": ["source/rust/tests/fs_property.rs", "source/go/fs_property_test.go", "source/python/tests/fs_property.py", "source/c/tests/fs_property.c"],
 	"cicd/utility/soak-c.bash": ["source/c/tests/soak.c"],
 	"cicd/utility/win-runners.bash": ["cicd/utility/winpath-regress.ps1"],
 }
@@ -156,6 +159,155 @@ def fStepFiles(step: str, files: set[str]) -> list[str]:
 	return list(dict.fromkeys(f for f in out if f in files))
 
 
+##	A suite step's own filter, so it lists only the tests it runs: cargo's
+##	`--test`, `--lib` and `--bins`, libtest's `--skip`, `--exact` and name
+##	filters, and go's `-run` and `-skip`. Each test is matched by its function
+##	name, which libtest also matches by substring, inside its module path. The
+##	corpus runs only when a test of its runner does. A test whose name can't be
+##	found, and an ID TestMain prints, are kept, since no filter stops those.
+CORPUS_RUNNERS = {"rust": "source/rust/tests/conformance.rs", "go": "source/go/shcl_test.go"}
+CARGO_VALUED = {"--manifest-path", "-j", "--jobs", "-p", "--package", "--features", "-F", "--target", "--profile", "--test", "--bin", "--example", "--bench", "--target-dir", "--config", "--color", "--message-format", "-Z"}
+LIBTEST_VALUED = {"--test-threads", "--logfile", "--color", "--format", "-Z", "--shuffle-seed"}
+Keep = Callable[[str, "str | None"], bool]
+
+
+def fWords(step: str) -> list[str]:
+	try:
+		lex = shlex.shlex(step, posix=True, punctuation_chars=True)
+		lex.whitespace_split = True
+		return list(lex)
+	except ValueError:
+		return step.split()
+
+
+##	The words after `HEAD... SUB` up to the end of that command, or None.
+def fArgsAfter(words: list[str], head: list[str], sub: str) -> list[str] | None:
+	for i, w in enumerate(words):
+		if w != head[0] or words[i + 1 : i + len(head)] != head[1:]:
+			continue
+		rest = words[i + len(head) :]
+		while rest and rest[0] != sub and rest[0].startswith("-"):
+			rest = rest[2:] if rest[0] in ("-C",) else rest[1:]
+		if not rest or rest[0] != sub:
+			continue
+		out: list[str] = []
+		for w2 in rest[1:]:
+			if re.fullmatch(r"[;&|()]+", w2):
+				break
+			out.append(w2)
+		return out
+	return None
+
+
+def fCargoKeep(args: list[str]) -> Keep:
+	targets: set[str] = set()
+	names: list[str] = []
+	skips: list[str] = []
+	exact = False
+	after = False
+	i = 0
+	while i < len(args):
+		w = args[i]
+		flag, eq, val = w.partition("=")
+		valued = LIBTEST_VALUED if after else CARGO_VALUED
+		if w == "--" and not after:
+			after = True
+		elif flag in valued or flag == "--skip":
+			if not eq:
+				i += 1
+				val = args[i] if i < len(args) else ""
+			if flag == "--skip" and after:
+				skips.append(val)
+			elif flag == "--test" and not after:
+				targets.add(f"source/rust/tests/{val}.rs")
+			elif flag == "--bin" and not after:
+				targets.add("source/rust/src/main.rs")
+		elif w == "--lib" and not after:
+			targets.add("source/rust/src/lib.rs")
+		elif w == "--bins" and not after:
+			targets.add("source/rust/src/main.rs")
+		elif w == "--exact" and after:
+			exact = True
+		elif not w.startswith("-"):
+			names.append(w)
+		i += 1
+
+	def hit(pattern: str, name: str) -> bool:
+		return name == pattern if exact else pattern in name
+
+	def keep(file: str, name: str | None) -> bool:
+		if targets and file not in targets:
+			return False
+		if name is None:
+			return True
+		if names and not any(hit(n, name) for n in names):
+			return False
+		return not any(hit(k, name) for k in skips)
+
+	return keep
+
+
+def fGoKeep(args: list[str]) -> Keep:
+	found: dict[str, str] = {}
+	i = 0
+	while i < len(args):
+		flag, eq, val = args[i].lstrip("-").partition("=")
+		if args[i].startswith("-") and flag in ("run", "skip"):
+			if not eq:
+				i += 1
+				val = args[i] if i < len(args) else ""
+			found[flag] = val
+		i += 1
+	pats: dict[str, re.Pattern[str]] = {}
+	for flag, val in found.items():
+		## Only the part a top-level test is matched by; past a `/` it's subtests.
+		top = val.split("/")[0]
+		if flag == "skip" and "/" in val:
+			continue
+		try:
+			pats[flag] = re.compile(top)
+		except re.error:
+			continue
+
+	def keep(file: str, name: str | None) -> bool:
+		if name is None or name == "TestMain":
+			return True
+		if "run" in pats and not pats["run"].search(name):
+			return False
+		return not ("skip" in pats and pats["skip"].search(name))
+
+	return keep
+
+
+def fSuiteKeep(step: str) -> tuple[str, Keep] | None:
+	words = fWords(step)
+	args = fArgsAfter(words, ["cargo"], "test")
+	if args is not None:
+		return "rust", fCargoKeep(args)
+	args = fArgsAfter(words, ["go"], "test")
+	if args is not None:
+		return "go", fGoKeep(args)
+	return None
+
+
+##	The test function an ID line sits in: the nearest `fn` or `func` above it.
+NAME_AT = {".rs": re.compile(r"^\s*(?:pub\s+)?(?:async\s+)?fn\s+(\w+)"), ".go": re.compile(r"^func\s+(\w+)\(")}
+nameCache: dict[str, list[str]] = {}
+
+
+def fTestName(file: str, line: int) -> str | None:
+	pattern = NAME_AT.get(Path(file).suffix)
+	if pattern is None:
+		return None
+	if file not in nameCache:
+		nameCache[file] = (repo / file).read_text(encoding="utf-8").splitlines()
+	for text in reversed(nameCache[file][: line - 1]):
+		hit = pattern.match(text)
+		if hit:
+			return hit.group(1)
+	return None
+
+
 ##	Reads the step list on stdin: a stage title at the left, a step under it
 ##	on a tab, and after a \x1f the command it runs when the label is not one.
 ##	Prints it back with each test ID the step runs under it, on two tabs.
@@ -171,8 +323,17 @@ def fList() -> int:
 		out.append(label)
 		if not row.startswith("\t"):
 			continue
-		for file in fStepFiles((command or label).strip(), set(byFile)):
+		step = (command or label).strip()
+		suite = fSuiteKeep(step)
+		for file in fStepFiles(step, set(byFile)):
+			if suite and file == CORPUS:
+				runner = CORPUS_RUNNERS[suite[0]]
+				names = [fTestName(runner, n) for _, _, n in byFile.get(runner, [])]
+				if not any(suite[1](runner, name) for name in names if name not in (None, "TestMain")):
+					continue
 			for tid, where, n in byFile[file]:
+				if suite and file != CORPUS and not suite[1](file, fTestName(file, n)):
+					continue
 				at = where if file == CORPUS else f"{where}:{n}"
 				out.append(f"\t\t{tid}  {at}")
 	print("\n".join(out))
@@ -530,3 +691,4 @@ if __name__ == "__main__":
 ##		            base 62 millisecond ID converted once, from its own time.
 ##		            `list`, for the test IDs `cicd.bash --list` prints.
 ##		2026-10-31  `backlog`, for closed items that name no test ID.
+##		2026-11-23  `list` follows a suite step's own test filter.

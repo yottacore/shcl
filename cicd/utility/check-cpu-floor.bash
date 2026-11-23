@@ -121,6 +121,13 @@ else
 			pei-x86-64)   allow="SSE3 CX16 LAHF-SAHF" ;;
 			*) fBad "${f}: not an x86_64 ELF or PE binary (${fmt:-unreadable})"; continue ;;
 		esac
+		##	glibc's loader refuses a binary whose ISA note names a level past
+		##	the CPU's, before any instruction runs. Startup files from a
+		##	toolchain built for v3, as on Ubuntu's amd64v3, put v3 there.
+		if [[ "${fmt}" == elf64-x86-64 ]] && command -v readelf >/dev/null 2>&1; then
+			isa="$(readelf -n "${f}" 2>/dev/null | sed -n 's/.*x86 ISA needed:[[:space:]]*//p' | head -n 1)"
+			if [[ "${isa}" == *x86-64-v[2-9]* ]]; then fBad "${f}: its ISA note asks for ${isa}, so glibc refuses to load it on a v1 CPU"; fi
+		fi
 		objdump -d --no-show-raw-insn "${f}" > "${work}/dis" || { fBad "${f}: objdump failed"; continue ;}
 		nInsn="$(grep -c $'^ *[0-9a-f]*:\t' "${work}/dis" || true)"
 		##	A disassembly that came out empty would pass, so it has to be a real one.
@@ -159,15 +166,58 @@ int main(int argc, char **argv) {
 EOF
 }
 
-##	Copies a binary's shared libraries into the image at the same paths, and
-##	notes their dirs for the guest's LD_LIBRARY_PATH.
-fCopyLibs(){
+##	Lists a binary's shared libraries, and notes their dirs for the guest's
+##	LD_LIBRARY_PATH.
+fLibsOf(){
 	local lib
 	while read -r lib; do
-		mkdir -p "${ir}${lib%/*}"
-		cp -L "${lib}" "${ir}${lib}"
+		echo "${lib}"
 		echo "${lib%/*}" >> "${work}/libdirs"
 	done < <(ldd "$1" 2>/dev/null | grep -oE '/[^ ]+' || true)
+}
+
+##	Ubuntu's architecture variants, such as amd64v3, build the host's packages
+##	for a CPU past v1, so a guest given the host's busybox and libraries dies
+##	of an illegal instruction in init before any test runs. On such a host the
+##	image takes them from the plain amd64 build of the same packages, which
+##	apt fetches and checks with lists of its own, so the host isn't changed.
+fVariantHost(){
+	command -v apt-config >/dev/null 2>&1 || return 1
+	apt-config dump 2>/dev/null | grep -E '^APT::Architecture-Variants' | grep -qE 'v[0-9]'
+}
+
+fBaseRoot(){   ## fBaseRoot HOSTFILE... -> their packages' plain builds under ${baseRoot}
+	local d="${work}/apt" f pkgs=() deb
+	local o=(-qq -o Dir::State::Lists="${d}/lists" -o Dir::Cache="${d}" -o Debug::NoLocking=1
+		-o APT::Architecture-Variants=amd64 -o APT::Sandbox::User="$(id -un)")
+	mapfile -t pkgs < <(for f in "$@"; do
+		{ dpkg -S "$(realpath "${f}")" 2>/dev/null || dpkg -S "${f}" 2>/dev/null || true ;} | grep -v '^diversion' | head -n 1 | sed 's/[:,].*//'
+	done | grep . | sort -u)
+	((${#pkgs[@]})) || { fBad "the host has amd64 variant packages, and no package owns the guest's files"; return ;}
+	mkdir -p "${d}/lists/partial" "${d}/archives/partial" "${baseRoot}"
+	if ! apt-get "${o[@]}" update > "${d}/log" 2>&1 || ! (cd "${d}" && apt-get "${o[@]}" download "${pkgs[@]}") >> "${d}/log" 2>&1; then
+		fBad "the host has amd64 variant packages, and the plain build of ${pkgs[*]} didn't download: $(grep -E '^E:' "${d}/log" | tail -n 2 | tr '\n' ' ')"
+		return
+	fi
+	for deb in "${d}"/*.deb; do dpkg-deb -x "${deb}" "${baseRoot}" || fBad "${deb##*/} didn't unpack"; done
+	echo "check-cpu-floor: the host has amd64 variant packages, so the guest gets the plain build of ${pkgs[*]}"
+}
+
+##	Copies a host file into the image, at the same path unless given, from
+##	its plain build when there is one. A usrmerged host may name a file
+##	without its /usr.
+fCopyIn(){   ## fCopyIn HOSTFILE [IMAGEPATH]
+	local f="$1" to="${2:-$1}" src real c
+	real="$(realpath "${f}")"; src="${real}"
+	if [[ -n "${baseRoot}" ]]; then
+		src=""
+		for c in "${real}" "${f}" "${real#/usr}" "/usr${f}"; do
+			if [[ -f "${baseRoot}${c}" ]]; then src="${baseRoot}${c}"; break; fi
+		done
+		[[ -n "${src}" ]] || { fBad "no plain build of ${f} in its package"; return ;}
+	fi
+	mkdir -p "${ir}${to%/*}"
+	cp -L "${src}" "${ir}${to}"
 }
 
 # shellcheck source-path=SCRIPTDIR
@@ -201,6 +251,11 @@ fBoot(){   ## fBoot CPU -> ${work}/boot-CPU.log
 		-append "console=ttyS0 quiet panic=-1 rdinit=/init" < /dev/null > "${work}/qemu-${cpu}.out" 2>&1 \
 		|| fBad "${cpu}: qemu exited $? ($(tail -n 2 "${work}/qemu-${cpu}.out" | tr '\n' ' '))"
 	tr -d '\r' < "${log}" > "${log}.txt" 2>/dev/null || true
+	##	Exit code 4 is SIGILL: the image's busybox or a library needs more
+	##	than this CPU has, so nothing in the CLI was tested.
+	if grep -q 'Attempted to kill init.*exitcode=0x00000004' "${log}.txt" 2>/dev/null; then
+		fBad "${cpu}: init died of an illegal instruction, so the guest's busybox or libraries need more than ${cpu} has"
+	fi
 	grep -qx 'FLOOR done' "${log}.txt" 2>/dev/null \
 		|| fBad "${cpu}: the guest never finished; last lines: $(tail -n 5 "${log}.txt" 2>/dev/null | tr '\n' '|')"
 }
@@ -239,7 +294,7 @@ fTestEnd
 missing=""
 if [[ -n "${runBin}" ]]; then
 	kernel="${SHCL_FLOOR_KERNEL:-/boot/vmlinuz-$(uname -r)}"
-	for t in qemu-system-x86_64 busybox cc cpio gzip ldd; do command -v "${t}" >/dev/null 2>&1 || missing+=" ${t}"; done
+	for t in qemu-system-x86_64 busybox cc objcopy cpio gzip ldd; do command -v "${t}" >/dev/null 2>&1 || missing+=" ${t}"; done
 	[[ -r "${kernel}" ]] || missing+=" readable ${kernel}"
 	if [[ -z "${missing}" ]]; then
 		fTest ddwpq Penryn traps on what it lacks
@@ -247,10 +302,18 @@ if [[ -n "${runBin}" ]]; then
 		mkdir -p "${ir}/bin" "${ir}/proc" "${ir}/dev" "${ir}/c"
 		: > "${work}/libdirs"
 		fProbeSource > "${work}/probe.c"
-		cc -O0 -o "${ir}/bin/probe" "${work}/probe.c" || fBad "the probe did not build"
-		cp "$(command -v busybox)" "${ir}/bin/busybox"
+		##	The probe runs past-v1 instructions on purpose, so it's built for v1
+		##	and loses its ISA note, which a v3 toolchain fills and the guest's
+		##	loader would refuse before the instruction under test ran.
+		{ cc -O0 -march=x86-64 -mtune=generic -o "${ir}/bin/probe" "${work}/probe.c" \
+			&& objcopy --remove-section=.note.gnu.property "${ir}/bin/probe" ;} || fBad "the probe did not build"
 		cp "${runBin}" "${ir}/bin/shcl"
-		for f in probe busybox shcl; do fCopyLibs "${ir}/bin/${f}"; done
+		hostBusybox="$(command -v busybox)"
+		mapfile -t guestFiles < <(for f in "${ir}/bin/probe" "${hostBusybox}" "${ir}/bin/shcl"; do fLibsOf "${f}"; done | sort -u)
+		baseRoot=""
+		if fVariantHost; then baseRoot="${work}/base"; fBaseRoot "${hostBusybox}" "${guestFiles[@]}"; fi
+		fCopyIn "${hostBusybox}" /bin/busybox
+		for f in "${guestFiles[@]}"; do fCopyIn "${f}"; done
 		for d in "${root}"/project/conformance/*/; do cp -r "${d%/}" "${ir}/c/"; done
 		fCases > "${ir}/cases.tsv"
 		nCases="$(wc -l < "${ir}/cases.tsv")"
@@ -310,3 +373,5 @@ echo "check-cpu-floor: OK"
 
 ##	History:
 ##		2026-10-13  Created, for the Core 2 Duo and Phenom II floor.
+##		2026-11-23  The guest gets plain amd64 builds on a host with Ubuntu's
+##		            amd64v3 packages. The scan reads the ELF ISA note too.

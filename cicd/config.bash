@@ -292,7 +292,8 @@ TEST_EXTRA=(
 	## suite, about 20 s to the plain run's 5 here, so the timeout has room for a
 	## slow runner. It needs cgo and a C compiler (2026101514324720,
 	## 2026101711273980).
-	'CGO_ENABLED=1 GOMAXPROCS="${CPU_CAP}" go -C source/go test -race -count=1 -timeout 10m -skip TestTheSaveChecksHold'
+	## The soak skips itself under -race too; skipping it here keeps --list true.
+	'CGO_ENABLED=1 GOMAXPROCS="${CPU_CAP}" go -C source/go test -race -count=1 -timeout 10m -skip "TestTheSaveChecksHold|TestSoakHeapSettles"'
 	## Each binding's filesystem property test, on a tmpfs made for the run,
 	## and their answers held to Rust's (2026111010012287).
 	'cicd/utility/fs-property.bash "${FS_PROPERTY_TESTS[@]}"'
@@ -526,8 +527,13 @@ CROSS_TARGETS=(
 ## install whatever they need, which today means mingw's gcc.
 ## No -Wconversion for mingw: its isfinite and isnan macros convert to float in
 ## the branch they do not take.
+## The printf builtins are off because gcc (13 at least, PR 95130) adds the
+## builtin's ms_printf check even where mingw-w64 13 declares printf as
+## __mingw_printf with gnu_printf, so every %zu fails though the call prints it
+## right. With the builtins off the header's gnu_printf check still runs.
+MINGW_PRINTF_BUILTINS_OFF="-fno-builtin-printf -fno-builtin-fprintf -fno-builtin-sprintf -fno-builtin-snprintf -fno-builtin-vprintf -fno-builtin-vfprintf -fno-builtin-vsprintf -fno-builtin-vsnprintf"
 CROSS_CHECKS=(
-	"C library + CLI for Windows x86_64 (mingw)|wbin=\"\$(mktemp -u)\".exe; x86_64-w64-mingw32-gcc -std=c11 -O2 -Wall -Wextra -Wshadow -Wvla -Werror -Isource/c source/c/cmd/shcl/main.c -o \"\${wbin}\"; wrc=\$?; rm -f \"\${wbin}\"; ((wrc==0))"
+	"C library + CLI for Windows x86_64 (mingw)|wbin=\"\$(mktemp -u)\".exe; x86_64-w64-mingw32-gcc -std=c11 -O2 -Wall -Wextra -Wshadow -Wvla -Werror ${MINGW_PRINTF_BUILTINS_OFF} -Isource/c source/c/cmd/shcl/main.c -o \"\${wbin}\"; wrc=\$?; rm -f \"\${wbin}\"; ((wrc==0))"
 	"C library with file I/O compiled out|printf '#define SHCL_NO_FILE_IO\\n#define SHCL_IMPLEMENTATION\\n#include \"shcl.h\"\\n' | cc -x c -std=c11 -O2 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -Isource/c -c - -o /dev/null"
 	## The smoke's checks that need no file run there too (2026111814490325).
 	"veneer smoke with file I/O compiled out|nbin=\"\$(mktemp)\"; g++ -std=c++17 -O2 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -DSHCL_NO_FILE_IO -Isource/c source/c/tests/veneer_smoke.cpp -o \"\${nbin}\" -lm -pthread && \"\${nbin}\" >/dev/null; nrc=\$?; rm -f \"\${nbin}\"; ((nrc==0))"

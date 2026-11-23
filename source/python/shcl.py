@@ -10678,7 +10678,16 @@ class Document:
 				bt.leading.append(_Lead(st.trailing, False))
 		bt.after.extend(_Lead(c.text, c.blank_before, c.depth, kept=c.kept) for c in st.after)
 		bt.inside.extend(_Lead(c.text, c.blank_before, c.depth, kept=c.kept) for c in st.inside)
-		bt.head.extend(_Lead(c.text, c.blank_before, c.depth, kept=c.kept) for c in st.head)
+		# As at the top of the file: a blank sets the layer's opening lines off
+		# from the base's, and a line already there isn't written twice.
+		had = len(bt.head)
+		for c in st.head:
+			if any(_repeat_line(e.text, c.text) and e.depth == c.depth for e in bt.head[:had]):
+				continue
+			n = _Lead(c.text, c.blank_before, c.depth, kept=c.kept)
+			if had and len(bt.head) == had:
+				n.blank_before = True
+			bt.head.append(n)
 		bt.among.extend((pos, _Lead(c.text, c.blank_before, c.depth, kept=c.kept)) for pos, c in st.among)
 		bt.among.sort(key=lambda a: a[0])
 		bt.notes.extend(st.notes)

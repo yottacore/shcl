@@ -15543,7 +15543,22 @@ func (d *Document) adoptTrivia(base int, over *Document, ok int) {
 	}
 	bt.after = append(bt.after, st.after...)
 	bt.inside = append(bt.inside, st.inside...)
-	bt.head = append(bt.head, st.head...)
+	// As at the top of the file: a blank sets the layer's opening lines off
+	// from the base's, and a line already there isn't written twice.
+	had := len(bt.head)
+	for _, o := range st.head {
+		dup := false
+		for _, e := range bt.head[:had] {
+			dup = dup || repeatLine(e.text, o.text) && e.depth == o.depth
+		}
+		if dup {
+			continue
+		}
+		if had > 0 && len(bt.head) == had {
+			o.blankBefore = true
+		}
+		bt.head = append(bt.head, o)
+	}
 	bt.among = append(bt.among, st.among...)
 	sort.SliceStable(bt.among, func(i, j int) bool { return bt.among[i].before < bt.among[j].before })
 	bt.notes = append(bt.notes, st.notes...)

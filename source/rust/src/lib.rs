@@ -15544,7 +15544,22 @@ impl Document {
 		}
 		bt.after.extend_from_slice(&st.after);
 		bt.inside.extend_from_slice(&st.inside);
-		bt.head.extend_from_slice(&st.head);
+		// As at the top of the file: a blank sets the layer's opening lines off
+		// from the base's, and a line already there isn't written twice.
+		let had = bt.head.len();
+		for o in &st.head {
+			if bt.head[..had]
+				.iter()
+				.any(|e| repeat_line(&e.text, &o.text) && e.depth == o.depth)
+			{
+				continue;
+			}
+			let mut o = o.clone();
+			if had > 0 && bt.head.len() == had {
+				o.blank_before = true;
+			}
+			bt.head.push(o);
+		}
 		bt.among.extend_from_slice(&st.among);
 		bt.among.sort_by_key(|a| a.0);
 		bt.notes.extend_from_slice(&st.notes);

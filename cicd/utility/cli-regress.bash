@@ -121,7 +121,12 @@ printf 'field: ns\n\ttype: int-array\n\tmax: 10\nfield: fs\n\ttype: float-array\
 printf 'ns: [5, 20, 3]\nfs: [2.0, 0.5, 4.0]\n' > "${tmpDir}/outofrange.shcl"
 printf '"x.y": 1\n' > "${tmpDir}/dotname.shcl"
 ## Script comments past any pipe's buffer, for the @appear and @change rows.
-awk 'BEGIN{ for (i = 0; i < 16384; i++) printf "# %061d\n", i }' > "${tmpDir}/opsfill"
+## 1 MiB, written by printf rather than cat (see those rows).
+printf -v opsFill '# %061d\n' {0..16383}
+## uutils timeout (Ubuntu 26.04's) refuses an argument that isn't UTF-8, at
+## 125, so a row passing one hands its argv over in a file.
+#  shellcheck disable=2016  ## for the inner bash.
+printf '%s\n' 'mapfile -d "" -t a <"$1"; exec "${a[@]}"' > "${tmpDir}/argv-exec"
 ## Schema paths and a type with a line break. Every code that names schema
 ## text printed it raw, so one diagnostic arrived as two stderr lines. The
 ## break is the value's NEWLINE escape, so the path text holds a real one.
@@ -2118,6 +2123,7 @@ for row in "${rows[@]}"; do
 		echo "cli-regress: skipping ${id} (the directory deny does not bind this account)"
 		fTestSkip; continue
 	fi
+	xfArgv=0; [[ "${argv}" == *%XF%* ]] && xfArgv=1
 	argv="${argv//%XF%/$'\xff'}"
 	read -r -a args <<<"${argv}"
 	for k in "${!args[@]}"; do
@@ -2150,32 +2156,38 @@ for row in "${rows[@]}"; do
 		[[ -n "${freshMigSrc}" ]] && cp "${tmpDir}/${freshMigSrc}.shcl" "${tmpDir}/created.shcl"
 		[[ "${freshMigSrc}" == upg* ]] && fPin2x "${tmpDir}/created.shcl"
 		if [[ -n "${runIn}" ]]; then cli="$(realpath -- "${cli}")"; cd -- "${runIn}"; fi
+		run=("${cli}" "${args[@]}")
+		if ((xfArgv)); then printf '%s\0' "${run[@]}" >"${tmpDir}/argv"; run=("${BASH}" "${tmpDir}/argv-exec" "${tmpDir}/argv"); fi
 		rc=0
 		case "${stdinSpec}" in
-			@closedin)  timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" 0<&- || rc=$? ;;
-			@wronlyin)  timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" 0>>"${tmpDir}/wronly" || rc=$? ;;
-			@closedout) timeout "${rowSecs}" "${cli}" "${args[@]}" 2>"${tmpDir}/err" >&- || rc=$?; : >"${tmpDir}/out" ;;
-			@fullout)   timeout "${rowSecs}" "${cli}" "${args[@]}" 2>"${tmpDir}/err" >/dev/full || rc=$?; : >"${tmpDir}/out" ;;
-			@fullerr)   timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>/dev/full || rc=$?; : >"${tmpDir}/err" ;;
-			-)          timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" </dev/null || rc=$? ;;
-			@asciilocale) PYTHONIOENCODING=ascii LC_ALL=C timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" </dev/null || rc=$? ;;
-			@memcap)    (ulimit -v 2000000; exec timeout "${rowSecs}" "${cli}" "${args[@]}") >"${tmpDir}/out" 2>"${tmpDir}/err" </dev/null || rc=$? ;;
+			@closedin)  timeout "${rowSecs}" "${run[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" 0<&- || rc=$? ;;
+			@wronlyin)  timeout "${rowSecs}" "${run[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" 0>>"${tmpDir}/wronly" || rc=$? ;;
+			@closedout) timeout "${rowSecs}" "${run[@]}" 2>"${tmpDir}/err" >&- || rc=$?; : >"${tmpDir}/out" ;;
+			@fullout)   timeout "${rowSecs}" "${run[@]}" 2>"${tmpDir}/err" >/dev/full || rc=$?; : >"${tmpDir}/out" ;;
+			@fullerr)   timeout "${rowSecs}" "${run[@]}" >"${tmpDir}/out" 2>/dev/full || rc=$?; : >"${tmpDir}/err" ;;
+			-)          timeout "${rowSecs}" "${run[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" </dev/null || rc=$? ;;
+			@asciilocale) PYTHONIOENCODING=ascii LC_ALL=C timeout "${rowSecs}" "${run[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" </dev/null || rc=$? ;;
+			@memcap)    (ulimit -v 2000000; exec timeout "${rowSecs}" "${run[@]}") >"${tmpDir}/out" 2>"${tmpDir}/err" </dev/null || rc=$? ;;
 			## The file turns up while the command waits on stdin: once it is
 			## reading the ops, so the create has already been decided.
 			## @change: the file is there first and changes during the wait.
 			## The notice used to say when; a pipe gets none since
 			## 2026100717500018. A write of more script comments than any pipe
-			## holds returns only once the command is reading them. @fifo: the
+			## holds returns only once the command is reading them. It goes by
+			## printf: uutils cat (Ubuntu 26.04's cat) grows the pipe to
+			## pipe-max-size first, 1 MiB, so the whole fill sat in the pipe and
+			## the change beat the command's read of the file. @fifo: the
 			## file is there first and turns into a FIFO during the wait, which
 			## nothing writes to, and it goes before the next row. @dir: the
 			## same with a folder. @gone: the file is there first and is removed.
 			@appear|@change|@fifo|@dir|@gone)
 				[[ "${stdinSpec}" != @appear ]] && printf 'a: 1\n' >"${tmpDir}/created.shcl"
 				rm -f "${tmpDir}/in.fifo"; mkfifo "${tmpDir}/in.fifo"
-				timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" <"${tmpDir}/in.fifo" &
+				timeout "${rowSecs}" "${run[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" <"${tmpDir}/in.fifo" &
 				appearPid=$!
 				exec {fifoFd}>"${tmpDir}/in.fifo"
-				cat "${tmpDir}/opsfill" >&"${fifoFd}" || true
+				## A subshell, so a command that quits early can't SIGPIPE this one.
+				( printf '%s' "${opsFill}" >&"${fifoFd}" ) || true
 				if [[ "${stdinSpec}" == @change ]]; then
 					printf 'a: 1\nb: 2\n' >"${tmpDir}/created.shcl"
 				elif [[ "${stdinSpec}" == @fifo ]]; then
@@ -2187,13 +2199,13 @@ for row in "${rows[@]}"; do
 				else
 					printf 'b: 2\n' >"${tmpDir}/created.shcl"
 				fi
-				printf 'int\tk\t1\n' >&"${fifoFd}"
+				( printf 'int\tk\t1\n' >&"${fifoFd}" ) || true
 				exec {fifoFd}>&-
 				wait "${appearPid}" || rc=$?
 				[[ "${stdinSpec}" == @fifo ]] && rm -f "${tmpDir}/created.shcl"
 				[[ "${stdinSpec}" == @dir ]] && { rmdir "${tmpDir}/created.shcl" || true; }
 				;;
-			*)          printf '%b' "${stdinSpec}" | timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" || rc=$? ;;
+			*)          printf '%b' "${stdinSpec}" | timeout "${rowSecs}" "${run[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" || rc=$? ;;
 		esac
 		cd -- "${startDir}"
 		nRun+=1
@@ -3525,3 +3537,7 @@ echo "cli-regress: OK: ${#rows[@]} row(s) across ${#bindings[@]} binding(s), ${n
 ##		2026-11-07  @dir, and set --write to a folder or a directory-shaped path.
 ##		2026-11-20  --from=FORMAT, in place of --from-2x, which is a usage error now.
 ##		2026-11-21  --from-2x points at --from=2.0, and migrate says when --from made a file current.
+##		2026-11-23  The wait rows write their fill with printf, since uutils cat
+##		            grows the pipe to hold all of it.
+##		2026-11-23  A row with an argument that isn't UTF-8 passes its argv to
+##		            timeout in a file, since uutils timeout refuses it.
