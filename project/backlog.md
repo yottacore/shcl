@@ -364,7 +364,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Infer 1.3.0 reports more sites in `shcl.h` that nobody has judged
 	- ID: 2026112121124344
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: Low
 	- Target version: v3.0.0
 	- Opened: 20261121-211243
@@ -375,6 +375,24 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: each site is judged, a real one is fixed, and the rest are suppressed at the line with a reason, as 2026111016205714 did.
 	- Estimated effort: Avg
 	- Note: the ones read so far look false. The use-after-free reports are on paths where realloc or fdopen failed, and the `upgrade_fail` one is `vsnprintf(NULL, 0, ...)`. Infer 1.2.0 doesn't read `@infer-ignore`.
+	- Reproduced: Yes, all 130 on the round branch. 3 of them were already suppressed by 2026111016205714.
+	- Actual cause: none in the code. Each is a false report.
+		- The 5 use-after-free reports free or close what realloc or fdopen left alone when it failed. Infer treats the old block or fd as gone on both outcomes.
+		- `vsnprintf(NULL, 0, ...)` is allowed by C99 to measure the output.
+		- `shcl_validate`'s leak is on the `arena_panic` path, which longjmps to the setjmp branch that frees `val`. That branch also reads `levels`, so the store isn't dead.
+		- All 119 uninitialized values trace to a struct field filled by a struct-returning call, such as `r.t = s_slice(...)` or `*out = stamped(...)`. A 13-line file shows it, and storing the call's result in a local first makes it go away.
+	- Actual fix: a reason line and an `@infer-ignore` line above each of the 8 other sites. shcl.h and main.c each turn off `PULSE_UNINITIALIZED_VALUE` for the whole file with `@infer-ignore-every`, under a reason.
+	- Decisions:
+		- me: the uninitialized-value reports are turned off per file rather than at the line. They cover 65 lines in shcl.h and 14 in main.c, all one Infer fault, and 158 comment lines would bury the code. The cost is that Infer can't find a real uninitialized read in either file. gcc's `-fanalyzer`, the clang analyzer and cppcheck still check for them.
+		- me: no code change to dodge the fault, such as a local before each store. That would touch about 80 lines for one tool and pull the code away from the Rust twin it mirrors.
+	- Note: an Infer issue draft with 2 short files covering the 4 faults is in `2026112121124344/` under the upstream folder. Not filed.
+	- Swept: every `realloc(`, `fdopen(` and `vsnprintf(NULL` in shcl.h and main.c (grep). The other 4 realloc sites don't free the old block in their failure branch, and Infer reports none of them, and the 2 `fdopen(fd, "wb")` sites aren't reported, so they have no directive.
+	- Verified: with Infer 1.3.0, all 130 reports show as suppressed in `report.json` and it prints "No issues found". Before the edit 127 were reported. `--backlog-run-quick c`, `lint-report.bash --check --no-mark` and `analyze-c.bash` (`de2x1` to `de2x4`) pass.
+	- Test case: none. Infer isn't a gate here, per 2026101707582803.
+	- Branch: `nov23b-2026112121124344`
+	- Acceptance signoff: Self-closed: every report judged false and shown suppressed by Infer.
+	- Closed: 20261123-155443
+	- Closed reason: Done
 
 - The veneer smoke linked against the DLLs dies at start on b29w
 	- ID: 2026110710374327

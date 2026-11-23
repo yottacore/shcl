@@ -31,6 +31,12 @@
 #ifndef SHCL_H
 #define SHCL_H
 
+// Infer 1.3.0 loses the value when a struct-returning call is stored into a
+// struct field or through a pointer, as in `r.t = s_slice(...)`, and calls the
+// field uninitialized when it's read. Every one of its reports here has that
+// shape, so the type is off for this file rather than at each of 65 lines.
+// @infer-ignore-every PULSE_UNINITIALIZED_VALUE
+
 // The file tier calls POSIX (fdopen, fileno, fchmod, open, fsync, getpid). Those
 // prototypes are feature-gated, and a feature request only counts before the
 // first system header - so it goes here rather than beside the code needing it,
@@ -15621,7 +15627,11 @@ shcl_validation *shcl_validate(shcl_doc *d, shcl_doc *schema) { // NOLINT(bugpro
 	// On the heap, not the stack: one slot per level of the depth cap is 16 KB,
 	// which is fine on a main thread and not on a small-stack one.
 	ShclArena *lvls = (ShclArena *)calloc(SHCL_MAX_DEPTH + 1, sizeof *lvls);
+	// Infer: arena_panic longjmps to the setjmp branch, which frees val.
+	// @infer-ignore MEMORY_LEAK_C
 	if (!lvls) arena_panic(&panic);
+	// Infer: the setjmp branch reads levels after a longjmp.
+	// @infer-ignore DEAD_STORE
 	levels = lvls;
 	for (size_t i = 0; i <= SHCL_MAX_DEPTH; i++) arena_guard(&lvls[i], &panic);
 	// One mount set for the whole schema: two top-level paths can resolve to
@@ -16362,6 +16372,8 @@ static char *shcl_resolve_target(const char *file) {
 		size_t cap = 256; char *link = NULL; ssize_t got;
 		for (;;) {
 			char *grown = (char *)realloc(link, cap);
+			// Infer: realloc failed, so link is still the live block.
+			// @infer-ignore USE_AFTER_FREE
 			if (!grown) { free(link); free(p); return NULL; }
 			link = grown;
 			got = readlink(p, link, cap);
@@ -16703,6 +16715,8 @@ static FILE *s_fopen_regular(const char *path, int *not_regular) {
 	}
 	if (!S_ISREG(st.st_mode)) { close(fd); *not_regular = 1; return NULL; }
 	FILE *f = fdopen(fd, "rb");
+	// Infer: fdopen failed, so fd is still open and ours to close.
+	// @infer-ignore USE_AFTER_FREE
 	if (!f) { int e = errno; close(fd); errno = e; }
 	return f;
 #endif
@@ -16868,6 +16882,8 @@ static void s_read_schema_file(shcl_named_schema *ns) {
 		return;
 	}
 	FILE *f = fdopen(fd, "rb");
+	// Infer: fdopen failed, so fd is still open and ours to close.
+	// @infer-ignore USE_AFTER_FREE
 	if (!f) { int e = errno; close(fd); s_schema_refuse(ns, SHCL_SCHEMA_UNREADABLE, strerror(e)); return; }
 #endif
 	/* Fixed reads, since the page map refuses one that is not a multiple of 8.
@@ -16887,6 +16903,8 @@ static void s_read_schema_file(shcl_named_schema *ns) {
 	for (;;) {
 		if (cap - n < ((size_t)1 << 16)) {
 			char *nb = (char *)realloc(buf, cap * 2 + 1);
+			// Infer: realloc failed, so buf is still the live block.
+			// @infer-ignore USE_AFTER_FREE
 			if (!nb) { free(buf); fclose(f); SHCL_OOM(); abort(); }
 			buf = nb; cap *= 2;
 		}
@@ -17205,6 +17223,8 @@ static shcl_upgrade_error upgrade_fail(char **out, shcl_upgrade_error e, const c
 	if (!out) return e;
 	va_list ap;
 	va_start(ap, fmt);
+	// Infer: C99 lets vsnprintf take NULL with a size of 0, to measure.
+	// @infer-ignore NULLPTR_DEREFERENCE
 	int n = vsnprintf(NULL, 0, fmt, ap);
 	va_end(ap);
 	char *m = (char *)malloc(n > 0 ? (size_t)n + 1 : 1);
