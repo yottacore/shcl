@@ -35,6 +35,45 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Hosted release: check-cpu-floor's Penryn and Phenom guests panic before any test
+	- ID: 2026112307465471
+	- Type: Bug
+	- Status: Queued
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-074654
+	- Opened by:
+	- Steps to reproduce: hosted ci.yml run 45068690472 on main, job ci (release), release check 'x86_64 builds run on x86-64-v1, Penryn and Phenom'.
+	- Incorrect behavior: ddwpq to ddwpt fail because each guest's kernel dies about 4 seconds in with a register dump, so no probe or CLI run comes back. ddwpp passed. The runner's packages are now amd64v3 builds, so the guest's userland from the host likely needs instructions those CPUs lack. Green in 43137942602 on 2026-11-12.
+	- Expected behavior: the guests boot on a v1-only userland, so the check tests the CLI rather than the runner's packages.
+	- Estimated effort: Avg
+
+- Hosted tests: cli-regress create-appeared and write-changed-during-wait exit 0 in all 4
+	- ID: 2026112307465452
+	- Type: Bug
+	- Status: Queued
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-074654
+	- Opened by:
+	- Steps to reproduce: hosted ci.yml run 45068690472 on main, job ci (tests), cli-regress.
+	- Incorrect behavior: dcnpd and dcvb4 got exit 0, expected 8, in all 4 CLIs, then a broken pipe at cli-regress.bash line 2090. Both rows edit or create the file after the CLI's stdin notice, so the edit may land after the save on the runner. They passed in 43137942602 on 2026-11-12.
+	- Expected behavior: both rows pass on the hosted runner, or the harness waits on something firmer than timing.
+	- Estimated effort: Avg
+
+- Hosted lint: the mingw cross build fails on every %zu format
+	- ID: 2026112307465433
+	- Type: Bug
+	- Status: Queued
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-074654
+	- Opened by:
+	- Steps to reproduce: hosted ci.yml run 45068690472 on main (Merge instsync4), job ci (lint), cross check 'C library + CLI for Windows x86_64 (mingw)'.
+	- Incorrect behavior: gcc-mingw-w64 from the runner's newer image reads every %zu in shcl.h (9740, 11820, 13032, 15004) and the C CLI (632, 832, 2146, 2149) against the msvcrt printf, so -Werror=format fails the build. The last green main run, 43137942602 on 2026-11-12, built the same code.
+	- Expected behavior: the mingw cross build passes, with size_t printed the same way on Windows as elsewhere.
+	- Estimated effort: Low
+
 - Format versions: the demo gif and its golden text show fmt output without the stamp
 	- ID: 2026111710564808
 	- Type: Feature
