@@ -38,7 +38,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Hosted release: the native build on ubuntu-latest asks for x86-64-v3 in its ISA note
 	- ID: 2026112308072792
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261123-080727
@@ -51,6 +51,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: the runner image moved from Ubuntu 24.04 to 26.04 between runs 43137942602 (2026-11-12) and 45068690472.
 	- Estimated effort: Low
 	- Note: options seen: pin the release job to `ubuntu-24.04`, or drop the note from the hosted build. Linking with `-Wl,-z,x86-64-baseline` stops Ubuntu's ld 2.46 with an internal error. The C CLI's plain `cc` line in config.bash builds v3 code there too, though nothing boots or releases it.
+	- Actual cause: the runner image moved to Ubuntu 26.04 with amd64v3 packages. Its gcc and startup files build for v3 and put a v3 ISA note in every binary linked there. The released build comes from the Debian image, which has no such variant, so only the hosted release part was affected.
+	- Actual fix: ci.yml's release part runs on `ubuntu-24.04`, through a `runner` key in the job's matrix. Lint and tests stay on `ubuntu-latest`. The Rust cache key names the runner label, so the release part can't restore a target dir with a binary linked on 26.04. design.md's CI/CD line says so.
+	- Decisions: pin only the release part, rather than every Linux job or stripping the note. Lint and tests build nothing that has to run on the floor, and the moving image is where a newer toolchain gets tested, which is what found the mingw format bug (2026112307465433). go-floor, setup-build and winarm-build build no x86_64 Linux binary. Stripping the note would hide the cause, since the v3 startup files and libc_nonshared.a can hold v3 code that the note warns about. The pin has to move when GitHub retires 24.04.
+	- Verified: 20261123. In the project's ubuntu:24.04 image, with no apt variants, Scrt1.o and crti.o ask only for x86-64-baseline. check-pins passes on the new ci.yml, and shell-regress's check-pins rows `dcqgf`, `dcqgg`, `dcv6p`, `dektk` and `ddx1w` pass. check-docs passes. Not run: a hosted run.
+	- Needs external testing: hosted ci.yml, job ci (release), on ubuntu-24.04: `ddwpp`, `ddwpr` and `ddwpt` pass.
+	- Test case: check-cpu-floor `ddwpp` (the scan fails a build whose ISA note asks for more than v1), `ddwpr` and `ddwpt`, in the hosted release part.
+	- Swept: every `runs-on` in ci.yml. linux-arm is pinned to `ubuntu-24.04-arm` already, and the Windows and macOS jobs are untouched. ci.yml is the only workflow. No published binary is built on a hosted runner: stage 6 builds them in the Debian image, and setup-build and winarm-build make artifacts only for the jobs after them.
+	- Branch: `nov23-2026112308072792`
+	- Commit: `88cf8f9e`
 
 - Hosted release: check-cpu-floor's Penryn and Phenom guests panic before any test
 	- ID: 2026112307465471
