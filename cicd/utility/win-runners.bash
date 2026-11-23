@@ -184,10 +184,12 @@ fRunLongPath() {
 	grep -q '^a: 1$' "${deep}/new.shcl"
 }
 
-## A stdin nothing is attached to reads as an empty document, exit 0. POSIX
-## reports that as EOF and every binding already agreed there; windows answers
-## with an invalid handle or an invalid function instead, which each runtime
-## reports its own way, so this is the only place the rule can be judged.
+## A stdin nothing is attached to reads as an empty document, exit 0, and fmt
+## prints it as a save does, which is the format stamp alone. POSIX reports
+## that as EOF and every binding already agreed there (cli-regress dbzbg);
+## windows answers with an invalid handle or an invalid function instead,
+## which each runtime reports its own way, so this is the only place the rule
+## can be judged.
 fRunClosedStdin() {
 	local bad=0
 	local clis=()
@@ -204,13 +206,18 @@ fRunClosedStdin() {
 		clis+=("go|${work}/shcl-go${exe}")
 	fi
 	if fHave "${py}"; then clis+=("python|${py} source/python/cmd/shcl/main.py"); fi
-	local entry name cmd out rc
+	local want=$'## SHCL format 3.0\n'
+	local entry name cmd out err rc
 	for entry in "${clis[@]}"; do
 		name="${entry%%|*}"; cmd="${entry#*|}"
 		## Split on purpose: the python entry is an interpreter plus a script.
-		rc=0; out="$(${cmd} fmt - 0<&- 2>&1)" || rc=$?
-		if ((rc != 0)) || [[ -n "${out}" ]]; then
-			echo "win-runners: closed stdin: ${name} exited ${rc} saying ${out@Q}" >&2
+		## The exit code trails stdout behind an x, which also keeps the newline
+		## the stamp must end with.
+		out="$(${cmd} fmt - 0<&- 2>"${work}/closedin.err" && echo x0 || echo "x$?")"
+		rc="${out##*x}"; out="${out%x*}"
+		err=""; IFS= read -r -d '' err <"${work}/closedin.err" || true
+		if ((rc != 0)) || [[ "${out}" != "${want}" || -n "${err}" ]]; then
+			echo "win-runners: closed stdin: ${name} exited ${rc} with stdout ${out@Q} and stderr ${err@Q}" >&2
 			bad=1
 		fi
 	done

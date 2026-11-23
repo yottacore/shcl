@@ -176,7 +176,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Hosted windows: win-runners closed stdin dc477 gets exit 0 and the format stamp from all 4 CLIs
 	- ID: 2026112310344469
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs external testing: hosted ci.yml windows job, win-runners `dc477` only.
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261123-103444
@@ -185,6 +186,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: each of the c, rust, go and python CLIs exited 0 saying '## SHCL format 3.0', and dc477 failed. The last green hosted run of dev was 44215749241 on 2026-11-18, before every save and text call took the stamp, so the row likely still expects the old output.
 	- Expected behavior: dc477 passes, with the row matching what a CLI should do on a closed stdin now that saves stamp, or the CLIs fixed if exit 0 is wrong there.
 	- Estimated effort: Low
+	- Actual cause: the row still wanted no output at all. Since the stamp on save, `fmt -` on an empty document prints the stamp, and cli-regress `dbzbg` already expects that on Linux.
+	- Actual fix: `fRunClosedStdin` wants exit 0, stdout of exactly the stamp line, and an empty stderr, read apart rather than merged.
+	- Decisions:
+		- Exit 0 with only the stamp is right on a closed stdin. A closed stdin reads as an empty document, and fmt prints an empty document as a save does, which is the stamp alone. That matches `dbzbg` on Linux, so the CLIs stay as they are.
+	- Verified: on Linux, the old row fails on all 4 current CLIs with the stamp, as the hosted job did, and the new row passes on them. It fails on a stand-in CLI that prints nothing, one that writes to stderr, one that exits 5, and one that leaves off the newline. shellcheck and `lint-report.bash --check --no-mark` pass. shell-regress passes but the known `dcvej`.
+	- Swept: every `0<&-` in `cicd/`. The only others are cli-regress `dbzbg` and `de132`, which already want the stamp.
+	- Test case: win-runners `dc477`, which runs only on Windows. The Linux run used the row's function lifted out of the script.
+	- Branch: `nov23b-2026112310344469`
+	- Commit: `3966cf55`
 
 - Hosted windows: most_legal's left argument may be clobbered by longjmp, so the C oom tests don't build
 	- ID: 2026112310344449
