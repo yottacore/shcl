@@ -35,6 +35,45 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Hosted windows: win-runners closed stdin dc477 gets exit 0 and the format stamp from all 4 CLIs
+	- ID: 2026112310344469
+	- Type: Bug
+	- Status: Queued
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-103444
+	- Opened by:
+	- Steps to reproduce: hosted ci.yml run 45232879461 on nov23, job windows, win-runners.bash step 'closed stdin'.
+	- Incorrect behavior: each of the c, rust, go and python CLIs exited 0 saying '## SHCL format 3.0', and dc477 failed. The last green hosted run of dev was 44215749241 on 2026-11-18, before every save and text call took the stamp, so the row likely still expects the old output.
+	- Expected behavior: dc477 passes, with the row matching what a CLI should do on a closed stdin now that saves stamp, or the CLIs fixed if exit 0 is wrong there.
+	- Estimated effort: Low
+
+- Hosted windows: most_legal's left argument may be clobbered by longjmp, so the C oom tests don't build
+	- ID: 2026112310344449
+	- Type: Bug
+	- Status: Queued
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-103444
+	- Opened by:
+	- Steps to reproduce: hosted ci.yml run 45232879461 on nov23, job windows, win-runners.bash steps 'c oom hook' and 'c oom recover'.
+	- Incorrect behavior: the image's mingw gcc (windows-2025-vs2026 20261116.315.1) stops the build of oom_hook.c and oom_recover.c with shcl.h:5274 'argument left might be clobbered by longjmp or vfork' under -Werror=clobbered. most_legal came in on 2026-11-19, after the last green hosted run of dev (44215749241, 2026-11-18).
+	- Expected behavior: shcl.h builds clean under -Wclobbered, and a value most_legal keeps across SHCL_SETJMP is safe from longjmp.
+	- Estimated effort: Low
+
+- Hosted tests: fs_property.c fails -Werror=unused-result on symlink under Ubuntu 26.04
+	- ID: 2026112310344429
+	- Type: Bug
+	- Status: Queued
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-103444
+	- Opened by:
+	- Steps to reproduce: hosted ci.yml run 45232879461 on nov23, job ci (tests), step fs-property.bash, the C arm.
+	- Incorrect behavior: source/c/tests/fs_property.c lines 606, 610 and 613 call symlink with a (void) cast, which gcc doesn't accept for a function glibc marks warn_unused_result, so the C fs test doesn't build and the run stops before cli-regress. ubuntu-latest is Ubuntu 26.04 since 2026-11.
+	- Expected behavior: the C fs test builds on the hosted runner and checks symlink's result.
+	- Estimated effort: Low
+
 - Hosted tests: cli-regress argv-not-utf8 rows exit 125 under Ubuntu 26.04's timeout
 	- ID: 2026112308403867
 	- Type: Bug
@@ -62,7 +101,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Hosted release: the native build on ubuntu-latest asks for x86-64-v3 in its ISA note
 	- ID: 2026112308072792
 	- Type: Bug
-	- Status: Waiting on automated testing
+	- Status: Closed
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261123-080727
@@ -79,16 +118,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: ci.yml's release part runs on `ubuntu-24.04`, through a `runner` key in the job's matrix. Lint and tests stay on `ubuntu-latest`. The Rust cache key names the runner label, so the release part can't restore a target dir with a binary linked on 26.04. design.md's CI/CD line says so.
 	- Decisions: pin only the release part, rather than every Linux job or stripping the note. Lint and tests build nothing that has to run on the floor, and the moving image is where a newer toolchain gets tested, which is what found the mingw format bug (2026112307465433). go-floor, setup-build and winarm-build build no x86_64 Linux binary. Stripping the note would hide the cause, since the v3 startup files and libc_nonshared.a can hold v3 code that the note warns about. The pin has to move when GitHub retires 24.04.
 	- Verified: 20261123. In the project's ubuntu:24.04 image, with no apt variants, Scrt1.o and crti.o ask only for x86-64-baseline. check-pins passes on the new ci.yml, and shell-regress's check-pins rows `dcqgf`, `dcqgg`, `dcv6p`, `dektk` and `ddx1w` pass. check-docs passes. Not run: a hosted run.
-	- Needs external testing: hosted ci.yml, job ci (release), on ubuntu-24.04: `ddwpp`, `ddwpr` and `ddwpt` pass.
+	- Verified: 20261123, hosted ci.yml run 45232879461 on nov23, job ci (release) on ubuntu-24.04: ddwpp, ddwpq, ddwpr, ddwps and ddwpt passed, 4730 CLI runs on each guest with the same bytes and exit codes as the host.
+	- Needs external testing: No
 	- Test case: check-cpu-floor `ddwpp` (the scan fails a build whose ISA note asks for more than v1), `ddwpr` and `ddwpt`, in the hosted release part.
 	- Swept: every `runs-on` in ci.yml. linux-arm is pinned to `ubuntu-24.04-arm` already, and the Windows and macOS jobs are untouched. ci.yml is the only workflow. No published binary is built on a hosted runner: stage 6 builds them in the Debian image, and setup-build and winarm-build make artifacts only for the jobs after them.
 	- Branch: `nov23-2026112308072792`
 	- Commit: `88cf8f9e`
+	- Closed reason: Done
+	- Acceptance signoff: Self-closed: the hosted release job passes on the pinned image.
+	- Closed: 20261123-105352
 
 - Hosted release: check-cpu-floor's Penryn and Phenom guests panic before any test
 	- ID: 2026112307465471
 	- Type: Bug
-	- Status: Waiting on automated testing
+	- Status: Closed
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261123-074654
@@ -97,19 +140,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: ddwpq to ddwpt fail because each guest's kernel dies about 4 seconds in with a register dump, so no probe or CLI run comes back. ddwpp passed. The runner's packages are now amd64v3 builds, so the guest's userland from the host likely needs instructions those CPUs lack. Green in 43137942602 on 2026-11-12.
 	- Expected behavior: the guests boot on a v1-only userland, so the check tests the CLI rather than the runner's packages.
 	- Estimated effort: Avg
-	- Needs external testing: hosted ci.yml, job ci (release): `ddwpq` and `ddwps` pass and both guests finish. `ddwpp`, `ddwpr` and `ddwpt` there wait on Bug 2026112308072792, since the build the runner makes asks for v3 in its ISA note.
+	- Needs external testing: No
 	- Reproduced: 20261123, in an ubuntu:26.04 container with amd64v3 turned on, /boot mounted and the same 4 tools as the runner. HEAD's check failed the same 24 ways as the hosted run, with init dying in about 3 seconds.
 	- Actual cause: Ubuntu 26.04's amd64v3 builds of busybox and libc6 use v3 instructions, so init died of SIGILL on both CPUs. The probe also failed with exit 127 there once the guest booted: the v3 gcc builds for v3 by default, and its startup files put a v3 ISA note in every binary, which glibc's loader refuses on an older CPU.
 	- Actual fix: on a host whose apt names an architecture variant, check-cpu-floor fetches the plain amd64 build of each package that owns the guest's busybox and libraries, through apt with lists in its own folder, and puts those in the image. The probe is built with `-march=x86-64` and loses its ISA note. A guest whose init dies of SIGILL says so. The scan also fails an ELF whose ISA note asks for more than v1. design.md's CI/CD line follows.
 	- Decisions:
 		- me: the guest's files come from the plain build of the same packages, picked at run time from apt's `APT::Architecture-Variants`, rather than pinning ubuntu-24.04 or a docker image. The check then holds on any host with variants, and the host's own packages stay as they are.
 	- Verified: 20261123. In the amd64v3 container, all 5 rows passed with the fix: 4730 CLI runs on Penryn and on Phenom gave the same bytes and exit codes as the host. With the variant lookup forced off, both guests failed with the new SIGILL line. shell-regress `dfph5` failed on HEAD's check and passes. shellcheck and `test-ids.py check` passed.
+	- Verified: 20261123, hosted ci.yml run 45232879461 on nov23, job ci (release): ddwpp to ddwpt passed and both guests finished. That job now runs on ubuntu-24.04 (2026112308072792), so the amd64v3 lookup ran only in the ubuntu:26.04 container rig, where all 5 rows passed.
 	- Swept: check-cpu-floor is the only check that builds a guest from host files. check-freebsd boots a pinned FreeBSD image, and check-win-release runs on the host. Every file the image takes from the host goes through `fCopyIn`. Only the Rust CLI has a release, so the other 3 bindings have no twin.
 	- Test case: `ddwpq` to `ddwpt` on a host with amd64v3 packages; shell-regress `dfph5` (the scan fails a build whose ISA note asks for v3).
 	- Branch: `nov23-2026112307465471`
 	- Commit: `6feef5e8`
 	- Prereq IDs: 2026112308072792
 	- Prereq row added: the hosted release job's ddwpp, ddwpr and ddwpt wait on the v3 ISA note in ubuntu-latest builds.
+	- Closed reason: Done
+	- Acceptance signoff: Self-closed: the hosted release check passes, and the 26.04 path passed in the container.
+	- Closed: 20261123-105352
 
 - Hosted tests: cli-regress create-appeared and write-changed-during-wait exit 0 in all 4
 	- ID: 2026112307465452
