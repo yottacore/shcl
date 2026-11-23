@@ -35,6 +35,30 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Hosted tests: cli-regress argv-not-utf8 rows exit 125 under Ubuntu 26.04's timeout
+	- ID: 2026112308403867
+	- Type: Bug
+	- Status: Waiting on automated testing
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-084038
+	- Opened by: 2026112307465452's sweep
+	- Related IDs: 2026112307465452
+	- Steps to reproduce: cli-regress in an ubuntu:26.04 container, the hosted runner's image since 2026-11.
+	- Incorrect behavior: dd512 and dd513 exit 125, expected 1, in all 4 CLIs. uutils timeout 0.10.0 refuses any argument that isn't UTF-8 before it runs the command. The hosted run 45068690472 stopped before these rows, so it didn't show them.
+	- Expected behavior: both rows reach the CLI with the byte as given, and pass.
+	- Estimated effort: Low
+	- Needs external testing: hosted ci.yml, job ci (tests): cli-regress dd512 and dd513.
+	- Reproduced: 20261123, in an ubuntu:26.04 container: `timeout 5 shcl get $'\xff' x` exits 125 with `invalid UTF-8 was detected in one or more arguments`, and `gnutimeout` runs the CLI.
+	- Actual cause: uutils timeout refuses an argument that isn't UTF-8, where GNU timeout passes it on. An upstream issue draft is in `2026112308403867/` under the upstream folder.
+	- Actual fix: a row whose argv has `%XF%` writes the command and its arguments NUL-separated to a file, and timeout runs a bash that reads them back and execs them. Every other row runs as before.
+	- Verified: in the ubuntu:26.04 container, dd512 and dd513 failed at 125 before the fix and passed after, with all 689 rows over the 4 CLIs. On the host the full cli-regress passed.
+	- Swept: `%XF%` is the only non-UTF-8 argument cli-regress passes, and no other script under cicd/ hands timeout one.
+	- Test case: cli-regress dd512 and dd513.
+	- Branch: nov23-2026112307465452
+	- Commit: d41304d7
+	- Actual effort: Low
+
 - Hosted release: the native build on ubuntu-latest asks for x86-64-v3 in its ISA note
 	- ID: 2026112308072792
 	- Type: Bug
@@ -90,7 +114,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Hosted tests: cli-regress create-appeared and write-changed-during-wait exit 0 in all 4
 	- ID: 2026112307465452
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261123-074654
@@ -99,6 +123,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: dcnpd and dcvb4 got exit 0, expected 8, in all 4 CLIs, then a broken pipe at cli-regress.bash line 2090. Both rows edit or create the file after the CLI's stdin notice, so the edit may land after the save on the runner. They passed in 43137942602 on 2026-11-12.
 	- Expected behavior: both rows pass on the hosted runner, or the harness waits on something firmer than timing.
 	- Estimated effort: Avg
+	- Needs external testing: hosted ci.yml, job ci (tests): cli-regress dcnpd, dcvb4, df5rw and devy8.
+	- Reproduced: 20261123, in an ubuntu:26.04 container with all 4 CLIs: dcnpd, dcvb4 and df5rw failed, and the last write of the FIFO row stopped the script at exit 141. That write is the hosted run's line 2090.
+	- Actual cause: the rows wrote 1 MiB of script comments to the CLI's stdin with cat, and counted on the write blocking until the CLI was reading them. Ubuntu 26.04's cat is uutils (0.10.0), which grows the pipe to pipe-max-size, 1 MiB, before it writes. So the whole fill went into the pipe at once, and the edit came before the CLI read the file. The CLIs are fine.
+	- Actual fix: the fill goes by bash's own printf, from a subshell, which leaves the pipe at its default size. The write again returns only once the CLI is reading its ops. The last op goes from a subshell with `|| true` too, so a CLI that quits early fails its row by name rather than stopping the script.
+	- Decisions: me, 20261123: the wait stays a blocking write rather than a poll or a sleep. It holds as long as the writer leaves the pipe size alone, which a builtin always does. A fill bigger than pipe-max-size was left out, since it doubles every wait row's input for a case only a resizing writer makes.
+	- Verified: in the ubuntu:26.04 container, the old cli-regress failed dcnpd, dcvb4 and df5rw and died at 141, and the new one passed all 689 rows over the 4 CLIs. There uutils cat into a FIFO with a sleeping reader returned at once and the reader saw a 1 MiB pipe, and the builtin printf waited the reader's 3 s. On the host, cli-regress over the 4 CLIs, `--backlog-run-quick cli`, shell-regress dc7gs, dcmcq, dct57 and dd86w, shellcheck and `lint-report.bash --check --no-mark` passed. check-doc-examples and perf-gate passed in the container too.
+	- Swept: opsfill is the only stdin fill in the tree. A grep of mkfifo, opsfill and pipe buffer under cicd/ and source/ found no other write that waits on a reader. broken-pipe (dd516) has the CLI as the writer.
+	- Test case: cli-regress dcnpd and dcvb4, with df5rw and devy8, which share the wait.
+	- Branch: nov23-2026112307465452
+	- Commit: d41304d7
+	- Actual effort: Low
+	- Related IDs: 2026112308403867
 
 - Hosted lint: the mingw cross build fails on every %zu format
 	- ID: 2026112307465433
