@@ -335,7 +335,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A merge doesn't put a blank between a nested block's opening lines and the layer's opening lines it adds
 	- ID: 2026112119250496
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Severity: Low
 	- Target version: v3.0.0
 	- Opened: 20261121-192504
@@ -347,6 +347,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: a blank between `# base open` and `# layer open`, as for the top of the file.
 	- Possible cause: `adopt_trivia` appends the layer's opening lines without a blank above, where `merge_top` sets one.
 	- Estimated effort: Low
+	- Reproduced: 20261123, the steps in the Rust CLI on nov23 at `5f1041a9`. A line the base's block already opens with is also written twice, as in a merge of `a:`, `# base open`, a blank, `c: y` over itself, where the top of the file writes it once.
+	- Actual cause [Bug]: `adopt_trivia` appended the layer's opening lines as they were, so neither the blank above them nor the skip of a line the base already has, which `merge_top` gives the top of the file, applied below the top level.
+	- Actual fix [Bug]: `adopt_trivia` puts a blank above the first opening line it adds when the base's block had its own, and skips a line the base's block already opens with (`repeat_line`, same depth), in all 4 bindings (`lib.rs`, `shcl.go`, `shcl.py`, `shcl.h`). The changelog says so. design.md's "Lines an edit takes from their node" already said both.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261123: the skip of a repeated line is fixed here too, since design.md's bullet gives it beside the blank, it's the same loop as `merge_top`'s, and a merge over an equal document wrote each such line twice. Where the base's block has no opening lines, the layer's first one keeps its own blank, since a nested block can have a blank between its line and its opening lines, where the top of the file can't.
+	- Swept: every place a merge joins 2 nodes' opening lines, in all 4: `merge_top` (the top of the file, already right) and `adopt_trivia` (fixed). A copied instance and a replaced leaf take their own lines whole, with nothing to join. `fold_node_into` is the in-file fold, which moves the loser's opening lines under the survivor's last child, so it isn't this rule.
+	- Test case: placement rows `2026112119250496-1` and `-2` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dderx`, `dd3t9`, `dab72`, `dd16k`.
+	- Verified: 20261123, both rows fail on the Python library at `5f1041a9` and pass on the change (`placement-watch.py`). The issue's steps, the self-merge and a 2-deep case give the same text through the Rust, Go, C and Python CLIs. `--backlog-run-quick rust go python c` passed all 5 steps, the 4 placement runners included. `dderx`, `dd3t9`, `dd16k`, `dab72` and `df50j` pass 100,000 in release. Crosscheck over the corpus (24024 comparisons), cli-regress (689 rows), lint-report and mdcheck passed.
+	- Needs local test suite run?: the 2M release fuzz of all fuzz_smoke (`SHCL_FUZZ_ITERS=2000000`), and the cppcheck line from `LINT_EXTRA` with analyze-c, since `shcl.h` changed.
+	- Branch: `nov23-2026112119250496`
+	- Commit: `b30655bf`
 
 - The veneer smoke linked against the DLLs dies at start on b29w
 	- ID: 2026110710374327

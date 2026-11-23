@@ -11016,8 +11016,18 @@ static void adopt_trivia(shcl_doc *d, size_t base, const shcl_doc *over, size_t 
 		ShclVecLead_push(a, &bt->after, lead_moved(a, &st->after.data[i]));
 	for (size_t i = 0; i < st->inside.len; i++)
 		ShclVecLead_push(a, &bt->inside, lead_moved(a, &st->inside.data[i]));
-	for (size_t i = 0; i < st->head.len; i++)
-		ShclVecLead_push(a, &bt->head, lead_moved(a, &st->head.data[i]));
+	/* As at the top of the file: a blank sets the layer's opening lines off
+	   from the base's, and a line already there isn't written twice. */
+	size_t had = bt->head.len;
+	for (size_t i = 0; i < st->head.len; i++) {
+		const ShclLead *o = &st->head.data[i];
+		int dup = 0;
+		for (size_t k = 0; k < had && !dup; k++) dup = repeat_line(bt->head.data[k].text, o->text) && bt->head.data[k].depth == o->depth;
+		if (dup) continue;
+		ShclLead c = lead_moved(a, o);
+		if (had && bt->head.len == had) c.blank_before = 1;
+		ShclVecLead_push(a, &bt->head, c);
+	}
 	for (size_t i = 0; i < st->among.len; i++) {
 		ShclAmong am; am.before = st->among.data[i].before;
 		am.lead = lead_moved(a, &st->among.data[i].lead);
