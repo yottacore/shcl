@@ -35,58 +35,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- Hosted lint: the lint part runs past its 80-minute timeout on Ubuntu 26.04
-	- ID: 2026112311213741
-	- Type: Bug
-	- Status: Queued
-	- Priority: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261123-112137
-	- Opened by:
-	- Steps to reproduce: hosted ci.yml run 45232879461 on nov23, job ci (lint).
-	- Incorrect behavior: the job was cancelled at its 80-minute timeout with no log kept. The tool install step took 20 minutes (4 on 2026-11-22's run 45068690472), and cicd.bash ran 63 minutes before the cancel, with the cppcheck cache missing after a shcl.h change. The green lint part of 43137942602 on 2026-11-12 took 10 minutes in all.
-	- Expected behavior: the lint part finishes inside its timeout after a shcl.h change, and a timeout leaves enough output to say which stage ran long.
-	- Estimated effort: Avg
-
-- Hosted windows: win-runners closed stdin dc477 gets exit 0 and the format stamp from all 4 CLIs
-	- ID: 2026112310344469
-	- Type: Bug
-	- Status: Queued
-	- Priority: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261123-103444
-	- Opened by:
-	- Steps to reproduce: hosted ci.yml run 45232879461 on nov23, job windows, win-runners.bash step 'closed stdin'.
-	- Incorrect behavior: each of the c, rust, go and python CLIs exited 0 saying '## SHCL format 3.0', and dc477 failed. The last green hosted run of dev was 44215749241 on 2026-11-18, before every save and text call took the stamp, so the row likely still expects the old output.
-	- Expected behavior: dc477 passes, with the row matching what a CLI should do on a closed stdin now that saves stamp, or the CLIs fixed if exit 0 is wrong there.
-	- Estimated effort: Low
-
-- Hosted windows: most_legal's left argument may be clobbered by longjmp, so the C oom tests don't build
-	- ID: 2026112310344449
-	- Type: Bug
-	- Status: Queued
-	- Priority: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261123-103444
-	- Opened by:
-	- Steps to reproduce: hosted ci.yml run 45232879461 on nov23, job windows, win-runners.bash steps 'c oom hook' and 'c oom recover'.
-	- Incorrect behavior: the image's mingw gcc (windows-2025-vs2026 20261116.315.1) stops the build of oom_hook.c and oom_recover.c with shcl.h:5274 'argument left might be clobbered by longjmp or vfork' under -Werror=clobbered. most_legal came in on 2026-11-19, after the last green hosted run of dev (44215749241, 2026-11-18).
-	- Expected behavior: shcl.h builds clean under -Wclobbered, and a value most_legal keeps across SHCL_SETJMP is safe from longjmp.
-	- Estimated effort: Low
-
-- Hosted tests: fs_property.c fails -Werror=unused-result on symlink under Ubuntu 26.04
-	- ID: 2026112310344429
-	- Type: Bug
-	- Status: Queued
-	- Priority: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261123-103444
-	- Opened by:
-	- Steps to reproduce: hosted ci.yml run 45232879461 on nov23, job ci (tests), step fs-property.bash, the C arm.
-	- Incorrect behavior: source/c/tests/fs_property.c lines 606, 610 and 613 call symlink with a (void) cast, which gcc doesn't accept for a function glibc marks warn_unused_result, so the C fs test doesn't build and the run stops before cli-regress. ubuntu-latest is Ubuntu 26.04 since 2026-11.
-	- Expected behavior: the C fs test builds on the hosted runner and checks symlink's result.
-	- Estimated effort: Low
-
 - Hosted tests: cli-regress argv-not-utf8 rows exit 125 under Ubuntu 26.04's timeout
 	- ID: 2026112308403867
 	- Type: Bug
@@ -112,66 +60,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual effort: Low
 	- Prereq IDs: 2026112310344429
 	- 20261123: hosted run 45232879461's ci (tests) stopped at fs-property before cli-regress (Bug 2026112310344429), so these rows weren't reached.
-
-- Hosted release: the native build on ubuntu-latest asks for x86-64-v3 in its ISA note
-	- ID: 2026112308072792
-	- Type: Bug
-	- Status: Closed
-	- Priority: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261123-080727
-	- Opened by: 2026112307465471
-	- Related IDs: 2026112307465471
-	- Steps to reproduce: build the release on ubuntu-latest, which is Ubuntu 26.04 with amd64v3 packages since about 2026-11-16, and run `readelf -n` on it. Or run ci.yml's release job.
-	- Incorrect behavior: Ubuntu's amd64v3 gcc defaults to `-march=x86-64-v3`, and its `Scrt1.o` has an ISA note that asks for v3. Every binary linked there gets the note, the Rust release included, so glibc won't load it on Penryn or Phenom ("CPU ISA level is lower than required", exit 127). check-cpu-floor's `ddwpp` fails on the note, and `ddwpr` and `ddwpt` would see every CLI run exit 127.
-	- Expected behavior: the hosted release build has no ISA note past v1, as a build on Debian or Ubuntu 24.04 has, so the hosted CPU floor check passes.
-	- Reproduced: 20261123, in an ubuntu:26.04 container with amd64v3 turned on. A Rust release build there, through Ubuntu's cargo, has `x86 ISA needed: x86-64-baseline, x86-64-v2, x86-64-v3`. Not yet seen on the hosted runner, whose rustup rustc links through the same cc and Scrt1.o.
-	- Possible cause: the runner image moved from Ubuntu 24.04 to 26.04 between runs 43137942602 (2026-11-12) and 45068690472.
-	- Estimated effort: Low
-	- Note: options seen: pin the release job to `ubuntu-24.04`, or drop the note from the hosted build. Linking with `-Wl,-z,x86-64-baseline` stops Ubuntu's ld 2.46 with an internal error. The C CLI's plain `cc` line in config.bash builds v3 code there too, though nothing boots or releases it.
-	- Actual cause: the runner image moved to Ubuntu 26.04 with amd64v3 packages. Its gcc and startup files build for v3 and put a v3 ISA note in every binary linked there. The released build comes from the Debian image, which has no such variant, so only the hosted release part was affected.
-	- Actual fix: ci.yml's release part runs on `ubuntu-24.04`, through a `runner` key in the job's matrix. Lint and tests stay on `ubuntu-latest`. The Rust cache key names the runner label, so the release part can't restore a target dir with a binary linked on 26.04. design.md's CI/CD line says so.
-	- Decisions: pin only the release part, rather than every Linux job or stripping the note. Lint and tests build nothing that has to run on the floor, and the moving image is where a newer toolchain gets tested, which is what found the mingw format bug (2026112307465433). go-floor, setup-build and winarm-build build no x86_64 Linux binary. Stripping the note would hide the cause, since the v3 startup files and libc_nonshared.a can hold v3 code that the note warns about. The pin has to move when GitHub retires 24.04.
-	- Verified: 20261123. In the project's ubuntu:24.04 image, with no apt variants, Scrt1.o and crti.o ask only for x86-64-baseline. check-pins passes on the new ci.yml, and shell-regress's check-pins rows `dcqgf`, `dcqgg`, `dcv6p`, `dektk` and `ddx1w` pass. check-docs passes. Not run: a hosted run.
-	- Verified: 20261123, hosted ci.yml run 45232879461 on nov23, job ci (release) on ubuntu-24.04: ddwpp, ddwpq, ddwpr, ddwps and ddwpt passed, 4730 CLI runs on each guest with the same bytes and exit codes as the host.
-	- Needs external testing: No
-	- Test case: check-cpu-floor `ddwpp` (the scan fails a build whose ISA note asks for more than v1), `ddwpr` and `ddwpt`, in the hosted release part.
-	- Swept: every `runs-on` in ci.yml. linux-arm is pinned to `ubuntu-24.04-arm` already, and the Windows and macOS jobs are untouched. ci.yml is the only workflow. No published binary is built on a hosted runner: stage 6 builds them in the Debian image, and setup-build and winarm-build make artifacts only for the jobs after them.
-	- Branch: `nov23-2026112308072792`
-	- Commit: `88cf8f9e`
-	- Closed reason: Done
-	- Acceptance signoff: Self-closed: the hosted release job passes on the pinned image.
-	- Closed: 20261123-105352
-
-- Hosted release: check-cpu-floor's Penryn and Phenom guests panic before any test
-	- ID: 2026112307465471
-	- Type: Bug
-	- Status: Closed
-	- Priority: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261123-074654
-	- Opened by:
-	- Steps to reproduce: hosted ci.yml run 45068690472 on main, job ci (release), release check 'x86_64 builds run on x86-64-v1, Penryn and Phenom'.
-	- Incorrect behavior: ddwpq to ddwpt fail because each guest's kernel dies about 4 seconds in with a register dump, so no probe or CLI run comes back. ddwpp passed. The runner's packages are now amd64v3 builds, so the guest's userland from the host likely needs instructions those CPUs lack. Green in 43137942602 on 2026-11-12.
-	- Expected behavior: the guests boot on a v1-only userland, so the check tests the CLI rather than the runner's packages.
-	- Estimated effort: Avg
-	- Needs external testing: No
-	- Reproduced: 20261123, in an ubuntu:26.04 container with amd64v3 turned on, /boot mounted and the same 4 tools as the runner. HEAD's check failed the same 24 ways as the hosted run, with init dying in about 3 seconds.
-	- Actual cause: Ubuntu 26.04's amd64v3 builds of busybox and libc6 use v3 instructions, so init died of SIGILL on both CPUs. The probe also failed with exit 127 there once the guest booted: the v3 gcc builds for v3 by default, and its startup files put a v3 ISA note in every binary, which glibc's loader refuses on an older CPU.
-	- Actual fix: on a host whose apt names an architecture variant, check-cpu-floor fetches the plain amd64 build of each package that owns the guest's busybox and libraries, through apt with lists in its own folder, and puts those in the image. The probe is built with `-march=x86-64` and loses its ISA note. A guest whose init dies of SIGILL says so. The scan also fails an ELF whose ISA note asks for more than v1. design.md's CI/CD line follows.
-	- Decisions:
-		- me: the guest's files come from the plain build of the same packages, picked at run time from apt's `APT::Architecture-Variants`, rather than pinning ubuntu-24.04 or a docker image. The check then holds on any host with variants, and the host's own packages stay as they are.
-	- Verified: 20261123. In the amd64v3 container, all 5 rows passed with the fix: 4730 CLI runs on Penryn and on Phenom gave the same bytes and exit codes as the host. With the variant lookup forced off, both guests failed with the new SIGILL line. shell-regress `dfph5` failed on HEAD's check and passes. shellcheck and `test-ids.py check` passed.
-	- Verified: 20261123, hosted ci.yml run 45232879461 on nov23, job ci (release): ddwpp to ddwpt passed and both guests finished. That job now runs on ubuntu-24.04 (2026112308072792), so the amd64v3 lookup ran only in the ubuntu:26.04 container rig, where all 5 rows passed.
-	- Swept: check-cpu-floor is the only check that builds a guest from host files. check-freebsd boots a pinned FreeBSD image, and check-win-release runs on the host. Every file the image takes from the host goes through `fCopyIn`. Only the Rust CLI has a release, so the other 3 bindings have no twin.
-	- Test case: `ddwpq` to `ddwpt` on a host with amd64v3 packages; shell-regress `dfph5` (the scan fails a build whose ISA note asks for v3).
-	- Branch: `nov23-2026112307465471`
-	- Commit: `6feef5e8`
-	- Prereq IDs: 2026112308072792
-	- Prereq row added: the hosted release job's ddwpp, ddwpr and ddwpt wait on the v3 ISA note in ubuntu-latest builds.
-	- Closed reason: Done
-	- Acceptance signoff: Self-closed: the hosted release check passes, and the 26.04 path passed in the container.
-	- Closed: 20261123-105352
 
 - Hosted tests: cli-regress create-appeared and write-changed-during-wait exit 0 in all 4
 	- ID: 2026112307465452
@@ -238,6 +126,58 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: rerender assets/demo.gif and refresh cicd/demo/expected.txt (the gif stage, or gen-demo-gif.py), so shell-regress dcvej matches the CLI again. Only a tool run.
 	- Estimated effort: Low
 	- Note: until then shell-regress dcvej fails, since every fmt now ends with the stamp.
+
+- Hosted lint: the lint part runs past its 80-minute timeout on Ubuntu 26.04
+	- ID: 2026112311213741
+	- Type: Bug
+	- Status: Queued
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-112137
+	- Opened by:
+	- Steps to reproduce: hosted ci.yml run 45232879461 on nov23, job ci (lint).
+	- Incorrect behavior: the job was cancelled at its 80-minute timeout with no log kept. The tool install step took 20 minutes (4 on 2026-11-22's run 45068690472), and cicd.bash ran 63 minutes before the cancel, with the cppcheck cache missing after a shcl.h change. The green lint part of 43137942602 on 2026-11-12 took 10 minutes in all.
+	- Expected behavior: the lint part finishes inside its timeout after a shcl.h change, and a timeout leaves enough output to say which stage ran long.
+	- Estimated effort: Avg
+
+- Hosted windows: win-runners closed stdin dc477 gets exit 0 and the format stamp from all 4 CLIs
+	- ID: 2026112310344469
+	- Type: Bug
+	- Status: Queued
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-103444
+	- Opened by:
+	- Steps to reproduce: hosted ci.yml run 45232879461 on nov23, job windows, win-runners.bash step 'closed stdin'.
+	- Incorrect behavior: each of the c, rust, go and python CLIs exited 0 saying '## SHCL format 3.0', and dc477 failed. The last green hosted run of dev was 44215749241 on 2026-11-18, before every save and text call took the stamp, so the row likely still expects the old output.
+	- Expected behavior: dc477 passes, with the row matching what a CLI should do on a closed stdin now that saves stamp, or the CLIs fixed if exit 0 is wrong there.
+	- Estimated effort: Low
+
+- Hosted windows: most_legal's left argument may be clobbered by longjmp, so the C oom tests don't build
+	- ID: 2026112310344449
+	- Type: Bug
+	- Status: Queued
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-103444
+	- Opened by:
+	- Steps to reproduce: hosted ci.yml run 45232879461 on nov23, job windows, win-runners.bash steps 'c oom hook' and 'c oom recover'.
+	- Incorrect behavior: the image's mingw gcc (windows-2025-vs2026 20261116.315.1) stops the build of oom_hook.c and oom_recover.c with shcl.h:5274 'argument left might be clobbered by longjmp or vfork' under -Werror=clobbered. most_legal came in on 2026-11-19, after the last green hosted run of dev (44215749241, 2026-11-18).
+	- Expected behavior: shcl.h builds clean under -Wclobbered, and a value most_legal keeps across SHCL_SETJMP is safe from longjmp.
+	- Estimated effort: Low
+
+- Hosted tests: fs_property.c fails -Werror=unused-result on symlink under Ubuntu 26.04
+	- ID: 2026112310344429
+	- Type: Bug
+	- Status: Queued
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-103444
+	- Opened by:
+	- Steps to reproduce: hosted ci.yml run 45232879461 on nov23, job ci (tests), step fs-property.bash, the C arm.
+	- Incorrect behavior: source/c/tests/fs_property.c lines 606, 610 and 613 call symlink with a (void) cast, which gcc doesn't accept for a function glibc marks warn_unused_result, so the C fs test doesn't build and the run stops before cli-regress. ubuntu-latest is Ubuntu 26.04 since 2026-11.
+	- Expected behavior: the C fs test builds on the hosted runner and checks symlink's result.
+	- Estimated effort: Low
 
 - `Document::merge` drops the base file's comments on every leaf the upper layer names
 	- ID: 2026111217560140
@@ -368,67 +308,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: each site is judged, a real one is fixed, and the rest are suppressed at the line with a reason, as 2026111016205714 did.
 	- Estimated effort: Avg
 	- Note: the ones read so far look false. The use-after-free reports are on paths where realloc or fdopen failed, and the `upgrade_fail` one is `vsnprintf(NULL, 0, ...)`. Infer 1.2.0 doesn't read `@infer-ignore`.
-
-- `--list` names tests that a step's skip filter leaves out
-	- ID: 2026112120314617
-	- Type: Bug
-	- Status: Closed
-	- Severity: Low
-	- Target version: v3.0.0
-	- Opened: 20261121-203146
-	- Opened by: 2026110215285705
-	- Related IDs: 2026110215285705
-	- Steps to reproduce:
-		- `cicd/cicd.bash --list --no-leakcheck`.
-	- Incorrect behavior: the Rust and Go suite steps list every test ID in their files, the soaks' `de2ns` and `de2w0` included, though the steps skip them. `fs_property.rs`'s IDs show under the Rust suite the same way.
-	- Expected behavior: a step lists only the tests it runs, so a `--skip`, `-skip`, `-run` or `--test` filter narrows its IDs.
-	- Estimated effort: Low
-	- Actual cause: `test-ids.py list` matched a suite step to its files and listed every ID in them, whatever the step's own filter left out. fs_property's IDs had no other step, since fs-property.bash reads its commands from `FS_PROPERTY_TESTS`.
-	- Actual fix: `list` reads a Rust or Go suite step's filter, cargo's `--test`, `--lib` and `--bins`, libtest's `--skip`, `--exact` and name filters, and go's `-run` and `-skip`, and matches each ID by the test function it sits in. The corpus counts only when a test of its runner is kept. fs-property.bash's step lists the 4 fs_property files' IDs. The Go race step's `-skip` names the soak too, which already skipped itself under `-race`.
-	- Decisions:
-		- A test is matched by its function name alone, though libtest matches inside the module path. A `--skip` on a module name would still list that module's tests. No step here filters that way (me).
-		- An ID that TestMain prints, `de2vz`, shows under every Go suite step, since no filter stops TestMain (me).
-		- The race step names the soak in `-skip` rather than `list` reading `t.Skip` in the test, so the list stays a reading of the command (me).
-	- Swept: every step that runs `cargo test` or `go -C source/go test` in config.bash (TEST_CMD, TEST_QUICK_CMD, TEST_EXTRA, LEAKCHECK_FAST, FS_PROPERTY_TESTS). box-suites.bash and the hosted jobs aren't `--list` steps.
-	- Test case: shell-regress `dfpk1` (config.bash's suite and soak steps and 2 name filters, through `test-ids.py list`).
-	- Verified: `dfpk1` fails on the old test-ids.py (20 checks) and on the old config.bash alone (`de2w0` under the race step), and passes now. `cicd.bash --list --no-leakcheck` shows no soak or fs_property ID under a suite step, and the 4 fs_property files' IDs under fs-property.bash. The whole of shell-regress passed but `dcvej`, which fails the same on nov23. check-push-gate passed, `dee5y` and `demwg` included. `--backlog-run-quick cicd` passed format, build and lint, test-ids check and shellcheck included, and its tests step ran out the 4-minute call.
-	- Branch: nov23-2026112120314617
-	- Commit: `c8c2a04b`
-	- Acceptance signoff: Self-closed: the step lists follow the filters the item names, and the test failed before the fix.
-	- Closed: 20261123-092608
-	- Closed reason: Done
-
-- A merge doesn't put a blank between a nested block's opening lines and the layer's opening lines it adds
-	- ID: 2026112119250496
-	- Type: Bug
-	- Status: Closed
-	- Severity: Low
-	- Target version: v3.0.0
-	- Opened: 20261121-192504
-	- Opened by: me, found while working 2026112112314153
-	- Related IDs: 2026112112314153
-	- Version and build: nov22 at 1cef3b94, with 2026112112314153's change
-	- Steps to reproduce: `printf 'a:\n\t# base open\n\n\tc: y\n' > base.shcl`, `printf 'a:\n\t# layer open\n\n\tz: 1\n' > layer.shcl`, then `shcl fmt --layer=base.shcl layer.shcl`.
-	- Incorrect behavior: `# layer open` goes right under `# base open`, with no blank between them. The top of the file gets that blank, and design.md's "Lines an edit takes from their node" says both do. Both lines stay the block's opening lines either way, so `comments` reads the same.
-	- Expected behavior: a blank between `# base open` and `# layer open`, as for the top of the file.
-	- Possible cause: `adopt_trivia` appends the layer's opening lines without a blank above, where `merge_top` sets one.
-	- Estimated effort: Low
-	- Reproduced: 20261123, the steps in the Rust CLI on nov23 at `5f1041a9`. A line the base's block already opens with is also written twice, as in a merge of `a:`, `# base open`, a blank, `c: y` over itself, where the top of the file writes it once.
-	- Actual cause [Bug]: `adopt_trivia` appended the layer's opening lines as they were, so neither the blank above them nor the skip of a line the base already has, which `merge_top` gives the top of the file, applied below the top level.
-	- Actual fix [Bug]: `adopt_trivia` puts a blank above the first opening line it adds when the base's block had its own, and skips a line the base's block already opens with (`repeat_line`, same depth), in all 4 bindings (`lib.rs`, `shcl.go`, `shcl.py`, `shcl.h`). The changelog says so. design.md's "Lines an edit takes from their node" already said both.
-	- Actual effort: Low
-	- Decisions:
-		- me, 20261123: the skip of a repeated line is fixed here too, since design.md's bullet gives it beside the blank, it's the same loop as `merge_top`'s, and a merge over an equal document wrote each such line twice. Where the base's block has no opening lines, the layer's first one keeps its own blank, since a nested block can have a blank between its line and its opening lines, where the top of the file can't.
-	- Swept: every place a merge joins 2 nodes' opening lines, in all 4: `merge_top` (the top of the file, already right) and `adopt_trivia` (fixed). A copied instance and a replaced leaf take their own lines whole, with nothing to join. `fold_node_into` is the in-file fold, which moves the loser's opening lines under the survivor's last child, so it isn't this rule.
-	- Test case: placement rows `2026112119250496-1` and `-2` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dderx`, `dd3t9`, `dab72`, `dd16k`.
-	- Verified: 20261123, both rows fail on the Python library at `5f1041a9` and pass on the change (`placement-watch.py`). The issue's steps, the self-merge and a 2-deep case give the same text through the Rust, Go, C and Python CLIs. `--backlog-run-quick rust go python c` passed all 5 steps, the 4 placement runners included. `dderx`, `dd3t9`, `dd16k`, `dab72` and `df50j` pass 100,000 in release. Crosscheck over the corpus (24024 comparisons), cli-regress (689 rows), lint-report and mdcheck passed.
-	- Verified: 20261123, the 2M release fuzz of all fuzz_smoke passed (34 tests, 698 s), cppcheck from LINT_EXTRA was clean, and analyze-c passed (de2x3, de2x4) on nov23 after the merge. Logs under /mnt/ext/wip2/wip/tmp/shcl/20261123-0942* and 20261123-095540_001.
-	- Needs local test suite run?: No
-	- Branch: `nov23-2026112119250496`
-	- Commit: `b30655bf`
-	- Closed reason: Done
-	- Acceptance signoff: Self-closed: both placement rows failed before the fix, and the long runs passed.
-	- Closed: 20261123-102416
 
 - The veneer smoke linked against the DLLs dies at start on b29w
 	- ID: 2026110710374327
@@ -983,6 +862,127 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- spec.md and the `upgrade` docs say 2.x includes 1.x, and that a 1.x file's backup is named `format-v2`.
 		- The next changelog's upgrading notes say C's `SHCL_SET_OK` is 0, so old code testing a setter `!= 0` reads every success as a failure, and that a string read of an array gives its bracket text. The released beta1 section stays as it is.
 	- Estimated effort: Low
+
+- Hosted release: the native build on ubuntu-latest asks for x86-64-v3 in its ISA note
+	- ID: 2026112308072792
+	- Type: Bug
+	- Status: Closed
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-080727
+	- Opened by: 2026112307465471
+	- Related IDs: 2026112307465471
+	- Steps to reproduce: build the release on ubuntu-latest, which is Ubuntu 26.04 with amd64v3 packages since about 2026-11-16, and run `readelf -n` on it. Or run ci.yml's release job.
+	- Incorrect behavior: Ubuntu's amd64v3 gcc defaults to `-march=x86-64-v3`, and its `Scrt1.o` has an ISA note that asks for v3. Every binary linked there gets the note, the Rust release included, so glibc won't load it on Penryn or Phenom ("CPU ISA level is lower than required", exit 127). check-cpu-floor's `ddwpp` fails on the note, and `ddwpr` and `ddwpt` would see every CLI run exit 127.
+	- Expected behavior: the hosted release build has no ISA note past v1, as a build on Debian or Ubuntu 24.04 has, so the hosted CPU floor check passes.
+	- Reproduced: 20261123, in an ubuntu:26.04 container with amd64v3 turned on. A Rust release build there, through Ubuntu's cargo, has `x86 ISA needed: x86-64-baseline, x86-64-v2, x86-64-v3`. Not yet seen on the hosted runner, whose rustup rustc links through the same cc and Scrt1.o.
+	- Possible cause: the runner image moved from Ubuntu 24.04 to 26.04 between runs 43137942602 (2026-11-12) and 45068690472.
+	- Estimated effort: Low
+	- Note: options seen: pin the release job to `ubuntu-24.04`, or drop the note from the hosted build. Linking with `-Wl,-z,x86-64-baseline` stops Ubuntu's ld 2.46 with an internal error. The C CLI's plain `cc` line in config.bash builds v3 code there too, though nothing boots or releases it.
+	- Actual cause: the runner image moved to Ubuntu 26.04 with amd64v3 packages. Its gcc and startup files build for v3 and put a v3 ISA note in every binary linked there. The released build comes from the Debian image, which has no such variant, so only the hosted release part was affected.
+	- Actual fix: ci.yml's release part runs on `ubuntu-24.04`, through a `runner` key in the job's matrix. Lint and tests stay on `ubuntu-latest`. The Rust cache key names the runner label, so the release part can't restore a target dir with a binary linked on 26.04. design.md's CI/CD line says so.
+	- Decisions: pin only the release part, rather than every Linux job or stripping the note. Lint and tests build nothing that has to run on the floor, and the moving image is where a newer toolchain gets tested, which is what found the mingw format bug (2026112307465433). go-floor, setup-build and winarm-build build no x86_64 Linux binary. Stripping the note would hide the cause, since the v3 startup files and libc_nonshared.a can hold v3 code that the note warns about. The pin has to move when GitHub retires 24.04.
+	- Verified: 20261123. In the project's ubuntu:24.04 image, with no apt variants, Scrt1.o and crti.o ask only for x86-64-baseline. check-pins passes on the new ci.yml, and shell-regress's check-pins rows `dcqgf`, `dcqgg`, `dcv6p`, `dektk` and `ddx1w` pass. check-docs passes. Not run: a hosted run.
+	- Verified: 20261123, hosted ci.yml run 45232879461 on nov23, job ci (release) on ubuntu-24.04: ddwpp, ddwpq, ddwpr, ddwps and ddwpt passed, 4730 CLI runs on each guest with the same bytes and exit codes as the host.
+	- Needs external testing: No
+	- Test case: check-cpu-floor `ddwpp` (the scan fails a build whose ISA note asks for more than v1), `ddwpr` and `ddwpt`, in the hosted release part.
+	- Swept: every `runs-on` in ci.yml. linux-arm is pinned to `ubuntu-24.04-arm` already, and the Windows and macOS jobs are untouched. ci.yml is the only workflow. No published binary is built on a hosted runner: stage 6 builds them in the Debian image, and setup-build and winarm-build make artifacts only for the jobs after them.
+	- Branch: `nov23-2026112308072792`
+	- Commit: `88cf8f9e`
+	- Closed reason: Done
+	- Acceptance signoff: Self-closed: the hosted release job passes on the pinned image.
+	- Closed: 20261123-105352
+
+- Hosted release: check-cpu-floor's Penryn and Phenom guests panic before any test
+	- ID: 2026112307465471
+	- Type: Bug
+	- Status: Closed
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-074654
+	- Opened by:
+	- Steps to reproduce: hosted ci.yml run 45068690472 on main, job ci (release), release check 'x86_64 builds run on x86-64-v1, Penryn and Phenom'.
+	- Incorrect behavior: ddwpq to ddwpt fail because each guest's kernel dies about 4 seconds in with a register dump, so no probe or CLI run comes back. ddwpp passed. The runner's packages are now amd64v3 builds, so the guest's userland from the host likely needs instructions those CPUs lack. Green in 43137942602 on 2026-11-12.
+	- Expected behavior: the guests boot on a v1-only userland, so the check tests the CLI rather than the runner's packages.
+	- Estimated effort: Avg
+	- Needs external testing: No
+	- Reproduced: 20261123, in an ubuntu:26.04 container with amd64v3 turned on, /boot mounted and the same 4 tools as the runner. HEAD's check failed the same 24 ways as the hosted run, with init dying in about 3 seconds.
+	- Actual cause: Ubuntu 26.04's amd64v3 builds of busybox and libc6 use v3 instructions, so init died of SIGILL on both CPUs. The probe also failed with exit 127 there once the guest booted: the v3 gcc builds for v3 by default, and its startup files put a v3 ISA note in every binary, which glibc's loader refuses on an older CPU.
+	- Actual fix: on a host whose apt names an architecture variant, check-cpu-floor fetches the plain amd64 build of each package that owns the guest's busybox and libraries, through apt with lists in its own folder, and puts those in the image. The probe is built with `-march=x86-64` and loses its ISA note. A guest whose init dies of SIGILL says so. The scan also fails an ELF whose ISA note asks for more than v1. design.md's CI/CD line follows.
+	- Decisions:
+		- me: the guest's files come from the plain build of the same packages, picked at run time from apt's `APT::Architecture-Variants`, rather than pinning ubuntu-24.04 or a docker image. The check then holds on any host with variants, and the host's own packages stay as they are.
+	- Verified: 20261123. In the amd64v3 container, all 5 rows passed with the fix: 4730 CLI runs on Penryn and on Phenom gave the same bytes and exit codes as the host. With the variant lookup forced off, both guests failed with the new SIGILL line. shell-regress `dfph5` failed on HEAD's check and passes. shellcheck and `test-ids.py check` passed.
+	- Verified: 20261123, hosted ci.yml run 45232879461 on nov23, job ci (release): ddwpp to ddwpt passed and both guests finished. That job now runs on ubuntu-24.04 (2026112308072792), so the amd64v3 lookup ran only in the ubuntu:26.04 container rig, where all 5 rows passed.
+	- Swept: check-cpu-floor is the only check that builds a guest from host files. check-freebsd boots a pinned FreeBSD image, and check-win-release runs on the host. Every file the image takes from the host goes through `fCopyIn`. Only the Rust CLI has a release, so the other 3 bindings have no twin.
+	- Test case: `ddwpq` to `ddwpt` on a host with amd64v3 packages; shell-regress `dfph5` (the scan fails a build whose ISA note asks for v3).
+	- Branch: `nov23-2026112307465471`
+	- Commit: `6feef5e8`
+	- Prereq IDs: 2026112308072792
+	- Prereq row added: the hosted release job's ddwpp, ddwpr and ddwpt wait on the v3 ISA note in ubuntu-latest builds.
+	- Closed reason: Done
+	- Acceptance signoff: Self-closed: the hosted release check passes, and the 26.04 path passed in the container.
+	- Closed: 20261123-105352
+
+- `--list` names tests that a step's skip filter leaves out
+	- ID: 2026112120314617
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261121-203146
+	- Opened by: 2026110215285705
+	- Related IDs: 2026110215285705
+	- Steps to reproduce:
+		- `cicd/cicd.bash --list --no-leakcheck`.
+	- Incorrect behavior: the Rust and Go suite steps list every test ID in their files, the soaks' `de2ns` and `de2w0` included, though the steps skip them. `fs_property.rs`'s IDs show under the Rust suite the same way.
+	- Expected behavior: a step lists only the tests it runs, so a `--skip`, `-skip`, `-run` or `--test` filter narrows its IDs.
+	- Estimated effort: Low
+	- Actual cause: `test-ids.py list` matched a suite step to its files and listed every ID in them, whatever the step's own filter left out. fs_property's IDs had no other step, since fs-property.bash reads its commands from `FS_PROPERTY_TESTS`.
+	- Actual fix: `list` reads a Rust or Go suite step's filter, cargo's `--test`, `--lib` and `--bins`, libtest's `--skip`, `--exact` and name filters, and go's `-run` and `-skip`, and matches each ID by the test function it sits in. The corpus counts only when a test of its runner is kept. fs-property.bash's step lists the 4 fs_property files' IDs. The Go race step's `-skip` names the soak too, which already skipped itself under `-race`.
+	- Decisions:
+		- A test is matched by its function name alone, though libtest matches inside the module path. A `--skip` on a module name would still list that module's tests. No step here filters that way (me).
+		- An ID that TestMain prints, `de2vz`, shows under every Go suite step, since no filter stops TestMain (me).
+		- The race step names the soak in `-skip` rather than `list` reading `t.Skip` in the test, so the list stays a reading of the command (me).
+	- Swept: every step that runs `cargo test` or `go -C source/go test` in config.bash (TEST_CMD, TEST_QUICK_CMD, TEST_EXTRA, LEAKCHECK_FAST, FS_PROPERTY_TESTS). box-suites.bash and the hosted jobs aren't `--list` steps.
+	- Test case: shell-regress `dfpk1` (config.bash's suite and soak steps and 2 name filters, through `test-ids.py list`).
+	- Verified: `dfpk1` fails on the old test-ids.py (20 checks) and on the old config.bash alone (`de2w0` under the race step), and passes now. `cicd.bash --list --no-leakcheck` shows no soak or fs_property ID under a suite step, and the 4 fs_property files' IDs under fs-property.bash. The whole of shell-regress passed but `dcvej`, which fails the same on nov23. check-push-gate passed, `dee5y` and `demwg` included. `--backlog-run-quick cicd` passed format, build and lint, test-ids check and shellcheck included, and its tests step ran out the 4-minute call.
+	- Branch: nov23-2026112120314617
+	- Commit: `c8c2a04b`
+	- Acceptance signoff: Self-closed: the step lists follow the filters the item names, and the test failed before the fix.
+	- Closed: 20261123-092608
+	- Closed reason: Done
+
+- A merge doesn't put a blank between a nested block's opening lines and the layer's opening lines it adds
+	- ID: 2026112119250496
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261121-192504
+	- Opened by: me, found while working 2026112112314153
+	- Related IDs: 2026112112314153
+	- Version and build: nov22 at 1cef3b94, with 2026112112314153's change
+	- Steps to reproduce: `printf 'a:\n\t# base open\n\n\tc: y\n' > base.shcl`, `printf 'a:\n\t# layer open\n\n\tz: 1\n' > layer.shcl`, then `shcl fmt --layer=base.shcl layer.shcl`.
+	- Incorrect behavior: `# layer open` goes right under `# base open`, with no blank between them. The top of the file gets that blank, and design.md's "Lines an edit takes from their node" says both do. Both lines stay the block's opening lines either way, so `comments` reads the same.
+	- Expected behavior: a blank between `# base open` and `# layer open`, as for the top of the file.
+	- Possible cause: `adopt_trivia` appends the layer's opening lines without a blank above, where `merge_top` sets one.
+	- Estimated effort: Low
+	- Reproduced: 20261123, the steps in the Rust CLI on nov23 at `5f1041a9`. A line the base's block already opens with is also written twice, as in a merge of `a:`, `# base open`, a blank, `c: y` over itself, where the top of the file writes it once.
+	- Actual cause [Bug]: `adopt_trivia` appended the layer's opening lines as they were, so neither the blank above them nor the skip of a line the base already has, which `merge_top` gives the top of the file, applied below the top level.
+	- Actual fix [Bug]: `adopt_trivia` puts a blank above the first opening line it adds when the base's block had its own, and skips a line the base's block already opens with (`repeat_line`, same depth), in all 4 bindings (`lib.rs`, `shcl.go`, `shcl.py`, `shcl.h`). The changelog says so. design.md's "Lines an edit takes from their node" already said both.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261123: the skip of a repeated line is fixed here too, since design.md's bullet gives it beside the blank, it's the same loop as `merge_top`'s, and a merge over an equal document wrote each such line twice. Where the base's block has no opening lines, the layer's first one keeps its own blank, since a nested block can have a blank between its line and its opening lines, where the top of the file can't.
+	- Swept: every place a merge joins 2 nodes' opening lines, in all 4: `merge_top` (the top of the file, already right) and `adopt_trivia` (fixed). A copied instance and a replaced leaf take their own lines whole, with nothing to join. `fold_node_into` is the in-file fold, which moves the loser's opening lines under the survivor's last child, so it isn't this rule.
+	- Test case: placement rows `2026112119250496-1` and `-2` (`df4g0` Rust, `df4g2` Go, `df4g3` Python, `df4g4` C), `dderx`, `dd3t9`, `dab72`, `dd16k`.
+	- Verified: 20261123, both rows fail on the Python library at `5f1041a9` and pass on the change (`placement-watch.py`). The issue's steps, the self-merge and a 2-deep case give the same text through the Rust, Go, C and Python CLIs. `--backlog-run-quick rust go python c` passed all 5 steps, the 4 placement runners included. `dderx`, `dd3t9`, `dd16k`, `dab72` and `df50j` pass 100,000 in release. Crosscheck over the corpus (24024 comparisons), cli-regress (689 rows), lint-report and mdcheck passed.
+	- Verified: 20261123, the 2M release fuzz of all fuzz_smoke passed (34 tests, 698 s), cppcheck from LINT_EXTRA was clean, and analyze-c passed (de2x3, de2x4) on nov23 after the merge. Logs under /mnt/ext/wip2/wip/tmp/shcl/20261123-0942* and 20261123-095540_001.
+	- Needs local test suite run?: No
+	- Branch: `nov23-2026112119250496`
+	- Commit: `b30655bf`
+	- Closed reason: Done
+	- Acceptance signoff: Self-closed: both placement rows failed before the fix, and the long runs passed.
+	- Closed: 20261123-102416
 
 - Without a schema, 2 plain blocks that merge and repeat their children get only the array hint
 	- ID: 2026112015385902
