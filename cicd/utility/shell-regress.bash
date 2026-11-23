@@ -5174,6 +5174,39 @@ for t in "${skPy[@]}"; do
 	skHas fast "${t}" || fBad "no fast leak check runs the soak ${t}"
 done
 
+fTest dfpk1 2026112120314617-list-follows-suite-filters
+##	--list put every test ID of a suite's files under the suite step, the soaks
+##	and filesystem property tests its own skip filter leaves out included. The
+##	steps here are config.bash's, plus 2 name filters.
+idsIn(){ local pat="$1"; shift; grep -ho "${pat}" "$@" 2> /dev/null | grep -o '"[0-9a-z]\{5\}"' | tr -d '"' | paste -sd' ' || true; }
+lfSoakRs="$(idsIn 'test_id("[0-9a-z]*")' "${repoDir}/source/rust/tests/soak.rs")"
+lfSoakGo="$(idsIn 'testID(t, "[0-9a-z]*")' "${repoDir}/source/go/soak_test.go")"
+lfFsRs="$(idsIn 'test_id("[0-9a-z]*")' "${repoDir}/source/rust/tests/fs_property.rs")"
+lfFsGo="$(idsIn 'testID(t, "[0-9a-z]*")' "${repoDir}/source/go/fs_property_test.go")"
+# shellcheck disable=SC2016  ## the inner shell's own variables
+lfOut="$(cd "${repoDir}" && CPU_CAP=1 bash -c 'set +u; source cicd/config.bash
+	printf "Tests\n"
+	for x in "${TEST_CMD[*]}" "${TEST_QUICK_CMD[*]}" "${TEST_EXTRA[@]}" "${LEAKCHECK_FAST[@]}"; do printf "\t%s\n" "${x}"; done
+	printf "\t%s\n" "cargo test --manifest-path source/rust/Cargo.toml -- heap_holds" "go -C source/go test -count=1 -run=TestSoak"' \
+	| python3 cicd/utility/test-ids.py list 2>&1 | awk '/^\t[^\t]/{s=substr($0,2)} /^\t\t/{print s "\t" $1 "\t" $2}' || true)"
+lfIds(){ awk -F'\t' -v p="$1" 'index($1, p) {print $2}' <<< "${lfOut}" | paste -sd' ' || true; }
+lfCorpus(){ awk -F'\t' -v p="$1" 'index($1, p) && $3 ~ /^project\/conformance\// {n++} END {print n + 0}' <<< "${lfOut}"; }
+[[ -n "${lfSoakRs}" && -n "${lfSoakGo}" && -n "${lfFsRs}" && -n "${lfFsGo}" ]] || fBad "found no soak or filesystem property IDs: ${lfSoakRs@Q} ${lfSoakGo@Q} ${lfFsRs@Q} ${lfFsGo@Q}"
+[[ "$(lfCorpus 'SHCL_FUZZ_ITERS=200000 cargo test')" -gt 0 ]] || fBad "--list put no corpus case under the Rust suite: ${lfOut@Q}"
+for lfStep in 'SHCL_FUZZ_ITERS=200000 cargo test' 'SHCL_FUZZ_ITERS=20000 cargo test' 'test -count=1 -skip "TestTheSaveChecksHold' 'test -race'; do
+	lfGot=" $(lfIds "${lfStep}") "
+	[[ "${lfGot}" != "  " ]] || fBad "--list put no test under ${lfStep@Q}"
+	for t in ${lfSoakRs} ${lfSoakGo} ${lfFsRs} ${lfFsGo}; do
+		[[ "${lfGot}" != *" ${t} "* ]] || fBad "--list put ${t} under ${lfStep@Q}, which skips it"
+	done
+done
+[[ "$(lfIds '--test soak')" == "${lfSoakRs}" && "$(lfCorpus '--test soak')" == 0 ]] || fBad "--list under the Rust soak step: $(lfIds '--test soak')"
+[[ " $(lfIds '-run TestSoakHeapSettles') " == *" ${lfSoakGo} "* && "$(lfCorpus '-run TestSoakHeapSettles')" == 0 ]] || fBad "--list under the Go soak step: $(lfIds '-run TestSoakHeapSettles')"
+[[ "$(lfIds '-- heap_holds')" == "${lfSoakRs}" ]] || fBad "--list under a libtest name filter: $(lfIds '-- heap_holds')"
+[[ " $(lfIds '-run=TestSoak') " == *" ${lfSoakGo} "* && "$(lfCorpus '-run=TestSoak')" == 0 ]] || fBad "--list under -run=TestSoak: $(lfIds '-run=TestSoak')"
+lfGot=" $(lfIds 'fs-property.bash') "
+for t in ${lfFsRs} ${lfFsGo}; do [[ "${lfGot}" == *" ${t} "* ]] || fBad "--list left ${t} out of fs-property.bash's step"; done
+
 fTestEnd
 
 if ((nBad)); then
@@ -5211,3 +5244,4 @@ echo "shell-regress: OK: installers, one-liner scope, packaging, comparison work
 ##		2026-11-01  cicd.bash stamps every build before the debug build and hands the stamp to the image; a cut drops the date.
 ##		2026-11-07  shclpath.ps1 writes only its segment, install.ps1 unpacks through the System32 tar, install.bash under a TMPDIR with .. in its name, anchored tag filters.
 ##		2026-11-22  A box run sweeps the box's stale work folders, and the soaks are leak checks.
+##		2026-11-23  --list follows a suite step's own test filter.

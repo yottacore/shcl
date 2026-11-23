@@ -292,7 +292,8 @@ TEST_EXTRA=(
 	## suite, about 20 s to the plain run's 5 here, so the timeout has room for a
 	## slow runner. It needs cgo and a C compiler (2026101514324720,
 	## 2026101711273980).
-	'CGO_ENABLED=1 GOMAXPROCS="${CPU_CAP}" go -C source/go test -race -count=1 -timeout 10m -skip TestTheSaveChecksHold'
+	## The soak skips itself under -race too; skipping it here keeps --list true.
+	'CGO_ENABLED=1 GOMAXPROCS="${CPU_CAP}" go -C source/go test -race -count=1 -timeout 10m -skip "TestTheSaveChecksHold|TestSoakHeapSettles"'
 	## Each binding's filesystem property test, on a tmpfs made for the run,
 	## and their answers held to Rust's (2026111010012287).
 	'cicd/utility/fs-property.bash "${FS_PROPERTY_TESTS[@]}"'

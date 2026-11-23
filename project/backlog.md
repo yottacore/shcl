@@ -306,7 +306,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `--list` names tests that a step's skip filter leaves out
 	- ID: 2026112120314617
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: Low
 	- Target version: v3.0.0
 	- Opened: 20261121-203146
@@ -317,6 +317,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: the Rust and Go suite steps list every test ID in their files, the soaks' `de2ns` and `de2w0` included, though the steps skip them. `fs_property.rs`'s IDs show under the Rust suite the same way.
 	- Expected behavior: a step lists only the tests it runs, so a `--skip`, `-skip`, `-run` or `--test` filter narrows its IDs.
 	- Estimated effort: Low
+	- Actual cause: `test-ids.py list` matched a suite step to its files and listed every ID in them, whatever the step's own filter left out. fs_property's IDs had no other step, since fs-property.bash reads its commands from `FS_PROPERTY_TESTS`.
+	- Actual fix: `list` reads a Rust or Go suite step's filter, cargo's `--test`, `--lib` and `--bins`, libtest's `--skip`, `--exact` and name filters, and go's `-run` and `-skip`, and matches each ID by the test function it sits in. The corpus counts only when a test of its runner is kept. fs-property.bash's step lists the 4 fs_property files' IDs. The Go race step's `-skip` names the soak too, which already skipped itself under `-race`.
+	- Decisions:
+		- A test is matched by its function name alone, though libtest matches inside the module path. A `--skip` on a module name would still list that module's tests. No step here filters that way (me).
+		- An ID that TestMain prints, `de2vz`, shows under every Go suite step, since no filter stops TestMain (me).
+		- The race step names the soak in `-skip` rather than `list` reading `t.Skip` in the test, so the list stays a reading of the command (me).
+	- Swept: every step that runs `cargo test` or `go -C source/go test` in config.bash (TEST_CMD, TEST_QUICK_CMD, TEST_EXTRA, LEAKCHECK_FAST, FS_PROPERTY_TESTS). box-suites.bash and the hosted jobs aren't `--list` steps.
+	- Test case: shell-regress `dfpk1` (config.bash's suite and soak steps and 2 name filters, through `test-ids.py list`).
+	- Verified: `dfpk1` fails on the old test-ids.py (20 checks) and on the old config.bash alone (`de2w0` under the race step), and passes now. `cicd.bash --list --no-leakcheck` shows no soak or fs_property ID under a suite step, and the 4 fs_property files' IDs under fs-property.bash. The whole of shell-regress passed but `dcvej`, which fails the same on nov23. check-push-gate passed, `dee5y` and `demwg` included. `--backlog-run-quick cicd` passed format, build and lint, test-ids check and shellcheck included, and its tests step ran out the 4-minute call.
+	- Branch: nov23-2026112120314617
+	- Commit: `c8c2a04b`
+	- Acceptance signoff: Self-closed: the step lists follow the filters the item names, and the test failed before the fix.
+	- Closed: 20261123-092608
+	- Closed reason: Done
 
 - A merge doesn't put a blank between a nested block's opening lines and the layer's opening lines it adds
 	- ID: 2026112119250496
