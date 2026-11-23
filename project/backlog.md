@@ -261,8 +261,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - vmFreeBSD: let bsdtest mount a tmpfs, so the box's fs suite gets one
 	- ID: 2026111019385135
 	- Type: Task
-	- Status: Queued
-		- Waits on its question in questions.md: whether to set `vfs.usermount=1` on vmFreeBSD for good.
+	- Status: Closed
 	- Priority: Avg
 	- Target version: v3.0.0
 	- Opened: 20261110-193851
@@ -271,6 +270,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Problem description: the fs suite on vmFreeBSD runs as bsdtest, and `vfs.usermount` is 0 there, so fs-property.bash's FreeBSD route can't mount its tmpfs and the cases go in a plain folder with a `note:` line. With `vfs.usermount=1` set for a moment (20261110), bsdtest mounted a 256 MB tmpfs on its own folder, a read-bit file there was unreadable to it, and the unmount worked. Setting it for good means a root change on a shared VM, which is a line in its `/etc/sysctl.conf`.
 	- Estimated effort: Low
 	- JC, 20261110: option (b), add vfs.usermount=1 to vmFreeBSD's /etc/sysctl.conf as root.
+	- Actual effort: Low
+	- Actual fix: vmFreeBSD's `/etc/sysctl.conf` sets `vfs.usermount=1`, with a comment naming this item. The old file is at `/etc/sysctl.conf.bak-20261123`. Nothing in the repo changed, since fs-property.bash's FreeBSD route already mounts a tmpfs where the user may. Roll back by taking out the line and running `sysctl vfs.usermount=0` as root.
+	- Decisions:
+		- me, 20261123: the value was applied from the file, by `/etc/rc.d/sysctl start` with it set to 0 first, rather than by a reboot of the shared VM. That reads the same file the boot does.
+	- Verified: after the edit, the rc script took `vfs.usermount` from 0 to 1. As bsdtest, `mount -t tmpfs -o size=256m` on its own folder gave a 256 MB tmpfs, a read-bit file there was unreadable, and the unmount worked. check-boxes.bash with vmFreeBSD's row and `suites=fs` passed `df4x7` (and `decyk`, 4730 CLI runs) on the beta1 builds. The VM was paused before and after each, and was put back to paused.
+	- Test case: check-boxes `df4x7`. The setting lives on the VM, so the repo has no test that pins it.
+	- Branch: `nov23b-2026111019385135`
+	- Acceptance signoff: Self-closed: mechanical, JC picked the option, and bsdtest's mount ran on the box.
+	- Closed: 20261123-155818
+	- Closed reason: Done
 
 - The default run takes over an hour
 	- ID: 2026110215285706
