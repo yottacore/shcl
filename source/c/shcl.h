@@ -5271,7 +5271,10 @@ static uint32_t line_tells(ShclArena *ta, ShclStr rest, unsigned errs, ShclToken
    lines with a tell it refuses or reads as binding nothing, plus each footer
    its `init` didn't write. The lowest count wins, and a tie goes to the
    newest, so a format the tells take off loses to any they leave. */
-static uint32_t most_legal(ShclStr in, uint32_t left) {
+static uint32_t most_legal(ShclStr in, uint32_t left_in) {
+	/* The pick reads it after the setjmp, so it's held in memory rather than
+	   in a register gcc thinks a longjmp could clobber. */
+	const volatile uint32_t left = left_in;
 	SHCL_VOLATILE_OWNER_BEGIN
 	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
 	if (!own) { SHCL_OOM(); abort(); }

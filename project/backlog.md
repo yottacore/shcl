@@ -189,7 +189,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Hosted windows: most_legal's left argument may be clobbered by longjmp, so the C oom tests don't build
 	- ID: 2026112310344449
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs external testing: hosted ci.yml windows job, win-runners.bash steps 'c oom hook' and 'c oom recover' (`dbwdx`, `dc114`).
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261123-103444
@@ -197,12 +198,22 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Steps to reproduce: hosted ci.yml run 45232879461 on nov23, job windows, win-runners.bash steps 'c oom hook' and 'c oom recover'.
 	- Incorrect behavior: the image's mingw gcc (windows-2025-vs2026 20261116.315.1) stops the build of oom_hook.c and oom_recover.c with shcl.h:5274 'argument left might be clobbered by longjmp or vfork' under -Werror=clobbered. most_legal came in on 2026-11-19, after the last green hosted run of dev (44215749241, 2026-11-18).
 	- Expected behavior: shcl.h builds clean under -Wclobbered, and a value most_legal keeps across SHCL_SETJMP is safe from longjmp.
+	- Reproduced: 20261123, with the local mingw gcc 14 (win32 threads) at `-Os`, the level the hosted log failed at. The same error at the same line. `-O0` to `-O3` passed there too.
 	- Estimated effort: Low
+	- Actual cause: `left` is an argument that stays live across the setjmp until the final pick. It isn't changed in between and the recovery path never reads it, so it couldn't really be lost, but gcc's guess at `-Os` keeps it in a register it counts as at risk.
+	- Decisions:
+		- The argument is copied into a volatile local before the setjmp, the way the recovery carriers already are, rather than a `-Wclobbered` pragma. That makes the expected behavior's second half hold outright, and keeps the function whole, as in the Rust twin (me).
+	- Actual fix: `most_legal` takes `left_in` and reads it only into `const volatile uint32_t left`, before `SHCL_SETJMP`.
+	- Swept: oom_hook.c and oom_recover.c built with mingw gcc at all 5 levels, the hosted sweep's flags, and oom_hook.c with gcc 15 at `-Os -Wclobbered`. All clean. No other binding uses setjmp.
+	- Verified: mingw `-Os` build failed before and passes after. Both mingw `-Os` binaries pass under wine, and both native gcc builds pass (`dbwdx`, `dc114`). `analyze-c.bash` passed `de2x2` to `de2x4`. `--backlog-run-quick c` and `lint-report.bash --check --no-mark` passed. Wine isn't the hosted unwind, so the windows job still has to run them.
+	- Branch: nov23b-2026112310344449
+	- Commit: `aaea36e7`
+	- Test case: win-runners.bash 'c oom hook' and 'c oom recover' (`dbwdx`, `dc114`), which build at all 5 levels.
 
 - Hosted tests: fs_property.c fails -Werror=unused-result on symlink under Ubuntu 26.04
 	- ID: 2026112310344429
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261123-103444
@@ -210,7 +221,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Steps to reproduce: hosted ci.yml run 45232879461 on nov23, job ci (tests), step fs-property.bash, the C arm.
 	- Incorrect behavior: source/c/tests/fs_property.c lines 606, 610 and 613 call symlink with a (void) cast, which gcc doesn't accept for a function glibc marks warn_unused_result, so the C fs test doesn't build and the run stops before cli-regress. ubuntu-latest is Ubuntu 26.04 since 2026-11.
 	- Expected behavior: the C fs test builds on the hosted runner and checks symlink's result.
+	- Reproduced: 20261123, in an ubuntu:26.04 container with its gcc 15.2, using fs-property.bash's flags. The same 3 errors. Locally too, with gcc 14 and `-D_FORTIFY_SOURCE=2`, which Ubuntu's gcc turns on by default and which is what makes glibc mark it.
 	- Estimated effort: Low
+	- Actual cause: glibc marks symlink warn_unused_result only under `_FORTIFY_SOURCE`, which Ubuntu's gcc sets and Debian's doesn't, and gcc doesn't let a (void) cast drop such a result.
+	- Decisions:
+		- The result is still dropped rather than checked. A drawn case can run `mkdir` before `link-made`, so `nd` is already there. A fatal check failed `df4eq` at seed 102 with "File exists". The Rust, Go and Python ports drop it too (me).
+	- Actual fix: the 3 event calls go through `fs_try_link`, which keeps the result in a local and drops it. `fs_build`'s symlink was already checked.
+	- Swept: every `(void)` cast on a call in `source/c/` (shcl.h, tests, the CLI). Only mkfifo's remains, and glibc doesn't mark it.
+	- Verified: in the ubuntu:26.04 container the old file fails to build and the new one builds and passes `df4ep` and `df4eq`. Locally it builds clean with gcc 14 and 15 under fortify, and with clang. `--backlog-run-quick c` passed, the fs-property step included.
+	- Branch: nov23b-2026112310344449
+	- Commit: `aaea36e7`
+	- Test case: fs-property.bash's C arm (`df4ep`, `df4eq`), built with the hosted flags.
+	- Acceptance signoff: Self-closed: build fix, failed before and passes after on the hosted image's compiler.
+	- Closed: 20261123-153900
+	- Closed reason: Done
 
 - `Document::merge` drops the base file's comments on every leaf the upper layer names
 	- ID: 2026111217560140
