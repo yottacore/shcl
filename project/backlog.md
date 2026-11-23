@@ -35,6 +35,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Hosted lint: the lint part runs past its 80-minute timeout on Ubuntu 26.04
+	- ID: 2026112311213741
+	- Type: Bug
+	- Status: Queued
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-112137
+	- Opened by:
+	- Steps to reproduce: hosted ci.yml run 45232879461 on nov23, job ci (lint).
+	- Incorrect behavior: the job was cancelled at its 80-minute timeout with no log kept. The tool install step took 20 minutes (4 on 2026-11-22's run 45068690472), and cicd.bash ran 63 minutes before the cancel, with the cppcheck cache missing after a shcl.h change. The green lint part of 43137942602 on 2026-11-12 took 10 minutes in all.
+	- Expected behavior: the lint part finishes inside its timeout after a shcl.h change, and a timeout leaves enough output to say which stage ran long.
+	- Estimated effort: Avg
+
 - Hosted windows: win-runners closed stdin dc477 gets exit 0 and the format stamp from all 4 CLIs
 	- ID: 2026112310344469
 	- Type: Bug
@@ -97,6 +110,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Branch: nov23-2026112307465452
 	- Commit: d41304d7
 	- Actual effort: Low
+	- Prereq IDs: 2026112310344429
+	- 20261123: hosted run 45232879461's ci (tests) stopped at fs-property before cli-regress (Bug 2026112310344429), so these rows weren't reached.
 
 - Hosted release: the native build on ubuntu-latest asks for x86-64-v3 in its ISA note
 	- ID: 2026112308072792
@@ -182,6 +197,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: d41304d7
 	- Actual effort: Low
 	- Related IDs: 2026112308403867
+	- Prereq IDs: 2026112310344429
+	- 20261123: hosted run 45232879461's ci (tests) stopped at fs-property before cli-regress (Bug 2026112310344429), so these rows weren't reached.
 
 - Hosted lint: the mingw cross build fails on every %zu format
 	- ID: 2026112307465433
@@ -205,6 +222,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: `x86_64-w64-mingw32-gcc` appears only in this cross check (and install-dev's tool check). The hosted windows job builds the C runners with the image's own gcc under `-Werror` in win-runners.bash, and passed in run 45068690472, so it is unchanged. It would need the same flags if that image moves to mingw-w64 13 with an affected gcc.
 	- Verified: 20261123. The cross check's command, taken from `CROSS_CHECKS`, passes in the ubuntu:26.04 container (92 errors without the flags), and fails there on a `%zu` changed to `%d` in a copy of main.c. `cicd.bash --backlog-run-quick c cicd` passed in the project container, the cross check included. shellcheck on config.bash and `lint-report.bash --check --no-mark` passed. shell-regress failed only `dcvej` (demo against the gif), which fails the same on nov23 without this change.
 	- Commit: `a105bcf2`
+	- Prereq IDs: 2026112311213741
+	- 20261123: hosted run 45232879461's ci (lint) timed out with no log, so the mingw cross check result is unknown.
 
 - Format versions: the demo gif and its golden text show fmt output without the stamp
 	- ID: 2026111710564808
