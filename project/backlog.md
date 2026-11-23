@@ -35,10 +35,27 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Hosted release: the native build on ubuntu-latest asks for x86-64-v3 in its ISA note
+	- ID: 2026112308072792
+	- Type: Bug
+	- Status: Queued
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-080727
+	- Opened by: 2026112307465471
+	- Related IDs: 2026112307465471
+	- Steps to reproduce: build the release on ubuntu-latest, which is Ubuntu 26.04 with amd64v3 packages since about 2026-11-16, and run `readelf -n` on it. Or run ci.yml's release job.
+	- Incorrect behavior: Ubuntu's amd64v3 gcc defaults to `-march=x86-64-v3`, and its `Scrt1.o` has an ISA note that asks for v3. Every binary linked there gets the note, the Rust release included, so glibc won't load it on Penryn or Phenom ("CPU ISA level is lower than required", exit 127). check-cpu-floor's `ddwpp` fails on the note, and `ddwpr` and `ddwpt` would see every CLI run exit 127.
+	- Expected behavior: the hosted release build has no ISA note past v1, as a build on Debian or Ubuntu 24.04 has, so the hosted CPU floor check passes.
+	- Reproduced: 20261123, in an ubuntu:26.04 container with amd64v3 turned on. A Rust release build there, through Ubuntu's cargo, has `x86 ISA needed: x86-64-baseline, x86-64-v2, x86-64-v3`. Not yet seen on the hosted runner, whose rustup rustc links through the same cc and Scrt1.o.
+	- Possible cause: the runner image moved from Ubuntu 24.04 to 26.04 between runs 43137942602 (2026-11-12) and 45068690472.
+	- Estimated effort: Low
+	- Note: options seen: pin the release job to `ubuntu-24.04`, or drop the note from the hosted build. Linking with `-Wl,-z,x86-64-baseline` stops Ubuntu's ld 2.46 with an internal error. The C CLI's plain `cc` line in config.bash builds v3 code there too, though nothing boots or releases it.
+
 - Hosted release: check-cpu-floor's Penryn and Phenom guests panic before any test
 	- ID: 2026112307465471
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261123-074654
@@ -47,6 +64,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: ddwpq to ddwpt fail because each guest's kernel dies about 4 seconds in with a register dump, so no probe or CLI run comes back. ddwpp passed. The runner's packages are now amd64v3 builds, so the guest's userland from the host likely needs instructions those CPUs lack. Green in 43137942602 on 2026-11-12.
 	- Expected behavior: the guests boot on a v1-only userland, so the check tests the CLI rather than the runner's packages.
 	- Estimated effort: Avg
+	- Needs external testing: hosted ci.yml, job ci (release): `ddwpq` and `ddwps` pass and both guests finish. `ddwpp`, `ddwpr` and `ddwpt` there wait on Bug 2026112308072792, since the build the runner makes asks for v3 in its ISA note.
+	- Reproduced: 20261123, in an ubuntu:26.04 container with amd64v3 turned on, /boot mounted and the same 4 tools as the runner. HEAD's check failed the same 24 ways as the hosted run, with init dying in about 3 seconds.
+	- Actual cause: Ubuntu 26.04's amd64v3 builds of busybox and libc6 use v3 instructions, so init died of SIGILL on both CPUs. The probe also failed with exit 127 there once the guest booted: the v3 gcc builds for v3 by default, and its startup files put a v3 ISA note in every binary, which glibc's loader refuses on an older CPU.
+	- Actual fix: on a host whose apt names an architecture variant, check-cpu-floor fetches the plain amd64 build of each package that owns the guest's busybox and libraries, through apt with lists in its own folder, and puts those in the image. The probe is built with `-march=x86-64` and loses its ISA note. A guest whose init dies of SIGILL says so. The scan also fails an ELF whose ISA note asks for more than v1. design.md's CI/CD line follows.
+	- Decisions:
+		- me: the guest's files come from the plain build of the same packages, picked at run time from apt's `APT::Architecture-Variants`, rather than pinning ubuntu-24.04 or a docker image. The check then holds on any host with variants, and the host's own packages stay as they are.
+	- Verified: 20261123. In the amd64v3 container, all 5 rows passed with the fix: 4730 CLI runs on Penryn and on Phenom gave the same bytes and exit codes as the host. With the variant lookup forced off, both guests failed with the new SIGILL line. shell-regress `dfph5` failed on HEAD's check and passes. shellcheck and `test-ids.py check` passed.
+	- Swept: check-cpu-floor is the only check that builds a guest from host files. check-freebsd boots a pinned FreeBSD image, and check-win-release runs on the host. Every file the image takes from the host goes through `fCopyIn`. Only the Rust CLI has a release, so the other 3 bindings have no twin.
+	- Test case: `ddwpq` to `ddwpt` on a host with amd64v3 packages; shell-regress `dfph5` (the scan fails a build whose ISA note asks for v3).
+	- Branch: `nov23-2026112307465471`
+	- Commit: `6feef5e8`
+	- Prereq IDs: 2026112308072792
+	- Prereq row added: the hosted release job's ddwpp, ddwpr and ddwpt wait on the v3 ISA note in ubuntu-latest builds.
 
 - Hosted tests: cli-regress create-appeared and write-changed-during-wait exit 0 in all 4
 	- ID: 2026112307465452

@@ -4481,6 +4481,25 @@ for q in 0 1; do
 	[[ "${floorArgs}" == "${want}" ]] || fBad "quick=${q}: floor check got ${floorArgs@Q}, wanted ${want@Q}"
 done
 
+fTest dfph5 2026112307465471-floor-isa-note
+##	glibc won't load a binary whose ISA note asks for more than the CPU has,
+##	and a toolchain built for Ubuntu's amd64v3 writes v3 there through its
+##	startup files. The floor scan reads the note, so a build marked v3 fails
+##	it and an unmarked one doesn't. Neither stand-in has startup files.
+if command -v cc >/dev/null 2>&1 && command -v readelf >/dev/null 2>&1 && command -v objdump >/dev/null 2>&1; then
+	mkdir -p "${tmpDir}/isa"
+	printf 'void _start(void) { for (;;) {} }\n' > "${tmpDir}/isa/s.c"
+	for lvl in v1 v3; do
+		zArg=(); if [[ "${lvl}" == v3 ]]; then zArg=('-Wl,-z,x86-64-v3'); fi
+		cc -O0 -march=x86-64 -static -nostdlib "${zArg[@]}" -o "${tmpDir}/isa/${lvl}" "${tmpDir}/isa/s.c" || fBad "the ${lvl} stand-in did not build"
+		isaOut="$("${repoDir}/cicd/utility/check-cpu-floor.bash" "${tmpDir}/isa/${lvl}" 2>&1 || true)"
+		if [[ "${lvl}" == v1 && "${isaOut}" == *"ISA note"* ]]; then fBad "an unmarked build failed on its ISA note: ${isaOut}"; fi
+		if [[ "${lvl}" == v3 && "${isaOut}" != *"ISA note asks for"*x86-64-v3* ]]; then fBad "a build marked x86-64-v3 passed the ISA note check: ${isaOut}"; fi
+	done
+else
+	fTestSkip
+fi
+
 fTest dcv6h 20260918b-44-shellcheck-list-complete
 ##	20260918b item 44: green-tree.bash went in with no line in the shellcheck
 ##	list, and nothing noticed. The list is compared with the shell files the
