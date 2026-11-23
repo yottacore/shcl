@@ -526,8 +526,13 @@ CROSS_TARGETS=(
 ## install whatever they need, which today means mingw's gcc.
 ## No -Wconversion for mingw: its isfinite and isnan macros convert to float in
 ## the branch they do not take.
+## The printf builtins are off because gcc (13 at least, PR 95130) adds the
+## builtin's ms_printf check even where mingw-w64 13 declares printf as
+## __mingw_printf with gnu_printf, so every %zu fails though the call prints it
+## right. With the builtins off the header's gnu_printf check still runs.
+MINGW_PRINTF_BUILTINS_OFF="-fno-builtin-printf -fno-builtin-fprintf -fno-builtin-sprintf -fno-builtin-snprintf -fno-builtin-vprintf -fno-builtin-vfprintf -fno-builtin-vsprintf -fno-builtin-vsnprintf"
 CROSS_CHECKS=(
-	"C library + CLI for Windows x86_64 (mingw)|wbin=\"\$(mktemp -u)\".exe; x86_64-w64-mingw32-gcc -std=c11 -O2 -Wall -Wextra -Wshadow -Wvla -Werror -Isource/c source/c/cmd/shcl/main.c -o \"\${wbin}\"; wrc=\$?; rm -f \"\${wbin}\"; ((wrc==0))"
+	"C library + CLI for Windows x86_64 (mingw)|wbin=\"\$(mktemp -u)\".exe; x86_64-w64-mingw32-gcc -std=c11 -O2 -Wall -Wextra -Wshadow -Wvla -Werror ${MINGW_PRINTF_BUILTINS_OFF} -Isource/c source/c/cmd/shcl/main.c -o \"\${wbin}\"; wrc=\$?; rm -f \"\${wbin}\"; ((wrc==0))"
 	"C library with file I/O compiled out|printf '#define SHCL_NO_FILE_IO\\n#define SHCL_IMPLEMENTATION\\n#include \"shcl.h\"\\n' | cc -x c -std=c11 -O2 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -Isource/c -c - -o /dev/null"
 	## The smoke's checks that need no file run there too (2026111814490325).
 	"veneer smoke with file I/O compiled out|nbin=\"\$(mktemp)\"; g++ -std=c++17 -O2 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -DSHCL_NO_FILE_IO -Isource/c source/c/tests/veneer_smoke.cpp -o \"\${nbin}\" -lm -pthread && \"\${nbin}\" >/dev/null; nrc=\$?; rm -f \"\${nbin}\"; ((nrc==0))"

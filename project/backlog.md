@@ -139,7 +139,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Hosted lint: the mingw cross build fails on every %zu format
 	- ID: 2026112307465433
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261123-074654
@@ -148,6 +148,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: gcc-mingw-w64 from the runner's newer image reads every %zu in shcl.h (9740, 11820, 13032, 15004) and the C CLI (632, 832, 2146, 2149) against the msvcrt printf, so -Werror=format fails the build. The last green main run, 43137942602 on 2026-11-12, built the same code.
 	- Expected behavior: the mingw cross build passes, with size_t printed the same way on Windows as elsewhere.
 	- Estimated effort: Low
+	- Needs external testing: the hosted ci.yml run, job ci (lint), cross check "C library + CLI for Windows x86_64 (mingw)".
+	- Reproduced: 20261123, in an ubuntu:26.04 container with gcc-mingw-w64-x86-64 (gcc 13-win32, mingw-w64 13.0.0). The cross check gives 92 format errors on the round branch.
+	- Actual cause: gcc 13, and maybe later ones, adds its builtin printf check, which is ms_printf on mingw, to printf, fprintf and snprintf, even where the header declares them with gnu_printf (gcc PR 95130). mingw-w64 13 declares them as plain aliases of `__mingw_printf` and the rest, so the builtin check now applies. Under `-std=c11` with msvcrt, mingw-w64 turns on `__USE_MINGW_ANSI_STDIO`, so the calls go to mingw's own printf, which handles `%zu`. The build fails, but the program prints size_t right.
+	- Actual fix: the mingw cross check turns off the printf-family builtins (`-fno-builtin-printf` and its 7 siblings, in `MINGW_PRINTF_BUILTINS_OFF` in `cicd/config.bash`). The header's own gnu_printf check still runs. shcl.h and the C CLI are unchanged.
+	- Test case: the cross check itself. It passes in the ubuntu:26.04 container and in the project container, and still fails on a planted `%d` for a size_t in the CLI.
+	- Branch: `nov23-2026112307465433`
+	- Decisions: fix it in the cross check's flags rather than in shcl.h and the C CLI. The code is right: on mingw-w64 the calls print `%zu` correctly under msvcrt (mingw's own printf) and under UCRT. The failure is a false compiler warning, which a user meets only with `-Werror` on this toolchain. Rewriting about 40 format strings, or a mingw-only pragma in shcl.h, would hide a compiler bug in the library and cost the 37-minute cppcheck run. Turning off only the printf builtins keeps format checking on, against the header's gnu_printf declarations (me).
+	- Swept: `x86_64-w64-mingw32-gcc` appears only in this cross check (and install-dev's tool check). The hosted windows job builds the C runners with the image's own gcc under `-Werror` in win-runners.bash, and passed in run 45068690472, so it is unchanged. It would need the same flags if that image moves to mingw-w64 13 with an affected gcc.
+	- Verified: 20261123. The cross check's command, taken from `CROSS_CHECKS`, passes in the ubuntu:26.04 container (92 errors without the flags), and fails there on a `%zu` changed to `%d` in a copy of main.c. `cicd.bash --backlog-run-quick c cicd` passed in the project container, the cross check included. shellcheck on config.bash and `lint-report.bash --check --no-mark` passed. shell-regress failed only `dcvej` (demo against the gif), which fails the same on nov23 without this change.
+	- Commit: `a105bcf2`
 
 - Format versions: the demo gif and its golden text show fmt output without the stamp
 	- ID: 2026111710564808
