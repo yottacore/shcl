@@ -1737,6 +1737,11 @@ fPinsRun 's/--skip=codeql-scan\.bash/--skip=codeql-scan.bash --skip=cli-regress.
 fTest dektk 2026102915235852-hosted-tests-and-release-apart
 ##	2026102915235852: tests then the release in one hosted job ran out its hour.
 fPinsRun '/^[[:space:]]*- part: release$/,/args:/d; s/--no-lint --no-release --no-cross/--no-lint --no-cross/' && fBad "check-pins.bash passed a hosted job running tests and the release together"
+fTest dfpxn 2026112311213741-hosted-gate-stops-before-the-job
+##	2026112311213741: the lint part was cut off at its timeout-minutes and kept
+##	no log. The gate has to stop itself first, from the job's own minutes.
+fPinsRun 's# timeout --kill-after=60 "\$\{left\}" cicd/cicd\.bash# cicd/cicd.bash#' && fBad "check-pins.bash passed a hosted gate run without timeout"
+fPinsRun 's/timeout-minutes: \$\{\{ matrix\.minutes \}\}/timeout-minutes: 80/' && fBad "check-pins.bash passed a job whose timeout-minutes isn't where the gate's limit comes from"
 fTest ddx1w 2026101303344553-check-pins-container-recipes
 ##	2026101303344553: the --container recipes are a third copy of the pins, and
 ##	fetch toolchains of their own. Each case edits one recipe file and has to

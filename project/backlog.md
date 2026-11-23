@@ -131,7 +131,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Hosted lint: the lint part runs past its 80-minute timeout on Ubuntu 26.04
 	- ID: 2026112311213741
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261123-112137
@@ -140,6 +140,38 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: the job was cancelled at its 80-minute timeout with no log kept. The tool install step took 20 minutes (4 on 2026-11-22's run 45068690472), and cicd.bash ran 63 minutes before the cancel, with the cppcheck cache missing after a shcl.h change. The green lint part of 43137942602 on 2026-11-12 took 10 minutes in all.
 	- Expected behavior: the lint part finishes inside its timeout after a shcl.h change, and a timeout leaves enough output to say which stage ran long.
 	- Estimated effort: Avg
+	- Reproduced: 20261123, from the step times of the 3 runs. Install took 1.5, 2.8 and 20.3 minutes, and cicd.bash 7.2 (cppcheck cache hit), 43.0 (cold) and 63 before the cut. In 45068690472's log, cold cppcheck took 32.5 of lint's 42 minutes and analyze-c 5. The same run's release part spent 43.5 minutes in the install step, 43 of them in apt, and its tests part under one.
+	- Actual cause:
+		- The tool install step took 10 to 44 minutes in 3 of the 20 runs since 2026-11-02, on both images, while other parts of the same run took 1 to 2. Its apt calls ran under -qq, so no log says why (child 2026112314544545).
+		- cppcheck's exhaustive pass starts cold after any change to shcl.h, since both files it checks include it. It took 32.5 minutes hosted on 2026-11-22's code (041c24d1). Run here cold, one thread per file at a load of 5 to 7, the C runner took 34.5 minutes CPU on that code and 38.2 on the run's (a842b311), and main.c 24.3 and 27.0. So the code's growth adds about 4 minutes, and lint should take about 47 with a cold cppcheck.
+		- Not found: what took the gate 63 minutes or more, against about 47 expected. Ruled out: code growth (above) and memory (each cppcheck stays under 240 MB). The same job's install step was about 10 times slower than usual, so a slow runner or network is likely, since the gate fetches too (govulncheck, cargo-deny). The new limit and log will show it on the next long run.
+		- The job-level timeout kept no log and never ran the cache save, though canceled runs keep theirs. The API still shows the gate step in progress. So nothing said which step ran long, and the next run started cppcheck cold again.
+	- Actual fix:
+		- The gate step works out how long the job has left and runs cicd.bash under `timeout`, ending 5 minutes before the job's limit. It prints its limit, and on a timeout an error naming it. The job's timeout-minutes and the limit both come from a `minutes` key in the matrix.
+		- The cppcheck cache is saved after every lint run, under a key with the run ID, and restored from the newest for the same C code, or else the newest of all. A run cut short keeps the files cppcheck finished.
+		- apt in the install step prints each fetch.
+	- Decisions: keep each part at 80 minutes. A cold cppcheck on the current code fits with about 30 to spare, so a longer limit would only hide the next slow run. Bound the gate inside the step rather than with the step's own timeout-minutes, which runs on the runner's cancel path that kept nothing here. `timeout` signals the whole process group, which a step timeout does not promise. A per-run cache key, since a cache can't be overwritten, and a partial result saved under the final key would be restored as a full hit and never saved again.
+	- Verified: 20261123. In ubuntu:26.04, uutils `timeout` returns 124 and ends a background grandchild, and 137 for a child that ignores TERM; GNU's on the host does the same. A copy of the gate step's script passes through the gate's exit code and refuses to start with under a minute left. check-pins passes, `dfpxm` included. shell-regress rows `dcqgf`, `dfpxn`, `ddwkm`, `dej8g`, `dektk`, `dcv6p`, `dcqgg` and `ddx1w` pass, and `dfpxn` fails both ways on the old check-pins. `cicd.bash --backlog-run-quick cicd` and `lint-report.bash --check --no-mark` pass. cppcheck cut off by `timeout` with a build dir keeps the result of the file it finished, and an empty one for the file it didn't.
+	- Needs external testing: a hosted ci.yml run on the branch after a shcl.h change, job ci (lint). It should finish inside its limit in about 50 minutes, print `gate time limit:`, and save a `cppcheck-<hash>-<run id>-1` cache. If it runs out of time, its log names the step. Not run: a hosted run.
+	- Test case: check-pins `dfpxm` (each hosted gate run is under `timeout`, from the job's own minutes) and shell-regress `dfpxn`. No test bounds the hosted time itself.
+	- Swept: every `cicd/cicd.bash` line in ci.yml (the 3 ci parts share one). The other jobs run no cicd.bash and have their own short timeouts. The setup-build job's apt line keeps -qq; that job installs 2 packages under its own 15-minute timeout.
+	- Branch: `nov23b-2026112311213741`
+	- Commit: `54b67873`
+
+- Hosted ci: the tool install step sometimes takes 10 to 44 minutes
+	- ID: 2026112314544545
+	- Type: Bug
+	- Status: Stalled
+		- Held for: a hosted run whose install step runs long again, now that apt prints each fetch (2026112311213741). Its log says whether the update, one mirror or every fetch was slow.
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-145445
+	- Opened by:
+	- Parent ID: 2026112311213741
+	- Steps to reproduce: hosted ci.yml runs; seen on the ci job's tool install step in runs 41500153471 (lint, 10 minutes), 42772084789 (release, 16) and 45232879461 (lint 20, release 44), on both ubuntu-24.04 and ubuntu-latest.
+	- Incorrect behavior: the step usually takes 1 to 3 minutes. On those runs it took 10 to 44. In the release log of 45232879461, the 43 minutes all fall inside apt-get update and the package fetch, which -qq kept silent. The tests part of the same run took under a minute.
+	- Expected behavior: the install step takes a few minutes, or its log says which fetch was slow.
+	- Estimated effort: Low
 
 - Hosted windows: win-runners closed stdin dc477 gets exit 0 and the format stamp from all 4 CLIs
 	- ID: 2026112310344469
