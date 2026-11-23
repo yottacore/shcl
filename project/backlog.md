@@ -60,6 +60,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual effort: Low
 	- Prereq IDs: 2026112310344429
 	- 20261123: hosted run 45232879461's ci (tests) stopped at fs-property before cli-regress (Bug 2026112310344429), so these rows weren't reached.
+	- 20261123: the uutils timeout upstream draft isn't filed (JC).
 
 - Hosted tests: cli-regress create-appeared and write-changed-during-wait exit 0 in all 4
 	- ID: 2026112307465452
