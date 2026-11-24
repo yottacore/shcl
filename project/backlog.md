@@ -153,7 +153,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- All 4 bindings and the CLI agree, and a conformance row pins it.
 		- The spec's key table has the row. It says shcl gives the key no meaning, and that where more than one program reads a schema, each takes a block of its own under it.
 	- Decisions:
-		- JC, 2026-11-24: not an exception made by the shape of a name, such as `x-`. A key like `meta` feels better.
+		- JC, 2026-11-24: not an exception made by the shape of a name, such as `x-`. Go with `meta`.
 		- me, 2026-11-24: one known key, `meta`, under a `field`. The vocabulary stays a closed list of exact names, and `meta` is one more key that validation ignores, beside `desc` and `default`. It's the usual name for this slot: Cargo's `[package.metadata]`, a Python dataclass field's `metadata`, and an Arrow field's `metadata` are each ignored by the library and read by other programs. `meta` is short as `desc` is. It can't shadow a config's field, since a document's names sit in value position, as in `field: meta`.
 		- Decided against: any key that starts with `x-`, as OpenAPI, Compose, and systemd units have. It's a rule about the shape of a name in a vocabulary that otherwise lists each name, and a key that only looks like one of shcl's passes with no word.
 		- Decided against: keys the schema declares first, such as `key: aliases`, the way GraphQL directives and protobuf options work. It reads best at the field and catches a mistyped key. It also adds a third kind of top-level entry to every binding, and needs a rule for a declared name that shcl takes later.
@@ -163,7 +163,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 2026-11-24: v3.0.0, not beta.2. Nothing in beta.2 depends on it, and the comment row works until then. A schema with the key fails `check --schema` on a reader older than the fix.
 	- Reproduced: 20261123, `shcl check --schema` (v3.0.0-beta1) with `aliases: [x, y]` under a field gives `schema line 4: Error: V090 unknown schema key 'aliases'` and exit 6. The field's type is still checked.
 		- 20261124, dev `7b875296`: the same `V090`. `desc:` with lines under it passes, so a known key's lines already go unread. A schema with `field: meta` and `field: srv.meta` validates a document's own `meta` fields.
-	- Origin: nemo-anywhere 2026111912460983. The draft text and an untested patch for the C header's field-key check (`x-keys.patch`, against `v3.0.0-beta1`, written for the `x-` form) are in `private/claude_simple/upstream/nemo-anywhere-2026111912460983/`.
+	- Origin: nemo-anywhere 2026111912460983. The draft text and an untested patch for the C header's field-key check (`x-keys.patch`, against `v3.0.0-beta1`, written for the `x-` form) are in `private/claude_simple/upstream/nemo-anywhere-2026111912460983/`. nemo-anywhere's move to `meta` is its 2026112415002147.
 	- Estimated effort: Low
 
 - `Document::merge` drops the base file's comments on every leaf the upper layer names
