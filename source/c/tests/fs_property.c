@@ -540,6 +540,16 @@ static void fs_must(int rc, const char *what, const char *p) {
 	if (rc != 0) fs_fatal("%s %s: %s", what, p, fs_why());
 }
 
+#ifndef _WIN32
+// An event's link, which can find its name taken by an earlier event, so a
+// failure is dropped, as in the other ports. glibc's warn_unused_result on
+// symlink doesn't give way to a (void) cast.
+static void fs_try_link(const char *to, const char *p) {
+	int rc = symlink(to, p);
+	(void)rc;
+}
+#endif
+
 static void fs_build(const char *root, const fs_case *c) {
 	char w[FS_PATH], p[FS_PATH];
 	fs_path(w, "%s" FS_SEP "w", root);
@@ -603,14 +613,14 @@ static void fs_apply(const char *event, const char *root, const char *load, cons
 		(void)mkfifo(load, 0600);
 	} else if (!strcmp(event, "link-made")) {
 		fs_path(p, "%s/nd", w);
-		(void)symlink("sub", p);
+		fs_try_link("sub", p);
 	} else if (!strcmp(event, "relink")) {
 		fs_path(p, "%s/lw", w);
 		fs_remove_file(p);
-		(void)symlink("sub", p);
+		fs_try_link("sub", p);
 		fs_path(p, "%s/lt.shcl", w);
 		fs_remove_file(p);
-		(void)symlink("sub/t.shcl", p);
+		fs_try_link("sub/t.shcl", p);
 	} else if (!strcmp(event, "unread")) {
 		// A file only, since a folder without its bits stops the case. Through
 		// the open file, so a FIFO doesn't block and the file chmodded is the

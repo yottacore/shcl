@@ -48,7 +48,7 @@ jobs:
     if: ${{ !inputs.job }}
     name: ci (${{ matrix.part }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 80
+    timeout-minutes: ${{ matrix.minutes }}
     strategy:
       fail-fast: false
       matrix:
@@ -67,13 +67,18 @@ jobs:
           - part: lint
             runner: ubuntu-latest
             args: --merge-gate --no-tests --no-release --no-remote
+            minutes: 80
           - part: tests
             runner: ubuntu-latest
             args: --merge-gate --no-lint --no-release --no-cross --no-remote --skip=codeql-scan.bash
+            minutes: 80
           - part: release
             runner: ubuntu-24.04
             args: --merge-gate --no-lint --no-tests --no-cross --no-remote
+            minutes: 80
     steps:
+      ## When the job started, for the gate step's own time limit below.
+      - run: echo "JOB_T0=$(date +%s)" >> "$GITHUB_ENV"
       ## Actions by commit SHA (tag in the comment), so a moved tag cannot
       ## silently change what runs.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -142,7 +147,9 @@ jobs:
           ## qemu, busybox and cpio boot the native release on the old CPUs
           ## for the CPU floor check, which boots the runner's own kernel. That
           ## file is root-only on the runner, so it's made readable here.
-          sudo apt-get update -qq && sudo apt-get install -y -qq nsis zsh bash-completion gcc-mingw-w64-x86-64 strace rpm jq gcc-14 g++-14 clang-19 clang-tidy-19 clang-tools-19 'heaptrack=1.5.0*' qemu-system-x86 busybox cpio
+          ## apt prints each fetch, since this step has taken 10 to 44 minutes
+          ## rather than 1 or 2 on some runs, and -qq left no sign of where.
+          sudo apt-get update -q && sudo apt-get install -y -q nsis zsh bash-completion gcc-mingw-w64-x86-64 strace rpm jq gcc-14 g++-14 clang-19 clang-tidy-19 clang-tools-19 'heaptrack=1.5.0*' qemu-system-x86 busybox cpio
           sudo chmod a+r "/boot/vmlinuz-$(uname -r)"
           pip install ruff==0.15.22 mypy==2.3.0 cppcheck==1.5.1 build==1.5.0 pillow==11.1.0
           npm install -g markdownlint-cli2@0.23.1
@@ -199,29 +206,45 @@ jobs:
             source/rust/target
           key: ci-${{ runner.os }}-${{ matrix.runner }}-${{ matrix.part }}-${{ hashFiles('rust-toolchain.toml', 'source/rust/Cargo.lock') }}
           restore-keys: ci-${{ runner.os }}-${{ matrix.runner }}-
-      ## cppcheck's result cache, which the lint line keeps in the git dir. A run
-      ## with no C change restores an exact match, and any other starts from the
-      ## last one; cppcheck checks each file's own key before it uses an entry.
-      ## Saved even when the job fails or times out, since the plain cache action
-      ## saves only on success, and a red run used to throw away the 20-odd
-      ## minutes cppcheck had just spent.
+      ## cppcheck's result cache, which the lint line keeps in the git dir.
+      ## cppcheck checks each file's own key before it uses an entry, so any
+      ## saved cache is safe to start from. A run takes the newest one for the
+      ## same C code, or else the newest of all.
+      ## Saved after every run under its own name, even when the job fails or
+      ## the gate runs out of time. cppcheck keeps each file's result as it
+      ## finishes, so a run cut short still leaves the next one less to do,
+      ## and a cache can't be written twice under one name.
       - if: matrix.part == 'lint'
-        id: cppcache
         uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: .git/cppcheck-build
-          key: cppcheck-${{ hashFiles('source/c/**', 'cicd/config.bash') }}
-          restore-keys: cppcheck-
+          key: cppcheck-${{ hashFiles('source/c/**', 'cicd/config.bash') }}-
+          restore-keys: |
+            cppcheck-${{ hashFiles('source/c/**', 'cicd/config.bash') }}-
+            cppcheck-
       ## The runner runs nothing else, so the gate gets every core rather than
       ## the half it leaves free on a workstation.
       ## Never in the build image, which the runner would build first and which
       ## wouldn't fit in the hour. The steps above install the same tools.
-      - run: CPU_CAP="$(nproc)" cicd/cicd.bash --no-container ${{ matrix.args }}
-      - if: always() && matrix.part == 'lint' && steps.cppcache.outputs.cache-hit != 'true'
+      ##
+      ## The gate stops itself 5 minutes before the job's limit, however long
+      ## the steps above took. A job cut off at its timeout-minutes kept no log
+      ## and saved no cache, so nothing said which step ran long
+      ## (2026112311213741). timeout ends the whole process group.
+      - run: |
+          left=$(( ${{ matrix.minutes }} * 60 - ($(date +%s) - JOB_T0) - 300 ))
+          if ((left < 60)); then echo "::error::the steps before the gate left it no time"; exit 1; fi
+          echo "gate time limit: $((left / 60)) minutes"
+          set +e
+          CPU_CAP="$(nproc)" timeout --kill-after=60 "${left}" cicd/cicd.bash --no-container ${{ matrix.args }}
+          rc=$?
+          if ((rc == 124 || rc == 137)); then echo "::error::the gate ran out of its ${left} seconds; the last 'Step' or 'extra:' line above is the step that ran long"; fi
+          exit "${rc}"
+      - if: always() && matrix.part == 'lint'
         uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: .git/cppcheck-build
-          key: cppcheck-${{ hashFiles('source/c/**', 'cicd/config.bash') }}
+          key: cppcheck-${{ hashFiles('source/c/**', 'cicd/config.bash') }}-${{ github.run_id }}-${{ github.run_attempt }}
 
   ## The go.mod directive promises consumers the library builds on that release,
   ## and the job above runs a current one, whose vet says nothing about a call

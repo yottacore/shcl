@@ -5,6 +5,10 @@
 // mirror the Rust reference exactly; the cicd cross-binding check compares them
 // byte for byte, so any drift here fails the pipeline.
 
+// Infer 1.3.0 calls fields of returned structs here uninitialized, though each
+// is set. It's the false report shcl.h turns off for itself.
+// @infer-ignore-every PULSE_UNINITIALIZED_VALUE
+
 #ifndef _WIN32
 	// fileno/fsync/getpid under -std=c11 need an explicit POSIX feature request.
 	// realpath sits behind XSI rather than plain POSIX in glibc, hence both.
@@ -735,6 +739,8 @@ static int utf8_valid(const char *p, size_t n) {
 // silent segfault on unchecked realloc).
 static void *xrealloc(void *p, size_t n) {
 	void *q = realloc(p, n);
+	// Infer: realloc failed, so p is still the live block.
+	// @infer-ignore USE_AFTER_FREE
 	if (!q) { free(p); fprintf(stderr, "shcl: out of memory\n"); exit(70); }
 	return q;
 }

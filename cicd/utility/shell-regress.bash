@@ -1737,6 +1737,11 @@ fPinsRun 's/--skip=codeql-scan\.bash/--skip=codeql-scan.bash --skip=cli-regress.
 fTest dektk 2026102915235852-hosted-tests-and-release-apart
 ##	2026102915235852: tests then the release in one hosted job ran out its hour.
 fPinsRun '/^[[:space:]]*- part: release$/,/args:/d; s/--no-lint --no-release --no-cross/--no-lint --no-cross/' && fBad "check-pins.bash passed a hosted job running tests and the release together"
+fTest dfpxn 2026112311213741-hosted-gate-stops-before-the-job
+##	2026112311213741: the lint part was cut off at its timeout-minutes and kept
+##	no log. The gate has to stop itself first, from the job's own minutes.
+fPinsRun 's# timeout --kill-after=60 "\$\{left\}" cicd/cicd\.bash# cicd/cicd.bash#' && fBad "check-pins.bash passed a hosted gate run without timeout"
+fPinsRun 's/timeout-minutes: \$\{\{ matrix\.minutes \}\}/timeout-minutes: 80/' && fBad "check-pins.bash passed a job whose timeout-minutes isn't where the gate's limit comes from"
 fTest ddx1w 2026101303344553-check-pins-container-recipes
 ##	2026101303344553: the --container recipes are a third copy of the pins, and
 ##	fetch toolchains of their own. Each case edits one recipe file and has to
@@ -5207,6 +5212,22 @@ done
 lfGot=" $(lfIds 'fs-property.bash') "
 for t in ${lfFsRs} ${lfFsGo}; do [[ "${lfGot}" == *" ${t} "* ]] || fBad "--list left ${t} out of fs-property.bash's step"; done
 
+fTest dfq00 2026110119584589-box-suite-fail-lines
+##	A failed box suite showed only its last 20 lines, so FAIL lines above them
+##	were cut off. It shows every FAIL line too, up to 40, and counts the rest.
+ftDir="${tmpDir}/fail-tail"; mkdir -p "${ftDir}/b_bx/back/s"
+{ for i in $(seq 1 100); do echo "PASS a${i} x"; done
+  printf 'FAIL der1c rust x\n--- FAIL: TestA\ntest t ... FAILED\nFAILURE is not one\n'
+  for i in $(seq 1 30); do echo "PASS b${i} x"; done; } > "${ftDir}/b_bx/back/s/cli.log"
+{ for i in $(seq 1 45); do echo "FAIL c${i} x"; done; for i in $(seq 1 25); do echo "PASS d${i} x"; done; } > "${ftDir}/b_bx/back/s/go.log"
+printf 'bx fail cli exit 1, 5 s\nbx fail go exit 1, 5 s\n' > "${ftDir}/suites.all"
+# shellcheck disable=SC2329  ## called by the lifted fSuiteRows
+ftOut="$(cd "${ftDir}" && eval "$(sed -n '/^fFailTail()/,/^}/p;/^fSuiteRows()/,/^}/p' "${repoDir}/cicd/utility/check-boxes.bash")"
+	fBad(){ echo "check-boxes: $1" >&2 ;}; fTestSkip(){ :;}; { fSuiteRows cli; fSuiteRows go; } 2>&1)" || true
+ftWant=$'    FAIL der1c rust x\n    --- FAIL: TestA\n    test t ... FAILED\n    ...\n    PASS b11 x'
+[[ "${ftOut}" == *"${ftWant}"* && "${ftOut}" == *"    PASS b30 x"* && "${ftOut}" != *FAILURE* && "${ftOut}" != *"PASS b10 "* ]] || fBad "a failed box suite's FAIL lines: ${ftOut@Q}"
+[[ "${ftOut}" == *"    FAIL c40 x"$'\n'"    (5 more FAIL lines here, in b_bx/back/s/go.log)"$'\n'"    PASS d6 x"* && "${ftOut}" != *"FAIL c41 "* ]] || fBad "a failed box suite past 40 FAIL lines: ${ftOut@Q}"
+
 fTestEnd
 
 if ((nBad)); then
@@ -5245,3 +5266,4 @@ echo "shell-regress: OK: installers, one-liner scope, packaging, comparison work
 ##		2026-11-07  shclpath.ps1 writes only its segment, install.ps1 unpacks through the System32 tar, install.bash under a TMPDIR with .. in its name, anchored tag filters.
 ##		2026-11-22  A box run sweeps the box's stale work folders, and the soaks are leak checks.
 ##		2026-11-23  --list follows a suite step's own test filter.
+##		2026-11-23  A failed box suite shows its FAIL lines as well as its tail.

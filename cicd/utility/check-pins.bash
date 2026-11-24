@@ -236,6 +236,21 @@ for runArgs in "${inImage[@]}"; do
 	echo "check-pins: ci.yml runs the gate without --no-container, so it would build the image first:${runArgs}" >&2; nBad=$((nBad + 1))
 done
 
+## A job cut off at its timeout-minutes kept no log and saved no cache, so
+## nothing said which step ran long (2026112311213741). Each hosted gate run
+## stops itself first, under timeout, with a limit worked out from the same
+## minutes the job's timeout-minutes reads.
+fTest dfpxm hosted-gate-stops-before-the-job
+while IFS= read -r runLine; do
+	[[ -n "${runLine}" ]] || continue
+	[[ "${runLine}" =~ (^|[[:space:]])timeout[[:space:]].*cicd/cicd\.bash ]] \
+		|| { echo "check-pins: ci.yml runs the gate without timeout, so a long run is cut off with the job and leaves no log:${runLine}" >&2; nBad=$((nBad + 1)); }
+done < <(grep -E -- 'cicd/cicd\.bash' <<<"${liveLines}" || true)
+if ! grep -qE -- '^[[:space:]]*timeout-minutes: \$\{\{ *matrix\.minutes *\}\}' <<<"${liveLines}" \
+	|| ! grep -qE -- '^[[:space:]]*left=.*\$\{\{ *matrix\.minutes *\}\}' <<<"${liveLines}"; then
+	echo "check-pins: the gate's time limit and the job's timeout-minutes don't both come from matrix.minutes" >&2; nBad=$((nBad + 1))
+fi
+
 ## A leak check's tool ci.yml leaves out is skipped by name in every hosted job
 ## that runs the leak checks, the ones without --no-tests, and no other step
 ## names it. A --skip of anything else leaves out a step the runner can run.

@@ -251,6 +251,29 @@ fSrcTree(){
 }
 ##	What win-runners.bash and winpath-regress.ps1 read besides.
 winSrc=(cicd/utility/win-runners.bash cicd/utility/winpath-regress.ps1 cicd/utility/winpath-sandbox.ps1 cicd/utility/include/safe-rm.ps1 cicd/packaging/shclpath.ps1 install.ps1 utility/dogfood_shcl.ps1 utility/dogfood_shcl.cmd)
+##	fFailTail LOG: the log's last 20 lines, and every FAIL line above them, up to
+##	40, in log order with ... over a gap. A long suite's FAIL lines are often
+##	far above its tail (2026110119584589).
+fFailTail(){
+	awk -v keep=20 -v cap=40 '
+		{ sub(/\r$/, ""); line[NR] = $0 }
+		/(^|[^A-Za-z])FAIL(ED)?([^A-Za-z]|$)|panicked at/ { isFail[NR] = 1 }
+		END {
+			from = NR - keep + 1; last = 0; nAbove = 0; nLeft = -cap
+			for (i = 1; i < from; i++) if (i in isFail) nLeft++
+			for (i = 1; i <= NR; i++) {
+				if (i < from) {
+					if (!(i in isFail)) continue
+					if (++nAbove > cap) {
+						if (nAbove == cap + 1) { print "(" nLeft " more FAIL lines here, in " FILENAME ")"; last = 0 }
+						continue
+					}
+				}
+				if (last && i > last + 1) print "..."
+				print line[i]; last = i
+			}
+		}' "$1"
+}
 ##	fSuiteRows NAME: one line per box for that suite, out of suites.all.
 fSuiteRows(){
 	local s="$1" bx st nm rest
@@ -261,7 +284,7 @@ fSuiteRows(){
 			pass) echo "PASS ${bx}: the ${s} suite (${rest})"; n+=1 ;;
 			skip) echo "SKIP ${bx}: the ${s} suite, ${rest}" ;;
 			*)    fBad "${bx}: the ${s} suite failed (${rest})"; n+=1
-			      tail -n 20 "b_${bx}/back/s/${s}.log" 2> /dev/null | sed 's/^/    /' >&2 || true ;;
+			      fFailTail "b_${bx}/back/s/${s}.log" 2> /dev/null | sed 's/^/    /' >&2 || true ;;
 		esac
 	done < <(cat suites.all 2> /dev/null || true)
 	((n)) || fTestSkip
@@ -416,3 +439,4 @@ echo "check-boxes: OK"
 ##		2026-11-07  The box guard refuses .. only as a whole path part, for 2026110613470318.
 ##		2026-11-11  The fs suite, each box's filesystem property tests on its own tmpfs route, for 2026111010331517.
 ##		2026-11-22  Each box run writes run.pid and removes the box's stale work folders, for 2026110218511914.
+##		2026-11-23  A failed suite shows its FAIL lines as well as its tail, for 2026110119584589.

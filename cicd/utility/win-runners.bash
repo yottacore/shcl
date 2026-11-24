@@ -104,10 +104,17 @@ fRunC() {
 		source/c/tests/conformance.c -o "${work}/conformance${exe}" -lm \
 		&& "${work}/conformance${exe}" project/conformance
 }
+## A mingw build finds libstdc++ and its kin by PATH. Git's bash puts its own
+## copies first, and a bare windows PATH can reach a link the loader refuses
+## before it reaches the compiler's, which kills the run at start with
+## 0xC00004BC (b29w, 2026110710374327). So the compiler's own copies go first.
 fRunCxx() {
 	"${cxx}" -std=c++17 -O2 -Wall -Wextra -Werror -Isource/c \
 		source/c/tests/veneer_smoke.cpp -o "${work}/veneer${exe}" -lm -pthread \
-		&& "${work}/veneer${exe}"
+		|| return 1
+	local bin=""
+	if [[ -n "${exe}" ]] && bin="$(command -v "${cxx}")"; then bin="$(dirname -- "${bin}")"; fi
+	PATH="${bin:+${bin}:}${PATH}" "${work}/veneer${exe}"
 }
 ## Both oom tests end up at a setjmp recovery point, which unwinds through SEH on
 ## this host and through nothing much on linux or under wine, so windows is the
@@ -184,10 +191,12 @@ fRunLongPath() {
 	grep -q '^a: 1$' "${deep}/new.shcl"
 }
 
-## A stdin nothing is attached to reads as an empty document, exit 0. POSIX
-## reports that as EOF and every binding already agreed there; windows answers
-## with an invalid handle or an invalid function instead, which each runtime
-## reports its own way, so this is the only place the rule can be judged.
+## A stdin nothing is attached to reads as an empty document, exit 0, and fmt
+## prints it as a save does, which is the format stamp alone. POSIX reports
+## that as EOF and every binding already agreed there (cli-regress dbzbg);
+## windows answers with an invalid handle or an invalid function instead,
+## which each runtime reports its own way, so this is the only place the rule
+## can be judged.
 fRunClosedStdin() {
 	local bad=0
 	local clis=()
@@ -204,13 +213,18 @@ fRunClosedStdin() {
 		clis+=("go|${work}/shcl-go${exe}")
 	fi
 	if fHave "${py}"; then clis+=("python|${py} source/python/cmd/shcl/main.py"); fi
-	local entry name cmd out rc
+	local want=$'## SHCL format 3.0\n'
+	local entry name cmd out err rc
 	for entry in "${clis[@]}"; do
 		name="${entry%%|*}"; cmd="${entry#*|}"
 		## Split on purpose: the python entry is an interpreter plus a script.
-		rc=0; out="$(${cmd} fmt - 0<&- 2>&1)" || rc=$?
-		if ((rc != 0)) || [[ -n "${out}" ]]; then
-			echo "win-runners: closed stdin: ${name} exited ${rc} saying ${out@Q}" >&2
+		## The exit code trails stdout behind an x, which also keeps the newline
+		## the stamp must end with.
+		out="$(${cmd} fmt - 0<&- 2>"${work}/closedin.err" && echo x0 || echo "x$?")"
+		rc="${out##*x}"; out="${out%x*}"
+		err=""; IFS= read -r -d '' err <"${work}/closedin.err" || true
+		if ((rc != 0)) || [[ "${out}" != "${want}" || -n "${err}" ]]; then
+			echo "win-runners: closed stdin: ${name} exited ${rc} with stdout ${out@Q} and stderr ${err@Q}" >&2
 			bad=1
 		fi
 	done
@@ -556,3 +570,4 @@ fi
 ##		- 20261031: Runs on the b29w test box too, through check-boxes.bash.
 ##		- 20261031: The guard under 5.1, for 2026103114555334.
 ##		- 20261107: install.ps1 unpacks through the System32 tar, with a tar ahead of it on PATH (2026110613470317).
+##		- 20261123: The veneer smoke runs with its compiler's folder first on PATH (2026110710374327).
