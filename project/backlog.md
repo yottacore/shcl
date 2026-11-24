@@ -471,7 +471,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept, read only: the C rows build with gcc and no `-pthread`, and the C runner starts its thread with `CreateThread` on Windows. Only the C++ row links libstdc++. Whether the C binaries import any mingw DLL on b29w wasn't checked, and they passed there under git's bash on 20261119.
 	- Verified: on b29w, `fRunCxx` taken from the old and new win-runners.bash, under git's bash PATH and with git's `mingw64` taken off PATH. Old: 0 and 127, an empty output, so it died at load. New: 0 and 0. From pwsh, the dynamic smoke gave 0xC00004BC 3 times with the box's PATH, and 0 with the compiler's folder first. shellcheck on win-runners.bash passed.
 	- Verified: 20261123, a b29w `suites` visit through check-boxes on `c5856a13` passed, win-runners.bash's 26 rows included (`den85`), with no row failed. The `c++ veneer` row prints no line of its own to the log, since it has no test ID. gcc was found there, as `dc3b1` passed. `drive-row.bash` gave old 0 and 0x7F, new 0 and 0, again.
-	- Test case: win-runners `c++ veneer` row on b29w. The before and after check is the saved `winbox-veneer/drive-row.bash`.
+	- Test case: check-boxes `den85` on b29w, the win-runners run that has the `c++ veneer` row, which gets its own ID in 2026112317335202. The before and after check is the saved `winbox-veneer/drive-row.bash`.
 	- Branch: `nov23b-2026110710374327`
 	- Commit: `a89aaa0d`
 	- Closed reason: Done
