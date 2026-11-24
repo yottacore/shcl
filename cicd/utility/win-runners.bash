@@ -104,10 +104,17 @@ fRunC() {
 		source/c/tests/conformance.c -o "${work}/conformance${exe}" -lm \
 		&& "${work}/conformance${exe}" project/conformance
 }
+## A mingw build finds libstdc++ and its kin by PATH. Git's bash puts its own
+## copies first, and a bare windows PATH can reach a link the loader refuses
+## before it reaches the compiler's, which kills the run at start with
+## 0xC00004BC (b29w, 2026110710374327). So the compiler's own copies go first.
 fRunCxx() {
 	"${cxx}" -std=c++17 -O2 -Wall -Wextra -Werror -Isource/c \
 		source/c/tests/veneer_smoke.cpp -o "${work}/veneer${exe}" -lm -pthread \
-		&& "${work}/veneer${exe}"
+		|| return 1
+	local bin=""
+	if [[ -n "${exe}" ]] && bin="$(command -v "${cxx}")"; then bin="$(dirname -- "${bin}")"; fi
+	PATH="${bin:+${bin}:}${PATH}" "${work}/veneer${exe}"
 }
 ## Both oom tests end up at a setjmp recovery point, which unwinds through SEH on
 ## this host and through nothing much on linux or under wine, so windows is the
@@ -563,3 +570,4 @@ fi
 ##		- 20261031: Runs on the b29w test box too, through check-boxes.bash.
 ##		- 20261031: The guard under 5.1, for 2026103114555334.
 ##		- 20261107: install.ps1 unpacks through the System32 tar, with a tar ahead of it on PATH (2026110613470317).
+##		- 20261123: The veneer smoke runs with its compiler's folder first on PATH (2026110710374327).

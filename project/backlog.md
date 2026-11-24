@@ -406,12 +406,30 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The veneer smoke linked against the DLLs dies at start on b29w
 	- ID: 2026110710374327
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs external testing: a b29w `suites` visit through check-boxes, to see win-runners' `c++ veneer` row pass inside box-cases.ps1.
 	- Severity: Low
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261107-103743
 	- Opened by:
+	- Target OS: Windows
+	- Test environment: b29w, MinGW-Builds g++ 16.1 in `C:\ProgramData\mingw64`, Git for Windows 2.55
+	- Reproduced [Bug]: 20261123, in part. The 0xC0000409 didn't come back: the dynamic smoke passed under git's bash 5 times on the round's tree and 3 times on `3d1be68b`, the 20261107 source. Run outside git's bash, any dynamic mingw C++ program on b29w dies at start with 0xC00004BC, a trivial one included, while the `-static` build passes.
+	- Actual cause [Bug]:
+		- The loader finds `libstdc++-6.dll`, `libgcc_s_seh-1.dll` and `libwinpthread-1.dll` by PATH. The compiler's folder is entry 72 of b29w's PATH. Entries 12 to 35 and 49 to 58 go through the `C:\opt\0-0\common\exec\synced\util` junction into Dropbox, which Windows refuses as an untrusted mount point (0xC00004BC), so the search stops there.
+		- Under git's bash, git's own `mingw64\bin` comes first, so the smoke runs against git's copies of those DLLs rather than the ones it was built with. They happen to work today.
+		- Not found: a cause for the 0xC0000409 of 20261107. No other copy of those DLLs sits in a PATH folder. The only others in the Dropbox util tree are from 2020, under `win\win64\recover`, which isn't on PATH.
 	- Progress log:
 		- On b29w veneer_smoke.cpp built the normal way exits 0xC0000409 at start, on dev too; built with -static it passes. win-runners.bash's dynamic veneer row fails there for this reason, so a b29w suites-long visit would fail. The cause is likely the mingw runtime DLLs on PATH.
+	- Decisions:
+		- The row runs the smoke with the compiler's folder first on PATH, so it uses the runtime it was built against, whatever PATH holds. Only for a `.exe` build, so Linux runs don't change. The box's PATH and junction are left alone, since they're the box's setup, not the project's.
+		- Left open, since the 0xC0000409 cause is unknown. A mismatched runtime DLL found first on PATH would fit it, and the fix covers that case too.
+	- Actual fix [Bug]: `fRunCxx` in win-runners.bash puts the compiler's folder first on PATH for the smoke's run.
+	- Swept, read only: the C rows build with gcc and no `-pthread`, and the C runner starts its thread with `CreateThread` on Windows. Only the C++ row links libstdc++. Whether the C binaries import any mingw DLL on b29w wasn't checked, and they passed there under git's bash on 20261119.
+	- Verified: on b29w, `fRunCxx` taken from the old and new win-runners.bash, under git's bash PATH and with git's `mingw64` taken off PATH. Old: 0 and 127, an empty output, so it died at load. New: 0 and 0. From pwsh, the dynamic smoke gave 0xC00004BC 3 times with the box's PATH, and 0 with the compiler's folder first. shellcheck on win-runners.bash passed.
+	- Test case: win-runners `c++ veneer` row on b29w. The before and after check is the saved `winbox-veneer/drive-row.bash`.
+	- Branch: `nov23b-2026110710374327`
+	- Commit: `a89aaa0d`
 
 - A capped parse still splits every line first, so a file of blank lines costs 17 to 48 times its size
 	- ID: 2026110707441368
