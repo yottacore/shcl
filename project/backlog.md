@@ -137,7 +137,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- 20261123: hosted run 45301493250, release part on ubuntu-24.04: the install step took 42 minutes. apt fetched 267 MB in 40min 29s (110 kB/s), all from us-east-2.ec2.archive.ubuntu.com. The ubuntu-latest parts installed in minutes.
 	- 20261124: the setup-build job's apt line still runs under `-qq`. Give it `-q` with the fix, so a slow fetch there shows too.
 
-- Schema: ignore field keys that start with `x-`, so an app can keep its own metadata there
+- Schema: a `meta` key on a field that shcl ignores, so an app can keep its own data there
 	- ID: 2026112315300920
 	- Type: Enhancement
 	- Status: Queued
@@ -147,20 +147,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Opened by: nemo-anywhere 2026111912460983
 	- Problem description: a schema field takes only the keys SHCL knows. Any other key is V090, an error, so `shcl check --schema` fails on the schema, though its other constraints are still checked. nemo-anywhere keeps a list of Settings search aliases on each field of its schema, read by its build. It has to write them as a comment row, `# aliases: [a, b]`, so its installed schema still passes.
 	- Requirements:
-		- A schema key whose name starts with `x-` is left alone wherever a schema has keys: at the top level, under a `field`, and under a `fragment`. Its value and the lines under it aren't read. `X-` counts too, since names ignore case.
-		- Validation and generation both leave it alone, as validation does `desc`.
-		- Any other unknown key is still `V090`, or `V094` in a fragment.
+		- `meta` is a schema key under a `field`. It takes any value and any lines under it, and validation and generation read none of it, as with `desc`.
+		- Any other unknown key is still `V090`, and its message says a program's own keys go under `meta`.
+		- A document's own field named `meta` still validates, declared as `field: meta` like any other.
 		- All 4 bindings and the CLI agree, and a conformance row pins it.
-		- The spec's "Schema validation" section says so, and that shcl gives such a key no meaning.
+		- The spec's key table has the row. It says shcl gives the key no meaning, and that where more than one program reads a schema, each takes a block of its own under it.
 	- Decisions:
-		- me, 2026-11-24: any key that starts with `x-`, at every level of a schema. It's one rule with no list of names and no level left out. OpenAPI and Compose files use the same prefix for the same thing, so it needs little explaining. `V090` still catches a mistyped key, since no schema key starts with `x-`. An app reads its keys by loading the schema as the SHCL file it is, so the library needs no new call.
+		- JC, 2026-11-24: not an exception made by the shape of a name, such as `x-`. A key like `meta` feels better.
+		- me, 2026-11-24: one known key, `meta`, under a `field`. The vocabulary stays a closed list of exact names, and `meta` is one more key that validation ignores, beside `desc` and `default`. It's the usual name for this slot: Cargo's `[package.metadata]`, a Python dataclass field's `metadata`, and an Arrow field's `metadata` are each ignored by the library and read by other programs. `meta` is short as `desc` is. It can't shadow a config's field, since a document's names sit in value position, as in `field: meta`.
+		- Decided against: any key that starts with `x-`, as OpenAPI, Compose, and systemd units have. It's a rule about the shape of a name in a vocabulary that otherwise lists each name, and a key that only looks like one of shcl's passes with no word.
+		- Decided against: keys the schema declares first, such as `key: aliases`, the way GraphQL directives and protobuf options work. It reads best at the field and catches a mistyped key. It also adds a third kind of top-level entry to every binding, and needs a rule for a declared name that shcl takes later.
 		- Decided against: `aliases` as a known key. It's one app's word in a closed vocabulary, and the next app would ask for another.
-		- Decided against: one known block per field that holds everything. It adds a level for a one-line note, and it isn't the form people know.
 		- Decided against: leaving it to comments. A build then has to read comment text, which shcl gives no meaning, and an edit of the field can move the line.
-		- me, 2026-11-24: v3.0.0, not beta.2. Nothing in beta.2 depends on it, and the comment row works until then. A schema with such a key fails `check --schema` on a reader older than the fix.
+		- Decided against: `meta` at the top level or under a `fragment` as well. Nothing asks for it, and adding it later breaks no schema.
+		- me, 2026-11-24: v3.0.0, not beta.2. Nothing in beta.2 depends on it, and the comment row works until then. A schema with the key fails `check --schema` on a reader older than the fix.
 	- Reproduced: 20261123, `shcl check --schema` (v3.0.0-beta1) with `aliases: [x, y]` under a field gives `schema line 4: Error: V090 unknown schema key 'aliases'` and exit 6. The field's type is still checked.
-		- 20261124, dev `7b875296`: the same `V090` for `x-aliases` under a field and `x-app` at the top level, and `V094` (`unknown key 'x-note'`) under a fragment.
-	- Origin: nemo-anywhere 2026111912460983. The draft text and an untested patch for the C header's field-key check (`x-keys.patch`, against `v3.0.0-beta1`) are in `private/claude_simple/upstream/nemo-anywhere-2026111912460983/`.
+		- 20261124, dev `7b875296`: the same `V090`. `desc:` with lines under it passes, so a known key's lines already go unread. A schema with `field: meta` and `field: srv.meta` validates a document's own `meta` fields.
+	- Origin: nemo-anywhere 2026111912460983. The draft text and an untested patch for the C header's field-key check (`x-keys.patch`, against `v3.0.0-beta1`, written for the `x-` form) are in `private/claude_simple/upstream/nemo-anywhere-2026111912460983/`.
 	- Estimated effort: Low
 
 - `Document::merge` drops the base file's comments on every leaf the upper layer names
