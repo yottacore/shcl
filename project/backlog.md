@@ -35,6 +35,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- win-runners: give the c++ veneer row a test ID, so a check-boxes log shows its pass
+	- ID: 2026112317335202
+	- Type: Task
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261123-173352
+	- Opened by: 2026110710374327's box run
+	- Problem description: the row has no fRun --id, so a b29w suites visit shows it only inside the win-runners row total.
+	- Estimated effort: Low
+
 - Hosted tests: cli-regress argv-not-utf8 rows exit 125 under Ubuntu 26.04's timeout
 	- ID: 2026112308403867
 	- Type: Bug
@@ -406,9 +416,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The veneer smoke linked against the DLLs dies at start on b29w
 	- ID: 2026110710374327
 	- Type: Bug
-	- Status: Waiting on UAT
+	- Status: Closed
 		- The visit passed. Left for a call on whether to close without a cause for the 0xC0000409, per the decision below.
-	- Stand-in: none (20261123). The 0xC0000409 didn't come back in 8 runs, so no check here can judge its cause.
 	- Severity: Low
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261107-103743
@@ -432,6 +441,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: win-runners `c++ veneer` row on b29w. The before and after check is the saved `winbox-veneer/drive-row.bash`.
 	- Branch: `nov23b-2026110710374327`
 	- Commit: `a89aaa0d`
+	- Closed reason: Done
+	- Acceptance signoff: me, 20261123. The 0xC0000409 didn't recur in 8 b29w runs; the PATH-first fix covers the mismatched-runtime case that would explain it, and the b29w suites visit passed.
+	- Closed: 20261123-173351
 
 - A capped parse still splits every line first, so a file of blank lines costs 17 to 48 times its size
 	- ID: 2026110707441368
