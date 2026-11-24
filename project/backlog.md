@@ -35,6 +35,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Hosted tests: shell-regress dd2gn and dd2gp fail under Ubuntu 26.04, since a renamed uutils coreutils binary is an unknown program
+	- ID: 2026112318030233
+	- Type: Bug
+	- Status: Queued
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-180302
+	- Opened by: nov23b's hosted run 45301493250
+	- Steps to reproduce: hosted ci.yml run 45301493250 on nov23b, job ci (tests), shell-regress.
+	- Incorrect behavior: dd2gn prints coreutils: unknown program 'shcl_20260805-120000' then says dogfood_shcl.ps1 deleted a version that was running; dd2gp prints coreutils: unknown program 'inuse-bin' then says cicd.bash did not see a running dogfood binary. Earlier hosted runs on 26.04 stopped before shell-regress, so this was on dev already.
+	- Expected behavior: both rows pass on ubuntu-latest. The rows' stand-in for a running binary is a copied coreutils program, and uutils is one multicall binary that picks its program by its own name.
+	- Estimated effort: Low
+
 - win-runners: give the c++ veneer row a test ID, so a check-boxes log shows its pass
 	- ID: 2026112317335202
 	- Type: Task
@@ -48,7 +61,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Hosted tests: cli-regress argv-not-utf8 rows exit 125 under Ubuntu 26.04's timeout
 	- ID: 2026112308403867
 	- Type: Bug
-	- Status: Waiting on automated testing
+	- Status: Closed
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261123-084038
@@ -58,24 +71,28 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: dd512 and dd513 exit 125, expected 1, in all 4 CLIs. uutils timeout 0.10.0 refuses any argument that isn't UTF-8 before it runs the command. The hosted run 45068690472 stopped before these rows, so it didn't show them.
 	- Expected behavior: both rows reach the CLI with the byte as given, and pass.
 	- Estimated effort: Low
-	- Needs external testing: hosted ci.yml, job ci (tests): cli-regress dd512 and dd513.
+	- Needs external testing: No
 	- Reproduced: 20261123, in an ubuntu:26.04 container: `timeout 5 shcl get $'\xff' x` exits 125 with `invalid UTF-8 was detected in one or more arguments`, and `gnutimeout` runs the CLI.
 	- Actual cause: uutils timeout refuses an argument that isn't UTF-8, where GNU timeout passes it on. An upstream issue draft is in `2026112308403867/` under the upstream folder.
 	- Actual fix: a row whose argv has `%XF%` writes the command and its arguments NUL-separated to a file, and timeout runs a bash that reads them back and execs them. Every other row runs as before.
 	- Verified: in the ubuntu:26.04 container, dd512 and dd513 failed at 125 before the fix and passed after, with all 689 rows over the 4 CLIs. On the host the full cli-regress passed.
+	- Verified: 20261123, hosted ci.yml run 45301493250 on nov23b, job ci (tests): the item's cli-regress rows PASS.
 	- Swept: `%XF%` is the only non-UTF-8 argument cli-regress passes, and no other script under cicd/ hands timeout one.
 	- Test case: cli-regress dd512 and dd513.
 	- Branch: nov23-2026112307465452
 	- Commit: d41304d7
 	- Actual effort: Low
 	- Prereq IDs: 2026112310344429
+	- Closed reason: Done
+	- Acceptance signoff: me, 20261123
+	- Closed: 20261123-180301
 	- 20261123: hosted run 45232879461's ci (tests) stopped at fs-property before cli-regress (Bug 2026112310344429), so these rows weren't reached.
 	- 20261123: the uutils timeout upstream draft isn't filed (JC).
 
 - Hosted tests: cli-regress create-appeared and write-changed-during-wait exit 0 in all 4
 	- ID: 2026112307465452
 	- Type: Bug
-	- Status: Waiting on automated testing
+	- Status: Closed
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261123-074654
@@ -84,12 +101,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: dcnpd and dcvb4 got exit 0, expected 8, in all 4 CLIs, then a broken pipe at cli-regress.bash line 2090. Both rows edit or create the file after the CLI's stdin notice, so the edit may land after the save on the runner. They passed in 43137942602 on 2026-11-12.
 	- Expected behavior: both rows pass on the hosted runner, or the harness waits on something firmer than timing.
 	- Estimated effort: Avg
-	- Needs external testing: hosted ci.yml, job ci (tests): cli-regress dcnpd, dcvb4, df5rw and devy8.
+	- Needs external testing: No
 	- Reproduced: 20261123, in an ubuntu:26.04 container with all 4 CLIs: dcnpd, dcvb4 and df5rw failed, and the last write of the FIFO row stopped the script at exit 141. That write is the hosted run's line 2090.
 	- Actual cause: the rows wrote 1 MiB of script comments to the CLI's stdin with cat, and counted on the write blocking until the CLI was reading them. Ubuntu 26.04's cat is uutils (0.10.0), which grows the pipe to pipe-max-size, 1 MiB, before it writes. So the whole fill went into the pipe at once, and the edit came before the CLI read the file. The CLIs are fine.
 	- Actual fix: the fill goes by bash's own printf, from a subshell, which leaves the pipe at its default size. The write again returns only once the CLI is reading its ops. The last op goes from a subshell with `|| true` too, so a CLI that quits early fails its row by name rather than stopping the script.
 	- Decisions: me, 20261123: the wait stays a blocking write rather than a poll or a sleep. It holds as long as the writer leaves the pipe size alone, which a builtin always does. A fill bigger than pipe-max-size was left out, since it doubles every wait row's input for a case only a resizing writer makes.
 	- Verified: in the ubuntu:26.04 container, the old cli-regress failed dcnpd, dcvb4 and df5rw and died at 141, and the new one passed all 689 rows over the 4 CLIs. There uutils cat into a FIFO with a sleeping reader returned at once and the reader saw a 1 MiB pipe, and the builtin printf waited the reader's 3 s. On the host, cli-regress over the 4 CLIs, `--backlog-run-quick cli`, shell-regress dc7gs, dcmcq, dct57 and dd86w, shellcheck and `lint-report.bash --check --no-mark` passed. check-doc-examples and perf-gate passed in the container too.
+	- Verified: 20261123, hosted ci.yml run 45301493250 on nov23b, job ci (tests): the item's cli-regress rows PASS.
 	- Swept: opsfill is the only stdin fill in the tree. A grep of mkfifo, opsfill and pipe buffer under cicd/ and source/ found no other write that waits on a reader. broken-pipe (dd516) has the CLI as the writer.
 	- Test case: cli-regress dcnpd and dcvb4, with df5rw and devy8, which share the wait.
 	- Branch: nov23-2026112307465452
@@ -97,6 +115,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual effort: Low
 	- Related IDs: 2026112308403867
 	- Prereq IDs: 2026112310344429
+	- Closed reason: Done
+	- Acceptance signoff: me, 20261123
+	- Closed: 20261123-180301
 	- 20261123: hosted run 45232879461's ci (tests) stopped at fs-property before cli-regress (Bug 2026112310344429), so these rows weren't reached.
 
 - Hosted lint: the mingw cross build fails on every %zu format
@@ -123,6 +144,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `a105bcf2`
 	- Prereq IDs: 2026112311213741
 	- 20261123: hosted run 45232879461's ci (lint) timed out with no log, so the mingw cross check result is unknown.
+	- 20261123: hosted run 45301493250 left no ci (lint) log (2026112311213741), so the cross check wasn't read. The release part doesn't run it.
 
 - Format versions: the demo gif and its golden text show fmt output without the stamp
 	- ID: 2026111710564808
@@ -141,7 +163,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Hosted lint: the lint part runs past its 80-minute timeout on Ubuntu 26.04
 	- ID: 2026112311213741
 	- Type: Bug
-	- Status: Waiting on automated testing
+	- Status: Queued
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261123-112137
@@ -167,11 +189,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: every `cicd/cicd.bash` line in ci.yml (the 3 ci parts share one). The other jobs run no cicd.bash and have their own short timeouts. The setup-build job's apt line keeps -qq; that job installs 2 packages under its own 15-minute timeout.
 	- Branch: `nov23b-2026112311213741`
 	- Commit: `54b67873`
+	- 20261123: hosted run 45301493250 on nov23b: ci (lint) was cut off at 80 minutes with no log again. The gate step ended as a failure at 43 minutes (01:45:02Z), then the runner never started the cache save, and the job sat until its limit. The tests part, under the same timeout wrapper, failed and ended normally. So the step ends, but the runner hangs after it in the lint part only. The 45232879461 hang came before the wrapper.
+	- 20261123: next try: find what the lint part leaves running after its gate, such as a background process holding the step's output, and why the gate failed at 43 minutes. A run with the lint part's gate cut down to that stage would show it in minutes.
 
 - Hosted ci: the tool install step sometimes takes 10 to 44 minutes
 	- ID: 2026112314544545
 	- Type: Bug
-	- Status: Stalled
+	- Status: Queued
 		- Held for: a hosted run whose install step runs long again, now that apt prints each fetch (2026112311213741). Its log says whether the update, one mirror or every fetch was slow.
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
@@ -182,12 +206,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: the step usually takes 1 to 3 minutes. On those runs it took 10 to 44. In the release log of 45232879461, the 43 minutes all fall inside apt-get update and the package fetch, which -qq kept silent. The tests part of the same run took under a minute.
 	- Expected behavior: the install step takes a few minutes, or its log says which fetch was slow.
 	- Estimated effort: Low
+	- 20261123: hosted run 45301493250, release part on ubuntu-24.04: the install step took 42 minutes. apt fetched 267 MB in 40min 29s (110 kB/s), all from us-east-2.ec2.archive.ubuntu.com. The ubuntu-latest parts installed in minutes.
 
 - Hosted windows: win-runners closed stdin dc477 gets exit 0 and the format stamp from all 4 CLIs
 	- ID: 2026112310344469
 	- Type: Bug
-	- Status: Waiting on automated testing
-	- Needs external testing: hosted ci.yml windows job, win-runners `dc477` only.
+	- Status: Closed
+	- Needs external testing: No
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261123-103444
@@ -201,16 +226,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- Exit 0 with only the stamp is right on a closed stdin. A closed stdin reads as an empty document, and fmt prints an empty document as a save does, which is the stamp alone. That matches `dbzbg` on Linux, so the CLIs stay as they are.
 	- Verified: on Linux, the old row fails on all 4 current CLIs with the stamp, as the hosted job did, and the new row passes on them. It fails on a stand-in CLI that prints nothing, one that writes to stderr, one that exits 5, and one that leaves off the newline. shellcheck and `lint-report.bash --check --no-mark` pass. shell-regress passes but the known `dcvej`.
+	- Verified: 20261123, hosted ci.yml run 45301493250 on nov23b, job windows: PASS dc477.
 	- Swept: every `0<&-` in `cicd/`. The only others are cli-regress `dbzbg` and `de132`, which already want the stamp.
 	- Test case: win-runners `dc477`, which runs only on Windows. The Linux run used the row's function lifted out of the script.
 	- Branch: `nov23b-2026112310344469`
 	- Commit: `3966cf55`
+	- Closed reason: Done
+	- Acceptance signoff: me, 20261123
+	- Closed: 20261123-182530
 
 - Hosted windows: most_legal's left argument may be clobbered by longjmp, so the C oom tests don't build
 	- ID: 2026112310344449
 	- Type: Bug
-	- Status: Waiting on automated testing
-	- Needs external testing: hosted ci.yml windows job, win-runners.bash steps 'c oom hook' and 'c oom recover' (`dbwdx`, `dc114`).
+	- Status: Closed
+	- Needs external testing: No
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261123-103444
@@ -226,9 +255,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: `most_legal` takes `left_in` and reads it only into `const volatile uint32_t left`, before `SHCL_SETJMP`.
 	- Swept: oom_hook.c and oom_recover.c built with mingw gcc at all 5 levels, the hosted sweep's flags, and oom_hook.c with gcc 15 at `-Os -Wclobbered`. All clean. No other binding uses setjmp.
 	- Verified: mingw `-Os` build failed before and passes after. Both mingw `-Os` binaries pass under wine, and both native gcc builds pass (`dbwdx`, `dc114`). `analyze-c.bash` passed `de2x2` to `de2x4`. `--backlog-run-quick c` and `lint-report.bash --check --no-mark` passed. Wine isn't the hosted unwind, so the windows job still has to run them.
+	- Verified: 20261123, hosted ci.yml run 45301493250 on nov23b, job windows: PASS dbwdx and dc114 at all 5 levels.
 	- Branch: nov23b-2026112310344449
 	- Commit: `aaea36e7`
 	- Test case: win-runners.bash 'c oom hook' and 'c oom recover' (`dbwdx`, `dc114`), which build at all 5 levels.
+	- Closed reason: Done
+	- Acceptance signoff: me, 20261123
+	- Closed: 20261123-182530
 
 - Hosted tests: fs_property.c fails -Werror=unused-result on symlink under Ubuntu 26.04
 	- ID: 2026112310344429
