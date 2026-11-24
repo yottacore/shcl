@@ -451,13 +451,26 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - check-boxes shows only the last lines of a failed box suite, so its FAIL lines are cut off
 	- ID: 2026110119584589
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: Low
 	- Target version: v3.0.0
 	- Opened: 20261101-195845
 	- Opened by:
 	- Progress log:
 		- 20261101: a full run's vmFreeBSD cli suite reported 3 of 2871 checks failed, and the 20 lines shown were all PASS, so the failed checks weren't named. The FAIL lines should be shown whatever lines end up in the tail.
+	- Actual cause [Bug]: fSuiteRows printed a failed suite's last 20 lines. A long suite, such as cli-regress with its PASS line per check, puts its FAIL lines far above that.
+	- Actual fix [Bug]: check-boxes' `fFailTail` prints a failed suite's last 20 lines, and every FAIL, FAILED or `panicked at` line above them, up to 40, in log order with `...` over a gap. Past 40 it says how many more there are. fSuiteRows calls it in place of `tail -n 20`.
+	- Decisions:
+		- me, 20261123: a line with FAIL or FAILED as a word, or `panicked at`, counts. That covers the suites' status lines, Go's `--- FAIL:`, cargo's `... FAILED` and a Rust panic. A failed check's detail lines without those words show only in the tail.
+		- me, 20261123: at most 40 FAIL lines above the tail, so a suite that fails wholesale doesn't flood the run log.
+	- Swept: the other tails check-boxes prints for a box's log. win-runners.bash and perf-gate already echo every `PASS|FAIL|SKIP <ID>` line of their log, and the 3 `ssh.err` tails are 2 lines of an ssh or box error with no FAIL lines.
+	- Test case: shell-regress `dfq00` (a failed suite's FAIL lines above its tail, and the count past 40).
+	- Verified: `dfq00` fails on HEAD's check-boxes.bash and passes on the change, under gawk, mawk and busybox awk. The whole shell-regress passes but the known `dcvej`, and so do check-push-gate, `test-ids.py check`, shellcheck, and check-boxes over the stub boxes.
+	- Needs local test suite run?: No
+	- Branch: `nov23b-2026110119584589`
+	- Acceptance signoff: Self-closed: its test failed before the fix and passes after.
+	- Closed: 20261123-161621
+	- Closed reason: Done
 
 - Rust parses about a third slower than 2.0.0
 	- ID: 2026110516100001
