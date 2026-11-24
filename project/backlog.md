@@ -35,91 +35,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- Hosted tests: shell-regress dd2gn and dd2gp fail under Ubuntu 26.04, since a renamed uutils coreutils binary is an unknown program
-	- ID: 2026112318030233
-	- Type: Bug
-	- Status: Queued
-	- Priority: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261123-180302
-	- Opened by: nov23b's hosted run 45301493250
-	- Steps to reproduce: hosted ci.yml run 45301493250 on nov23b, job ci (tests), shell-regress.
-	- Incorrect behavior: dd2gn prints coreutils: unknown program 'shcl_20260805-120000' then says dogfood_shcl.ps1 deleted a version that was running; dd2gp prints coreutils: unknown program 'inuse-bin' then says cicd.bash did not see a running dogfood binary. Earlier hosted runs on 26.04 stopped before shell-regress, so this was on dev already.
-	- Expected behavior: both rows pass on ubuntu-latest. The rows' stand-in for a running binary is a copied coreutils program, and uutils is one multicall binary that picks its program by its own name.
-	- Estimated effort: Low
-
-- win-runners: give the c++ veneer row a test ID, so a check-boxes log shows its pass
-	- ID: 2026112317335202
-	- Type: Task
-	- Status: Queued
-	- Priority: Low
-	- Opened: 20261123-173352
-	- Opened by: 2026110710374327's box run
-	- Problem description: the row has no fRun --id, so a b29w suites visit shows it only inside the win-runners row total.
-	- Estimated effort: Low
-
-- Hosted tests: cli-regress argv-not-utf8 rows exit 125 under Ubuntu 26.04's timeout
-	- ID: 2026112308403867
-	- Type: Bug
-	- Status: Closed
-	- Priority: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261123-084038
-	- Opened by: 2026112307465452's sweep
-	- Related IDs: 2026112307465452
-	- Steps to reproduce: cli-regress in an ubuntu:26.04 container, the hosted runner's image since 2026-11.
-	- Incorrect behavior: dd512 and dd513 exit 125, expected 1, in all 4 CLIs. uutils timeout 0.10.0 refuses any argument that isn't UTF-8 before it runs the command. The hosted run 45068690472 stopped before these rows, so it didn't show them.
-	- Expected behavior: both rows reach the CLI with the byte as given, and pass.
-	- Estimated effort: Low
-	- Needs external testing: No
-	- Reproduced: 20261123, in an ubuntu:26.04 container: `timeout 5 shcl get $'\xff' x` exits 125 with `invalid UTF-8 was detected in one or more arguments`, and `gnutimeout` runs the CLI.
-	- Actual cause: uutils timeout refuses an argument that isn't UTF-8, where GNU timeout passes it on. An upstream issue draft is in `2026112308403867/` under the upstream folder.
-	- Actual fix: a row whose argv has `%XF%` writes the command and its arguments NUL-separated to a file, and timeout runs a bash that reads them back and execs them. Every other row runs as before.
-	- Verified: in the ubuntu:26.04 container, dd512 and dd513 failed at 125 before the fix and passed after, with all 689 rows over the 4 CLIs. On the host the full cli-regress passed.
-	- Verified: 20261123, hosted ci.yml run 45301493250 on nov23b, job ci (tests): the item's cli-regress rows PASS.
-	- Swept: `%XF%` is the only non-UTF-8 argument cli-regress passes, and no other script under cicd/ hands timeout one.
-	- Test case: cli-regress dd512 and dd513.
-	- Branch: nov23-2026112307465452
-	- Commit: d41304d7
-	- Actual effort: Low
-	- Prereq IDs: 2026112310344429
-	- Closed reason: Done
-	- Acceptance signoff: me, 20261123
-	- Closed: 20261123-180301
-	- 20261123: hosted run 45232879461's ci (tests) stopped at fs-property before cli-regress (Bug 2026112310344429), so these rows weren't reached.
-	- 20261123: the uutils timeout upstream draft isn't filed (JC).
-
-- Hosted tests: cli-regress create-appeared and write-changed-during-wait exit 0 in all 4
-	- ID: 2026112307465452
-	- Type: Bug
-	- Status: Closed
-	- Priority: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261123-074654
-	- Opened by:
-	- Steps to reproduce: hosted ci.yml run 45068690472 on main, job ci (tests), cli-regress.
-	- Incorrect behavior: dcnpd and dcvb4 got exit 0, expected 8, in all 4 CLIs, then a broken pipe at cli-regress.bash line 2090. Both rows edit or create the file after the CLI's stdin notice, so the edit may land after the save on the runner. They passed in 43137942602 on 2026-11-12.
-	- Expected behavior: both rows pass on the hosted runner, or the harness waits on something firmer than timing.
-	- Estimated effort: Avg
-	- Needs external testing: No
-	- Reproduced: 20261123, in an ubuntu:26.04 container with all 4 CLIs: dcnpd, dcvb4 and df5rw failed, and the last write of the FIFO row stopped the script at exit 141. That write is the hosted run's line 2090.
-	- Actual cause: the rows wrote 1 MiB of script comments to the CLI's stdin with cat, and counted on the write blocking until the CLI was reading them. Ubuntu 26.04's cat is uutils (0.10.0), which grows the pipe to pipe-max-size, 1 MiB, before it writes. So the whole fill went into the pipe at once, and the edit came before the CLI read the file. The CLIs are fine.
-	- Actual fix: the fill goes by bash's own printf, from a subshell, which leaves the pipe at its default size. The write again returns only once the CLI is reading its ops. The last op goes from a subshell with `|| true` too, so a CLI that quits early fails its row by name rather than stopping the script.
-	- Decisions: me, 20261123: the wait stays a blocking write rather than a poll or a sleep. It holds as long as the writer leaves the pipe size alone, which a builtin always does. A fill bigger than pipe-max-size was left out, since it doubles every wait row's input for a case only a resizing writer makes.
-	- Verified: in the ubuntu:26.04 container, the old cli-regress failed dcnpd, dcvb4 and df5rw and died at 141, and the new one passed all 689 rows over the 4 CLIs. There uutils cat into a FIFO with a sleeping reader returned at once and the reader saw a 1 MiB pipe, and the builtin printf waited the reader's 3 s. On the host, cli-regress over the 4 CLIs, `--backlog-run-quick cli`, shell-regress dc7gs, dcmcq, dct57 and dd86w, shellcheck and `lint-report.bash --check --no-mark` passed. check-doc-examples and perf-gate passed in the container too.
-	- Verified: 20261123, hosted ci.yml run 45301493250 on nov23b, job ci (tests): the item's cli-regress rows PASS.
-	- Swept: opsfill is the only stdin fill in the tree. A grep of mkfifo, opsfill and pipe buffer under cicd/ and source/ found no other write that waits on a reader. broken-pipe (dd516) has the CLI as the writer.
-	- Test case: cli-regress dcnpd and dcvb4, with df5rw and devy8, which share the wait.
-	- Branch: nov23-2026112307465452
-	- Commit: d41304d7
-	- Actual effort: Low
-	- Related IDs: 2026112308403867
-	- Prereq IDs: 2026112310344429
-	- Closed reason: Done
-	- Acceptance signoff: me, 20261123
-	- Closed: 20261123-180301
-	- 20261123: hosted run 45232879461's ci (tests) stopped at fs-property before cli-regress (Bug 2026112310344429), so these rows weren't reached.
-
 - Hosted lint: the mingw cross build fails on every %zu format
 	- ID: 2026112307465433
 	- Type: Bug
@@ -159,6 +74,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: rerender assets/demo.gif and refresh cicd/demo/expected.txt (the gif stage, or gen-demo-gif.py), so shell-regress dcvej matches the CLI again. Only a tool run.
 	- Estimated effort: Low
 	- Note: until then shell-regress dcvej fails, since every fmt now ends with the stamp.
+
+- Hosted tests: shell-regress dd2gn and dd2gp fail under Ubuntu 26.04, since a renamed uutils coreutils binary is an unknown program
+	- ID: 2026112318030233
+	- Type: Bug
+	- Status: Queued
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-180302
+	- Opened by: nov23b's hosted run 45301493250
+	- Steps to reproduce: hosted ci.yml run 45301493250 on nov23b, job ci (tests), shell-regress.
+	- Incorrect behavior: dd2gn prints coreutils: unknown program 'shcl_20260805-120000' then says dogfood_shcl.ps1 deleted a version that was running; dd2gp prints coreutils: unknown program 'inuse-bin' then says cicd.bash did not see a running dogfood binary. Earlier hosted runs on 26.04 stopped before shell-regress, so this was on dev already.
+	- Expected behavior: both rows pass on ubuntu-latest. The rows' stand-in for a running binary is a copied coreutils program, and uutils is one multicall binary that picks its program by its own name.
+	- Estimated effort: Low
 
 - Hosted lint: the lint part runs past its 80-minute timeout on Ubuntu 26.04
 	- ID: 2026112311213741
@@ -207,87 +135,33 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: the install step takes a few minutes, or its log says which fetch was slow.
 	- Estimated effort: Low
 	- 20261123: hosted run 45301493250, release part on ubuntu-24.04: the install step took 42 minutes. apt fetched 267 MB in 40min 29s (110 kB/s), all from us-east-2.ec2.archive.ubuntu.com. The ubuntu-latest parts installed in minutes.
+	- 20261124: the setup-build job's apt line still runs under `-qq`. Give it `-q` with the fix, so a slow fetch there shows too.
 
-- Hosted windows: win-runners closed stdin dc477 gets exit 0 and the format stamp from all 4 CLIs
-	- ID: 2026112310344469
-	- Type: Bug
-	- Status: Closed
-	- Needs external testing: No
+- Schema: ignore field keys that start with `x-`, so an app can keep its own metadata there
+	- ID: 2026112315300920
+	- Type: Enhancement
+	- Status: Queued
 	- Priority: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261123-103444
-	- Opened by:
-	- Steps to reproduce: hosted ci.yml run 45232879461 on nov23, job windows, win-runners.bash step 'closed stdin'.
-	- Incorrect behavior: each of the c, rust, go and python CLIs exited 0 saying '## SHCL format 3.0', and dc477 failed. The last green hosted run of dev was 44215749241 on 2026-11-18, before every save and text call took the stamp, so the row likely still expects the old output.
-	- Expected behavior: dc477 passes, with the row matching what a CLI should do on a closed stdin now that saves stamp, or the CLIs fixed if exit 0 is wrong there.
-	- Estimated effort: Low
-	- Actual cause: the row still wanted no output at all. Since the stamp on save, `fmt -` on an empty document prints the stamp, and cli-regress `dbzbg` already expects that on Linux.
-	- Actual fix: `fRunClosedStdin` wants exit 0, stdout of exactly the stamp line, and an empty stderr, read apart rather than merged.
+	- Target version: v3.0.0
+	- Opened: 20261123-153009
+	- Opened by: nemo-anywhere 2026111912460983
+	- Problem description: a schema field takes only the keys SHCL knows. Any other key is V090, an error, so `shcl check --schema` fails on the schema, though its other constraints are still checked. nemo-anywhere keeps a list of Settings search aliases on each field of its schema, read by its build. It has to write them as a comment row, `# aliases: [a, b]`, so its installed schema still passes.
+	- Requirements:
+		- A schema key whose name starts with `x-` is left alone wherever a schema has keys: at the top level, under a `field`, and under a `fragment`. Its value and the lines under it aren't read. `X-` counts too, since names ignore case.
+		- Validation and generation both leave it alone, as validation does `desc`.
+		- Any other unknown key is still `V090`, or `V094` in a fragment.
+		- All 4 bindings and the CLI agree, and a conformance row pins it.
+		- The spec's "Schema validation" section says so, and that shcl gives such a key no meaning.
 	- Decisions:
-		- Exit 0 with only the stamp is right on a closed stdin. A closed stdin reads as an empty document, and fmt prints an empty document as a save does, which is the stamp alone. That matches `dbzbg` on Linux, so the CLIs stay as they are.
-	- Verified: on Linux, the old row fails on all 4 current CLIs with the stamp, as the hosted job did, and the new row passes on them. It fails on a stand-in CLI that prints nothing, one that writes to stderr, one that exits 5, and one that leaves off the newline. shellcheck and `lint-report.bash --check --no-mark` pass. shell-regress passes but the known `dcvej`.
-	- Verified: 20261123, hosted ci.yml run 45301493250 on nov23b, job windows: PASS dc477.
-	- Swept: every `0<&-` in `cicd/`. The only others are cli-regress `dbzbg` and `de132`, which already want the stamp.
-	- Test case: win-runners `dc477`, which runs only on Windows. The Linux run used the row's function lifted out of the script.
-	- Branch: `nov23b-2026112310344469`
-	- Commit: `3966cf55`
-	- Closed reason: Done
-	- Acceptance signoff: me, 20261123
-	- Closed: 20261123-182530
-
-- Hosted windows: most_legal's left argument may be clobbered by longjmp, so the C oom tests don't build
-	- ID: 2026112310344449
-	- Type: Bug
-	- Status: Closed
-	- Needs external testing: No
-	- Priority: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261123-103444
-	- Opened by:
-	- Steps to reproduce: hosted ci.yml run 45232879461 on nov23, job windows, win-runners.bash steps 'c oom hook' and 'c oom recover'.
-	- Incorrect behavior: the image's mingw gcc (windows-2025-vs2026 20261116.315.1) stops the build of oom_hook.c and oom_recover.c with shcl.h:5274 'argument left might be clobbered by longjmp or vfork' under -Werror=clobbered. most_legal came in on 2026-11-19, after the last green hosted run of dev (44215749241, 2026-11-18).
-	- Expected behavior: shcl.h builds clean under -Wclobbered, and a value most_legal keeps across SHCL_SETJMP is safe from longjmp.
-	- Reproduced: 20261123, with the local mingw gcc 14 (win32 threads) at `-Os`, the level the hosted log failed at. The same error at the same line. `-O0` to `-O3` passed there too.
+		- me, 2026-11-24: any key that starts with `x-`, at every level of a schema. It's one rule with no list of names and no level left out. OpenAPI and Compose files use the same prefix for the same thing, so it needs little explaining. `V090` still catches a mistyped key, since no schema key starts with `x-`. An app reads its keys by loading the schema as the SHCL file it is, so the library needs no new call.
+		- Decided against: `aliases` as a known key. It's one app's word in a closed vocabulary, and the next app would ask for another.
+		- Decided against: one known block per field that holds everything. It adds a level for a one-line note, and it isn't the form people know.
+		- Decided against: leaving it to comments. A build then has to read comment text, which shcl gives no meaning, and an edit of the field can move the line.
+		- me, 2026-11-24: v3.0.0, not beta.2. Nothing in beta.2 depends on it, and the comment row works until then. A schema with such a key fails `check --schema` on a reader older than the fix.
+	- Reproduced: 20261123, `shcl check --schema` (v3.0.0-beta1) with `aliases: [x, y]` under a field gives `schema line 4: Error: V090 unknown schema key 'aliases'` and exit 6. The field's type is still checked.
+		- 20261124, dev `7b875296`: the same `V090` for `x-aliases` under a field and `x-app` at the top level, and `V094` (`unknown key 'x-note'`) under a fragment.
+	- Origin: nemo-anywhere 2026111912460983. The draft text and an untested patch for the C header's field-key check (`x-keys.patch`, against `v3.0.0-beta1`) are in `private/claude_simple/upstream/nemo-anywhere-2026111912460983/`.
 	- Estimated effort: Low
-	- Actual cause: `left` is an argument that stays live across the setjmp until the final pick. It isn't changed in between and the recovery path never reads it, so it couldn't really be lost, but gcc's guess at `-Os` keeps it in a register it counts as at risk.
-	- Decisions:
-		- The argument is copied into a volatile local before the setjmp, the way the recovery carriers already are, rather than a `-Wclobbered` pragma. That makes the expected behavior's second half hold outright, and keeps the function whole, as in the Rust twin (me).
-	- Actual fix: `most_legal` takes `left_in` and reads it only into `const volatile uint32_t left`, before `SHCL_SETJMP`.
-	- Swept: oom_hook.c and oom_recover.c built with mingw gcc at all 5 levels, the hosted sweep's flags, and oom_hook.c with gcc 15 at `-Os -Wclobbered`. All clean. No other binding uses setjmp.
-	- Verified: mingw `-Os` build failed before and passes after. Both mingw `-Os` binaries pass under wine, and both native gcc builds pass (`dbwdx`, `dc114`). `analyze-c.bash` passed `de2x2` to `de2x4`. `--backlog-run-quick c` and `lint-report.bash --check --no-mark` passed. Wine isn't the hosted unwind, so the windows job still has to run them.
-	- Verified: 20261123, hosted ci.yml run 45301493250 on nov23b, job windows: PASS dbwdx and dc114 at all 5 levels.
-	- Branch: nov23b-2026112310344449
-	- Commit: `aaea36e7`
-	- Test case: win-runners.bash 'c oom hook' and 'c oom recover' (`dbwdx`, `dc114`), which build at all 5 levels.
-	- Closed reason: Done
-	- Acceptance signoff: me, 20261123
-	- Closed: 20261123-182530
-
-- Hosted tests: fs_property.c fails -Werror=unused-result on symlink under Ubuntu 26.04
-	- ID: 2026112310344429
-	- Type: Bug
-	- Status: Closed
-	- Priority: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261123-103444
-	- Opened by:
-	- Steps to reproduce: hosted ci.yml run 45232879461 on nov23, job ci (tests), step fs-property.bash, the C arm.
-	- Incorrect behavior: source/c/tests/fs_property.c lines 606, 610 and 613 call symlink with a (void) cast, which gcc doesn't accept for a function glibc marks warn_unused_result, so the C fs test doesn't build and the run stops before cli-regress. ubuntu-latest is Ubuntu 26.04 since 2026-11.
-	- Expected behavior: the C fs test builds on the hosted runner and checks symlink's result.
-	- Reproduced: 20261123, in an ubuntu:26.04 container with its gcc 15.2, using fs-property.bash's flags. The same 3 errors. Locally too, with gcc 14 and `-D_FORTIFY_SOURCE=2`, which Ubuntu's gcc turns on by default and which is what makes glibc mark it.
-	- Estimated effort: Low
-	- Actual cause: glibc marks symlink warn_unused_result only under `_FORTIFY_SOURCE`, which Ubuntu's gcc sets and Debian's doesn't, and gcc doesn't let a (void) cast drop such a result.
-	- Decisions:
-		- The result is still dropped rather than checked. A drawn case can run `mkdir` before `link-made`, so `nd` is already there. A fatal check failed `df4eq` at seed 102 with "File exists". The Rust, Go and Python ports drop it too (me).
-	- Actual fix: the 3 event calls go through `fs_try_link`, which keeps the result in a local and drops it. `fs_build`'s symlink was already checked.
-	- Swept: every `(void)` cast on a call in `source/c/` (shcl.h, tests, the CLI). Only mkfifo's remains, and glibc doesn't mark it.
-	- Verified: in the ubuntu:26.04 container the old file fails to build and the new one builds and passes `df4ep` and `df4eq`. Locally it builds clean with gcc 14 and 15 under fortify, and with clang. `--backlog-run-quick c` passed, the fs-property step included.
-	- Branch: nov23b-2026112310344449
-	- Commit: `aaea36e7`
-	- Test case: fs-property.bash's C arm (`df4ep`, `df4eq`), built with the hosted flags.
-	- Acceptance signoff: Self-closed: build fix, failed before and passes after on the hosted image's compiler.
-	- Closed: 20261123-153900
-	- Closed reason: Done
 
 - `Document::merge` drops the base file's comments on every leaf the upper layer names
 	- ID: 2026111217560140
@@ -300,29 +174,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: a merge option that keeps the base's comments.
 	- Estimated effort: Avg
 	- Priority: Avg
-
-- vmFreeBSD: let bsdtest mount a tmpfs, so the box's fs suite gets one
-	- ID: 2026111019385135
-	- Type: Task
-	- Status: Closed
-	- Priority: Avg
-	- Target version: v3.0.0
-	- Opened: 20261110-193851
-	- Opened by: 2026111010331517's run (me)
-	- Related IDs: 2026111010331517
-	- Problem description: the fs suite on vmFreeBSD runs as bsdtest, and `vfs.usermount` is 0 there, so fs-property.bash's FreeBSD route can't mount its tmpfs and the cases go in a plain folder with a `note:` line. With `vfs.usermount=1` set for a moment (20261110), bsdtest mounted a 256 MB tmpfs on its own folder, a read-bit file there was unreadable to it, and the unmount worked. Setting it for good means a root change on a shared VM, which is a line in its `/etc/sysctl.conf`.
-	- Estimated effort: Low
-	- JC, 20261110: option (b), add vfs.usermount=1 to vmFreeBSD's /etc/sysctl.conf as root.
-	- Actual effort: Low
-	- Actual fix: vmFreeBSD's `/etc/sysctl.conf` sets `vfs.usermount=1`, with a comment naming this item. The old file is at `/etc/sysctl.conf.bak-20261123`. Nothing in the repo changed, since fs-property.bash's FreeBSD route already mounts a tmpfs where the user may. Roll back by taking out the line and running `sysctl vfs.usermount=0` as root.
-	- Decisions:
-		- me, 20261123: the value was applied from the file, by `/etc/rc.d/sysctl start` with it set to 0 first, rather than by a reboot of the shared VM. That reads the same file the boot does.
-	- Verified: after the edit, the rc script took `vfs.usermount` from 0 to 1. As bsdtest, `mount -t tmpfs -o size=256m` on its own folder gave a 256 MB tmpfs, a read-bit file there was unreadable, and the unmount worked. check-boxes.bash with vmFreeBSD's row and `suites=fs` passed `df4x7` (and `decyk`, 4730 CLI runs) on the beta1 builds. The VM was paused before and after each, and was put back to paused.
-	- Test case: check-boxes `df4x7`. The setting lives on the VM, so the repo has no test that pins it.
-	- Branch: `nov23b-2026111019385135`
-	- Acceptance signoff: Self-closed: mechanical, JC picked the option, and bsdtest's mount ran on the box.
-	- Closed: 20261123-155818
-	- Closed reason: Done
 
 - The default run takes over an hour
 	- ID: 2026110215285706
@@ -413,70 +264,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The `_or` doc says a repeat gives the default, and points to that read.
 	- Estimated effort: Avg
 
-- Infer 1.3.0 reports more sites in `shcl.h` that nobody has judged
-	- ID: 2026112121124344
+- lint-report reads a passing run as FAILED, on the fs property step's echoed python command
+	- ID: 2026112409544731
 	- Type: Bug
-	- Status: Closed
+	- Status: Queued
 	- Severity: Low
 	- Target version: v3.0.0
-	- Opened: 20261121-211243
-	- Opened by: 2026111016205714
-	- Related IDs: 2026111016205714
-	- Steps to reproduce: `infer run -- cc -Isource/c -c source/c/cmd/shcl/main.c -o /dev/null` with Infer 1.3.0.
-	- Incorrect behavior: past the sites 2026111016205714 covers, Infer reports 5 use-after-free (`shcl_resolve_target`, `s_fopen_regular`, `s_read_schema_file` twice, main.c's `xrealloc`), a null dereference in `upgrade_fail`, a leak and a dead store in `shcl_validate`, and 119 uninitialized values.
-	- Expected behavior: each site is judged, a real one is fixed, and the rest are suppressed at the line with a reason, as 2026111016205714 did.
-	- Estimated effort: Avg
-	- Note: the ones read so far look false. The use-after-free reports are on paths where realloc or fdopen failed, and the `upgrade_fail` one is `vsnprintf(NULL, 0, ...)`. Infer 1.2.0 doesn't read `@infer-ignore`.
-	- Reproduced: Yes, all 130 on the round branch. 3 of them were already suppressed by 2026111016205714.
-	- Actual cause: none in the code. Each is a false report.
-		- The 5 use-after-free reports free or close what realloc or fdopen left alone when it failed. Infer treats the old block or fd as gone on both outcomes.
-		- `vsnprintf(NULL, 0, ...)` is allowed by C99 to measure the output.
-		- `shcl_validate`'s leak is on the `arena_panic` path, which longjmps to the setjmp branch that frees `val`. That branch also reads `levels`, so the store isn't dead.
-		- All 119 uninitialized values trace to a struct field filled by a struct-returning call, such as `r.t = s_slice(...)` or `*out = stamped(...)`. A 13-line file shows it, and storing the call's result in a local first makes it go away.
-	- Actual fix: a reason line and an `@infer-ignore` line above each of the 8 other sites. shcl.h and main.c each turn off `PULSE_UNINITIALIZED_VALUE` for the whole file with `@infer-ignore-every`, under a reason.
-	- Decisions:
-		- me: the uninitialized-value reports are turned off per file rather than at the line. They cover 65 lines in shcl.h and 14 in main.c, all one Infer fault, and 158 comment lines would bury the code. The cost is that Infer can't find a real uninitialized read in either file. gcc's `-fanalyzer`, the clang analyzer and cppcheck still check for them.
-		- me: no code change to dodge the fault, such as a local before each store. That would touch about 80 lines for one tool and pull the code away from the Rust twin it mirrors.
-	- Note: an Infer issue draft with 2 short files covering the 4 faults is in `2026112121124344/` under the upstream folder. Not filed.
-	- Swept: every `realloc(`, `fdopen(` and `vsnprintf(NULL` in shcl.h and main.c (grep). The other 4 realloc sites don't free the old block in their failure branch, and Infer reports none of them, and the 2 `fdopen(fd, "wb")` sites aren't reported, so they have no directive.
-	- Verified: with Infer 1.3.0, all 130 reports show as suppressed in `report.json` and it prints "No issues found". Before the edit 127 were reported. `--backlog-run-quick c`, `lint-report.bash --check --no-mark` and `analyze-c.bash` (`de2x1` to `de2x4`) pass.
-	- Test case: none. Infer isn't a gate here, per 2026101707582803.
-	- Branch: `nov23b-2026112121124344`
-	- Acceptance signoff: Self-closed: every report judged false and shown suppressed by Infer.
-	- Closed: 20261123-155443
-	- Closed reason: Done
-
-- The veneer smoke linked against the DLLs dies at start on b29w
-	- ID: 2026110710374327
-	- Type: Bug
-	- Status: Closed
-		- The visit passed. Left for a call on whether to close without a cause for the 0xC0000409, per the decision below.
-	- Severity: Low
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261107-103743
+	- Opened: 20261124-095447
 	- Opened by:
-	- Target OS: Windows
-	- Test environment: b29w, MinGW-Builds g++ 16.1 in `C:\ProgramData\mingw64`, Git for Windows 2.55
-	- Reproduced [Bug]: 20261123, in part. The 0xC0000409 didn't come back: the dynamic smoke passed under git's bash 5 times on the round's tree and 3 times on `3d1be68b`, the 20261107 source. Run outside git's bash, any dynamic mingw C++ program on b29w dies at start with 0xC00004BC, a trivial one included, while the `-static` build passes.
-	- Actual cause [Bug]:
-		- The loader finds `libstdc++-6.dll`, `libgcc_s_seh-1.dll` and `libwinpthread-1.dll` by PATH. The compiler's folder is entry 72 of b29w's PATH. Entries 12 to 35 and 49 to 58 go through the `C:\opt\0-0\common\exec\synced\util` junction into Dropbox, which Windows refuses as an untrusted mount point (0xC00004BC), so the search stops there.
-		- Under git's bash, git's own `mingw64\bin` comes first, so the smoke runs against git's copies of those DLLs rather than the ones it was built with. They happen to work today.
-		- Not found: a cause for the 0xC0000409 of 20261107. No other copy of those DLLs sits in a PATH folder. The only others in the Dropbox util tree are from 2020, under `win\win64\recover`, which isn't on PATH.
-	- Progress log:
-		- On b29w veneer_smoke.cpp built the normal way exits 0xC0000409 at start, on dev too; built with -static it passes. win-runners.bash's dynamic veneer row fails there for this reason, so a b29w suites-long visit would fail. The cause is likely the mingw runtime DLLs on PATH.
-	- Decisions:
-		- The row runs the smoke with the compiler's folder first on PATH, so it uses the runtime it was built against, whatever PATH holds. Only for a `.exe` build, so Linux runs don't change. The box's PATH and junction are left alone, since they're the box's setup, not the project's.
-		- Left open, since the 0xC0000409 cause is unknown. A mismatched runtime DLL found first on PATH would fit it, and the fix covers that case too.
-	- Actual fix [Bug]: `fRunCxx` in win-runners.bash puts the compiler's folder first on PATH for the smoke's run.
-	- Swept, read only: the C rows build with gcc and no `-pthread`, and the C runner starts its thread with `CreateThread` on Windows. Only the C++ row links libstdc++. Whether the C binaries import any mingw DLL on b29w wasn't checked, and they passed there under git's bash on 20261119.
-	- Verified: on b29w, `fRunCxx` taken from the old and new win-runners.bash, under git's bash PATH and with git's `mingw64` taken off PATH. Old: 0 and 127, an empty output, so it died at load. New: 0 and 0. From pwsh, the dynamic smoke gave 0xC00004BC 3 times with the box's PATH, and 0 with the compiler's folder first. shellcheck on win-runners.bash passed.
-	- Verified: 20261123, a b29w `suites` visit through check-boxes on `c5856a13` passed, win-runners.bash's 26 rows included (`den85`), with no row failed. The `c++ veneer` row prints no line of its own to the log, since it has no test ID. gcc was found there, as `dc3b1` passed. `drive-row.bash` gave old 0 and 0x7F, new 0 and 0, again.
-	- Test case: check-boxes `den85` on b29w, the win-runners run that has the `c++ veneer` row, which gets its own ID in 2026112317335202. The before and after check is the saved `winbox-veneer/drive-row.bash`.
-	- Branch: `nov23b-2026110710374327`
-	- Commit: `a89aaa0d`
-	- Closed reason: Done
-	- Acceptance signoff: me, 20261123. The 0xC0000409 didn't recur in 8 b29w runs; the PATH-first fix covers the mismatched-runtime case that would explain it, and the b29w suites visit passed.
-	- Closed: 20261123-173351
+	- Related IDs: 2026102019120000
+	- Steps to reproduce: `cicd/cicd.bash --backlog-run-quick python > run_20261124-101500.log 2>&1`, then `cicd/utility/lint-report.bash --file run_20261124-101500.log`.
+	- Incorrect behavior: the run passes and ends with the done line, and the report says `FAILED ... (1 error line(s), 1 warning line(s))`. Both counts are the line `fs property: python: python3 -X dev -W error::ResourceWarning source/python/tests/fs_property.py`, which is the step naming the command it runs.
+	- Expected behavior: CLEAN. 2026102019120000 fixed the same text on an `extra:` line, and this step prints its command under its own prefix.
+	- Requirements:
+		- A line where the pipeline names a command it runs never counts as an error or a warning, whatever its prefix. Fix it by the text, `-W error::`, or by one echo form for every step, not by one more prefix.
+		- A shell-regress row has a passing log with that line, and is red on the old script.
+	- Estimated effort: Low
+	- Note: a run mode (`--backlog-run-quick`, `--backlog-run-full`, `--merge-gate`) writes no log under `cicd/artifacts/lint`, so `--check` reads the last bare run. A round reads its own run with `--file`.
 
 - A capped parse still splits every line first, so a file of blank lines costs 17 to 48 times its size
 	- ID: 2026110707441368
@@ -513,30 +317,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: this needs b29w with a short-name TEMP, the way `private/claude_simple/tools/winbox-savetests/` runs it.
 	- Estimated effort: Low
 
-- check-boxes shows only the last lines of a failed box suite, so its FAIL lines are cut off
-	- ID: 2026110119584589
-	- Type: Bug
-	- Status: Closed
-	- Severity: Low
-	- Target version: v3.0.0
-	- Opened: 20261101-195845
-	- Opened by:
-	- Progress log:
-		- 20261101: a full run's vmFreeBSD cli suite reported 3 of 2871 checks failed, and the 20 lines shown were all PASS, so the failed checks weren't named. The FAIL lines should be shown whatever lines end up in the tail.
-	- Actual cause [Bug]: fSuiteRows printed a failed suite's last 20 lines. A long suite, such as cli-regress with its PASS line per check, puts its FAIL lines far above that.
-	- Actual fix [Bug]: check-boxes' `fFailTail` prints a failed suite's last 20 lines, and every FAIL, FAILED or `panicked at` line above them, up to 40, in log order with `...` over a gap. Past 40 it says how many more there are. fSuiteRows calls it in place of `tail -n 20`.
-	- Decisions:
-		- me, 20261123: a line with FAIL or FAILED as a word, or `panicked at`, counts. That covers the suites' status lines, Go's `--- FAIL:`, cargo's `... FAILED` and a Rust panic. A failed check's detail lines without those words show only in the tail.
-		- me, 20261123: at most 40 FAIL lines above the tail, so a suite that fails wholesale doesn't flood the run log.
-	- Swept: the other tails check-boxes prints for a box's log. win-runners.bash and perf-gate already echo every `PASS|FAIL|SKIP <ID>` line of their log, and the 3 `ssh.err` tails are 2 lines of an ssh or box error with no FAIL lines.
-	- Test case: shell-regress `dfq00` (a failed suite's FAIL lines above its tail, and the count past 40).
-	- Verified: `dfq00` fails on HEAD's check-boxes.bash and passes on the change, under gawk, mawk and busybox awk. The whole shell-regress passes but the known `dcvej`, and so do check-push-gate, `test-ids.py check`, shellcheck, and check-boxes over the stub boxes.
-	- Needs local test suite run?: No
-	- Branch: `nov23b-2026110119584589`
-	- Acceptance signoff: Self-closed: its test failed before the fix and passes after.
-	- Closed: 20261123-161621
-	- Closed reason: Done
-
 - Rust parses about a third slower than 2.0.0
 	- ID: 2026110516100001
 	- Type: Bug
@@ -570,6 +350,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Add a perf-gate workload with a kept index line and bulk writes. None of today's workloads has a kept line and writes together, so nothing failed.
 	- Origin: Confirmed. `90870748`, 2026-10-29, round r1029b. No earlier round saw it.
 	- Estimated effort: Avg
+
+- win-runners: give the c++ veneer row a test ID, so a check-boxes log shows its pass
+	- ID: 2026112317335202
+	- Type: Task
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261123-173352
+	- Opened by: 2026110710374327's box run
+	- Problem description: the row has no fRun --id, so a b29w suites visit shows it only inside the win-runners row total.
+	- Estimated effort: Low
 
 - Rust's file calls can't save to a path that isn't UTF-8
 	- ID: 2026111217560157
@@ -1034,6 +824,261 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- spec.md and the `upgrade` docs say 2.x includes 1.x, and that a 1.x file's backup is named `format-v2`.
 		- The next changelog's upgrading notes say C's `SHCL_SET_OK` is 0, so old code testing a setter `!= 0` reads every success as a failure, and that a string read of an array gives its bracket text. The released beta1 section stays as it is.
 	- Estimated effort: Low
+
+- Hosted tests: cli-regress argv-not-utf8 rows exit 125 under Ubuntu 26.04's timeout
+	- ID: 2026112308403867
+	- Type: Bug
+	- Status: Closed
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-084038
+	- Opened by: 2026112307465452's sweep
+	- Related IDs: 2026112307465452
+	- Steps to reproduce: cli-regress in an ubuntu:26.04 container, the hosted runner's image since 2026-11.
+	- Incorrect behavior: dd512 and dd513 exit 125, expected 1, in all 4 CLIs. uutils timeout 0.10.0 refuses any argument that isn't UTF-8 before it runs the command. The hosted run 45068690472 stopped before these rows, so it didn't show them.
+	- Expected behavior: both rows reach the CLI with the byte as given, and pass.
+	- Estimated effort: Low
+	- Needs external testing: No
+	- Reproduced: 20261123, in an ubuntu:26.04 container: `timeout 5 shcl get $'\xff' x` exits 125 with `invalid UTF-8 was detected in one or more arguments`, and `gnutimeout` runs the CLI.
+	- Actual cause: uutils timeout refuses an argument that isn't UTF-8, where GNU timeout passes it on. An upstream issue draft is in `2026112308403867/` under the upstream folder.
+	- Actual fix: a row whose argv has `%XF%` writes the command and its arguments NUL-separated to a file, and timeout runs a bash that reads them back and execs them. Every other row runs as before.
+	- Verified: in the ubuntu:26.04 container, dd512 and dd513 failed at 125 before the fix and passed after, with all 689 rows over the 4 CLIs. On the host the full cli-regress passed.
+	- Verified: 20261123, hosted ci.yml run 45301493250 on nov23b, job ci (tests): the item's cli-regress rows PASS.
+	- Swept: `%XF%` is the only non-UTF-8 argument cli-regress passes, and no other script under cicd/ hands timeout one.
+	- Test case: cli-regress dd512 and dd513.
+	- Branch: nov23-2026112307465452
+	- Commit: d41304d7
+	- Actual effort: Low
+	- Prereq IDs: 2026112310344429
+	- Closed reason: Done
+	- Acceptance signoff: me, 20261123
+	- Closed: 20261123-180301
+	- 20261123: hosted run 45232879461's ci (tests) stopped at fs-property before cli-regress (Bug 2026112310344429), so these rows weren't reached.
+	- 20261123: the uutils timeout upstream draft isn't filed (JC).
+
+- Hosted tests: cli-regress create-appeared and write-changed-during-wait exit 0 in all 4
+	- ID: 2026112307465452
+	- Type: Bug
+	- Status: Closed
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-074654
+	- Opened by:
+	- Steps to reproduce: hosted ci.yml run 45068690472 on main, job ci (tests), cli-regress.
+	- Incorrect behavior: dcnpd and dcvb4 got exit 0, expected 8, in all 4 CLIs, then a broken pipe at cli-regress.bash line 2090. Both rows edit or create the file after the CLI's stdin notice, so the edit may land after the save on the runner. They passed in 43137942602 on 2026-11-12.
+	- Expected behavior: both rows pass on the hosted runner, or the harness waits on something firmer than timing.
+	- Estimated effort: Avg
+	- Needs external testing: No
+	- Reproduced: 20261123, in an ubuntu:26.04 container with all 4 CLIs: dcnpd, dcvb4 and df5rw failed, and the last write of the FIFO row stopped the script at exit 141. That write is the hosted run's line 2090.
+	- Actual cause: the rows wrote 1 MiB of script comments to the CLI's stdin with cat, and counted on the write blocking until the CLI was reading them. Ubuntu 26.04's cat is uutils (0.10.0), which grows the pipe to pipe-max-size, 1 MiB, before it writes. So the whole fill went into the pipe at once, and the edit came before the CLI read the file. The CLIs are fine.
+	- Actual fix: the fill goes by bash's own printf, from a subshell, which leaves the pipe at its default size. The write again returns only once the CLI is reading its ops. The last op goes from a subshell with `|| true` too, so a CLI that quits early fails its row by name rather than stopping the script.
+	- Decisions: me, 20261123: the wait stays a blocking write rather than a poll or a sleep. It holds as long as the writer leaves the pipe size alone, which a builtin always does. A fill bigger than pipe-max-size was left out, since it doubles every wait row's input for a case only a resizing writer makes.
+	- Verified: in the ubuntu:26.04 container, the old cli-regress failed dcnpd, dcvb4 and df5rw and died at 141, and the new one passed all 689 rows over the 4 CLIs. There uutils cat into a FIFO with a sleeping reader returned at once and the reader saw a 1 MiB pipe, and the builtin printf waited the reader's 3 s. On the host, cli-regress over the 4 CLIs, `--backlog-run-quick cli`, shell-regress dc7gs, dcmcq, dct57 and dd86w, shellcheck and `lint-report.bash --check --no-mark` passed. check-doc-examples and perf-gate passed in the container too.
+	- Verified: 20261123, hosted ci.yml run 45301493250 on nov23b, job ci (tests): the item's cli-regress rows PASS.
+	- Swept: opsfill is the only stdin fill in the tree. A grep of mkfifo, opsfill and pipe buffer under cicd/ and source/ found no other write that waits on a reader. broken-pipe (dd516) has the CLI as the writer.
+	- Test case: cli-regress dcnpd and dcvb4, with df5rw and devy8, which share the wait.
+	- Branch: nov23-2026112307465452
+	- Commit: d41304d7
+	- Actual effort: Low
+	- Related IDs: 2026112308403867
+	- Prereq IDs: 2026112310344429
+	- Closed reason: Done
+	- Acceptance signoff: me, 20261123
+	- Closed: 20261123-180301
+	- 20261123: hosted run 45232879461's ci (tests) stopped at fs-property before cli-regress (Bug 2026112310344429), so these rows weren't reached.
+
+- Hosted windows: win-runners closed stdin dc477 gets exit 0 and the format stamp from all 4 CLIs
+	- ID: 2026112310344469
+	- Type: Bug
+	- Status: Closed
+	- Needs external testing: No
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-103444
+	- Opened by:
+	- Steps to reproduce: hosted ci.yml run 45232879461 on nov23, job windows, win-runners.bash step 'closed stdin'.
+	- Incorrect behavior: each of the c, rust, go and python CLIs exited 0 saying '## SHCL format 3.0', and dc477 failed. The last green hosted run of dev was 44215749241 on 2026-11-18, before every save and text call took the stamp, so the row likely still expects the old output.
+	- Expected behavior: dc477 passes, with the row matching what a CLI should do on a closed stdin now that saves stamp, or the CLIs fixed if exit 0 is wrong there.
+	- Estimated effort: Low
+	- Actual cause: the row still wanted no output at all. Since the stamp on save, `fmt -` on an empty document prints the stamp, and cli-regress `dbzbg` already expects that on Linux.
+	- Actual fix: `fRunClosedStdin` wants exit 0, stdout of exactly the stamp line, and an empty stderr, read apart rather than merged.
+	- Decisions:
+		- Exit 0 with only the stamp is right on a closed stdin. A closed stdin reads as an empty document, and fmt prints an empty document as a save does, which is the stamp alone. That matches `dbzbg` on Linux, so the CLIs stay as they are.
+	- Verified: on Linux, the old row fails on all 4 current CLIs with the stamp, as the hosted job did, and the new row passes on them. It fails on a stand-in CLI that prints nothing, one that writes to stderr, one that exits 5, and one that leaves off the newline. shellcheck and `lint-report.bash --check --no-mark` pass. shell-regress passes but the known `dcvej`.
+	- Verified: 20261123, hosted ci.yml run 45301493250 on nov23b, job windows: PASS dc477.
+	- Swept: every `0<&-` in `cicd/`. The only others are cli-regress `dbzbg` and `de132`, which already want the stamp.
+	- Test case: win-runners `dc477`, which runs only on Windows. The Linux run used the row's function lifted out of the script.
+	- Branch: `nov23b-2026112310344469`
+	- Commit: `3966cf55`
+	- Closed reason: Done
+	- Acceptance signoff: me, 20261123
+	- Closed: 20261123-182530
+
+- Hosted windows: most_legal's left argument may be clobbered by longjmp, so the C oom tests don't build
+	- ID: 2026112310344449
+	- Type: Bug
+	- Status: Closed
+	- Needs external testing: No
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-103444
+	- Opened by:
+	- Steps to reproduce: hosted ci.yml run 45232879461 on nov23, job windows, win-runners.bash steps 'c oom hook' and 'c oom recover'.
+	- Incorrect behavior: the image's mingw gcc (windows-2025-vs2026 20261116.315.1) stops the build of oom_hook.c and oom_recover.c with shcl.h:5274 'argument left might be clobbered by longjmp or vfork' under -Werror=clobbered. most_legal came in on 2026-11-19, after the last green hosted run of dev (44215749241, 2026-11-18).
+	- Expected behavior: shcl.h builds clean under -Wclobbered, and a value most_legal keeps across SHCL_SETJMP is safe from longjmp.
+	- Reproduced: 20261123, with the local mingw gcc 14 (win32 threads) at `-Os`, the level the hosted log failed at. The same error at the same line. `-O0` to `-O3` passed there too.
+	- Estimated effort: Low
+	- Actual cause: `left` is an argument that stays live across the setjmp until the final pick. It isn't changed in between and the recovery path never reads it, so it couldn't really be lost, but gcc's guess at `-Os` keeps it in a register it counts as at risk.
+	- Decisions:
+		- The argument is copied into a volatile local before the setjmp, the way the recovery carriers already are, rather than a `-Wclobbered` pragma. That makes the expected behavior's second half hold outright, and keeps the function whole, as in the Rust twin (me).
+	- Actual fix: `most_legal` takes `left_in` and reads it only into `const volatile uint32_t left`, before `SHCL_SETJMP`.
+	- Swept: oom_hook.c and oom_recover.c built with mingw gcc at all 5 levels, the hosted sweep's flags, and oom_hook.c with gcc 15 at `-Os -Wclobbered`. All clean. No other binding uses setjmp.
+	- Verified: mingw `-Os` build failed before and passes after. Both mingw `-Os` binaries pass under wine, and both native gcc builds pass (`dbwdx`, `dc114`). `analyze-c.bash` passed `de2x2` to `de2x4`. `--backlog-run-quick c` and `lint-report.bash --check --no-mark` passed. Wine isn't the hosted unwind, so the windows job still has to run them.
+	- Verified: 20261123, hosted ci.yml run 45301493250 on nov23b, job windows: PASS dbwdx and dc114 at all 5 levels.
+	- Branch: nov23b-2026112310344449
+	- Commit: `aaea36e7`
+	- Test case: win-runners.bash 'c oom hook' and 'c oom recover' (`dbwdx`, `dc114`), which build at all 5 levels.
+	- Closed reason: Done
+	- Acceptance signoff: me, 20261123
+	- Closed: 20261123-182530
+
+- Hosted tests: fs_property.c fails -Werror=unused-result on symlink under Ubuntu 26.04
+	- ID: 2026112310344429
+	- Type: Bug
+	- Status: Closed
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-103444
+	- Opened by:
+	- Steps to reproduce: hosted ci.yml run 45232879461 on nov23, job ci (tests), step fs-property.bash, the C arm.
+	- Incorrect behavior: source/c/tests/fs_property.c lines 606, 610 and 613 call symlink with a (void) cast, which gcc doesn't accept for a function glibc marks warn_unused_result, so the C fs test doesn't build and the run stops before cli-regress. ubuntu-latest is Ubuntu 26.04 since 2026-11.
+	- Expected behavior: the C fs test builds on the hosted runner and checks symlink's result.
+	- Reproduced: 20261123, in an ubuntu:26.04 container with its gcc 15.2, using fs-property.bash's flags. The same 3 errors. Locally too, with gcc 14 and `-D_FORTIFY_SOURCE=2`, which Ubuntu's gcc turns on by default and which is what makes glibc mark it.
+	- Estimated effort: Low
+	- Actual cause: glibc marks symlink warn_unused_result only under `_FORTIFY_SOURCE`, which Ubuntu's gcc sets and Debian's doesn't, and gcc doesn't let a (void) cast drop such a result.
+	- Decisions:
+		- The result is still dropped rather than checked. A drawn case can run `mkdir` before `link-made`, so `nd` is already there. A fatal check failed `df4eq` at seed 102 with "File exists". The Rust, Go and Python ports drop it too (me).
+	- Actual fix: the 3 event calls go through `fs_try_link`, which keeps the result in a local and drops it. `fs_build`'s symlink was already checked.
+	- Swept: every `(void)` cast on a call in `source/c/` (shcl.h, tests, the CLI). Only mkfifo's remains, and glibc doesn't mark it.
+	- Verified: in the ubuntu:26.04 container the old file fails to build and the new one builds and passes `df4ep` and `df4eq`. Locally it builds clean with gcc 14 and 15 under fortify, and with clang. `--backlog-run-quick c` passed, the fs-property step included.
+	- Branch: nov23b-2026112310344449
+	- Commit: `aaea36e7`
+	- Test case: fs-property.bash's C arm (`df4ep`, `df4eq`), built with the hosted flags.
+	- Acceptance signoff: Self-closed: build fix, failed before and passes after on the hosted image's compiler.
+	- Closed: 20261123-153900
+	- Closed reason: Done
+
+- vmFreeBSD: let bsdtest mount a tmpfs, so the box's fs suite gets one
+	- ID: 2026111019385135
+	- Type: Task
+	- Status: Closed
+	- Priority: Avg
+	- Target version: v3.0.0
+	- Opened: 20261110-193851
+	- Opened by: 2026111010331517's run (me)
+	- Related IDs: 2026111010331517
+	- Problem description: the fs suite on vmFreeBSD runs as bsdtest, and `vfs.usermount` is 0 there, so fs-property.bash's FreeBSD route can't mount its tmpfs and the cases go in a plain folder with a `note:` line. With `vfs.usermount=1` set for a moment (20261110), bsdtest mounted a 256 MB tmpfs on its own folder, a read-bit file there was unreadable to it, and the unmount worked. Setting it for good means a root change on a shared VM, which is a line in its `/etc/sysctl.conf`.
+	- Estimated effort: Low
+	- JC, 20261110: option (b), add vfs.usermount=1 to vmFreeBSD's /etc/sysctl.conf as root.
+	- Actual effort: Low
+	- Actual fix: vmFreeBSD's `/etc/sysctl.conf` sets `vfs.usermount=1`, with a comment naming this item. The old file is at `/etc/sysctl.conf.bak-20261123`. Nothing in the repo changed, since fs-property.bash's FreeBSD route already mounts a tmpfs where the user may. Roll back by taking out the line and running `sysctl vfs.usermount=0` as root.
+	- Decisions:
+		- me, 20261123: the value was applied from the file, by `/etc/rc.d/sysctl start` with it set to 0 first, rather than by a reboot of the shared VM. That reads the same file the boot does.
+	- Verified: after the edit, the rc script took `vfs.usermount` from 0 to 1. As bsdtest, `mount -t tmpfs -o size=256m` on its own folder gave a 256 MB tmpfs, a read-bit file there was unreadable, and the unmount worked. check-boxes.bash with vmFreeBSD's row and `suites=fs` passed `df4x7` (and `decyk`, 4730 CLI runs) on the beta1 builds. The VM was paused before and after each, and was put back to paused.
+	- Test case: check-boxes `df4x7`. The setting lives on the VM, so the repo has no test that pins it.
+	- Branch: `nov23b-2026111019385135`
+	- Acceptance signoff: Self-closed: mechanical, JC picked the option, and bsdtest's mount ran on the box.
+	- Closed: 20261123-155818
+	- Closed reason: Done
+
+- Infer 1.3.0 reports more sites in `shcl.h` that nobody has judged
+	- ID: 2026112121124344
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261121-211243
+	- Opened by: 2026111016205714
+	- Related IDs: 2026111016205714
+	- Steps to reproduce: `infer run -- cc -Isource/c -c source/c/cmd/shcl/main.c -o /dev/null` with Infer 1.3.0.
+	- Incorrect behavior: past the sites 2026111016205714 covers, Infer reports 5 use-after-free (`shcl_resolve_target`, `s_fopen_regular`, `s_read_schema_file` twice, main.c's `xrealloc`), a null dereference in `upgrade_fail`, a leak and a dead store in `shcl_validate`, and 119 uninitialized values.
+	- Expected behavior: each site is judged, a real one is fixed, and the rest are suppressed at the line with a reason, as 2026111016205714 did.
+	- Estimated effort: Avg
+	- Note: the ones read so far look false. The use-after-free reports are on paths where realloc or fdopen failed, and the `upgrade_fail` one is `vsnprintf(NULL, 0, ...)`. Infer 1.2.0 doesn't read `@infer-ignore`.
+	- Reproduced: Yes, all 130 on the round branch. 3 of them were already suppressed by 2026111016205714.
+	- Actual cause: none in the code. Each is a false report.
+		- The 5 use-after-free reports free or close what realloc or fdopen left alone when it failed. Infer treats the old block or fd as gone on both outcomes.
+		- `vsnprintf(NULL, 0, ...)` is allowed by C99 to measure the output.
+		- `shcl_validate`'s leak is on the `arena_panic` path, which longjmps to the setjmp branch that frees `val`. That branch also reads `levels`, so the store isn't dead.
+		- All 119 uninitialized values trace to a struct field filled by a struct-returning call, such as `r.t = s_slice(...)` or `*out = stamped(...)`. A 13-line file shows it, and storing the call's result in a local first makes it go away.
+	- Actual fix: a reason line and an `@infer-ignore` line above each of the 8 other sites. shcl.h and main.c each turn off `PULSE_UNINITIALIZED_VALUE` for the whole file with `@infer-ignore-every`, under a reason.
+	- Decisions:
+		- me: the uninitialized-value reports are turned off per file rather than at the line. They cover 65 lines in shcl.h and 14 in main.c, all one Infer fault, and 158 comment lines would bury the code. The cost is that Infer can't find a real uninitialized read in either file. gcc's `-fanalyzer`, the clang analyzer and cppcheck still check for them.
+		- me: no code change to dodge the fault, such as a local before each store. That would touch about 80 lines for one tool and pull the code away from the Rust twin it mirrors.
+	- Note: an Infer issue draft with 2 short files covering the 4 faults is in `2026112121124344/` under the upstream folder. Not filed.
+	- Swept: every `realloc(`, `fdopen(` and `vsnprintf(NULL` in shcl.h and main.c (grep). The other 4 realloc sites don't free the old block in their failure branch, and Infer reports none of them, and the 2 `fdopen(fd, "wb")` sites aren't reported, so they have no directive.
+	- Verified: with Infer 1.3.0, all 130 reports show as suppressed in `report.json` and it prints "No issues found". Before the edit 127 were reported. `--backlog-run-quick c`, `lint-report.bash --check --no-mark` and `analyze-c.bash` (`de2x1` to `de2x4`) pass.
+	- Test case: none. Infer isn't a gate here, per 2026101707582803.
+	- Branch: `nov23b-2026112121124344`
+	- Acceptance signoff: Self-closed: every report judged false and shown suppressed by Infer.
+	- Closed: 20261123-155443
+	- Closed reason: Done
+
+- The veneer smoke linked against the DLLs dies at start on b29w
+	- ID: 2026110710374327
+	- Type: Bug
+	- Status: Closed
+		- The visit passed. Left for a call on whether to close without a cause for the 0xC0000409, per the decision below.
+	- Severity: Low
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261107-103743
+	- Opened by:
+	- Target OS: Windows
+	- Test environment: b29w, MinGW-Builds g++ 16.1 in `C:\ProgramData\mingw64`, Git for Windows 2.55
+	- Reproduced [Bug]: 20261123, in part. The 0xC0000409 didn't come back: the dynamic smoke passed under git's bash 5 times on the round's tree and 3 times on `3d1be68b`, the 20261107 source. Run outside git's bash, any dynamic mingw C++ program on b29w dies at start with 0xC00004BC, a trivial one included, while the `-static` build passes.
+	- Actual cause [Bug]:
+		- The loader finds `libstdc++-6.dll`, `libgcc_s_seh-1.dll` and `libwinpthread-1.dll` by PATH. The compiler's folder is entry 72 of b29w's PATH. Entries 12 to 35 and 49 to 58 go through the `C:\opt\0-0\common\exec\synced\util` junction into Dropbox, which Windows refuses as an untrusted mount point (0xC00004BC), so the search stops there.
+		- Under git's bash, git's own `mingw64\bin` comes first, so the smoke runs against git's copies of those DLLs rather than the ones it was built with. They happen to work today.
+		- Not found: a cause for the 0xC0000409 of 20261107. No other copy of those DLLs sits in a PATH folder. The only others in the Dropbox util tree are from 2020, under `win\win64\recover`, which isn't on PATH.
+	- Progress log:
+		- On b29w veneer_smoke.cpp built the normal way exits 0xC0000409 at start, on dev too; built with -static it passes. win-runners.bash's dynamic veneer row fails there for this reason, so a b29w suites-long visit would fail. The cause is likely the mingw runtime DLLs on PATH.
+	- Decisions:
+		- The row runs the smoke with the compiler's folder first on PATH, so it uses the runtime it was built against, whatever PATH holds. Only for a `.exe` build, so Linux runs don't change. The box's PATH and junction are left alone, since they're the box's setup, not the project's.
+		- Left open, since the 0xC0000409 cause is unknown. A mismatched runtime DLL found first on PATH would fit it, and the fix covers that case too.
+	- Actual fix [Bug]: `fRunCxx` in win-runners.bash puts the compiler's folder first on PATH for the smoke's run.
+	- Swept, read only: the C rows build with gcc and no `-pthread`, and the C runner starts its thread with `CreateThread` on Windows. Only the C++ row links libstdc++. Whether the C binaries import any mingw DLL on b29w wasn't checked, and they passed there under git's bash on 20261119.
+	- Verified: on b29w, `fRunCxx` taken from the old and new win-runners.bash, under git's bash PATH and with git's `mingw64` taken off PATH. Old: 0 and 127, an empty output, so it died at load. New: 0 and 0. From pwsh, the dynamic smoke gave 0xC00004BC 3 times with the box's PATH, and 0 with the compiler's folder first. shellcheck on win-runners.bash passed.
+	- Verified: 20261123, a b29w `suites` visit through check-boxes on `c5856a13` passed, win-runners.bash's 26 rows included (`den85`), with no row failed. The `c++ veneer` row prints no line of its own to the log, since it has no test ID. gcc was found there, as `dc3b1` passed. `drive-row.bash` gave old 0 and 0x7F, new 0 and 0, again.
+	- Test case: check-boxes `den85` on b29w, the win-runners run that has the `c++ veneer` row, which gets its own ID in 2026112317335202. The before and after check is the saved `winbox-veneer/drive-row.bash`.
+	- Branch: `nov23b-2026110710374327`
+	- Commit: `a89aaa0d`
+	- Closed reason: Done
+	- Acceptance signoff: me, 20261123. The 0xC0000409 didn't recur in 8 b29w runs; the PATH-first fix covers the mismatched-runtime case that would explain it, and the b29w suites visit passed.
+	- Closed: 20261123-173351
+
+- check-boxes shows only the last lines of a failed box suite, so its FAIL lines are cut off
+	- ID: 2026110119584589
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261101-195845
+	- Opened by:
+	- Progress log:
+		- 20261101: a full run's vmFreeBSD cli suite reported 3 of 2871 checks failed, and the 20 lines shown were all PASS, so the failed checks weren't named. The FAIL lines should be shown whatever lines end up in the tail.
+	- Actual cause [Bug]: fSuiteRows printed a failed suite's last 20 lines. A long suite, such as cli-regress with its PASS line per check, puts its FAIL lines far above that.
+	- Actual fix [Bug]: check-boxes' `fFailTail` prints a failed suite's last 20 lines, and every FAIL, FAILED or `panicked at` line above them, up to 40, in log order with `...` over a gap. Past 40 it says how many more there are. fSuiteRows calls it in place of `tail -n 20`.
+	- Decisions:
+		- me, 20261123: a line with FAIL or FAILED as a word, or `panicked at`, counts. That covers the suites' status lines, Go's `--- FAIL:`, cargo's `... FAILED` and a Rust panic. A failed check's detail lines without those words show only in the tail.
+		- me, 20261123: at most 40 FAIL lines above the tail, so a suite that fails wholesale doesn't flood the run log.
+	- Swept: the other tails check-boxes prints for a box's log. win-runners.bash and perf-gate already echo every `PASS|FAIL|SKIP <ID>` line of their log, and the 3 `ssh.err` tails are 2 lines of an ssh or box error with no FAIL lines.
+	- Test case: shell-regress `dfq00` (a failed suite's FAIL lines above its tail, and the count past 40).
+	- Verified: `dfq00` fails on HEAD's check-boxes.bash and passes on the change, under gawk, mawk and busybox awk. The whole shell-regress passes but the known `dcvej`, and so do check-push-gate, `test-ids.py check`, shellcheck, and check-boxes over the stub boxes.
+	- Needs local test suite run?: No
+	- Branch: `nov23b-2026110119584589`
+	- Acceptance signoff: Self-closed: its test failed before the fix and passes after.
+	- Closed: 20261123-161621
+	- Closed reason: Done
 
 - Hosted release: the native build on ubuntu-latest asks for x86-64-v3 in its ISA note
 	- ID: 2026112308072792
