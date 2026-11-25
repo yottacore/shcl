@@ -329,6 +329,49 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: the memory a capped parse uses stays near the file's size. The amount is linear and a byte cap on the read bounds it, so this is a constant factor rather than a hole in the caps.
 	- Possible cause: every binding splits the whole text into lines before the first cap check, and blank lines don't count against any cap.
 	- Estimated effort: Avg
+	- Target version: v3.0.0
+	- Progress log:
+		- 20261124: split. The second list and the doubling are 2026112418045534, done, which halves the cost. Walking the text with no list of lines is 2026112418052197, Queued.
+
+- A capped parse holds its list of lines twice, or grows it by doubling, so a file of blank lines costs 17 to 48 times its size
+	- ID: 2026112418045534
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261124-180455
+	- Opened by: Split from 2026110707441368
+	- Parent ID: 2026110707441368
+	- Steps to reproduce: run `parse_limited` on `## SHCL format 3.0` and 200,000 blank lines, with caps of 1,000 nodes, 1,000 elements, and 100 diagnostics.
+	- Incorrect behavior: Rust holds 37 times the text, Go allocates 48 times, C 29 times, and Python's peak is 16 times.
+	- Expected behavior: one list of lines, held once and sized once, about 16 times the text in Rust, Go and C, and 8 in Python, where every empty line is the one empty string.
+	- Actual cause: no cap counts a blank line, so the parse walks them all, and the list of lines is what they cost. Rust kept a copy of it as `src`. C grew it by doubling in an arena that keeps every copy. Python built a second list to trim the line ends. Go's Format line read split the whole text again, and put a value per line on the heap.
+	- Actual fix: Rust and C size the list once from a count of line ends, and Rust shares it with `src` through an `Rc`. Python trims the line ends in place. Go's Format line read cuts a line at a time, as Rust's does, and puts the value on the heap only for a line that names a format. design.md and the changelog say so.
+	- Decisions: Rust shares the list rather than reading the `E028` line from its `array_line` mark, since Go, Python and C already share the one list with `src` that way (parity). Bounds are 20 times the text, and 12 in Python, between the old cost and one list (me).
+	- Test case: `blank_lines_cost_one_list_of_lines` (`dfrg6` Rust, `dfrg7` Go, `dfrg8` Python, `dfrg9` C).
+	- Verified: 20261124. Each test failed on the old code: Rust 7.39 MB, Python 3.25 MB and C 5.84 MB for 200 KB without the stamp line, and Go 9.62 MB with it. They pass now at 3.20, 1.63, 3.60 and 3.20 MB. The quick run over rust, go, python and c read CLEAN, and perf-gate and crosscheck passed.
+	- Swept: each binding's parse split and its Format line read. Rust's `lines_of` and C's byte walk read the stamp with no list. Python's stamp read still splits the text, but frees the list before the parse makes its own, so the peak doesn't change. Go's `trimCountingNodeLines` trims in place.
+	- Branch: `nov24-2026110707441368`
+	- Commit: `4c2d0755`
+	- Acceptance signoff: Self-closed: each test failed before the fix and passes after.
+	- Closed: 20261124-180536
+	- Closed reason: Done
+
+- A capped parse holds a slot for every line, so a file of blank lines costs 8 to 16 times its size
+	- ID: 2026112418052197
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261124-180521
+	- Opened by: Split from 2026110707441368
+	- Parent ID: 2026110707441368
+	- Prereq IDs: 2026112418045534
+	- Steps to reproduce: run `parse_limited` on 2 MB of `\n`, with caps of 1,000 nodes, 1,000 elements, and 100 diagnostics.
+	- Incorrect behavior: Rust, Go and C hold about 16 times the file, and Python's tracemalloc peak is 17 MB, 8 times. That's one slot per line in the list of lines, after 2026112418045534.
+	- Expected behavior: the memory a capped parse uses stays near the file's size.
+	- Possible cause: every binding cuts the whole text into a list of lines before its loop, and no cap counts a blank line. The loop's lookahead reads that list by index: the raw body and skipped block readers, the `E020` remainder count, and the `E028` line read back from `src`. Walking the text a line at a time means each of those reads forward from an offset instead, in all 4.
+	- Estimated effort: Avg
 
 - On Windows a create-only save through a link to nowhere, and `.` under a missing folder, are unchecked
 	- ID: 2026110408432594

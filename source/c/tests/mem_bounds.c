@@ -632,6 +632,28 @@ int main(void) {
 		shcl_free(d); free(ht); free(ft);
 	}
 
+	/* No cap counts a blank line, so the parse walks them all. What it holds
+	   for each is its place in the list of lines, 16 bytes, which a 1-byte
+	   line makes 16 times the file, beside the one copy of the text. The list
+	   grew by doubling, which a bump arena cannot give back (2026110707441368).
+	   Under a stamp, as a saved file has one, since the stamp's reading walks
+	   the lines too. */
+	test_id("dfrg9", "mem_bounds_blank_lines_cost_one_list_of_lines");
+	{
+		const char *stamp = "## SHCL format 3.0\n";
+		size_t sl = strlen(stamp), bl = sl + 200000;
+		char *bt = (char *)malloc(bl);
+		if (!bt) { fail("out of memory"); return test_id_end(1); }
+		memcpy(bt, stamp, sl);
+		memset(bt + sl, '\n', bl - sl);
+		before = allocated;
+		d = shcl_parse_limited(bt, bl, SHCL_STANDARD, 1000, 1000, 100);
+		size_t bcost = allocated - before;
+		printf("mem_bounds: blank lines: %zu bytes for %zu of text\n", bcost, bl);
+		if (bcost >= bl * 20) fail("a capped parse of blank lines held more than one list of lines");
+		shcl_free(d); free(bt);
+	}
+
 	/* A load that re-opens every block after a kept line looked for each
 	   re-opened node in its parent's list, and walked the siblings between it
 	   and the kept line, so the time went with the square of the blocks

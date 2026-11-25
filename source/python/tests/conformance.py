@@ -3355,6 +3355,21 @@ def main():
 	if e020_at(ldoc) != [ncap + 2] or ldoc.lost_count() != nlines - ncap - 1:
 		raise SystemExit(f"held lines: E020 at {e020_at(ldoc)}, lost {ldoc.lost_count()}")
 
+	test_id("dfrg8", "blank_lines_cost_one_list_of_lines")
+	# No cap counts a blank line, so the parse walks them all. What it holds
+	# for each is its place in the list of lines, 8 bytes here, as every
+	# empty line is the one empty string. A second list beside it, for the
+	# carriage returns, made 17 times the file (2026110707441368). Under a
+	# stamp, as a saved file has one, since the stamp's reading walks the
+	# lines too.
+	btext = "## SHCL format 3.0\n" + "\n" * 200000
+	tracemalloc.start()
+	shcl.Document.parse_limited(btext, shcl.Strictness.Standard, 1000, 1000, 100)
+	bpeak = tracemalloc.get_traced_memory()[1]
+	tracemalloc.stop()
+	if bpeak >= len(btext) * 12:
+		raise SystemExit(f"a capped parse of blank lines held {bpeak} bytes for {len(btext)} of text")
+
 	test_id("ddkh3", "a_cap_wins_over_a_broken_value")
 	# An item or a line past the caller's element cap is E021 and dropped,
 	# even when its value is broken: the cap wins over a value fault. A fault

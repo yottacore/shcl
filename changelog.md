@@ -130,6 +130,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The node cap of `parse_limited` counts comment lines and kept lines too. A file that had only those didn't build any node, so a capped parse of it stored 100 times the file. A cap that's crossed on the last line no longer reports `E020`, since nothing was left to stop.
 
+- A capped parse of a file of blank lines takes about half the memory it did: 16 times the file in Rust, Go and C, and 8 times in Python, where it took 17 to 48. The list of lines was held twice in Rust, grown by doubling in C, and copied for line ends in Python, and Go's stamp reading made a second list.
+
 ## v3.0.0-beta1 - 2026-11-05
 
 This release is format 3. It fixes the 2.x design flaws that heavy use turned up. v4 will keep this format and settle the programming interface.

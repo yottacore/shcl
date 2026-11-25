@@ -24,6 +24,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::hash::{BuildHasherDefault, Hasher};
+use std::rc::Rc;
 
 // ---------------------------------------------------------------------------
 // Public surface
@@ -5839,7 +5840,7 @@ struct Parser<'a> {
 	// The text's lines, and the last array line each node's level was
 	// opened by, for one found to have a field under it after it bound
 	// (E028).
-	src: Vec<&'a str>,
+	src: Rc<Vec<&'a str>>,
 	array_line: HashMap<usize, ArrayLine>,
 	// parse_limited's caps, 0 = uncapped: nodes counted against the arena
 	// (root excluded) plus `held`, elements against a single value's cell,
@@ -5963,7 +5964,7 @@ impl<'a> Parser<'a> {
 			kept_hold: None,
 			kept_any: false,
 			kept_arrays: false,
-			src: Vec::new(),
+			src: Rc::default(),
 			array_line: HashMap::new(),
 			max_nodes: 0,
 			held: 0,
@@ -7516,7 +7517,11 @@ impl<'a> Parser<'a> {
 		if let Some(d) = stamp_hint(&stamp) {
 			self.diag(d);
 		}
-		let mut lines: Vec<&str> = lines_of(text).map(|l| l.trim_end_matches('\r')).collect();
+		// No cap counts a blank line, so this list is what a file of them
+		// costs: sized once, and shared with src rather than copied.
+		let mut lines: Vec<&str> =
+			Vec::with_capacity(text.bytes().filter(|&b| b == b'\n').count() + 1);
+		lines.extend(lines_of(text).map(|l| l.trim_end_matches('\r')));
 		// A newline-terminated text splits into one more piece than it has
 		// lines. An unterminated raw block took that empty tail as a body
 		// line, so the same last line read differently with and without its
@@ -7524,7 +7529,8 @@ impl<'a> Parser<'a> {
 		if text.ends_with('\n') {
 			lines.pop();
 		}
-		self.src = lines.clone();
+		let lines = Rc::new(lines);
+		self.src = Rc::clone(&lines);
 		let mut i = 0usize;
 		let mut tok = Tokens {
 			cap: self.max_elements,

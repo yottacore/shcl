@@ -4078,7 +4078,12 @@ func formatLineRead(text string) Read[int] {
 	var found, newest, unread Read[int]
 	// The minors of found and newest, which decide between equal majors.
 	var foundMinor, newestMinor int
-	for i, line := range strings.Split(text, "\n") {
+	// Cut a line at a time, as the reference does, and keep n off the heap
+	// until a line names a format: a list of the lines, and an n per line,
+	// each cost a blank line 16 bytes.
+	for i, tail, more := 0, text, true; more; i++ {
+		var line string
+		line, tail, more = strings.Cut(tail, "\n")
 		current, inNow := now.step(line)
 		old, inThen := then.step(line)
 		if !(inNow || inThen) {
@@ -4098,10 +4103,11 @@ func formatLineRead(text string) Read[int] {
 			}
 			n = ""
 		}
+		raw := n
 		v, minor, ok := stampFormat(n)
 		if !ok {
 			if unread.Line == 0 {
-				unread = Read[int]{Status: BadType, Raw: &n, Line: i + 1}
+				unread = Read[int]{Status: BadType, Raw: &raw, Line: i + 1}
 				if n == "" {
 					unread.Status = Empty
 				}
@@ -4110,11 +4116,11 @@ func formatLineRead(text string) Read[int] {
 		}
 		if v >= FormatMajor {
 			if inNow && (newest.Line == 0 || v > newest.Value || (v == newest.Value && minor > newestMinor)) {
-				newest = Read[int]{Value: v, Status: Good, Raw: &n, Line: i + 1}
+				newest = Read[int]{Value: v, Status: Good, Raw: &raw, Line: i + 1}
 				newestMinor = minor
 			}
 		} else if inThen && (found.Line == 0 || v > found.Value || (v == found.Value && minor > foundMinor)) {
-			found = Read[int]{Value: v, Status: Good, Raw: &n, Line: i + 1}
+			found = Read[int]{Value: v, Status: Good, Raw: &raw, Line: i + 1}
 			foundMinor = minor
 		}
 	}

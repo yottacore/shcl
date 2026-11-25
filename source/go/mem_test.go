@@ -87,6 +87,22 @@ func TestNodeCapBoundsCommentAndKeptLines(t *testing.T) {
 	}
 }
 
+// No cap counts a blank line, so the parse walks them all. What it holds for
+// each is its place in the list of lines, 16 bytes, which a 1-byte line makes
+// 16 times the file (2026110707441368). Under a stamp, as a saved file has one,
+// since the stamp's reading walks the lines too.
+func TestBlankLinesCostOneListOfLines(t *testing.T) {
+	defer testID(t, "dfrg7")
+	text := "## SHCL format 3.0\n" + strings.Repeat("\n", 200000)
+	capped := allocatedBy(func() any {
+		doc, _ := ParseLimited(text, Standard, 1000, 1000, 100)
+		return doc
+	})
+	if capped >= uint64(len(text))*20 {
+		t.Fatalf("a capped parse of blank lines took %d bytes for %d of text", capped, len(text))
+	}
+}
+
 func TestElementCapBoundsTheParse(t *testing.T) {
 	defer testID(t, "dc25f")
 	text := "arr: " + strings.Repeat("1, ", 200000) + "\nok: 5\n"

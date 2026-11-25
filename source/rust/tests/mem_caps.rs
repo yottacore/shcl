@@ -252,3 +252,28 @@ fn diagnostic_cap_bounds_the_parse() {
 		text.len()
 	);
 }
+
+#[cfg_attr(
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
+)]
+#[test]
+fn blank_lines_cost_one_list_of_lines() {
+	let _id = test_id("dfrg6");
+	let turn = my_turn();
+	use shcl::{Document, Strictness};
+	// No cap counts a blank line, so the parse walks them all. What it holds
+	// for each is its place in the list of lines, 16 bytes, which a 1-byte
+	// line makes 16 times the file. That list was held twice, and grown by
+	// doubling, for 32 to 48 times (2026110707441368). Under a stamp, as a
+	// saved file has one, since the stamp's reading walks the lines too.
+	let text = format!("## SHCL format 3.0\n{}", "\n".repeat(200_000));
+	let capped = peak_during(&turn, || {
+		Document::parse_limited(&text, Strictness::Standard, 1_000, 1_000, 100).unwrap();
+	});
+	assert!(
+		capped < text.len() * 20,
+		"a capped parse of blank lines held {capped} bytes for {} of text",
+		text.len()
+	);
+}

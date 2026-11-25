@@ -6170,7 +6170,13 @@ class _Parser:
 		# The whole trailing CR run goes, not just one: a raw block keeps its
 		# content untrimmed, so a line left ending in CR would be written back as
 		# CRLF and read as neither - the one shape where the count is visible.
-		lines = [ln.rstrip("\r") for ln in text.split("\n")]
+		# No cap counts a blank line, so this list is what a file of them
+		# costs. Trimmed in place, as a second list beside it doubled that.
+		lines = text.split("\n")
+		if "\r" in text:
+			for k, ln in enumerate(lines):
+				if ln.endswith("\r"):
+					lines[k] = ln.rstrip("\r")
 		# A newline-terminated text splits into one more piece than it has
 		# lines. An unterminated raw block took that empty tail as a body line,
 		# so the same last line read differently with and without its newline,

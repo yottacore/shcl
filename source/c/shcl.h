@@ -8121,6 +8121,11 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 	stamp_hint(&P, full);
 	ShclVecS lines = {0};
 	{
+		/* No cap counts a blank line, so this list is what a file of them
+		   costs: sized once, as doubling in a bump arena keeps every copy. */
+		lines.cap = 1;
+		for (size_t i = 0; i < full.n; i++) lines.cap += full.p[i] == '\n';
+		lines.data = (ShclStr *)arena_alloc(P.tmp, lines.cap * sizeof *lines.data);
 		size_t start = 0;
 		for (size_t i = 0; i <= full.n; i++) {
 			if (i == full.n || full.p[i] == '\n') {
