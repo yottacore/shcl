@@ -177,6 +177,27 @@ fJobsWait(){
 	done
 }
 
+## The memory this run may still take, in KiB: what the box has free, or less
+## where a cgroup over this process caps it, as the run's own scope and the
+## image's --memory do. 0 when it can't be read, which gets one lane.
+fMemRoomKb(){
+	local room cg dir max cur
+	room="$(awk '/^MemAvailable:/ { print $2 }' /proc/meminfo 2>/dev/null || true)"
+	[[ "${room}" =~ ^[0-9]{1,15}$ ]] || { echo 0; return 0; }
+	cg="$(sed -n 's/^0:://p' /proc/self/cgroup 2>/dev/null || true)"
+	dir="/sys/fs/cgroup${cg%/}"
+	while [[ -n "${cg}" ]]; do
+		max=""; cur=""
+		{ read -r max < "${dir}/memory.max"; read -r cur < "${dir}/memory.current"; } 2>/dev/null || true
+		if [[ "${max}" =~ ^[0-9]{1,18}$ && "${cur}" =~ ^[0-9]{1,18}$ ]] && (( (max - cur) / 1024 < room )); then
+			room=$(( max > cur ? (max - cur) / 1024 : 0 ))
+		fi
+		[[ "${dir}" == /sys/fs/cgroup/* ]] || break
+		dir="${dir%/*}"
+	done
+	echo "${room}"
+}
+
 fGcc(){ "${gccBin}" "${cAnaFlags[@]}" -fanalyzer "$@" -c -o /dev/null; }
 ## One lane: its files one after another, and all of them run.
 fGccLane(){
@@ -315,18 +336,29 @@ elif ((! skipping)); then
 		'\[clang-analyzer-cplusplus\.NewDeleteLeaks,-warnings-as-errors\]' \
 		'\[bugprone-use-after-move,-warnings-as-errors\]' -- \
 		"${tidyBin}" --quiet "--checks=${tidyChecks}" "--header-filter=${tidyHeaders}" "--warnings-as-errors=*" "${work}/bait/bait.cpp" -- -std=c++17 "-I${work}/bait"
-	## gcc's analyzer takes 3 to 8 GB a file, so it gets two lanes whatever
-	## the cap: four at once would want about 21 GB. Each file goes to the
-	## lane with less work, the biggest first, weighed with the header,
-	## which is most of what each one costs.
+	## gcc's analyzer takes 4 to 10.4 GB a file (conformance.c, 2026-11-25),
+	## so it gets at most two lanes whatever the cap. Two peaked at 17.5 GB
+	## with the clang jobs beside them, past the hosted runner's 16 GB, and
+	## the runner ended the step with no word from the gate (2026112421495092).
+	## So the second lane runs only where this run has room for two at
+	## gccLaneGb each. Each file goes to the lane with less work, the biggest
+	## first, weighed with the header, which is most of what each one costs.
+	gccLaneGb=12
+	roomKb="$(fMemRoomKb)"
+	lanes=1
+	if ((roomKb >= (2 * gccLaneGb + 2) * 1048576)); then lanes=2; fi
+	echo "analyze-c: ${lanes} gcc -fanalyzer lane(s), with $((roomKb / 1048576)) GB free for this run and $((2 * gccLaneGb + 2)) wanted for 2"
 	hdrSize="$(wc -c <source/c/shcl.h)"
-	laneFiles=("" ""); laneLoad=(0 0)
+	laneFiles=(); laneLoad=()
+	for ((k = 0; k < lanes; k++)); do laneFiles+=(""); laneLoad+=(0); done
 	while read -r size f; do
 		k=0
-		if ((laneLoad[1] < laneLoad[0])); then k=1; fi
+		for ((j = 1; j < lanes; j++)); do
+			if ((laneLoad[j] < laneLoad[k])); then k="${j}"; fi
+		done
 		laneFiles[k]+="${f} "; laneLoad[k]=$((laneLoad[k] + size + hdrSize))
 	done < <(for f in "${cFiles[@]}"; do printf '%s %s\n' "$(wc -c <"${f}")" "${f}"; done | sort -rn)
-	for k in 0 1; do
+	for ((k = 0; k < lanes; k++)); do
 		read -r -a lane <<<"${laneFiles[k]}"
 		if ((${#lane[@]})); then fJob gcc "gcc -fanalyzer lane $((k + 1))" fGccLane "${lane[@]}"; fi
 	done
@@ -378,3 +410,4 @@ exit 0
 ##		  site suppressed at its line or filed.
 ##		- 2026-10-19 JC: --ctu, the cross-file clang analyzer, for --leakcheck.
 ##		- 2026-10-19 JC: The build image only when docker answers.
+##		- 2026-11-25: A second gcc lane only where the run has the memory for it.

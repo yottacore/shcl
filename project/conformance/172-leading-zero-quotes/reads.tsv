@@ -3,12 +3,20 @@ query	type	expected	status
 -	load	ok	-	strict
 -	lost	0	-
 zip	string	02134	Good
-zip	int	2134	Good
+zip	int	-	BadType
+zip	int	2134	Good	loose
 bare	string	02134	Good
-bare	int	2134	Good
-negative	int	-7	Good
+bare	int	-	BadType
+bare	int	-	BadType	strict
+bare	int	2134	Good	loose
+bare	float	2134	Good
+negative	int	-	BadType
+negative	int	-7	Good	loose
 fraction	float	0.5	Good
 small	float	0.5	Good
-mode	int	644	Good
+zero	int	0	Good
+mode	int	-	BadType
+mode	int	644	Good	loose
 list	string[]	007|7|008	Good
-list	int[]	7|7|8	Good
+list	int[]	0|7|0	BadType	standard	BadType|Good|BadType
+list	int[]	7|7|8	Good	loose

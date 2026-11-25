@@ -3,7 +3,7 @@
 .\"
 .\" Has no version string on purpose: the release bump touches eight files
 .\" and this is not one of them. Keep it in step with HELP in the four CLIs.
-.TH SHCL 1 2026-11-19 shcl "User Commands"
+.TH SHCL 1 2026-11-25 shcl "User Commands"
 .SH NAME
 shcl \- read, edit, validate and format Simple Hierarchical Config Language files
 .SH SYNOPSIS
@@ -435,13 +435,20 @@ fails loudly.
 .B default
 prints the default.
 .B flag
-prints the value, or the type's zero when the read isn't Good, and reports
-through the exit code. The zero is
-.BR 0 ,
-.BR false ,
-or an empty line.
+prints the value when the read is Good, an empty line when it is Empty, and
+nothing otherwise, and reports through the exit code, so no
+.B 0
+or
+.B false
+stands in for a value that isn't there. Under
+.B \-\-slots
+a slot that isn't Good has an empty value.
 .B flag
-is the default.
+is the default. An empty field exits 2, so a
+.B set \-e
+script passes
+.B \-\-default=
+to read an empty or missing value as an empty line at exit 0.
 .TP
 .B \-\-slots
 .RB ( get )
@@ -998,6 +1005,11 @@ rewrites is stamped with the line, so a second run has the answer the first
 one didn't. A raw block that never closes leaves the line nowhere to go, so
 .B migrate
 exits 7 and writes nothing until the block is closed.
+A comma list whose comma sits inside a backtick, paren or bracket pair, such as
+.BR "k: sma(close, 10)" ,
+was split there by 2.x, which nobody meant, so it is exit 7 too, even with
+.BR \-\-from ,
+and then no line of the file is rewritten.
 .PP
 Bracket text after the colon, a selector with a comma, a comma list on a
 field with lines under it, and a quoted name with a backslash pair are what

@@ -1,12 +1,15 @@
 query	type	expected	status
 -	load	ok	-
 -	load	fail	-	strict
-pad	int	7	Good
+pad	int	-	BadType
+pad	int	7	Good	loose
 pad	string	007	Good
 plus	int	5	Good
 negzero	int	0	Good
-big	int	9	Good
-list	int[]	7|5|0	Good
+big	int	-	BadType
+big	int	9	Good	loose
+list	int[]	0|5|0	BadType	standard	BadType|Good|Good
+list	int[]	7|5|0	Good	loose
 glued	string	-	NotFound
 glued	int	-	NotFound
 sq	string	-	NotFound

@@ -157,6 +157,10 @@ def reads(cli: Cli, doc: str, paths: list[str], new: str, old: bool) -> list[obj
 			rc, arr = cli.ask(["get", "--string", "--array", "--slots"], doc, q)
 			got.append(("array", rc, elements(arr, new, old, old and cli.backslash)))
 			rc, raw = cli.ask(["get", "--raw"], doc, q)
+			## The old CLIs print an empty line for a read that failed, other
+			## than an empty value; the current one prints nothing (2026110217340702).
+			if old and rc not in (0, 2):
+				raw = ""
 			got.append(("raw", rc, raw))
 	return got
 

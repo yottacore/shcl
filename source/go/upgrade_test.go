@@ -374,6 +374,72 @@ func TestUpgradeRefusesTextThatReadsTwoWays(t *testing.T) {
 	}
 }
 
+func TestACommaThatCutsAPairIn2WaitsForALook(t *testing.T) {
+	defer testID(t, "dfshx")
+	// 2.x split these at the comma, but nobody meant half a pair, so with or
+	// without from nothing is written (2026111016205702).
+	for _, text := range []string{
+		"query: `select a, b from t`\n",
+		"k: sma(close, 10)\n",
+		"k: f[a, b]\n",
+		"k: {a, b}\n",
+		"k: f(a, \"b\", c)\n",
+		// With from, the lines around it aren't rewritten either.
+		"a: x,y\nk: sma(close, 10)\n",
+	} {
+		if up := Upgrade(text, "2.0", true); up.Current || up.Ambiguous != 1 || up.Text != text {
+			t.Fatalf("%q from 2.x: %+v", text, up)
+		}
+		// Without, one that loads clean now is left as a good file.
+		if up := UpgradeDated(text, &sep1, "", true); !(up.Current || up.Ambiguous >= 1) || up.Text != text {
+			t.Fatalf("%q unsaid: %+v", text, up)
+		}
+		if m := MigrateUnstamped(text, "2.0"); m.Ambiguous != 1 || !m.Unfinished || m.Text != text {
+			t.Fatalf("%q migrated: %+v", text, m)
+		}
+	}
+	// Whole pairs on each side, or no pair at all, split as 2.x read them.
+	for _, text := range []string{
+		"k: `a`, `b`\n",
+		"k: f(a), g(b)\n",
+		"k: a), (b\n",
+		"k: it`s, b\n",
+	} {
+		m := MigrateUnstamped(text, "2.0")
+		if m.Ambiguous != 0 || !strings.HasPrefix(m.Text, "k: [\"") {
+			t.Fatalf("%q: %+v", text, m)
+		}
+		if n := len(Parse(m.Text).ReadStringArray("k").Value); n != 2 {
+			t.Fatalf("%q: %d elements in %q", text, n, m.Text)
+		}
+	}
+}
+
+// A load that converts keeps the rest of the file converted and that line as
+// typed, since nothing is written (2026111016205702).
+func TestALoadConvertsAroundACommaThatCutsAPair(t *testing.T) {
+	defer testID(t, "dfsj8")
+	file := filepath.Join(t.TempDir(), "f.shcl")
+	if err := os.WriteFile(file, []byte("a: x,y\nk: sma(close, 10)\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doc, _, err := LoadFileOpts(file, Standard, LoadOptions{Migrate: true, From: "2.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := doc.ReadStringArray("a").Value; len(got) != 2 || got[0] != "x" || got[1] != "y" {
+		t.Fatalf("a: %q", got)
+	}
+	// Kept as typed, which these rules refuse.
+	kept := false
+	for _, d := range doc.Diagnostics() {
+		kept = kept || (d.Code == "E026" && d.Line == 2)
+	}
+	if !kept {
+		t.Fatalf("no E026 on line 2: %v", doc.Diagnostics())
+	}
+}
+
 func TestBackupNamePutsTheTagBeforeTheExtension(t *testing.T) {
 	defer testID(t, "ddmkb")
 	tag := "_backup_20261004-001500_format-v2"

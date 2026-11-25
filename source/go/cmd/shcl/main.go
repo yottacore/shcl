@@ -174,13 +174,16 @@ Options (the subcommands each belongs to are in parentheses):
   --default=VALUE                        (get) print VALUE when the read isn't
                                          Good. It implies --on-bad=default.
                                          For an array, VALUE fills each bad
-                                         slot
+                                         slot. A set -e script passes
+                                         --default= to read an empty or missing
+                                         value as an empty line at exit 0
   --on-bad=error|default|flag            (get) error fails loudly. default
                                          prints the --default value. flag
-                                         prints the value, or the type's zero,
-                                         such as 0, false, or empty, when the
-                                         read isn't Good, and reports that
-                                         through the exit code. flag is the
+                                         prints the value when the read is
+                                         Good, an empty line when it is Empty,
+                                         and nothing otherwise, with the status
+                                         as the exit code. Under --slots a bad
+                                         slot's value is empty. flag is the
                                          default
   --slots                                (get) prefix each line with its slot
                                          status and a tab, with one line per
@@ -557,6 +560,13 @@ H009|hint|2 plain blocks merged into one, so their children repeat
   a value, as in 'planet: Earth'. If arrays were meant, H001 has that
   advice. A schema's repeat bound above 1 on every child it names turns
   it off.
+H010|hint|a bare number in a selector picked by position, not by value
+  A bare number in a selector is an index, so node(2) is the third
+  'node', counting from 0. When another 'node' has the value 2, the line
+  binds under the third one, which may not be the one meant. Quote the
+  number, as in node("2"), to pick the instance whose value is 2. Keep
+  it bare to pick by position. A lookup path reads the same way, and
+  get, count, instances and children print this hint for one on stderr.
 V001|error|unknown field
   No schema path matches it. Only the topmost unknown node is reported,
   and its subtree is skipped. The prose has the did-you-mean suggestion.
@@ -929,6 +939,37 @@ func refuseReadPath(path string) bool {
 	}
 	fmt.Fprintf(os.Stderr, "bad PATH (%s): %s (see --help)\n", badPath(path), path)
 	return true
+}
+
+// sayIndexHints: H010 for a lookup path, a bare number in a selector that
+// picks an instance by position where another instance has the number as its
+// value. A library lookup has nowhere to say so, so the CLI does
+// (2026110217340701).
+func sayIndexHints(doc *shcl.Document, path string) {
+	var tok shcl.Tokens
+	shcl.Tokenize(path, ':', true, shcl.RulesCurrent, &tok)
+	for _, seg := range tok.Segments {
+		sel := seg.Selector
+		if sel == nil || sel.Quote != shcl.QuoteNone {
+			continue
+		}
+		digits := strings.TrimPrefix(path[sel.Start:sel.End], "+")
+		if digits == "" || strings.Trim(digits, "0123456789") != "" {
+			continue
+		}
+		n, err := strconv.ParseUint(digits, 10, 64)
+		k := strings.IndexByte(path[sel.End:], ')')
+		if err != nil || k < 0 {
+			continue
+		}
+		end := sel.End + k + 1
+		byValue := path[:sel.Start] + "\"" + strconv.FormatUint(n, 10) + "\"" + path[sel.End:end]
+		a, b := doc.ReadLine(path[:end]), doc.ReadLine(byValue)
+		if a.Status == shcl.Good && b.Status == shcl.Good && a.Value != b.Value {
+			fmt.Fprintf(os.Stderr, "%s: Hint: H010 index %d picks a '%s' by position, not the one whose value is %d; "+
+				"write (\"%d\") to pick that one by value\n", path, n, path[seg.Name.Start:seg.Name.End], n, n)
+		}
+	}
 }
 
 // splitSet: PATH=VALUE at the first `=` outside quotes and parens, so a
@@ -2142,6 +2183,7 @@ func doGet(o *opts) int {
 	if doc == nil {
 		return code
 	}
+	sayIndexHints(doc, path)
 	var lines []string
 	var status shcl.Status
 	var slots []shcl.Status
@@ -2272,7 +2314,7 @@ func doGet(o *opts) int {
 		}
 	}
 	// Why the read failed is worth saying even when the exit code already
-	// shows it: at the default mode the user otherwise gets an empty line, a
+	// shows it: at the default mode the user otherwise gets no output, a
 	// nonzero code, and nothing to go on. Stdout is untouched - this only ever
 	// goes to stderr. Two silences are deliberate: default mode, because a
 	// caller who supplied a fallback has already said the miss is expected, and
@@ -2289,7 +2331,11 @@ func doGet(o *opts) int {
 			// The text the typed read parsed: quotes off and escapes read,
 			// so a quoted value is not quoted twice.
 			if r := doc.ReadString(path); r.Raw != nil {
-				reason = fmt.Sprintf("value %s is not a valid %s", quoted(r.Value), typeName)
+				if fix, ok := leadingZeroFix(r.Value); ok && o.kind == kindInt && !o.array {
+					reason = fmt.Sprintf("value %s has a leading zero, so write %s", quoted(r.Value), fix)
+				} else {
+					reason = fmt.Sprintf("value %s is not a valid %s", quoted(r.Value), typeName)
+				}
 			} else {
 				reason = fmt.Sprintf("value is not a valid %s", typeName)
 			}
@@ -2306,10 +2352,14 @@ func doGet(o *opts) int {
 		fmt.Fprintf(os.Stderr, "cannot read %s as %s: %s (in %s)\n", path, typeName, reason, file)
 	}
 	switch {
-	case status == shcl.Good || (status == shcl.Empty && o.onBad == onBadFlag):
+	case status == shcl.Good:
 		emit(lines)
 		return statusCode(status)
-	case o.onBad == onBadDefault:
+	case o.onBad == onBadDefault || (o.onBad == onBadFlag && (status == shcl.Empty || o.slots) && !(o.array && len(slots) == 0)):
+		// Under flag, an empty value and a --slots listing print what
+		// --default= would, with the status's exit code, so no type's zero
+		// gets out. An array read with no slots, empty or missing, prints no
+		// element, as before: one line there would read as one empty element.
 		if len(slots) > 0 {
 			// Array read: the default substitutes per bad slot; alignment holds.
 			subbed := make([]string, len(lines))
@@ -2330,16 +2380,53 @@ func doGet(o *opts) int {
 		} else {
 			outln(o.def)
 		}
-		return 0
+		if o.onBad == onBadDefault {
+			return 0
+		}
+		return statusCode(status)
 	case o.onBad == onBadError:
 		// The message already went to stderr above; error mode differs only in
 		// printing nothing on stdout.
 		return statusCode(status)
 	default:
-		// print the zero/empty value anyway; the exit code gives the status
-		emit(lines)
+		// Nothing on stdout, so a script that skips the exit code gets no zero
+		// to carry on with.
 		return statusCode(status)
 	}
+}
+
+// leadingZeroFix gives what to write instead of an int with a leading zero,
+// such as `0o644 for octal or 644 for decimal` for `0644`, or false when v has
+// none. A read refuses one outside Loose (parseIntText in the library).
+func leadingZeroFix(v string) (string, bool) {
+	sign, body := "", v
+	if strings.HasPrefix(v, "-") {
+		sign, body = "-", v[1:]
+	} else {
+		body = strings.TrimPrefix(v, "+")
+	}
+	if len(body) < 2 || body[0] != '0' {
+		return "", false
+	}
+	for i := 0; i < len(body); i++ {
+		if body[i] < '0' || body[i] > '9' {
+			return "", false
+		}
+	}
+	digits := strings.TrimLeft(body, "0")
+	if digits == "" {
+		digits = "0"
+	}
+	octal := digits != "0"
+	for i := 0; i < len(digits); i++ {
+		if digits[i] > '7' {
+			octal = false
+		}
+	}
+	if octal {
+		return sign + "0o" + digits + " for octal or " + sign + digits + " for decimal", true
+	}
+	return sign + digits, true
 }
 
 // quotedMax is how many characters of a value a message shows (diagTextMax
@@ -2485,6 +2572,13 @@ func rewrittenLines(before, after string) []int {
 	return lines
 }
 
+// saySplitPairs: what Ambiguous counts once --from has said the file is 2.x,
+// comma lists 2.x split inside a pair (2026111016205702).
+func saySplitPairs(file string, count int, outcome string) {
+	fmt.Fprintf(os.Stderr, "%s: %d value(s) have a comma inside a backtick, paren or bracket pair, "+
+		"which 2.x split there and nobody means; %s\n", file, count, outcome)
+}
+
 // doMigrate: a 2.x file rewritten for the current rules. The rewrite is text
 // to text; the load after it is for the diagnostics and the save gate, the
 // same gate `fmt --write` goes through.
@@ -2530,8 +2624,14 @@ func doMigrate(o *opts) int {
 	}
 	rc := 0
 	if m.Ambiguous != 0 {
-		fmt.Fprintf(os.Stderr, "%s: %d value(s) read one way under 2.x and another under these rules, and "+
-			"the file doesn't say which it was written for; left as written (--from=FORMAT rewrites them)\n", file, m.Ambiguous)
+		// With --from, the only ones left are commas inside a pair.
+		if o.from != "" {
+			saySplitPairs(file, m.Ambiguous, "left as written")
+		} else {
+			fmt.Fprintf(os.Stderr, "%s: %d value(s) read one way under 2.x and another under these rules, and "+
+				"the file doesn't say which it was written for, or have a comma inside a backtick, paren or "+
+				"bracket pair; left as written (--from=FORMAT rewrites them)\n", file, m.Ambiguous)
+		}
 		rc = 7
 	}
 	if m.Lost != 0 {
@@ -2710,7 +2810,11 @@ func doUpgrade(o *opts) int {
 			sayDiagnosticsFrom("", shcl.UpgradeDated(text, mtime, from, true).Diagnostics)
 			var ue *shcl.UpgradeError
 			if errors.As(err, &ue) && ue.Kind == shcl.UpgradeAmbiguous {
-				fmt.Fprintf(os.Stderr, "%v (--from=FORMAT rewrites them)\n", err)
+				if from != "" {
+					saySplitPairs(file, ue.Count, "nothing written")
+				} else {
+					fmt.Fprintf(os.Stderr, "%v (--from=FORMAT rewrites them)\n", err)
+				}
 				return 7
 			}
 			if errors.As(err, &ue) && ue.Kind == shcl.UpgradeErrorsLeft {
@@ -2735,8 +2839,12 @@ func doUpgrade(o *opts) int {
 	}
 	sayDiagnosticsFrom("", up.Diagnostics)
 	if up.Ambiguous != 0 {
-		err := &shcl.UpgradeError{Kind: shcl.UpgradeAmbiguous, Path: file, Count: up.Ambiguous}
-		fmt.Fprintf(os.Stderr, "%v (--from=FORMAT rewrites them)\n", err)
+		if from != "" {
+			saySplitPairs(file, up.Ambiguous, "nothing written")
+		} else {
+			err := &shcl.UpgradeError{Kind: shcl.UpgradeAmbiguous, Path: file, Count: up.Ambiguous}
+			fmt.Fprintf(os.Stderr, "%v (--from=FORMAT rewrites them)\n", err)
+		}
 		return 7
 	}
 	if len(up.ErrorsLeft) != 0 {
@@ -3045,8 +3153,14 @@ func floatGrammar(s string) bool {
 }
 
 // parseOpInt gates an ops int like the reference: grammar first, then range.
+// A leading zero is refused, as a read refuses it: `0644` or a umask's `0022`
+// is octal to whoever wrote it.
 func parseOpInt(s string) (int64, error) {
-	if !intGrammar(s) {
+	body := s
+	if strings.HasPrefix(s, "+") || strings.HasPrefix(s, "-") {
+		body = s[1:]
+	}
+	if !intGrammar(s) || (len(body) > 1 && body[0] == '0') {
 		return 0, fmt.Errorf("bad int: %s", s)
 	}
 	n, err := strconv.ParseInt(s, 10, 64)
@@ -3729,6 +3843,7 @@ func doEnum(o *opts, wantCount bool) int {
 	if doc == nil {
 		return code
 	}
+	sayIndexHints(doc, path)
 	if wantCount {
 		outln(doc.Count(path))
 	} else if o.json || o.paths {
@@ -3844,6 +3959,7 @@ func doChildren(o *opts) int {
 	if doc == nil {
 		return code
 	}
+	sayIndexHints(doc, path)
 	if o.json {
 		r := doc.ReadChildFields(path)
 		if r.Status != shcl.Good {

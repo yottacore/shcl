@@ -290,8 +290,13 @@ fReadTree(){
 				rc=0; "${cli}" get --string --array --slots "${doc}" -- "${q}" > "${tmpDir}/array" 2>/dev/null || rc=$?
 				if [[ "${side}" == 2x ]]; then fOneLine2x < "${tmpDir}/array"; else cat "${tmpDir}/array"; fi
 				[[ "${rc}" == 0 ]] || echo "string exit ${rc}"
-				"${cli}" get --raw "${doc}" -- "${q}" 2>/dev/null || echo "raw exit $?"
-				"${cli}" get --rawinfo "${doc}" -- "${q}" 2>/dev/null || echo "rawinfo exit $?"
+				##	2.x printed an empty line for a read that failed, other than
+				##	an empty value; the current CLI prints nothing (2026110217340702).
+				for k in raw rawinfo; do
+					rc=0; "${cli}" get "--${k}" "${doc}" -- "${q}" > "${tmpDir}/one" 2>/dev/null || rc=$?
+					if [[ "${side}" == now ]] || ((rc == 0 || rc == 2)); then cat "${tmpDir}/one"; fi
+					((rc == 0)) || echo "${k} exit ${rc}"
+				done
 			done
 		done < "${tmpDir}/paths"
 	} | fLogicalPaths "${side}"
@@ -302,9 +307,9 @@ fReadTree(){
 ##	raw-content read on the same node. The two reads sit next to each other in
 ##	the tree above, so the 2.x side's answer is brought forward here rather than
 ##	dropping the info string from the comparison entirely.
-##	Each read prints its (empty) value before its status line, so the raw status
-##	sits two lines back.
-fAge2xReads(){ awk '$0 == "rawinfo exit 4" && prev == "" && prev2 == "raw exit 2" { $0 = "rawinfo exit 2" } { print; prev2 = prev; prev = $0 }'; }
+##	A read that fails prints nothing before its status line, so the raw status
+##	sits right above, and the empty value the current CLI prints goes in.
+fAge2xReads(){ awk '$0 == "rawinfo exit 4" && prev == "raw exit 2" { print ""; $0 = "rawinfo exit 2" } { print; prev = $0 }'; }
 
 ##	A NUL-bearing document cannot ride a command substitution; the native
 ##	runners pin those.
@@ -741,7 +746,7 @@ fUpgradeCheck(){
 	fi
 }
 
-declare -i nCompared=0 nCorpus=0 nTrimmed=0 nSkipped=0 nBad=0 nLostChecked=0 nRawOpen=0 nNamed3=0 nTrimmed3=0
+declare -i nCompared=0 nCorpus=0 nTrimmed=0 nSkipped=0 nBad=0 nLostChecked=0 nRawOpen=0 nNamed3=0 nTrimmed3=0 nCutPair=0
 fTest dcqf3 corpus and fuzz documents migrate to the tree 2.x read
 for f in "${corpus}"/*/input.shcl "${brackets}"/*.shcl "${dump}"/*.shcl; do
 	[[ -f "${f}" ]] || continue
@@ -804,6 +809,12 @@ for f in "${corpus}"/*/input.shcl "${brackets}"/*.shcl "${dump}"/*.shcl; do
 			nBad+=1
 			echo "check-migrate: DIVERGE ${name}: 2.x read a raw block that never closes, and migrate exited ${rc} without refusing over it"
 		fi
+	elif ((rc == 7)) && grep -q 'comma inside a backtick, paren or bracket pair' "${tmpDir}/migrate.err"; then
+		## 2.x split such a list at the comma, but nobody meant half a pair, so
+		## migrate hands the file back for a look rather than writing that
+		## (2026111016205702). Nothing was rewritten, so there's no tree to compare.
+		nCutPair+=1
+		continue
 	elif ((rc != 0)); then
 		nBad+=1
 		echo "check-migrate: DIVERGE ${name}: 2.x read it cleanly, and migrate exited ${rc}"
@@ -954,7 +965,7 @@ if ((nBad)); then
 	echo "check-migrate: ${nBad} divergence(s) over ${nCompared} document(s) (${nSkipped} skipped)" >&2
 	exit 1
 fi
-echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, ${nCorpus} corpus cases, $((nCompared - nCorpus)) fuzz-dumped and ${nTrimmed} with lines taken out first; ${nLostChecked} lost count(s) match; ${nRawOpen} refused for an open raw block; ${nNamed3} naming format 3 left as written; ${nSkipped} skipped; upgrade rewrote ${nUpRewritten} with --from=2.0 (${nUpCleanRewritten} that loaded clean) and ${nUpPlain} without, left ${nUpCurrent} and ${nFormat3} naming format 3, refused ${nUpAmbiguous} at 7; ${nUpFormat3Soup} of the ${nNamed3} naming format 3 converted with --from=2.0; ${nTrimmed3} the trim left naming format 3 not compared"
+echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, ${nCorpus} corpus cases, $((nCompared - nCorpus)) fuzz-dumped and ${nTrimmed} with lines taken out first; ${nLostChecked} lost count(s) match; ${nRawOpen} refused for an open raw block; ${nCutPair} refused for a comma inside a pair; ${nNamed3} naming format 3 left as written; ${nSkipped} skipped; upgrade rewrote ${nUpRewritten} with --from=2.0 (${nUpCleanRewritten} that loaded clean) and ${nUpPlain} without, left ${nUpCurrent} and ${nFormat3} naming format 3, refused ${nUpAmbiguous} at 7; ${nUpFormat3Soup} of the ${nNamed3} naming format 3 converted with --from=2.0; ${nTrimmed3} the trim left naming format 3 not compared"
 
 ##	History:
 ##		2026-09-08  Created with the 3.0 lexical cut, pinned on the funnel merge.

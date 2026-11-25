@@ -1751,6 +1751,14 @@ fTest dfpxn 2026112311213741-hosted-gate-stops-before-the-job
 ##	no log. The gate has to stop itself first, from the job's own minutes.
 fPinsRun 's# timeout --kill-after=60 "\$\{left\}" cicd/cicd\.bash# cicd/cicd.bash#' && fBad "check-pins.bash passed a hosted gate run without timeout"
 fPinsRun 's/timeout-minutes: \$\{\{ matrix\.minutes \}\}/timeout-minutes: 80/' && fBad "check-pins.bash passed a job whose timeout-minutes isn't where the gate's limit comes from"
+fTest dfsfy 2026112509394522-hosted-runners-pinned
+##	2026112509394522: ubuntu-latest moved to 26.04 with no change here and
+##	turned the hosted gate red. Every job names a fixed image, in runs-on or
+##	in the matrix value it reads.
+fPinsRun 's/runner: ubuntu-24\.04$/runner: ubuntu-latest/' && fBad "check-pins.bash passed a matrix runner of ubuntu-latest"
+fPinsRun 's/runs-on: windows-2025$/runs-on: windows-latest/' && fBad "check-pins.bash passed runs-on: windows-latest"
+# shellcheck disable=SC2016  ## a workflow expression, written into the copy as is
+fPinsRun 's/runs-on: \$\{\{ matrix\.runner \}\}/runs-on: ${{ inputs.os }}/' && fBad "check-pins.bash passed a runs-on it can't follow to a label"
 fTest ddx1w 2026101303344553-check-pins-container-recipes
 ##	2026101303344553: the --container recipes are a third copy of the pins, and
 ##	fetch toolchains of their own. Each case edits one recipe file and has to

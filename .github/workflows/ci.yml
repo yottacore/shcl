@@ -57,19 +57,19 @@ jobs:
           ## unless the C header changed. The tests part takes the leak checks,
           ## and the release part the native release, its checks and packages.
           ##
-          ## The release part stays on 24.04. ubuntu-latest moved to 26.04 with
-          ## amd64v3 packages in November 2026, whose gcc and startup files
-          ## build for x86-64-v3 and mark every binary linked there as needing
-          ## it, so glibc won't load that build on the CPU floor
-          ## (2026112308072792). The released build comes from the Debian
-          ## image, which has no such variant. Lint and tests stay on the
-          ## moving image, so a newer toolchain still gets tested there.
+          ## Every job names a fixed image, and check-pins refuses a -latest
+          ## one. ubuntu-latest moved to 26.04 in November 2026 with no change
+          ## here, and its newer gcc and mingw turned the gate red
+          ## (2026112509394522). Moving to a newer image is a planned change
+          ## of its own. 26.04 also builds for x86-64-v3 and marks every
+          ## binary linked there as needing it, so glibc won't load the
+          ## release part's build on the CPU floor (2026112308072792).
           - part: lint
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
             args: --merge-gate --no-tests --no-release --no-remote
             minutes: 80
           - part: tests
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
             args: --merge-gate --no-lint --no-release --no-cross --no-remote --skip=codeql-scan.bash
             minutes: 80
           - part: release
@@ -256,7 +256,7 @@ jobs:
   ## both modules, on the exact release go.mod names.
   go-floor:
     if: ${{ !inputs.job }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -285,7 +285,7 @@ jobs:
   ## is the compiler; win-runners.bash names the tool if the image ever drops it.
   windows:
     if: ${{ !inputs.job }}
-    runs-on: windows-latest
+    runs-on: windows-2025
     timeout-minutes: 25
     ## Git Bash. The runner script is the same one a person runs by hand there.
     defaults:
@@ -315,7 +315,7 @@ jobs:
   ## installs it, runs it from the machine PATH and uninstalls it.
   setup-build:
     if: ${{ !inputs.job }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -337,7 +337,7 @@ jobs:
 
   setup-test:
     needs: setup-build
-    runs-on: windows-latest
+    runs-on: windows-2025
     timeout-minutes: 10
     defaults:
       run:
@@ -463,7 +463,7 @@ jobs:
   ## an arm runner.
   winarm-build:
     if: ${{ !inputs.job }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0

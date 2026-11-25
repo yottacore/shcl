@@ -732,30 +732,30 @@ rows=(
 	# 'dcntn|set-quoted-thousands|get --int --set=a=1,000 %F% a|-|0|1000\n|-'
 	# "dcntp|set-selector-thousands|get --int --set=x(\"1,000\").y=1 %F% x|-|0|1000\n|-"
 	# 'dcntq|selector-thousands|get --int %SQ% srv|-|0|1000\n|-'
-	'ddwhj|set-quoted-thousands-text|get --int --set=a=1,000 %F% a|-|4|0\n|not a valid int'
-	"ddwhk|set-selector-thousands-text|get --int --set=x(\"1,000\").y=1 %F% x|-|4|0\n|not a valid int"
-	'ddwhm|selector-thousands-text|get --int %SQ% srv|-|4|0\n|not a valid int'
+	'ddwhj|set-quoted-thousands-text|get --int --set=a=1,000 %F% a|-|4||not a valid int'
+	"ddwhk|set-selector-thousands-text|get --int --set=x(\"1,000\").y=1 %F% x|-|4||not a valid int"
+	'ddwhm|selector-thousands-text|get --int %SQ% srv|-|4||not a valid int'
 	## A quoted one is still not a number at Standard.
-	'ddwhh|quoted-thousands-int|get --int - p|p: "80,443"\n|4|0\n|not a valid int'
+	'ddwhh|quoted-thousands-int|get --int - p|p: "80,443"\n|4||not a valid int'
 	## 2026101309122757: Loose reads a quoted thousands number again.
 	# "ddwht|quoted-thousands-float|get --float --strictness=loose - p|p: '1,000'\n|4|0\n|not a valid float"
 	"ddx00|loose-quoted-thousands-float|get --float --strictness=loose - p|p: '1,000'\n|0|1000\n|-"
 	"ddx01|loose-quoted-money-int|get --int --strictness=loose - p|p: \"\$1,200.50\"\n|0|1201\n|-"
-	'ddx02|loose-bare-thousands-text|get --int --strictness=loose - p|p: 1,200\n|4|0\n|not a valid int'
-	'ddx03|strict-quoted-thousands-text|get --int --strictness=strict - p|p: "1,200"\n|4|0\n|not a valid int'
+	'ddx02|loose-bare-thousands-text|get --int --strictness=loose - p|p: 1,200\n|4||not a valid int'
+	'ddx03|strict-quoted-thousands-text|get --int --strictness=strict - p|p: "1,200"\n|4||not a valid int'
 	## A bare one stays bare through fmt and a setter, so it reads as text after a save too.
 	"ddx04|fmt-keeps-bare-thousands|fmt -|p: 80,443\nq: \$1,200.50\n|0|p: 80,443\nq: \$1,200.50\n## SHCL format 3.0\n|-"
 	'ddx05|set-keeps-bare-thousands|set --set=p=1,200 -|a: 1\n|0|a: 1\n\np: 1,200\n## SHCL format 3.0\n|-'
-	'ddx07|loose-set-thousands-text|get --int --strictness=loose --set=a=1,000 %F% a|-|4|0\n|not a valid int'
+	'ddx07|loose-set-thousands-text|get --int --strictness=loose --set=a=1,000 %F% a|-|4||not a valid int'
 	## 2026101514324702: over a quoted value too, whatever its quote kind.
 	"de033|set-thousands-over-quoted|set --set=p=1,200 --set=q=\$1,200 -|p: \"x\"\nq: \`x\`\n|0|p: 1,200\nq: \$1,200\n## SHCL format 3.0\n|-"
-	'de034|loose-set-thousands-over-quoted|get --int --strictness=loose --set=p=1,200 - p|p: "x"\n|4|0\n|not a valid int'
+	'de034|loose-set-thousands-over-quoted|get --int --strictness=loose --set=p=1,200 - p|p: "x"\n|4||not a valid int'
 	## 2026101318521195: a trailing `.` is fine on one, a leading one is not.
 	'ddxep|loose-quoted-thousands-dot-int|get --int --strictness=loose - p|p: "1,200."\n|0|1200\n|-'
 	"ddxeq|loose-quoted-money-dot-pct|get --float --strictness=loose - p|p: \"\$1,200.%\"\n|0|12\n|-"
 	'ddxer|fmt-keeps-bare-thousands-dot|fmt -|p: 1,200.\n|0|p: 1,200.\n## SHCL format 3.0\n|-'
-	'ddxes|standard-quoted-thousands-dot|get --float - p|p: "1,200."\n|4|0\n|not a valid float'
-	'ddxet|loose-leading-dot-thousands-text|get --float --strictness=loose - p|p: ".1,200"\n|4|0\n|not a valid float'
+	'ddxes|standard-quoted-thousands-dot|get --float - p|p: "1,200."\n|4||not a valid float'
+	'ddxet|loose-leading-dot-thousands-text|get --float --strictness=loose - p|p: ".1,200"\n|4||not a valid float'
 	## 3.0: bracket text after the colon is one outcome, kept verbatim. The
 	## 2.x selector sugar is that shape now too, and migrate is what brings
 	## a file written with it across.
@@ -860,6 +860,20 @@ rows=(
 	'dfjng|migrate-raw-body-ambiguous|migrate -|q: ~~~sql\n  SELECT 1\n    FROM t\n~~~\nport: 80\n|7|q: ~~~sql\n  SELECT 1\n    FROM t\n~~~\nport: 80\n|doesn.t say which it was written for.*--from=FORMAT'
 	## 2.x read `k: s,` as `k: s`, one field with the line after it.
 	'ddrgk|migrate-lone-element|migrate --from=2.0 -|k: s,\nk: s\n|0|k: s\nk: s\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
+	## A bare number in a selector picks by position, so where another
+	## instance has it as its value, the line gets H010 naming the quoted
+	## spelling. Where the instance it picks has that value, or the body is
+	## quoted, there's nothing to say (2026110217340701).
+	'dfsj2|h010-index-not-value|check -|node: 1\n\tip: a\nnode: 2\n\tip: b\nnode: 3\n\tip: c\nnode(2).role: primary\n|0|line 7: Hint: H010\nok (1 diagnostic(s))\n|^line 7: Hint: H010 index 2 picks a .node. by position, not the one whose value is 2; write [(]"2"[)] to pick that one by value$'
+	## A lookup path says the same on stderr, since a library lookup can't.
+	'dfsj4|h010-lookup-get|get - node(2).ip|node: 1\n\tip: a\nnode: 2\n\tip: b\nnode: 3\n\tip: c\n|0|c\n|^node[(]2[)].ip: Hint: H010 index 2 picks a .node. by position, not the one whose value is 2; write [(]"2"[)] to pick that one by value$'
+	'dfsj5|h010-lookup-count-children|count - node(+02)|node: 1\n\tip: a\nnode: 2\n\tip: b\nnode: 3\n\tip: c\n|0|1\n|^node[(][+]02[)]: Hint: H010 index 2 picks'
+	'dfsj6|h010-lookup-quiet|get - node("2").ip|node: 1\n\tip: a\nnode: 2\n\tip: b\nnode: 3\n\tip: c\n|0|b\n|!H010'
+	'dfsj3|h010-quiet-when-they-agree|check -|node: 0\n\tip: a\nnode: 1\n\tip: b\nnode: 2\n\tip: c\nnode(2).x: 1\nnode("1").y: 2\nnode(1).z: 3\n|0|ok (0 diagnostic(s))\n|!H010'
+	## 2.x split these at the comma, but nobody meant half a pair, so --from
+	## rewrites nothing, the lines around it included (2026111016205702).
+	'dfsj0|migrate-from-comma-in-parens|migrate --from=2.0 -|a: x,y\nk: sma(close, 10)\n|7|a: x,y\nk: sma(close, 10)\n|^-: 1 value.s. have a comma inside a backtick, paren or bracket pair, which 2.x split there and nobody means; left as written$'
+	'dfsj1|upgrade-from-comma-in-backticks|upgrade --from=2.0 -|q: \x60a, b\x60\n|7||^-: 1 value.s. have a comma inside a backtick, paren or bracket pair, which 2.x split there and nobody means; nothing written$'
 	## A comment on a stacked item stays on it, and one among the items stays
 	## among them.
 	'ddhx2|list-item-comment-fmt|fmt -|l:\n\t# first\n\t- a  # one\n\t- b\n|0|l:\n\t# first\n\t- a  # one\n\t- b\n## SHCL format 3.0\n|-'
@@ -945,10 +959,10 @@ rows=(
 	#'dd5dt|escape-unknown-read|get - a|a: "C:\\work"\n|3|\n|no value at that path'
 	#'dd5dv|escape-unknown-literal|set %F2%|literal\tx\t"C:\\work"\n|1||^op line 1: cannot write x'
 	'ddhed|escape-mark-unknown-check|check -|a: "say \xe2\x97\x89HELLO\xe2\x97\x89"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 unknown escape'
-	'ddhee|escape-mark-unknown-read|get - a|a: "\xe2\x97\x89NOPE\xe2\x97\x89"\n|3|\n|no value at that path'
+	'ddhee|escape-mark-unknown-read|get - a|a: "\xe2\x97\x89NOPE\xe2\x97\x89"\n|3||no value at that path'
 	'ddhef|escape-mark-unknown-literal|set %F2%|literal\tx\t"\xe2\x97\x89NOPE\xe2\x97\x89"\n|1||^op line 1: cannot write x'
 	'ddheg|backslash-is-text-read|get - a|a: "C:\\work\\new"\n|0|C:\\work\\new\n|-'
-	'dd5dq|escape-unknown-path|get - "a\w"|"a\\\\w": 1\n|3|\n|no value at that path'
+	'dd5dq|escape-unknown-path|get - "a\w"|"a\\\\w": 1\n|3||no value at that path'
 	'dd5dr|escape-doubled-path|get - "a\\w"|"a\\\\w": 1\n|0|1\n|-'
 	## \u and \U named a character by its code point, and one that named none
 	## was E023. 2.x kept the pair as written, so migrate needed to be told
@@ -1054,7 +1068,7 @@ rows=(
 	## refused where it cannot mean anything.
 	'dd5s9|duration-read|get --duration - t|t: "1h 30m"\n|0|5400000\n|-'
 	'dd5sa|duration-name-unit|get --duration - wait-ms|wait-ms: 250\n|0|250\n|-'
-	'dd5sb|duration-bare|get --duration - t|t: 90\n|4|0\n|not a valid duration'
+	'dd5sb|duration-bare|get --duration - t|t: 90\n|4||not a valid duration'
 	'dd5sc|duration-unit|get --duration --unit=s - t|t: 90\n|0|90000\n|-'
 	'dd5sd|size-decimal|get --size --decimal - c|c: 2MB\n|0|2000000\n|-'
 	'dd5se|size-unit-space|get --size --unit KiB - c|c: 64\n|0|65536\n|-'
@@ -1419,7 +1433,7 @@ rows=(
 	'ddqhy|get-json-raw|get --json --raw - r|k: 1\nk: 2\nhdr:\n\tq: \x27say "hi" \\\x27\nr:\n\t\x60\x60\x60\n\ta\n\tb\n\t\x60\x60\x60\narr: [1, 2]\n"a.b": x\n|0|{"path":"r","value":"a\\nb","line":5}\n|-'
 	'ddqhz|get-array-json|get --array --json --int - arr|k: 1\nk: 2\nhdr:\n\tq: \x27say "hi" \\\x27\nr:\n\t\x60\x60\x60\n\ta\n\tb\n\t\x60\x60\x60\narr: [1, 2]\n"a.b": x\n|0|{"path":"arr","value":"1","line":10}\n{"path":"arr","value":"2","line":10}\n|-'
 	'ddqj0|get-array-json-slots-default|get --array --json --slots --default=q - a(*).b|a: x\n\tb: 1\na: y\n|0|{"path":"a(0).b","value":"1","line":2,"status":"Good"}\n{"path":"","value":"q","line":0,"status":"NotFound"}\n|-'
-	'ddqj1|get-json-not-found|get --json - nope|shard: 1\n\towner: ann\nshard: 0\n\towner: bob\n|3|{"path":"","value":"","line":0}\n|-'
+	'ddqj1|get-json-not-found|get --json - nope|shard: 1\n\towner: ann\nshard: 0\n\towner: bob\n|3||-'
 	'ddqj2|get-json-default-bad-type|get --json --int --default=7 - t|t: "x\xe2\x97\x89TAB\xe2\x97\x89y\xe2\x97\x89U+0001\xe2\x97\x89\xe2\x97\x89U+007F\xe2\x97\x89\xc3\xa9"\n|0|{"path":"t","value":"7","line":1}\n|-'
 	'ddqj3|json-edit-line-zero|paths --json --set=n=1 -|a: 1\n|0|{"path":"a","value":"1","line":1}\n{"path":"n","value":"1","line":0}\n|-'
 	'ddqj4|paths-with-json-refused|instances --paths --json - a|a: 1\n|1||^--paths cannot be combined with --json \(see --help\)$'
@@ -1485,9 +1499,28 @@ rows=(
 	## 2026101407100006: the content reads escapes and the info is taken as
 	## written, since a fence label has none.
 	'ddydb|ops-raw-info-as-written|set %F%|raw\tn\tmd\xe2\x97\x89NEWLINE\xe2\x97\x89x\tl1\xe2\x97\x89NEWLINE\xe2\x97\x89l2\n|0|a: 1\n\nn:\n\t\x60\x60\x60md\xe2\x97\x89NEWLINE\xe2\x97\x89x\n\tl1\n\tl2\n\t\x60\x60\x60\n## SHCL format 3.0\n|-'
-	## Flag mode, the default, prints the type's zero where there is no value.
-	'ddydc|flag-zero-missing-int|get --int %F% nope|-|3|0\n|no value at that path'
-	'ddydd|flag-zero-missing-bool|get --bool %F% nope|-|3|false\n|no value at that path'
+	## Flag mode, the default, printed the type's zero where there was no value,
+	## so a script without set -e went on with it (2026110217340702). It prints
+	## nothing now, except under --slots, which names each slot's status.
+	'ddydc|flag-nothing-missing-int|get --int %F% nope|-|3||no value at that path'
+	'ddydd|flag-nothing-missing-bool|get --bool %F% nope|-|3||no value at that path'
+	'dfsh3|flag-nothing-bad-type|get --int - a|a: x\n|4||value "x" is not a valid int'
+	'dfsh4|flag-slots-no-zero|get --int --slots - nope|a: 1\n|3|NotFound\t\n|no value at that path'
+	'dfsh9|flag-slots-array-no-zero|get --int --array --slots - a(*).b|a: x\n\tb: 1\na: y\n\tb: z\n|4|Good\t1\nBadType\t\n|not a valid int array'
+	'dfsh5|flag-empty-no-zero|get --int - a|a:\n|2|\n|^$'
+	## An array read with no slots prints no element, --slots or not: a line
+	## there would read as one empty element.
+	'dfsmq|flag-empty-array-no-element|get --array - a|a:\n|2||^$'
+	'dfsmr|flag-slots-empty-array-no-element|get --array --slots - a|a:\n|2||^$'
+	'dfsms|flag-slots-missing-array-no-element|get --array --slots - nope|a: 1\n|3||no value at that path'
+	## 2026110217340703: a leading zero is octal to whoever wrote it, so an int
+	## read refuses it outside Loose and the message gives both spellings.
+	'dfsh6|leading-zero-names-octal|get --int - mode|mode: 0644\n|4||=cannot read mode as int: value "0644" has a leading zero, so write 0o644 for octal or 644 for decimal (in -)\n'
+	'dfsh7|leading-zero-not-octal|get --int - zip|zip: "-0899"\n|4||=cannot read zip as int: value "-0899" has a leading zero, so write -899 (in -)\n'
+	'dfsh8|leading-zero-loose-reads|get --int --strictness=loose - mode|mode: 0644\n|0|644\n|^$'
+	'dfsha|ops-int-leading-zero|set %F%|int\tumask\t0022\n|1||^op line 1: bad int: 0022 \(see --help\)$'
+	'dfshb|ops-int-array-leading-zero|set %F%|int-array\tm\t1\t-007\n|1||^op line 1: bad int: -007 \(see --help\)$'
+	'dfshc|ops-int-zero-reads|set %F%|int\tz\t-0\n|0|a: 1\n\nz: 0\n## SHCL format 3.0\n|-'
 	## 20260830b item 19: a script could read an open section's values but never
 	## learn its keys, so the only route was parsing fmt output in shell. A name
 	## needing quotes comes back path-ready, or enumerating it buys nothing.
@@ -1627,7 +1660,7 @@ rows=(
 	## or file. 20260830 item 34: C printed a raw body as it stood, so the one
 	## line ran over three, and the four CLIs each quoted the value their own way.
 	'dd5h1|onbad-error-names-value|get --int --on-bad=error - a|a: 12cats\n|4||^cannot read a as int: value "12cats" is not a valid int \(in -\)$'
-	'dd5h2|bad-int-raw-one-line|get --int %R% b|-|4|0\n|^cannot read b as int: value "line one◉NEWLINE◉line two" is not a valid int \(in [^)]*rawval\.shcl\)$'
+	'dd5h2|bad-int-raw-one-line|get --int %R% b|-|4||^cannot read b as int: value "line one◉NEWLINE◉line two" is not a valid int \(in [^)]*rawval\.shcl\)$'
 	## 2026100812323841: a message showed value text with 2.x backslash escapes,
 	## so C:\temp read as two backslashes. A line break, carriage return or tab
 	## shows by its escape name, another control as a code point, a real mark
@@ -2337,14 +2370,14 @@ done
 
 ## 2026101407100006: what the help says these do, each run by a row:
 ## remove-wildcard-takes-all, ops-raw-info-as-written, migrate-taken,
-## set-print-says-canonical and flag-zero-missing-int.
+## set-print-says-canonical and flag-nothing-missing-int.
 fTest ddydf help-says
 helpSays=(
 	'--remove=PATH (same) delete every field the path matches'
 	"A raw op's INFO is taken as written"
 	'When that name is taken, they write nothing and exit 8'
 	'Without --layer, a note on stderr says so'
-	"flag prints the value, or the type's zero"
+	'flag prints the value when the read is Good, an empty line when it is Empty'
 )
 for b in "${bindings[@]}"; do
 	name="${b%%|*}"; cli="${b#*|}"

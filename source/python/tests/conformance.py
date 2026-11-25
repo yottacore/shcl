@@ -6085,6 +6085,51 @@ def main():
 	if up.ambiguous != 0 or not up.text.startswith("a: [x, y]\nb: '\"q'\n\n##\n"):
 		raise SystemExit(f"from_v2: {up.ambiguous} {up.text!r}")
 
+	test_id("dfshy", "a_comma_that_cuts_a_pair_in_2_waits_for_a_look")
+	# 2.x split these at the comma, but nobody meant half a pair, so with or
+	# without from nothing is written (2026111016205702).
+	for up_cut in (
+		"query: `select a, b from t`\n",
+		"k: sma(close, 10)\n",
+		"k: f[a, b]\n",
+		"k: {a, b}\n",
+		"k: f(a, \"b\", c)\n",
+		# With from, the lines around it aren't rewritten either.
+		"a: x,y\nk: sma(close, 10)\n",
+	):
+		up = shcl.upgrade(up_cut, "2.0", True)
+		if up.current or up.ambiguous != 1 or up.text != up_cut:
+			raise SystemExit(f"{up_cut!r} from 2.x: {up.current} {up.ambiguous} {up.text!r}")
+		# Without, one that loads clean now is left as a good file.
+		up = shcl.upgrade_dated(up_cut, up_sep1, None, True)
+		if not (up.current or up.ambiguous >= 1) or up.text != up_cut:
+			raise SystemExit(f"{up_cut!r} unsaid: {up.current} {up.ambiguous} {up.text!r}")
+		m = shcl.migrate_unstamped(up_cut, "2.0")
+		if m.ambiguous != 1 or not m.unfinished or m.text != up_cut:
+			raise SystemExit(f"{up_cut!r} migrated: {m.ambiguous} {m.unfinished} {m.text!r}")
+	# Whole pairs on each side, or no pair at all, split as 2.x read them.
+	for up_cut in ("k: `a`, `b`\n", "k: f(a), g(b)\n", "k: a), (b\n", "k: it`s, b\n"):
+		m = shcl.migrate_unstamped(up_cut, "2.0")
+		if m.ambiguous != 0 or not m.text.startswith('k: ["'):
+			raise SystemExit(f"{up_cut!r}: {m.ambiguous} {m.text!r}")
+		n = len(shcl.Document.parse(m.text).read_string_array("k").value)
+		if n != 2:
+			raise SystemExit(f"{up_cut!r}: {n} elements in {m.text!r}")
+
+	test_id("dfsj9", "a_load_converts_around_a_comma_that_cuts_a_pair")
+	# A load that converts keeps the rest of the file converted and that line
+	# as typed, since nothing is written (2026111016205702).
+	with tempfile.TemporaryDirectory() as cut_dir:
+		cut_file = os.path.join(cut_dir, "f.shcl")
+		with open(cut_file, "w", encoding="utf-8") as fh:
+			fh.write("a: x,y\nk: sma(close, 10)\n")
+		cut_doc = shcl.Document.load_file_opts(cut_file, shcl.Strictness.Standard, shcl.LoadOptions(migrate=True, from_="2.0"))[0]
+		if cut_doc.read_string_array("a").value != ["x", "y"]:
+			raise SystemExit(f"a: {cut_doc.read_string_array('a').value!r}")
+		# Kept as typed, which these rules refuse.
+		if not any(d.code == "E026" and d.line == 2 for d in cut_doc.diagnostics()):
+			raise SystemExit(f"no E026 on line 2: {cut_doc.diagnostics()!r}")
+
 	test_id("ddmkv", "backup_name_puts_the_tag_before_the_extension")
 	for up_file, up_format, up_want in (
 		("f.shcl", 2, f"f{up_tag}.shcl"),

@@ -159,13 +159,16 @@ Options (the subcommands each belongs to are in parentheses):
   --default=VALUE                        (get) print VALUE when the read isn't
                                          Good. It implies --on-bad=default.
                                          For an array, VALUE fills each bad
-                                         slot
+                                         slot. A set -e script passes
+                                         --default= to read an empty or missing
+                                         value as an empty line at exit 0
   --on-bad=error|default|flag            (get) error fails loudly. default
                                          prints the --default value. flag
-                                         prints the value, or the type's zero,
-                                         such as 0, false, or empty, when the
-                                         read isn't Good, and reports that
-                                         through the exit code. flag is the
+                                         prints the value when the read is
+                                         Good, an empty line when it is Empty,
+                                         and nothing otherwise, with the status
+                                         as the exit code. Under --slots a bad
+                                         slot's value is empty. flag is the
                                          default
   --slots                                (get) prefix each line with its slot
                                          status and a tab, with one line per
@@ -704,6 +707,13 @@ H009|hint|2 plain blocks merged into one, so their children repeat
   a value, as in 'planet: Earth'. If arrays were meant, H001 has that
   advice. A schema's repeat bound above 1 on every child it names turns
   it off.
+H010|hint|a bare number in a selector picked by position, not by value
+  A bare number in a selector is an index, so node(2) is the third
+  'node', counting from 0. When another 'node' has the value 2, the line
+  binds under the third one, which may not be the one meant. Quote the
+  number, as in node(\"2\"), to pick the instance whose value is 2. Keep
+  it bare to pick by position. A lookup path reads the same way, and
+  get, count, instances and children print this hint for one on stderr.
 V001|error|unknown field
   No schema path matches it. Only the topmost unknown node is reported,
   and its subtree is skipped. The prose has the did-you-mean suggestion.
@@ -1036,6 +1046,40 @@ fn refuse_read_path(path: &str) -> bool {
 	}
 	errln!("bad PATH ({}): {} (see --help)", bad_path(path), path);
 	true
+}
+
+/// H010 for a lookup path: a bare number in a selector picks an instance by
+/// position, where another instance has the number as its value. A library
+/// lookup has nowhere to say so, so the CLI does (2026110217340701).
+fn say_index_hints(doc: &Document, path: &str) {
+	let mut tok = Tokens::default();
+	tokenize(path, b':', true, Rules::Current, &mut tok);
+	for seg in &tok.segments {
+		let Some(sel) = seg.selector.filter(|s| s.quote == Quote::None) else {
+			continue;
+		};
+		let body = &path[sel.start..sel.end];
+		let digits = body.strip_prefix('+').unwrap_or(body);
+		if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+			continue;
+		}
+		let (Ok(n), Some(k)) = (digits.parse::<u64>(), path[sel.end..].find(')')) else {
+			continue;
+		};
+		let end = sel.end + k + 1;
+		let by_value = format!("{}\"{}\"{}", &path[..sel.start], n, &path[sel.end..end]);
+		let (a, b) = (doc.read_line(&path[..end]), doc.read_line(&by_value));
+		if a.status == Status::Good && b.status == Status::Good && a.value != b.value {
+			errln!(
+				"{}: Hint: H010 index {} picks a '{}' by position, not the one whose value is {}; write (\"{}\") to pick that one by value",
+				path,
+				n,
+				&path[seg.name.start..seg.name.end],
+				n,
+				n
+			);
+		}
+	}
 }
 
 /// PATH=VALUE at the first `=` outside quotes and parens, so a selector
@@ -2288,6 +2332,7 @@ fn do_get(o: &Opts) -> u8 {
 		Ok(d) => d,
 		Err(code) => return code,
 	};
+	say_index_hints(&doc, path);
 	let (lines, status, slots): (Vec<String>, Status, Vec<Status>) = if o.array {
 		match o.kind {
 			Kind::Int => {
@@ -2411,7 +2456,7 @@ fn do_get(o: &Opts) -> u8 {
 		}
 	};
 	// Why the read failed is worth saying even when the exit code already
-	// shows it: at the default mode the user otherwise gets an empty line, a
+	// shows it: at the default mode the user otherwise gets no output, a
 	// nonzero code, and nothing to go on. Stdout is untouched - this only ever
 	// goes to stderr. Two silences are deliberate: `default` mode, because a
 	// caller who supplied a fallback has already said the miss is expected, and
@@ -2430,9 +2475,16 @@ fn do_get(o: &Opts) -> u8 {
 			// The text the typed read parsed: quotes off and escapes read, so
 			// a quoted value is not quoted twice.
 			Status::BadType => match doc.read_string(path) {
-				r if r.raw.is_some() => {
-					format!("value {} is not a valid {}", quoted(&r.value), type_name)
-				}
+				r if r.raw.is_some() => match leading_zero_fix(&r.value) {
+					Some(fix) if o.kind == Kind::Int && !o.array => {
+						format!(
+							"value {} has a leading zero, so write {}",
+							quoted(&r.value),
+							fix
+						)
+					}
+					_ => format!("value {} is not a valid {}", quoted(&r.value), type_name),
+				},
 				_ => format!("value is not a valid {}", type_name),
 			},
 			Status::NotFound => "no value at that path".to_string(),
@@ -2451,11 +2503,20 @@ fn do_get(o: &Opts) -> u8 {
 		);
 	}
 	match (status, o.on_bad) {
-		(Status::Good, _) | (Status::Empty, OnBad::Flag) => {
+		(Status::Good, _) => {
 			emit(&lines);
 			status_code(status)
 		}
-		(_, OnBad::Default) => {
+		// Under flag, an empty value and a --slots listing print what --default=
+		// would, with the status's exit code, so no type's zero gets out. An
+		// array read with no slots, empty or missing, prints no element, as
+		// before: one line there would read as one empty element.
+		(s, b)
+			if b == OnBad::Default
+				|| (b == OnBad::Flag
+					&& (s == Status::Empty || o.slots)
+					&& !(o.array && slots.is_empty())) =>
+		{
 			if !slots.is_empty() {
 				// Array read: the default substitutes per bad slot; alignment holds.
 				let dv = o.default.clone().unwrap_or_default();
@@ -2483,17 +2544,39 @@ fn do_get(o: &Opts) -> u8 {
 					outln!("{}", dv);
 				}
 			}
-			0
+			if o.on_bad == OnBad::Default {
+				0
+			} else {
+				status_code(status)
+			}
 		}
 		// The message already went to stderr above; error mode differs only in
-		// printing nothing on stdout.
-		(_, OnBad::Error) => status_code(status),
-		(_, OnBad::Flag) => {
-			// print the zero/empty value anyway; the exit code gives the status
-			emit(&lines);
-			status_code(status)
-		}
+		// printing nothing on stdout. Flag prints nothing either, so a script
+		// that skips the exit code gets no zero to carry on with.
+		_ => status_code(status),
 	}
+}
+
+/// What to write instead of an int with a leading zero, such as `0o644 for
+/// octal or 644 for decimal` for `0644`, or None when `v` has none. A read
+/// refuses one outside Loose (`parse_int_text` in the library).
+fn leading_zero_fix(v: &str) -> Option<String> {
+	let (sign, body) = match v.strip_prefix('-') {
+		Some(r) => ("-", r),
+		None => ("", v.strip_prefix('+').unwrap_or(v)),
+	};
+	if body.len() < 2 || !body.starts_with('0') || !body.bytes().all(|b| b.is_ascii_digit()) {
+		return None;
+	}
+	let digits = match body.trim_start_matches('0') {
+		"" => "0",
+		d => d,
+	};
+	Some(if digits != "0" && digits.bytes().all(|b| b < b'8') {
+		format!("{sign}0o{digits} for octal or {sign}{digits} for decimal")
+	} else {
+		format!("{sign}{digits}")
+	})
 }
 
 /// How many characters of a value a message shows (`DIAG_TEXT_MAX` in the
@@ -2623,6 +2706,15 @@ fn rewritten_lines(before: &str, after: &str) -> Vec<usize> {
 		.collect()
 }
 
+/// What `ambiguous` counts once --from has said the file is 2.x: comma lists
+/// 2.x split inside a pair (2026111016205702).
+fn split_pairs(file: &str, count: usize) -> String {
+	format!(
+		"{}: {} value(s) have a comma inside a backtick, paren or bracket pair, which 2.x split there and nobody means",
+		file, count
+	)
+}
+
 /// A 2.x file rewritten for the current rules. The rewrite is text to text;
 /// the load after it is for the diagnostics and the save gate, the same gate
 /// `fmt --write` goes through.
@@ -2674,11 +2766,16 @@ fn do_migrate(o: &Opts) -> u8 {
 	}
 	let mut rc = 0;
 	if m.ambiguous != 0 {
-		errln!(
-			"{}: {} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; left as written (--from=FORMAT rewrites them)",
-			file,
-			m.ambiguous
-		);
+		// With --from, the only ones left are commas inside a pair.
+		if o.from.is_some() {
+			errln!("{}; left as written", split_pairs(file, m.ambiguous));
+		} else {
+			errln!(
+				"{}: {} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for, or have a comma inside a backtick, paren or bracket pair; left as written (--from=FORMAT rewrites them)",
+				file,
+				m.ambiguous
+			);
+		}
 		rc = 7;
 	}
 	if m.lost != 0 {
@@ -2864,6 +2961,10 @@ fn do_upgrade(o: &Opts) -> u8 {
 					&upgrade_dated(&text, mtime, o.from.as_deref(), true).diagnostics,
 				);
 				return match e {
+					UpgradeError::Ambiguous { count, .. } if o.from.is_some() => {
+						errln!("{}; nothing written", split_pairs(file, count));
+						7
+					}
 					UpgradeError::Ambiguous { .. } => {
 						errln!("{} (--from=FORMAT rewrites them)", e);
 						7
@@ -2895,13 +2996,17 @@ fn do_upgrade(o: &Opts) -> u8 {
 	}
 	say_diagnostics_from("", &up.diagnostics);
 	if up.ambiguous != 0 {
-		errln!(
-			"{} (--from=FORMAT rewrites them)",
-			UpgradeError::Ambiguous {
-				path: file.clone(),
-				count: up.ambiguous
-			}
-		);
+		if o.from.is_some() {
+			errln!("{}; nothing written", split_pairs(file, up.ambiguous));
+		} else {
+			errln!(
+				"{} (--from=FORMAT rewrites them)",
+				UpgradeError::Ambiguous {
+					path: file.clone(),
+					count: up.ambiguous
+				}
+			);
+		}
 		return 7;
 	}
 	if !up.errors_left.is_empty() {
@@ -3197,7 +3302,15 @@ fn apply_op(doc: &mut Document, line: &str) -> Result<(), String> {
 	}
 	let path = f.get(1).copied().unwrap_or("");
 	let val = || f.get(2).copied().unwrap_or("");
-	let pint = |s: &str| s.parse::<i64>().map_err(|_| format!("bad int: {}", s));
+	// A leading zero is refused, as a read refuses it: `0644` or a umask's
+	// `0022` is octal to whoever wrote it.
+	let pint = |s: &str| {
+		let body = s.strip_prefix(['+', '-']).unwrap_or(s);
+		if body.len() > 1 && body.starts_with('0') {
+			return Err(format!("bad int: {}", s));
+		}
+		s.parse::<i64>().map_err(|_| format!("bad int: {}", s))
+	};
 	// The language's own float reader takes inf and nan; the document's does
 	// not, so they are bad values here, the way a bad datetime is.
 	let pflt = |s: &str| {
@@ -3682,6 +3795,7 @@ fn do_enum(o: &Opts, want_count: bool) -> u8 {
 		Ok(d) => d,
 		Err(code) => return code,
 	};
+	say_index_hints(&doc, path);
 	if want_count {
 		outln!("{}", doc.count(path));
 	} else if o.json || o.paths {
@@ -3790,6 +3904,7 @@ fn do_children(o: &Opts) -> u8 {
 		Ok(d) => d,
 		Err(code) => return code,
 	};
+	say_index_hints(&doc, path);
 	if o.json {
 		let r = doc.read_child_fields(path);
 		if r.status != Status::Good {
