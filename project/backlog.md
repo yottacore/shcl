@@ -35,6 +35,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Rust dfjq6 recursive_mount_check_is_linear_in_depth fails under load
+	- ID: 2026112419395418
+	- Type: Bug
+	- Status: Queued
+	- Priority: Low
+	- Target version: v3.0.0
+	- Opened: 20261124-193954
+	- Opened by:
+	- Related IDs: 2026110711492228
+	- Steps to reproduce: nov24 gate step quick run (`--backlog-run-quick rust go python c cli cicd`) at a load of 21 to 26 on 32 cores.
+	- Incorrect behavior: `recursive mount check 16.9 ms at depth 480 against 1.9 ms at depth 120 (bound 15.5 ms) - the check is not linear in the depth`. The test alone passed 3 times right after, at the same load.
+	- Expected behavior: the test passes under load. It compares one timing at each depth, so one slow sample at the deep end fails it.
+	- Possible cause: a single wall-clock sample per depth, against a fixed 8x bound. Taking the best of several samples per depth, or comparing CPU time, would keep it from failing on a busy box. The same test is in all 4 runners (`df080`, `dfjq7`, `dfjq8`).
+	- Estimated effort: Low
+
 - Hosted lint: the mingw cross build fails on every %zu format
 	- ID: 2026112307465433
 	- Type: Bug
