@@ -93,7 +93,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Hosted tests: shell-regress dd2gn and dd2gp fail under Ubuntu 26.04, since a renamed uutils coreutils binary is an unknown program
 	- ID: 2026112318030233
 	- Type: Bug
-	- Status: Waiting on automated testing
+	- Status: Closed
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261123-180302
@@ -102,7 +102,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: dd2gn prints coreutils: unknown program 'shcl_20260805-120000' then says dogfood_shcl.ps1 deleted a version that was running; dd2gp prints coreutils: unknown program 'inuse-bin' then says cicd.bash did not see a running dogfood binary. Earlier hosted runs on 26.04 stopped before shell-regress, so this was on dev already.
 	- Expected behavior: both rows pass on ubuntu-latest. The rows' stand-in for a running binary is a copied coreutils program, and uutils is one multicall binary that picks its program by its own name.
 	- Estimated effort: Low
-	- Needs external testing: a hosted ci.yml run on the branch, job ci (tests), shell-regress rows dd2gn and dd2gp.
+	- Needs external testing: No. Passed on 20261124.
 	- Reproduced: 20261124, in an ubuntu:26.04 container as a non-root user, with the host's pwsh mounted. Both rows failed with the hosted run's messages.
 	- Actual cause: both rows copied /bin/sleep under another name and ran it as the stand-in for a running binary. On Ubuntu 26.04 /bin/sleep links to uutils coreutils, one multicall binary that picks its program by the name it runs under, so the copy said "unknown program" and quit. Nothing was running when the rows looked.
 	- Actual fix: shell-regress has a helper, `fRunningCopy`, that copies bash to the path and starts it waiting up to 60 seconds on a FIFO. Bash runs under any name. Both rows use it.
@@ -112,6 +112,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: shell-regress dd2gn and dd2gp.
 	- Branch: `nov24-2026112318030233`
 	- Commit: `0f54d063`
+	- Closed reason: Done
+	- Closed: 20261124-210254
+	- Acceptance signoff: me, 20261124, from hosted ci.yml run 45546604978 on nov24.
+	- 20261124: Verified: hosted ci.yml run 45546604978, job ci (tests), passed dd2gn and dd2gp under Ubuntu 26.04. Its only failure was the known dcvej.
 
 - Hosted lint: the lint part runs past its 80-minute timeout on Ubuntu 26.04
 	- ID: 2026112311213741
@@ -144,11 +148,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Commit: `54b67873`
 	- 20261123: hosted run 45301493250 on nov23b: ci (lint) was cut off at 80 minutes with no log again. The gate step ended as a failure at 43 minutes (01:45:02Z), then the runner never started the cache save, and the job sat until its limit. The tests part, under the same timeout wrapper, failed and ended normally. So the step ends, but the runner hangs after it in the lint part only. The 45232879461 hang came before the wrapper.
 	- 20261123: next try: find what the lint part leaves running after its gate, such as a background process holding the step's output, and why the gate failed at 43 minutes. A run with the lint part's gate cut down to that stage would show it in minutes.
+	- 20261124: hosted ci.yml run 45546604978 on nov24, after a shcl.h change: the lint part's install took 73 seconds, cold cppcheck 24 minutes and passed, then analyze-c ended with exit 143 (TERM) after about 3 minutes, 28 minutes into a 72-minute limit, with no output. The cache save step was skipped despite always(), so no cppcheck cache was saved. Job 138977631558 rerun to see if it recurs.
 
 - Hosted ci: the tool install step sometimes takes 10 to 44 minutes
 	- ID: 2026112314544545
 	- Type: Bug
-	- Status: Waiting on automated testing
+	- Status: Closed
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261123-145445
@@ -165,10 +170,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions: me: move only when the next mirror measures faster, so a slow runner network doesn't send apt farther away. The 2 MB/s floor puts the 267 MB fetch at about 2 minutes. Not a fast-mirror action from the marketplace, which is one more pinned action for a short script. Not `--no-install-recommends`, which changes what the gate's tools get, while the cause is the mirror's speed. Not a cache of the packages, which is about 250 MB per part beside the cargo and cppcheck caches, and leaves apt-get update on the slow mirror.
 	- Test case: shell-regress `dfrfn`.
 	- Verified: 20261124. `dfrfn` passes, and fails on 3 broken copies of the script: one that never writes the list, one that never moves, one that moves to a slower mirror. Run here over the runner's mirror hosts, it read us-east-2.ec2 at 7.4 MB/s and kept it, and with the floor raised it took it out for archive.ubuntu.com at 15 MB/s. check-pins and shellcheck pass.
-	- Needs external testing: the round's hosted ci.yml run. Each ci part's install step and setup-build print an `apt-mirror:` line and take a few minutes. The slow mirror comes and goes, so this shows the check runs on the runner; a run that hits a slow mirror again shows it taken out.
+	- Needs external testing: No. Passed on 20261124.
 	- Swept: every apt call in `.github/workflows/`, which are the ci job's install step and setup-build. The cicd/container images run apt in their own builds, not on a runner's mirror list.
 	- Branch: `nov24-2026112314544545`
 	- Commit: `e780fc21`
+	- Closed reason: Done
+	- Closed: 20261124-210254
+	- Acceptance signoff: me, 20261124, from hosted ci.yml run 45546604978 on nov24.
+	- 20261124: Verified: hosted ci.yml run 45546604978 printed an apt-mirror line in the ci install step and setup-build (azure mirror at 179 to 249 MB/s, kept first), and the lint part's install step took 73 seconds. The slow-mirror switch is held by shell-regress dfrfn.
 
 - Schema: a `meta` key on a field that shcl ignores, so an app can keep its own data there
 	- ID: 2026112315300920
@@ -433,6 +442,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 	- me, 20261124: on Windows a link row skips with a message when the box can't make a link, as C's `windangle` does, since making one takes developer mode or the right to. It fails only where a link was made.
 	- me, 20261124: the new Windows rows aren't expected to fail on the code before, since the save's own check already refused the link there. They pin it, and the write's check only covers a link planted between the two.
+	- 20261124: the batch skipped it: b29w still gave no route to host at the end of nov24.
 
 - Rust parses about a third slower than 2.0.0
 	- ID: 2026110516100001
