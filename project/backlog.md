@@ -360,9 +360,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A capped parse holds a slot for every line, so a file of blank lines costs 8 to 16 times its size
 	- ID: 2026112418052197
 	- Type: Bug
-	- Status: Queued
+	- Status: Deferred
 	- Severity: Low
-	- Target version: v3.0.0
+	- Target version: v4
 	- Opened: 20261124-180521
 	- Opened by: Split from 2026110707441368
 	- Parent ID: 2026110707441368
@@ -372,6 +372,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: the memory a capped parse uses stays near the file's size.
 	- Possible cause: every binding cuts the whole text into a list of lines before its loop, and no cap counts a blank line. The loop's lookahead reads that list by index: the raw body and skipped block readers, the `E020` remainder count, and the `E028` line read back from `src`. Walking the text a line at a time means each of those reads forward from an offset instead, in all 4.
 	- Estimated effort: Avg
+	- 20261124: deferred to v4 (me). What's left is one list slot per line, which the byte cap on the read already bounds. Walking without the list changes 4 lookahead readers in all 4 bindings, and memory.md holds new performance work until 3.0.0 is out.
 
 - On Windows a create-only save through a link to nowhere, and `.` under a missing folder, are unchecked
 	- ID: 2026110408432594
