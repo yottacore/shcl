@@ -4026,7 +4026,7 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 				   pair, so it waits for a look whatever the file is. A file
 				   that does not say it is 2.x could be a 3.0 one, where `a,b`
 				   is a string. `a, b` is an error there, so it is safe. */
-				if (v2_split_cuts_pair(a, rest, tok)) st->ambiguous++;
+				if (v2_split_cuts_pair(a, rest, tok)) st->ambiguous++; // NOLINT(bugprone-branch-clone): same order as the other bindings' checks
 				else if (st->from_v2 || !reads_clean_now(a, rest, tok->sep + 1)) {
 					size_t kept = shcl_tokens_element_count(tok);
 					/* Only empty slots, which 2.x dropped: an empty value. */
