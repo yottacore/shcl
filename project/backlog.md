@@ -318,7 +318,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - A capped parse still splits every line first, so a file of blank lines costs 17 to 48 times its size
 	- ID: 2026110707441368
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20261107-074413
 	- Opened by: me, found working 2026110613470304
@@ -332,6 +332,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Target version: v3.0.0
 	- Progress log:
 		- 20261124: split. The second list and the doubling are 2026112418045534, done, which halves the cost. Walking the text with no list of lines is 2026112418052197, Queued.
+	- Test case: its children's: 2026112418045534: `blank_lines_cost_one_list_of_lines` (`dfrg6` Rust, `dfrg7` Go, `dfrg8` Python, `dfrg9` C).; 2026112418052197: none named
+	- Closed: 20261124-181035
+	- Closed reason: Done
 
 - A capped parse holds its list of lines twice, or grows it by doubling, so a file of blank lines costs 17 to 48 times its size
 	- ID: 2026112418045534
