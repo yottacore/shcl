@@ -419,6 +419,36 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Version and build: `cut3b1` at `ae8540e9`
 	- Progress log:
 		- 20261105: comparison run `20261105-155747` against `20261002-210439` (2.0.0), on the same box. SHCL's read went from 2.97 s to 3.92 s on the records shape, 0.037 to 0.050 ms on the config, and 5.9 to 7.7 ms on the schema. The other parsers read 0 to 8% slower, which was the box's load. Python slowed the same way, going from 4.2x to 5.7x behind `tomllib`. A profile should find which 3.0 change costs it before any fix.
+		- 20261124: the "2.0.0" run was dev's `b3e63588` of 2026-10-02, not the `v2.0.0` tag of 2026-08-26, and its document had comma lists where the later one has brackets. So each build was timed on its own syntax, in one binary, parse alone, best of 3, at a load of 17 on 32 cores. On 16 MiB of records: `b3e63588` 1.16 to 1.35 s, `cut3b1` 1.44 to 1.60 s, dev 1.39 to 1.56 s. At 64 MiB the timed phases were 4.8 s against 5.2 s. So dev is still 10 to 20% slower, less than the third the run showed.
+		- Phases on dev, 16 MiB: cutting lines 12%, the per-line loop 62%, the settle pass 7%, the repeated-leaf hint pass 18%. Against `b3e63588` the line cut went from 0.34 s to 0.15 s, and the per-line loop from 0.60 s to 0.78 s. The settle and hint passes cost the same in both.
+		- The loop's extra cost is spread over 3.0's new per-line work, and is child 2026112419101327. The hint pass is a cheap cut that doesn't touch output, and is child 2026112419101293. The config and schema numbers weren't rerun.
+		- Phase tables and method: "Parse timing 2026-11-24" in details.md. Tool: `private/claude_simple/tools/parse-ab/`.
+	- Decisions:
+		- me, 20261124: no code change under this item. It asked for the profile first, and both fixes it found touch all 4 bindings, so they're children.
+
+- The repeated-leaf hint pass builds a name map for every block
+	- ID: 2026112419101293
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261124-191012
+	- Opened by: profile of 2026110516100001
+	- Parent ID: 2026110516100001
+	- Progress log:
+		- 20261124: in all 4 bindings the pass makes a map and a list for each block with 2 or more children, to find repeated names. Nearly no block repeats one. In Rust it's about 18% of a records parse (0.23 s of 1.3 s on 16 MiB). A pairwise check on lists of up to 16 children skipped the map, and took the pass to 0.14 s in a scratch build. Output doesn't change, so the corpus H001 and H009 cases and the crosscheck pin it. Time it with `private/claude_simple/tools/parse-ab/`.
+
+- The per-line parse loop costs about 30% more than on dev of 2026-10-02
+	- ID: 2026112419101327
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261124-191012
+	- Opened by: profile of 2026110516100001
+	- Parent ID: 2026110516100001
+	- Progress log:
+		- 20261124: Rust, 16 MiB records doc: 0.60 s on `b3e63588`, 0.78 s on dev. Samples spread it over 3.0's per-line work: the tokenizer (`lex_line`), the bare-value and piece checks (`value_fault`, `bare_trouble`), and building an array line's display text to compare with its source (`src_matches_display`). No one change holds most of it. Time each with phase timers before changing it, since the sampler's attribution under fat LTO is rough.
 
 - A kept index line makes every edit re-emit the whole document
 	- ID: 2026110114020101
