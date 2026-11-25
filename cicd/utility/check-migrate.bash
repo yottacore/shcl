@@ -290,8 +290,13 @@ fReadTree(){
 				rc=0; "${cli}" get --string --array --slots "${doc}" -- "${q}" > "${tmpDir}/array" 2>/dev/null || rc=$?
 				if [[ "${side}" == 2x ]]; then fOneLine2x < "${tmpDir}/array"; else cat "${tmpDir}/array"; fi
 				[[ "${rc}" == 0 ]] || echo "string exit ${rc}"
-				"${cli}" get --raw "${doc}" -- "${q}" 2>/dev/null || echo "raw exit $?"
-				"${cli}" get --rawinfo "${doc}" -- "${q}" 2>/dev/null || echo "rawinfo exit $?"
+				##	2.x printed an empty line for a read that failed, other than
+				##	an empty value; the current CLI prints nothing (2026110217340702).
+				for k in raw rawinfo; do
+					rc=0; "${cli}" get "--${k}" "${doc}" -- "${q}" > "${tmpDir}/one" 2>/dev/null || rc=$?
+					if [[ "${side}" == now ]] || ((rc == 0 || rc == 2)); then cat "${tmpDir}/one"; fi
+					((rc == 0)) || echo "${k} exit ${rc}"
+				done
 			done
 		done < "${tmpDir}/paths"
 	} | fLogicalPaths "${side}"
@@ -302,9 +307,9 @@ fReadTree(){
 ##	raw-content read on the same node. The two reads sit next to each other in
 ##	the tree above, so the 2.x side's answer is brought forward here rather than
 ##	dropping the info string from the comparison entirely.
-##	Each read prints its (empty) value before its status line, so the raw status
-##	sits two lines back.
-fAge2xReads(){ awk '$0 == "rawinfo exit 4" && prev == "" && prev2 == "raw exit 2" { $0 = "rawinfo exit 2" } { print; prev2 = prev; prev = $0 }'; }
+##	A read that fails prints nothing before its status line, so the raw status
+##	sits right above, and the empty value the current CLI prints goes in.
+fAge2xReads(){ awk '$0 == "rawinfo exit 4" && prev == "raw exit 2" { print ""; $0 = "rawinfo exit 2" } { print; prev = $0 }'; }
 
 ##	A NUL-bearing document cannot ride a command substitution; the native
 ##	runners pin those.

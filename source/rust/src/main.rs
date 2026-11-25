@@ -2508,8 +2508,15 @@ fn do_get(o: &Opts) -> u8 {
 			status_code(status)
 		}
 		// Under flag, an empty value and a --slots listing print what --default=
-		// would, with the status's exit code, so no type's zero gets out.
-		(s, b) if b == OnBad::Default || (b == OnBad::Flag && (s == Status::Empty || o.slots)) => {
+		// would, with the status's exit code, so no type's zero gets out. An
+		// array read with no slots, empty or missing, prints no element, as
+		// before: one line there would read as one empty element.
+		(s, b)
+			if b == OnBad::Default
+				|| (b == OnBad::Flag
+					&& (s == Status::Empty || o.slots)
+					&& !(o.array && slots.is_empty())) =>
+		{
 			if !slots.is_empty() {
 				// Array read: the default substitutes per bad slot; alignment holds.
 				let dv = o.default.clone().unwrap_or_default();

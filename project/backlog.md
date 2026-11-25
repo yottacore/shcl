@@ -213,10 +213,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- me, 20261125: an Empty read under flag prints an empty line at exit 2, as `--default=` would, rather than nothing. A string read of an empty field already printed that line, and `$(...)` can't tell it from nothing. An int, float or bool read no longer prints its zero there.
 		- me, 20261125: under `--slots`, flag still prints each slot with its status, and a slot that isn't Good has an empty value rather than the zero, the same as `--default=`. Dropping the listing would leave `--slots` nothing to show on a partial read.
+		- me, 20261125: an array read with no elements, empty or missing, prints no line under flag, with `--slots` or without, as it did before. One line there reads as one empty element.
 	- Actual fix: under the default `--on-bad=flag`, `get` prints the value for a Good read, an empty line for an Empty one, and nothing otherwise, in all 4 CLIs. `--slots` and an Empty read go through the `--default=` path with an empty value and keep the status's exit code. The help (byte-identical in all 4), the man page, spec.md's CLI paragraph, examples.md and the changelog say so, and name `--default=` for a `set -e` script.
 		- Swept: the 4 CLIs' `do_get`/`doGet` flag, default and error arms. 15 cli-regress rows that pinned a `0`, an empty line or a JSON object on a failed read now pin no output. `--json` without `--slots` prints nothing on a failed read too. No other subcommand prints a typed value.
 	- Branch: nov25-2026110217340703
-	- Test case: cli-regress `ddydc`, `ddydd`, `dfsh3`, `dfsh4`, `dfsh5`, `dfsh9`, and `help-says` (`ddydf`). The first run of the new rows on the old CLIs printed `0`.
+	- Test case: cli-regress `ddydc`, `ddydd`, `dfsh3`, `dfsh4`, `dfsh5`, `dfsh9`, and `help-says` (`ddydf`). The first run of the new rows on the old CLIs printed `0`. cli-regress `dfsmq`, `dfsmr` and `dfsms` pin an array read with no elements, and fail on the first fix's 4 CLIs.
+	- Note: 20261125, the first fix printed one line for an array read with no elements, such as `Empty` and a tab under `--slots`, where it printed none before. check-migrate caught it. That read prints nothing again, in all 4 CLIs, and spec.md and the changelog say so. check-migrate and check-format-reads.py now expect nothing from the current CLI for a failed raw read, where 2.x and the older formats print an empty line.
+		- Verified: check-migrate (`dcqf3`, 636 documents) and check-formats (all 11 formats) pass on `nov25-2026110217340702-fix`. check-migrate failed at `f692c12d`, 589 divergences. cli-regress passes over the 4 CLIs.
 	- Acceptance signoff: Self-closed: the item's expected behavior, tested in all 4 CLIs.
 	- Closed: 20261125-113500
 	- Closed reason: Done
@@ -225,7 +228,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026110217340703
 	- Type: Bug
 	- Status: Waiting on automated testing
-	- Needs local test suite run?: the 2M release fuzz of fuzz_smoke (`SHCL_FUZZ_ITERS=2000000`, release) and `check-migrate.bash`, on this commit. No corpus `input.shcl` changed, only `reads.tsv` rows, and check-migrate compares string reads, so neither is expected to move.
+	- Needs local test suite run?: the 2M release fuzz of fuzz_smoke (`SHCL_FUZZ_ITERS=2000000`, release), on this commit. No corpus `input.shcl` changed, only `reads.tsv` rows, so it isn't expected to move.
+	- Verified: 20261125, check-migrate (`dcqf3`) and check-formats (all 11 formats) pass on `nov25-2026110217340702-fix`, which fixes how both read a failed `get` after 2026110217340702.
 	- Severity: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261102-173407

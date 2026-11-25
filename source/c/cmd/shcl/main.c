@@ -1341,10 +1341,11 @@ static int do_get(Opts *o) {
 	if (status == SHCL_GOOD) {
 		for (size_t i = 0; i < nlines; i++) EMITLINE(i, LINEPTR(i), lines[i].n);
 		rc = shcl_status_code(status);
-	} else if (!strcmp(o->on_bad, "default") || (!strcmp(o->on_bad, "flag") && (status == SHCL_EMPTY || o->slots))) {
+	} else if (!strcmp(o->on_bad, "default") || (!strcmp(o->on_bad, "flag") && (status == SHCL_EMPTY || o->slots) && !(o->array && !(slotSts && nSlots > 0)))) {
 		// Under flag, an empty value and a --slots listing print what
 		// --default= would, with the status's exit code, so no type's zero
-		// gets out.
+		// gets out. An array read with no slots, empty or missing, prints no
+		// element, as before: one line there would read as one empty element.
 		const char *dv = o->deflt ? o->deflt : "";
 		if (slotSts && nSlots > 0) {
 			// Array read: the default substitutes per bad slot; alignment holds.

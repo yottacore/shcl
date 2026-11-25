@@ -10,7 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - An int read of a number with a leading zero, such as `mode: 0644` or `zip: 02134`, is `BadType` at Standard and Strict, where it read as decimal. Write `0o644` for octal or `644` for decimal. `shcl get --int` names both in its message. Loose still reads it as decimal, and a float read is unchanged. The `int` and `int-array` ops of `shcl set` refuse one as a bad int, where they wrote it as decimal.
 
-- `shcl get` prints no type's zero under the default `--on-bad=flag`. A read that isn't Good prints nothing, an empty value prints an empty line at exit 2, and under `--slots` a slot that isn't Good has an empty value. `--default=` reads an empty or missing value as an empty line at exit 0.
+- `shcl get` prints no type's zero under the default `--on-bad=flag`. A read that isn't Good prints nothing, an empty value prints an empty line at exit 2, and under `--slots` a slot that isn't Good has an empty value. An array read with no elements prints no line. `--default=` reads an empty or missing value as an empty line at exit 0.
 
 - Validation reports `V008` for a field written more than once under one parent with no children, when the schema gives it no `repeat`, such as `name: a` then `name: b`, or 2 plain blocks that merged. Such a file used to pass `check --schema` and Strict, and then read as `Multiple`. Instances with children are unchanged.
 

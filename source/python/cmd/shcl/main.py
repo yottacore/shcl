@@ -1759,10 +1759,11 @@ def do_get(o):
 	if status == shcl.Status.Good:
 		emit(lines)
 		return status_code(status)
-	if o.on_bad == "default" or (o.on_bad == "flag" and (status == shcl.Status.Empty or o.slots)):
+	if o.on_bad == "default" or (o.on_bad == "flag" and (status == shcl.Status.Empty or o.slots) and not (o.array and not slots)):
 		# Under flag, an empty value and a --slots listing print what
 		# --default= would, with the status's exit code, so no type's zero
-		# gets out.
+		# gets out. An array read with no slots, empty or missing, prints no
+		# element, as before: one line there would read as one empty element.
 		dv = o.default if o.default is not None else ""
 		if slots:
 			# Array read: the default substitutes per bad slot; alignment holds.

@@ -2355,10 +2355,11 @@ func doGet(o *opts) int {
 	case status == shcl.Good:
 		emit(lines)
 		return statusCode(status)
-	case o.onBad == onBadDefault || (o.onBad == onBadFlag && (status == shcl.Empty || o.slots)):
+	case o.onBad == onBadDefault || (o.onBad == onBadFlag && (status == shcl.Empty || o.slots) && !(o.array && len(slots) == 0)):
 		// Under flag, an empty value and a --slots listing print what
 		// --default= would, with the status's exit code, so no type's zero
-		// gets out.
+		// gets out. An array read with no slots, empty or missing, prints no
+		// element, as before: one line there would read as one empty element.
 		if len(slots) > 0 {
 			// Array read: the default substitutes per bad slot; alignment holds.
 			subbed := make([]string, len(lines))

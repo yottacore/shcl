@@ -1508,6 +1508,11 @@ rows=(
 	'dfsh4|flag-slots-no-zero|get --int --slots - nope|a: 1\n|3|NotFound\t\n|no value at that path'
 	'dfsh9|flag-slots-array-no-zero|get --int --array --slots - a(*).b|a: x\n\tb: 1\na: y\n\tb: z\n|4|Good\t1\nBadType\t\n|not a valid int array'
 	'dfsh5|flag-empty-no-zero|get --int - a|a:\n|2|\n|^$'
+	## An array read with no slots prints no element, --slots or not: a line
+	## there would read as one empty element.
+	'dfsmq|flag-empty-array-no-element|get --array - a|a:\n|2||^$'
+	'dfsmr|flag-slots-empty-array-no-element|get --array --slots - a|a:\n|2||^$'
+	'dfsms|flag-slots-missing-array-no-element|get --array --slots - nope|a: 1\n|3||no value at that path'
 	## 2026110217340703: a leading zero is octal to whoever wrote it, so an int
 	## read refuses it outside Loose and the message gives both spellings.
 	'dfsh6|leading-zero-names-octal|get --int - mode|mode: 0644\n|4||=cannot read mode as int: value "0644" has a leading zero, so write 0o644 for octal or 644 for decimal (in -)\n'
