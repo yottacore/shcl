@@ -35,10 +35,24 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Hosted tests: check-push-gate df2ss fails on every hosted runner, since the scope check skips under GITHUB_ACTIONS
+	- ID: 2026112514344606
+	- Type: Bug
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261125-143446
+	- Opened by:
+	- Progress log:
+		- 20261125: Hosted run 45707733038 on nov25, ci (tests): FAIL df2ss, systemd-run's calls were empty, then CICD ABORTED at check-push-gate. fMemScope in cicd/utility/include/mem-cap.bash returns early when GITHUB_ACTIONS is set, and fEngine in check-push-gate.bash doesn't clear it, so the fake systemd-run is never called on a hosted runner.
+		- 20261125: Not new. df2ss came in with 54330fb9 on 20261109, and hosted tests always stopped earlier at shell-regress dcvej until nov25 fixed the demo gif. Passes on the host. Likely fix: -u GITHUB_ACTIONS in fEngine's env, then check what else a hosted run reaches past it.
+		- 20261125: High, since a red hosted run blocks the beta.2 release bar.
+
 - Hosted lint: the mingw cross build fails on every %zu format
 	- ID: 2026112307465433
 	- Type: Bug
-	- Status: Waiting on automated testing
+	- Status: Closed
+	- Closed reason: Done
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261123-074654
@@ -47,7 +61,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: gcc-mingw-w64 from the runner's newer image reads every %zu in shcl.h (9740, 11820, 13032, 15004) and the C CLI (632, 832, 2146, 2149) against the msvcrt printf, so -Werror=format fails the build. The last green main run, 43137942602 on 2026-11-12, built the same code.
 	- Expected behavior: the mingw cross build passes, with size_t printed the same way on Windows as elsewhere.
 	- Estimated effort: Low
-	- Needs external testing: the hosted ci.yml run, job ci (lint), cross check "C library + CLI for Windows x86_64 (mingw)".
+	- Verified: 20261125, hosted ci.yml run 45707733038 on nov25 (`cedd6808`), job ci (lint): the cross check "C library + CLI for Windows x86_64 (mingw)" passed. That image has mingw-w64 11 with gcc 13.2 win32, not the mingw-w64 13 that failed, so the hosted run doesn't meet the false warning. The fix against mingw-w64 13 is the ubuntu:26.04 container check from 20261123.
 	- Reproduced: 20261123, in an ubuntu:26.04 container with gcc-mingw-w64-x86-64 (gcc 13-win32, mingw-w64 13.0.0). The cross check gives 92 format errors on the round branch.
 	- Actual cause: gcc 13, and maybe later ones, adds its builtin printf check, which is ms_printf on mingw, to printf, fprintf and snprintf, even where the header declares them with gnu_printf (gcc PR 95130). mingw-w64 13 declares them as plain aliases of `__mingw_printf` and the rest, so the builtin check now applies. Under `-std=c11` with msvcrt, mingw-w64 turns on `__USE_MINGW_ANSI_STDIO`, so the calls go to mingw's own printf, which handles `%zu`. The build fails, but the program prints size_t right.
 	- Actual fix: the mingw cross check turns off the printf-family builtins (`-fno-builtin-printf` and its 7 siblings, in `MINGW_PRINTF_BUILTINS_OFF` in `cicd/config.bash`). The header's own gnu_printf check still runs. shcl.h and the C CLI are unchanged.
@@ -60,11 +74,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Prereq IDs: 2026112311213741
 	- 20261123: hosted run 45232879461's ci (lint) timed out with no log, so the mingw cross check result is unknown.
 	- 20261123: hosted run 45301493250 left no ci (lint) log (2026112311213741), so the cross check wasn't read. The release part doesn't run it.
+	- Acceptance signoff: Self-closed: the cross check passed hosted in run 45707733038 and in the ubuntu:26.04 container.
+	- Closed: 20261125-143611
 
 - On Windows a create-only save through a link to nowhere, and `.` under a missing folder, are unchecked
 	- ID: 2026110408432594
 	- Type: Bug
-	- Status: Waiting on automated testing
+	- Status: Closed
+	- Closed reason: Done
 	- Severity: Low
 	- Target version: v3.0.0
 	- Opened: 20261104-084325
@@ -80,18 +97,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: `link_at`, `linkAt`, `_link_at`, and `s_link_at` work only off Windows, and `tidyRest` and `_tidy_rest` run only off Windows. C's Windows resolve and its `s_something_at` are separate code.
 	- Note: this needs b29w with a short-name TEMP, the way `private/claude_simple/tools/winbox-savetests/` runs it.
 	- Estimated effort: Low
-	- Needs external testing: b29w with a short-name TEMP, through `private/claude_simple/tools/winbox-savetests/` with its `run-2026110408432594.ps1` as run.ps1: the link rows of `dekm5`, `dekm6`, `dekmf` and `dekmj` run there or print a skip, and `detpn`, `detpp`, `detpq` and `detpr` pass. `dekmk`'s link row through win-runners' `c++ veneer` row. b29w gave no route to host on 20261124.
 	- Actual effort: Low
 	- Actual cause: read, not run on Windows. The save's own create check has looked at the path as given since 2026110613470307 (lstat, `GetFileAttributesW`), so a link to nowhere is Exists there on Windows too. Only the write's create check, the guard against a link planted after the save's check, still skipped links on Windows. The `.` half went with the path compare in 2026110613470307: the save reads the bytes at the path, so no spelling is compared, and the fs property row `2026110408432594-dot` already passed on b29w in all 4.
 	- Actual fix: `link_at`, `linkAt`, `_link_at` and `s_link_at` work on Windows too, and C's Windows write checks the path as given for a reparse point. The link rows in `dekm5`, `dekm6`, `dekmf`, `dekmj` and `dekmk` run on Windows when it can make a link, and print a skip when it can't. The `.` and doubled-separator rows in `detpn`, `detpp`, `detpq` and `detpr` run on Windows. The `..` rows stay POSIX, since Windows cancels `..` itself.
 	- Swept: the save's create check and the write's in Rust, Go, Python and C (the save's already looked at the path as given in all 4), and the veneer, which wraps the C save. The fs property row `2026110408432594-link` still skips on Windows, since that tree makes no links there.
 	- Verified: on Linux, `dekm5`, `dekm6`, `dekmf`, `dekmj`, `dekmk`, `detpn`, `detpp`, `detpq` and `detpr` pass, and so does `cicd.bash --backlog-run-quick rust go python c`. For Windows, the Rust tests check and build for x86_64-pc-windows-gnu, Go vets and builds its test binary with GOOS=windows, and the C runner and main.c build with mingw. None of it ran on Windows.
 	- Test case: the link-to-nowhere rows of `a_create_only_save_refuses_a_file_already_there` (`dekm5`, `dekm6`, `dekmf`, `dekmj`, `dekmk`) and the `.` rows of `a_changed_check_knows_its_file_by_any_spelling` (`detpn`, `detpp`, `detpq`, `detpr`), now on Windows too.
+	- Verified: 20261125, on b29w with a short-name TEMP, on nov25 (`cedd6808`): the link rows of `dekm5`, `dekm6`, `dekmf`, `dekmj` and `dekmk` ran, with none skipped, and passed, and so did `detpn`, `detpp`, `detpq` and `detpr`. The Python and C runners passed whole, 224 cases each, and so did the C++ veneer smoke.
 	- Branch: `nov24-2026110408432594`
 	- Decisions:
 	- me, 20261124: on Windows a link row skips with a message when the box can't make a link, as C's `windangle` does, since making one takes developer mode or the right to. It fails only where a link was made.
 	- me, 20261124: the new Windows rows aren't expected to fail on the code before, since the save's own check already refused the link there. They pin it, and the write's check only covers a link planted between the two.
 	- 20261124: the batch skipped it: b29w still gave no route to host at the end of nov24.
+	- Acceptance signoff: Self-closed: every row the item names passed on b29w.
+	- Closed: 20261125-140145
 
 - Format versions: the demo gif and its golden text show fmt output without the stamp
 	- ID: 2026111710564808
@@ -227,9 +246,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - An int read takes a leading zero as decimal
 	- ID: 2026110217340703
 	- Type: Bug
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: the 2M release fuzz of fuzz_smoke (`SHCL_FUZZ_ITERS=2000000`, release), on this commit. No corpus `input.shcl` changed, only `reads.tsv` rows, so it isn't expected to move.
+	- Status: Closed
+	- Needs local test suite run?: No
 	- Verified: 20261125, check-migrate (`dcqf3`) and check-formats (all 11 formats) pass on `nov25-2026110217340702-fix`, which fixes how both read a failed `get` after 2026110217340702.
+	- Verified: 20261125, the 2M release fuzz of fuzz_smoke passed on nov25 at 27e6e03a, 34 of 34 in 776 s (fuzz2m.log, nov25 gate step). analyze-c and cppcheck pass on the round's shcl.h.
 	- Severity: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261102-173407
@@ -254,6 +274,9 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Swept: every caller of the int parse, which are the scalar and array reads, schema `allowed`, `min` and `max` (now `V092` for `min: 010`) and validation. The float fallback reaches it only for prefixed text. The op int parsers in all 4 CLIs. Durations, sizes, dates, index selectors and the Format line have their own number parsers and keep reading leading zeros.
 	- Branch: nov25-2026110217340703
 	- Test case: corpus `172-leading-zero-quotes` (`dd5pd`), `173-octal-binary` (`dd5ph`), `136-number-and-path-edges` (`dcxx5`) and `166-long-digits` (`dd51y`) reads, at Standard, Strict and Loose, and cli-regress `dfsh6`, `dfsh7`, `dfsh8`, `dfsha`, `dfshb`, `dfshc`. The new rows fail on the old C library in cases 136, 166 and 172, and pass on the new one in all 4.
+	- Closed reason: Done
+	- Acceptance signoff: 20261125, me, by the runs above.
+	- Closed: 20261125-141200
 
 - Review the whole code base for Critical and High bugs before each release
 	- ID: 2026112509394527
@@ -274,7 +297,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Hosted lint: analyze-c ends with exit 143 a few minutes in, under the gate step's timeout
 	- ID: 2026112421495092
 	- Type: Bug
-	- Status: Waiting on automated testing
+	- Status: Closed
+	- Closed reason: Done
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261124-214950
@@ -290,16 +314,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: analyze-c works out the memory the run may use, the smaller of MemAvailable and any cgroup cap over it, such as the run's own scope or the image's `--memory`. It runs the second gcc lane only with room for 2 at 12 GB each plus 2 for the clang jobs, and prints the lane count and the room. A hosted runner gets one lane.
 	- Decisions: one lane on a small box, rather than a lower analyzer depth or a file left out, since depth 2 is the least that reports the bait and every file stays checked. A fixed figure per lane rather than a per-file estimate, since the peak doesn't follow file size: oom_hook.c, at 17 KB, took more than mem_bounds.c at 39 KB. The cost is time: one lane took 632 s here against 358 s for 2, at a load of about 25 (me).
 	- Verified: 20261125. Under `CICD_MEM_CAP=15g` analyze-c chose 1 lane and passed `de2wz` to `de2x4` (632 s), where the old script failed `de2x2`. Under the default cap (32g here) it chose 2 lanes and passed (358 s). The room read 40 GB on the host, 10 under a 10G user scope, and 14 in the 15g image. shellcheck passes.
-	- Needs external testing: the hosted ci.yml run, job ci (lint), with a cold cppcheck cache or after a shcl.h change. analyze-c should print `1 gcc -fanalyzer lane(s)` and pass, and the cppcheck cache save step should run.
+	- Verified: 20261125, hosted ci.yml run 45707733038 on nov25 (`cedd6808`), job ci (lint) on ubuntu-24.04, after a C change, so cppcheck ran for 28 minutes from another hash's cache: analyze-c printed `1 gcc -fanalyzer lane(s), with 14 GB free for this run and 26 wanted for 2`, and passed `de2wz` to `de2x4` in 470 s. The cppcheck cache save step ran and saved `cppcheck-f5dc4393...-45707733038-1`.
 	- Test case: analyze-c `de2x2`, which the hosted lint part runs, under the runner's memory. No pipeline row runs analyze-c under a cap, since a capped run takes about 10 minutes.
 	- Swept: the other steps that run jobs side by side on the runner. analyze-c `--ctu` in the tests part took 11 s hosted, and cppcheck runs 2 at under 240 MB each. No other gate step is sized by memory.
 	- Branch: `nov25-2026112509394522`
 	- Commit: `8372ca7a`
+	- Acceptance signoff: Self-closed: hosted run 45707733038 chose 1 lane, passed analyze-c, and saved the cppcheck cache.
+	- Closed: 20261125-143611
 
 - Hosted lint: the lint part runs past its 80-minute timeout on Ubuntu 26.04
 	- ID: 2026112311213741
 	- Type: Bug
-	- Status: Waiting on automated testing
+	- Status: Closed
+	- Closed reason: Done
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261123-112137
@@ -320,7 +347,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- apt in the install step prints each fetch.
 	- Decisions: keep each part at 80 minutes. A cold cppcheck on the current code fits with about 30 to spare, so a longer limit would only hide the next slow run. Bound the gate inside the step rather than with the step's own timeout-minutes, which runs on the runner's cancel path that kept nothing here. `timeout` signals the whole process group, which a step timeout does not promise. A per-run cache key, since a cache can't be overwritten, and a partial result saved under the final key would be restored as a full hit and never saved again.
 	- Verified: 20261123. In ubuntu:26.04, uutils `timeout` returns 124 and ends a background grandchild, and 137 for a child that ignores TERM; GNU's on the host does the same. A copy of the gate step's script passes through the gate's exit code and refuses to start with under a minute left. check-pins passes, `dfpxm` included. shell-regress rows `dcqgf`, `dfpxn`, `ddwkm`, `dej8g`, `dektk`, `dcv6p`, `dcqgg` and `ddx1w` pass, and `dfpxn` fails both ways on the old check-pins. `cicd.bash --backlog-run-quick cicd` and `lint-report.bash --check --no-mark` pass. cppcheck cut off by `timeout` with a build dir keeps the result of the file it finished, and an empty one for the file it didn't.
-	- Needs external testing: a hosted ci.yml run on the branch after a shcl.h change, or with a cold cppcheck cache, job ci (lint) on `ubuntu-24.04`. It should finish inside its limit in about 55 minutes, print `gate time limit:`, and save a `cppcheck-<hash>-<run id>-1` cache. If it runs out of time, its log names the step.
+	- Verified: 20261125, hosted ci.yml run 45707733038 on nov25 (`cedd6808`), job ci (lint) on ubuntu-24.04, after a C change: it printed `gate time limit: 72 minutes`, and passed in 44 minutes in all. The install step took about a minute, cppcheck 28 and analyze-c 8, and the gate ended at 41.5 minutes. The cache save step ran and saved `cppcheck-f5dc4393...-45707733038-1`.
 	- Test case: check-pins `dfpxm` (each hosted gate run is under `timeout`, from the job's own minutes) and shell-regress `dfpxn`. No test bounds the hosted time itself.
 	- Swept: every `cicd/cicd.bash` line in ci.yml (the 3 ci parts share one). The other jobs run no cicd.bash and have their own short timeouts. The setup-build job installs 2 packages under its own 15-minute timeout, and its apt line moved to -q under 2026112314544545.
 	- Branch: `nov23b-2026112311213741`
@@ -331,11 +358,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- 20261124: hosted ci.yml run 45546604978 on nov24, after a shcl.h change: the lint part's install took 73 seconds, cold cppcheck 24 minutes and passed, then analyze-c ended with exit 143 (TERM) after about 3 minutes, 28 minutes into a 72-minute limit, with no output. The cache save step was skipped despite always(), so no cppcheck cache was saved. Job 138977631558 rerun to see if it recurs.
 	- 20261124: the rerun (job 138991346830) ended the same way: cold cppcheck 33 minutes and passed, then analyze-c exit 143 after 4 minutes. Filed as 2026112421495092.
 	- 20261125: the cause of the long and cut-off runs is analyze-c's memory (2026112421495092). Its 2 gcc lanes need 17.5 GB against the runner's 16 GB. The 2 runs with a log ended in analyze-c. The 2 without one stopped at about the time it starts after a cold cppcheck, one before the `timeout` wrapper and one after, which fits but is unverified. The fix there runs one lane on the runner, about 8 minutes more than 2. The lint part also moves to `ubuntu-24.04` with the runner pins (2026112509394522). What's left is the hosted run in the Needs row.
+	- Acceptance signoff: Self-closed: hosted lint finished inside its limit in run 45707733038 and saved its cppcheck cache.
+	- Closed: 20261125-143611
 
 - Pin the hosted runner images
 	- ID: 2026112509394522
 	- Type: Task
-	- Status: Waiting on automated testing
+	- Status: Closed
+	- Closed reason: Done
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261125-093945
@@ -349,11 +379,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Actual fix: every Linux x86_64 job runs on `ubuntu-24.04`, and the 2 Windows x64 jobs on `windows-2025`. check-pins fails a `-latest` label in any `runs-on` or in the matrix value it reads, and a `runs-on` expression it can't follow to a label. design.md's CI/CD section says so.
 	- Decisions: `ubuntu-24.04` for every Linux job, not `ubuntu-26.04`. The release part has to stay on 24.04 for the CPU floor (2026112308072792), so one image means one set of tool versions. Lint and tests were green there through 2026-11-12 with today's tool list, and 26.04's newer gcc, mingw and uutils stay out until a planned move. The hosted lint failures since then came from analyze-c's memory (2026112421495092), which is the same on both images. `windows-2025` is the image `windows-latest` ran in 45546604978, so nothing changes there. This replaces 2026112308072792's call to keep lint and tests on the moving image (me, from JC's pin rule).
 	- Verified: 20261125. check-pins passes on the new ci.yml. It fails, with a message naming the label, on a matrix runner of `ubuntu-latest`, on `runs-on: windows-latest`, on `runs-on: ${{ inputs.os }}`, and with no runs-on line read. The old check-pins passed the first 3. shell-regress rows `dcqgf`, `dcqgg`, `dcv6p`, `ddwkm`, `dej8g`, `dektk`, `dfpxn`, `dfsfy`, `ddx1w` and `de61s` pass.
-	- Needs external testing: the hosted ci.yml run on the round branch. Every Linux x86_64 job's Set up job should show image ubuntu-24.04, and windows and setup-test windows-2025. ci (lint) and ci (tests) should pass there, apart from the known `dcvej`, and the mingw cross check of 2026112307465433 too.
+	- Verified: 20261125, hosted ci.yml run 45707733038 on nov25 (`cedd6808`): ci (lint), ci (release), ci (tests), go-floor, setup-build and winarm-build ran on image ubuntu-24.04, and windows and setup-test on windows-2025 (image windows-2025-vs2026). check-pins `dfsfx` passed there. ci (lint) passed, the mingw cross check included. ci (tests) failed only on check-push-gate `df2ss`, a dev bug filed as 2026112514344606 that no runner pin touches. `dcvej` passed.
 	- Test case: check-pins `dfsfx` (no job runs on a `-latest` label) and shell-regress `dfsfy`.
 	- Swept: every `runs-on` in ci.yml, the only workflow. `ubuntu-24.04-arm`, `windows-11-arm` and `macos-15` were fixed already. No cicd script or doc names a `-latest` label but design.md's rejected `macos-latest`.
 	- Branch: `nov25-2026112509394522`
 	- Commit: `8372ca7a`
+	- Acceptance signoff: Self-closed: every pinned job ran on its fixed image in hosted run 45707733038, and check-pins `dfsfx` passed.
+	- Closed: 20261125-143611
 
 - `Document::merge` drops the base file's comments on every leaf the upper layer names
 	- ID: 2026111217560140
