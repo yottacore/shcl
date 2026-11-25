@@ -158,7 +158,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Schema: a `meta` key on a field that shcl ignores, so an app can keep its own data there
 	- ID: 2026112315300920
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Closed
 	- Priority: Avg
 	- Target version: v3.0.0
 	- Opened: 20261123-153009
@@ -183,6 +183,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261124, dev `7b875296`: the same `V090`. `desc:` with lines under it passes, so a known key's lines already go unread. A schema with `field: meta` and `field: srv.meta` validates a document's own `meta` fields.
 	- Origin: nemo-anywhere 2026111912460983. The draft text and an untested patch for the C header's field-key check (`x-keys.patch`, against `v3.0.0-beta1`, written for the `x-` form) are in `private/claude_simple/upstream/nemo-anywhere-2026111912460983/`. nemo-anywhere's move to `meta` is its 2026112415002147.
 	- Estimated effort: Low
+	- Actual fix: each binding's field-key check skips `meta` and everything under it. Every `V090`, at the top level and on a field, now ends "; a program's own keys go under a field's 'meta'". The spec's key table has the `meta` row, and design.md, the changelog and the conformance README say it's built.
+	- Decisions: me, 2026-11-24: the top-level `V090` gets the same pointer, naming "a field's" `meta`, so a top-level `meta` or `aliases` is told where it goes.
+	- Verified: 20261124. All 4 CLIs ignore a field's `meta`, with a value or with lines under it that would fault if read, on a top-level field and on a fragment's field. A document's `meta` declared as `field: meta` is still checked (`V003`), and `init` writes nothing for the key. Corpus 021's schema and cli-regress `dfrk4` fail on the old code (old C CLI: `V090`) and pass now. The 4 conformance suites, the whole cli-regress over the 4 CLIs, and `--backlog-run-quick rust go python c cli` pass, and the quick run's log reads CLEAN.
+	- Swept: the `V090` sites in all 4 bindings, 2 each (top level and field). The C++ veneer and the CLIs call the core and have no key list of their own. The CLIs' `explain` table keeps its short "unknown schema key".
+	- Note: 20261124, cli-regress `dd50y`'s stderr regex ended at `.bogus.$` and now ends at `.bogus.; a program.s own keys go under a field.s .meta.$`, since the item changes that message.
+	- Test case: corpus `021-schema-valid` (`da9vx`), cli-regress `dfrk4` and `dd50y`.
+	- Branch: `nov24-2026112315300920`
+	- Acceptance signoff: Self-closed: each test failed before the fix and passes after, and the quick run's log reads CLEAN.
+	- Closed: 20261124-193300
+	- Closed reason: Done
+	- Commit: `7337a187`
 
 - `Document::merge` drops the base file's comments on every leaf the upper layer names
 	- ID: 2026111217560140

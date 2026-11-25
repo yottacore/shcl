@@ -14022,7 +14022,7 @@ def _build_schema(schema: Document) -> tuple[_SchemaDef, list]:
 					_vdiag(faults, kid.line, "V094", f"bad schema fragment '{_diag_name(name)}': unknown key '{_diag_name(kid.name)}'")
 			frags[name] = fcs
 		else:
-			_vdiag(faults, node.line, "V090", f"unknown schema key '{_diag_name(node.name)}'")
+			_vdiag(faults, node.line, "V090", f"unknown schema key '{_diag_name(node.name)}'{_META_HINT}")
 	# Every mount must name a declared fragment; cycles (self or mutual) are
 	# legal - expansion is demand-driven against a finite document.
 	for c in cons + [fc for fcs in frags.values() for fc in fcs]:
@@ -14032,6 +14032,10 @@ def _build_schema(schema: Document) -> tuple[_SchemaDef, list]:
 	# One constraint per line in practice, so line order = file order.
 	faults.sort(key=lambda d: d.line)
 	return _SchemaDef(cons, frags, paths_complete), faults
+
+
+# The tail of every V090, which points a program's own key at `meta`.
+_META_HINT = "; a program's own keys go under a field's 'meta'"
 
 
 def _parse_field(schema, f, faults):
@@ -14153,8 +14157,12 @@ def _parse_field(schema, f, faults):
 			if c.default_text is None:
 				c.default_text = _emit_value_inline(kid.value)
 				default_at = k
+		elif kid.name == "meta":
+			# A program's own data. shcl reads none of it, the lines under it
+			# included.
+			pass
 		else:
-			_vdiag(faults, kid.line, "V090", f"unknown schema key '{_diag_name(kid.name)}'")
+			_vdiag(faults, kid.line, "V090", f"unknown schema key '{_diag_name(kid.name)}'{_META_HINT}")
 	if required is not None:
 		c.required = required
 	# A raw block has no inline spelling, so a `default` that is one cannot reach

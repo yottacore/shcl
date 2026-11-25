@@ -17685,7 +17685,7 @@ func buildSchema(schema *Document) (schemaDef, []Diagnostic) {
 			}
 			frags[name] = fcs
 		default:
-			vdiag(&faults, node.line, "V090", fmt.Sprintf("unknown schema key '%s'", diagName(node.name)))
+			vdiag(&faults, node.line, "V090", fmt.Sprintf("unknown schema key '%s'%s", diagName(node.name), metaHint))
 		}
 	}
 	// Every mount must name a declared fragment; cycles (self or mutual) are
@@ -17711,6 +17711,10 @@ func buildSchema(schema *Document) (schemaDef, []Diagnostic) {
 	sort.SliceStable(faults, func(i, j int) bool { return faults[i].Line < faults[j].Line })
 	return schemaDef{cons: cons, frags: frags, pathsComplete: pathsComplete}, faults
 }
+
+// metaHint is the tail of every V090, which points a program's own key at
+// `meta`.
+const metaHint = "; a program's own keys go under a field's 'meta'"
 
 // parseField turns one `field:` instance (top-level or inside a fragment) into
 // a constraint. ok=false = faults were reported and the constraint is dropped.
@@ -17865,8 +17869,11 @@ func parseField(schema *Document, f int, faults *[]Diagnostic) (constraint, bool
 				}
 				defaultAt = k
 			}
+		case "meta":
+			// A program's own data. shcl reads none of it, the lines under it
+			// included.
 		default:
-			vdiag(faults, kid.line, "V090", fmt.Sprintf("unknown schema key '%s'", diagName(kid.name)))
+			vdiag(faults, kid.line, "V090", fmt.Sprintf("unknown schema key '%s'%s", diagName(kid.name), metaHint))
 		}
 	}
 	// A raw block has no inline spelling, so a `default` that is one cannot reach

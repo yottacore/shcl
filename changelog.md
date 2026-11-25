@@ -52,6 +52,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### New
 
+- A schema `field` takes a `meta` key for a program's own data, with any value and any lines under it. Validation and `init` read none of it. Any other unknown key is still `V090`, and its message now says a program's own keys go under `meta`.
+
 - A save can add the info block: the `banner` save option (each binding's spelling) gives the document the block `set_banner(true)` adds, then saves, so the file ends with it and its Format line is the stamp. Without it, a save adds only the stamp.
 
 - `find_format()` (each binding's spelling) gives the format a text was written in, from its stamp and the file's mtime. A stamp that names a whole format settles it. beta1's `Format 3` leaves every 3.0 format, and the mtime takes off those published after it. Of the formats those leave, the one whose rules refuse the fewest of the text's lines with a tell wins, and a tie goes to the newest. A tell is a spelling such as `a: 1, 2`, `a: x"y`, `a: "x" "y"`, `a: "t\"wo"`, `-` items or `[1, 2]`, or the info block an older `init` wrote.

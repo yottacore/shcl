@@ -17398,7 +17398,7 @@ fn build_schema(schema: &Document) -> (SchemaDef, Vec<Diagnostic>) {
 					&mut faults,
 					node.line,
 					"V090",
-					format!("unknown schema key '{}'", diag_name(other)),
+					format!("unknown schema key '{}'{}", diag_name(other), META_HINT),
 				);
 			}
 		}
@@ -17429,6 +17429,9 @@ fn build_schema(schema: &Document) -> (SchemaDef, Vec<Diagnostic>) {
 		faults,
 	)
 }
+
+/// The tail of every `V090`, which points a program's own key at `meta`.
+const META_HINT: &str = "; a program's own keys go under a field's 'meta'";
 
 /// One `field:` instance (top-level or inside a fragment) -> a Constraint.
 /// None = faults were reported and the constraint is dropped.
@@ -17667,11 +17670,14 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 					default_at = Some(k);
 				}
 			}
+			// A program's own data. shcl reads none of it, the lines under it
+			// included.
+			"meta" => {}
 			other => vdiag(
 				faults,
 				kid.line,
 				"V090",
-				format!("unknown schema key '{}'", diag_name(other)),
+				format!("unknown schema key '{}'{}", diag_name(other), META_HINT),
 			),
 		}
 	}

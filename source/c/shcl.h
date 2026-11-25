@@ -14378,6 +14378,8 @@ static ShclStr schema_text(ShclArena *a, ShclStr s) {
 	v_put_shown(a, &b, s, escape_mark);
 	return sb_S(&b);
 }
+// The tail of every V090, which points a program's own key at `meta`.
+#define V_META_HINT "; a program's own keys go under a field's 'meta'"
 static ShclStr v_msg3(ShclArena *a, const char *pre, ShclStr mid, const char *post) {
 	ShclSB s = {0, 0, 0};
 	sb_puts(a, &s, pre); sb_putS(a, &s, mid); sb_puts(a, &s, post);
@@ -14557,8 +14559,11 @@ static int v_parse_field(ShclArena *a, shcl_doc *schema, size_t f, ShclVecDiag *
 				}
 				default_at = kids.data[ki];
 			}
+		} else if (s_eq(kid->name, s_lit("meta"))) {
+			// A program's own data. shcl reads none of it, the lines under it
+			// included.
 		} else {
-			v_diag(a, faults, kid->line, "V090", v_msg3(a, "unknown schema key '", diag_name(a, kid->name), "'"));
+			v_diag(a, faults, kid->line, "V090", v_msg3(a, "unknown schema key '", diag_name(a, kid->name), "'" V_META_HINT));
 		}
 	}
 	c.required = required > 0;
@@ -14730,7 +14735,7 @@ static void v_build_schema(ShclArena *a, shcl_doc *schema, ShclVSchemaDef *def, 
 			cmap_put(a, &def->fmap, cmap_hash(name, s_empty()), def->frags.len);
 			ShclVecVFrag_push(a, &def->frags, fr);
 		} else {
-			v_diag(a, faults, node->line, "V090", v_msg3(a, "unknown schema key '", diag_name(a, node->name), "'"));
+			v_diag(a, faults, node->line, "V090", v_msg3(a, "unknown schema key '", diag_name(a, node->name), "'" V_META_HINT));
 		}
 	}
 	// Every mount must name a declared fragment; cycles (self or mutual) are

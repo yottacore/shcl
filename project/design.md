@@ -275,7 +275,7 @@ Consequences of the flat form:
 
 - Fragments later added `inherits` as a constraint key, alongside the top-level `fragment:` declaration. Nothing joins that list without a spec change.
 
-- A program's own data on a field goes under one more key, `meta` (2026112315300920, planned for v3.0.0 and not built yet). It takes any value and any lines under it, and shcl reads none of it, as validation already ignores `desc`. Any other unknown key stays a `V090` fault. Cargo's `[package.metadata]` and a Python dataclass field's `metadata` are the same kind of slot. It can't shadow a document's field, since those sit in value position.
+- A program's own data on a field goes under one more key, `meta` (2026112315300920). It takes any value and any lines under it, and shcl reads none of it, as validation already ignores `desc`. Any other unknown key stays a `V090` fault, and its message points at `meta`. Cargo's `[package.metadata]` and a Python dataclass field's `metadata` are the same kind of slot. It can't shadow a document's field, since those sit in value position.
 	- Rejected: any key that starts with `x-`, as OpenAPI and Compose files have. That's a rule about the shape of a name, in a list of exact names (JC, 2026-11-24).
 	- Rejected: keys a schema declares first, as GraphQL directives are. It catches a mistyped key, but adds a third kind of top-level entry to every binding, and needs a rule for a declared name that shcl takes later.
 	- Rejected: one app's word, such as `aliases`, as a known key. Also `meta` at the top level or under a `fragment`, which nothing asks for, and which can come later without breaking a schema.

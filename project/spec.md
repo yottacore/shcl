@@ -766,6 +766,7 @@ The constraint vocabulary is closed, and nothing joins it without a spec change:
 | `inherits`         | fragment name                                                                                                                            | the subtree at this path has the named fragment's shape (see Fragments below)
 | `reopen`           | boolean                                                                                                                                  | the section at this path is meant to be written in parts; `true` disavows `H002` for its leaf name (validation itself ignores it)
 | `default` / `desc` | any                                                                                                                                      | reserved for the schema-driven generator; validation ignores them
+| `meta`             | any value, with any lines under it                                                                                                       | a program's own data on the field. shcl gives it no meaning, and validation and generation read none of it, the lines under it included. Where more than one program reads a schema, each takes a block of its own under it, such as `meta:` then `nemo:` and `aliases: [a, b]` under that
 
 Semantics:
 
