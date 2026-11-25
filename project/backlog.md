@@ -78,7 +78,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Hosted tests: shell-regress dd2gn and dd2gp fail under Ubuntu 26.04, since a renamed uutils coreutils binary is an unknown program
 	- ID: 2026112318030233
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261123-180302
@@ -87,6 +87,16 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Incorrect behavior: dd2gn prints coreutils: unknown program 'shcl_20260805-120000' then says dogfood_shcl.ps1 deleted a version that was running; dd2gp prints coreutils: unknown program 'inuse-bin' then says cicd.bash did not see a running dogfood binary. Earlier hosted runs on 26.04 stopped before shell-regress, so this was on dev already.
 	- Expected behavior: both rows pass on ubuntu-latest. The rows' stand-in for a running binary is a copied coreutils program, and uutils is one multicall binary that picks its program by its own name.
 	- Estimated effort: Low
+	- Needs external testing: a hosted ci.yml run on the branch, job ci (tests), shell-regress rows dd2gn and dd2gp.
+	- Reproduced: 20261124, in an ubuntu:26.04 container as a non-root user, with the host's pwsh mounted. Both rows failed with the hosted run's messages.
+	- Actual cause: both rows copied /bin/sleep under another name and ran it as the stand-in for a running binary. On Ubuntu 26.04 /bin/sleep links to uutils coreutils, one multicall binary that picks its program by the name it runs under, so the copy said "unknown program" and quit. Nothing was running when the rows looked.
+	- Actual fix: shell-regress has a helper, `fRunningCopy`, that copies bash to the path and starts it waiting up to 60 seconds on a FIFO. Bash runs under any name. Both rows use it.
+	- Decisions: a copy of bash, rather than a link or a copy of another tool. The rows need a real image at the path, which a link to the multicall binary isn't, and bash is on every box that runs the script. Calling the multicall binary as `coreutils sleep` was left out, since GNU coreutils has no such form (me).
+	- Verified: 20261124. In the ubuntu:26.04 container, the old rows failed and the new ones passed. On the host, full shell-regress passed but the known `dcvej`, with dd2gn and dd2gp, and shellcheck passed. Not run: a hosted run.
+	- Swept: every `cp /bin/` and `cp /usr/bin/` under cicd/. The other two, in dd5he and der2e, copy /bin/true as a package payload that package.bash reads with objdump and readelf but never runs, so a multicall copy still serves.
+	- Test case: shell-regress dd2gn and dd2gp.
+	- Branch: `nov24-2026112318030233`
+	- Commit: `0f54d063`
 
 - Hosted lint: the lint part runs past its 80-minute timeout on Ubuntu 26.04
 	- ID: 2026112311213741
@@ -270,7 +280,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - lint-report reads a passing run as FAILED, on the fs property step's echoed python command
 	- ID: 2026112409544731
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: Low
 	- Target version: v3.0.0
 	- Opened: 20261124-095447
@@ -284,6 +294,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A shell-regress row has a passing log with that line, and is red on the old script.
 	- Estimated effort: Low
 	- Note: a run mode (`--backlog-run-quick`, `--backlog-run-full`, `--merge-gate`) writes no log under `cicd/artifacts/lint`, so `--check` reads the last bare run. A round reads its own run with `--file`.
+	- Reproduced: 20261124. A `--backlog-run-quick python cicd` run passed, and the old lint-report read its log as FAILED, 1 error line and 1 warning line, both the `fs property: python:` line.
+	- Actual cause: both scans dropped only the `extra:` lines. The fs property step names its command under its own `fs property: NAME:` prefix, and python's `-W error::ResourceWarning` in it matches the error pattern, and its `ResourceWarning` the warning one.
+	- Actual fix: both scans read the log with python's `-W ACTION:...` options taken out of each line, whatever the line starts with. The rest of the line is still read, and the `extra:` filter stays.
+	- Decisions: fix it by the text rather than one echo form for every step. It's one line in lint-report and leaves every step's output as it is. gcc's `-Werror` and `-Wl,` forms have no colon after the letters, so they stay as they were, and neither matched before (me).
+	- Verified: 20261124. The new lint-report reads that run's log as CLEAN. shell-regress `dfrf0` fails both its checks on the old lint-report and passes on the new one, and full shell-regress passed but the known `dcvej`. shellcheck passed.
+	- Swept: a grep of `error::` under cicd/ finds only python `-W` options, in config.bash's conformance, soak and fs property steps and box-suites.bash's copies. They're echoed as `extra:` or `fs property:` lines, and both are covered now.
+	- Test case: shell-regress `dfrf0`.
+	- Branch: `nov24-2026112318030233`
+	- Acceptance signoff: Self-closed: the test failed before the fix and passes after, and the quick run's log reads CLEAN.
+	- Closed: 20261124-172106
+	- Closed reason: Done
+	- Commit: `0f54d063`
 
 - A capped parse still splits every line first, so a file of blank lines costs 17 to 48 times its size
 	- ID: 2026110707441368

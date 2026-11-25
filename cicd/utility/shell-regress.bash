@@ -69,6 +69,15 @@ fHaveFile(){
 	echo "$2" >> "${SHCL_GATE_SKIPS:-/dev/null}"
 	return 1
 }
+##	Start a running image at path $1 for up to 60 s, its PID in $!. It's a copy
+##	of bash, not of sleep: uutils coreutils (Ubuntu 26.04) is one multicall
+##	binary that picks its program by its own name, so a copied sleep under any
+##	other name only says "unknown program" and quits.
+fRunningCopy(){
+	cp -- "${BASH}" "$1"; chmod 755 "$1"
+	[[ -p "${tmpDir}/running-copy.fifo" ]] || mkfifo "${tmpDir}/running-copy.fifo"
+	"$1" -c 'read -rt 60' <> "${tmpDir}/running-copy.fifo" &
+}
 
 fTest dc7f3 20260904-10-11-bash-completion-value-options
 ##	20260904 items 10 and 11: bash cuts `--opt=value` at the `=` before a
@@ -1883,6 +1892,17 @@ lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --file "${tmpDir}/run
 printf 'OK: lint\nx.py:1: ResourceWarning: unclosed file\nsrc.c:3:5: error: conflicting types for x\n%s' "${lintDone}" > "${tmpDir}/run_20260101-000000.log"
 lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --file "${tmpDir}/run_20260101-000000.log" 2>&1 || true)"
 [[ "${lintOut}" == "FAILED "*"(1 error line(s), 1 warning line(s), "* ]] || fBad "lint-report.bash missed tool output beside the extra: filter: ${lintOut@Q}"
+fTest dfrf0 2026112409544731-lint-report-any-echo
+##	2026112409544731: the fs property step names its python command under its
+##	own prefix, so the `extra:` filter missed it and a passing run said FAILED.
+##	A python `-W` option is taken out of every line, whatever its prefix, and
+##	the rest of the line is still read.
+printf 'fs property: python: python3 -X dev -W error::ResourceWarning source/python/tests/fs_property.py\nsoak: python3 -W "ignore::DeprecationWarning" x.py\nlint: cc -Werror -Wl,-z,now x.c\n%s' "${lintDone}" > "${tmpDir}/run_20260101-000000.log"
+lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --file "${tmpDir}/run_20260101-000000.log" 2>&1 || true)"
+[[ "${lintOut}" == "CLEAN "* ]] || fBad "lint-report.bash counted a step naming its python command: ${lintOut@Q}"
+printf 'fs property: python: python3 -W error::ResourceWarning x.py\nx.py:1: ResourceWarning: unclosed file\nfs property: x.py: error: no rows from python3 -W error::ResourceWarning\n%s' "${lintDone}" > "${tmpDir}/run_20260101-000000.log"
+lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --file "${tmpDir}/run_20260101-000000.log" 2>&1 || true)"
+[[ "${lintOut}" == "FAILED "*"(1 error line(s), 1 warning line(s), "* ]] || fBad "lint-report.bash missed tool output beside the -W filter: ${lintOut@Q}"
 fTest dcmph 20260909-24-lint-report-marker
 ##	20260909 item 24: --check --file wrote the named log's stamp into the shared
 ##	marker, so a name that sorts high left the gate at SEEN for good.
@@ -3382,9 +3402,7 @@ if fHave pwsh; then
 	[[ "${out}" == "one: x" && ! -s "${tmpDir}/df.err" ]] || fBad "dogfood_shcl.ps1 spoke up on a run that changed nothing: $(cat "${tmpDir}/df.err")"
 	for d in 01 02 03 04 05 06 07 08 09 10 11 12; do : > "${dpool}/shcl_202608${d}-120000"; done
 	: > "${dpool}/shcl_junk"
-	cp /bin/sleep "${dpool}/shcl_20260805-120000"
-	chmod 755 "${dpool}/shcl_20260805-120000"
-	"${dpool}/shcl_20260805-120000" 60 & sleeper=$!
+	fRunningCopy "${dpool}/shcl_20260805-120000"; sleeper=$!
 	out="$(fDogfood y)" || true
 	kill "${sleeper}" 2>/dev/null || true; wait "${sleeper}" 2>/dev/null || true
 	n="$(find "${dpool}" -name 'shcl_2026*' | wc -l)"
@@ -3738,8 +3756,7 @@ eval "$(sed -n '/^fInUse()/,/^}/p' "${repoDir}/cicd/cicd.bash")"
 if ! declare -F fInUse >/dev/null; then
 	fBad "cicd.bash no longer has fInUse"
 elif [[ -d /proc/self ]]; then
-	cp /bin/sleep "${tmpDir}/inuse-bin"
-	"${tmpDir}/inuse-bin" 60 & inusePid=$!
+	fRunningCopy "${tmpDir}/inuse-bin"; inusePid=$!
 	sleep 0.3
 	fInUse "${tmpDir}/inuse-bin" || fBad "cicd.bash did not see a running dogfood binary"
 	kill "${inusePid}" 2>/dev/null || true; wait "${inusePid}" 2>/dev/null || true
