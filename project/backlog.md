@@ -48,236 +48,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261125: Not new. df2ss came in with 54330fb9 on 20261109, and hosted tests always stopped earlier at shell-regress dcvej until nov25 fixed the demo gif. Passes on the host. Likely fix: -u GITHUB_ACTIONS in fEngine's env, then check what else a hosted run reaches past it.
 		- 20261125: High, since a red hosted run blocks the beta.2 release bar.
 
-- Hosted lint: the mingw cross build fails on every %zu format
-	- ID: 2026112307465433
-	- Type: Bug
-	- Status: Closed
-	- Closed reason: Done
-	- Priority: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261123-074654
-	- Opened by:
-	- Steps to reproduce: hosted ci.yml run 45068690472 on main (Merge instsync4), job ci (lint), cross check 'C library + CLI for Windows x86_64 (mingw)'.
-	- Incorrect behavior: gcc-mingw-w64 from the runner's newer image reads every %zu in shcl.h (9740, 11820, 13032, 15004) and the C CLI (632, 832, 2146, 2149) against the msvcrt printf, so -Werror=format fails the build. The last green main run, 43137942602 on 2026-11-12, built the same code.
-	- Expected behavior: the mingw cross build passes, with size_t printed the same way on Windows as elsewhere.
-	- Estimated effort: Low
-	- Verified: 20261125, hosted ci.yml run 45707733038 on nov25 (`cedd6808`), job ci (lint): the cross check "C library + CLI for Windows x86_64 (mingw)" passed. That image has mingw-w64 11 with gcc 13.2 win32, not the mingw-w64 13 that failed, so the hosted run doesn't meet the false warning. The fix against mingw-w64 13 is the ubuntu:26.04 container check from 20261123.
-	- Reproduced: 20261123, in an ubuntu:26.04 container with gcc-mingw-w64-x86-64 (gcc 13-win32, mingw-w64 13.0.0). The cross check gives 92 format errors on the round branch.
-	- Actual cause: gcc 13, and maybe later ones, adds its builtin printf check, which is ms_printf on mingw, to printf, fprintf and snprintf, even where the header declares them with gnu_printf (gcc PR 95130). mingw-w64 13 declares them as plain aliases of `__mingw_printf` and the rest, so the builtin check now applies. Under `-std=c11` with msvcrt, mingw-w64 turns on `__USE_MINGW_ANSI_STDIO`, so the calls go to mingw's own printf, which handles `%zu`. The build fails, but the program prints size_t right.
-	- Actual fix: the mingw cross check turns off the printf-family builtins (`-fno-builtin-printf` and its 7 siblings, in `MINGW_PRINTF_BUILTINS_OFF` in `cicd/config.bash`). The header's own gnu_printf check still runs. shcl.h and the C CLI are unchanged.
-	- Test case: the cross check itself. It passes in the ubuntu:26.04 container and in the project container, and still fails on a planted `%d` for a size_t in the CLI.
-	- Branch: `nov23-2026112307465433`
-	- Decisions: fix it in the cross check's flags rather than in shcl.h and the C CLI. The code is right: on mingw-w64 the calls print `%zu` correctly under msvcrt (mingw's own printf) and under UCRT. The failure is a false compiler warning, which a user meets only with `-Werror` on this toolchain. Rewriting about 40 format strings, or a mingw-only pragma in shcl.h, would hide a compiler bug in the library and cost the 37-minute cppcheck run. Turning off only the printf builtins keeps format checking on, against the header's gnu_printf declarations (me).
-	- Swept: `x86_64-w64-mingw32-gcc` appears only in this cross check (and install-dev's tool check). The hosted windows job builds the C runners with the image's own gcc under `-Werror` in win-runners.bash, and passed in run 45068690472, so it is unchanged. It would need the same flags if that image moves to mingw-w64 13 with an affected gcc.
-	- Verified: 20261123. The cross check's command, taken from `CROSS_CHECKS`, passes in the ubuntu:26.04 container (92 errors without the flags), and fails there on a `%zu` changed to `%d` in a copy of main.c. `cicd.bash --backlog-run-quick c cicd` passed in the project container, the cross check included. shellcheck on config.bash and `lint-report.bash --check --no-mark` passed. shell-regress failed only `dcvej` (demo against the gif), which fails the same on nov23 without this change.
-	- Commit: `a105bcf2`
-	- Prereq IDs: 2026112311213741
-	- 20261123: hosted run 45232879461's ci (lint) timed out with no log, so the mingw cross check result is unknown.
-	- 20261123: hosted run 45301493250 left no ci (lint) log (2026112311213741), so the cross check wasn't read. The release part doesn't run it.
-	- Acceptance signoff: Self-closed: the cross check passed hosted in run 45707733038 and in the ubuntu:26.04 container.
-	- Closed: 20261125-143611
-
-- On Windows a create-only save through a link to nowhere, and `.` under a missing folder, are unchecked
-	- ID: 2026110408432594
-	- Type: Bug
-	- Status: Closed
-	- Closed reason: Done
-	- Severity: Low
-	- Target version: v3.0.0
-	- Opened: 20261104-084325
-	- Opened by: 2026110312163207's fix
-	- Related IDs: 2026110312163207, 2026110314240418
-	- Target OS: Windows
-	- Steps to reproduce:
-		- On Windows, make a symlink to a file that isn't there, then save a document to the link with `create` set.
-		- On Windows, run the steps of 2026110314240418 in Go or Python.
-	- Incorrect behavior: this hasn't been seen. Both fixes leave Windows as it was. The link rows in `dekm5`, `dekm6`, `dekmf`, `dekmj`, and `dekmk`, and the `.` rows in `detpp` and `detpq`, skip there. So the save may still make the file the link names, and a load of `new/./n.shcl` may not know `new/n.shcl`.
-	- Expected behavior: the same as on POSIX. The first is refused with `Exists` and nothing is made, and the second is refused with `Changed`.
-	- Reproduced: No, found by reading.
-	- Possible cause: `link_at`, `linkAt`, `_link_at`, and `s_link_at` work only off Windows, and `tidyRest` and `_tidy_rest` run only off Windows. C's Windows resolve and its `s_something_at` are separate code.
-	- Note: this needs b29w with a short-name TEMP, the way `private/claude_simple/tools/winbox-savetests/` runs it.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Actual cause: read, not run on Windows. The save's own create check has looked at the path as given since 2026110613470307 (lstat, `GetFileAttributesW`), so a link to nowhere is Exists there on Windows too. Only the write's create check, the guard against a link planted after the save's check, still skipped links on Windows. The `.` half went with the path compare in 2026110613470307: the save reads the bytes at the path, so no spelling is compared, and the fs property row `2026110408432594-dot` already passed on b29w in all 4.
-	- Actual fix: `link_at`, `linkAt`, `_link_at` and `s_link_at` work on Windows too, and C's Windows write checks the path as given for a reparse point. The link rows in `dekm5`, `dekm6`, `dekmf`, `dekmj` and `dekmk` run on Windows when it can make a link, and print a skip when it can't. The `.` and doubled-separator rows in `detpn`, `detpp`, `detpq` and `detpr` run on Windows. The `..` rows stay POSIX, since Windows cancels `..` itself.
-	- Swept: the save's create check and the write's in Rust, Go, Python and C (the save's already looked at the path as given in all 4), and the veneer, which wraps the C save. The fs property row `2026110408432594-link` still skips on Windows, since that tree makes no links there.
-	- Verified: on Linux, `dekm5`, `dekm6`, `dekmf`, `dekmj`, `dekmk`, `detpn`, `detpp`, `detpq` and `detpr` pass, and so does `cicd.bash --backlog-run-quick rust go python c`. For Windows, the Rust tests check and build for x86_64-pc-windows-gnu, Go vets and builds its test binary with GOOS=windows, and the C runner and main.c build with mingw. None of it ran on Windows.
-	- Test case: the link-to-nowhere rows of `a_create_only_save_refuses_a_file_already_there` (`dekm5`, `dekm6`, `dekmf`, `dekmj`, `dekmk`) and the `.` rows of `a_changed_check_knows_its_file_by_any_spelling` (`detpn`, `detpp`, `detpq`, `detpr`), now on Windows too.
-	- Verified: 20261125, on b29w with a short-name TEMP, on nov25 (`cedd6808`): the link rows of `dekm5`, `dekm6`, `dekmf`, `dekmj` and `dekmk` ran, with none skipped, and passed, and so did `detpn`, `detpp`, `detpq` and `detpr`. The Python and C runners passed whole, 224 cases each, and so did the C++ veneer smoke.
-	- Branch: `nov24-2026110408432594`
-	- Decisions:
-	- me, 20261124: on Windows a link row skips with a message when the box can't make a link, as C's `windangle` does, since making one takes developer mode or the right to. It fails only where a link was made.
-	- me, 20261124: the new Windows rows aren't expected to fail on the code before, since the save's own check already refused the link there. They pin it, and the write's check only covers a link planted between the two.
-	- 20261124: the batch skipped it: b29w still gave no route to host at the end of nov24.
-	- Acceptance signoff: Self-closed: every row the item names passed on b29w.
-	- Closed: 20261125-140145
-
-- Format versions: the demo gif and its golden text show fmt output without the stamp
-	- ID: 2026111710564808
-	- Type: Feature
-	- Status: Closed
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261117-105648
-	- Opened by: 2026111709431277
-	- Parent ID: 2026111708130702
-	- Requirements: rerender assets/demo.gif and refresh cicd/demo/expected.txt (the gif stage, or gen-demo-gif.py), so shell-regress dcvej matches the CLI again. Only a tool run.
-	- Estimated effort: Low
-	- Note: until then shell-regress dcvej fails, since every fmt now ends with the stamp.
-	- 20261125: Back to Queued for the nov25 round. JC's scope rule says to render the gif outside the pipeline with gen-demo-gif.py and refresh cicd/demo/expected.txt.
-	- Actual effort: Low
-	- Actual fix: `assets/demo.gif` rendered again with `gen-demo-gif.py` from the release build, with the stage's own scenario and seed, and `cicd/demo/expected.txt` refreshed from the same steps. The fmt step now ends with `## SHCL format 3.0`, the only change in the golden text.
-	- Verified: the old `expected.txt` differed from the steps' output by the stamp line alone, and the debug and release builds print the same. Full shell-regress on the host passed, `dcvej` and the other demo rows (`dcrtj`, `dd5hh`) included. The fmt step's last frame shows the stamp.
-	- Test case: shell-regress `dcvej`.
-	- Branch: `nov25-2026111710564808`
-	- Acceptance signoff: Self-closed: mechanical, a tool run, and its test passes.
-	- Closed: 20261125-102337
-	- Closed reason: Done
-
-- `Upgrade` and `migrate` split a backtick value or a call at its commas, and count nothing
-	- ID: 2026111016205702
-	- Type: Bug
-	- Status: Closed
-	- Severity: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261110-162057
-	- Opened by: gitniblet and tradeclanker feedback
-	- Related IDs: 2026102911041665, 2026111016205703
-	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
-	- Problem description: ``upgrade("query: `select a, b from t`\n", true)`` gives ``query: ["`select a", "b from t`"]``, and `migrate_unstamped("k: sma(close, 10)\n", true)` gives `k: ["sma(close", "10)"]`. `ambiguous`, `lost`, and `errors_left` are all empty, and `from_v2` false does the same. That's how 2.x read them, but nobody means a backtick or a paren cut in half inside an element. gitniblet swaps backtick lines out before the upgrade and puts them back after.
-	- Requirements:
-		- A split that cuts a backtick pair, or a paren or bracket pair, counts as ambiguous, even with `from_v2`, so nothing is written without a look.
-		- All 4 bindings count it the same way.
-		- Values without a tell, such as a regex with `, ` in it, stay with 2026102911041665.
-	- Estimated effort: Avg
-	- Actual effort: Avg
-	- Note: 20261125, now a High Bug under the 2026-11-25 severity rule: the upgrade writes a value nobody meant and reports nothing, which breaks "never damage a correct file at exit 0".
-	- Actual cause: the 2.x comma split in the line rewrite took every comma as a separator once the file was known to be 2.x, and nothing looked at what the pieces held.
-	- Decisions:
-		- me, 20261125: a pair counts as cut when its open mark is in one bare element and its close in a later one. Backticks pair in order. Braces count with parens and brackets, since `{a, b}` split in 2 is as unlikely to be meant. A quoted element between keeps the pair open, and a lone mark with no partner is no tell.
-		- me, 20261125: with `from`, a cut pair makes `migrate` and `migrate_unstamped` hand back the whole file as written, not only its line. Its other lines rewritten without a stamp would be rewritten again on the next run, which the corpus fixpoint check caught on case 195. A load that converts in memory writes nothing, so it converts the rest and keeps that line as typed.
-		- me, 20261125: the count goes in `ambiguous`, as asked, with no new field. With `--from`, the CLIs say "value(s) have a comma inside a backtick, paren or bracket pair, which 2.x split there and nobody means", since the usual message's "the file doesn't say which it was written for" and "--from rewrites them" aren't true then. Without it, the usual message and the library's `Ambiguous` error add "or have a comma inside a backtick, paren or bracket pair".
-		- me, 20261125: without `from`, a file that loads clean now, such as a lone backtick value, is still `current` and left alone, as a good file is.
-	- Actual fix: `v2_split_cuts_pair` and its twins (`v2SplitCutsPair` in Go, `_v2_split_cuts_pair` in Python) count such a list in `ambiguous` before the split, in all 4. Told the file is 2.x, `migrate_text` then hands back the input. `upgrade` no longer takes a clean file migrate left alone as current when something was left for a look. Docs: value-syntax.md's Migration section, the man page, examples.md and the changelog.
-	- Swept: every 2.x comma split in the line rewrite, in all 4: the field value branch is the only one that splits. A `*` item with a comma is refused, and a selector or `name:[disc]` body with one is counted lost. The `clean && unchanged` early return in `upgrade` in all 4. The ambiguous messages in all 4 CLIs and libraries.
-	- Verified: the 4 new tests fail with the check disabled and pass with it. The 4 conformance suites, cli-regress over the 4 CLIs and crosscheck over the corpus pass.
-	- Note: 20261125, check-migrate counts migrate's refusal over such a list as one, and compares nothing for that document, since nothing was rewritten. That takes 13 of its 649 documents out of the comparison, and it reports the same divergences as the round branch otherwise.
-	- Test case: `dfshw` (Rust), `dfshx` (Go), `dfshy` (Python), `dfshz` (C), cli-regress `dfsj0` and `dfsj1`. The load: `dfsj7` (Rust), `dfsj8` (Go), `dfsj9` (Python), `dfsja` (C).
-	- Acceptance signoff: Self-closed: tests cover each requirement and were seen to fail without the fix.
-	- Branch: `nov25-2026111016205702`
-	- Commit: `1f4739a9`, `49294958`, `88830383`
-	- Closed: 20261125-122100
-	- Closed reason: Done
-
-- A bare number in a selector picks by position, so a file line can bind under the wrong instance
-	- ID: 2026110217340701
-	- Type: Bug
-	- Status: Closed
-	- Severity: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261102-173407
-	- Opened by: Design review 20261102
-	- Steps to reproduce:
-		- `node: 1`, `node: 2` and `node: 3`, each with an `ip` under it, then `node(2).role: primary`.
-		- `shcl fmt` and `shcl check` on it, then `shcl get FILE 'node(2).ip'`.
-	- Incorrect behavior: `role` goes under `node: 3`, and `check` says `ok (0 diagnostic(s))`. The get gives node 3's `ip`. With `vlan: 10` to `vlan: 300`, `vlan(10)` is the 11th one. `E003` catches it only when the index is past the last instance.
-	- Expected behavior: a bare body names an instance by its value, since IDs, ports, years and VLANs are the usual discriminators. An index has a spelling of its own.
-	- Reproduced: 20261102, release CLI on dev `3828fa60`.
-	- Possible fix, any of:
-		- An index mark in every path, such as `node(@2)`, and bare bodies match by value only. `upgrade` rewrites a bare index.
-		- An index selector on a binding line is refused and kept, as a wildcard is (`E004`). Lookups keep `(2)`.
-		- A hint where a bare number selects by index and some instance's value is that number, on a binding line or a lookup.
-	- Question: the first 2 change what a 3.0 file means, which v4's goals rule out (no Format 4, every clean 3.0 file reads the same). Make it a Format 4 change, or take the hint?
-		- me, 20261120: the hint. A bare number as an index and a quoted one as a value is settled in value-syntax.md, and a second index spelling is under its Rejected list. The hint changes no file's reading, so it needs no new format.
-		- The load reports it on a binding line where a bare number picks by index and an instance of that name has that number as its value. It names both spellings, such as `node("2")` for the value.
-		- The CLI says the same on stderr for a lookup path. A library lookup has nowhere to report it, so the docs say it (2026111011285705).
-	- Estimated effort: Avg
-	- Actual effort: Avg
-	- Note: with v4 (JC).
-	- Note: 20261125, back from Deferred. Under the 2026-11-25 severity rule this is wrong data, so it is High, and no release goes out with an open High (JC). It can't wait for v4.
-	- Actual cause: a bare number in a selector is an index by design (value-syntax.md), and nothing said so where an instance had that number as its value.
-	- Decisions:
-		- me, 20261125: the hint is `H010`. It fires only where another instance has the number as its value. Where the instance picked by position has it, both readings agree, and past the last instance `E003` already refuses the line.
-		- me, 20261125: the value looked for is the index's decimal form, so `node(02)` and `node(+2)` look for a `node` valued `2`, as the index they read as.
-		- me, 20261125: the CLI says it on stderr for the PATH of `get`, `count`, `instances` and `children`, as `PATH: Hint: H010 ...`, and the exit status doesn't change. A `--set` or `--remove` path isn't checked, since it edits the file the load already hinted on.
-	- Actual fix: the binding-line index arm in all 4 libraries asks the value index for that number and adds `H010` when it names another instance. The 4 CLIs check each bare index in a lookup path by reading the line of the path with the index and with the number quoted, and print the hint when both resolve to different lines. `explain H010`, spec.md's code table and selector bullet, design.md's outcome table and the changelog say what it means.
-	- Swept: the other index arms. The lookup resolvers and the setters' index arms pick by position with no load to report on, so the CLI covers lookups and the setters are left. The `E003` arms refuse the line already.
-	- Verified: cli-regress over the 4 CLIs, the 4 conformance suites, crosscheck, check-docs and check-doc-examples passed. The committed CLI before the change printed no hint for the `dfsj2` and `dfsj4` inputs.
-	- Test case: cli-regress `dfsj2` (load hint), `dfsj3` (quiet where the readings agree or the body is quoted), `dfsj4` and `dfsj5` (lookup hint), `dfsj6` (quiet lookup).
-	- Acceptance signoff: Self-closed: the hint is the 20261120 call, and each part has a test seen to fail without it.
-	- Branch: `nov25-2026111016205702`
-	- Commit: `e1ac5f11`, `a4024ea1`, `9e78c1b7`
-	- Closed: 20261125-121800
-	- Closed reason: Done
-
-- `shcl get` prints the type's zero when the read isn't Good
-	- ID: 2026110217340702
-	- Type: Bug
-	- Status: Closed
-	- Severity: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261102-173407
-	- Opened by: Design review 20261102
-	- Steps to reproduce:
-		- `x=$(shcl get --int app.shcl port)` on a file with no `port`.
-	- Incorrect behavior: `x` is `0`, exit 3. A script without `set -e` goes on with a zero, which README.md says can't happen ("A missing value cannot sneak in as a silent zero").
-	- Expected behavior: the default `--on-bad=flag` prints nothing when the read isn't `Good`. `--default=0` is how a script asks for a zero, the same rule as the library's `_or` reads.
-	- Reproduced: 20261102, release CLI on dev `3828fa60`.
-	- Question: `get` on an empty field exits 2, where spec.md calls `Empty` informational and not a failure, so a `set -e` script stops on a field left empty on purpose. Exit 0 with an empty line, or keep 2 and say so in the spec?
-		- me, 20261120: keep 2, and say so in the spec. The exit code is how a script tells `x:` from `x: ""`, which exits 0, and from a missing line, and scripts already test for it. `--default=` is the way to get exit 0 on an empty field, and the spec and `help get` name it for `set -e` scripts.
-	- Estimated effort: Low
-	- Note: with v4 (JC).
-	- Note: 20261125, back from Deferred. Under the 2026-11-25 severity rule this is wrong data, so it is High, and no release goes out with an open High (JC). It can't wait for v4.
-	- Actual cause: the flag arm of `get` in all 4 CLIs printed the read's value whatever its status, and a read that isn't Good carries the type's zero.
-	- Decisions:
-		- me, 20261125: an Empty read under flag prints an empty line at exit 2, as `--default=` would, rather than nothing. A string read of an empty field already printed that line, and `$(...)` can't tell it from nothing. An int, float or bool read no longer prints its zero there.
-		- me, 20261125: under `--slots`, flag still prints each slot with its status, and a slot that isn't Good has an empty value rather than the zero, the same as `--default=`. Dropping the listing would leave `--slots` nothing to show on a partial read.
-		- me, 20261125: an array read with no elements, empty or missing, prints no line under flag, with `--slots` or without, as it did before. One line there reads as one empty element.
-	- Actual fix: under the default `--on-bad=flag`, `get` prints the value for a Good read, an empty line for an Empty one, and nothing otherwise, in all 4 CLIs. `--slots` and an Empty read go through the `--default=` path with an empty value and keep the status's exit code. The help (byte-identical in all 4), the man page, spec.md's CLI paragraph, examples.md and the changelog say so, and name `--default=` for a `set -e` script.
-		- Swept: the 4 CLIs' `do_get`/`doGet` flag, default and error arms. 15 cli-regress rows that pinned a `0`, an empty line or a JSON object on a failed read now pin no output. `--json` without `--slots` prints nothing on a failed read too. No other subcommand prints a typed value.
-	- Branch: nov25-2026110217340703
-	- Test case: cli-regress `ddydc`, `ddydd`, `dfsh3`, `dfsh4`, `dfsh5`, `dfsh9`, and `help-says` (`ddydf`). The first run of the new rows on the old CLIs printed `0`. cli-regress `dfsmq`, `dfsmr` and `dfsms` pin an array read with no elements, and fail on the first fix's 4 CLIs.
-	- Note: 20261125, the first fix printed one line for an array read with no elements, such as `Empty` and a tab under `--slots`, where it printed none before. check-migrate caught it. That read prints nothing again, in all 4 CLIs, and spec.md and the changelog say so. check-migrate and check-format-reads.py now expect nothing from the current CLI for a failed raw read, where 2.x and the older formats print an empty line.
-		- Verified: check-migrate (`dcqf3`, 636 documents) and check-formats (all 11 formats) pass on `nov25-2026110217340702-fix`. check-migrate failed at `f692c12d`, 589 divergences. cli-regress passes over the 4 CLIs.
-	- Acceptance signoff: Self-closed: the item's expected behavior, tested in all 4 CLIs.
-	- Closed: 20261125-113500
-	- Closed reason: Done
-
-- An int read takes a leading zero as decimal
-	- ID: 2026110217340703
-	- Type: Bug
-	- Status: Closed
-	- Needs local test suite run?: No
-	- Verified: 20261125, check-migrate (`dcqf3`) and check-formats (all 11 formats) pass on `nov25-2026110217340702-fix`, which fixes how both read a failed `get` after 2026110217340702.
-	- Verified: 20261125, the 2M release fuzz of fuzz_smoke passed on nov25 at 27e6e03a, 34 of 34 in 776 s (fuzz2m.log, nov25 gate step). analyze-c and cppcheck pass on the round's shcl.h.
-	- Severity: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261102-173407
-	- Opened by: Design review 20261102
-	- Steps to reproduce:
-		- `mode: 0644`, then `shcl get --int FILE mode`.
-	- Incorrect behavior: it reads 644, without a diagnostic. File modes and umasks are some of the most common numbers in a Unix config, and `0644` means octal to whoever wrote it.
-	- Expected behavior: `BadType` at Standard and Strict, with a message naming `0o644`. Loose stays as it is (JC, 2026-10-15). TOML and JSON refuse a leading zero for the same reason.
-	- Reproduced: 20261102, release CLI on dev `3828fa60`.
-	- Note: `zip: 02134` read as an int goes from 2134 to `BadType`, so spec.md's zip example and its corpus case change with it. It's a second exception to v4's goal that every 3.0 file reads the same, beside the unit from a field name.
-	- Estimated effort: Low
-	- Note: with v4 (JC).
-	- Note: 20261125, back from Deferred. Under the 2026-11-25 severity rule this is wrong data, so it is High, and no release goes out with an open High (JC). It can't wait for v4. 3.0.0 isn't out yet, so changing how a 3.0 file reads costs less now than in v4.
-	- Actual cause: the plain decimal arm of the int parse took any run of digits, leading zeros included, in all 4 bindings.
-	- Against: corpus `136`, which pinned `007` and `+0009` as integers. The 2026-11-25 triage settles it the other way.
-	- Decisions:
-		- me, 20261125: every leading zero with a digit after it is refused, `007`, `008` and `00` included, though only some read 2 ways. One rule is easier to explain, and it's what TOML and JSON do. A lone `0` and `-0` still read.
-		- me, 20261125: a float read is unchanged and still reads `0644` as 644, as the spec said. Nobody reads a mode as a float, and `0.5` and `00.5` would need their own rule.
-		- me, 20261125: the CLI's message gives both spellings, as in `value "0644" has a leading zero, so write 0o644 for octal or 644 for decimal`, and only the decimal one where a digit is 8 or 9. Schema `V003` keeps its wording, since it names no value for any type.
-		- me, 20261125: the `int` and `int-array` ops of `shcl set` refuse a leading zero as a bad int too. They wrote `0644` as 644, the same silent guess, and a umask's `0022` became 22.
-	- Actual fix: `parse_int_text` (`parseIntText` in Go, `_parse_int_text` in Python) refuses a leading zero outside Loose, in all 4. The 4 CLIs name the fix in `get`'s message and refuse it in an int op. spec.md (Integers, the zip example, the strictness table), the corpus README and the changelog say so.
-		- Swept: every caller of the int parse, which are the scalar and array reads, schema `allowed`, `min` and `max` (now `V092` for `min: 010`) and validation. The float fallback reaches it only for prefixed text. The op int parsers in all 4 CLIs. Durations, sizes, dates, index selectors and the Format line have their own number parsers and keep reading leading zeros.
-	- Branch: nov25-2026110217340703
-	- Test case: corpus `172-leading-zero-quotes` (`dd5pd`), `173-octal-binary` (`dd5ph`), `136-number-and-path-edges` (`dcxx5`) and `166-long-digits` (`dd51y`) reads, at Standard, Strict and Loose, and cli-regress `dfsh6`, `dfsh7`, `dfsh8`, `dfsha`, `dfshb`, `dfshc`. The new rows fail on the old C library in cases 136, 166 and 172, and pass on the new one in all 4.
-	- Closed reason: Done
-	- Acceptance signoff: 20261125, me, by the runs above.
-	- Closed: 20261125-141200
-
 - Review the whole code base for Critical and High bugs before each release
 	- ID: 2026112509394527
 	- Type: Task
@@ -293,99 +63,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- File every Critical or High finding, fix it, then review the whole tree again.
 		- Done for a release when 2 whole-tree reviews in a row file no new Critical or High, the 2M release fuzz is clean, and the merge gate and hosted run are green.
 		- Run it after the other beta.2 items close, so it reviews the code that goes out.
-
-- Hosted lint: analyze-c ends with exit 143 a few minutes in, under the gate step's timeout
-	- ID: 2026112421495092
-	- Type: Bug
-	- Status: Closed
-	- Closed reason: Done
-	- Priority: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261124-214950
-	- Opened by:
-	- Related IDs: 2026112311213741
-	- Steps to reproduce: hosted ci.yml run 45546604978 on nov24, job ci (lint), first try (job 138977631558) and rerun (job 138991346830).
-	- Incorrect behavior: both times cppcheck ran cold and passed (24 and 33 minutes), then `cicd/utility/analyze-c.bash` printed nothing and the gate step ended with exit 143 (TERM) after 3 and 4 minutes, about 30 minutes into a 71 to 72 minute limit. The cache save step after it, `if: always()`, was skipped both times, so no cppcheck cache was saved.
-	- Expected behavior: analyze-c runs to its end, as it did in hosted run 45068690472 on 2026-11-22 (5 minutes) and here on the nov24 tree (428 s), and the cache save runs.
-	- Possible cause: new since 2026-11-22 is the gate step's `timeout --kill-after=60 "${left}" cicd/cicd.bash` from 2026112311213741, under the 26.04 image's uutils `timeout`. Something in analyze-c may signal its process group, which `timeout` now owns. Try analyze-c under uutils `timeout` in an `ubuntu:26.04` container first. A skipped `always()` step points at the runner canceling the job rather than the step failing.
-	- Estimated effort: Avg
-	- Reproduced: 20261125, here on the round tree. analyze-c at the runner's 4 CPUs peaked at 17.5 GB, 2 minutes in, against the runner's 16 GB. Alone, gcc -fanalyzer took 10.4 GB on conformance.c, 7.3 on fs_property.c, 6.0 on main.c, 5.3 on oom_hook.c and 4.1 on mem_bounds.c, and clang under 0.4 each. Under a 15 GB cap with no swap (`CICD_MEM_CAP=15g`), cc1 on conformance.c was killed for memory and `de2x2` failed.
-	- Actual cause: analyze-c runs 2 gcc -fanalyzer lanes at once whatever the memory, beside the clang jobs. Since 2026-11-22 shcl.h grew by about 4,700 lines and conformance.c by 2,500, and fs_property.c joined the C programs, so 2 lanes now need more than a hosted runner has. The runner then ended the step with TERM and skipped every later step, the post steps included. Who sends the TERM isn't in any log, so that part is read from the step lists, not reproduced. The `timeout` wrapper isn't the cause: 45232879461 ended in the same stage before it went in (2026112311213741).
-	- Actual fix: analyze-c works out the memory the run may use, the smaller of MemAvailable and any cgroup cap over it, such as the run's own scope or the image's `--memory`. It runs the second gcc lane only with room for 2 at 12 GB each plus 2 for the clang jobs, and prints the lane count and the room. A hosted runner gets one lane.
-	- Decisions: one lane on a small box, rather than a lower analyzer depth or a file left out, since depth 2 is the least that reports the bait and every file stays checked. A fixed figure per lane rather than a per-file estimate, since the peak doesn't follow file size: oom_hook.c, at 17 KB, took more than mem_bounds.c at 39 KB. The cost is time: one lane took 632 s here against 358 s for 2, at a load of about 25 (me).
-	- Verified: 20261125. Under `CICD_MEM_CAP=15g` analyze-c chose 1 lane and passed `de2wz` to `de2x4` (632 s), where the old script failed `de2x2`. Under the default cap (32g here) it chose 2 lanes and passed (358 s). The room read 40 GB on the host, 10 under a 10G user scope, and 14 in the 15g image. shellcheck passes.
-	- Verified: 20261125, hosted ci.yml run 45707733038 on nov25 (`cedd6808`), job ci (lint) on ubuntu-24.04, after a C change, so cppcheck ran for 28 minutes from another hash's cache: analyze-c printed `1 gcc -fanalyzer lane(s), with 14 GB free for this run and 26 wanted for 2`, and passed `de2wz` to `de2x4` in 470 s. The cppcheck cache save step ran and saved `cppcheck-f5dc4393...-45707733038-1`.
-	- Test case: analyze-c `de2x2`, which the hosted lint part runs, under the runner's memory. No pipeline row runs analyze-c under a cap, since a capped run takes about 10 minutes.
-	- Swept: the other steps that run jobs side by side on the runner. analyze-c `--ctu` in the tests part took 11 s hosted, and cppcheck runs 2 at under 240 MB each. No other gate step is sized by memory.
-	- Branch: `nov25-2026112509394522`
-	- Commit: `8372ca7a`
-	- Acceptance signoff: Self-closed: hosted run 45707733038 chose 1 lane, passed analyze-c, and saved the cppcheck cache.
-	- Closed: 20261125-143611
-
-- Hosted lint: the lint part runs past its 80-minute timeout on Ubuntu 26.04
-	- ID: 2026112311213741
-	- Type: Bug
-	- Status: Closed
-	- Closed reason: Done
-	- Priority: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261123-112137
-	- Opened by:
-	- Steps to reproduce: hosted ci.yml run 45232879461 on nov23, job ci (lint).
-	- Incorrect behavior: the job was cancelled at its 80-minute timeout with no log kept. The tool install step took 20 minutes (4 on 2026-11-22's run 45068690472), and cicd.bash ran 63 minutes before the cancel, with the cppcheck cache missing after a shcl.h change. The green lint part of 43137942602 on 2026-11-12 took 10 minutes in all.
-	- Expected behavior: the lint part finishes inside its timeout after a shcl.h change, and a timeout leaves enough output to say which stage ran long.
-	- Estimated effort: Avg
-	- Reproduced: 20261123, from the step times of the 3 runs. Install took 1.5, 2.8 and 20.3 minutes, and cicd.bash 7.2 (cppcheck cache hit), 43.0 (cold) and 63 before the cut. In 45068690472's log, cold cppcheck took 32.5 of lint's 42 minutes and analyze-c 5. The same run's release part spent 43.5 minutes in the install step, 43 of them in apt, and its tests part under one.
-	- Actual cause:
-		- The tool install step took 10 to 44 minutes in 3 of the 20 runs since 2026-11-02, on both images, while other parts of the same run took 1 to 2. Its apt calls ran under -qq, so no log says why (child 2026112314544545).
-		- cppcheck's exhaustive pass starts cold after any change to shcl.h, since both files it checks include it. It took 32.5 minutes hosted on 2026-11-22's code (041c24d1). Run here cold, one thread per file at a load of 5 to 7, the C runner took 34.5 minutes CPU on that code and 38.2 on the run's (a842b311), and main.c 24.3 and 27.0. So the code's growth adds about 4 minutes, and lint should take about 47 with a cold cppcheck.
-		- Not found: what took the gate 63 minutes or more, against about 47 expected. Ruled out: code growth (above) and memory (each cppcheck stays under 240 MB). The same job's install step was about 10 times slower than usual, so a slow runner or network is likely, since the gate fetches too (govulncheck, cargo-deny). The new limit and log will show it on the next long run.
-		- The job-level timeout kept no log and never ran the cache save, though canceled runs keep theirs. The API still shows the gate step in progress. So nothing said which step ran long, and the next run started cppcheck cold again.
-	- Actual fix:
-		- The gate step works out how long the job has left and runs cicd.bash under `timeout`, ending 5 minutes before the job's limit. It prints its limit, and on a timeout an error naming it. The job's timeout-minutes and the limit both come from a `minutes` key in the matrix.
-		- The cppcheck cache is saved after every lint run, under a key with the run ID, and restored from the newest for the same C code, or else the newest of all. A run cut short keeps the files cppcheck finished.
-		- apt in the install step prints each fetch.
-	- Decisions: keep each part at 80 minutes. A cold cppcheck on the current code fits with about 30 to spare, so a longer limit would only hide the next slow run. Bound the gate inside the step rather than with the step's own timeout-minutes, which runs on the runner's cancel path that kept nothing here. `timeout` signals the whole process group, which a step timeout does not promise. A per-run cache key, since a cache can't be overwritten, and a partial result saved under the final key would be restored as a full hit and never saved again.
-	- Verified: 20261123. In ubuntu:26.04, uutils `timeout` returns 124 and ends a background grandchild, and 137 for a child that ignores TERM; GNU's on the host does the same. A copy of the gate step's script passes through the gate's exit code and refuses to start with under a minute left. check-pins passes, `dfpxm` included. shell-regress rows `dcqgf`, `dfpxn`, `ddwkm`, `dej8g`, `dektk`, `dcv6p`, `dcqgg` and `ddx1w` pass, and `dfpxn` fails both ways on the old check-pins. `cicd.bash --backlog-run-quick cicd` and `lint-report.bash --check --no-mark` pass. cppcheck cut off by `timeout` with a build dir keeps the result of the file it finished, and an empty one for the file it didn't.
-	- Verified: 20261125, hosted ci.yml run 45707733038 on nov25 (`cedd6808`), job ci (lint) on ubuntu-24.04, after a C change: it printed `gate time limit: 72 minutes`, and passed in 44 minutes in all. The install step took about a minute, cppcheck 28 and analyze-c 8, and the gate ended at 41.5 minutes. The cache save step ran and saved `cppcheck-f5dc4393...-45707733038-1`.
-	- Test case: check-pins `dfpxm` (each hosted gate run is under `timeout`, from the job's own minutes) and shell-regress `dfpxn`. No test bounds the hosted time itself.
-	- Swept: every `cicd/cicd.bash` line in ci.yml (the 3 ci parts share one). The other jobs run no cicd.bash and have their own short timeouts. The setup-build job installs 2 packages under its own 15-minute timeout, and its apt line moved to -q under 2026112314544545.
-	- Branch: `nov23b-2026112311213741`
-	- Commit: `54b67873`
-	- Prereq IDs: 2026112421495092
-	- 20261123: hosted run 45301493250 on nov23b: ci (lint) was cut off at 80 minutes with no log again. The gate step ended as a failure at 43 minutes (01:45:02Z), then the runner never started the cache save, and the job sat until its limit. The tests part, under the same timeout wrapper, failed and ended normally. So the step ends, but the runner hangs after it in the lint part only. The 45232879461 hang came before the wrapper.
-	- 20261123: next try: find what the lint part leaves running after its gate, such as a background process holding the step's output, and why the gate failed at 43 minutes. A run with the lint part's gate cut down to that stage would show it in minutes.
-	- 20261124: hosted ci.yml run 45546604978 on nov24, after a shcl.h change: the lint part's install took 73 seconds, cold cppcheck 24 minutes and passed, then analyze-c ended with exit 143 (TERM) after about 3 minutes, 28 minutes into a 72-minute limit, with no output. The cache save step was skipped despite always(), so no cppcheck cache was saved. Job 138977631558 rerun to see if it recurs.
-	- 20261124: the rerun (job 138991346830) ended the same way: cold cppcheck 33 minutes and passed, then analyze-c exit 143 after 4 minutes. Filed as 2026112421495092.
-	- 20261125: the cause of the long and cut-off runs is analyze-c's memory (2026112421495092). Its 2 gcc lanes need 17.5 GB against the runner's 16 GB. The 2 runs with a log ended in analyze-c. The 2 without one stopped at about the time it starts after a cold cppcheck, one before the `timeout` wrapper and one after, which fits but is unverified. The fix there runs one lane on the runner, about 8 minutes more than 2. The lint part also moves to `ubuntu-24.04` with the runner pins (2026112509394522). What's left is the hosted run in the Needs row.
-	- Acceptance signoff: Self-closed: hosted lint finished inside its limit in run 45707733038 and saved its cppcheck cache.
-	- Closed: 20261125-143611
-
-- Pin the hosted runner images
-	- ID: 2026112509394522
-	- Type: Task
-	- Status: Closed
-	- Closed reason: Done
-	- Priority: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261125-093945
-	- Opened by: me, from the 3.0 freeze (JC, 2026-11-25)
-	- Related IDs: 2026112311213741, 2026112421495092, 2026112307465433
-	- Problem description: ci.yml still runs 5 jobs on `ubuntu-latest` and 2 on `windows-latest`. When GitHub moved `ubuntu-latest` to 26.04, the new gcc, mingw and timings turned hosted lint red with no change in the code (the 3 related items).
-	- Requirements:
-		- Every `runs-on` and matrix `runner` names a fixed image, as the release part's `ubuntu-24.04` and `macos-15` already do. Pick the Ubuntu one with the 2 hosted lint items.
-		- check-pins refuses a `-latest` label.
-		- Moving to a newer image is its own Task, planned, never a side effect.
-	- Actual fix: every Linux x86_64 job runs on `ubuntu-24.04`, and the 2 Windows x64 jobs on `windows-2025`. check-pins fails a `-latest` label in any `runs-on` or in the matrix value it reads, and a `runs-on` expression it can't follow to a label. design.md's CI/CD section says so.
-	- Decisions: `ubuntu-24.04` for every Linux job, not `ubuntu-26.04`. The release part has to stay on 24.04 for the CPU floor (2026112308072792), so one image means one set of tool versions. Lint and tests were green there through 2026-11-12 with today's tool list, and 26.04's newer gcc, mingw and uutils stay out until a planned move. The hosted lint failures since then came from analyze-c's memory (2026112421495092), which is the same on both images. `windows-2025` is the image `windows-latest` ran in 45546604978, so nothing changes there. This replaces 2026112308072792's call to keep lint and tests on the moving image (me, from JC's pin rule).
-	- Verified: 20261125. check-pins passes on the new ci.yml. It fails, with a message naming the label, on a matrix runner of `ubuntu-latest`, on `runs-on: windows-latest`, on `runs-on: ${{ inputs.os }}`, and with no runs-on line read. The old check-pins passed the first 3. shell-regress rows `dcqgf`, `dcqgg`, `dcv6p`, `ddwkm`, `dej8g`, `dektk`, `dfpxn`, `dfsfy`, `ddx1w` and `de61s` pass.
-	- Verified: 20261125, hosted ci.yml run 45707733038 on nov25 (`cedd6808`): ci (lint), ci (release), ci (tests), go-floor, setup-build and winarm-build ran on image ubuntu-24.04, and windows and setup-test on windows-2025 (image windows-2025-vs2026). check-pins `dfsfx` passed there. ci (lint) passed, the mingw cross check included. ci (tests) failed only on check-push-gate `df2ss`, a dev bug filed as 2026112514344606 that no runner pin touches. `dcvej` passed.
-	- Test case: check-pins `dfsfx` (no job runs on a `-latest` label) and shell-regress `dfsfy`.
-	- Swept: every `runs-on` in ci.yml, the only workflow. `ubuntu-24.04-arm`, `windows-11-arm` and `macos-15` were fixed already. No cicd script or doc names a `-latest` label but design.md's rejected `macos-latest`.
-	- Branch: `nov25-2026112509394522`
-	- Commit: `8372ca7a`
-	- Acceptance signoff: Self-closed: every pinned job ran on its fixed image in hosted run 45707733038, and check-pins `dfsfx` passed.
-	- Closed: 20261125-143611
 
 - `Document::merge` drops the base file's comments on every leaf the upper layer names
 	- ID: 2026111217560140
@@ -1052,6 +729,329 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- spec.md and the `upgrade` docs say 2.x includes 1.x, and that a 1.x file's backup is named `format-v2`.
 		- The next changelog's upgrading notes say C's `SHCL_SET_OK` is 0, so old code testing a setter `!= 0` reads every success as a failure, and that a string read of an array gives its bracket text. The released beta1 section stays as it is.
 	- Estimated effort: Low
+
+- Hosted lint: the mingw cross build fails on every %zu format
+	- ID: 2026112307465433
+	- Type: Bug
+	- Status: Closed
+	- Closed reason: Done
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-074654
+	- Opened by:
+	- Steps to reproduce: hosted ci.yml run 45068690472 on main (Merge instsync4), job ci (lint), cross check 'C library + CLI for Windows x86_64 (mingw)'.
+	- Incorrect behavior: gcc-mingw-w64 from the runner's newer image reads every %zu in shcl.h (9740, 11820, 13032, 15004) and the C CLI (632, 832, 2146, 2149) against the msvcrt printf, so -Werror=format fails the build. The last green main run, 43137942602 on 2026-11-12, built the same code.
+	- Expected behavior: the mingw cross build passes, with size_t printed the same way on Windows as elsewhere.
+	- Estimated effort: Low
+	- Verified: 20261125, hosted ci.yml run 45707733038 on nov25 (`cedd6808`), job ci (lint): the cross check "C library + CLI for Windows x86_64 (mingw)" passed. That image has mingw-w64 11 with gcc 13.2 win32, not the mingw-w64 13 that failed, so the hosted run doesn't meet the false warning. The fix against mingw-w64 13 is the ubuntu:26.04 container check from 20261123.
+	- Reproduced: 20261123, in an ubuntu:26.04 container with gcc-mingw-w64-x86-64 (gcc 13-win32, mingw-w64 13.0.0). The cross check gives 92 format errors on the round branch.
+	- Actual cause: gcc 13, and maybe later ones, adds its builtin printf check, which is ms_printf on mingw, to printf, fprintf and snprintf, even where the header declares them with gnu_printf (gcc PR 95130). mingw-w64 13 declares them as plain aliases of `__mingw_printf` and the rest, so the builtin check now applies. Under `-std=c11` with msvcrt, mingw-w64 turns on `__USE_MINGW_ANSI_STDIO`, so the calls go to mingw's own printf, which handles `%zu`. The build fails, but the program prints size_t right.
+	- Actual fix: the mingw cross check turns off the printf-family builtins (`-fno-builtin-printf` and its 7 siblings, in `MINGW_PRINTF_BUILTINS_OFF` in `cicd/config.bash`). The header's own gnu_printf check still runs. shcl.h and the C CLI are unchanged.
+	- Test case: the cross check itself. It passes in the ubuntu:26.04 container and in the project container, and still fails on a planted `%d` for a size_t in the CLI.
+	- Branch: `nov23-2026112307465433`
+	- Decisions: fix it in the cross check's flags rather than in shcl.h and the C CLI. The code is right: on mingw-w64 the calls print `%zu` correctly under msvcrt (mingw's own printf) and under UCRT. The failure is a false compiler warning, which a user meets only with `-Werror` on this toolchain. Rewriting about 40 format strings, or a mingw-only pragma in shcl.h, would hide a compiler bug in the library and cost the 37-minute cppcheck run. Turning off only the printf builtins keeps format checking on, against the header's gnu_printf declarations (me).
+	- Swept: `x86_64-w64-mingw32-gcc` appears only in this cross check (and install-dev's tool check). The hosted windows job builds the C runners with the image's own gcc under `-Werror` in win-runners.bash, and passed in run 45068690472, so it is unchanged. It would need the same flags if that image moves to mingw-w64 13 with an affected gcc.
+	- Verified: 20261123. The cross check's command, taken from `CROSS_CHECKS`, passes in the ubuntu:26.04 container (92 errors without the flags), and fails there on a `%zu` changed to `%d` in a copy of main.c. `cicd.bash --backlog-run-quick c cicd` passed in the project container, the cross check included. shellcheck on config.bash and `lint-report.bash --check --no-mark` passed. shell-regress failed only `dcvej` (demo against the gif), which fails the same on nov23 without this change.
+	- Commit: `a105bcf2`
+	- Prereq IDs: 2026112311213741
+	- 20261123: hosted run 45232879461's ci (lint) timed out with no log, so the mingw cross check result is unknown.
+	- 20261123: hosted run 45301493250 left no ci (lint) log (2026112311213741), so the cross check wasn't read. The release part doesn't run it.
+	- Acceptance signoff: Self-closed: the cross check passed hosted in run 45707733038 and in the ubuntu:26.04 container.
+	- Closed: 20261125-143611
+
+- On Windows a create-only save through a link to nowhere, and `.` under a missing folder, are unchecked
+	- ID: 2026110408432594
+	- Type: Bug
+	- Status: Closed
+	- Closed reason: Done
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261104-084325
+	- Opened by: 2026110312163207's fix
+	- Related IDs: 2026110312163207, 2026110314240418
+	- Target OS: Windows
+	- Steps to reproduce:
+		- On Windows, make a symlink to a file that isn't there, then save a document to the link with `create` set.
+		- On Windows, run the steps of 2026110314240418 in Go or Python.
+	- Incorrect behavior: this hasn't been seen. Both fixes leave Windows as it was. The link rows in `dekm5`, `dekm6`, `dekmf`, `dekmj`, and `dekmk`, and the `.` rows in `detpp` and `detpq`, skip there. So the save may still make the file the link names, and a load of `new/./n.shcl` may not know `new/n.shcl`.
+	- Expected behavior: the same as on POSIX. The first is refused with `Exists` and nothing is made, and the second is refused with `Changed`.
+	- Reproduced: No, found by reading.
+	- Possible cause: `link_at`, `linkAt`, `_link_at`, and `s_link_at` work only off Windows, and `tidyRest` and `_tidy_rest` run only off Windows. C's Windows resolve and its `s_something_at` are separate code.
+	- Note: this needs b29w with a short-name TEMP, the way `private/claude_simple/tools/winbox-savetests/` runs it.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual cause: read, not run on Windows. The save's own create check has looked at the path as given since 2026110613470307 (lstat, `GetFileAttributesW`), so a link to nowhere is Exists there on Windows too. Only the write's create check, the guard against a link planted after the save's check, still skipped links on Windows. The `.` half went with the path compare in 2026110613470307: the save reads the bytes at the path, so no spelling is compared, and the fs property row `2026110408432594-dot` already passed on b29w in all 4.
+	- Actual fix: `link_at`, `linkAt`, `_link_at` and `s_link_at` work on Windows too, and C's Windows write checks the path as given for a reparse point. The link rows in `dekm5`, `dekm6`, `dekmf`, `dekmj` and `dekmk` run on Windows when it can make a link, and print a skip when it can't. The `.` and doubled-separator rows in `detpn`, `detpp`, `detpq` and `detpr` run on Windows. The `..` rows stay POSIX, since Windows cancels `..` itself.
+	- Swept: the save's create check and the write's in Rust, Go, Python and C (the save's already looked at the path as given in all 4), and the veneer, which wraps the C save. The fs property row `2026110408432594-link` still skips on Windows, since that tree makes no links there.
+	- Verified: on Linux, `dekm5`, `dekm6`, `dekmf`, `dekmj`, `dekmk`, `detpn`, `detpp`, `detpq` and `detpr` pass, and so does `cicd.bash --backlog-run-quick rust go python c`. For Windows, the Rust tests check and build for x86_64-pc-windows-gnu, Go vets and builds its test binary with GOOS=windows, and the C runner and main.c build with mingw. None of it ran on Windows.
+	- Test case: the link-to-nowhere rows of `a_create_only_save_refuses_a_file_already_there` (`dekm5`, `dekm6`, `dekmf`, `dekmj`, `dekmk`) and the `.` rows of `a_changed_check_knows_its_file_by_any_spelling` (`detpn`, `detpp`, `detpq`, `detpr`), now on Windows too.
+	- Verified: 20261125, on b29w with a short-name TEMP, on nov25 (`cedd6808`): the link rows of `dekm5`, `dekm6`, `dekmf`, `dekmj` and `dekmk` ran, with none skipped, and passed, and so did `detpn`, `detpp`, `detpq` and `detpr`. The Python and C runners passed whole, 224 cases each, and so did the C++ veneer smoke.
+	- Branch: `nov24-2026110408432594`
+	- Decisions:
+	- me, 20261124: on Windows a link row skips with a message when the box can't make a link, as C's `windangle` does, since making one takes developer mode or the right to. It fails only where a link was made.
+	- me, 20261124: the new Windows rows aren't expected to fail on the code before, since the save's own check already refused the link there. They pin it, and the write's check only covers a link planted between the two.
+	- 20261124: the batch skipped it: b29w still gave no route to host at the end of nov24.
+	- Acceptance signoff: Self-closed: every row the item names passed on b29w.
+	- Closed: 20261125-140145
+
+- Format versions: the demo gif and its golden text show fmt output without the stamp
+	- ID: 2026111710564808
+	- Type: Feature
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261117-105648
+	- Opened by: 2026111709431277
+	- Parent ID: 2026111708130702
+	- Requirements: rerender assets/demo.gif and refresh cicd/demo/expected.txt (the gif stage, or gen-demo-gif.py), so shell-regress dcvej matches the CLI again. Only a tool run.
+	- Estimated effort: Low
+	- Note: until then shell-regress dcvej fails, since every fmt now ends with the stamp.
+	- 20261125: Back to Queued for the nov25 round. JC's scope rule says to render the gif outside the pipeline with gen-demo-gif.py and refresh cicd/demo/expected.txt.
+	- Actual effort: Low
+	- Actual fix: `assets/demo.gif` rendered again with `gen-demo-gif.py` from the release build, with the stage's own scenario and seed, and `cicd/demo/expected.txt` refreshed from the same steps. The fmt step now ends with `## SHCL format 3.0`, the only change in the golden text.
+	- Verified: the old `expected.txt` differed from the steps' output by the stamp line alone, and the debug and release builds print the same. Full shell-regress on the host passed, `dcvej` and the other demo rows (`dcrtj`, `dd5hh`) included. The fmt step's last frame shows the stamp.
+	- Test case: shell-regress `dcvej`.
+	- Branch: `nov25-2026111710564808`
+	- Acceptance signoff: Self-closed: mechanical, a tool run, and its test passes.
+	- Closed: 20261125-102337
+	- Closed reason: Done
+
+- `Upgrade` and `migrate` split a backtick value or a call at its commas, and count nothing
+	- ID: 2026111016205702
+	- Type: Bug
+	- Status: Closed
+	- Severity: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261110-162057
+	- Opened by: gitniblet and tradeclanker feedback
+	- Related IDs: 2026102911041665, 2026111016205703
+	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
+	- Problem description: ``upgrade("query: `select a, b from t`\n", true)`` gives ``query: ["`select a", "b from t`"]``, and `migrate_unstamped("k: sma(close, 10)\n", true)` gives `k: ["sma(close", "10)"]`. `ambiguous`, `lost`, and `errors_left` are all empty, and `from_v2` false does the same. That's how 2.x read them, but nobody means a backtick or a paren cut in half inside an element. gitniblet swaps backtick lines out before the upgrade and puts them back after.
+	- Requirements:
+		- A split that cuts a backtick pair, or a paren or bracket pair, counts as ambiguous, even with `from_v2`, so nothing is written without a look.
+		- All 4 bindings count it the same way.
+		- Values without a tell, such as a regex with `, ` in it, stay with 2026102911041665.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Note: 20261125, now a High Bug under the 2026-11-25 severity rule: the upgrade writes a value nobody meant and reports nothing, which breaks "never damage a correct file at exit 0".
+	- Actual cause: the 2.x comma split in the line rewrite took every comma as a separator once the file was known to be 2.x, and nothing looked at what the pieces held.
+	- Decisions:
+		- me, 20261125: a pair counts as cut when its open mark is in one bare element and its close in a later one. Backticks pair in order. Braces count with parens and brackets, since `{a, b}` split in 2 is as unlikely to be meant. A quoted element between keeps the pair open, and a lone mark with no partner is no tell.
+		- me, 20261125: with `from`, a cut pair makes `migrate` and `migrate_unstamped` hand back the whole file as written, not only its line. Its other lines rewritten without a stamp would be rewritten again on the next run, which the corpus fixpoint check caught on case 195. A load that converts in memory writes nothing, so it converts the rest and keeps that line as typed.
+		- me, 20261125: the count goes in `ambiguous`, as asked, with no new field. With `--from`, the CLIs say "value(s) have a comma inside a backtick, paren or bracket pair, which 2.x split there and nobody means", since the usual message's "the file doesn't say which it was written for" and "--from rewrites them" aren't true then. Without it, the usual message and the library's `Ambiguous` error add "or have a comma inside a backtick, paren or bracket pair".
+		- me, 20261125: without `from`, a file that loads clean now, such as a lone backtick value, is still `current` and left alone, as a good file is.
+	- Actual fix: `v2_split_cuts_pair` and its twins (`v2SplitCutsPair` in Go, `_v2_split_cuts_pair` in Python) count such a list in `ambiguous` before the split, in all 4. Told the file is 2.x, `migrate_text` then hands back the input. `upgrade` no longer takes a clean file migrate left alone as current when something was left for a look. Docs: value-syntax.md's Migration section, the man page, examples.md and the changelog.
+	- Swept: every 2.x comma split in the line rewrite, in all 4: the field value branch is the only one that splits. A `*` item with a comma is refused, and a selector or `name:[disc]` body with one is counted lost. The `clean && unchanged` early return in `upgrade` in all 4. The ambiguous messages in all 4 CLIs and libraries.
+	- Verified: the 4 new tests fail with the check disabled and pass with it. The 4 conformance suites, cli-regress over the 4 CLIs and crosscheck over the corpus pass.
+	- Note: 20261125, check-migrate counts migrate's refusal over such a list as one, and compares nothing for that document, since nothing was rewritten. That takes 13 of its 649 documents out of the comparison, and it reports the same divergences as the round branch otherwise.
+	- Test case: `dfshw` (Rust), `dfshx` (Go), `dfshy` (Python), `dfshz` (C), cli-regress `dfsj0` and `dfsj1`. The load: `dfsj7` (Rust), `dfsj8` (Go), `dfsj9` (Python), `dfsja` (C).
+	- Acceptance signoff: Self-closed: tests cover each requirement and were seen to fail without the fix.
+	- Branch: `nov25-2026111016205702`
+	- Commit: `1f4739a9`, `49294958`, `88830383`
+	- Closed: 20261125-122100
+	- Closed reason: Done
+
+- A bare number in a selector picks by position, so a file line can bind under the wrong instance
+	- ID: 2026110217340701
+	- Type: Bug
+	- Status: Closed
+	- Severity: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261102-173407
+	- Opened by: Design review 20261102
+	- Steps to reproduce:
+		- `node: 1`, `node: 2` and `node: 3`, each with an `ip` under it, then `node(2).role: primary`.
+		- `shcl fmt` and `shcl check` on it, then `shcl get FILE 'node(2).ip'`.
+	- Incorrect behavior: `role` goes under `node: 3`, and `check` says `ok (0 diagnostic(s))`. The get gives node 3's `ip`. With `vlan: 10` to `vlan: 300`, `vlan(10)` is the 11th one. `E003` catches it only when the index is past the last instance.
+	- Expected behavior: a bare body names an instance by its value, since IDs, ports, years and VLANs are the usual discriminators. An index has a spelling of its own.
+	- Reproduced: 20261102, release CLI on dev `3828fa60`.
+	- Possible fix, any of:
+		- An index mark in every path, such as `node(@2)`, and bare bodies match by value only. `upgrade` rewrites a bare index.
+		- An index selector on a binding line is refused and kept, as a wildcard is (`E004`). Lookups keep `(2)`.
+		- A hint where a bare number selects by index and some instance's value is that number, on a binding line or a lookup.
+	- Question: the first 2 change what a 3.0 file means, which v4's goals rule out (no Format 4, every clean 3.0 file reads the same). Make it a Format 4 change, or take the hint?
+		- me, 20261120: the hint. A bare number as an index and a quoted one as a value is settled in value-syntax.md, and a second index spelling is under its Rejected list. The hint changes no file's reading, so it needs no new format.
+		- The load reports it on a binding line where a bare number picks by index and an instance of that name has that number as its value. It names both spellings, such as `node("2")` for the value.
+		- The CLI says the same on stderr for a lookup path. A library lookup has nowhere to report it, so the docs say it (2026111011285705).
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Note: with v4 (JC).
+	- Note: 20261125, back from Deferred. Under the 2026-11-25 severity rule this is wrong data, so it is High, and no release goes out with an open High (JC). It can't wait for v4.
+	- Actual cause: a bare number in a selector is an index by design (value-syntax.md), and nothing said so where an instance had that number as its value.
+	- Decisions:
+		- me, 20261125: the hint is `H010`. It fires only where another instance has the number as its value. Where the instance picked by position has it, both readings agree, and past the last instance `E003` already refuses the line.
+		- me, 20261125: the value looked for is the index's decimal form, so `node(02)` and `node(+2)` look for a `node` valued `2`, as the index they read as.
+		- me, 20261125: the CLI says it on stderr for the PATH of `get`, `count`, `instances` and `children`, as `PATH: Hint: H010 ...`, and the exit status doesn't change. A `--set` or `--remove` path isn't checked, since it edits the file the load already hinted on.
+	- Actual fix: the binding-line index arm in all 4 libraries asks the value index for that number and adds `H010` when it names another instance. The 4 CLIs check each bare index in a lookup path by reading the line of the path with the index and with the number quoted, and print the hint when both resolve to different lines. `explain H010`, spec.md's code table and selector bullet, design.md's outcome table and the changelog say what it means.
+	- Swept: the other index arms. The lookup resolvers and the setters' index arms pick by position with no load to report on, so the CLI covers lookups and the setters are left. The `E003` arms refuse the line already.
+	- Verified: cli-regress over the 4 CLIs, the 4 conformance suites, crosscheck, check-docs and check-doc-examples passed. The committed CLI before the change printed no hint for the `dfsj2` and `dfsj4` inputs.
+	- Test case: cli-regress `dfsj2` (load hint), `dfsj3` (quiet where the readings agree or the body is quoted), `dfsj4` and `dfsj5` (lookup hint), `dfsj6` (quiet lookup).
+	- Acceptance signoff: Self-closed: the hint is the 20261120 call, and each part has a test seen to fail without it.
+	- Branch: `nov25-2026111016205702`
+	- Commit: `e1ac5f11`, `a4024ea1`, `9e78c1b7`
+	- Closed: 20261125-121800
+	- Closed reason: Done
+
+- `shcl get` prints the type's zero when the read isn't Good
+	- ID: 2026110217340702
+	- Type: Bug
+	- Status: Closed
+	- Severity: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261102-173407
+	- Opened by: Design review 20261102
+	- Steps to reproduce:
+		- `x=$(shcl get --int app.shcl port)` on a file with no `port`.
+	- Incorrect behavior: `x` is `0`, exit 3. A script without `set -e` goes on with a zero, which README.md says can't happen ("A missing value cannot sneak in as a silent zero").
+	- Expected behavior: the default `--on-bad=flag` prints nothing when the read isn't `Good`. `--default=0` is how a script asks for a zero, the same rule as the library's `_or` reads.
+	- Reproduced: 20261102, release CLI on dev `3828fa60`.
+	- Question: `get` on an empty field exits 2, where spec.md calls `Empty` informational and not a failure, so a `set -e` script stops on a field left empty on purpose. Exit 0 with an empty line, or keep 2 and say so in the spec?
+		- me, 20261120: keep 2, and say so in the spec. The exit code is how a script tells `x:` from `x: ""`, which exits 0, and from a missing line, and scripts already test for it. `--default=` is the way to get exit 0 on an empty field, and the spec and `help get` name it for `set -e` scripts.
+	- Estimated effort: Low
+	- Note: with v4 (JC).
+	- Note: 20261125, back from Deferred. Under the 2026-11-25 severity rule this is wrong data, so it is High, and no release goes out with an open High (JC). It can't wait for v4.
+	- Actual cause: the flag arm of `get` in all 4 CLIs printed the read's value whatever its status, and a read that isn't Good carries the type's zero.
+	- Decisions:
+		- me, 20261125: an Empty read under flag prints an empty line at exit 2, as `--default=` would, rather than nothing. A string read of an empty field already printed that line, and `$(...)` can't tell it from nothing. An int, float or bool read no longer prints its zero there.
+		- me, 20261125: under `--slots`, flag still prints each slot with its status, and a slot that isn't Good has an empty value rather than the zero, the same as `--default=`. Dropping the listing would leave `--slots` nothing to show on a partial read.
+		- me, 20261125: an array read with no elements, empty or missing, prints no line under flag, with `--slots` or without, as it did before. One line there reads as one empty element.
+	- Actual fix: under the default `--on-bad=flag`, `get` prints the value for a Good read, an empty line for an Empty one, and nothing otherwise, in all 4 CLIs. `--slots` and an Empty read go through the `--default=` path with an empty value and keep the status's exit code. The help (byte-identical in all 4), the man page, spec.md's CLI paragraph, examples.md and the changelog say so, and name `--default=` for a `set -e` script.
+		- Swept: the 4 CLIs' `do_get`/`doGet` flag, default and error arms. 15 cli-regress rows that pinned a `0`, an empty line or a JSON object on a failed read now pin no output. `--json` without `--slots` prints nothing on a failed read too. No other subcommand prints a typed value.
+	- Branch: nov25-2026110217340703
+	- Test case: cli-regress `ddydc`, `ddydd`, `dfsh3`, `dfsh4`, `dfsh5`, `dfsh9`, and `help-says` (`ddydf`). The first run of the new rows on the old CLIs printed `0`. cli-regress `dfsmq`, `dfsmr` and `dfsms` pin an array read with no elements, and fail on the first fix's 4 CLIs.
+	- Note: 20261125, the first fix printed one line for an array read with no elements, such as `Empty` and a tab under `--slots`, where it printed none before. check-migrate caught it. That read prints nothing again, in all 4 CLIs, and spec.md and the changelog say so. check-migrate and check-format-reads.py now expect nothing from the current CLI for a failed raw read, where 2.x and the older formats print an empty line.
+		- Verified: check-migrate (`dcqf3`, 636 documents) and check-formats (all 11 formats) pass on `nov25-2026110217340702-fix`. check-migrate failed at `f692c12d`, 589 divergences. cli-regress passes over the 4 CLIs.
+	- Acceptance signoff: Self-closed: the item's expected behavior, tested in all 4 CLIs.
+	- Closed: 20261125-113500
+	- Closed reason: Done
+
+- An int read takes a leading zero as decimal
+	- ID: 2026110217340703
+	- Type: Bug
+	- Status: Closed
+	- Needs local test suite run?: No
+	- Verified: 20261125, check-migrate (`dcqf3`) and check-formats (all 11 formats) pass on `nov25-2026110217340702-fix`, which fixes how both read a failed `get` after 2026110217340702.
+	- Verified: 20261125, the 2M release fuzz of fuzz_smoke passed on nov25 at 27e6e03a, 34 of 34 in 776 s (fuzz2m.log, nov25 gate step). analyze-c and cppcheck pass on the round's shcl.h.
+	- Severity: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261102-173407
+	- Opened by: Design review 20261102
+	- Steps to reproduce:
+		- `mode: 0644`, then `shcl get --int FILE mode`.
+	- Incorrect behavior: it reads 644, without a diagnostic. File modes and umasks are some of the most common numbers in a Unix config, and `0644` means octal to whoever wrote it.
+	- Expected behavior: `BadType` at Standard and Strict, with a message naming `0o644`. Loose stays as it is (JC, 2026-10-15). TOML and JSON refuse a leading zero for the same reason.
+	- Reproduced: 20261102, release CLI on dev `3828fa60`.
+	- Note: `zip: 02134` read as an int goes from 2134 to `BadType`, so spec.md's zip example and its corpus case change with it. It's a second exception to v4's goal that every 3.0 file reads the same, beside the unit from a field name.
+	- Estimated effort: Low
+	- Note: with v4 (JC).
+	- Note: 20261125, back from Deferred. Under the 2026-11-25 severity rule this is wrong data, so it is High, and no release goes out with an open High (JC). It can't wait for v4. 3.0.0 isn't out yet, so changing how a 3.0 file reads costs less now than in v4.
+	- Actual cause: the plain decimal arm of the int parse took any run of digits, leading zeros included, in all 4 bindings.
+	- Against: corpus `136`, which pinned `007` and `+0009` as integers. The 2026-11-25 triage settles it the other way.
+	- Decisions:
+		- me, 20261125: every leading zero with a digit after it is refused, `007`, `008` and `00` included, though only some read 2 ways. One rule is easier to explain, and it's what TOML and JSON do. A lone `0` and `-0` still read.
+		- me, 20261125: a float read is unchanged and still reads `0644` as 644, as the spec said. Nobody reads a mode as a float, and `0.5` and `00.5` would need their own rule.
+		- me, 20261125: the CLI's message gives both spellings, as in `value "0644" has a leading zero, so write 0o644 for octal or 644 for decimal`, and only the decimal one where a digit is 8 or 9. Schema `V003` keeps its wording, since it names no value for any type.
+		- me, 20261125: the `int` and `int-array` ops of `shcl set` refuse a leading zero as a bad int too. They wrote `0644` as 644, the same silent guess, and a umask's `0022` became 22.
+	- Actual fix: `parse_int_text` (`parseIntText` in Go, `_parse_int_text` in Python) refuses a leading zero outside Loose, in all 4. The 4 CLIs name the fix in `get`'s message and refuse it in an int op. spec.md (Integers, the zip example, the strictness table), the corpus README and the changelog say so.
+		- Swept: every caller of the int parse, which are the scalar and array reads, schema `allowed`, `min` and `max` (now `V092` for `min: 010`) and validation. The float fallback reaches it only for prefixed text. The op int parsers in all 4 CLIs. Durations, sizes, dates, index selectors and the Format line have their own number parsers and keep reading leading zeros.
+	- Branch: nov25-2026110217340703
+	- Test case: corpus `172-leading-zero-quotes` (`dd5pd`), `173-octal-binary` (`dd5ph`), `136-number-and-path-edges` (`dcxx5`) and `166-long-digits` (`dd51y`) reads, at Standard, Strict and Loose, and cli-regress `dfsh6`, `dfsh7`, `dfsh8`, `dfsha`, `dfshb`, `dfshc`. The new rows fail on the old C library in cases 136, 166 and 172, and pass on the new one in all 4.
+	- Closed reason: Done
+	- Acceptance signoff: 20261125, me, by the runs above.
+	- Closed: 20261125-141200
+
+- Hosted lint: analyze-c ends with exit 143 a few minutes in, under the gate step's timeout
+	- ID: 2026112421495092
+	- Type: Bug
+	- Status: Closed
+	- Closed reason: Done
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261124-214950
+	- Opened by:
+	- Related IDs: 2026112311213741
+	- Steps to reproduce: hosted ci.yml run 45546604978 on nov24, job ci (lint), first try (job 138977631558) and rerun (job 138991346830).
+	- Incorrect behavior: both times cppcheck ran cold and passed (24 and 33 minutes), then `cicd/utility/analyze-c.bash` printed nothing and the gate step ended with exit 143 (TERM) after 3 and 4 minutes, about 30 minutes into a 71 to 72 minute limit. The cache save step after it, `if: always()`, was skipped both times, so no cppcheck cache was saved.
+	- Expected behavior: analyze-c runs to its end, as it did in hosted run 45068690472 on 2026-11-22 (5 minutes) and here on the nov24 tree (428 s), and the cache save runs.
+	- Possible cause: new since 2026-11-22 is the gate step's `timeout --kill-after=60 "${left}" cicd/cicd.bash` from 2026112311213741, under the 26.04 image's uutils `timeout`. Something in analyze-c may signal its process group, which `timeout` now owns. Try analyze-c under uutils `timeout` in an `ubuntu:26.04` container first. A skipped `always()` step points at the runner canceling the job rather than the step failing.
+	- Estimated effort: Avg
+	- Reproduced: 20261125, here on the round tree. analyze-c at the runner's 4 CPUs peaked at 17.5 GB, 2 minutes in, against the runner's 16 GB. Alone, gcc -fanalyzer took 10.4 GB on conformance.c, 7.3 on fs_property.c, 6.0 on main.c, 5.3 on oom_hook.c and 4.1 on mem_bounds.c, and clang under 0.4 each. Under a 15 GB cap with no swap (`CICD_MEM_CAP=15g`), cc1 on conformance.c was killed for memory and `de2x2` failed.
+	- Actual cause: analyze-c runs 2 gcc -fanalyzer lanes at once whatever the memory, beside the clang jobs. Since 2026-11-22 shcl.h grew by about 4,700 lines and conformance.c by 2,500, and fs_property.c joined the C programs, so 2 lanes now need more than a hosted runner has. The runner then ended the step with TERM and skipped every later step, the post steps included. Who sends the TERM isn't in any log, so that part is read from the step lists, not reproduced. The `timeout` wrapper isn't the cause: 45232879461 ended in the same stage before it went in (2026112311213741).
+	- Actual fix: analyze-c works out the memory the run may use, the smaller of MemAvailable and any cgroup cap over it, such as the run's own scope or the image's `--memory`. It runs the second gcc lane only with room for 2 at 12 GB each plus 2 for the clang jobs, and prints the lane count and the room. A hosted runner gets one lane.
+	- Decisions: one lane on a small box, rather than a lower analyzer depth or a file left out, since depth 2 is the least that reports the bait and every file stays checked. A fixed figure per lane rather than a per-file estimate, since the peak doesn't follow file size: oom_hook.c, at 17 KB, took more than mem_bounds.c at 39 KB. The cost is time: one lane took 632 s here against 358 s for 2, at a load of about 25 (me).
+	- Verified: 20261125. Under `CICD_MEM_CAP=15g` analyze-c chose 1 lane and passed `de2wz` to `de2x4` (632 s), where the old script failed `de2x2`. Under the default cap (32g here) it chose 2 lanes and passed (358 s). The room read 40 GB on the host, 10 under a 10G user scope, and 14 in the 15g image. shellcheck passes.
+	- Verified: 20261125, hosted ci.yml run 45707733038 on nov25 (`cedd6808`), job ci (lint) on ubuntu-24.04, after a C change, so cppcheck ran for 28 minutes from another hash's cache: analyze-c printed `1 gcc -fanalyzer lane(s), with 14 GB free for this run and 26 wanted for 2`, and passed `de2wz` to `de2x4` in 470 s. The cppcheck cache save step ran and saved `cppcheck-f5dc4393...-45707733038-1`.
+	- Test case: analyze-c `de2x2`, which the hosted lint part runs, under the runner's memory. No pipeline row runs analyze-c under a cap, since a capped run takes about 10 minutes.
+	- Swept: the other steps that run jobs side by side on the runner. analyze-c `--ctu` in the tests part took 11 s hosted, and cppcheck runs 2 at under 240 MB each. No other gate step is sized by memory.
+	- Branch: `nov25-2026112509394522`
+	- Commit: `8372ca7a`
+	- Acceptance signoff: Self-closed: hosted run 45707733038 chose 1 lane, passed analyze-c, and saved the cppcheck cache.
+	- Closed: 20261125-143611
+
+- Hosted lint: the lint part runs past its 80-minute timeout on Ubuntu 26.04
+	- ID: 2026112311213741
+	- Type: Bug
+	- Status: Closed
+	- Closed reason: Done
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-112137
+	- Opened by:
+	- Steps to reproduce: hosted ci.yml run 45232879461 on nov23, job ci (lint).
+	- Incorrect behavior: the job was cancelled at its 80-minute timeout with no log kept. The tool install step took 20 minutes (4 on 2026-11-22's run 45068690472), and cicd.bash ran 63 minutes before the cancel, with the cppcheck cache missing after a shcl.h change. The green lint part of 43137942602 on 2026-11-12 took 10 minutes in all.
+	- Expected behavior: the lint part finishes inside its timeout after a shcl.h change, and a timeout leaves enough output to say which stage ran long.
+	- Estimated effort: Avg
+	- Reproduced: 20261123, from the step times of the 3 runs. Install took 1.5, 2.8 and 20.3 minutes, and cicd.bash 7.2 (cppcheck cache hit), 43.0 (cold) and 63 before the cut. In 45068690472's log, cold cppcheck took 32.5 of lint's 42 minutes and analyze-c 5. The same run's release part spent 43.5 minutes in the install step, 43 of them in apt, and its tests part under one.
+	- Actual cause:
+		- The tool install step took 10 to 44 minutes in 3 of the 20 runs since 2026-11-02, on both images, while other parts of the same run took 1 to 2. Its apt calls ran under -qq, so no log says why (child 2026112314544545).
+		- cppcheck's exhaustive pass starts cold after any change to shcl.h, since both files it checks include it. It took 32.5 minutes hosted on 2026-11-22's code (041c24d1). Run here cold, one thread per file at a load of 5 to 7, the C runner took 34.5 minutes CPU on that code and 38.2 on the run's (a842b311), and main.c 24.3 and 27.0. So the code's growth adds about 4 minutes, and lint should take about 47 with a cold cppcheck.
+		- Not found: what took the gate 63 minutes or more, against about 47 expected. Ruled out: code growth (above) and memory (each cppcheck stays under 240 MB). The same job's install step was about 10 times slower than usual, so a slow runner or network is likely, since the gate fetches too (govulncheck, cargo-deny). The new limit and log will show it on the next long run.
+		- The job-level timeout kept no log and never ran the cache save, though canceled runs keep theirs. The API still shows the gate step in progress. So nothing said which step ran long, and the next run started cppcheck cold again.
+	- Actual fix:
+		- The gate step works out how long the job has left and runs cicd.bash under `timeout`, ending 5 minutes before the job's limit. It prints its limit, and on a timeout an error naming it. The job's timeout-minutes and the limit both come from a `minutes` key in the matrix.
+		- The cppcheck cache is saved after every lint run, under a key with the run ID, and restored from the newest for the same C code, or else the newest of all. A run cut short keeps the files cppcheck finished.
+		- apt in the install step prints each fetch.
+	- Decisions: keep each part at 80 minutes. A cold cppcheck on the current code fits with about 30 to spare, so a longer limit would only hide the next slow run. Bound the gate inside the step rather than with the step's own timeout-minutes, which runs on the runner's cancel path that kept nothing here. `timeout` signals the whole process group, which a step timeout does not promise. A per-run cache key, since a cache can't be overwritten, and a partial result saved under the final key would be restored as a full hit and never saved again.
+	- Verified: 20261123. In ubuntu:26.04, uutils `timeout` returns 124 and ends a background grandchild, and 137 for a child that ignores TERM; GNU's on the host does the same. A copy of the gate step's script passes through the gate's exit code and refuses to start with under a minute left. check-pins passes, `dfpxm` included. shell-regress rows `dcqgf`, `dfpxn`, `ddwkm`, `dej8g`, `dektk`, `dcv6p`, `dcqgg` and `ddx1w` pass, and `dfpxn` fails both ways on the old check-pins. `cicd.bash --backlog-run-quick cicd` and `lint-report.bash --check --no-mark` pass. cppcheck cut off by `timeout` with a build dir keeps the result of the file it finished, and an empty one for the file it didn't.
+	- Verified: 20261125, hosted ci.yml run 45707733038 on nov25 (`cedd6808`), job ci (lint) on ubuntu-24.04, after a C change: it printed `gate time limit: 72 minutes`, and passed in 44 minutes in all. The install step took about a minute, cppcheck 28 and analyze-c 8, and the gate ended at 41.5 minutes. The cache save step ran and saved `cppcheck-f5dc4393...-45707733038-1`.
+	- Test case: check-pins `dfpxm` (each hosted gate run is under `timeout`, from the job's own minutes) and shell-regress `dfpxn`. No test bounds the hosted time itself.
+	- Swept: every `cicd/cicd.bash` line in ci.yml (the 3 ci parts share one). The other jobs run no cicd.bash and have their own short timeouts. The setup-build job installs 2 packages under its own 15-minute timeout, and its apt line moved to -q under 2026112314544545.
+	- Branch: `nov23b-2026112311213741`
+	- Commit: `54b67873`
+	- Prereq IDs: 2026112421495092
+	- 20261123: hosted run 45301493250 on nov23b: ci (lint) was cut off at 80 minutes with no log again. The gate step ended as a failure at 43 minutes (01:45:02Z), then the runner never started the cache save, and the job sat until its limit. The tests part, under the same timeout wrapper, failed and ended normally. So the step ends, but the runner hangs after it in the lint part only. The 45232879461 hang came before the wrapper.
+	- 20261123: next try: find what the lint part leaves running after its gate, such as a background process holding the step's output, and why the gate failed at 43 minutes. A run with the lint part's gate cut down to that stage would show it in minutes.
+	- 20261124: hosted ci.yml run 45546604978 on nov24, after a shcl.h change: the lint part's install took 73 seconds, cold cppcheck 24 minutes and passed, then analyze-c ended with exit 143 (TERM) after about 3 minutes, 28 minutes into a 72-minute limit, with no output. The cache save step was skipped despite always(), so no cppcheck cache was saved. Job 138977631558 rerun to see if it recurs.
+	- 20261124: the rerun (job 138991346830) ended the same way: cold cppcheck 33 minutes and passed, then analyze-c exit 143 after 4 minutes. Filed as 2026112421495092.
+	- 20261125: the cause of the long and cut-off runs is analyze-c's memory (2026112421495092). Its 2 gcc lanes need 17.5 GB against the runner's 16 GB. The 2 runs with a log ended in analyze-c. The 2 without one stopped at about the time it starts after a cold cppcheck, one before the `timeout` wrapper and one after, which fits but is unverified. The fix there runs one lane on the runner, about 8 minutes more than 2. The lint part also moves to `ubuntu-24.04` with the runner pins (2026112509394522). What's left is the hosted run in the Needs row.
+	- Acceptance signoff: Self-closed: hosted lint finished inside its limit in run 45707733038 and saved its cppcheck cache.
+	- Closed: 20261125-143611
+
+- Pin the hosted runner images
+	- ID: 2026112509394522
+	- Type: Task
+	- Status: Closed
+	- Closed reason: Done
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261125-093945
+	- Opened by: me, from the 3.0 freeze (JC, 2026-11-25)
+	- Related IDs: 2026112311213741, 2026112421495092, 2026112307465433
+	- Problem description: ci.yml still runs 5 jobs on `ubuntu-latest` and 2 on `windows-latest`. When GitHub moved `ubuntu-latest` to 26.04, the new gcc, mingw and timings turned hosted lint red with no change in the code (the 3 related items).
+	- Requirements:
+		- Every `runs-on` and matrix `runner` names a fixed image, as the release part's `ubuntu-24.04` and `macos-15` already do. Pick the Ubuntu one with the 2 hosted lint items.
+		- check-pins refuses a `-latest` label.
+		- Moving to a newer image is its own Task, planned, never a side effect.
+	- Actual fix: every Linux x86_64 job runs on `ubuntu-24.04`, and the 2 Windows x64 jobs on `windows-2025`. check-pins fails a `-latest` label in any `runs-on` or in the matrix value it reads, and a `runs-on` expression it can't follow to a label. design.md's CI/CD section says so.
+	- Decisions: `ubuntu-24.04` for every Linux job, not `ubuntu-26.04`. The release part has to stay on 24.04 for the CPU floor (2026112308072792), so one image means one set of tool versions. Lint and tests were green there through 2026-11-12 with today's tool list, and 26.04's newer gcc, mingw and uutils stay out until a planned move. The hosted lint failures since then came from analyze-c's memory (2026112421495092), which is the same on both images. `windows-2025` is the image `windows-latest` ran in 45546604978, so nothing changes there. This replaces 2026112308072792's call to keep lint and tests on the moving image (me, from JC's pin rule).
+	- Verified: 20261125. check-pins passes on the new ci.yml. It fails, with a message naming the label, on a matrix runner of `ubuntu-latest`, on `runs-on: windows-latest`, on `runs-on: ${{ inputs.os }}`, and with no runs-on line read. The old check-pins passed the first 3. shell-regress rows `dcqgf`, `dcqgg`, `dcv6p`, `ddwkm`, `dej8g`, `dektk`, `dfpxn`, `dfsfy`, `ddx1w` and `de61s` pass.
+	- Verified: 20261125, hosted ci.yml run 45707733038 on nov25 (`cedd6808`): ci (lint), ci (release), ci (tests), go-floor, setup-build and winarm-build ran on image ubuntu-24.04, and windows and setup-test on windows-2025 (image windows-2025-vs2026). check-pins `dfsfx` passed there. ci (lint) passed, the mingw cross check included. ci (tests) failed only on check-push-gate `df2ss`, a dev bug filed as 2026112514344606 that no runner pin touches. `dcvej` passed.
+	- Test case: check-pins `dfsfx` (no job runs on a `-latest` label) and shell-regress `dfsfy`.
+	- Swept: every `runs-on` in ci.yml, the only workflow. `ubuntu-24.04-arm`, `windows-11-arm` and `macos-15` were fixed already. No cicd script or doc names a `-latest` label but design.md's rejected `macos-latest`.
+	- Branch: `nov25-2026112509394522`
+	- Commit: `8372ca7a`
+	- Acceptance signoff: Self-closed: every pinned job ran on its fixed image in hosted run 45707733038, and check-pins `dfsfx` passed.
+	- Closed: 20261125-143611
 
 - The fs property rows in shell-regress fail in a pipeline run, since they take the run's own tmpfs
 	- ID: 2026112509432361
