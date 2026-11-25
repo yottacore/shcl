@@ -149,6 +149,10 @@ jobs:
           ## file is root-only on the runner, so it's made readable here.
           ## apt prints each fetch, since this step has taken 10 to 44 minutes
           ## rather than 1 or 2 on some runs, and -qq left no sign of where.
+          ## On 45301493250 it was the runner's first mirror at 110 kB/s, which
+          ## apt never moves off for being slow, so apt-mirror.bash times it and
+          ## takes it out of apt's list when the next one is faster.
+          sudo bash cicd/utility/apt-mirror.bash
           sudo apt-get update -q && sudo apt-get install -y -q nsis zsh bash-completion gcc-mingw-w64-x86-64 strace rpm jq gcc-14 g++-14 clang-19 clang-tidy-19 clang-tools-19 'heaptrack=1.5.0*' qemu-system-x86 busybox cpio
           sudo chmod a+r "/boot/vmlinuz-$(uname -r)"
           pip install ruff==0.15.22 mypy==2.3.0 cppcheck==1.5.1 build==1.5.0 pillow==11.1.0
@@ -316,7 +320,9 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq nsis gcc-mingw-w64-x86-64
+          ## The same slow mirror check and fetch lines as the ci job's install.
+          sudo bash cicd/utility/apt-mirror.bash
+          sudo apt-get update -q && sudo apt-get install -y -q nsis gcc-mingw-w64-x86-64
           cargo build --release --manifest-path source/rust/Cargo.toml --target x86_64-pc-windows-gnu
           ver="$(sed -n 's/^version = "\(.*\)"$/\1/p' source/rust/Cargo.toml | head -n 1)"
           mkdir -p setup-art

@@ -133,8 +133,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Hosted ci: the tool install step sometimes takes 10 to 44 minutes
 	- ID: 2026112314544545
 	- Type: Bug
-	- Status: Queued
-		- Held for: a hosted run whose install step runs long again, now that apt prints each fetch (2026112311213741). Its log says whether the update, one mirror or every fetch was slow.
+	- Status: Waiting on automated testing
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261123-145445
@@ -146,6 +145,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- 20261123: hosted run 45301493250, release part on ubuntu-24.04: the install step took 42 minutes. apt fetched 267 MB in 40min 29s (110 kB/s), all from us-east-2.ec2.archive.ubuntu.com. The ubuntu-latest parts installed in minutes.
 	- 20261124: the setup-build job's apt line still runs under `-qq`. Give it `-q` with the fix, so a slow fetch there shows too.
+	- Actual cause: the runner image lists its cloud's own mirror first in apt's mirror list, us-east-2.ec2.archive.ubuntu.com on an AWS runner and azure.archive.ubuntu.com on an Azure one, with archive.ubuntu.com second. apt moves down that list only when a fetch fails, never when it's slow, so a slow first mirror holds the whole install. The earlier long runs were under `-qq`, so whether their mirror was slow too is unverified.
+	- Actual fix: the ci job's install step and setup-build run `cicd/utility/apt-mirror.bash` before apt. It times a 4 MiB fetch from the first mirror, and when that's under 2 MB/s and the next one is faster, takes the first out of the list. It prints both speeds either way. setup-build's apt prints each fetch too.
+	- Decisions: me: move only when the next mirror measures faster, so a slow runner network doesn't send apt farther away. The 2 MB/s floor puts the 267 MB fetch at about 2 minutes. Not a fast-mirror action from the marketplace, which is one more pinned action for a short script. Not `--no-install-recommends`, which changes what the gate's tools get, while the cause is the mirror's speed. Not a cache of the packages, which is about 250 MB per part beside the cargo and cppcheck caches, and leaves apt-get update on the slow mirror.
+	- Test case: shell-regress `dfrfn`.
+	- Verified: 20261124. `dfrfn` passes, and fails on 3 broken copies of the script: one that never writes the list, one that never moves, one that moves to a slower mirror. Run here over the runner's mirror hosts, it read us-east-2.ec2 at 7.4 MB/s and kept it, and with the floor raised it took it out for archive.ubuntu.com at 15 MB/s. check-pins and shellcheck pass.
+	- Needs external testing: the round's hosted ci.yml run. Each ci part's install step and setup-build print an `apt-mirror:` line and take a few minutes. The slow mirror comes and goes, so this shows the check runs on the runner; a run that hits a slow mirror again shows it taken out.
+	- Swept: every apt call in `.github/workflows/`, which are the ci job's install step and setup-build. The cicd/container images run apt in their own builds, not on a runner's mirror list.
+	- Branch: `nov24-2026112314544545`
+	- Commit: `e780fc21`
 
 - Schema: a `meta` key on a field that shcl ignores, so an app can keep its own data there
 	- ID: 2026112315300920

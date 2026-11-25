@@ -5244,6 +5244,31 @@ ftOut="$(cd "${ftDir}" && eval "$(sed -n '/^fFailTail()/,/^}/p;/^fSuiteRows()/,/
 ftWant=$'    FAIL der1c rust x\n    --- FAIL: TestA\n    test t ... FAILED\n    ...\n    PASS b11 x'
 [[ "${ftOut}" == *"${ftWant}"* && "${ftOut}" == *"    PASS b30 x"* && "${ftOut}" != *FAILURE* && "${ftOut}" != *"PASS b10 "* ]] || fBad "a failed box suite's FAIL lines: ${ftOut@Q}"
 [[ "${ftOut}" == *"    FAIL c40 x"$'\n'"    (5 more FAIL lines here, in b_bx/back/s/go.log)"$'\n'"    PASS d6 x"* && "${ftOut}" != *"FAIL c41 "* ]] || fBad "a failed box suite past 40 FAIL lines: ${ftOut@Q}"
+fTest dfrfn 2026112314544545-apt-drops-a-slow-mirror
+##	The hosted install spent 40 minutes on a first mirror at 110 kB/s, which apt
+##	never leaves for being slow. A stub curl gives each host a speed; the list
+##	loses its first mirror only when that one is under the floor and the next is
+##	faster, and a dead first mirror counts as slow.
+amDir="${tmpDir}/apt-mirror"; mkdir -p "${amDir}/bin"
+# shellcheck disable=SC2016  ## the stub's own $1
+printf '#!/bin/sh\nfor a in "$@"; do u="$a"; done\ncase "$u" in http://slow.x/*) printf 110000.000 ;; http://fast.x/*) printf 30000000 ;; http://slower.x/*) printf 9000 ;; *) printf 0; exit 28 ;; esac\n' > "${amDir}/bin/curl"
+chmod 755 "${amDir}/bin/curl"
+fAmRun(){   ## fAmRun FIRST NEXT: the mirror list after apt-mirror.bash ran over FIRST, NEXT and a third
+	printf '%s\tpriority:1\n%s\tpriority:2\nhttps://security.x/ubuntu/\tpriority:3\n' "${1}" "${2}" > "${amDir}/list"
+	# shellcheck disable=SC2031  ## the gate's own PATH, which no subshell above changed for this one
+	PATH="${amDir}/bin:${PATH}" APT_CODENAME=noble bash "${repoDir}/cicd/utility/apt-mirror.bash" "${amDir}/list" > "${amDir}/out" 2>&1 || echo "exit $?" >> "${amDir}/out"
+	cut -f1 "${amDir}/list" | tr '\n' ' '
+}
+amList="$(fAmRun http://slow.x/ubuntu/ http://fast.x/ubuntu/)"; amOut="$(cat "${amDir}/out")"
+[[ "${amList}" == "http://fast.x/ubuntu/ https://security.x/ubuntu/ " && "${amOut}" == *"at 110 kB/s, under the 2000 kB/s floor"*"so apt uses http://fast.x/ubuntu/ first" ]] \
+	|| fBad "apt-mirror.bash kept a slow first mirror ahead of a fast one: ${amList@Q} ${amOut@Q}"
+amList="$(fAmRun http://fast.x/ubuntu/ http://slow.x/ubuntu/)"
+[[ "${amList}" == "http://fast.x/ubuntu/ http://slow.x/ubuntu/ https://security.x/ubuntu/ " ]] || fBad "apt-mirror.bash changed the list with a fast first mirror: ${amList@Q}"
+amList="$(fAmRun http://slow.x/ubuntu/ http://slower.x/ubuntu/)"
+[[ "${amList}" == "http://slow.x/ubuntu/ http://slower.x/ubuntu/ https://security.x/ubuntu/ " ]] || fBad "apt-mirror.bash moved to a slower mirror: ${amList@Q}"
+amList="$(fAmRun http://dead.x/ubuntu/ http://fast.x/ubuntu/)"
+[[ "${amList}" == "http://fast.x/ubuntu/ https://security.x/ubuntu/ " ]] || fBad "apt-mirror.bash kept a first mirror that timed out: ${amList@Q}"
+amOut="$(bash "${repoDir}/cicd/utility/apt-mirror.bash" "${amDir}/none" 2>&1)" && [[ "${amOut}" == *"no ${amDir}/none"* ]] || fBad "apt-mirror.bash with no mirror list: ${amOut@Q}"
 
 fTestEnd
 
