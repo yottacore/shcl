@@ -96,7 +96,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: the demo gif and its golden text show fmt output without the stamp
 	- ID: 2026111710564808
 	- Type: Feature
-	- Status: Stalled
+	- Status: Queued
 		- Held for: the gif stage, which only a full run or a release cut runs.
 	- Priority: High
 	- Target version: v3.0.0-beta.2
@@ -106,6 +106,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: rerender assets/demo.gif and refresh cicd/demo/expected.txt (the gif stage, or gen-demo-gif.py), so shell-regress dcvej matches the CLI again. Only a tool run.
 	- Estimated effort: Low
 	- Note: until then shell-regress dcvej fails, since every fmt now ends with the stamp.
+	- 20261125: Back to Queued for the nov25 round. JC's scope rule says to render the gif outside the pipeline with gen-demo-gif.py and refresh cicd/demo/expected.txt.
 
 - `Upgrade` and `migrate` split a backtick value or a call at its commas, and count nothing
 	- ID: 2026111016205702
