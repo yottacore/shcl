@@ -96,8 +96,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Format versions: the demo gif and its golden text show fmt output without the stamp
 	- ID: 2026111710564808
 	- Type: Feature
-	- Status: Queued
-		- Held for: the gif stage, which only a full run or a release cut runs.
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261117-105648
@@ -107,6 +106,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Note: until then shell-regress dcvej fails, since every fmt now ends with the stamp.
 	- 20261125: Back to Queued for the nov25 round. JC's scope rule says to render the gif outside the pipeline with gen-demo-gif.py and refresh cicd/demo/expected.txt.
+	- Actual effort: Low
+	- Actual fix: `assets/demo.gif` rendered again with `gen-demo-gif.py` from the release build, with the stage's own scenario and seed, and `cicd/demo/expected.txt` refreshed from the same steps. The fmt step now ends with `## SHCL format 3.0`, the only change in the golden text.
+	- Verified: the old `expected.txt` differed from the steps' output by the stamp line alone, and the debug and release builds print the same. Full shell-regress on the host passed, `dcvej` and the other demo rows (`dcrtj`, `dd5hh`) included. The fmt step's last frame shows the stamp.
+	- Test case: shell-regress `dcvej`.
+	- Branch: `nov25-2026111710564808`
+	- Acceptance signoff: Self-closed: mechanical, a tool run, and its test passes.
+	- Closed: 20261125-102337
+	- Closed reason: Done
 
 - `Upgrade` and `migrate` split a backtick value or a call at its commas, and count nothing
 	- ID: 2026111016205702

@@ -41,3 +41,4 @@ motd:
         Scheduled maintenance tonight.
         Expect brief downtime.
         ~~~
+## SHCL format 3.0
