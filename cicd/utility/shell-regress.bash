@@ -5065,7 +5065,8 @@ fsFake(){  ## fsFake NAME ROWS DRAWN -> a binding command that dumps them
 fsRun(){  ## fsRun [VAR=VALUE ...] -- NAME|COMMAND ... -> fsRc, fsOut
 	local -a envs=()
 	while [[ "$1" != -- ]]; do envs+=("$1"); shift; done; shift
-	fsRc=0; fsOut="$(env ${envs[@]+"${envs[@]}"} "${BASH}" "${repoDir}/cicd/utility/fs-property.bash" "$@" 2>&1)" || fsRc=$?
+	## A pipeline run sets SHCL_FS_TMPFS for its own fs step; a row gets it only when it names it.
+	fsRc=0; fsOut="$(env -u SHCL_FS_TMPFS ${envs[@]+"${envs[@]}"} "${BASH}" "${repoDir}/cicd/utility/fs-property.bash" "$@" 2>&1)" || fsRc=$?
 }
 fsRun -- "a|$(fsFake a 'r1\nr2\n' 's0\ns1\ns2\n')" "b|$(fsFake b 'r1\nr2\n' 's0\ns1\n')"
 [[ "${fsRc}" == 0 && "${fsOut}" == *"PASS df4cf "* && "${fsOut}" == *"PASS df4cg "* && "${fsOut}" == *"b agrees with a on 2 drawn cases"* ]] || fBad "fs-property.bash on 2 dumps that agree: exit ${fsRc}: ${fsOut@Q}"

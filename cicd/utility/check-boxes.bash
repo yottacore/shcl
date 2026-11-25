@@ -82,7 +82,7 @@ for old in "${base}"/[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-
 	at="${old##*/}"; at="${at%_*}"; at="${at%-*}${at#*-}"
 	[ "${at}" -lt "${cut}" ] || continue
 	pid="$(head -n 1 "${old}/run.pid" 2>/dev/null)" || pid=
-	case "${pid}" in ''|*[!0-9]*) ;; *) ps -p "${pid}" > /dev/null 2>&1 && continue ;; esac
+	case "${pid}" in ''|*[!0-9]*) ;; *) { kill -0 "${pid}" 2>/dev/null || ps -p "${pid}" > /dev/null 2>&1; } && continue ;; esac
 	chmod -R u+rwX "${old}" 2> /dev/null
 	gone "${old}"
 done

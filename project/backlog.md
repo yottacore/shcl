@@ -107,6 +107,103 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Note: until then shell-regress dcvej fails, since every fmt now ends with the stamp.
 
+- `Upgrade` and `migrate` split a backtick value or a call at its commas, and count nothing
+	- ID: 2026111016205702
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261110-162057
+	- Opened by: gitniblet and tradeclanker feedback
+	- Related IDs: 2026102911041665, 2026111016205703
+	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
+	- Problem description: ``upgrade("query: `select a, b from t`\n", true)`` gives ``query: ["`select a", "b from t`"]``, and `migrate_unstamped("k: sma(close, 10)\n", true)` gives `k: ["sma(close", "10)"]`. `ambiguous`, `lost`, and `errors_left` are all empty, and `from_v2` false does the same. That's how 2.x read them, but nobody means a backtick or a paren cut in half inside an element. gitniblet swaps backtick lines out before the upgrade and puts them back after.
+	- Requirements:
+		- A split that cuts a backtick pair, or a paren or bracket pair, counts as ambiguous, even with `from_v2`, so nothing is written without a look.
+		- All 4 bindings count it the same way.
+		- Values without a tell, such as a regex with `, ` in it, stay with 2026102911041665.
+	- Estimated effort: Avg
+	- Note: 20261125, now a High Bug under the 2026-11-25 severity rule: the upgrade writes a value nobody meant and reports nothing, which breaks "never damage a correct file at exit 0".
+
+- A bare number in a selector picks by position, so a file line can bind under the wrong instance
+	- ID: 2026110217340701
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261102-173407
+	- Opened by: Design review 20261102
+	- Steps to reproduce:
+		- `node: 1`, `node: 2` and `node: 3`, each with an `ip` under it, then `node(2).role: primary`.
+		- `shcl fmt` and `shcl check` on it, then `shcl get FILE 'node(2).ip'`.
+	- Incorrect behavior: `role` goes under `node: 3`, and `check` says `ok (0 diagnostic(s))`. The get gives node 3's `ip`. With `vlan: 10` to `vlan: 300`, `vlan(10)` is the 11th one. `E003` catches it only when the index is past the last instance.
+	- Expected behavior: a bare body names an instance by its value, since IDs, ports, years and VLANs are the usual discriminators. An index has a spelling of its own.
+	- Reproduced: 20261102, release CLI on dev `3828fa60`.
+	- Possible fix, any of:
+		- An index mark in every path, such as `node(@2)`, and bare bodies match by value only. `upgrade` rewrites a bare index.
+		- An index selector on a binding line is refused and kept, as a wildcard is (`E004`). Lookups keep `(2)`.
+		- A hint where a bare number selects by index and some instance's value is that number, on a binding line or a lookup.
+	- Question: the first 2 change what a 3.0 file means, which v4's goals rule out (no Format 4, every clean 3.0 file reads the same). Make it a Format 4 change, or take the hint?
+		- me, 20261120: the hint. A bare number as an index and a quoted one as a value is settled in value-syntax.md, and a second index spelling is under its Rejected list. The hint changes no file's reading, so it needs no new format.
+		- The load reports it on a binding line where a bare number picks by index and an instance of that name has that number as its value. It names both spellings, such as `node("2")` for the value.
+		- The CLI says the same on stderr for a lookup path. A library lookup has nowhere to report it, so the docs say it (2026111011285705).
+	- Estimated effort: Avg
+	- Note: with v4 (JC).
+	- Note: 20261125, back from Deferred. Under the 2026-11-25 severity rule this is wrong data, so it is High, and no release goes out with an open High (JC). It can't wait for v4.
+
+- `shcl get` prints the type's zero when the read isn't Good
+	- ID: 2026110217340702
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261102-173407
+	- Opened by: Design review 20261102
+	- Steps to reproduce:
+		- `x=$(shcl get --int app.shcl port)` on a file with no `port`.
+	- Incorrect behavior: `x` is `0`, exit 3. A script without `set -e` goes on with a zero, which README.md says can't happen ("A missing value cannot sneak in as a silent zero").
+	- Expected behavior: the default `--on-bad=flag` prints nothing when the read isn't `Good`. `--default=0` is how a script asks for a zero, the same rule as the library's `_or` reads.
+	- Reproduced: 20261102, release CLI on dev `3828fa60`.
+	- Question: `get` on an empty field exits 2, where spec.md calls `Empty` informational and not a failure, so a `set -e` script stops on a field left empty on purpose. Exit 0 with an empty line, or keep 2 and say so in the spec?
+		- me, 20261120: keep 2, and say so in the spec. The exit code is how a script tells `x:` from `x: ""`, which exits 0, and from a missing line, and scripts already test for it. `--default=` is the way to get exit 0 on an empty field, and the spec and `help get` name it for `set -e` scripts.
+	- Estimated effort: Low
+	- Note: with v4 (JC).
+	- Note: 20261125, back from Deferred. Under the 2026-11-25 severity rule this is wrong data, so it is High, and no release goes out with an open High (JC). It can't wait for v4.
+
+- An int read takes a leading zero as decimal
+	- ID: 2026110217340703
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261102-173407
+	- Opened by: Design review 20261102
+	- Steps to reproduce:
+		- `mode: 0644`, then `shcl get --int FILE mode`.
+	- Incorrect behavior: it reads 644, without a diagnostic. File modes and umasks are some of the most common numbers in a Unix config, and `0644` means octal to whoever wrote it.
+	- Expected behavior: `BadType` at Standard and Strict, with a message naming `0o644`. Loose stays as it is (JC, 2026-10-15). TOML and JSON refuse a leading zero for the same reason.
+	- Reproduced: 20261102, release CLI on dev `3828fa60`.
+	- Note: `zip: 02134` read as an int goes from 2134 to `BadType`, so spec.md's zip example and its corpus case change with it. It's a second exception to v4's goal that every 3.0 file reads the same, beside the unit from a field name.
+	- Estimated effort: Low
+	- Note: with v4 (JC).
+	- Note: 20261125, back from Deferred. Under the 2026-11-25 severity rule this is wrong data, so it is High, and no release goes out with an open High (JC). It can't wait for v4. 3.0.0 isn't out yet, so changing how a 3.0 file reads costs less now than in v4.
+
+- Review the whole code base for Critical and High bugs before each release
+	- ID: 2026112509394527
+	- Type: Task
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261125-093945
+	- Opened by: JC, 2026-11-25
+	- Related IDs: 2026110217340701, 2026110217340702, 2026110217340703, 2026111016205702
+	- Problem description: no release, betas included, goes out with an open Critical or High bug anywhere in the code base, old code included, by the severity rule in the template notes (JC, 2026-11-25).
+	- Requirements:
+		- Review the whole tree, not only what changed: the 4 bindings, the 4 CLIs, the C++ interface and both installers.
+		- File every Critical or High finding, fix it, then review the whole tree again.
+		- Done for a release when 2 whole-tree reviews in a row file no new Critical or High, the 2M release fuzz is clean, and the merge gate and hosted run are green.
+		- Run it after the other beta.2 items close, so it reviews the code that goes out.
+
 - Hosted lint: analyze-c ends with exit 143 a few minutes in, under the gate step's timeout
 	- ID: 2026112421495092
 	- Type: Bug
@@ -157,6 +254,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- 20261124: hosted ci.yml run 45546604978 on nov24, after a shcl.h change: the lint part's install took 73 seconds, cold cppcheck 24 minutes and passed, then analyze-c ended with exit 143 (TERM) after about 3 minutes, 28 minutes into a 72-minute limit, with no output. The cache save step was skipped despite always(), so no cppcheck cache was saved. Job 138977631558 rerun to see if it recurs.
 	- 20261124: the rerun (job 138991346830) ended the same way: cold cppcheck 33 minutes and passed, then analyze-c exit 143 after 4 minutes. Filed as 2026112421495092.
 
+- Pin the hosted runner images
+	- ID: 2026112509394522
+	- Type: Task
+	- Status: Queued
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261125-093945
+	- Opened by: me, from the 3.0 freeze (JC, 2026-11-25)
+	- Related IDs: 2026112311213741, 2026112421495092, 2026112307465433
+	- Problem description: ci.yml still runs 5 jobs on `ubuntu-latest` and 2 on `windows-latest`. When GitHub moved `ubuntu-latest` to 26.04, the new gcc, mingw and timings turned hosted lint red with no change in the code (the 3 related items).
+	- Requirements:
+		- Every `runs-on` and matrix `runner` names a fixed image, as the release part's `ubuntu-24.04` and `macos-15` already do. Pick the Ubuntu one with the 2 hosted lint items.
+		- check-pins refuses a `-latest` label.
+		- Moving to a newer image is its own Task, planned, never a side effect.
+
 - `Document::merge` drops the base file's comments on every leaf the upper layer names
 	- ID: 2026111217560140
 	- Type: Enhancement
@@ -168,6 +280,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: a merge option that keeps the base's comments.
 	- Estimated effort: Avg
 	- Priority: Avg
+	- Target version: v3.1.0
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
 
 - The default run takes over an hour
 	- ID: 2026110215285706
@@ -188,37 +302,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Avg
-	- Target version: v3.0.0
+	- Target version: v3.1.0
 	- Opened: 20261109-114414
 	- Opened by: JC
 	- Problem description: an array setter writes the bracket form. Only a list already stacked with `- ` items in the file stays stacked.
 	- Requirements:
 		- Allow callers to request the multiline list form for arrays.
 	- Note: 20261110, nemo-anywhere asked for it too.
-
-- `Upgrade` and `migrate` split a backtick value or a call at its commas, and count nothing
-	- ID: 2026111016205702
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Target version: v3.0.0
-	- Opened: 20261110-162057
-	- Opened by: gitniblet and tradeclanker feedback
-	- Related IDs: 2026102911041665, 2026111016205703
-	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
-	- Problem description: ``upgrade("query: `select a, b from t`\n", true)`` gives ``query: ["`select a", "b from t`"]``, and `migrate_unstamped("k: sma(close, 10)\n", true)` gives `k: ["sma(close", "10)"]`. `ambiguous`, `lost`, and `errors_left` are all empty, and `from_v2` false does the same. That's how 2.x read them, but nobody means a backtick or a paren cut in half inside an element. gitniblet swaps backtick lines out before the upgrade and puts them back after.
-	- Requirements:
-		- A split that cuts a backtick pair, or a paren or bracket pair, counts as ambiguous, even with `from_v2`, so nothing is written without a look.
-		- All 4 bindings count it the same way.
-		- Values without a tell, such as a regex with `, ` in it, stay with 2026102911041665.
-	- Estimated effort: Avg
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
 
 - `Migration` and `Upgrade` give counts with no line numbers
 	- ID: 2026111016205703
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Avg
-	- Target version: v3.0.0
+	- Target version: v3.1.0
 	- Opened: 20261110-162057
 	- Opened by: slodworld2 feedback
 	- Related IDs: 2026111014552300, 2026111016205702
@@ -227,13 +325,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- `lost` and `ambiguous` each come with the line numbers they count, in `Migration` and `Upgrade`, in all 4.
 	- Estimated effort: Low
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
 
 - A line the load refused reads `NotFound`, the same as a missing line
 	- ID: 2026111016205707
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Avg
-	- Target version: v3.0.0
+	- Target version: v4.0.0
 	- Opened: 20261110-162057
 	- Opened by: slodworld2 feedback
 	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
@@ -241,13 +340,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- A read of a path whose only line was refused gives a status of its own, with `line` set to that line, in all 4.
 	- Estimated effort: Avg
+	- Note: 20261125, moved to v4.0.0 by the 3.0 freeze (JC). Rust's `Status` isn't `#[non_exhaustive]`, so a new status after 3.0.0 is a breaking change.
 
 - The `_or` getters give the default on a repeat, with no sign
 	- ID: 2026111016205708
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Avg
-	- Target version: v3.0.0
+	- Target version: v3.1.0
 	- Opened: 20261110-162057
 	- Opened by: gitsby feedback
 	- Related IDs: 2026102911041671
@@ -257,6 +357,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Add a read that gives every value across repeats and arrays, in file order.
 		- The `_or` doc says a repeat gives the default, and points to that read.
 	- Estimated effort: Avg
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
 
 - Rust dfjq6 recursive_mount_check_is_linear_in_depth fails under load
 	- ID: 2026112419395418
@@ -278,7 +379,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Bug
 	- Status: Queued
 	- Severity: Low
-	- Target version: v3.0.0
+	- Target version: v3.1.0
 	- Opened: 20261105-161000
 	- Opened by: the comparison rerun for 3.0.0-beta1
 	- Version and build: `cut3b1` at `ae8540e9`
@@ -290,37 +391,40 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Phase tables and method: "Parse timing 2026-11-24" in details.md. Tool: `private/claude_simple/tools/parse-ab/`.
 	- Decisions:
 		- me, 20261124: no code change under this item. It asked for the profile first, and both fixes it found touch all 4 bindings, so they're children.
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): parser speed work waits until 3.0.0 is out, since it is the riskiest churn and the item is Low.
 
 - The repeated-leaf hint pass builds a name map for every block
 	- ID: 2026112419101293
 	- Type: Bug
 	- Status: Queued
 	- Severity: Low
-	- Target version: v3.0.0
+	- Target version: v3.1.0
 	- Opened: 20261124-191012
 	- Opened by: profile of 2026110516100001
 	- Parent ID: 2026110516100001
 	- Progress log:
 		- 20261124: in all 4 bindings the pass makes a map and a list for each block with 2 or more children, to find repeated names. Nearly no block repeats one. In Rust it's about 18% of a records parse (0.23 s of 1.3 s on 16 MiB). A pairwise check on lists of up to 16 children skipped the map, and took the pass to 0.14 s in a scratch build. Output doesn't change, so the corpus H001 and H009 cases and the crosscheck pin it. Time it with `private/claude_simple/tools/parse-ab/`.
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): parser speed work waits until 3.0.0 is out, since it is the riskiest churn and the item is Low.
 
 - The per-line parse loop costs about 30% more than on dev of 2026-10-02
 	- ID: 2026112419101327
 	- Type: Bug
 	- Status: Queued
 	- Severity: Low
-	- Target version: v3.0.0
+	- Target version: v3.1.0
 	- Opened: 20261124-191012
 	- Opened by: profile of 2026110516100001
 	- Parent ID: 2026110516100001
 	- Progress log:
 		- 20261124: Rust, 16 MiB records doc: 0.60 s on `b3e63588`, 0.78 s on dev. Samples spread it over 3.0's per-line work: the tokenizer (`lex_line`), the bare-value and piece checks (`value_fault`, `bare_trouble`), and building an array line's display text to compare with its source (`src_matches_display`). No one change holds most of it. Time each with phase timers before changing it, since the sampler's attribution under fat LTO is rough.
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): parser speed work waits until 3.0.0 is out, since it is the riskiest churn and the item is Low.
 
 - A kept index line makes every edit re-emit the whole document
 	- ID: 2026110114020101
 	- Type: Bug
 	- Status: Queued
 	- Severity: Low
-	- Target version: v3.0.0
+	- Target version: v3.1.0
 	- Opened: 20261101-140201
 	- Opened by: Code review 20261101 item 1
 	- Related IDs: 2026102821334970
@@ -336,6 +440,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Add a perf-gate workload with a kept index line and bulk writes. None of today's workloads has a kept line and writes together, so nothing failed.
 	- Origin: Confirmed. `90870748`, 2026-10-29, round r1029b. No earlier round saw it.
 	- Estimated effort: Avg
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): parser speed work waits until 3.0.0 is out, since it is the riskiest churn and the item is Low.
 
 - win-runners: give the c++ veneer row a test ID, so a check-boxes log shows its pass
 	- ID: 2026112317335202
@@ -357,6 +462,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements: take `impl AsRef<Path>`, so `&str` callers still compile. Or design.md says file paths are text in every binding.
 	- Estimated effort: Low
 	- Priority: Low
+	- Target version: v3.1.0
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
 
 - Lift the placement property's iteration cap in the fuzz
 	- ID: 2026111109371400
@@ -417,7 +524,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
-	- Target version: v3.0.0
+	- Target version: v3.1.0
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 7
 	- Problem description:
@@ -429,13 +536,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Keep one copy of the FreeBSD image, and remove the old pin's image.
 		- Add `target-gate` to the toolchain prune.
 	- Estimated effort: Low
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
 
 - Machine use: a few steps don't take the job count or priority
 	- ID: 2026110215285708
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
-	- Target version: v3.0.0
+	- Target version: v3.1.0
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 8
 	- Problem description:
@@ -444,13 +552,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- `box-cases.ps1` sets BelowNormal for everything, the win-runners suites included. Those are hard steps, which should run at Idle.
 		- The sync and the hosted job check call bare `git fetch` and `git ls-remote`, where the publisher goes through `gitsby raw git` with a fallback.
 	- Estimated effort: Low
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
 
 - Nothing checks that release builds reproduce, or that the Windows builds keep their icon
 	- ID: 2026110215285709
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
-	- Target version: v3.0.0
+	- Target version: v3.1.0
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 9
 	- Problem description: design.md and install.md say the release builds are byte-identical, but nothing rebuilds them and compares. `build.rs` falls back to a cargo warning when it doesn't find a resource compiler, so a Windows build could lose its icon and version info without anything failing. Both older items gave "the gate builds no Windows or release binary" as the reason for not having a test, but `--merge-gate` builds both now.
@@ -458,13 +567,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A full run builds the native release twice from clean dirs and compares the hashes.
 		- Add a check that each Windows exe has its icon and version resource.
 	- Estimated effort: Avg
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
 
 - The hosted workflow runs on any pull request, and more jobs than the merge gate needs
 	- ID: 2026110215285710
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
-	- Target version: v3.0.0
+	- Target version: v3.1.0
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 10
 	- Problem description: `pull_request:` in ci.yml has no branch filter, so a PR to dev runs the whole hosted gate. The windows, linux-arm, setup, and winarm jobs and go-floor also run, beside the macOS one. b29w and vmDebARM64 test windows and linux-arm locally now, and there hasn't been any call since the 2026-10-24 reset to keep them.
@@ -478,26 +588,28 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- JC: the windows, linux-arm, winarm and setup jobs stay.
 		- me, 20261120: go-floor stays too. It's the only run on the Go release go.mod names, and no local step has that toolchain.
 		- me, 20261120: the winarm build also gets a try under wine on vmDebARM64, as a row word for that box. If it's too slow for a default run it goes under `--long`, since cicd.bash has no `--slow`.
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
 
 - No dependabot config for the Go toolchain and the Actions pins
 	- ID: 2026110215285711
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
-	- Target version: v3.0.0
+	- Target version: v3.1.0
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 11
 	- Problem description: the shared Go pipeline notes ask for one where a hosted workflow exists, with PRs against dev and minor and patch bumps grouped. The Rust notes don't ask for one, so this item is only about Go and the workflow's actions.
 	- Requirements:
 		- If the Go module doesn't have any dependencies, only the actions and the toolchain pin are left. Say so and keep it to those.
 	- Estimated effort: Low
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
 
 - clang-tidy runs only the bug checks on the C++ interface
 	- ID: 2026110215285712
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
-	- Target version: v3.0.0
+	- Target version: v3.1.0
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 12
 	- Problem description: `analyze-c.bash` runs `clang-analyzer-*` and `bugprone-*`. The shared rules also want a short list from `cppcoreguidelines-*` and `performance-*` on first-party C++.
@@ -505,19 +617,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Pick the few that fit a single-header veneer, fix or suppress each finding at the line with a reason, and see each go red on a bait.
 	- Note: clang-tidy as a style gate over the C binding was declined earlier. This is about the C++ veneer's correctness checks.
 	- Estimated effort: Avg
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
 
 - The C++ interface has no heap-growth soak
 	- ID: 2026110215285713
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
-	- Target version: v3.0.0
+	- Target version: v3.1.0
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 13
 	- Problem description: `soak-c.bash` soaks the C library only. The veneer's own strings and vectors are never looped under heaptrack, and a growing-heap bait was never seen to fail for it. When heaptrack was declined for the other bindings, the veneer wasn't named.
 	- Requirements:
 		- Add a veneer soak with a growth bait, beside the C one.
 	- Estimated effort: Low
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
 
 - Dogfood leftovers and gaps
 	- ID: 2026110215285714
@@ -564,7 +678,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
-	- Target version: v3.0.0
+	- Target version: v3.1.0
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 20
 	- Problem description:
@@ -573,13 +687,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Change all 4 CLIs at once, with the help parity check and the cli-regress goldens.
 	- Estimated effort: Avg
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
 
 - Comments and test names in the bindings are long and use a few coined words
 	- ID: 2026110215285721
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
-	- Target version: v3.0.0
+	- Target version: v3.1.0
 	- Opened: 20261102-152857
 	- Opened by: Code review 20261102 item 21
 	- Problem description:
@@ -591,6 +706,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Make the banner and word changes in all 4 at once, for parity. Long comments move to design.md or a backlog ID.
 		- Test renames keep their test IDs.
 	- Estimated effort: High
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
 
 - Public docs: formatting leftovers and style-list words
 	- ID: 2026110215285722
@@ -629,7 +745,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
-	- Target version: v3.0.0
+	- Target version: v3.1.0
 	- Opened: 20261101-140201
 	- Opened by: Code review 20261101 item 2
 	- Problem description: Code style's Rust section says to restructure rather than clone to get past the borrow checker, and to give a needed clone a reason. Most of the 85 or so clones outside tests in `lib.rs` and `main.rs` build an owned return value, which is fine. A handful copy a name or a child list only so a `&mut self` call can follow, such as the name passed to `settle_fence_name` in the remove path, the child lists copied to seed the tree walks, and `base_kids` in the merge. The list is in details.md.
@@ -638,13 +754,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- This is Rust only. The ports don't have such a copy, so parity isn't affected.
 	- Origin: Confirmed, by reading. They were added over many commits since 2026-07.
 	- Estimated effort: Low
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
 
 - About 460 bash expansions are unbraced
 	- ID: 2026110114020103
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
-	- Target version: v3.0.0
+	- Target version: v3.1.0
 	- Opened: 20261101-140201
 	- Opened by: Code review 20261101 item 3
 	- Problem description: Code style's Bash section wants every expansion braced and quoted, `"${var}"`. About 460 bare `$var` forms are left outside single-quoted text, most in the older scripts: crosscheck.bash has about 140, then shell-regress, sanitize-c, cicd.bash, lint-report, and win-runners. shellcheck doesn't ask for braces, so a new one goes unseen.
@@ -654,6 +771,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Then add a check that fails on a new bare expansion, leaving out single-quoted text, awk programs, and scripts written for another shell.
 	- Origin: Confirmed, by count. Most date from 2026-07 and 2026-08.
 	- Estimated effort: Avg
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
 
 - At Miri's 100 iterations, 3 fuzz guards are thin
 	- ID: 2026102418441478
@@ -676,7 +794,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
-	- Target version: v3.0.0
+	- Target version: v3.1.0
 	- Opened: 20261110-112856
 	- Opened by: tukfs-hash feedback
 	- Related IDs: 2026110613470324
@@ -686,6 +804,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- When a plain `get` reads an array, say on stderr that `--array` gives one item a line. The output and exit code stay as they are.
 		- All 4 CLIs print the same text.
 	- Estimated effort: Low
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
 
 - The docs read as if an index picks an array item
 	- ID: 2026111011285705
@@ -724,7 +843,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
-	- Target version: v3.0.0
+	- Target version: v3.1.0
 	- Opened: 20261110-162057
 	- Opened by: gitsby feedback
 	- Related IDs: 2026110217340701
@@ -734,13 +853,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Add a helper such as `selector_path(field, value)` in all 4, which quotes a value that would read as an index.
 	- Note: the format change itself is 2026110217340701, with v4. This helper doesn't wait on it.
 	- Estimated effort: Low
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
 
 - `children` repeats a name per instance, and its doc says names come back as stored
 	- ID: 2026111016205710
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
-	- Target version: v3.0.0
+	- Target version: v3.1.0
 	- Opened: 20261110-162057
 	- Opened by: gitniblet and tradeclanker feedback
 	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
@@ -749,13 +869,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The `children` doc says names are folded, and points to `authored_name` for the author's spelling. This goes in all 4 and the C++ interface.
 		- Add a distinct-names form in all 4.
 	- Estimated effort: Low
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
 
 - `read_authored_name` is empty on a repeated field, and `H001` suggests the folded name
 	- ID: 2026111016205711
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
-	- Target version: v3.0.0
+	- Target version: v3.1.0
 	- Opened: 20261110-162057
 	- Opened by: tradeclanker feedback
 	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
@@ -764,13 +885,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- On a repeat, `read_authored_name` gives the first binding's spelling with status `Multiple`, as merged instances already do.
 		- `H001`'s suggestion uses the author's spelling. All 4 give the same bytes.
 	- Estimated effort: Low
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
 
 - `shcl.h` has no version macro
 	- ID: 2026111016205712
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
-	- Target version: v3.0.0
+	- Target version: v3.1.0
 	- Opened: 20261110-162057
 	- Opened by: nemo-anywhere feedback
 	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
@@ -778,13 +900,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Add `SHCL_VERSION_MAJOR`, `_MINOR`, `_PATCH`, and a `SHCL_VERSION` string to `shcl.h`, with a check that matches them to the Rust crate's version, and the same in `shcl.hpp`.
 	- Estimated effort: Low
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
 
 - A backup name taken in the same second stops the upgrade
 	- ID: 2026111016205713
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
-	- Target version: v3.0.0
+	- Target version: v3.1.0
 	- Opened: 20261110-162057
 	- Opened by: nemo-anywhere feedback
 	- Version and build: `3.0.0-beta1`, and dev at `5626194a`
@@ -792,6 +915,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- A taken name gets a counter, such as `_2`, before the extension. A backup is still never written over. This goes in all 4 and the CLIs.
 	- Estimated effort: Low
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
 
 - Docs leave out what beta1 consumers had to find by probing
 	- ID: 2026111016205715
@@ -810,6 +934,45 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- spec.md and the `upgrade` docs say 2.x includes 1.x, and that a 1.x file's backup is named `format-v2`.
 		- The next changelog's upgrading notes say C's `SHCL_SET_OK` is 0, so old code testing a setter `!= 0` reads every success as a failure, and that a string read of an array gives its bracket text. The released beta1 section stays as it is.
 	- Estimated effort: Low
+
+- The fs property rows in shell-regress fail in a pipeline run, since they take the run's own tmpfs
+	- ID: 2026112509432361
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261125-094323
+	- Opened by: JC's run `run_20261125-092049`
+	- Steps to reproduce: a bare `cicd/cicd.bash` run, step Tests, shell-regress in the cicd image.
+	- Incorrect behavior: `df4cq` and `df4xc` fail. fs-property.bash puts the cases in `/tmp/shcl-fs`, not in the row's own folder.
+	- Expected behavior: each row's fs-property run uses only what the row gives it.
+	- Reproduced: 20261125, the 3 rows in the cicd image with the run's tmpfs mount and `SHCL_FS_TMPFS`.
+	- Actual cause: cicd.bash sets `SHCL_FS_TMPFS` in the image since 2026-11-10 for its own fs step, and `fsRun` passed the whole environment on. Workers run shell-regress on the host, where it isn't set, so only a full run saw it.
+	- Actual fix: `fsRun` drops `SHCL_FS_TMPFS` unless the row names it.
+	- Swept: `fsRun` is the only way the rows start fs-property.bash.
+	- Test case: shell-regress `df4cq`, `df4xc`. Both failed in the image before the fix and pass after, there and on the host.
+	- Acceptance signoff: me, 20261125.
+	- Closed: 20261125
+	- Closed reason: Done
+
+- The box half's stale sweep removes a live work folder on a box with no `ps`
+	- ID: 2026112509432366
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261125-094323
+	- Opened by: JC's run `run_20261125-092049`
+	- Steps to reproduce: shell-regress `dfme4` in the cicd image.
+	- Incorrect behavior: the folder whose run.pid names a live process is swept, since `ps -p` fails when there's no `ps`, and a failed check reads as a dead process. The cicd image has no `ps`, and busybox's `ps` takes no `-p`.
+	- Expected behavior: a folder whose run.pid names a live process stays.
+	- Reproduced: 20261125, in the cicd image.
+	- Actual fix: the sweep tries `kill -0` first, then `ps -p`, the same as cicd.bash's own 2 sweeps.
+	- Swept: `ps -p` is used only in check-boxes' sweep and cicd.bash's 2 sweeps, which already had the `kill -0` form. The Windows sweep uses `Get-Process`.
+	- Test case: shell-regress `dfme4`. It failed in the image before the fix and passes after, there and on the host.
+	- Acceptance signoff: me, 20261125.
+	- Closed: 20261125
+	- Closed reason: Done
 
 - Hosted tests: shell-regress dd2gn and dd2gp fail under Ubuntu 26.04, since a renamed uutils coreutils binary is an unknown program
 	- ID: 2026112318030233
@@ -17641,63 +17804,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: this waits for v4, since no new performance work goes in before 3.0.0. v4's text-first storage drops the step.
 	- Estimated effort: Avg
 
-- A bare number in a selector picks by position, so a file line can bind under the wrong instance
-	- ID: 2026110217340701
-	- Type: Bug
-	- Status: Deferred
-	- Severity: High
-	- Opened: 20261102-173407
-	- Opened by: Design review 20261102
-	- Steps to reproduce:
-		- `node: 1`, `node: 2` and `node: 3`, each with an `ip` under it, then `node(2).role: primary`.
-		- `shcl fmt` and `shcl check` on it, then `shcl get FILE 'node(2).ip'`.
-	- Incorrect behavior: `role` goes under `node: 3`, and `check` says `ok (0 diagnostic(s))`. The get gives node 3's `ip`. With `vlan: 10` to `vlan: 300`, `vlan(10)` is the 11th one. `E003` catches it only when the index is past the last instance.
-	- Expected behavior: a bare body names an instance by its value, since IDs, ports, years and VLANs are the usual discriminators. An index has a spelling of its own.
-	- Reproduced: 20261102, release CLI on dev `3828fa60`.
-	- Possible fix, any of:
-		- An index mark in every path, such as `node(@2)`, and bare bodies match by value only. `upgrade` rewrites a bare index.
-		- An index selector on a binding line is refused and kept, as a wildcard is (`E004`). Lookups keep `(2)`.
-		- A hint where a bare number selects by index and some instance's value is that number, on a binding line or a lookup.
-	- Question: the first 2 change what a 3.0 file means, which v4's goals rule out (no Format 4, every clean 3.0 file reads the same). Make it a Format 4 change, or take the hint?
-		- me, 20261120: the hint. A bare number as an index and a quoted one as a value is settled in value-syntax.md, and a second index spelling is under its Rejected list. The hint changes no file's reading, so it needs no new format.
-		- The load reports it on a binding line where a bare number picks by index and an instance of that name has that number as its value. It names both spellings, such as `node("2")` for the value.
-		- The CLI says the same on stderr for a lookup path. A library lookup has nowhere to report it, so the docs say it (2026111011285705).
-	- Estimated effort: Avg
-	- Note: with v4 (JC).
-
-- `shcl get` prints the type's zero when the read isn't Good
-	- ID: 2026110217340702
-	- Type: Bug
-	- Status: Deferred
-	- Severity: High
-	- Opened: 20261102-173407
-	- Opened by: Design review 20261102
-	- Steps to reproduce:
-		- `x=$(shcl get --int app.shcl port)` on a file with no `port`.
-	- Incorrect behavior: `x` is `0`, exit 3. A script without `set -e` goes on with a zero, which README.md says can't happen ("A missing value cannot sneak in as a silent zero").
-	- Expected behavior: the default `--on-bad=flag` prints nothing when the read isn't `Good`. `--default=0` is how a script asks for a zero, the same rule as the library's `_or` reads.
-	- Reproduced: 20261102, release CLI on dev `3828fa60`.
-	- Question: `get` on an empty field exits 2, where spec.md calls `Empty` informational and not a failure, so a `set -e` script stops on a field left empty on purpose. Exit 0 with an empty line, or keep 2 and say so in the spec?
-		- me, 20261120: keep 2, and say so in the spec. The exit code is how a script tells `x:` from `x: ""`, which exits 0, and from a missing line, and scripts already test for it. `--default=` is the way to get exit 0 on an empty field, and the spec and `help get` name it for `set -e` scripts.
-	- Estimated effort: Low
-	- Note: with v4 (JC).
-
-- An int read takes a leading zero as decimal
-	- ID: 2026110217340703
-	- Type: Bug
-	- Status: Deferred
-	- Severity: High
-	- Opened: 20261102-173407
-	- Opened by: Design review 20261102
-	- Steps to reproduce:
-		- `mode: 0644`, then `shcl get --int FILE mode`.
-	- Incorrect behavior: it reads 644, without a diagnostic. File modes and umasks are some of the most common numbers in a Unix config, and `0644` means octal to whoever wrote it.
-	- Expected behavior: `BadType` at Standard and Strict, with a message naming `0o644`. Loose stays as it is (JC, 2026-10-15). TOML and JSON refuse a leading zero for the same reason.
-	- Reproduced: 20261102, release CLI on dev `3828fa60`.
-	- Note: `zip: 02134` read as an int goes from 2134 to `BadType`, so spec.md's zip example and its corpus case change with it. It's a second exception to v4's goal that every 3.0 file reads the same, beside the unit from a field name.
-	- Estimated effort: Low
-	- Note: with v4 (JC).
-
 - Write v4's Rust core so it can be ported to every major language
 	- ID: 2026110908083108
 	- Type: Enhancement
@@ -27793,6 +27899,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Then by type: Bugs, [not bugs together]
 
 	- Rows marked [Bug] are for bugs only, and rows marked [Feature] for features and enhancements. Priority and Severity share one row and one scale. Priority is for a Feature or Enhancement, and Severity for a Bug. Children are not nested. They sit at the top level and point back with Parent ID.
+
+	- Severity, from 2026-11-25 (JC):
+		- Critical or High: wrong data, data loss, a crash or hang, a security hole, or a broken install, in a binding, a CLI, the C++ interface or an installer. Critical when it's common or silent.
+		- Avg: wrong behavior with a diagnostic or an easy workaround. Tooling, CI, docs and test gaps go no higher than Avg, unless they block a release: a required release gate is red, or the release can't be built, signed or installed.
+		- Low: cosmetic, slow, or rare and harmless.
+		- No release goes out with an open Critical or High bug anywhere in the code base.
 
 Template:
 
