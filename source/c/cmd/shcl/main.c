@@ -151,13 +151,16 @@ static const char *HELP =
 	"  --default=VALUE                        (get) print VALUE when the read isn't\n"
 	"                                         Good. It implies --on-bad=default.\n"
 	"                                         For an array, VALUE fills each bad\n"
-	"                                         slot\n"
+	"                                         slot. A set -e script passes\n"
+	"                                         --default= to read an empty or missing\n"
+	"                                         value as an empty line at exit 0\n"
 	"  --on-bad=error|default|flag            (get) error fails loudly. default\n"
 	"                                         prints the --default value. flag\n"
-	"                                         prints the value, or the type's zero,\n"
-	"                                         such as 0, false, or empty, when the\n"
-	"                                         read isn't Good, and reports that\n"
-	"                                         through the exit code. flag is the\n"
+	"                                         prints the value when the read is\n"
+	"                                         Good, an empty line when it is Empty,\n"
+	"                                         and nothing otherwise, with the status\n"
+	"                                         as the exit code. Under --slots a bad\n"
+	"                                         slot's value is empty. flag is the\n"
 	"                                         default\n"
 	"  --slots                                (get) prefix each line with its slot\n"
 	"                                         status and a tab, with one line per\n"
@@ -1155,6 +1158,29 @@ static char *quoted(shcl_doc *d, const char *p, size_t n) {
 	return out;
 }
 
+// What to write instead of an int with a leading zero, such as `0o644 for
+// octal or 644 for decimal` for `0644`, or NULL when v has none. The caller
+// frees it. A read refuses one outside Loose (parse_int_text in shcl.h).
+static char *leading_zero_fix(const char *v, size_t n) {
+	const char *sign = "";
+	if (n > 0 && v[0] == '-') { sign = "-"; v++; n--; }
+	else if (n > 0 && v[0] == '+') { v++; n--; }
+	if (n < 2 || v[0] != '0') return NULL;
+	for (size_t i = 0; i < n; i++) if (v[i] < '0' || v[i] > '9') return NULL;
+	size_t z = 0;
+	while (z < n && v[z] == '0') z++;
+	const char *dg = z < n ? v + z : "0";
+	size_t dn = z < n ? n - z : 1;
+	int octal = dg[0] != '0';
+	for (size_t i = 0; i < dn; i++) if (dg[i] > '7') octal = 0;
+	size_t cap = 2 * dn + 40;
+	char *out = malloc(cap);
+	if (!out) return NULL;
+	if (octal) snprintf(out, cap, "%s0o%.*s for octal or %s%.*s for decimal", sign, (int)dn, dg, sign, (int)dn, dg);
+	else snprintf(out, cap, "%s%.*s", sign, (int)dn, dg);
+	return out;
+}
+
 static int do_get(Opts *o) {
 	if (o->nargs != 2) { fprintf(stderr, "usage: shcl get [type] [options] FILE PATH (see --help)\n"); return 1; }
 	const char *file = o->args[0], *path = o->args[1]; size_t plen = strlen(path);
@@ -1226,7 +1252,7 @@ static int do_get(Opts *o) {
 		if (o->slots || o->array) out_one_line(d, (P), (N)); else outln((P), (N)); \
 	} while (0)
 	// Why the read failed is worth saying even when the exit code already
-	// shows it: at the default mode the user otherwise gets an empty line, a
+	// shows it: at the default mode the user otherwise gets no output, a
 	// nonzero code, and nothing to go on. Stdout is untouched - this only ever
 	// goes to stderr. Two silences are deliberate: default mode, because a
 	// caller who supplied a fallback has already said the miss is expected, and
@@ -1242,7 +1268,10 @@ static int do_get(Opts *o) {
 			shcl_read_str rs = shcl_read_string(d, path, plen);
 			if (rs.status == SHCL_GOOD || rs.status == SHCL_EMPTY) {
 				char *q = quoted(d, rs.value.p, rs.value.n);
-				fprintf(stderr, "cannot read %s as %s: value %s is not a valid %s (in %s)\n", path, tbuf, q, tbuf, file);
+				char *fix = !strcmp(o->kind, "int") && !o->array ? leading_zero_fix(rs.value.p, rs.value.n) : NULL;
+				if (fix) fprintf(stderr, "cannot read %s as %s: value %s has a leading zero, so write %s (in %s)\n", path, tbuf, q, fix, file);
+				else fprintf(stderr, "cannot read %s as %s: value %s is not a valid %s (in %s)\n", path, tbuf, q, tbuf, file);
+				free(fix);
 				free(q);
 			} else
 				fprintf(stderr, "cannot read %s as %s: value is not a valid %s (in %s)\n", path, tbuf, tbuf, file);
@@ -1258,11 +1287,13 @@ static int do_get(Opts *o) {
 		}
 	}
 	int rc;
-	int flag_ok = (status == SHCL_GOOD) || (status == SHCL_EMPTY && !strcmp(o->on_bad, "flag"));
-	if (flag_ok) {
+	if (status == SHCL_GOOD) {
 		for (size_t i = 0; i < nlines; i++) EMITLINE(i, LINEPTR(i), lines[i].n);
 		rc = shcl_status_code(status);
-	} else if (!strcmp(o->on_bad, "default")) {
+	} else if (!strcmp(o->on_bad, "default") || (!strcmp(o->on_bad, "flag") && (status == SHCL_EMPTY || o->slots))) {
+		// Under flag, an empty value and a --slots listing print what
+		// --default= would, with the status's exit code, so no type's zero
+		// gets out.
 		const char *dv = o->deflt ? o->deflt : "";
 		if (slotSts && nSlots > 0) {
 			// Array read: the default substitutes per bad slot; alignment holds.
@@ -1276,13 +1307,14 @@ static int do_get(Opts *o) {
 			else if (o->array) out_one_line(d, dv, strlen(dv));
 			else outln(dv, strlen(dv));
 		}
-		rc = 0;
+		rc = !strcmp(o->on_bad, "default") ? 0 : shcl_status_code(status);
 	} else if (!strcmp(o->on_bad, "error")) {
 		// The message already went to stderr above; error mode differs only in
 		// printing nothing on stdout.
 		rc = shcl_status_code(status);
 	} else {
-		for (size_t i = 0; i < nlines; i++) EMITLINE(i, LINEPTR(i), lines[i].n);
+		// Nothing on stdout, so a script that skips the exit code gets no zero
+		// to carry on with.
 		rc = shcl_status_code(status);
 	}
 	free(lines); layered_free(&L); return rc;
@@ -1859,6 +1891,9 @@ static int g_i64(const char *p, size_t n, int64_t *out) {
 	if (i < n && (p[i] == '+' || p[i] == '-')) i++;
 	if (i == n) return 0;
 	for (size_t k = i; k < n; k++) if (p[k] < '0' || p[k] > '9') return 0;
+	// A leading zero is refused, as a read refuses it: `0644` or a umask's
+	// `0022` is octal to whoever wrote it.
+	if (n - i > 1 && p[i] == '0') return 0;
 	char *b = (char *)xrealloc(NULL, n + 1); memcpy(b, p, n); b[n] = 0;
 	errno = 0; char *end; long long v = strtoll(b, &end, 10);
 	int ok = *end == 0 && errno != ERANGE;

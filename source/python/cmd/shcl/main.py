@@ -162,13 +162,16 @@ Options (the subcommands each belongs to are in parentheses):
   --default=VALUE                        (get) print VALUE when the read isn't
                                          Good. It implies --on-bad=default.
                                          For an array, VALUE fills each bad
-                                         slot
+                                         slot. A set -e script passes
+                                         --default= to read an empty or missing
+                                         value as an empty line at exit 0
   --on-bad=error|default|flag            (get) error fails loudly. default
                                          prints the --default value. flag
-                                         prints the value, or the type's zero,
-                                         such as 0, false, or empty, when the
-                                         read isn't Good, and reports that
-                                         through the exit code. flag is the
+                                         prints the value when the read is
+                                         Good, an empty line when it is Empty,
+                                         and nothing otherwise, with the status
+                                         as the exit code. Under --slots a bad
+                                         slot's value is empty. flag is the
                                          default
   --slots                                (get) prefix each line with its slot
                                          status and a tab, with one line per
@@ -1679,7 +1682,7 @@ def do_get(o):
 				print(ln)
 
 	# Why the read failed is worth saying even when the exit code already shows
-	# it: at the default mode the user otherwise gets an empty line, a nonzero
+	# it: at the default mode the user otherwise gets no output, a nonzero
 	# code, and nothing to go on. Stdout is untouched - this only ever goes to
 	# stderr. Two silences are deliberate: default mode, because a caller who
 	# supplied a fallback has already said the miss is expected, and Empty
@@ -1695,11 +1698,13 @@ def do_get(o):
 			# The text the typed read parsed: quotes off and escapes read, so a
 			# quoted value is not quoted twice.
 			r = doc.read_string(path)
-			reason = (
-				f"value {quoted(r.value)} is not a valid {type_name}"
-				if r.raw is not None
-				else f"value is not a valid {type_name}"
-			)
+			fix = leading_zero_fix(r.value) if r.raw is not None else None
+			if fix is not None and o.kind == "int" and not o.array:
+				reason = f"value {quoted(r.value)} has a leading zero, so write {fix}"
+			elif r.raw is not None:
+				reason = f"value {quoted(r.value)} is not a valid {type_name}"
+			else:
+				reason = f"value is not a valid {type_name}"
 		elif status == shcl.Status.NotFound:
 			reason = "no value at that path"
 		elif status == shcl.Status.Empty:
@@ -1712,10 +1717,13 @@ def do_get(o):
 		sys.stderr.write(
 			f"cannot read {path} as {type_name}: {reason} (in {file})\n"
 		)
-	if status == shcl.Status.Good or (status == shcl.Status.Empty and o.on_bad == "flag"):
+	if status == shcl.Status.Good:
 		emit(lines)
 		return status_code(status)
-	if o.on_bad == "default":
+	if o.on_bad == "default" or (o.on_bad == "flag" and (status == shcl.Status.Empty or o.slots)):
+		# Under flag, an empty value and a --slots listing print what
+		# --default= would, with the status's exit code, so no type's zero
+		# gets out.
 		dv = o.default if o.default is not None else ""
 		if slots:
 			# Array read: the default substitutes per bad slot; alignment holds.
@@ -1728,14 +1736,27 @@ def do_get(o):
 			print(one_line(dv))
 		else:
 			print(dv)
-		return 0
+		return 0 if o.on_bad == "default" else status_code(status)
 	if o.on_bad == "error":
 		# The message already went to stderr above; error mode differs only in
 		# printing nothing on stdout.
 		return status_code(status)
-	# flag: print the zero/empty value anyway; the exit code gives the status.
-	emit(lines)
+	# flag: nothing on stdout, so a script that skips the exit code gets no
+	# zero to carry on with.
 	return status_code(status)
+
+
+def leading_zero_fix(v):
+	"""What to write instead of an int with a leading zero, such as `0o644 for
+	octal or 644 for decimal` for `0644`, or None when v has none. A read
+	refuses one outside Loose (_parse_int_text in the library)."""
+	sign, body = ("-", v[1:]) if v[:1] == "-" else ("", v[1:] if v[:1] == "+" else v)
+	if len(body) < 2 or body[0] != "0" or not all("0" <= c <= "9" for c in body):
+		return None
+	digits = body.lstrip("0") or "0"
+	if digits != "0" and all(c <= "7" for c in digits):
+		return f"{sign}0o{digits} for octal or {sign}{digits} for decimal"
+	return f"{sign}{digits}"
 
 
 # How many characters of a value a message shows (_DIAG_TEXT_MAX in the
@@ -2251,8 +2272,12 @@ def _op_int(s):
 	t = s[1:] if s[:1] in ("+", "-") else s
 	if t == "" or any(c < "0" or c > "9" for c in t):
 		raise ValueError(f"bad int: {s}")
+	# A leading zero is refused, as a read refuses it: `0644` or a umask's
+	# `0022` is octal to whoever wrote it.
+	if len(t) > 1 and t[0] == "0":
+		raise ValueError(f"bad int: {s}")
 	# Length-gate before int(): CPython 3.11+ refuses >4300 decimal digits, but the
-	# reference just overflows. Leading zeros are legal and don't count toward range.
+	# reference just overflows.
 	digits = t.lstrip("0") or "0"
 	if len(digits) > 19:
 		raise ValueError(f"bad int: {s}")

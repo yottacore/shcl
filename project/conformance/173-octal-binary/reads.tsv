@@ -8,7 +8,8 @@ upper	int	493	Good
 flags	int	5	Good
 neg	int	-3	Good
 plus	int	31	Good
-decimal	int	644	Good
+decimal	int	-	BadType
+decimal	int	644	Good	loose
 quoted	int	8	Good
 mode	float	420	Good
 bad-octal	int	-	BadType

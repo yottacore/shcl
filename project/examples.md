@@ -506,7 +506,7 @@ shcl set --write server.shcl \
     --set-literal 'cluster.hosts=[a.example.com, b.example.com]'
 ~~~
 
-A read of a missing value with no `--default`, or of one that isn't the type asked for, exits nonzero and says why on stderr. Stdout still gets the type's zero, such as `0`, `false`, or an empty line, so check the exit code rather than the value.
+A read of a missing value with no `--default`, or of one that isn't the type asked for, exits nonzero, says why on stderr, and prints nothing. An empty value prints an empty line at exit 2. No `0` or `false` stands in for a value that isn't there, and the exit code says which case it was. Under `set -e`, pass `--default=` to read an empty or missing value as an empty line at exit 0.
 
 The two spellings differ in how the value is read. `--set` takes **data**, and its type follows the text, so `workers=8` writes an integer. A bracket or a comma in it is content, though, so `hosts=[a, b]` would store one quoted string. `--set-literal` takes **value syntax**, as it's written in a file, so that same text writes an array of 2 elements. Use it whenever the value isn't a plain scalar.
 

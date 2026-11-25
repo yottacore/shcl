@@ -15945,6 +15945,11 @@ fn parse_int_text(e: &Element, level: Strictness) -> Option<i64> {
 	// Plain decimal.
 	let body = t.strip_prefix(['+', '-']).unwrap_or(t);
 	if !body.is_empty() && body.bytes().all(|b| b.is_ascii_digit()) {
+		// `0644` means octal to whoever wrote it, so it isn't read as 644
+		// outside Loose.
+		if level != Strictness::Loose && body.len() > 1 && body.starts_with('0') {
+			return None;
+		}
 		return t.parse::<i64>().ok();
 	}
 	// Hex, octal and binary.
@@ -15988,8 +15993,8 @@ fn parse_int_text(e: &Element, level: Strictness) -> Option<i64> {
 }
 
 /// The digits after a `0x`, `0o` or `0b` prefix, either case, with their
-/// radix. A bare leading zero is decimal, so `0o` is the one way to write an
-/// octal mode.
+/// radix. A bare leading zero is `BadType` outside Loose, so `0o` is the one
+/// way to write an octal mode.
 fn radix_body(t: &str) -> Option<(u32, &str)> {
 	let b = t.as_bytes();
 	if b.len() < 3 || b[0] != b'0' {

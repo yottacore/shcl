@@ -174,13 +174,16 @@ Options (the subcommands each belongs to are in parentheses):
   --default=VALUE                        (get) print VALUE when the read isn't
                                          Good. It implies --on-bad=default.
                                          For an array, VALUE fills each bad
-                                         slot
+                                         slot. A set -e script passes
+                                         --default= to read an empty or missing
+                                         value as an empty line at exit 0
   --on-bad=error|default|flag            (get) error fails loudly. default
                                          prints the --default value. flag
-                                         prints the value, or the type's zero,
-                                         such as 0, false, or empty, when the
-                                         read isn't Good, and reports that
-                                         through the exit code. flag is the
+                                         prints the value when the read is
+                                         Good, an empty line when it is Empty,
+                                         and nothing otherwise, with the status
+                                         as the exit code. Under --slots a bad
+                                         slot's value is empty. flag is the
                                          default
   --slots                                (get) prefix each line with its slot
                                          status and a tab, with one line per
@@ -2272,7 +2275,7 @@ func doGet(o *opts) int {
 		}
 	}
 	// Why the read failed is worth saying even when the exit code already
-	// shows it: at the default mode the user otherwise gets an empty line, a
+	// shows it: at the default mode the user otherwise gets no output, a
 	// nonzero code, and nothing to go on. Stdout is untouched - this only ever
 	// goes to stderr. Two silences are deliberate: default mode, because a
 	// caller who supplied a fallback has already said the miss is expected, and
@@ -2289,7 +2292,11 @@ func doGet(o *opts) int {
 			// The text the typed read parsed: quotes off and escapes read,
 			// so a quoted value is not quoted twice.
 			if r := doc.ReadString(path); r.Raw != nil {
-				reason = fmt.Sprintf("value %s is not a valid %s", quoted(r.Value), typeName)
+				if fix, ok := leadingZeroFix(r.Value); ok && o.kind == kindInt && !o.array {
+					reason = fmt.Sprintf("value %s has a leading zero, so write %s", quoted(r.Value), fix)
+				} else {
+					reason = fmt.Sprintf("value %s is not a valid %s", quoted(r.Value), typeName)
+				}
 			} else {
 				reason = fmt.Sprintf("value is not a valid %s", typeName)
 			}
@@ -2306,10 +2313,13 @@ func doGet(o *opts) int {
 		fmt.Fprintf(os.Stderr, "cannot read %s as %s: %s (in %s)\n", path, typeName, reason, file)
 	}
 	switch {
-	case status == shcl.Good || (status == shcl.Empty && o.onBad == onBadFlag):
+	case status == shcl.Good:
 		emit(lines)
 		return statusCode(status)
-	case o.onBad == onBadDefault:
+	case o.onBad == onBadDefault || (o.onBad == onBadFlag && (status == shcl.Empty || o.slots)):
+		// Under flag, an empty value and a --slots listing print what
+		// --default= would, with the status's exit code, so no type's zero
+		// gets out.
 		if len(slots) > 0 {
 			// Array read: the default substitutes per bad slot; alignment holds.
 			subbed := make([]string, len(lines))
@@ -2330,16 +2340,53 @@ func doGet(o *opts) int {
 		} else {
 			outln(o.def)
 		}
-		return 0
+		if o.onBad == onBadDefault {
+			return 0
+		}
+		return statusCode(status)
 	case o.onBad == onBadError:
 		// The message already went to stderr above; error mode differs only in
 		// printing nothing on stdout.
 		return statusCode(status)
 	default:
-		// print the zero/empty value anyway; the exit code gives the status
-		emit(lines)
+		// Nothing on stdout, so a script that skips the exit code gets no zero
+		// to carry on with.
 		return statusCode(status)
 	}
+}
+
+// leadingZeroFix gives what to write instead of an int with a leading zero,
+// such as `0o644 for octal or 644 for decimal` for `0644`, or false when v has
+// none. A read refuses one outside Loose (parseIntText in the library).
+func leadingZeroFix(v string) (string, bool) {
+	sign, body := "", v
+	if strings.HasPrefix(v, "-") {
+		sign, body = "-", v[1:]
+	} else {
+		body = strings.TrimPrefix(v, "+")
+	}
+	if len(body) < 2 || body[0] != '0' {
+		return "", false
+	}
+	for i := 0; i < len(body); i++ {
+		if body[i] < '0' || body[i] > '9' {
+			return "", false
+		}
+	}
+	digits := strings.TrimLeft(body, "0")
+	if digits == "" {
+		digits = "0"
+	}
+	octal := digits != "0"
+	for i := 0; i < len(digits); i++ {
+		if digits[i] > '7' {
+			octal = false
+		}
+	}
+	if octal {
+		return sign + "0o" + digits + " for octal or " + sign + digits + " for decimal", true
+	}
+	return sign + digits, true
 }
 
 // quotedMax is how many characters of a value a message shows (diagTextMax
@@ -3045,8 +3092,14 @@ func floatGrammar(s string) bool {
 }
 
 // parseOpInt gates an ops int like the reference: grammar first, then range.
+// A leading zero is refused, as a read refuses it: `0644` or a umask's `0022`
+// is octal to whoever wrote it.
 func parseOpInt(s string) (int64, error) {
-	if !intGrammar(s) {
+	body := s
+	if strings.HasPrefix(s, "+") || strings.HasPrefix(s, "-") {
+		body = s[1:]
+	}
+	if !intGrammar(s) || (len(body) > 1 && body[0] == '0') {
 		return 0, fmt.Errorf("bad int: %s", s)
 	}
 	n, err := strconv.ParseInt(s, 10, 64)

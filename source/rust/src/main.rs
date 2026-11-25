@@ -159,13 +159,16 @@ Options (the subcommands each belongs to are in parentheses):
   --default=VALUE                        (get) print VALUE when the read isn't
                                          Good. It implies --on-bad=default.
                                          For an array, VALUE fills each bad
-                                         slot
+                                         slot. A set -e script passes
+                                         --default= to read an empty or missing
+                                         value as an empty line at exit 0
   --on-bad=error|default|flag            (get) error fails loudly. default
                                          prints the --default value. flag
-                                         prints the value, or the type's zero,
-                                         such as 0, false, or empty, when the
-                                         read isn't Good, and reports that
-                                         through the exit code. flag is the
+                                         prints the value when the read is
+                                         Good, an empty line when it is Empty,
+                                         and nothing otherwise, with the status
+                                         as the exit code. Under --slots a bad
+                                         slot's value is empty. flag is the
                                          default
   --slots                                (get) prefix each line with its slot
                                          status and a tab, with one line per
@@ -2411,7 +2414,7 @@ fn do_get(o: &Opts) -> u8 {
 		}
 	};
 	// Why the read failed is worth saying even when the exit code already
-	// shows it: at the default mode the user otherwise gets an empty line, a
+	// shows it: at the default mode the user otherwise gets no output, a
 	// nonzero code, and nothing to go on. Stdout is untouched - this only ever
 	// goes to stderr. Two silences are deliberate: `default` mode, because a
 	// caller who supplied a fallback has already said the miss is expected, and
@@ -2430,9 +2433,16 @@ fn do_get(o: &Opts) -> u8 {
 			// The text the typed read parsed: quotes off and escapes read, so
 			// a quoted value is not quoted twice.
 			Status::BadType => match doc.read_string(path) {
-				r if r.raw.is_some() => {
-					format!("value {} is not a valid {}", quoted(&r.value), type_name)
-				}
+				r if r.raw.is_some() => match leading_zero_fix(&r.value) {
+					Some(fix) if o.kind == Kind::Int && !o.array => {
+						format!(
+							"value {} has a leading zero, so write {}",
+							quoted(&r.value),
+							fix
+						)
+					}
+					_ => format!("value {} is not a valid {}", quoted(&r.value), type_name),
+				},
 				_ => format!("value is not a valid {}", type_name),
 			},
 			Status::NotFound => "no value at that path".to_string(),
@@ -2451,11 +2461,13 @@ fn do_get(o: &Opts) -> u8 {
 		);
 	}
 	match (status, o.on_bad) {
-		(Status::Good, _) | (Status::Empty, OnBad::Flag) => {
+		(Status::Good, _) => {
 			emit(&lines);
 			status_code(status)
 		}
-		(_, OnBad::Default) => {
+		// Under flag, an empty value and a --slots listing print what --default=
+		// would, with the status's exit code, so no type's zero gets out.
+		(s, b) if b == OnBad::Default || (b == OnBad::Flag && (s == Status::Empty || o.slots)) => {
 			if !slots.is_empty() {
 				// Array read: the default substitutes per bad slot; alignment holds.
 				let dv = o.default.clone().unwrap_or_default();
@@ -2483,17 +2495,39 @@ fn do_get(o: &Opts) -> u8 {
 					outln!("{}", dv);
 				}
 			}
-			0
+			if o.on_bad == OnBad::Default {
+				0
+			} else {
+				status_code(status)
+			}
 		}
 		// The message already went to stderr above; error mode differs only in
-		// printing nothing on stdout.
-		(_, OnBad::Error) => status_code(status),
-		(_, OnBad::Flag) => {
-			// print the zero/empty value anyway; the exit code gives the status
-			emit(&lines);
-			status_code(status)
-		}
+		// printing nothing on stdout. Flag prints nothing either, so a script
+		// that skips the exit code gets no zero to carry on with.
+		_ => status_code(status),
 	}
+}
+
+/// What to write instead of an int with a leading zero, such as `0o644 for
+/// octal or 644 for decimal` for `0644`, or None when `v` has none. A read
+/// refuses one outside Loose (`parse_int_text` in the library).
+fn leading_zero_fix(v: &str) -> Option<String> {
+	let (sign, body) = match v.strip_prefix('-') {
+		Some(r) => ("-", r),
+		None => ("", v.strip_prefix('+').unwrap_or(v)),
+	};
+	if body.len() < 2 || !body.starts_with('0') || !body.bytes().all(|b| b.is_ascii_digit()) {
+		return None;
+	}
+	let digits = match body.trim_start_matches('0') {
+		"" => "0",
+		d => d,
+	};
+	Some(if digits != "0" && digits.bytes().all(|b| b < b'8') {
+		format!("{sign}0o{digits} for octal or {sign}{digits} for decimal")
+	} else {
+		format!("{sign}{digits}")
+	})
 }
 
 /// How many characters of a value a message shows (`DIAG_TEXT_MAX` in the
@@ -3197,7 +3231,15 @@ fn apply_op(doc: &mut Document, line: &str) -> Result<(), String> {
 	}
 	let path = f.get(1).copied().unwrap_or("");
 	let val = || f.get(2).copied().unwrap_or("");
-	let pint = |s: &str| s.parse::<i64>().map_err(|_| format!("bad int: {}", s));
+	// A leading zero is refused, as a read refuses it: `0644` or a umask's
+	// `0022` is octal to whoever wrote it.
+	let pint = |s: &str| {
+		let body = s.strip_prefix(['+', '-']).unwrap_or(s);
+		if body.len() > 1 && body.starts_with('0') {
+			return Err(format!("bad int: {}", s));
+		}
+		s.parse::<i64>().map_err(|_| format!("bad int: {}", s))
+	};
 	// The language's own float reader takes inf and nan; the document's does
 	// not, so they are bad values here, the way a bad datetime is.
 	let pflt = |s: &str| {

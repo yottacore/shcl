@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- An int read of a number with a leading zero, such as `mode: 0644` or `zip: 02134`, is `BadType` at Standard and Strict, where it read as decimal. Write `0o644` for octal or `644` for decimal. `shcl get --int` names both in its message. Loose still reads it as decimal, and a float read is unchanged. The `int` and `int-array` ops of `shcl set` refuse one as a bad int, where they wrote it as decimal.
+
+- `shcl get` prints no type's zero under the default `--on-bad=flag`. A read that isn't Good prints nothing, an empty value prints an empty line at exit 2, and under `--slots` a slot that isn't Good has an empty value. `--default=` reads an empty or missing value as an empty line at exit 0.
+
 - Validation reports `V008` for a field written more than once under one parent with no children, when the schema gives it no `repeat`, such as `name: a` then `name: b`, or 2 plain blocks that merged. Such a file used to pass `check --schema` and Strict, and then read as `Multiple`. Instances with children are unchanged.
 
 - `load_file_opts()` with `migrate`, `upgrade()` and `upgrade_file()` convert a file found to be from 1.0, 1.1 or 2.0 by that format's own reading of a quoted name, where they used to keep a name with a backslash pair as typed and count it lost. 1.x read `"a\"b"` as typed, so it becomes `'a\"b'`, a field apart from `'a"b'`. 2.0 resolved it, so it becomes `'a"b'`, which `from_v2` also gives. A selector 1.x matched otherwise stays as typed and counts as lost: a quoted one holding a comma and a space, which matched an array too, and from 1.0 one with a backslash pair, which it matched as typed. `migrate()` doesn't find the format, so it still keeps such a name as typed.

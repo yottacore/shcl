@@ -311,7 +311,7 @@ Case `134` pins real override for a raw block and a bracket array, which `design
 
 Case `135` pins a schema path with a value selector, and the `bool-array` and `datetime-array` types, which no other schema names. The `max` on `srv(web1).port` leaves `srv(web2)`'s larger port alone, so a selector read as a wildcard shows up as an extra diagnostic.
 
-Case `136` pins the number spellings a hand-edited file has, such as `007`, `+5`, `-0`, and `+0009`. They read as integers and keep the spelling the author wrote. Beside them, a closed quote followed by bare text (`"abc"def`) is `E017` and the line is kept as written. The case also pins the path spellings a lookup refuses as `BadPath`, which are an empty selector, a leading dot, a trailing dot, and a doubled dot.
+Case `136` pins the number spellings a hand-edited file has, such as `007`, `+5`, `-0`, and `+0009`. They keep the spelling the author wrote. `+5` and `-0` read as integers, while `007` and `+0009` are `BadType` outside Loose, since a leading zero reads as octal to many people. Beside them, a closed quote followed by bare text (`"abc"def`) is `E017` and the line is kept as written. The case also pins the path spellings a lookup refuses as `BadPath`, which are an empty selector, a leading dot, a trailing dot, and a doubled dot.
 
 Case `137` pins that a line matching no open level (`E012`) closes none of the levels open before it. A space-indented line in a tab-indented block used to drop every later sibling in the block. The siblings bind now, and so does the first child of a leaf written after the bad line. A line deeper than the bad line is still `E018`, as `075` pins. Every bad line is kept as written, so nothing is lost.
 
@@ -371,7 +371,7 @@ Case `164` pins quoted data values in canonical output. A quoted int, float, boo
 
 Case `165` pins a comment set on a node the writer has created at the top level. The blank line goes above the comment rather than between it and the node.
 
-Case `166` pins numbers far past any type's width, with 5000 digits. An int value, a quoted one, a day inside a quoted date, a selector index, and a schema `repeat` bound all read as out of range, and a small value behind 5000 zeros still reads.
+Case `166` pins numbers far past any type's width, with 5000 digits. An int value, a quoted one, a day inside a quoted date, a selector index, and a schema `repeat` bound all read as out of range, and a small value behind 5000 zeros still reads at Loose, while Standard refuses its leading zeros.
 
 Case `167` pins generation over a wildcard written with blanks inside its parens, which fills exactly like `(*)`.
 
@@ -383,9 +383,9 @@ Case `170` had unknown backslash escapes, each `E023` before the value syntax. A
 
 Case `171` had drive and share paths in double quotes, each `E024` before the value syntax. A backslash is text now, so every path reads as written and the load passes at Strict. Its `write.ops` writes a drive and a share path as typed, and its `write-bad.ops` lines are commented out.
 
-Case `172` pins a quoted number with a leading zero. It keeps its quotes through canonical output, element by element, while a bare one stays bare. A quoted `0.5`, `0`, or hex value keeps its quotes too. Int and float reads drop the zeros, and a string read keeps them.
+Case `172` pins a quoted number with a leading zero. It keeps its quotes through canonical output, element by element, while a bare one stays bare. A quoted `0.5`, `0`, or hex value keeps its quotes too. An int read of a leading zero is `BadType` at Standard and Strict, quoted or not, and an array read marks each such slot. Loose and a float read drop the zeros, and a string read keeps them.
 
-Case `173` pins the `0x`, `0o`, and `0b` integer prefixes in either case and with a sign, a bare leading zero read as decimal, bad digits and an empty prefix as `BadType`, the int range at both ends, and a float read past it.
+Case `173` pins the `0x`, `0o`, and `0b` integer prefixes in either case and with a sign, a bare leading zero as `BadType` outside Loose, bad digits and an empty prefix as `BadType`, the int range at both ends, and a float read past it.
 
 Case `174` had `\u` and `\U` escapes in double quotes. A backslash is text now, so each one reads as the characters written, in values, a quoted name, a selector body, and a lookup path, and the load passes at Strict. Its selector line is in brackets, the 2.x spelling, so loaded as it is that line is `E029` now. Canonical output still writes a zero-width space, an override, and a NUL its setters stored as escapes. Its `write-bad.ops` lines are commented out.
 

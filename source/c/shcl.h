@@ -5722,8 +5722,8 @@ static int radix_digit(unsigned char c) {
 	return -1;
 }
 // radix_body: the digits after a `0x`, `0o` or `0b` prefix, either case, with
-// their radix. A bare leading zero is decimal, so `0o` is the one way to write
-// an octal mode.
+// their radix. A bare leading zero is BadType outside Loose, so `0o` is the
+// one way to write an octal mode.
 static int radix_body(ShclStr t, unsigned *radix, ShclStr *digits) {
 	if (t.n < 3 || t.p[0] != '0') return 0;
 	switch (t.p[1]) {
@@ -5847,7 +5847,12 @@ static int parse_int_text(ShclArena *a, const ShclElement *e, shcl_strictness le
 	}
 	ShclStr body = t;
 	if (body.n > 0 && (body.p[0] == '+' || body.p[0] == '-')) body = s_slice(body, 1, body.n);
-	if (body.n > 0 && all_adigit0(body)) return parse_i64_s(t, out);
+	if (body.n > 0 && all_adigit0(body)) {
+		/* `0644` means octal to whoever wrote it, so it isn't read as 644
+		   outside Loose. */
+		if (level != SHCL_LOOSE && body.n > 1 && body.p[0] == '0') return 0;
+		return parse_i64_s(t, out);
+	}
 	/* Hex, octal and binary. */
 	int neg = 0; ShclStr prefixed = t;
 	if (t.n > 0 && t.p[0] == '-') { neg = 1; prefixed = s_slice(t, 1, t.n); }

@@ -435,13 +435,20 @@ fails loudly.
 .B default
 prints the default.
 .B flag
-prints the value, or the type's zero when the read isn't Good, and reports
-through the exit code. The zero is
-.BR 0 ,
-.BR false ,
-or an empty line.
+prints the value when the read is Good, an empty line when it is Empty, and
+nothing otherwise, and reports through the exit code, so no
+.B 0
+or
+.B false
+stands in for a value that isn't there. Under
+.B \-\-slots
+a slot that isn't Good has an empty value.
 .B flag
-is the default.
+is the default. An empty field exits 2, so a
+.B set \-e
+script passes
+.B \-\-default=
+to read an empty or missing value as an empty line at exit 0.
 .TP
 .B \-\-slots
 .RB ( get )

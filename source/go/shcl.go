@@ -15974,6 +15974,11 @@ func parseIntText(e *element, level Strictness) (int64, bool) {
 	// Plain decimal.
 	body := stripSign(t)
 	if body != "" && allDigits(body) {
+		// `0644` means octal to whoever wrote it, so it isn't read as 644
+		// outside Loose.
+		if level != Loose && len(body) > 1 && body[0] == '0' {
+			return 0, false
+		}
 		v, err := strconv.ParseInt(t, 10, 64)
 		return v, err == nil
 	}
@@ -16101,8 +16106,8 @@ func parseIntTextNoLoose(e *element) (int64, bool) {
 }
 
 // radixBody returns the digits after a `0x`, `0o` or `0b` prefix, either
-// case, with their radix. A bare leading zero is decimal, so `0o` is the one
-// way to write an octal mode.
+// case, with their radix. A bare leading zero is BadType outside Loose, so
+// `0o` is the one way to write an octal mode.
 func radixBody(t string) (int, string, bool) {
 	if len(t) < 3 || t[0] != '0' {
 		return 0, "", false

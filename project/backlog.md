@@ -162,7 +162,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `shcl get` prints the type's zero when the read isn't Good
 	- ID: 2026110217340702
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261102-173407
@@ -177,11 +177,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Note: with v4 (JC).
 	- Note: 20261125, back from Deferred. Under the 2026-11-25 severity rule this is wrong data, so it is High, and no release goes out with an open High (JC). It can't wait for v4.
+	- Actual cause: the flag arm of `get` in all 4 CLIs printed the read's value whatever its status, and a read that isn't Good carries the type's zero.
+	- Decisions:
+		- me, 20261125: an Empty read under flag prints an empty line at exit 2, as `--default=` would, rather than nothing. A string read of an empty field already printed that line, and `$(...)` can't tell it from nothing. An int, float or bool read no longer prints its zero there.
+		- me, 20261125: under `--slots`, flag still prints each slot with its status, and a slot that isn't Good has an empty value rather than the zero, the same as `--default=`. Dropping the listing would leave `--slots` nothing to show on a partial read.
+	- Actual fix: under the default `--on-bad=flag`, `get` prints the value for a Good read, an empty line for an Empty one, and nothing otherwise, in all 4 CLIs. `--slots` and an Empty read go through the `--default=` path with an empty value and keep the status's exit code. The help (byte-identical in all 4), the man page, spec.md's CLI paragraph, examples.md and the changelog say so, and name `--default=` for a `set -e` script.
+		- Swept: the 4 CLIs' `do_get`/`doGet` flag, default and error arms. 15 cli-regress rows that pinned a `0`, an empty line or a JSON object on a failed read now pin no output. `--json` without `--slots` prints nothing on a failed read too. No other subcommand prints a typed value.
+	- Branch: nov25-2026110217340703
+	- Test case: cli-regress `ddydc`, `ddydd`, `dfsh3`, `dfsh4`, `dfsh5`, `dfsh9`, and `help-says` (`ddydf`). The first run of the new rows on the old CLIs printed `0`.
+	- Acceptance signoff: Self-closed: the item's expected behavior, tested in all 4 CLIs.
+	- Closed: 20261125-113500
+	- Closed reason: Done
 
 - An int read takes a leading zero as decimal
 	- ID: 2026110217340703
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: the 2M release fuzz of fuzz_smoke (`SHCL_FUZZ_ITERS=2000000`, release) and `check-migrate.bash`, on this commit. No corpus `input.shcl` changed, only `reads.tsv` rows, and check-migrate compares string reads, so neither is expected to move.
 	- Severity: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261102-173407
@@ -195,6 +207,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Note: with v4 (JC).
 	- Note: 20261125, back from Deferred. Under the 2026-11-25 severity rule this is wrong data, so it is High, and no release goes out with an open High (JC). It can't wait for v4. 3.0.0 isn't out yet, so changing how a 3.0 file reads costs less now than in v4.
+	- Actual cause: the plain decimal arm of the int parse took any run of digits, leading zeros included, in all 4 bindings.
+	- Against: corpus `136`, which pinned `007` and `+0009` as integers. The 2026-11-25 triage settles it the other way.
+	- Decisions:
+		- me, 20261125: every leading zero with a digit after it is refused, `007`, `008` and `00` included, though only some read 2 ways. One rule is easier to explain, and it's what TOML and JSON do. A lone `0` and `-0` still read.
+		- me, 20261125: a float read is unchanged and still reads `0644` as 644, as the spec said. Nobody reads a mode as a float, and `0.5` and `00.5` would need their own rule.
+		- me, 20261125: the CLI's message gives both spellings, as in `value "0644" has a leading zero, so write 0o644 for octal or 644 for decimal`, and only the decimal one where a digit is 8 or 9. Schema `V003` keeps its wording, since it names no value for any type.
+		- me, 20261125: the `int` and `int-array` ops of `shcl set` refuse a leading zero as a bad int too. They wrote `0644` as 644, the same silent guess, and a umask's `0022` became 22.
+	- Actual fix: `parse_int_text` (`parseIntText` in Go, `_parse_int_text` in Python) refuses a leading zero outside Loose, in all 4. The 4 CLIs name the fix in `get`'s message and refuse it in an int op. spec.md (Integers, the zip example, the strictness table), the corpus README and the changelog say so.
+		- Swept: every caller of the int parse, which are the scalar and array reads, schema `allowed`, `min` and `max` (now `V092` for `min: 010`) and validation. The float fallback reaches it only for prefixed text. The op int parsers in all 4 CLIs. Durations, sizes, dates, index selectors and the Format line have their own number parsers and keep reading leading zeros.
+	- Branch: nov25-2026110217340703
+	- Test case: corpus `172-leading-zero-quotes` (`dd5pd`), `173-octal-binary` (`dd5ph`), `136-number-and-path-edges` (`dcxx5`) and `166-long-digits` (`dd51y`) reads, at Standard, Strict and Loose, and cli-regress `dfsh6`, `dfsh7`, `dfsh8`, `dfsha`, `dfshb`, `dfshc`. The new rows fail on the old C library in cases 136, 166 and 172, and pass on the new one in all 4.
 
 - Review the whole code base for Critical and High bugs before each release
 	- ID: 2026112509394527

@@ -13155,6 +13155,10 @@ def _parse_int_text(e, level):
 	# Plain decimal.
 	body = t[1:] if t[:1] in ("+", "-") else t
 	if body and _all_ascii_digits(body):
+		# `0644` means octal to whoever wrote it, so it isn't read as 644
+		# outside Loose.
+		if level != Strictness.Loose and len(body) > 1 and body[0] == "0":
+			return None
 		return _parse_i64(t)
 	# Hex, octal and binary.
 	if t[:1] == "-":
@@ -13254,8 +13258,8 @@ _RADIXES = {"x": 16, "X": 16, "o": 8, "O": 8, "b": 2, "B": 2}
 
 def _radix_body(t):
 	"""The digits after a `0x`, `0o` or `0b` prefix, either case, with their
-	radix, or None. A bare leading zero is decimal, so `0o` is the one way to
-	write an octal mode."""
+	radix, or None. A bare leading zero is BadType outside Loose, so `0o` is
+	the one way to write an octal mode."""
 	if len(t) < 3 or t[0] != "0" or t[1] not in _RADIXES:
 		return None
 	radix = _RADIXES[t[1]]
