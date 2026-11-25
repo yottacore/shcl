@@ -2832,8 +2832,11 @@ class Migration:
 	differently, such as `a,b` or an escape, runs of lines one rule set reads
 	as a raw body and the other as fields, and a raw body 1.0 to 2.0 read with
 	its shared indent taken off or closed early, which nothing can decide
-	between, left as written; always 0 when the caller said the file is 2.x.
-	A backslash pair 2.x resolved is one of them, as in `"C:\\new"`. lost:
+	between, left as written. A backslash pair 2.x resolved is one of them, as
+	in `"C:\\new"`. Also a comma list whose commas cut a backtick, paren or
+	bracket pair in 2, such as `sma(close, 10)`, which 2.x split and nobody
+	meant split. That is the only kind when the caller said the file is 2.x,
+	and then text is the input. lost:
 	lines 2.x bound a value on that nothing binds now, since there is no 3.0
 	spelling to move to: bracket text after the colon, a selector holding a
 	comma, which matched an array value, and a comma list with lines under it
@@ -3328,7 +3331,7 @@ def _convert(text: str, fmt: str | None, told: bool) -> Migration:
 	told says a caller named the format, so every rewrite is made."""
 	step = _first_rewrite(fmt)
 	if step is not None:
-		return _migrate_text(text, told, False, False, step)
+		return _migrate_text(text, told, False, False, step, False)
 	return Migration(text, True, 0, 0)
 
 
@@ -3653,7 +3656,7 @@ def _migrate_from(text: str, from_: str | None, stamp: bool) -> Migration:
 	assert step is not None
 	if step.kind is _StepKind.PIN and _names_this(read_format_version(text)):
 		return _convert(text, None, True)
-	return _migrate_text(text, told, stamp, False, step)
+	return _migrate_text(text, told, stamp, False, step, True)
 
 
 def _majority_eol(text):
@@ -3797,7 +3800,7 @@ def _v2_fold_scalars(text):
 	return ("\n".join(lines), wrote_at) if wrote_at else None
 
 
-def _migrate_text(text, from_v2, stamp, beta, step):
+def _migrate_text(text, from_v2, stamp, beta, step, keep_whole):
 	"""beta takes a file naming this format as 2.x too, which only upgrade()
 	asks for, once the caller has said so. step is the one the text's format
 	starts with, and says which rules it was written by: a pin's, for a file
@@ -3913,6 +3916,11 @@ def _migrate_text(text, from_v2, stamp, beta, step):
 	# block's content. The lines end the way most of the file's do. An older
 	# Format line becomes this one where it is, so the file names one format.
 	unfinished = st.ambiguous > 0 or fence is not None or now.fence is not None
+	# Told the file is 2.x, only a comma inside a pair is left for a look,
+	# and the rest rewritten without a stamp would be rewritten again on the
+	# next run. So nothing is. A load reads the rest converted.
+	if keep_whole and st.from_v2 and st.ambiguous > 0:
+		return Migration(whole, ambiguous=st.ambiguous, lost=st.lost, unfinished=True)
 	if stamp and not unfinished:
 		eol = _majority_eol(text)
 		s = "".join(out)
@@ -4054,11 +4062,12 @@ def upgrade_dated(text: str, mtime: float | None, from_: str | None, banner: boo
 	# run over it with the same from_ leaves it alone.
 	if clean and ((pin is None and (not told or version == FORMAT_MAJOR)) or (told and _names_this(named))):
 		return up
-	m = _migrate_text(text, told, False, True, step)
+	m = _migrate_text(text, told, False, True, step, False)
 	# A 2.x file can load clean and still read differently now, as `a,b`
 	# does. One migrate leaves as it was has nothing to do, but an older
 	# Format line, which would keep the load's H007 hint, becomes this one.
-	if clean and m.text == text:
+	# One it left for a look isn't done.
+	if clean and m.text == text and m.ambiguous == 0:
 		restamped = (
 			_restamp(text, named.line) if version is not None and version < FORMAT_MAJOR else None
 		)
@@ -4379,6 +4388,37 @@ def _v2_array_text(s, tok, st):
 	return "".join(out)
 
 
+_PAIR_OPEN = {ord("("): 1, ord("["): 2, ord("{"): 3}
+_PAIR_SHUT = {ord(")"): 1, ord("]"): 2, ord("}"): 3}
+
+
+def _v2_split_cuts_pair(s, tok):
+	"""True when a 2.x comma list's commas cut a backtick pair, or a paren,
+	bracket or brace pair, in 2, as in `` `select a, b` `` or `sma(close, 10)`.
+	Only bare elements count, and a quoted one between keeps the pair open."""
+	# The element each open mark sits in.
+	tick = -1
+	opened: list = []
+	for k, p in enumerate(tok.elements):
+		if p.quote is not Quote.None_:
+			continue
+		for b in s[p.start : p.end]:
+			if b == 0x60:
+				if tick < 0:
+					tick = k
+				elif tick < k:
+					return True
+				else:
+					tick = -1
+			elif b in _PAIR_OPEN:
+				opened.append((_PAIR_OPEN[b], k))
+			elif b in _PAIR_SHUT and opened and opened[-1][0] == _PAIR_SHUT[b]:
+				if opened[-1][1] < k:
+					return True
+				opened.pop()
+	return False
+
+
 def _v2_element_text(s, p, st):
 	"""One 2.x element, as the text 2.x read, the way the writer writes it,
 	unless its quoted spelling already reads the same."""
@@ -4591,9 +4631,13 @@ def _migrate_line(rest, tok, fence, st):
 				return _splice(s, edits).decode("utf-8", "surrogatepass"), (fo[0], fo[1])
 			sep = tok.sep
 			if len(tok.elements) > 1:
-				# A file that does not say it is 2.x could be a 3.0 one, where
-				# `a,b` is a string. `a, b` is an error there, so it is safe.
-				if st.from_v2 or not _reads_clean_now(rest, sep + 1):
+				# 2.x split `sma(close, 10)` in 2, but nobody means half a
+				# pair, so it waits for a look whatever the file is. A file
+				# that does not say it is 2.x could be a 3.0 one, where `a,b`
+				# is a string. `a, b` is an error there, so it is safe.
+				if _v2_split_cuts_pair(s, tok):
+					st.ambiguous += 1
+				elif st.from_v2 or not _reads_clean_now(rest, sep + 1):
 					kept = tok.element_count()
 					# Only empty slots, which 2.x dropped: an empty value.
 					if kept == 0:
@@ -5021,6 +5065,12 @@ def _path_of(tok, s):
 	if tok.sep is None:
 		return segments, None
 	return segments, s[tok.value[0]:tok.value[1]].decode("utf-8", "surrogatepass")
+
+
+def _index_not_value(n, name):
+	"""The H010 text: an index picked an instance by position where another
+	instance has the index as its value (2026110217340701)."""
+	return f"index {n} picks a '{_diag_name(name)}' by position, not the one whose value is {n}; write (\"{n}\") to pick that one by value"
 
 
 def _no_instance(tok, segs, at):
@@ -5890,6 +5940,11 @@ class _Parser:
 							break
 						seen += 1
 				if found is not None:
+					# A bare number picks by position, so where another instance
+					# has it as its value, that may be the one meant (H010).
+					named = self._find_by_value(cur, seg.name, str(k))
+					if named is not None and named != found:
+						self._diag(Diagnostic(line, Severity.Hint, _index_not_value(k, seg.name), "H010"))
 					cur = found
 					# A field through an index onto an array line goes as one on
 					# the line under `srv(0):` does (E028).
@@ -12498,14 +12553,16 @@ class UpgradeNotFound(UpgradeError):
 
 class UpgradeAmbiguous(UpgradeError):
 	"""The file does not say which rules it was written for, and some of it
-	reads two ways (Upgrade.ambiguous); from_ settles it."""
+	reads two ways (Upgrade.ambiguous); from_ settles it. Or a comma sits
+	inside a backtick, paren or bracket pair, which 2.x split there, and only
+	a look settles that."""
 	path: str
 	count: int
 
 	def __init__(self, path: str, count: int):
 		self.path = path
 		self.count = count
-		super().__init__(f"{path}: {count} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; nothing written")
+		super().__init__(f"{path}: {count} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for, or have a comma inside a backtick, paren or bracket pair; nothing written")
 
 
 class UpgradeBackupTaken(UpgradeError):

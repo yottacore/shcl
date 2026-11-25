@@ -118,7 +118,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `Upgrade` and `migrate` split a backtick value or a call at its commas, and count nothing
 	- ID: 2026111016205702
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261110-162057
@@ -131,12 +131,29 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- All 4 bindings count it the same way.
 		- Values without a tell, such as a regex with `, ` in it, stay with 2026102911041665.
 	- Estimated effort: Avg
+	- Actual effort: Avg
 	- Note: 20261125, now a High Bug under the 2026-11-25 severity rule: the upgrade writes a value nobody meant and reports nothing, which breaks "never damage a correct file at exit 0".
+	- Actual cause: the 2.x comma split in the line rewrite took every comma as a separator once the file was known to be 2.x, and nothing looked at what the pieces held.
+	- Decisions:
+		- me, 20261125: a pair counts as cut when its open mark is in one bare element and its close in a later one. Backticks pair in order. Braces count with parens and brackets, since `{a, b}` split in 2 is as unlikely to be meant. A quoted element between keeps the pair open, and a lone mark with no partner is no tell.
+		- me, 20261125: with `from`, a cut pair makes `migrate` and `migrate_unstamped` hand back the whole file as written, not only its line. Its other lines rewritten without a stamp would be rewritten again on the next run, which the corpus fixpoint check caught on case 195. A load that converts in memory writes nothing, so it converts the rest and keeps that line as typed.
+		- me, 20261125: the count goes in `ambiguous`, as asked, with no new field. With `--from`, the CLIs say "value(s) have a comma inside a backtick, paren or bracket pair, which 2.x split there and nobody means", since the usual message's "the file doesn't say which it was written for" and "--from rewrites them" aren't true then. Without it, the usual message and the library's `Ambiguous` error add "or have a comma inside a backtick, paren or bracket pair".
+		- me, 20261125: without `from`, a file that loads clean now, such as a lone backtick value, is still `current` and left alone, as a good file is.
+	- Actual fix: `v2_split_cuts_pair` and its twins (`v2SplitCutsPair` in Go, `_v2_split_cuts_pair` in Python) count such a list in `ambiguous` before the split, in all 4. Told the file is 2.x, `migrate_text` then hands back the input. `upgrade` no longer takes a clean file migrate left alone as current when something was left for a look. Docs: value-syntax.md's Migration section, the man page, examples.md and the changelog.
+	- Swept: every 2.x comma split in the line rewrite, in all 4: the field value branch is the only one that splits. A `*` item with a comma is refused, and a selector or `name:[disc]` body with one is counted lost. The `clean && unchanged` early return in `upgrade` in all 4. The ambiguous messages in all 4 CLIs and libraries.
+	- Verified: the 4 new tests fail with the check disabled and pass with it. The 4 conformance suites, cli-regress over the 4 CLIs and crosscheck over the corpus pass.
+	- Note: 20261125, check-migrate counts migrate's refusal over such a list as one, and compares nothing for that document, since nothing was rewritten. That takes 13 of its 649 documents out of the comparison, and it reports the same divergences as the round branch otherwise.
+	- Test case: `dfshw` (Rust), `dfshx` (Go), `dfshy` (Python), `dfshz` (C), cli-regress `dfsj0` and `dfsj1`. The load: `dfsj7` (Rust), `dfsj8` (Go), `dfsj9` (Python), `dfsja` (C).
+	- Acceptance signoff: Self-closed: tests cover each requirement and were seen to fail without the fix.
+	- Branch: `nov25-2026111016205702`
+	- Commit: `1f4739a9`, `49294958`, `88830383`
+	- Closed: 20261125-122100
+	- Closed reason: Done
 
 - A bare number in a selector picks by position, so a file line can bind under the wrong instance
 	- ID: 2026110217340701
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261102-173407
@@ -156,8 +173,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The load reports it on a binding line where a bare number picks by index and an instance of that name has that number as its value. It names both spellings, such as `node("2")` for the value.
 		- The CLI says the same on stderr for a lookup path. A library lookup has nowhere to report it, so the docs say it (2026111011285705).
 	- Estimated effort: Avg
+	- Actual effort: Avg
 	- Note: with v4 (JC).
 	- Note: 20261125, back from Deferred. Under the 2026-11-25 severity rule this is wrong data, so it is High, and no release goes out with an open High (JC). It can't wait for v4.
+	- Actual cause: a bare number in a selector is an index by design (value-syntax.md), and nothing said so where an instance had that number as its value.
+	- Decisions:
+		- me, 20261125: the hint is `H010`. It fires only where another instance has the number as its value. Where the instance picked by position has it, both readings agree, and past the last instance `E003` already refuses the line.
+		- me, 20261125: the value looked for is the index's decimal form, so `node(02)` and `node(+2)` look for a `node` valued `2`, as the index they read as.
+		- me, 20261125: the CLI says it on stderr for the PATH of `get`, `count`, `instances` and `children`, as `PATH: Hint: H010 ...`, and the exit status doesn't change. A `--set` or `--remove` path isn't checked, since it edits the file the load already hinted on.
+	- Actual fix: the binding-line index arm in all 4 libraries asks the value index for that number and adds `H010` when it names another instance. The 4 CLIs check each bare index in a lookup path by reading the line of the path with the index and with the number quoted, and print the hint when both resolve to different lines. `explain H010`, spec.md's code table and selector bullet, design.md's outcome table and the changelog say what it means.
+	- Swept: the other index arms. The lookup resolvers and the setters' index arms pick by position with no load to report on, so the CLI covers lookups and the setters are left. The `E003` arms refuse the line already.
+	- Verified: cli-regress over the 4 CLIs, the 4 conformance suites, crosscheck, check-docs and check-doc-examples passed. The committed CLI before the change printed no hint for the `dfsj2` and `dfsj4` inputs.
+	- Test case: cli-regress `dfsj2` (load hint), `dfsj3` (quiet where the readings agree or the body is quoted), `dfsj4` and `dfsj5` (lookup hint), `dfsj6` (quiet lookup).
+	- Acceptance signoff: Self-closed: the hint is the 20261120 call, and each part has a test seen to fail without it.
+	- Branch: `nov25-2026111016205702`
+	- Commit: `e1ac5f11`, `a4024ea1`, `9e78c1b7`
+	- Closed: 20261125-121800
+	- Closed reason: Done
 
 - `shcl get` prints the type's zero when the read isn't Good
 	- ID: 2026110217340702

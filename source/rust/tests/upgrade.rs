@@ -9,8 +9,8 @@ mod common;
 
 use common::test_id;
 use shcl::{
-	Document, GEN_BANNER, UpgradeError, WriteStatus, backup_file_name, migrate, upgrade,
-	upgrade_dated, upgrade_file, write_backup,
+	Document, GEN_BANNER, LoadOptions, Strictness, UpgradeError, WriteStatus, backup_file_name,
+	migrate, migrate_unstamped, upgrade, upgrade_dated, upgrade_file, write_backup,
 };
 
 /// 2026-09-01, an mtime that leaves 2.0 the newest format. Without it, a text
@@ -371,6 +371,80 @@ fn upgrade_refuses_text_that_reads_two_ways() {
 	assert!(!up.current && up.ambiguous == 1 && up.text == text);
 	let up = upgrade(text, Some("2.0"), true);
 	assert!(up.ambiguous == 0 && up.text.starts_with("a: [x, y]\nb: '\"q'\n\n##\n"));
+}
+
+#[test]
+fn a_comma_that_cuts_a_pair_in_2_waits_for_a_look() {
+	let _id = test_id("dfshw");
+	// 2.x split these at the comma, but nobody meant half a pair, so with
+	// or without `from` nothing is written (2026111016205702).
+	for text in [
+		"query: `select a, b from t`\n",
+		"k: sma(close, 10)\n",
+		"k: f[a, b]\n",
+		"k: {a, b}\n",
+		"k: f(a, \"b\", c)\n",
+		// With from, the lines around it aren't rewritten either.
+		"a: x,y\nk: sma(close, 10)\n",
+	] {
+		let up = upgrade(text, Some("2.0"), true);
+		assert!(
+			!up.current && up.ambiguous == 1 && up.text == text,
+			"{text:?}: {up:?}"
+		);
+		// Without, one that loads clean now is left as a good file.
+		let up = upgrade_dated(text, Some(SEP1), None, true);
+		assert!(
+			(up.current || up.ambiguous >= 1) && up.text == text,
+			"{text:?}: {up:?}"
+		);
+		let m = migrate_unstamped(text, Some("2.0"));
+		assert!(
+			m.ambiguous == 1 && m.unfinished && m.text == text,
+			"{text:?}: {m:?}"
+		);
+	}
+	// Whole pairs on each side, or no pair at all, split as 2.x read them.
+	for text in [
+		"k: `a`, `b`\n",
+		"k: f(a), g(b)\n",
+		"k: a), (b\n",
+		"k: it`s, b\n",
+	] {
+		let m = migrate_unstamped(text, Some("2.0"));
+		assert!(
+			m.ambiguous == 0 && m.text.starts_with("k: [\""),
+			"{text:?}: {m:?}"
+		);
+		let doc = Document::parse(&m.text);
+		assert_eq!(doc.read_string_array("k").value.len(), 2, "{text:?}: {m:?}");
+	}
+}
+
+/// A load that converts keeps the rest of the file converted and that line
+/// as typed, since nothing is written (2026111016205702).
+#[cfg_attr(miri, ignore = "reads a file, which Miri's isolation refuses")]
+#[test]
+fn a_load_converts_around_a_comma_that_cuts_a_pair() {
+	let _id = test_id("dfsj7");
+	let dir = scratch("cutpair");
+	let f = dir.join("f.shcl");
+	std::fs::write(&f, "a: x,y\nk: sma(close, 10)\n").unwrap();
+	let opts = LoadOptions {
+		keep_lines: false,
+		migrate: true,
+		from: Some("2.0"),
+	};
+	let (doc, _) =
+		Document::load_file_opts(f.to_str().unwrap(), Strictness::Standard, &opts).unwrap();
+	assert_eq!(doc.read_string_array("a").value, ["x", "y"]);
+	// Kept as typed, which these rules refuse.
+	assert!(
+		doc.diagnostics()
+			.iter()
+			.any(|d| d.code == "E026" && d.line == 2)
+	);
+	let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

@@ -549,6 +549,13 @@ H009|hint|2 plain blocks merged into one, so their children repeat
   a value, as in 'planet: Earth'. If arrays were meant, H001 has that
   advice. A schema's repeat bound above 1 on every child it names turns
   it off.
+H010|hint|a bare number in a selector picked by position, not by value
+  A bare number in a selector is an index, so node(2) is the third
+  'node', counting from 0. When another 'node' has the value 2, the line
+  binds under the third one, which may not be the one meant. Quote the
+  number, as in node("2"), to pick the instance whose value is 2. Keep
+  it bare to pick by position. A lookup path reads the same way, and
+  get, count, instances and children print this hint for one on stderr.
 V001|error|unknown field
   No schema path matches it. Only the topmost unknown node is reported,
   and its subtree is skipped. The prose has the did-you-mean suggestion.
@@ -825,6 +832,37 @@ def refuse_read_path(path):
 		return False
 	sys.stderr.write(f"bad PATH ({bad_path(path)}): {path} (see --help)\n")
 	return True
+
+
+def say_index_hints(doc, path):
+	# H010 for a lookup path: a bare number in a selector picks an instance by
+	# position, where another instance has the number as its value. A library
+	# lookup has nowhere to say so, so the CLI does (2026110217340701). The
+	# offsets are byte offsets, so the slices are made on the bytes.
+	tok = shcl.Tokens()
+	shcl.tokenize(path, ":", True, shcl.Rules.Current, tok)
+	src = tok.src
+	for seg in tok.segments:
+		sel = seg.selector
+		if sel is None or sel.quote is not shcl.Quote.None_:
+			continue
+		digits = src[sel.start : sel.end].removeprefix(b"+")
+		if not digits or any(c < 0x30 or c > 0x39 for c in digits):
+			continue
+		# Past 20 digits it can't fit u64, and int() refuses a long enough run.
+		digits = digits.lstrip(b"0") or b"0"
+		if len(digits) > 20:
+			continue
+		n = int(digits)
+		k = src.find(b")", sel.end)
+		if n > 0xFFFFFFFFFFFFFFFF or k < 0:
+			continue
+		by_index = src[: k + 1].decode("utf-8", "surrogatepass")
+		by_value = (src[: sel.start] + b'"%d"' % n + src[sel.end : k + 1]).decode("utf-8", "surrogatepass")
+		a, b = doc.read_line(by_index), doc.read_line(by_value)
+		if a.status is shcl.Status.Good and b.status is shcl.Status.Good and a.value != b.value:
+			name = src[seg.name.start : seg.name.end].decode("utf-8", "surrogatepass")
+			sys.stderr.write(f"{path}: Hint: H010 index {n} picks a '{name}' by position, not the one whose value is {n}; write (\"{n}\") to pick that one by value\n")
 
 
 def split_set(arg):
@@ -1603,6 +1641,7 @@ def do_get(o):
 		return EXIT_IO
 	if doc is None:
 		return code
+	say_index_hints(doc, path)
 	if o.array:
 		if o.kind == "int":
 			r = doc.read_int_array(path)
@@ -1860,6 +1899,12 @@ def rewritten_lines(before, after):
 	return [i + 1 for i, (x, y) in enumerate(zip(b.split("\n"), after.split("\n"))) if x.rstrip("\r") != y.rstrip("\r")]
 
 
+def say_split_pairs(file, count, outcome):
+	# What ambiguous counts once --from has said the file is 2.x: comma lists
+	# 2.x split inside a pair (2026111016205702).
+	sys.stderr.write(f"{file}: {count} value(s) have a comma inside a backtick, paren or bracket pair, which 2.x split there and nobody means; {outcome}\n")
+
+
 def do_migrate(o):
 	# A 2.x file rewritten for the current rules. The rewrite is text to text;
 	# the load after it is for the diagnostics and the save gate, the same
@@ -1897,7 +1942,11 @@ def do_migrate(o):
 		return 0
 	rc = 0
 	if m.ambiguous != 0:
-		sys.stderr.write(f"{file}: {m.ambiguous} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; left as written (--from=FORMAT rewrites them)\n")
+		# With --from, the only ones left are commas inside a pair.
+		if o.from_ is not None:
+			say_split_pairs(file, m.ambiguous, "left as written")
+		else:
+			sys.stderr.write(f"{file}: {m.ambiguous} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for, or have a comma inside a backtick, paren or bracket pair; left as written (--from=FORMAT rewrites them)\n")
 		rc = 7
 	if m.lost != 0:
 		sys.stderr.write(f"{file}: {m.lost} line(s) bound a value under 2.x that nothing binds now: bracket text after the colon, a selector with a comma, a comma list with lines under it, or a quoted name with a backslash escape (--lossy overrides)\n")
@@ -2038,7 +2087,10 @@ def do_upgrade(o):
 		except shcl.UpgradeError as e:
 			say_diagnostics_from("", shcl.upgrade_dated(text, mtime, o.from_, True).diagnostics)
 			if isinstance(e, shcl.UpgradeAmbiguous):
-				sys.stderr.write(f"{e} (--from=FORMAT rewrites them)\n")
+				if o.from_ is not None:
+					say_split_pairs(file, e.count, "nothing written")
+				else:
+					sys.stderr.write(f"{e} (--from=FORMAT rewrites them)\n")
 				return 7
 			sys.stderr.write(f"{e}\n")
 			return 7 if isinstance(e, shcl.UpgradeErrorsLeft) else EXIT_IO
@@ -2054,7 +2106,10 @@ def do_upgrade(o):
 		return 0
 	say_diagnostics_from("", up.diagnostics)
 	if up.ambiguous != 0:
-		sys.stderr.write(f"{shcl.UpgradeAmbiguous(file, up.ambiguous)} (--from=FORMAT rewrites them)\n")
+		if o.from_ is not None:
+			say_split_pairs(file, up.ambiguous, "nothing written")
+		else:
+			sys.stderr.write(f"{shcl.UpgradeAmbiguous(file, up.ambiguous)} (--from=FORMAT rewrites them)\n")
 		return 7
 	if up.errors_left:
 		sys.stderr.write(f"{shcl.UpgradeErrorsLeft(file, up.errors_left)}\n")
@@ -2736,6 +2791,7 @@ def do_enum(o, want_count):
 		return EXIT_IO
 	if doc is None:
 		return code
+	say_index_hints(doc, path)
 	if want_count:
 		print(doc.count(path))
 	elif o.json or o.paths:
@@ -2821,6 +2877,7 @@ def do_children(o):
 		return EXIT_IO
 	if doc is None:
 		return code
+	say_index_hints(doc, path)
 	if o.json:
 		r = doc.read_child_fields(path)
 		if r.status != shcl.Status.Good:

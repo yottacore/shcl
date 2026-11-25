@@ -707,6 +707,13 @@ H009|hint|2 plain blocks merged into one, so their children repeat
   a value, as in 'planet: Earth'. If arrays were meant, H001 has that
   advice. A schema's repeat bound above 1 on every child it names turns
   it off.
+H010|hint|a bare number in a selector picked by position, not by value
+  A bare number in a selector is an index, so node(2) is the third
+  'node', counting from 0. When another 'node' has the value 2, the line
+  binds under the third one, which may not be the one meant. Quote the
+  number, as in node(\"2\"), to pick the instance whose value is 2. Keep
+  it bare to pick by position. A lookup path reads the same way, and
+  get, count, instances and children print this hint for one on stderr.
 V001|error|unknown field
   No schema path matches it. Only the topmost unknown node is reported,
   and its subtree is skipped. The prose has the did-you-mean suggestion.
@@ -1039,6 +1046,40 @@ fn refuse_read_path(path: &str) -> bool {
 	}
 	errln!("bad PATH ({}): {} (see --help)", bad_path(path), path);
 	true
+}
+
+/// H010 for a lookup path: a bare number in a selector picks an instance by
+/// position, where another instance has the number as its value. A library
+/// lookup has nowhere to say so, so the CLI does (2026110217340701).
+fn say_index_hints(doc: &Document, path: &str) {
+	let mut tok = Tokens::default();
+	tokenize(path, b':', true, Rules::Current, &mut tok);
+	for seg in &tok.segments {
+		let Some(sel) = seg.selector.filter(|s| s.quote == Quote::None) else {
+			continue;
+		};
+		let body = &path[sel.start..sel.end];
+		let digits = body.strip_prefix('+').unwrap_or(body);
+		if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+			continue;
+		}
+		let (Ok(n), Some(k)) = (digits.parse::<u64>(), path[sel.end..].find(')')) else {
+			continue;
+		};
+		let end = sel.end + k + 1;
+		let by_value = format!("{}\"{}\"{}", &path[..sel.start], n, &path[sel.end..end]);
+		let (a, b) = (doc.read_line(&path[..end]), doc.read_line(&by_value));
+		if a.status == Status::Good && b.status == Status::Good && a.value != b.value {
+			errln!(
+				"{}: Hint: H010 index {} picks a '{}' by position, not the one whose value is {}; write (\"{}\") to pick that one by value",
+				path,
+				n,
+				&path[seg.name.start..seg.name.end],
+				n,
+				n
+			);
+		}
+	}
 }
 
 /// PATH=VALUE at the first `=` outside quotes and parens, so a selector
@@ -2291,6 +2332,7 @@ fn do_get(o: &Opts) -> u8 {
 		Ok(d) => d,
 		Err(code) => return code,
 	};
+	say_index_hints(&doc, path);
 	let (lines, status, slots): (Vec<String>, Status, Vec<Status>) = if o.array {
 		match o.kind {
 			Kind::Int => {
@@ -2657,6 +2699,15 @@ fn rewritten_lines(before: &str, after: &str) -> Vec<usize> {
 		.collect()
 }
 
+/// What `ambiguous` counts once --from has said the file is 2.x: comma lists
+/// 2.x split inside a pair (2026111016205702).
+fn split_pairs(file: &str, count: usize) -> String {
+	format!(
+		"{}: {} value(s) have a comma inside a backtick, paren or bracket pair, which 2.x split there and nobody means",
+		file, count
+	)
+}
+
 /// A 2.x file rewritten for the current rules. The rewrite is text to text;
 /// the load after it is for the diagnostics and the save gate, the same gate
 /// `fmt --write` goes through.
@@ -2708,11 +2759,16 @@ fn do_migrate(o: &Opts) -> u8 {
 	}
 	let mut rc = 0;
 	if m.ambiguous != 0 {
-		errln!(
-			"{}: {} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; left as written (--from=FORMAT rewrites them)",
-			file,
-			m.ambiguous
-		);
+		// With --from, the only ones left are commas inside a pair.
+		if o.from.is_some() {
+			errln!("{}; left as written", split_pairs(file, m.ambiguous));
+		} else {
+			errln!(
+				"{}: {} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for, or have a comma inside a backtick, paren or bracket pair; left as written (--from=FORMAT rewrites them)",
+				file,
+				m.ambiguous
+			);
+		}
 		rc = 7;
 	}
 	if m.lost != 0 {
@@ -2898,6 +2954,10 @@ fn do_upgrade(o: &Opts) -> u8 {
 					&upgrade_dated(&text, mtime, o.from.as_deref(), true).diagnostics,
 				);
 				return match e {
+					UpgradeError::Ambiguous { count, .. } if o.from.is_some() => {
+						errln!("{}; nothing written", split_pairs(file, count));
+						7
+					}
 					UpgradeError::Ambiguous { .. } => {
 						errln!("{} (--from=FORMAT rewrites them)", e);
 						7
@@ -2929,13 +2989,17 @@ fn do_upgrade(o: &Opts) -> u8 {
 	}
 	say_diagnostics_from("", &up.diagnostics);
 	if up.ambiguous != 0 {
-		errln!(
-			"{} (--from=FORMAT rewrites them)",
-			UpgradeError::Ambiguous {
-				path: file.clone(),
-				count: up.ambiguous
-			}
-		);
+		if o.from.is_some() {
+			errln!("{}; nothing written", split_pairs(file, up.ambiguous));
+		} else {
+			errln!(
+				"{} (--from=FORMAT rewrites them)",
+				UpgradeError::Ambiguous {
+					path: file.clone(),
+					count: up.ambiguous
+				}
+			);
+		}
 		return 7;
 	}
 	if !up.errors_left.is_empty() {
@@ -3724,6 +3788,7 @@ fn do_enum(o: &Opts, want_count: bool) -> u8 {
 		Ok(d) => d,
 		Err(code) => return code,
 	};
+	say_index_hints(&doc, path);
 	if want_count {
 		outln!("{}", doc.count(path));
 	} else if o.json || o.paths {
@@ -3832,6 +3897,7 @@ fn do_children(o: &Opts) -> u8 {
 		Ok(d) => d,
 		Err(code) => return code,
 	};
+	say_index_hints(&doc, path);
 	if o.json {
 		let r = doc.read_child_fields(path);
 		if r.status != Status::Good {

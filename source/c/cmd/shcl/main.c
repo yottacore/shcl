@@ -592,6 +592,13 @@ static const char *CODES =
 	"  a value, as in 'planet: Earth'. If arrays were meant, H001 has that\n"
 	"  advice. A schema's repeat bound above 1 on every child it names turns\n"
 	"  it off.\n"
+	"H010|hint|a bare number in a selector picked by position, not by value\n"
+	"  A bare number in a selector is an index, so node(2) is the third\n"
+	"  'node', counting from 0. When another 'node' has the value 2, the line\n"
+	"  binds under the third one, which may not be the one meant. Quote the\n"
+	"  number, as in node(\"2\"), to pick the instance whose value is 2. Keep\n"
+	"  it bare to pick by position. A lookup path reads the same way, and\n"
+	"  get, count, instances and children print this hint for one on stderr.\n"
 	"V001|error|unknown field\n"
 	"  No schema path matches it. Only the topmost unknown node is reported,\n"
 	"  and its subtree is skipped. The prose has the did-you-mean suggestion.\n"
@@ -1006,6 +1013,49 @@ static int refuse_read_path(const char *path, size_t plen) {
 	return 1;
 }
 
+// H010 for a lookup path: a bare number in a selector picks an instance by
+// position, where another instance has the number as its value. A library
+// lookup has nowhere to say so, so the CLI does (2026110217340701).
+static void say_index_hints(shcl_doc *d, const char *path) {
+	size_t plen = strlen(path);
+	ShclArena a; memset(&a, 0, sizeof a);
+	ShclTokens tok; memset(&tok, 0, sizeof tok);
+	ShclStr ps; ps.p = path; ps.n = plen;
+	tokenize(&a, ps, ':', 1, SHCL_RULES_CURRENT, &tok);
+	for (size_t i = 0; i < tok.nseg; i++) {
+		const ShclSegTok *seg = &tok.segments[i];
+		if (!seg->has_selector || seg->selector.quote != SHCL_QUOTE_NONE) continue;
+		size_t s = seg->selector.start, e = seg->selector.end;
+		if (s < e && path[s] == '+') s++;
+		int ok = s < e;
+		uint64_t n = 0;
+		for (size_t k = s; ok && k < e; k++) {
+			unsigned dig = (unsigned)(unsigned char)path[k] - '0';
+			if (dig > 9 || n > (UINT64_MAX - dig) / 10) ok = 0;
+			else n = n * 10 + dig;
+		}
+		const char *close = ok ? memchr(path + e, ')', plen - e) : NULL;
+		if (!close) continue;
+		size_t end = (size_t)(close - path) + 1, start = seg->selector.start;
+		char num[24];
+		snprintf(num, sizeof num, "%" PRIu64, n);
+		size_t nl = strlen(num), vl = start + nl + 2 + (end - e);
+		char *by_value = (char *)malloc(vl + 1);
+		if (!by_value) break;
+		memcpy(by_value, path, start);
+		by_value[start] = '"';
+		memcpy(by_value + start + 1, num, nl);
+		by_value[start + 1 + nl] = '"';
+		memcpy(by_value + start + 2 + nl, path + e, end - e);
+		by_value[vl] = '\0';
+		shcl_read_usize ra = shcl_read_line(d, path, end), rb = shcl_read_line(d, by_value, vl);
+		if (ra.status == SHCL_GOOD && rb.status == SHCL_GOOD && ra.value != rb.value)
+			fprintf(stderr, "%s: Hint: H010 index %s picks a '%.*s' by position, not the one whose value is %s; write (\"%s\") to pick that one by value\n", path, num, (int)(seg->name.end - seg->name.start), path + seg->name.start, num, num);
+		free(by_value);
+	}
+	arena_free(&a);
+}
+
 // PATH=VALUE at the first `=` outside quotes and parens, so a selector
 // holding one (`x(a=b).c=1`) still addresses its instance. The tokenizer reads
 // the path half with `=` as its separator, so quotes and parens mean here
@@ -1188,6 +1238,7 @@ static int do_get(Opts *o) {
 	LayeredDoc L; int gate = load_layered(o, file, &L);
 	if (gate) return gate;
 	shcl_doc *d = L.doc;
+	say_index_hints(d, path);
 
 	shcl_status status = SHCL_GOOD;
 	const shcl_status *slotSts = NULL; size_t nSlots = 0;
@@ -1536,6 +1587,12 @@ static size_t rewritten_lines(const char *file, const char *before, size_t blen,
 	return count;
 }
 
+// What ambiguous counts once --from has said the file is 2.x: comma lists
+// 2.x split inside a pair (2026111016205702).
+static void say_split_pairs(const char *file, size_t count, const char *outcome) {
+	fprintf(stderr, "%s: %zu value(s) have a comma inside a backtick, paren or bracket pair, which 2.x split there and nobody means; %s\n", file, count, outcome);
+}
+
 // A 2.x file rewritten for the current rules. The rewrite is text to text;
 // the load after it is for the diagnostics and the save gate, the same gate
 // `fmt --write` goes through.
@@ -1587,7 +1644,9 @@ static int do_migrate(const Opts *o) {
 		return 0;
 	}
 	if (m.ambiguous) {
-		fprintf(stderr, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; left as written (--from=FORMAT rewrites them)\n", file, m.ambiguous);
+		// With --from, the only ones left are commas inside a pair.
+		if (o->from) say_split_pairs(file, m.ambiguous, "left as written");
+		else fprintf(stderr, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for, or have a comma inside a backtick, paren or bracket pair; left as written (--from=FORMAT rewrites them)\n", file, m.ambiguous);
 		rc = 7;
 	}
 	if (m.lost) {
@@ -1717,8 +1776,10 @@ static int do_upgrade(const Opts *o) {
 		if (e != SHCL_UPGRADE_OK) {
 			shcl_upgraded found = shcl_upgrade_dated(text, len, mtime, o->from, 1);
 			say_diagnostics_from("", found.diagnostics);
+			size_t split = found.ambiguous;
 			shcl_upgraded_free(&found);
-			if (e == SHCL_UPGRADE_AMBIGUOUS) fprintf(stderr, "%s (--from=FORMAT rewrites them)\n", why);
+			if (e == SHCL_UPGRADE_AMBIGUOUS && o->from) say_split_pairs(file, split, "nothing written");
+			else if (e == SHCL_UPGRADE_AMBIGUOUS) fprintf(stderr, "%s (--from=FORMAT rewrites them)\n", why);
 			else fprintf(stderr, "%s\n", why);
 			free(why);
 			free(text);
@@ -1742,7 +1803,8 @@ static int do_upgrade(const Opts *o) {
 	}
 	say_diagnostics_from("", up.diagnostics);
 	if (up.ambiguous != 0) {
-		fprintf(stderr, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; nothing written (--from=FORMAT rewrites them)\n", file, up.ambiguous);
+		if (o->from) say_split_pairs(file, up.ambiguous, "nothing written");
+		else fprintf(stderr, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for, or have a comma inside a backtick, paren or bracket pair; nothing written (--from=FORMAT rewrites them)\n", file, up.ambiguous);
 		shcl_upgraded_free(&up);
 		return 7;
 	}
@@ -2385,6 +2447,7 @@ static int do_enum(Opts *o, int want_count) {
 	LayeredDoc L; int gate = load_layered(o, file, &L);
 	if (gate) return gate;
 	shcl_doc *d = L.doc;
+	say_index_hints(d, path);
 	int rc = 0;
 	if (want_count) printf("%zu\n", shcl_count(d, path, plen));
 	else if (o->json || o->paths) {
@@ -2610,6 +2673,7 @@ static int do_children(Opts *o) {
 	if (*path && refuse_read_path(path, strlen(path))) return 1;
 	LayeredDoc L; int gate = load_layered(o, file, &L);
 	if (gate) return gate;
+	say_index_hints(L.doc, path);
 	int rc = 0;
 	if (o->json) {
 		shcl_read_field_list fl = shcl_read_child_fields(L.doc, path, strlen(path));

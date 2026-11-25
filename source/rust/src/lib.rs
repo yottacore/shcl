@@ -3066,9 +3066,11 @@ pub struct Migration {
 	/// an escape, runs of lines one rule set reads as a raw body and the
 	/// other as fields, and a raw body 1.0 to 2.0 read with its shared indent
 	/// taken off or closed early, which nothing can decide between, left as
-	/// written.
-	/// Always 0 when the caller said the file is 2.x. A backslash pair 2.x
-	/// resolved is one of them, as in `"C:\\new"`.
+	/// written. A backslash pair 2.x resolved is one of them, as in
+	/// `"C:\\new"`. Also a comma list whose commas cut a backtick, paren or
+	/// bracket pair in 2, such as `sma(close, 10)`, which 2.x split and nobody
+	/// meant split. That is the only kind when the caller said the file is 2.x,
+	/// and then `text` is the input.
 	pub ambiguous: usize,
 	/// Lines 2.x bound a value on that nothing binds now, since there is no
 	/// 3.0 spelling to move to: bracket text after the colon, a selector
@@ -3587,7 +3589,9 @@ fn first_rewrite(format: Option<&str>) -> Option<Step> {
 /// is. `told` says a caller named the format, so every rewrite is made.
 fn convert(text: &str, format: Option<&str>, told: bool) -> Migration {
 	match first_rewrite(format) {
-		Some(step @ (Step::V2(_) | Step::Pin(_))) => migrate_text(text, told, false, false, step),
+		Some(step @ (Step::V2(_) | Step::Pin(_))) => {
+			migrate_text(text, told, false, false, step, false)
+		}
 		Some(Step::Same) | None => Migration {
 			text: text.to_string(),
 			current: true,
@@ -4034,7 +4038,7 @@ fn migrate_from(text: &str, from: Option<&str>, stamp: bool) -> Migration {
 	if matches!(step, Step::Pin(_)) && names_this(&read_format_version(text)) {
 		return convert(text, None, true);
 	}
-	migrate_text(text, told.is_some(), stamp, false, step)
+	migrate_text(text, told.is_some(), stamp, false, step, true)
 }
 
 /// The line ending most of the text's lines end with. A tie goes to LF.
@@ -4231,8 +4235,17 @@ fn v2_fold_scalars(text: &str) -> Option<(String, Vec<usize>)> {
 /// asks for, once the caller has said so. `step` is the one the text's format
 /// starts with, and says which rules it was written by: a pin's, for a file
 /// found to be in one of those formats, whatever its Format line says, or
-/// 2.x's. `Same` doesn't come here.
-fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool, step: Step) -> Migration {
+/// 2.x's. `Same` doesn't come here. `keep_whole` hands back the input untouched
+/// when a comma inside a pair is left for a look in a file known to be old,
+/// for `migrate`, whose text a caller writes.
+fn migrate_text(
+	text: &str,
+	from_v2: bool,
+	stamp: bool,
+	beta: bool,
+	step: Step,
+	keep_whole: bool,
+) -> Migration {
 	let (pin, v2) = match step {
 		Step::Pin(p) => (Some(p), V2Read::Either),
 		Step::V2(v) => (None, v),
@@ -4393,6 +4406,19 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool, beta: bool, step: Step) 
 	// block's content. The lines end the way most of the file's do. An older
 	// Format line becomes this one where it is, so the file names one format.
 	let unfinished = st.ambiguous > 0 || fence.is_some() || now.fence.is_some();
+	// Told the file is 2.x, only a comma inside a pair is left for a look,
+	// and the rest rewritten without a stamp would be rewritten again on the
+	// next run. So nothing is. A load reads the rest converted.
+	if keep_whole && st.from_v2 && st.ambiguous > 0 {
+		return Migration {
+			text: text.to_string(),
+			current: false,
+			ambiguous: st.ambiguous,
+			lost: st.lost,
+			unfinished: true,
+			bad_from: false,
+		};
+	}
 	if stamp && !unfinished {
 		let eol = majority_eol(body_text);
 		let restamped = version.and_then(|_| restamp(&out, named.line));
@@ -4563,11 +4589,12 @@ pub fn upgrade_dated(text: &str, mtime: Option<i64>, from: Option<&str>, banner:
 	{
 		return up;
 	}
-	let m = migrate_text(text, told, false, true, step);
+	let m = migrate_text(text, told, false, true, step, false);
 	// A 2.x file can load clean and still read differently now, as `a,b`
 	// does. One migrate leaves as it was has nothing to do, but an older
 	// Format line, which would keep the load's H007 hint, becomes this one.
-	if clean && m.text == text {
+	// One it left for a look isn't done.
+	if clean && m.text == text && m.ambiguous == 0 {
 		if let Some(t) = version
 			.filter(|v| *v < FORMAT_MAJOR)
 			.and_then(|_| restamp(text, named.line))
@@ -4925,6 +4952,49 @@ fn v2_array_text(text: &str, tok: &Tokens, st: &Migrating) -> String {
 	out
 }
 
+/// True when a 2.x comma list's commas cut a backtick pair, or a paren,
+/// bracket or brace pair, in 2, as in `` `select a, b` `` or `sma(close, 10)`.
+/// Only bare elements count, and a quoted one between keeps the pair open.
+fn v2_split_cuts_pair(text: &str, tok: &Tokens) -> bool {
+	// The element each open mark sits in.
+	let mut tick: Option<usize> = None;
+	let mut open: Vec<(u8, usize)> = Vec::new();
+	for (k, p) in tok.elements.iter().enumerate() {
+		if p.quote != Quote::None {
+			continue;
+		}
+		for &b in &text.as_bytes()[p.start..p.end] {
+			let shut = match b {
+				b'`' => {
+					match tick.take() {
+						Some(at) if at < k => return true,
+						Some(_) => {}
+						None => tick = Some(k),
+					}
+					continue;
+				}
+				b'(' | b'[' | b'{' => {
+					open.push((b, k));
+					continue;
+				}
+				b')' => b'(',
+				b']' => b'[',
+				b'}' => b'{',
+				_ => continue,
+			};
+			if let Some(&(o, at)) = open.last()
+				&& o == shut
+			{
+				if at < k {
+					return true;
+				}
+				open.pop();
+			}
+		}
+	}
+	false
+}
+
 /// One 2.x element, as the text 2.x read, the way the writer writes it,
 /// unless its quoted spelling already reads the same.
 fn v2_element_text(text: &str, p: &Piece, st: &Migrating) -> String {
@@ -5187,9 +5257,13 @@ fn migrate_line(
 			}
 			match tok.sep {
 				Some(sep) if tok.elements.len() > 1 => {
-					// A file that does not say it is 2.x could be a 3.0 one, where
-					// `a,b` is a string. `a, b` is an error there, so it is safe.
-					if st.from_v2 || !reads_clean_now(rest, sep + 1) {
+					// 2.x split `sma(close, 10)` in 2, but nobody means half a
+					// pair, so it waits for a look whatever the file is. A file
+					// that does not say it is 2.x could be a 3.0 one, where `a,b`
+					// is a string. `a, b` is an error there, so it is safe.
+					if v2_split_cuts_pair(rest, tok) {
+						st.ambiguous += 1;
+					} else if st.from_v2 || !reads_clean_now(rest, sep + 1) {
 						let kept = tok.element_count();
 						// Only empty slots, which 2.x dropped: an empty value.
 						if kept == 0 {
@@ -5275,6 +5349,18 @@ fn index_shape(body: &str) -> bool {
 /// `as` cast would wrap into a live element on a 32-bit build.
 fn index_usize(k: u64) -> Option<usize> {
 	usize::try_from(k).ok()
+}
+
+/// The `H010` text: an index picked an instance by position where another
+/// instance has the index as its value (2026110217340701).
+fn index_not_value(n: u64, name: &str) -> String {
+	format!(
+		"index {} picks a '{}' by position, not the one whose value is {}; write (\"{}\") to pick that one by value",
+		n,
+		diag_name(name),
+		n,
+		n
+	)
 }
 
 /// The `E003` text for the index segment at `at`: the index as written, as
@@ -7050,6 +7136,20 @@ impl<'a> Parser<'a> {
 							.nth(i)
 					});
 					if let Some(found) = found {
+						// A bare number picks by position, so where another
+						// instance has it as its value, that may be the one
+						// meant (H010).
+						if self
+							.find_by_value(cur, &seg.name, &n.to_string())
+							.is_some_and(|named| named != found)
+						{
+							self.diag(Diagnostic {
+								line,
+								severity: Severity::Hint,
+								message: index_not_value(n, &seg.name),
+								code: "H010",
+							});
+						}
 						cur = found;
 						// A field through an index onto an array line goes as
 						// one on the line under `srv(0):` does (E028).
@@ -11559,7 +11659,9 @@ pub enum UpgradeError {
 	/// Nothing at the path.
 	NotFound(String),
 	/// The file does not say which rules it was written for, and some of it
-	/// reads two ways (`Upgrade::ambiguous`); `from` settles it.
+	/// reads two ways (`Upgrade::ambiguous`); `from` settles it. Or a comma
+	/// sits inside a backtick, paren or bracket pair, which 2.x split there,
+	/// and only a look settles that.
 	Ambiguous { path: String, count: usize },
 	/// Something is already at the backup's name. It is never written over.
 	BackupTaken(String),
@@ -11578,7 +11680,7 @@ impl std::fmt::Display for UpgradeError {
 			UpgradeError::NotFound(path) => write!(f, "{}: no such file", path),
 			UpgradeError::Ambiguous { path, count } => write!(
 				f,
-				"{}: {} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; nothing written",
+				"{}: {} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for, or have a comma inside a backtick, paren or bracket pair; nothing written",
 				path, count
 			),
 			UpgradeError::BackupTaken(name) => write!(

@@ -858,9 +858,11 @@ int shcl_known_format(const char *name);
 // both rule sets read cleanly and differently, such as `a,b` or an escape,
 // runs of lines one rule set reads as a raw body and the other as fields, and
 // a raw body 1.0 to 2.0 read with its shared indent taken off or closed early,
-// which nothing can decide between, left as written; always 0 when from
-// named the file's format. A backslash pair 2.x resolved is one of them, as in
-// `"C:\\new"`. lost: lines 2.x bound a value on that nothing binds now, since
+// which nothing can decide between, left as written. A backslash pair 2.x
+// resolved is one of them, as in `"C:\\new"`. Also a comma list whose commas
+// cut a backtick, paren or bracket pair in 2, such as `sma(close, 10)`, which
+// 2.x split and nobody meant split. That is the only kind when from named the
+// file's format, and then text is the input. lost: lines 2.x bound a value on that nothing binds now, since
 // there is no 3.0 spelling to move to: bracket text after the colon, a
 // selector holding a comma, which matched an array value, and a comma list
 // with lines under it (E028 in brackets). Also a quoted name with a backslash
@@ -1044,7 +1046,7 @@ char *shcl_backup_file_name(const char *file, uint32_t format);
 typedef enum {
 	SHCL_UPGRADE_OK,
 	SHCL_UPGRADE_NOT_FOUND,    // nothing at the path
-	SHCL_UPGRADE_AMBIGUOUS,    // the file does not say which rules it was written for, and some of it reads two ways; from settles it
+	SHCL_UPGRADE_AMBIGUOUS,    // the file does not say which rules it was written for, and some of it reads two ways; from settles it. Or a comma sits inside a backtick, paren or bracket pair, which 2.x split there, and only a look settles that
 	SHCL_UPGRADE_BACKUP_TAKEN, // something is already at the backup's name; it is never written over
 	SHCL_UPGRADE_IO,           // a read or write failed; the message names the file, and *why says why
 	SHCL_UPGRADE_ERRORS_LEFT,  // with from, the fresh text would still have an error on the lines errors_left names
@@ -3625,7 +3627,7 @@ typedef struct { ShclStepKind kind; ShclPin pin; ShclV2Read v2; } ShclStep;
    bracketed: the line just rewritten put a 2.x comma list in brackets.
    refused_now: these rules refuse the line about to be rewritten, so it is
    not a correct 3.0 line, whatever the file is. */
-typedef struct { ShclLex rules; ShclPin pin; ShclV2Read v2; int from_v2; size_t ambiguous; size_t lost; int bracketed; int refused_now; int unfinished; } ShclMigrating;
+typedef struct { ShclLex rules; ShclPin pin; ShclV2Read v2; int from_v2; size_t ambiguous; size_t lost; int bracketed; int refused_now; int unfinished; int keep_whole; } ShclMigrating;
 
 /* The character a `\u` or `\U` escape names under 3.0-b10 to 3.0-a37 in *cp,
    and how many hex digits it takes in *len: 4 after `u`, 8 after `U`. 0 for a
@@ -3775,6 +3777,42 @@ static void value_edits(ShclArena *a, ShclStr text, const ShclTokens *tok, ShclV
 		if (reads_same(a, s_slice(text, ea, eb), quoted, logical)) continue;
 		edit_push(a, edits, ea, eb, migrate_spelling(a, logical, !(quoted || p->quote == SHCL_QUOTE_OPEN)));
 	}
+}
+
+/* True when a 2.x comma list's commas cut a backtick pair, or a paren,
+   bracket or brace pair, in 2, as in `` `select a, b` `` or `sma(close, 10)`.
+   Only bare elements count, and a quoted one between keeps the pair open. */
+static int v2_split_cuts_pair(ShclArena *a, ShclStr text, const ShclTokens *tok) {
+	/* The element each open mark sits in. A pair's open mark goes on the
+	   stack as its element times 4, plus 1 to 3 for which pair. */
+	size_t tick = 0;
+	int ticking = 0;
+	ShclVecSize open = {0};
+	for (size_t k = 0; k < tok->nelem; k++) {
+		const ShclPiece *p = &tok->elements[k];
+		if (p->quote != SHCL_QUOTE_NONE) continue;
+		for (size_t j = p->start; j < p->end; j++) {
+			const char *pairs = "([{)]}";
+			const char *hit = text.p[j] ? strchr(pairs, text.p[j]) : NULL;
+			if (text.p[j] == '`') {
+				if (!ticking) { ticking = 1; tick = k; }
+				else if (tick < k) return 1;
+				else ticking = 0;
+				continue;
+			}
+			if (!hit) continue;
+			size_t kind = (size_t)(hit - pairs) % 3 + 1;
+			if (hit - pairs < 3) {
+				ShclVecSize_push(a, &open, k * 4 + kind);
+				continue;
+			}
+			if (open.len && open.data[open.len - 1] % 4 == kind) {
+				if (open.data[open.len - 1] / 4 < k) return 1;
+				open.len--;
+			}
+		}
+	}
+	return 0;
 }
 
 /* One 2.x element, as the text 2.x read, the way the writer writes it,
@@ -3984,9 +4022,12 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 			ShclFence vf = fence_open(s_slice(rest, tok->value_start, rest.n));
 			if (vf.ok) { *fence_on = 1; *fence_ch = vf.ch; *fence_len = vf.len; return s_splice(a, rest, &edits); }
 			if (tok->nelem > 1) {
-				/* A file that does not say it is 2.x could be a 3.0 one, where
-				   `a,b` is a string. `a, b` is an error there, so it is safe. */
-				if (st->from_v2 || !reads_clean_now(a, rest, tok->sep + 1)) {
+				/* 2.x split `sma(close, 10)` in 2, but nobody means half a
+				   pair, so it waits for a look whatever the file is. A file
+				   that does not say it is 2.x could be a 3.0 one, where `a,b`
+				   is a string. `a, b` is an error there, so it is safe. */
+				if (v2_split_cuts_pair(a, rest, tok)) st->ambiguous++;
+				else if (st->from_v2 || !reads_clean_now(a, rest, tok->sep + 1)) {
 					size_t kept = shcl_tokens_element_count(tok);
 					/* Only empty slots, which 2.x dropped: an empty value. */
 					if (kept == 0) edit_push(a, &edits, tok->sep + 1, tok->value_end, s_empty());
@@ -4698,6 +4739,10 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
 	   block's content. The lines end the way most of the file's do. An older
 	   Format line becomes this one where it is, so the file names one format. */
 	st->unfinished = st->ambiguous > 0 || fence_on || now.fence_on;
+	/* Told the file is 2.x, only a comma inside a pair is left for a look,
+	   and the rest rewritten without a stamp would be rewritten again on the
+	   next run. So nothing is. A load reads the rest converted. */
+	if (st->keep_whole && st->from_v2 && st->ambiguous > 0) return whole;
 	if (stamp && !st->unfinished) {
 		const char *eol = majority_eol(text);
 		ShclSB re;
@@ -4742,7 +4787,7 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
    step is the one the text's format starts with, and says which rules it was
    written by: a pin's, for a file found to be in one of those formats,
    whatever its Format line says, or 2.x's. SAME doesn't come here. */
-static shcl_migration migrate_text(const char *text, size_t len, int from_v2, int stamp, int beta, ShclStep step, jmp_buf *outer) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order; each caller is a named wrapper
+static shcl_migration migrate_text(const char *text, size_t len, int from_v2, int stamp, int beta, ShclStep step, int keep_whole, jmp_buf *outer) { // NOLINT(bugprone-easily-swappable-parameters): the Rust twin's order; each caller is a named wrapper
 	SHCL_VOLATILE_OWNER_BEGIN
 	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
 	if (!own) arena_panic(outer);
@@ -4764,6 +4809,7 @@ static shcl_migration migrate_text(const char *text, size_t len, int from_v2, in
 	st.pin = pinned ? step.pin : SHCL_PIN_FROM_A37;
 	st.v2 = step.kind == SHCL_STEP_V2 ? step.v2 : SHCL_V2_EITHER;
 	st.from_v2 = from_v2 || pinned;
+	st.keep_whole = keep_whole;
 	shcl_migration m; memset(&m, 0, sizeof m);
 	ShclStr r = migrate(own, in, &st, &m.current, stamp, beta);
 	m.ambiguous = st.ambiguous; m.lost = st.lost; m.unfinished = st.unfinished; m.len = r.n;
@@ -4848,7 +4894,7 @@ static shcl_migration migrate_from(const char *text, size_t len, const char *fro
 		if (step.kind == SHCL_STEP_SAME) return migration_as_is(text, len);
 	}
 	if (step.kind == SHCL_STEP_PIN && names_this(stamp_of(text, len))) return migration_as_is(text, len);
-	return migrate_text(text, len, told, stamp, 0, step, NULL);
+	return migrate_text(text, len, told, stamp, 0, step, 1, NULL);
 }
 
 shcl_migration shcl_migrate(const char *text, size_t len, const char *from) {
@@ -4956,13 +5002,13 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 		   upgrade writes, so a second run over it with the same from leaves
 		   it alone. */
 		if (!clean || ((pinned || (told && version != SHCL_FORMAT_MAJOR)) && !(told && names_this(named)))) {
-			m = migrate_text(text, len, told, 0, 1, step, panic);
+			m = migrate_text(text, len, told, 0, 1, step, 0, panic);
 			own->migrated = m.text;
 			/* A 2.x file can load clean and still read differently now, as
 			   `a,b` does. One migrate leaves as it was has nothing to do, but an
 			   older Format line, which would keep the load's H007 hint, becomes
-			   this one. */
-			if (!clean || m.len != len || (len && memcmp(m.text, text, len) != 0)) {
+			   this one. One it left for a look isn't done. */
+			if (!clean || m.ambiguous || m.len != len || (len && memcmp(m.text, text, len) != 0)) {
 				up->current = 0;
 				up->ambiguous = m.ambiguous;
 			} else if (version >= 0) {
@@ -7299,6 +7345,18 @@ static int attach_path(ShclParser *P, size_t parent, ShclSegment *segs, size_t n
 				nth++;
 			}
 			if (found != (size_t)-1) {
+				/* A bare number picks by position, so where another instance
+				   has it as its value, that may be the one meant (H010). */
+				ShclSB nb = {0}; sb_put_u64(P->line, &nb, seg->sel.index);
+				size_t named = find_by_value(P, cur, seg->name, sb_S(&nb));
+				if (named != (size_t)-1 && named != found) {
+					ShclSB m = {0};
+					sb_puts(P->line, &m, "index "); sb_putS(P->line, &m, sb_S(&nb));
+					sb_puts(P->line, &m, " picks a '"); sb_putS(P->line, &m, diag_name(P->line, seg->name));
+					sb_puts(P->line, &m, "' by position, not the one whose value is "); sb_putS(P->line, &m, sb_S(&nb));
+					sb_puts(P->line, &m, "; write (\""); sb_putS(P->line, &m, sb_S(&nb)); sb_puts(P->line, &m, "\") to pick that one by value");
+					p_diag(P, line, SHCL_SEV_HINT, "H010", sb_S(&m));
+				}
 				cur = found;
 				/* A field through an index onto an array line goes as one on
 				   the line under `srv(0):` does (E028). */
@@ -17030,7 +17088,7 @@ static int s_something_at(const char *path) {
    malloc'd, and the caller frees it. */
 static shcl_migration s_convert(const char *text, size_t len, const char *format, int told) {
 	ShclStep step = s_first_rewrite(format);
-	if (step.kind != SHCL_STEP_SAME) return migrate_text(text, len, told, 0, 0, step, NULL);
+	if (step.kind != SHCL_STEP_SAME) return migrate_text(text, len, told, 0, 0, step, 0, NULL);
 	return migration_as_is(text, len);
 }
 
@@ -17422,7 +17480,7 @@ shcl_upgrade_error shcl_upgrade_file(const char *path, const char *from, int ban
 	if (up.current) { // NOLINT(bugprone-branch-clone): already current and just written both hand the result back
 		*out = up;
 	} else if (up.ambiguous != 0) {
-		r = upgrade_fail(message, SHCL_UPGRADE_AMBIGUOUS, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; nothing written", path, up.ambiguous);
+		r = upgrade_fail(message, SHCL_UPGRADE_AMBIGUOUS, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for, or have a comma inside a backtick, paren or bracket pair; nothing written", path, up.ambiguous);
 		out->ambiguous = up.ambiguous;
 		shcl_upgraded_free(&up);
 	} else if (up.errors_left_n) {

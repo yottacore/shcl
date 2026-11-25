@@ -6990,6 +6990,66 @@ int main(int argc, char **argv) {
 		if (up.ambiguous != 0 || up.len < strlen(head) || memcmp(up.text, head, strlen(head)) != 0) fail("upgrade_ambiguous", up.text);
 		shcl_upgraded_free(&up);
 	}
+	test_id("dfshz", "a_comma_that_cuts_a_pair_in_2_waits_for_a_look");
+	{
+		/* 2.x split these at the comma, but nobody meant half a pair, so with
+		   or without from nothing is written (2026111016205702). */
+		static const char *const cut[] = {
+			"query: `select a, b from t`\n",
+			"k: sma(close, 10)\n",
+			"k: f[a, b]\n",
+			"k: {a, b}\n",
+			"k: f(a, \"b\", c)\n",
+			/* With from, the lines around it aren't rewritten either. */
+			"a: x,y\nk: sma(close, 10)\n",
+		};
+		for (size_t i = 0; i < sizeof cut / sizeof cut[0]; i++) {
+			size_t n = strlen(cut[i]);
+			shcl_upgraded up = shcl_upgrade(cut[i], n, "2.0", 1);
+			if (up.current || up.ambiguous != 1 || !up_is(&up, cut[i])) fail("upgrade_cut_pair", cut[i]);
+			shcl_upgraded_free(&up);
+			/* Without, one that loads clean now is left as a good file. */
+			up = shcl_upgrade_dated(cut[i], n, &up_sep1, NULL, 1);
+			if (!(up.current || up.ambiguous >= 1) || !up_is(&up, cut[i])) fail("upgrade_cut_pair", cut[i]);
+			shcl_upgraded_free(&up);
+			shcl_migration m = shcl_migrate_unstamped(cut[i], n, "2.0");
+			if (m.ambiguous != 1 || !m.unfinished || m.len != n || memcmp(m.text, cut[i], n) != 0) fail("upgrade_cut_pair", cut[i]);
+			free(m.text);
+		}
+		/* Whole pairs on each side, or no pair at all, split as 2.x read
+		   them. */
+		static const char *const whole[] = {"k: `a`, `b`\n", "k: f(a), g(b)\n", "k: a), (b\n", "k: it`s, b\n"};
+		for (size_t i = 0; i < sizeof whole / sizeof whole[0]; i++) {
+			shcl_migration m = shcl_migrate_unstamped(whole[i], strlen(whole[i]), "2.0");
+			if (m.ambiguous != 0 || m.len < 5 || memcmp(m.text, "k: [\"", 5) != 0) fail("upgrade_cut_pair", whole[i]);
+			shcl_doc *d = shcl_parse(m.text, m.len);
+			shcl_read_str_arr r = shcl_read_string_array(d, "k", 1);
+			if (r.n != 2) fail("upgrade_cut_pair", m.text);
+			shcl_free(d);
+			free(m.text);
+		}
+	}
+	test_id("dfsja", "a_load_converts_around_a_comma_that_cuts_a_pair");
+	{
+		/* A load that converts keeps the rest of the file converted and that
+		   line as typed, since nothing is written (2026111016205702). */
+		char cdir[256], f[320];
+		up_dir(cdir, sizeof cdir, "cutpair");
+		snprintf(f, sizeof f, "%s/f.shcl", cdir);
+		put_file(f, "a: x,y\nk: sma(close, 10)\n");
+		shcl_load_options opts = {0};
+		opts.migrate = 1;
+		opts.from = "2.0";
+		shcl_doc *doc = shcl_load_file_opts(f, SHCL_STANDARD, opts, NULL);
+		shcl_read_str_arr r = shcl_read_string_array(doc, "a", 1);
+		if (r.n != 2 || r.values[0].n != 1 || r.values[0].p[0] != 'x' || r.values[1].n != 1 || r.values[1].p[0] != 'y') fail("load_cut_pair", "a is not [x, y]");
+		/* Kept as typed, which these rules refuse. */
+		int kept = 0;
+		for (size_t i = 0; i < shcl_diag_count(doc); i++) kept |= shcl_diag_line(doc, i) == 2 && !strcmp(shcl_diag_code(doc, i), "E026");
+		if (!kept) fail("load_cut_pair", "no E026 on line 2");
+		shcl_free(doc);
+		dir_clear(cdir);
+	}
 	test_id("ddmmm", "backup_name_puts_the_tag_before_the_extension");
 	{
 		static const struct { const char *file; uint32_t format; const char *want; } bn[] = {

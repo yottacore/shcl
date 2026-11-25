@@ -3321,8 +3321,11 @@ type Migration struct {
 	// `a,b` or an escape, runs of lines one rule set reads as a raw body and
 	// the other as fields, and a raw body 1.0 to 2.0 read with its shared
 	// indent taken off or closed early, which nothing can decide between, left
-	// as written. Always 0 when the caller said the file is 2.x. A backslash pair
-	// 2.x resolved is one of them, as in `"C:\\new"`.
+	// as written. A backslash pair 2.x resolved is one of them, as in
+	// `"C:\\new"`. Also a comma list whose commas cut a backtick, paren or
+	// bracket pair in 2, such as `sma(close, 10)`, which 2.x split and nobody
+	// meant split. That is the only kind when the caller said the file is 2.x,
+	// and then Text is the input.
 	Ambiguous int
 	// Lost: lines 2.x bound a value on that nothing binds now, since there is
 	// no 3.0 spelling to move to: bracket text after the colon, a selector
@@ -4048,7 +4051,7 @@ func firstRewrite(format string, ok bool) (step, bool) {
 // as it is. told says a caller named the format, so every rewrite is made.
 func convert(text, format string, ok, told bool) Migration {
 	if s, found := firstRewrite(format, ok); found {
-		return migrateText(text, told, false, false, s)
+		return migrateText(text, told, false, false, s, false)
 	}
 	return Migration{Text: text, Current: true}
 }
@@ -4355,7 +4358,7 @@ func migrateFrom(text, from string, stamp bool) Migration {
 	if s.kind == stepPin && namesThis(ReadFormatVersion(text)) {
 		return convert(text, "", false, true)
 	}
-	return migrateText(text, told, stamp, false, s)
+	return migrateText(text, told, stamp, false, s, true)
 }
 
 // majorityEol is the line ending most of the text's lines end with. A tie
@@ -4575,7 +4578,7 @@ func v2FoldScalars(text string) (string, []int, bool) {
 // format starts with, and says which rules it was written by: a pin's, for a
 // file found to be in one of those formats, whatever its Format line says, or
 // 2.x's. stepSame doesn't come here.
-func migrateText(text string, fromV2, stamp, beta bool, s step) Migration {
+func migrateText(text string, fromV2, stamp, beta bool, s step, keepWhole bool) Migration {
 	pin := s.kind == stepPin
 	whole := text
 	bom := ""
@@ -4727,6 +4730,12 @@ func migrateText(text string, fromV2, stamp, beta bool, s step) Migration {
 	// block's content. The lines end the way most of the file's do. An older
 	// Format line becomes this one where it is, so the file names one format.
 	unfinished := st.ambiguous > 0 || fence.open || now.fence.open
+	// Told the file is 2.x, only a comma inside a pair is left for a look,
+	// and the rest rewritten without a stamp would be rewritten again on the
+	// next run. So nothing is. A load reads the rest converted.
+	if keepWhole && st.fromV2 && st.ambiguous > 0 {
+		return Migration{Text: whole, Ambiguous: st.ambiguous, Lost: st.lost, Unfinished: true}
+	}
 	if stamp && !unfinished {
 		eol := majorityEol(text)
 		addFormat := true
@@ -4881,11 +4890,12 @@ func UpgradeDated(text string, mtime *int64, from string, banner bool) Upgraded 
 	if clean && ((!pin && (!told || (hasVersion && version == FormatMajor))) || (told && namesThis(named))) {
 		return up
 	}
-	m := migrateText(text, told, false, true, s)
+	m := migrateText(text, told, false, true, s, false)
 	// A 2.x file can load clean and still read differently now, as `a,b`
 	// does. One migrate leaves as it was has nothing to do, but an older
 	// Format line, which would keep the load's H007 hint, becomes this one.
-	if clean && m.Text == text {
+	// One it left for a look isn't done.
+	if clean && m.Text == text && m.Ambiguous == 0 {
 		if !hasVersion || version >= FormatMajor {
 			return up
 		}
@@ -5324,6 +5334,59 @@ func v2ArrayText(text string, tok *Tokens, st *migrating) string {
 	return out.String()
 }
 
+// v2SplitCutsPair is true when a 2.x comma list's commas cut a backtick pair,
+// or a paren, bracket or brace pair, in 2, as in `select a, b` in backticks or
+// sma(close, 10). Only bare elements count, and a quoted one between keeps the
+// pair open.
+func v2SplitCutsPair(text string, tok *Tokens) bool {
+	// The element each open mark sits in.
+	tick := -1
+	type mark struct {
+		b  byte
+		at int
+	}
+	var open []mark
+	for k := range tok.Elements {
+		p := &tok.Elements[k]
+		if p.Quote != QuoteNone {
+			continue
+		}
+		for j := p.Start; j < p.End; j++ {
+			var shut byte
+			switch b := text[j]; b {
+			case '`':
+				switch {
+				case tick < 0:
+					tick = k
+				case tick < k:
+					return true
+				default:
+					tick = -1
+				}
+				continue
+			case '(', '[', '{':
+				open = append(open, mark{b, k})
+				continue
+			case ')':
+				shut = '('
+			case ']':
+				shut = '['
+			case '}':
+				shut = '{'
+			default:
+				continue
+			}
+			if n := len(open); n > 0 && open[n-1].b == shut {
+				if open[n-1].at < k {
+					return true
+				}
+				open = open[:n-1]
+			}
+		}
+	}
+	return false
+}
+
 // v2ElementText is one 2.x element, as the text 2.x read, the way the writer
 // writes it, unless its quoted spelling already reads the same.
 func v2ElementText(text string, p *Piece, st *migrating) string {
@@ -5591,9 +5654,13 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 			}
 			sep := tok.Sep
 			if len(tok.Elements) > 1 {
-				// A file that does not say it is 2.x could be a 3.0 one, where
-				// `a,b` is a string. `a, b` is an error there, so it is safe.
-				if st.fromV2 || !readsCleanNow(rest, sep+1) {
+				// 2.x split `sma(close, 10)` in 2, but nobody means half a
+				// pair, so it waits for a look whatever the file is. A file
+				// that does not say it is 2.x could be a 3.0 one, where `a,b`
+				// is a string. `a, b` is an error there, so it is safe.
+				if v2SplitCutsPair(rest, tok) {
+					st.ambiguous++
+				} else if st.fromV2 || !readsCleanNow(rest, sep+1) {
 					kept := tok.ElementCount()
 					// Only empty slots, which 2.x dropped: an empty value.
 					if kept == 0 {
@@ -7110,6 +7177,13 @@ func (p *parser) indexMiss(parent int, segs []segment) (int, bool) {
 	return 0, false
 }
 
+// indexNotValue is the H010 text: an index picked an instance by position
+// where another instance has the index as its value (2026110217340701).
+func indexNotValue(n uint64, name string) string {
+	return fmt.Sprintf("index %d picks a '%s' by position, not the one whose value is %d; write (\"%d\") to pick that one by value",
+		n, diagName(name), n, n)
+}
+
 // noInstance is the E003 text for the index segment at `at`: the index as
 // written, as H006 quotes a Format number, since one past u64 reads as the
 // largest.
@@ -7394,6 +7468,11 @@ func (p *parser) attachPath(parent int, segs []segment, v value, line int, inden
 				nth++
 			}
 			if ok {
+				// A bare number picks by position, so where another instance
+				// has it as its value, that may be the one meant (H010).
+				if named, hit := p.findByValue(cur, seg.name, strconv.FormatUint(seg.sel.index, 10)); hit && named != found {
+					p.diag(Diagnostic{Line: line, Severity: SeverityHint, Message: indexNotValue(seg.sel.index, seg.name), Code: "H010"})
+				}
 				cur = found
 				// A field through an index onto an array line goes as one on
 				// the line under `srv(0):` does (E028).
@@ -11603,7 +11682,9 @@ const (
 	// UpgradeNotFound: nothing at the path.
 	UpgradeNotFound UpgradeErrorKind = iota
 	// UpgradeAmbiguous: the file does not say which rules it was written for,
-	// and some of it reads two ways (Upgraded.Ambiguous); from settles it.
+	// and some of it reads two ways (Upgraded.Ambiguous); from settles it. Or
+	// a comma sits inside a backtick, paren or bracket pair, which 2.x split
+	// there, and only a look settles that.
 	UpgradeAmbiguous
 	// UpgradeBackupTaken: something is already at the backup's name. It is
 	// never written over.
@@ -11644,7 +11725,8 @@ func (e *UpgradeError) Error() string {
 		return e.Path + ": no such file"
 	case UpgradeAmbiguous:
 		return fmt.Sprintf("%s: %d value(s) read one way under 2.x and another under these rules, and "+
-			"the file doesn't say which it was written for; nothing written", e.Path, e.Count)
+			"the file doesn't say which it was written for, or have a comma inside a backtick, paren or "+
+			"bracket pair; nothing written", e.Path, e.Count)
 	case UpgradeBackupTaken:
 		return e.Path + ": already exists; the original would be kept there, so nothing was written"
 	case UpgradeErrorsLeft:

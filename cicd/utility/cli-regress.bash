@@ -860,6 +860,20 @@ rows=(
 	'dfjng|migrate-raw-body-ambiguous|migrate -|q: ~~~sql\n  SELECT 1\n    FROM t\n~~~\nport: 80\n|7|q: ~~~sql\n  SELECT 1\n    FROM t\n~~~\nport: 80\n|doesn.t say which it was written for.*--from=FORMAT'
 	## 2.x read `k: s,` as `k: s`, one field with the line after it.
 	'ddrgk|migrate-lone-element|migrate --from=2.0 -|k: s,\nk: s\n|0|k: s\nk: s\n##    Format   3.0\n##    Migrated from SHCL 2.x.\n|-'
+	## A bare number in a selector picks by position, so where another
+	## instance has it as its value, the line gets H010 naming the quoted
+	## spelling. Where the instance it picks has that value, or the body is
+	## quoted, there's nothing to say (2026110217340701).
+	'dfsj2|h010-index-not-value|check -|node: 1\n\tip: a\nnode: 2\n\tip: b\nnode: 3\n\tip: c\nnode(2).role: primary\n|0|line 7: Hint: H010\nok (1 diagnostic(s))\n|^line 7: Hint: H010 index 2 picks a .node. by position, not the one whose value is 2; write [(]"2"[)] to pick that one by value$'
+	## A lookup path says the same on stderr, since a library lookup can't.
+	'dfsj4|h010-lookup-get|get - node(2).ip|node: 1\n\tip: a\nnode: 2\n\tip: b\nnode: 3\n\tip: c\n|0|c\n|^node[(]2[)].ip: Hint: H010 index 2 picks a .node. by position, not the one whose value is 2; write [(]"2"[)] to pick that one by value$'
+	'dfsj5|h010-lookup-count-children|count - node(+02)|node: 1\n\tip: a\nnode: 2\n\tip: b\nnode: 3\n\tip: c\n|0|1\n|^node[(][+]02[)]: Hint: H010 index 2 picks'
+	'dfsj6|h010-lookup-quiet|get - node("2").ip|node: 1\n\tip: a\nnode: 2\n\tip: b\nnode: 3\n\tip: c\n|0|b\n|!H010'
+	'dfsj3|h010-quiet-when-they-agree|check -|node: 0\n\tip: a\nnode: 1\n\tip: b\nnode: 2\n\tip: c\nnode(2).x: 1\nnode("1").y: 2\nnode(1).z: 3\n|0|ok (0 diagnostic(s))\n|!H010'
+	## 2.x split these at the comma, but nobody meant half a pair, so --from
+	## rewrites nothing, the lines around it included (2026111016205702).
+	'dfsj0|migrate-from-comma-in-parens|migrate --from=2.0 -|a: x,y\nk: sma(close, 10)\n|7|a: x,y\nk: sma(close, 10)\n|^-: 1 value.s. have a comma inside a backtick, paren or bracket pair, which 2.x split there and nobody means; left as written$'
+	'dfsj1|upgrade-from-comma-in-backticks|upgrade --from=2.0 -|q: \x60a, b\x60\n|7||^-: 1 value.s. have a comma inside a backtick, paren or bracket pair, which 2.x split there and nobody means; nothing written$'
 	## A comment on a stacked item stays on it, and one among the items stays
 	## among them.
 	'ddhx2|list-item-comment-fmt|fmt -|l:\n\t# first\n\t- a  # one\n\t- b\n|0|l:\n\t# first\n\t- a  # one\n\t- b\n## SHCL format 3.0\n|-'

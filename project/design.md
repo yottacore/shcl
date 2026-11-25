@@ -614,6 +614,7 @@ The table is the rule. If a code's behavior ever disagrees with its row, the cod
 | `H004` | hint          | retired: became `E024`, which is retired too
 | `H008` | hint          | changes nothing: the line has the outcome it has without it
 | `H009` | hint          | changes nothing: the block merges as the merge rule says, and the hint only says so
+| `H010` | hint          | changes nothing: the line binds by position as before, and the hint only says so
 
 - `spec.md` has what each code means, and [the value syntax design](design_docs/20261002-132445_value-syntax.md) explains why `E013`, `E014`, `E017`, `E019`, `E023`, and `E025` to `E028` work as they do. Format 3 moved `E017` from bound to retained, since reading an open quote as bare text would break the quote rule.
 

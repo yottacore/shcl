@@ -560,6 +560,13 @@ H009|hint|2 plain blocks merged into one, so their children repeat
   a value, as in 'planet: Earth'. If arrays were meant, H001 has that
   advice. A schema's repeat bound above 1 on every child it names turns
   it off.
+H010|hint|a bare number in a selector picked by position, not by value
+  A bare number in a selector is an index, so node(2) is the third
+  'node', counting from 0. When another 'node' has the value 2, the line
+  binds under the third one, which may not be the one meant. Quote the
+  number, as in node("2"), to pick the instance whose value is 2. Keep
+  it bare to pick by position. A lookup path reads the same way, and
+  get, count, instances and children print this hint for one on stderr.
 V001|error|unknown field
   No schema path matches it. Only the topmost unknown node is reported,
   and its subtree is skipped. The prose has the did-you-mean suggestion.
@@ -932,6 +939,37 @@ func refuseReadPath(path string) bool {
 	}
 	fmt.Fprintf(os.Stderr, "bad PATH (%s): %s (see --help)\n", badPath(path), path)
 	return true
+}
+
+// sayIndexHints: H010 for a lookup path, a bare number in a selector that
+// picks an instance by position where another instance has the number as its
+// value. A library lookup has nowhere to say so, so the CLI does
+// (2026110217340701).
+func sayIndexHints(doc *shcl.Document, path string) {
+	var tok shcl.Tokens
+	shcl.Tokenize(path, ':', true, shcl.RulesCurrent, &tok)
+	for _, seg := range tok.Segments {
+		sel := seg.Selector
+		if sel == nil || sel.Quote != shcl.QuoteNone {
+			continue
+		}
+		digits := strings.TrimPrefix(path[sel.Start:sel.End], "+")
+		if digits == "" || strings.Trim(digits, "0123456789") != "" {
+			continue
+		}
+		n, err := strconv.ParseUint(digits, 10, 64)
+		k := strings.IndexByte(path[sel.End:], ')')
+		if err != nil || k < 0 {
+			continue
+		}
+		end := sel.End + k + 1
+		byValue := path[:sel.Start] + "\"" + strconv.FormatUint(n, 10) + "\"" + path[sel.End:end]
+		a, b := doc.ReadLine(path[:end]), doc.ReadLine(byValue)
+		if a.Status == shcl.Good && b.Status == shcl.Good && a.Value != b.Value {
+			fmt.Fprintf(os.Stderr, "%s: Hint: H010 index %d picks a '%s' by position, not the one whose value is %d; "+
+				"write (\"%d\") to pick that one by value\n", path, n, path[seg.Name.Start:seg.Name.End], n, n)
+		}
+	}
 }
 
 // splitSet: PATH=VALUE at the first `=` outside quotes and parens, so a
@@ -2145,6 +2183,7 @@ func doGet(o *opts) int {
 	if doc == nil {
 		return code
 	}
+	sayIndexHints(doc, path)
 	var lines []string
 	var status shcl.Status
 	var slots []shcl.Status
@@ -2532,6 +2571,13 @@ func rewrittenLines(before, after string) []int {
 	return lines
 }
 
+// saySplitPairs: what Ambiguous counts once --from has said the file is 2.x,
+// comma lists 2.x split inside a pair (2026111016205702).
+func saySplitPairs(file string, count int, outcome string) {
+	fmt.Fprintf(os.Stderr, "%s: %d value(s) have a comma inside a backtick, paren or bracket pair, "+
+		"which 2.x split there and nobody means; %s\n", file, count, outcome)
+}
+
 // doMigrate: a 2.x file rewritten for the current rules. The rewrite is text
 // to text; the load after it is for the diagnostics and the save gate, the
 // same gate `fmt --write` goes through.
@@ -2577,8 +2623,14 @@ func doMigrate(o *opts) int {
 	}
 	rc := 0
 	if m.Ambiguous != 0 {
-		fmt.Fprintf(os.Stderr, "%s: %d value(s) read one way under 2.x and another under these rules, and "+
-			"the file doesn't say which it was written for; left as written (--from=FORMAT rewrites them)\n", file, m.Ambiguous)
+		// With --from, the only ones left are commas inside a pair.
+		if o.from != "" {
+			saySplitPairs(file, m.Ambiguous, "left as written")
+		} else {
+			fmt.Fprintf(os.Stderr, "%s: %d value(s) read one way under 2.x and another under these rules, and "+
+				"the file doesn't say which it was written for, or have a comma inside a backtick, paren or "+
+				"bracket pair; left as written (--from=FORMAT rewrites them)\n", file, m.Ambiguous)
+		}
 		rc = 7
 	}
 	if m.Lost != 0 {
@@ -2757,7 +2809,11 @@ func doUpgrade(o *opts) int {
 			sayDiagnosticsFrom("", shcl.UpgradeDated(text, mtime, from, true).Diagnostics)
 			var ue *shcl.UpgradeError
 			if errors.As(err, &ue) && ue.Kind == shcl.UpgradeAmbiguous {
-				fmt.Fprintf(os.Stderr, "%v (--from=FORMAT rewrites them)\n", err)
+				if from != "" {
+					saySplitPairs(file, ue.Count, "nothing written")
+				} else {
+					fmt.Fprintf(os.Stderr, "%v (--from=FORMAT rewrites them)\n", err)
+				}
 				return 7
 			}
 			if errors.As(err, &ue) && ue.Kind == shcl.UpgradeErrorsLeft {
@@ -2782,8 +2838,12 @@ func doUpgrade(o *opts) int {
 	}
 	sayDiagnosticsFrom("", up.Diagnostics)
 	if up.Ambiguous != 0 {
-		err := &shcl.UpgradeError{Kind: shcl.UpgradeAmbiguous, Path: file, Count: up.Ambiguous}
-		fmt.Fprintf(os.Stderr, "%v (--from=FORMAT rewrites them)\n", err)
+		if from != "" {
+			saySplitPairs(file, up.Ambiguous, "nothing written")
+		} else {
+			err := &shcl.UpgradeError{Kind: shcl.UpgradeAmbiguous, Path: file, Count: up.Ambiguous}
+			fmt.Fprintf(os.Stderr, "%v (--from=FORMAT rewrites them)\n", err)
+		}
 		return 7
 	}
 	if len(up.ErrorsLeft) != 0 {
@@ -3782,6 +3842,7 @@ func doEnum(o *opts, wantCount bool) int {
 	if doc == nil {
 		return code
 	}
+	sayIndexHints(doc, path)
 	if wantCount {
 		outln(doc.Count(path))
 	} else if o.json || o.paths {
@@ -3897,6 +3958,7 @@ func doChildren(o *opts) int {
 	if doc == nil {
 		return code
 	}
+	sayIndexHints(doc, path)
 	if o.json {
 		r := doc.ReadChildFields(path)
 		if r.Status != shcl.Good {

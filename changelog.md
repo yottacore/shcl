@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- `migrate()`, `migrate_unstamped()`, `upgrade()` and `upgrade_file()` count a comma list in `ambiguous` when its comma sits inside a backtick, paren or bracket pair, such as `` sql: `select a, b from t` `` or `k: sma(close, 10)`, even with `from`. They used to split it into an array as 2.x read it, at exit 0. With `from`, `migrate()` rewrites nothing in the file then, a load that converts keeps that line as typed, and `shcl migrate` and `shcl upgrade` exit 7 and say what the count is.
+
 - An int read of a number with a leading zero, such as `mode: 0644` or `zip: 02134`, is `BadType` at Standard and Strict, where it read as decimal. Write `0o644` for octal or `644` for decimal. `shcl get --int` names both in its message. Loose still reads it as decimal, and a float read is unchanged. The `int` and `int-array` ops of `shcl set` refuse one as a bad int, where they wrote it as decimal.
 
 - `shcl get` prints no type's zero under the default `--on-bad=flag`. A read that isn't Good prints nothing, an empty value prints an empty line at exit 2, and under `--slots` a slot that isn't Good has an empty value. `--default=` reads an empty or missing value as an empty line at exit 0.
@@ -55,6 +57,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The info block's version row is `##    Format   3.0`, in `init`, a creating `set --write`, `banner on`, `upgrade`, and `GEN_BANNER` (each binding's spelling), and `migrate` stamps `##    Format   3.0` too. beta1's `##    Format   3` still reads as format 3.0. So `banner on` replaces a beta1 block at the end of a file rather than leaving it as it is, unless its Format line is the one a save rewrites to `3.0`. Then the block already reads as the one a save writes, so it stays, the author's lines in it too. `banner on` and `banner off` take a `## SHCL format` stamp off where they take a Format line off, and a block kept at the top gets its stamp set to this format. They also take off an old block under a field, among lines indented below it that no field takes, which they used to leave with its old Format line.
 
 ### New
+
+- Hint `H010`: a file line whose bare number in a selector picks an instance by position, such as `node(2)`, where another instance of that name has that number as its value, gets a hint naming the quoted spelling, `("2")`, that picks it by value. The line binds as before.
 
 - A schema `field` takes a `meta` key for a program's own data, with any value and any lines under it. Validation and `init` read none of it. Any other unknown key is still `V090`, and its message now says a program's own keys go under `meta`.
 
