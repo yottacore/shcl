@@ -567,10 +567,20 @@ static int a_create_only_save_refuses_a_file_already_there() {
 	CHECK(doc.save_file_with(f, create, &why).first == R::Exists && why == shcl::WriteStatus::Ok);
 	CHECK(doc.save_file_with(f, forced).first == R::Exists);
 	CHECK(has(f, "a: 1\n## SHCL format 3.0\n"));
-#ifndef _WIN32
 	// A link to nowhere is something at the path, so where it points isn't
 	// made (2026110312163207).
 	const std::string dangling = dir + "/dangling.shcl", nowhere = dir + "/nowhere.shcl";
+#ifdef _WIN32
+	// Windows makes a link only with developer mode or the right to, so the
+	// row skips there without it (2026110408432594).
+	if (!CreateSymbolicLinkA(dangling.c_str(), nowhere.c_str(), 0x2 /* ALLOW_UNPRIVILEGED_CREATE */)) {
+		std::printf("veneer smoke: dekmk link row skipped (no symlink)\n");
+	} else {
+		CHECK(doc.save_file_with(dangling, create).first == R::Exists);
+		CHECK(GetFileAttributesA(nowhere.c_str()) == INVALID_FILE_ATTRIBUTES);
+		std::remove(dangling.c_str());
+	}
+#else
 	struct stat ns;
 	CHECK(symlink(nowhere.c_str(), dangling.c_str()) == 0);
 	CHECK(doc.save_file_with(dangling, create).first == R::Exists);

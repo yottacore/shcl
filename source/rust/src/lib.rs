@@ -24,6 +24,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::hash::{BuildHasherDefault, Hasher};
+use std::rc::Rc;
 
 // ---------------------------------------------------------------------------
 // Public surface
@@ -5839,7 +5840,7 @@ struct Parser<'a> {
 	// The text's lines, and the last array line each node's level was
 	// opened by, for one found to have a field under it after it bound
 	// (E028).
-	src: Vec<&'a str>,
+	src: Rc<Vec<&'a str>>,
 	array_line: HashMap<usize, ArrayLine>,
 	// parse_limited's caps, 0 = uncapped: nodes counted against the arena
 	// (root excluded) plus `held`, elements against a single value's cell,
@@ -5963,7 +5964,7 @@ impl<'a> Parser<'a> {
 			kept_hold: None,
 			kept_any: false,
 			kept_arrays: false,
-			src: Vec::new(),
+			src: Rc::default(),
 			array_line: HashMap::new(),
 			max_nodes: 0,
 			held: 0,
@@ -7516,7 +7517,11 @@ impl<'a> Parser<'a> {
 		if let Some(d) = stamp_hint(&stamp) {
 			self.diag(d);
 		}
-		let mut lines: Vec<&str> = lines_of(text).map(|l| l.trim_end_matches('\r')).collect();
+		// No cap counts a blank line, so this list is what a file of them
+		// costs: sized once, and shared with src rather than copied.
+		let mut lines: Vec<&str> =
+			Vec::with_capacity(text.bytes().filter(|&b| b == b'\n').count() + 1);
+		lines.extend(lines_of(text).map(|l| l.trim_end_matches('\r')));
 		// A newline-terminated text splits into one more piece than it has
 		// lines. An unterminated raw block took that empty tail as a body
 		// line, so the same last line read differently with and without its
@@ -7524,7 +7529,8 @@ impl<'a> Parser<'a> {
 		if text.ends_with('\n') {
 			lines.pop();
 		}
-		self.src = lines.clone();
+		let lines = Rc::new(lines);
+		self.src = Rc::clone(&lines);
 		let mut i = 0usize;
 		let mut tok = Tokens {
 			cap: self.max_elements,
@@ -11822,10 +11828,10 @@ fn names_a_directory(file: &str) -> bool {
 }
 
 /// A link at the path as given, which a create-only save refuses. The resolve
-/// follows a link to nowhere and finds nothing where it points. Windows is
-/// left as it was (2026110312163207).
+/// follows a link to nowhere and finds nothing where it points
+/// (2026110312163207, and on Windows 2026110408432594).
 fn link_at(file: &str) -> bool {
-	cfg!(unix) && std::fs::symlink_metadata(file).is_ok_and(|m| m.file_type().is_symlink())
+	std::fs::symlink_metadata(file).is_ok_and(|m| m.file_type().is_symlink())
 }
 
 /// The path a save actually rewrites. A symlink is followed so the write goes
@@ -17392,7 +17398,7 @@ fn build_schema(schema: &Document) -> (SchemaDef, Vec<Diagnostic>) {
 					&mut faults,
 					node.line,
 					"V090",
-					format!("unknown schema key '{}'", diag_name(other)),
+					format!("unknown schema key '{}'{}", diag_name(other), META_HINT),
 				);
 			}
 		}
@@ -17423,6 +17429,9 @@ fn build_schema(schema: &Document) -> (SchemaDef, Vec<Diagnostic>) {
 		faults,
 	)
 }
+
+/// The tail of every `V090`, which points a program's own key at `meta`.
+const META_HINT: &str = "; a program's own keys go under a field's 'meta'";
 
 /// One `field:` instance (top-level or inside a fragment) -> a Constraint.
 /// None = faults were reported and the constraint is dropped.
@@ -17661,11 +17670,14 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 					default_at = Some(k);
 				}
 			}
+			// A program's own data. shcl reads none of it, the lines under it
+			// included.
+			"meta" => {}
 			other => vdiag(
 				faults,
 				kid.line,
 				"V090",
-				format!("unknown schema key '{}'", diag_name(other)),
+				format!("unknown schema key '{}'{}", diag_name(other), META_HINT),
 			),
 		}
 	}

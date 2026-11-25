@@ -3355,6 +3355,21 @@ def main():
 	if e020_at(ldoc) != [ncap + 2] or ldoc.lost_count() != nlines - ncap - 1:
 		raise SystemExit(f"held lines: E020 at {e020_at(ldoc)}, lost {ldoc.lost_count()}")
 
+	test_id("dfrg8", "blank_lines_cost_one_list_of_lines")
+	# No cap counts a blank line, so the parse walks them all. What it holds
+	# for each is its place in the list of lines, 8 bytes here, as every
+	# empty line is the one empty string. A second list beside it, for the
+	# carriage returns, made 17 times the file (2026110707441368). Under a
+	# stamp, as a saved file has one, since the stamp's reading walks the
+	# lines too.
+	btext = "## SHCL format 3.0\n" + "\n" * 200000
+	tracemalloc.start()
+	shcl.Document.parse_limited(btext, shcl.Strictness.Standard, 1000, 1000, 100)
+	bpeak = tracemalloc.get_traced_memory()[1]
+	tracemalloc.stop()
+	if bpeak >= len(btext) * 12:
+		raise SystemExit(f"a capped parse of blank lines held {bpeak} bytes for {len(btext)} of text")
+
 	test_id("ddkh3", "a_cap_wins_over_a_broken_value")
 	# An item or a line past the caller's element cap is E021 and dropped,
 	# even when its value is broken: the cap wins over a value fault. A fault
@@ -6407,18 +6422,20 @@ def main():
 			ssame("moved left", sread("m.shcl"), "z: 0\n")
 			os.chdir(sd)
 
+			# `.` and a doubled separator under a folder made after the load
+			# name no other file (2026110314240418, on Windows too since
+			# 2026110408432594).
+			sdotted, _ = shcl.Document.load_file("dn/./d.shcl")
+			os.mkdir("dn")
+			swrite("dn/d.shcl", "b: 2\n")
+			srefused("dot under a new folder", lambda: sdotted.save_file("dn/d.shcl"), "dn/d.shcl")
+			sdoubled, _ = shcl.Document.load_file("dd//d.shcl")
+			os.mkdir("dd")
+			swrite("dd/d.shcl", "b: 2\n")
+			srefused("doubled under a new folder", lambda: sdoubled.save_file(sabs("dd/d.shcl")), sabs("dd/d.shcl"))
+			ssame("dotted left", sread("dn/d.shcl") + sread("dd/d.shcl"), "b: 2\nb: 2\n")
+
 			if os.name != "nt":
-				# `.` and a doubled separator under a folder made after the
-				# load name no other file (2026110314240418).
-				sdotted, _ = shcl.Document.load_file("dn/./d.shcl")
-				os.mkdir("dn")
-				swrite("dn/d.shcl", "b: 2\n")
-				srefused("dot under a new folder", lambda: sdotted.save_file("dn/d.shcl"), "dn/d.shcl")
-				sdoubled, _ = shcl.Document.load_file("dd//d.shcl")
-				os.mkdir("dd")
-				swrite("dd/d.shcl", "b: 2\n")
-				srefused("doubled under a new folder", lambda: sdoubled.save_file(sabs("dd/d.shcl")), sabs("dd/d.shcl"))
-				ssame("dotted left", sread("dn/d.shcl") + sread("dd/d.shcl"), "b: 2\nb: 2\n")
 				# A missing folder named with `..` is refused, as the kernel
 				# refuses it, rather than canceled as text. Windows cancels it
 				# itself.
@@ -6519,9 +6536,18 @@ def main():
 			fh.write("b: 2\n")
 		xrefused("made since", lambda: xfresh.save_file_with(xn, create), xn)
 		xsame("made since left", xread(xn), "b: 2\n")
-		if os.name != "nt":
-			xlink = os.path.join(xd, "link.shcl")
+		# Windows makes a link only with developer mode or the right to, so the
+		# link rows skip there without it (2026110408432594).
+		xlink = os.path.join(xd, "link.shcl")
+		try:
 			os.symlink(xn, xlink)
+			xlinked = True
+		except OSError:
+			if os.name != "nt":
+				raise
+			xlinked = False
+			print("conformance: dekm6 link rows skipped (no symlink)")
+		if xlinked:
 			xrefused("link", lambda: xfresh.save_file_with(xlink, create), xlink)
 			# A link to nowhere is something at the path, so where it points
 			# isn't made (2026110312163207).

@@ -1,5 +1,6 @@
 field: title
 	type: string
+	meta: [t, name]
 	required: yes
 field: launched
 	type: datetime
@@ -25,3 +26,9 @@ field: motd
 	type: raw
 field: debug
 	type: bool
+	meta: dbg
+		aliases: [verbose, trace]
+		field: nothing
+			type: nope
+field: meta
+	type: string

@@ -4078,7 +4078,12 @@ func formatLineRead(text string) Read[int] {
 	var found, newest, unread Read[int]
 	// The minors of found and newest, which decide between equal majors.
 	var foundMinor, newestMinor int
-	for i, line := range strings.Split(text, "\n") {
+	// Cut a line at a time, as the reference does, and keep n off the heap
+	// until a line names a format: a list of the lines, and an n per line,
+	// each cost a blank line 16 bytes.
+	for i, tail, more := 0, text, true; more; i++ {
+		var line string
+		line, tail, more = strings.Cut(tail, "\n")
 		current, inNow := now.step(line)
 		old, inThen := then.step(line)
 		if !(inNow || inThen) {
@@ -4098,10 +4103,11 @@ func formatLineRead(text string) Read[int] {
 			}
 			n = ""
 		}
+		raw := n
 		v, minor, ok := stampFormat(n)
 		if !ok {
 			if unread.Line == 0 {
-				unread = Read[int]{Status: BadType, Raw: &n, Line: i + 1}
+				unread = Read[int]{Status: BadType, Raw: &raw, Line: i + 1}
 				if n == "" {
 					unread.Status = Empty
 				}
@@ -4110,11 +4116,11 @@ func formatLineRead(text string) Read[int] {
 		}
 		if v >= FormatMajor {
 			if inNow && (newest.Line == 0 || v > newest.Value || (v == newest.Value && minor > newestMinor)) {
-				newest = Read[int]{Value: v, Status: Good, Raw: &n, Line: i + 1}
+				newest = Read[int]{Value: v, Status: Good, Raw: &raw, Line: i + 1}
 				newestMinor = minor
 			}
 		} else if inThen && (found.Line == 0 || v > found.Value || (v == found.Value && minor > foundMinor)) {
-			found = Read[int]{Value: v, Status: Good, Raw: &n, Line: i + 1}
+			found = Read[int]{Value: v, Status: Good, Raw: &raw, Line: i + 1}
 			foundMinor = minor
 		}
 	}
@@ -11855,11 +11861,8 @@ func namesADirectory(file string) bool {
 
 // linkAt reports a link at the path as given, which a create-only save
 // refuses. The resolve follows a link to nowhere and finds nothing where it
-// points. Windows is left as it was (2026110312163207).
+// points (2026110312163207, and on Windows 2026110408432594).
 func linkAt(file string) bool {
-	if runtime.GOOS == "windows" {
-		return false
-	}
 	fi, err := os.Lstat(file)
 	return err == nil && fi.Mode()&os.ModeSymlink != 0
 }
@@ -17682,7 +17685,7 @@ func buildSchema(schema *Document) (schemaDef, []Diagnostic) {
 			}
 			frags[name] = fcs
 		default:
-			vdiag(&faults, node.line, "V090", fmt.Sprintf("unknown schema key '%s'", diagName(node.name)))
+			vdiag(&faults, node.line, "V090", fmt.Sprintf("unknown schema key '%s'%s", diagName(node.name), metaHint))
 		}
 	}
 	// Every mount must name a declared fragment; cycles (self or mutual) are
@@ -17708,6 +17711,10 @@ func buildSchema(schema *Document) (schemaDef, []Diagnostic) {
 	sort.SliceStable(faults, func(i, j int) bool { return faults[i].Line < faults[j].Line })
 	return schemaDef{cons: cons, frags: frags, pathsComplete: pathsComplete}, faults
 }
+
+// metaHint is the tail of every V090, which points a program's own key at
+// `meta`.
+const metaHint = "; a program's own keys go under a field's 'meta'"
 
 // parseField turns one `field:` instance (top-level or inside a fragment) into
 // a constraint. ok=false = faults were reported and the constraint is dropped.
@@ -17862,8 +17869,11 @@ func parseField(schema *Document, f int, faults *[]Diagnostic) (constraint, bool
 				}
 				defaultAt = k
 			}
+		case "meta":
+			// A program's own data. shcl reads none of it, the lines under it
+			// included.
 		default:
-			vdiag(faults, kid.line, "V090", fmt.Sprintf("unknown schema key '%s'", diagName(kid.name)))
+			vdiag(faults, kid.line, "V090", fmt.Sprintf("unknown schema key '%s'%s", diagName(kid.name), metaHint))
 		}
 	}
 	// A raw block has no inline spelling, so a `default` that is one cannot reach

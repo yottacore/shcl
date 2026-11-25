@@ -119,12 +119,17 @@ fi
 ##	nested run echoes during publish and which used to read as a finding.
 ##	`extra: CMD` is the pipeline echoing a step it runs, never tool output, and
 ##	python's `-W error::ResourceWarning` hit both scans (2026102019120000).
+##	Other steps name the commands they run under their own prefix, such as
+##	`fs property: python: CMD`, so both scans read the log with python's
+##	`-W ACTION:...` options taken out, whatever the line starts with
+##	(2026112409544731). gcc's `-Werror` and `-Wl,` have no colon there.
 ##	govulncheck wraps that note, so "vulnerabilities." can end it on a line of
 ##	its own; a real finding has its own lines. A git `hint:` is advice, and the
 ##	default branch one says "warning" (2026102520122882). Paths don't count, such
 ##	as CodeQL's progress lines for its ExtractionWarnings.ql query.
+fScanText(){ sed -E "s/(^|[[:space:]])-W ?['\"]?[[:alpha:]]*:[^[:space:]]*/\\1/g" "$log" 2>/dev/null || true ;}
 warns="$(awk '{ s = tolower($0); gsub(/[^[:space:]]*\/[^[:space:]]*/, "", s) }
-	s ~ /warning|rustsec-|vulnerab|unmaintained|yanked/ { print NR ":" $0 }' "$log" 2>/dev/null \
+	s ~ /warning|rustsec-|vulnerab|unmaintained|yanked/ { print NR ":" $0 }' < <(fScanText) \
 	| grep -vE '^[0-9]+:(extra|hint): ' \
 	| grep -viE 'generated 0 warnings|: 0 warnings|no warnings|0 warnings emitted' \
 	| grep -viE 'no vulnerabilities found|affected by 0 vulnerabilities|this scan also found|appear to call|^[0-9]+:(these )?vulnerabilities\.$|enable=warning|-D warnings' || true)"
@@ -134,7 +139,7 @@ if [[ -n "$warns" ]]; then n=$(printf '%s\n' "$warns" | grep -c .); else n=0; fi
 ##	way, and the lower-case words turn up in passing output. The pipeline stops
 ##	two ways: an unexpected error raises the ABORTED line, and a check that fails
 ##	on purpose prints `[ FAILED: ... ]` and exits.
-errs="$(grep -nE '(^|[^[:alnum:]_-])error(\[|:)|\bSC[0-9]{4}\b|test result: FAILED|^--- FAIL|^FAIL\b|panicked at|^Traceback \(most recent call last\)|CICD ABORTED|^\[ FAILED: ' "$log" 2>/dev/null \
+errs="$(grep -nE '(^|[^[:alnum:]_-])error(\[|:)|\bSC[0-9]{4}\b|test result: FAILED|^--- FAIL|^FAIL\b|panicked at|^Traceback \(most recent call last\)|CICD ABORTED|^\[ FAILED: ' < <(fScanText) \
 	| grep -vE '^[0-9]+:extra: ' || true)"
 if [[ -n "$errs" ]]; then e=$(printf '%s\n' "$errs" | grep -c .); else e=0; fi
 
@@ -167,3 +172,5 @@ fi
 ##		  abort line is INCOMPLETE and never marked seen.
 ##		- 20261028: govulncheck's note wrapped to a bare "vulnerabilities." line, and git `hint:` lines,
 ##		  are not findings.
+##		- 20261124: A python `-W error::...` option in any echoed command line is not a finding,
+##		  whatever the line's prefix.

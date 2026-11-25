@@ -69,6 +69,15 @@ fHaveFile(){
 	echo "$2" >> "${SHCL_GATE_SKIPS:-/dev/null}"
 	return 1
 }
+##	Start a running image at path $1 for up to 60 s, its PID in $!. It's a copy
+##	of bash, not of sleep: uutils coreutils (Ubuntu 26.04) is one multicall
+##	binary that picks its program by its own name, so a copied sleep under any
+##	other name only says "unknown program" and quits.
+fRunningCopy(){
+	cp -- "${BASH}" "$1"; chmod 755 "$1"
+	[[ -p "${tmpDir}/running-copy.fifo" ]] || mkfifo "${tmpDir}/running-copy.fifo"
+	"$1" -c 'read -rt 60' <> "${tmpDir}/running-copy.fifo" &
+}
 
 fTest dc7f3 20260904-10-11-bash-completion-value-options
 ##	20260904 items 10 and 11: bash cuts `--opt=value` at the `=` before a
@@ -1883,6 +1892,17 @@ lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --file "${tmpDir}/run
 printf 'OK: lint\nx.py:1: ResourceWarning: unclosed file\nsrc.c:3:5: error: conflicting types for x\n%s' "${lintDone}" > "${tmpDir}/run_20260101-000000.log"
 lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --file "${tmpDir}/run_20260101-000000.log" 2>&1 || true)"
 [[ "${lintOut}" == "FAILED "*"(1 error line(s), 1 warning line(s), "* ]] || fBad "lint-report.bash missed tool output beside the extra: filter: ${lintOut@Q}"
+fTest dfrf0 2026112409544731-lint-report-any-echo
+##	2026112409544731: the fs property step names its python command under its
+##	own prefix, so the `extra:` filter missed it and a passing run said FAILED.
+##	A python `-W` option is taken out of every line, whatever its prefix, and
+##	the rest of the line is still read.
+printf 'fs property: python: python3 -X dev -W error::ResourceWarning source/python/tests/fs_property.py\nsoak: python3 -W "ignore::DeprecationWarning" x.py\nlint: cc -Werror -Wl,-z,now x.c\n%s' "${lintDone}" > "${tmpDir}/run_20260101-000000.log"
+lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --file "${tmpDir}/run_20260101-000000.log" 2>&1 || true)"
+[[ "${lintOut}" == "CLEAN "* ]] || fBad "lint-report.bash counted a step naming its python command: ${lintOut@Q}"
+printf 'fs property: python: python3 -W error::ResourceWarning x.py\nx.py:1: ResourceWarning: unclosed file\nfs property: x.py: error: no rows from python3 -W error::ResourceWarning\n%s' "${lintDone}" > "${tmpDir}/run_20260101-000000.log"
+lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --file "${tmpDir}/run_20260101-000000.log" 2>&1 || true)"
+[[ "${lintOut}" == "FAILED "*"(1 error line(s), 1 warning line(s), "* ]] || fBad "lint-report.bash missed tool output beside the -W filter: ${lintOut@Q}"
 fTest dcmph 20260909-24-lint-report-marker
 ##	20260909 item 24: --check --file wrote the named log's stamp into the shared
 ##	marker, so a name that sorts high left the gate at SEEN for good.
@@ -3382,9 +3402,7 @@ if fHave pwsh; then
 	[[ "${out}" == "one: x" && ! -s "${tmpDir}/df.err" ]] || fBad "dogfood_shcl.ps1 spoke up on a run that changed nothing: $(cat "${tmpDir}/df.err")"
 	for d in 01 02 03 04 05 06 07 08 09 10 11 12; do : > "${dpool}/shcl_202608${d}-120000"; done
 	: > "${dpool}/shcl_junk"
-	cp /bin/sleep "${dpool}/shcl_20260805-120000"
-	chmod 755 "${dpool}/shcl_20260805-120000"
-	"${dpool}/shcl_20260805-120000" 60 & sleeper=$!
+	fRunningCopy "${dpool}/shcl_20260805-120000"; sleeper=$!
 	out="$(fDogfood y)" || true
 	kill "${sleeper}" 2>/dev/null || true; wait "${sleeper}" 2>/dev/null || true
 	n="$(find "${dpool}" -name 'shcl_2026*' | wc -l)"
@@ -3738,8 +3756,7 @@ eval "$(sed -n '/^fInUse()/,/^}/p' "${repoDir}/cicd/cicd.bash")"
 if ! declare -F fInUse >/dev/null; then
 	fBad "cicd.bash no longer has fInUse"
 elif [[ -d /proc/self ]]; then
-	cp /bin/sleep "${tmpDir}/inuse-bin"
-	"${tmpDir}/inuse-bin" 60 & inusePid=$!
+	fRunningCopy "${tmpDir}/inuse-bin"; inusePid=$!
 	sleep 0.3
 	fInUse "${tmpDir}/inuse-bin" || fBad "cicd.bash did not see a running dogfood binary"
 	kill "${inusePid}" 2>/dev/null || true; wait "${inusePid}" 2>/dev/null || true
@@ -5227,6 +5244,31 @@ ftOut="$(cd "${ftDir}" && eval "$(sed -n '/^fFailTail()/,/^}/p;/^fSuiteRows()/,/
 ftWant=$'    FAIL der1c rust x\n    --- FAIL: TestA\n    test t ... FAILED\n    ...\n    PASS b11 x'
 [[ "${ftOut}" == *"${ftWant}"* && "${ftOut}" == *"    PASS b30 x"* && "${ftOut}" != *FAILURE* && "${ftOut}" != *"PASS b10 "* ]] || fBad "a failed box suite's FAIL lines: ${ftOut@Q}"
 [[ "${ftOut}" == *"    FAIL c40 x"$'\n'"    (5 more FAIL lines here, in b_bx/back/s/go.log)"$'\n'"    PASS d6 x"* && "${ftOut}" != *"FAIL c41 "* ]] || fBad "a failed box suite past 40 FAIL lines: ${ftOut@Q}"
+fTest dfrfn 2026112314544545-apt-drops-a-slow-mirror
+##	The hosted install spent 40 minutes on a first mirror at 110 kB/s, which apt
+##	never leaves for being slow. A stub curl gives each host a speed; the list
+##	loses its first mirror only when that one is under the floor and the next is
+##	faster, and a dead first mirror counts as slow.
+amDir="${tmpDir}/apt-mirror"; mkdir -p "${amDir}/bin"
+# shellcheck disable=SC2016  ## the stub's own $1
+printf '#!/bin/sh\nfor a in "$@"; do u="$a"; done\ncase "$u" in http://slow.x/*) printf 110000.000 ;; http://fast.x/*) printf 30000000 ;; http://slower.x/*) printf 9000 ;; *) printf 0; exit 28 ;; esac\n' > "${amDir}/bin/curl"
+chmod 755 "${amDir}/bin/curl"
+fAmRun(){   ## fAmRun FIRST NEXT: the mirror list after apt-mirror.bash ran over FIRST, NEXT and a third
+	printf '%s\tpriority:1\n%s\tpriority:2\nhttps://security.x/ubuntu/\tpriority:3\n' "${1}" "${2}" > "${amDir}/list"
+	# shellcheck disable=SC2031  ## the gate's own PATH, which no subshell above changed for this one
+	PATH="${amDir}/bin:${PATH}" APT_CODENAME=noble bash "${repoDir}/cicd/utility/apt-mirror.bash" "${amDir}/list" > "${amDir}/out" 2>&1 || echo "exit $?" >> "${amDir}/out"
+	cut -f1 "${amDir}/list" | tr '\n' ' '
+}
+amList="$(fAmRun http://slow.x/ubuntu/ http://fast.x/ubuntu/)"; amOut="$(cat "${amDir}/out")"
+[[ "${amList}" == "http://fast.x/ubuntu/ https://security.x/ubuntu/ " && "${amOut}" == *"at 110 kB/s, under the 2000 kB/s floor"*"so apt uses http://fast.x/ubuntu/ first" ]] \
+	|| fBad "apt-mirror.bash kept a slow first mirror ahead of a fast one: ${amList@Q} ${amOut@Q}"
+amList="$(fAmRun http://fast.x/ubuntu/ http://slow.x/ubuntu/)"
+[[ "${amList}" == "http://fast.x/ubuntu/ http://slow.x/ubuntu/ https://security.x/ubuntu/ " ]] || fBad "apt-mirror.bash changed the list with a fast first mirror: ${amList@Q}"
+amList="$(fAmRun http://slow.x/ubuntu/ http://slower.x/ubuntu/)"
+[[ "${amList}" == "http://slow.x/ubuntu/ http://slower.x/ubuntu/ https://security.x/ubuntu/ " ]] || fBad "apt-mirror.bash moved to a slower mirror: ${amList@Q}"
+amList="$(fAmRun http://dead.x/ubuntu/ http://fast.x/ubuntu/)"
+[[ "${amList}" == "http://fast.x/ubuntu/ https://security.x/ubuntu/ " ]] || fBad "apt-mirror.bash kept a first mirror that timed out: ${amList@Q}"
+amOut="$(bash "${repoDir}/cicd/utility/apt-mirror.bash" "${amDir}/none" 2>&1)" && [[ "${amOut}" == *"no ${amDir}/none"* ]] || fBad "apt-mirror.bash with no mirror list: ${amOut@Q}"
 
 fTestEnd
 

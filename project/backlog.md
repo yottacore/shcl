@@ -61,6 +61,38 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- 20261123: hosted run 45232879461's ci (lint) timed out with no log, so the mingw cross check result is unknown.
 	- 20261123: hosted run 45301493250 left no ci (lint) log (2026112311213741), so the cross check wasn't read. The release part doesn't run it.
 
+- On Windows a create-only save through a link to nowhere, and `.` under a missing folder, are unchecked
+	- ID: 2026110408432594
+	- Type: Bug
+	- Status: Waiting on automated testing
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261104-084325
+	- Opened by: 2026110312163207's fix
+	- Related IDs: 2026110312163207, 2026110314240418
+	- Target OS: Windows
+	- Steps to reproduce:
+		- On Windows, make a symlink to a file that isn't there, then save a document to the link with `create` set.
+		- On Windows, run the steps of 2026110314240418 in Go or Python.
+	- Incorrect behavior: this hasn't been seen. Both fixes leave Windows as it was. The link rows in `dekm5`, `dekm6`, `dekmf`, `dekmj`, and `dekmk`, and the `.` rows in `detpp` and `detpq`, skip there. So the save may still make the file the link names, and a load of `new/./n.shcl` may not know `new/n.shcl`.
+	- Expected behavior: the same as on POSIX. The first is refused with `Exists` and nothing is made, and the second is refused with `Changed`.
+	- Reproduced: No, found by reading.
+	- Possible cause: `link_at`, `linkAt`, `_link_at`, and `s_link_at` work only off Windows, and `tidyRest` and `_tidy_rest` run only off Windows. C's Windows resolve and its `s_something_at` are separate code.
+	- Note: this needs b29w with a short-name TEMP, the way `private/claude_simple/tools/winbox-savetests/` runs it.
+	- Estimated effort: Low
+	- Needs external testing: b29w with a short-name TEMP, through `private/claude_simple/tools/winbox-savetests/` with its `run-2026110408432594.ps1` as run.ps1: the link rows of `dekm5`, `dekm6`, `dekmf` and `dekmj` run there or print a skip, and `detpn`, `detpp`, `detpq` and `detpr` pass. `dekmk`'s link row through win-runners' `c++ veneer` row. b29w gave no route to host on 20261124.
+	- Actual effort: Low
+	- Actual cause: read, not run on Windows. The save's own create check has looked at the path as given since 2026110613470307 (lstat, `GetFileAttributesW`), so a link to nowhere is Exists there on Windows too. Only the write's create check, the guard against a link planted after the save's check, still skipped links on Windows. The `.` half went with the path compare in 2026110613470307: the save reads the bytes at the path, so no spelling is compared, and the fs property row `2026110408432594-dot` already passed on b29w in all 4.
+	- Actual fix: `link_at`, `linkAt`, `_link_at` and `s_link_at` work on Windows too, and C's Windows write checks the path as given for a reparse point. The link rows in `dekm5`, `dekm6`, `dekmf`, `dekmj` and `dekmk` run on Windows when it can make a link, and print a skip when it can't. The `.` and doubled-separator rows in `detpn`, `detpp`, `detpq` and `detpr` run on Windows. The `..` rows stay POSIX, since Windows cancels `..` itself.
+	- Swept: the save's create check and the write's in Rust, Go, Python and C (the save's already looked at the path as given in all 4), and the veneer, which wraps the C save. The fs property row `2026110408432594-link` still skips on Windows, since that tree makes no links there.
+	- Verified: on Linux, `dekm5`, `dekm6`, `dekmf`, `dekmj`, `dekmk`, `detpn`, `detpp`, `detpq` and `detpr` pass, and so does `cicd.bash --backlog-run-quick rust go python c`. For Windows, the Rust tests check and build for x86_64-pc-windows-gnu, Go vets and builds its test binary with GOOS=windows, and the C runner and main.c build with mingw. None of it ran on Windows.
+	- Test case: the link-to-nowhere rows of `a_create_only_save_refuses_a_file_already_there` (`dekm5`, `dekm6`, `dekmf`, `dekmj`, `dekmk`) and the `.` rows of `a_changed_check_knows_its_file_by_any_spelling` (`detpn`, `detpp`, `detpq`, `detpr`), now on Windows too.
+	- Branch: `nov24-2026110408432594`
+	- Decisions:
+	- me, 20261124: on Windows a link row skips with a message when the box can't make a link, as C's `windangle` does, since making one takes developer mode or the right to. It fails only where a link was made.
+	- me, 20261124: the new Windows rows aren't expected to fail on the code before, since the save's own check already refused the link there. They pin it, and the write's check only covers a link planted between the two.
+	- 20261124: the batch skipped it: b29w still gave no route to host at the end of nov24.
+
 - Format versions: the demo gif and its golden text show fmt output without the stamp
 	- ID: 2026111710564808
 	- Type: Feature
@@ -75,18 +107,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Note: until then shell-regress dcvej fails, since every fmt now ends with the stamp.
 
-- Hosted tests: shell-regress dd2gn and dd2gp fail under Ubuntu 26.04, since a renamed uutils coreutils binary is an unknown program
-	- ID: 2026112318030233
+- Hosted lint: analyze-c ends with exit 143 a few minutes in, under the gate step's timeout
+	- ID: 2026112421495092
 	- Type: Bug
 	- Status: Queued
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
-	- Opened: 20261123-180302
-	- Opened by: nov23b's hosted run 45301493250
-	- Steps to reproduce: hosted ci.yml run 45301493250 on nov23b, job ci (tests), shell-regress.
-	- Incorrect behavior: dd2gn prints coreutils: unknown program 'shcl_20260805-120000' then says dogfood_shcl.ps1 deleted a version that was running; dd2gp prints coreutils: unknown program 'inuse-bin' then says cicd.bash did not see a running dogfood binary. Earlier hosted runs on 26.04 stopped before shell-regress, so this was on dev already.
-	- Expected behavior: both rows pass on ubuntu-latest. The rows' stand-in for a running binary is a copied coreutils program, and uutils is one multicall binary that picks its program by its own name.
-	- Estimated effort: Low
+	- Opened: 20261124-214950
+	- Opened by:
+	- Related IDs: 2026112311213741
+	- Steps to reproduce: hosted ci.yml run 45546604978 on nov24, job ci (lint), first try (job 138977631558) and rerun (job 138991346830).
+	- Incorrect behavior: both times cppcheck ran cold and passed (24 and 33 minutes), then `cicd/utility/analyze-c.bash` printed nothing and the gate step ended with exit 143 (TERM) after 3 and 4 minutes, about 30 minutes into a 71 to 72 minute limit. The cache save step after it, `if: always()`, was skipped both times, so no cppcheck cache was saved.
+	- Expected behavior: analyze-c runs to its end, as it did in hosted run 45068690472 on 2026-11-22 (5 minutes) and here on the nov24 tree (428 s), and the cache save runs.
+	- Possible cause: new since 2026-11-22 is the gate step's `timeout --kill-after=60 "${left}" cicd/cicd.bash` from 2026112311213741, under the 26.04 image's uutils `timeout`. Something in analyze-c may signal its process group, which `timeout` now owns. Try analyze-c under uutils `timeout` in an `ubuntu:26.04` container first. A skipped `always()` step points at the runner canceling the job rather than the step failing.
+	- Estimated effort: Avg
 
 - Hosted lint: the lint part runs past its 80-minute timeout on Ubuntu 26.04
 	- ID: 2026112311213741
@@ -114,57 +148,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Verified: 20261123. In ubuntu:26.04, uutils `timeout` returns 124 and ends a background grandchild, and 137 for a child that ignores TERM; GNU's on the host does the same. A copy of the gate step's script passes through the gate's exit code and refuses to start with under a minute left. check-pins passes, `dfpxm` included. shell-regress rows `dcqgf`, `dfpxn`, `ddwkm`, `dej8g`, `dektk`, `dcv6p`, `dcqgg` and `ddx1w` pass, and `dfpxn` fails both ways on the old check-pins. `cicd.bash --backlog-run-quick cicd` and `lint-report.bash --check --no-mark` pass. cppcheck cut off by `timeout` with a build dir keeps the result of the file it finished, and an empty one for the file it didn't.
 	- Needs external testing: a hosted ci.yml run on the branch after a shcl.h change, job ci (lint). It should finish inside its limit in about 50 minutes, print `gate time limit:`, and save a `cppcheck-<hash>-<run id>-1` cache. If it runs out of time, its log names the step. Not run: a hosted run.
 	- Test case: check-pins `dfpxm` (each hosted gate run is under `timeout`, from the job's own minutes) and shell-regress `dfpxn`. No test bounds the hosted time itself.
-	- Swept: every `cicd/cicd.bash` line in ci.yml (the 3 ci parts share one). The other jobs run no cicd.bash and have their own short timeouts. The setup-build job's apt line keeps -qq; that job installs 2 packages under its own 15-minute timeout.
+	- Swept: every `cicd/cicd.bash` line in ci.yml (the 3 ci parts share one). The other jobs run no cicd.bash and have their own short timeouts. The setup-build job installs 2 packages under its own 15-minute timeout, and its apt line moved to -q under 2026112314544545.
 	- Branch: `nov23b-2026112311213741`
 	- Commit: `54b67873`
+	- Prereq IDs: 2026112421495092
 	- 20261123: hosted run 45301493250 on nov23b: ci (lint) was cut off at 80 minutes with no log again. The gate step ended as a failure at 43 minutes (01:45:02Z), then the runner never started the cache save, and the job sat until its limit. The tests part, under the same timeout wrapper, failed and ended normally. So the step ends, but the runner hangs after it in the lint part only. The 45232879461 hang came before the wrapper.
 	- 20261123: next try: find what the lint part leaves running after its gate, such as a background process holding the step's output, and why the gate failed at 43 minutes. A run with the lint part's gate cut down to that stage would show it in minutes.
-
-- Hosted ci: the tool install step sometimes takes 10 to 44 minutes
-	- ID: 2026112314544545
-	- Type: Bug
-	- Status: Queued
-		- Held for: a hosted run whose install step runs long again, now that apt prints each fetch (2026112311213741). Its log says whether the update, one mirror or every fetch was slow.
-	- Priority: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261123-145445
-	- Opened by:
-	- Parent ID: 2026112311213741
-	- Steps to reproduce: hosted ci.yml runs; seen on the ci job's tool install step in runs 41500153471 (lint, 10 minutes), 42772084789 (release, 16) and 45232879461 (lint 20, release 44), on both ubuntu-24.04 and ubuntu-latest.
-	- Incorrect behavior: the step usually takes 1 to 3 minutes. On those runs it took 10 to 44. In the release log of 45232879461, the 43 minutes all fall inside apt-get update and the package fetch, which -qq kept silent. The tests part of the same run took under a minute.
-	- Expected behavior: the install step takes a few minutes, or its log says which fetch was slow.
-	- Estimated effort: Low
-	- 20261123: hosted run 45301493250, release part on ubuntu-24.04: the install step took 42 minutes. apt fetched 267 MB in 40min 29s (110 kB/s), all from us-east-2.ec2.archive.ubuntu.com. The ubuntu-latest parts installed in minutes.
-	- 20261124: the setup-build job's apt line still runs under `-qq`. Give it `-q` with the fix, so a slow fetch there shows too.
-
-- Schema: a `meta` key on a field that shcl ignores, so an app can keep its own data there
-	- ID: 2026112315300920
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Target version: v3.0.0
-	- Opened: 20261123-153009
-	- Opened by: nemo-anywhere 2026111912460983
-	- Problem description: a schema field takes only the keys SHCL knows. Any other key is V090, an error, so `shcl check --schema` fails on the schema, though its other constraints are still checked. nemo-anywhere keeps a list of Settings search aliases on each field of its schema, read by its build. It has to write them as a comment row, `# aliases: [a, b]`, so its installed schema still passes.
-	- Requirements:
-		- `meta` is a schema key under a `field`. It takes any value and any lines under it, and validation and generation read none of it, as with `desc`.
-		- Any other unknown key is still `V090`, and its message says a program's own keys go under `meta`.
-		- A document's own field named `meta` still validates, declared as `field: meta` like any other.
-		- All 4 bindings and the CLI agree, and a conformance row pins it.
-		- The spec's key table has the row. It says shcl gives the key no meaning, and that where more than one program reads a schema, each takes a block of its own under it.
-	- Decisions:
-		- JC, 2026-11-24: not an exception made by the shape of a name, such as `x-`. Go with `meta`.
-		- me, 2026-11-24: one known key, `meta`, under a `field`. The vocabulary stays a closed list of exact names, and `meta` is one more key that validation ignores, beside `desc` and `default`. It's the usual name for this slot: Cargo's `[package.metadata]`, a Python dataclass field's `metadata`, and an Arrow field's `metadata` are each ignored by the library and read by other programs. `meta` is short as `desc` is. It can't shadow a config's field, since a document's names sit in value position, as in `field: meta`.
-		- Decided against: any key that starts with `x-`, as OpenAPI, Compose, and systemd units have. It's a rule about the shape of a name in a vocabulary that otherwise lists each name, and a key that only looks like one of shcl's passes with no word.
-		- Decided against: keys the schema declares first, such as `key: aliases`, the way GraphQL directives and protobuf options work. It reads best at the field and catches a mistyped key. It also adds a third kind of top-level entry to every binding, and needs a rule for a declared name that shcl takes later.
-		- Decided against: `aliases` as a known key. It's one app's word in a closed vocabulary, and the next app would ask for another.
-		- Decided against: leaving it to comments. A build then has to read comment text, which shcl gives no meaning, and an edit of the field can move the line.
-		- Decided against: `meta` at the top level or under a `fragment` as well. Nothing asks for it, and adding it later breaks no schema.
-		- me, 2026-11-24: v3.0.0, not beta.2. Nothing in beta.2 depends on it, and the comment row works until then. A schema with the key fails `check --schema` on a reader older than the fix.
-	- Reproduced: 20261123, `shcl check --schema` (v3.0.0-beta1) with `aliases: [x, y]` under a field gives `schema line 4: Error: V090 unknown schema key 'aliases'` and exit 6. The field's type is still checked.
-		- 20261124, dev `7b875296`: the same `V090`. `desc:` with lines under it passes, so a known key's lines already go unread. A schema with `field: meta` and `field: srv.meta` validates a document's own `meta` fields.
-	- Origin: nemo-anywhere 2026111912460983. The draft text and an untested patch for the C header's field-key check (`x-keys.patch`, against `v3.0.0-beta1`, written for the `x-` form) are in `private/claude_simple/upstream/nemo-anywhere-2026111912460983/`. nemo-anywhere's move to `meta` is its 2026112415002147.
-	- Estimated effort: Low
+	- 20261124: hosted ci.yml run 45546604978 on nov24, after a shcl.h change: the lint part's install took 73 seconds, cold cppcheck 24 minutes and passed, then analyze-c ended with exit 143 (TERM) after about 3 minutes, 28 minutes into a 72-minute limit, with no output. The cache save step was skipped despite always(), so no cppcheck cache was saved. Job 138977631558 rerun to see if it recurs.
+	- 20261124: the rerun (job 138991346830) ended the same way: cold cppcheck 33 minutes and passed, then analyze-c exit 143 after 4 minutes. Filed as 2026112421495092.
 
 - `Document::merge` drops the base file's comments on every leaf the upper layer names
 	- ID: 2026111217560140
@@ -267,57 +258,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The `_or` doc says a repeat gives the default, and points to that read.
 	- Estimated effort: Avg
 
-- lint-report reads a passing run as FAILED, on the fs property step's echoed python command
-	- ID: 2026112409544731
+- Rust dfjq6 recursive_mount_check_is_linear_in_depth fails under load
+	- ID: 2026112419395418
 	- Type: Bug
 	- Status: Queued
-	- Severity: Low
+	- Priority: Low
 	- Target version: v3.0.0
-	- Opened: 20261124-095447
+	- Opened: 20261124-193954
 	- Opened by:
-	- Related IDs: 2026102019120000
-	- Steps to reproduce: `cicd/cicd.bash --backlog-run-quick python > run_20261124-101500.log 2>&1`, then `cicd/utility/lint-report.bash --file run_20261124-101500.log`.
-	- Incorrect behavior: the run passes and ends with the done line, and the report says `FAILED ... (1 error line(s), 1 warning line(s))`. Both counts are the line `fs property: python: python3 -X dev -W error::ResourceWarning source/python/tests/fs_property.py`, which is the step naming the command it runs.
-	- Expected behavior: CLEAN. 2026102019120000 fixed the same text on an `extra:` line, and this step prints its command under its own prefix.
-	- Requirements:
-		- A line where the pipeline names a command it runs never counts as an error or a warning, whatever its prefix. Fix it by the text, `-W error::`, or by one echo form for every step, not by one more prefix.
-		- A shell-regress row has a passing log with that line, and is red on the old script.
-	- Estimated effort: Low
-	- Note: a run mode (`--backlog-run-quick`, `--backlog-run-full`, `--merge-gate`) writes no log under `cicd/artifacts/lint`, so `--check` reads the last bare run. A round reads its own run with `--file`.
-
-- A capped parse still splits every line first, so a file of blank lines costs 17 to 48 times its size
-	- ID: 2026110707441368
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261107-074413
-	- Opened by: me, found working 2026110613470304
-	- Related IDs: 2026110613470304
-	- Steps to reproduce:
-		- Run `parse_limited` on 2 MB of `\n`, with caps of 1,000 nodes, 1,000 elements, and 100 diagnostics.
-	- Incorrect behavior: Python's tracemalloc peak is 34 MB, which is 17 times the file. Rust stores the split lines twice (`lines` and `src`), 16 bytes each, so a 1-byte line costs 32 to 48 bytes there. Go and C weren't measured.
-	- Expected behavior: the memory a capped parse uses stays near the file's size. The amount is linear and a byte cap on the read bounds it, so this is a constant factor rather than a hole in the caps.
-	- Possible cause: every binding splits the whole text into lines before the first cap check, and blank lines don't count against any cap.
-	- Estimated effort: Avg
-
-- On Windows a create-only save through a link to nowhere, and `.` under a missing folder, are unchecked
-	- ID: 2026110408432594
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Target version: v3.0.0
-	- Opened: 20261104-084325
-	- Opened by: 2026110312163207's fix
-	- Related IDs: 2026110312163207, 2026110314240418
-	- Target OS: Windows
-	- Steps to reproduce:
-		- On Windows, make a symlink to a file that isn't there, then save a document to the link with `create` set.
-		- On Windows, run the steps of 2026110314240418 in Go or Python.
-	- Incorrect behavior: this hasn't been seen. Both fixes leave Windows as it was. The link rows in `dekm5`, `dekm6`, `dekmf`, `dekmj`, and `dekmk`, and the `.` rows in `detpp` and `detpq`, skip there. So the save may still make the file the link names, and a load of `new/./n.shcl` may not know `new/n.shcl`.
-	- Expected behavior: the same as on POSIX. The first is refused with `Exists` and nothing is made, and the second is refused with `Changed`.
-	- Reproduced: No, found by reading.
-	- Possible cause: `link_at`, `linkAt`, `_link_at`, and `s_link_at` work only off Windows, and `tidyRest` and `_tidy_rest` run only off Windows. C's Windows resolve and its `s_something_at` are separate code.
-	- Note: this needs b29w with a short-name TEMP, the way `private/claude_simple/tools/winbox-savetests/` runs it.
+	- Related IDs: 2026110711492228
+	- Steps to reproduce: nov24 gate step quick run (`--backlog-run-quick rust go python c cli cicd`) at a load of 21 to 26 on 32 cores.
+	- Incorrect behavior: `recursive mount check 16.9 ms at depth 480 against 1.9 ms at depth 120 (bound 15.5 ms) - the check is not linear in the depth`. The test alone passed 3 times right after, at the same load.
+	- Expected behavior: the test passes under load. It compares one timing at each depth, so one slow sample at the deep end fails it.
+	- Possible cause: a single wall-clock sample per depth, against a fixed 8x bound. Taking the best of several samples per depth, or comparing CPU time, would keep it from failing on a busy box. The same test is in all 4 runners (`df080`, `dfjq7`, `dfjq8`).
 	- Estimated effort: Low
 
 - Rust parses about a third slower than 2.0.0
@@ -331,6 +284,36 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Version and build: `cut3b1` at `ae8540e9`
 	- Progress log:
 		- 20261105: comparison run `20261105-155747` against `20261002-210439` (2.0.0), on the same box. SHCL's read went from 2.97 s to 3.92 s on the records shape, 0.037 to 0.050 ms on the config, and 5.9 to 7.7 ms on the schema. The other parsers read 0 to 8% slower, which was the box's load. Python slowed the same way, going from 4.2x to 5.7x behind `tomllib`. A profile should find which 3.0 change costs it before any fix.
+		- 20261124: the "2.0.0" run was dev's `b3e63588` of 2026-10-02, not the `v2.0.0` tag of 2026-08-26, and its document had comma lists where the later one has brackets. So each build was timed on its own syntax, in one binary, parse alone, best of 3, at a load of 17 on 32 cores. On 16 MiB of records: `b3e63588` 1.16 to 1.35 s, `cut3b1` 1.44 to 1.60 s, dev 1.39 to 1.56 s. At 64 MiB the timed phases were 4.8 s against 5.2 s. So dev is still 10 to 20% slower, less than the third the run showed.
+		- Phases on dev, 16 MiB: cutting lines 12%, the per-line loop 62%, the settle pass 7%, the repeated-leaf hint pass 18%. Against `b3e63588` the line cut went from 0.34 s to 0.15 s, and the per-line loop from 0.60 s to 0.78 s. The settle and hint passes cost the same in both.
+		- The loop's extra cost is spread over 3.0's new per-line work, and is child 2026112419101327. The hint pass is a cheap cut that doesn't touch output, and is child 2026112419101293. The config and schema numbers weren't rerun.
+		- Phase tables and method: "Parse timing 2026-11-24" in details.md. Tool: `private/claude_simple/tools/parse-ab/`.
+	- Decisions:
+		- me, 20261124: no code change under this item. It asked for the profile first, and both fixes it found touch all 4 bindings, so they're children.
+
+- The repeated-leaf hint pass builds a name map for every block
+	- ID: 2026112419101293
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261124-191012
+	- Opened by: profile of 2026110516100001
+	- Parent ID: 2026110516100001
+	- Progress log:
+		- 20261124: in all 4 bindings the pass makes a map and a list for each block with 2 or more children, to find repeated names. Nearly no block repeats one. In Rust it's about 18% of a records parse (0.23 s of 1.3 s on 16 MiB). A pairwise check on lists of up to 16 children skipped the map, and took the pass to 0.14 s in a scratch build. Output doesn't change, so the corpus H001 and H009 cases and the crosscheck pin it. Time it with `private/claude_simple/tools/parse-ab/`.
+
+- The per-line parse loop costs about 30% more than on dev of 2026-10-02
+	- ID: 2026112419101327
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261124-191012
+	- Opened by: profile of 2026110516100001
+	- Parent ID: 2026110516100001
+	- Progress log:
+		- 20261124: Rust, 16 MiB records doc: 0.60 s on `b3e63588`, 0.78 s on dev. Samples spread it over 3.0's per-line work: the tokenizer (`lex_line`), the bare-value and piece checks (`value_fault`, `bare_trouble`), and building an array line's display text to compare with its source (`src_matches_display`). No one change holds most of it. Time each with phase timers before changing it, since the sampler's attribution under fat LTO is rough.
 
 - A kept index line makes every edit re-emit the whole document
 	- ID: 2026110114020101
@@ -827,6 +810,194 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- spec.md and the `upgrade` docs say 2.x includes 1.x, and that a 1.x file's backup is named `format-v2`.
 		- The next changelog's upgrading notes say C's `SHCL_SET_OK` is 0, so old code testing a setter `!= 0` reads every success as a failure, and that a string read of an array gives its bracket text. The released beta1 section stays as it is.
 	- Estimated effort: Low
+
+- Hosted tests: shell-regress dd2gn and dd2gp fail under Ubuntu 26.04, since a renamed uutils coreutils binary is an unknown program
+	- ID: 2026112318030233
+	- Type: Bug
+	- Status: Closed
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-180302
+	- Opened by: nov23b's hosted run 45301493250
+	- Steps to reproduce: hosted ci.yml run 45301493250 on nov23b, job ci (tests), shell-regress.
+	- Incorrect behavior: dd2gn prints coreutils: unknown program 'shcl_20260805-120000' then says dogfood_shcl.ps1 deleted a version that was running; dd2gp prints coreutils: unknown program 'inuse-bin' then says cicd.bash did not see a running dogfood binary. Earlier hosted runs on 26.04 stopped before shell-regress, so this was on dev already.
+	- Expected behavior: both rows pass on ubuntu-latest. The rows' stand-in for a running binary is a copied coreutils program, and uutils is one multicall binary that picks its program by its own name.
+	- Estimated effort: Low
+	- Needs external testing: No. Passed on 20261124.
+	- Reproduced: 20261124, in an ubuntu:26.04 container as a non-root user, with the host's pwsh mounted. Both rows failed with the hosted run's messages.
+	- Actual cause: both rows copied /bin/sleep under another name and ran it as the stand-in for a running binary. On Ubuntu 26.04 /bin/sleep links to uutils coreutils, one multicall binary that picks its program by the name it runs under, so the copy said "unknown program" and quit. Nothing was running when the rows looked.
+	- Actual fix: shell-regress has a helper, `fRunningCopy`, that copies bash to the path and starts it waiting up to 60 seconds on a FIFO. Bash runs under any name. Both rows use it.
+	- Decisions: a copy of bash, rather than a link or a copy of another tool. The rows need a real image at the path, which a link to the multicall binary isn't, and bash is on every box that runs the script. Calling the multicall binary as `coreutils sleep` was left out, since GNU coreutils has no such form (me).
+	- Verified: 20261124. In the ubuntu:26.04 container, the old rows failed and the new ones passed. On the host, full shell-regress passed but the known `dcvej`, with dd2gn and dd2gp, and shellcheck passed. Not run: a hosted run.
+	- Swept: every `cp /bin/` and `cp /usr/bin/` under cicd/. The other two, in dd5he and der2e, copy /bin/true as a package payload that package.bash reads with objdump and readelf but never runs, so a multicall copy still serves.
+	- Test case: shell-regress dd2gn and dd2gp.
+	- Branch: `nov24-2026112318030233`
+	- Commit: `0f54d063`
+	- Closed reason: Done
+	- Closed: 20261124-210254
+	- Acceptance signoff: me, 20261124, from hosted ci.yml run 45546604978 on nov24.
+	- 20261124: Verified: hosted ci.yml run 45546604978, job ci (tests), passed dd2gn and dd2gp under Ubuntu 26.04. Its only failure was the known dcvej.
+
+- Hosted ci: the tool install step sometimes takes 10 to 44 minutes
+	- ID: 2026112314544545
+	- Type: Bug
+	- Status: Closed
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261123-145445
+	- Opened by:
+	- Parent ID: 2026112311213741
+	- Steps to reproduce: hosted ci.yml runs; seen on the ci job's tool install step in runs 41500153471 (lint, 10 minutes), 42772084789 (release, 16) and 45232879461 (lint 20, release 44), on both ubuntu-24.04 and ubuntu-latest.
+	- Incorrect behavior: the step usually takes 1 to 3 minutes. On those runs it took 10 to 44. In the release log of 45232879461, the 43 minutes all fall inside apt-get update and the package fetch, which -qq kept silent. The tests part of the same run took under a minute.
+	- Expected behavior: the install step takes a few minutes, or its log says which fetch was slow.
+	- Estimated effort: Low
+	- 20261123: hosted run 45301493250, release part on ubuntu-24.04: the install step took 42 minutes. apt fetched 267 MB in 40min 29s (110 kB/s), all from us-east-2.ec2.archive.ubuntu.com. The ubuntu-latest parts installed in minutes.
+	- 20261124: the setup-build job's apt line still runs under `-qq`. Give it `-q` with the fix, so a slow fetch there shows too.
+	- Actual cause: the runner image lists its cloud's own mirror first in apt's mirror list, us-east-2.ec2.archive.ubuntu.com on an AWS runner and azure.archive.ubuntu.com on an Azure one, with archive.ubuntu.com second. apt moves down that list only when a fetch fails, never when it's slow, so a slow first mirror holds the whole install. The earlier long runs were under `-qq`, so whether their mirror was slow too is unverified.
+	- Actual fix: the ci job's install step and setup-build run `cicd/utility/apt-mirror.bash` before apt. It times a 4 MiB fetch from the first mirror, and when that's under 2 MB/s and the next one is faster, takes the first out of the list. It prints both speeds either way. setup-build's apt prints each fetch too.
+	- Decisions: me: move only when the next mirror measures faster, so a slow runner network doesn't send apt farther away. The 2 MB/s floor puts the 267 MB fetch at about 2 minutes. Not a fast-mirror action from the marketplace, which is one more pinned action for a short script. Not `--no-install-recommends`, which changes what the gate's tools get, while the cause is the mirror's speed. Not a cache of the packages, which is about 250 MB per part beside the cargo and cppcheck caches, and leaves apt-get update on the slow mirror.
+	- Test case: shell-regress `dfrfn`.
+	- Verified: 20261124. `dfrfn` passes, and fails on 3 broken copies of the script: one that never writes the list, one that never moves, one that moves to a slower mirror. Run here over the runner's mirror hosts, it read us-east-2.ec2 at 7.4 MB/s and kept it, and with the floor raised it took it out for archive.ubuntu.com at 15 MB/s. check-pins and shellcheck pass.
+	- Needs external testing: No. Passed on 20261124.
+	- Swept: every apt call in `.github/workflows/`, which are the ci job's install step and setup-build. The cicd/container images run apt in their own builds, not on a runner's mirror list.
+	- Branch: `nov24-2026112314544545`
+	- Commit: `e780fc21`
+	- Closed reason: Done
+	- Closed: 20261124-210254
+	- Acceptance signoff: me, 20261124, from hosted ci.yml run 45546604978 on nov24.
+	- 20261124: Verified: hosted ci.yml run 45546604978 printed an apt-mirror line in the ci install step and setup-build (azure mirror at 179 to 249 MB/s, kept first), and the lint part's install step took 73 seconds. The slow-mirror switch is held by shell-regress dfrfn.
+
+- Schema: a `meta` key on a field that shcl ignores, so an app can keep its own data there
+	- ID: 2026112315300920
+	- Type: Enhancement
+	- Status: Closed
+	- Priority: Avg
+	- Target version: v3.0.0
+	- Opened: 20261123-153009
+	- Opened by: nemo-anywhere 2026111912460983
+	- Problem description: a schema field takes only the keys SHCL knows. Any other key is V090, an error, so `shcl check --schema` fails on the schema, though its other constraints are still checked. nemo-anywhere keeps a list of Settings search aliases on each field of its schema, read by its build. It has to write them as a comment row, `# aliases: [a, b]`, so its installed schema still passes.
+	- Requirements:
+		- `meta` is a schema key under a `field`. It takes any value and any lines under it, and validation and generation read none of it, as with `desc`.
+		- Any other unknown key is still `V090`, and its message says a program's own keys go under `meta`.
+		- A document's own field named `meta` still validates, declared as `field: meta` like any other.
+		- All 4 bindings and the CLI agree, and a conformance row pins it.
+		- The spec's key table has the row. It says shcl gives the key no meaning, and that where more than one program reads a schema, each takes a block of its own under it.
+	- Decisions:
+		- JC, 2026-11-24: not an exception made by the shape of a name, such as `x-`. Go with `meta`.
+		- me, 2026-11-24: one known key, `meta`, under a `field`. The vocabulary stays a closed list of exact names, and `meta` is one more key that validation ignores, beside `desc` and `default`. It's the usual name for this slot: Cargo's `[package.metadata]`, a Python dataclass field's `metadata`, and an Arrow field's `metadata` are each ignored by the library and read by other programs. `meta` is short as `desc` is. It can't shadow a config's field, since a document's names sit in value position, as in `field: meta`.
+		- Decided against: any key that starts with `x-`, as OpenAPI, Compose, and systemd units have. It's a rule about the shape of a name in a vocabulary that otherwise lists each name, and a key that only looks like one of shcl's passes with no word.
+		- Decided against: keys the schema declares first, such as `key: aliases`, the way GraphQL directives and protobuf options work. It reads best at the field and catches a mistyped key. It also adds a third kind of top-level entry to every binding, and needs a rule for a declared name that shcl takes later.
+		- Decided against: `aliases` as a known key. It's one app's word in a closed vocabulary, and the next app would ask for another.
+		- Decided against: leaving it to comments. A build then has to read comment text, which shcl gives no meaning, and an edit of the field can move the line.
+		- Decided against: `meta` at the top level or under a `fragment` as well. Nothing asks for it, and adding it later breaks no schema.
+		- me, 2026-11-24: v3.0.0, not beta.2. Nothing in beta.2 depends on it, and the comment row works until then. A schema with the key fails `check --schema` on a reader older than the fix.
+	- Reproduced: 20261123, `shcl check --schema` (v3.0.0-beta1) with `aliases: [x, y]` under a field gives `schema line 4: Error: V090 unknown schema key 'aliases'` and exit 6. The field's type is still checked.
+		- 20261124, dev `7b875296`: the same `V090`. `desc:` with lines under it passes, so a known key's lines already go unread. A schema with `field: meta` and `field: srv.meta` validates a document's own `meta` fields.
+	- Origin: nemo-anywhere 2026111912460983. The draft text and an untested patch for the C header's field-key check (`x-keys.patch`, against `v3.0.0-beta1`, written for the `x-` form) are in `private/claude_simple/upstream/nemo-anywhere-2026111912460983/`. nemo-anywhere's move to `meta` is its 2026112415002147.
+	- Estimated effort: Low
+	- Actual fix: each binding's field-key check skips `meta` and everything under it. Every `V090`, at the top level and on a field, now ends "; a program's own keys go under a field's 'meta'". The spec's key table has the `meta` row, and design.md, the changelog and the conformance README say it's built.
+	- Decisions: me, 2026-11-24: the top-level `V090` gets the same pointer, naming "a field's" `meta`, so a top-level `meta` or `aliases` is told where it goes.
+	- Verified: 20261124. All 4 CLIs ignore a field's `meta`, with a value or with lines under it that would fault if read, on a top-level field and on a fragment's field. A document's `meta` declared as `field: meta` is still checked (`V003`), and `init` writes nothing for the key. Corpus 021's schema and cli-regress `dfrk4` fail on the old code (old C CLI: `V090`) and pass now. The 4 conformance suites, the whole cli-regress over the 4 CLIs, and `--backlog-run-quick rust go python c cli` pass, and the quick run's log reads CLEAN.
+	- Swept: the `V090` sites in all 4 bindings, 2 each (top level and field). The C++ veneer and the CLIs call the core and have no key list of their own. The CLIs' `explain` table keeps its short "unknown schema key".
+	- Note: 20261124, cli-regress `dd50y`'s stderr regex ended at `.bogus.$` and now ends at `.bogus.; a program.s own keys go under a field.s .meta.$`, since the item changes that message.
+	- Test case: corpus `021-schema-valid` (`da9vx`), cli-regress `dfrk4` and `dd50y`.
+	- Branch: `nov24-2026112315300920`
+	- Acceptance signoff: Self-closed: each test failed before the fix and passes after, and the quick run's log reads CLEAN.
+	- Closed: 20261124-193300
+	- Closed reason: Done
+	- Commit: `7337a187`
+
+- lint-report reads a passing run as FAILED, on the fs property step's echoed python command
+	- ID: 2026112409544731
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261124-095447
+	- Opened by:
+	- Related IDs: 2026102019120000
+	- Steps to reproduce: `cicd/cicd.bash --backlog-run-quick python > run_20261124-101500.log 2>&1`, then `cicd/utility/lint-report.bash --file run_20261124-101500.log`.
+	- Incorrect behavior: the run passes and ends with the done line, and the report says `FAILED ... (1 error line(s), 1 warning line(s))`. Both counts are the line `fs property: python: python3 -X dev -W error::ResourceWarning source/python/tests/fs_property.py`, which is the step naming the command it runs.
+	- Expected behavior: CLEAN. 2026102019120000 fixed the same text on an `extra:` line, and this step prints its command under its own prefix.
+	- Requirements:
+		- A line where the pipeline names a command it runs never counts as an error or a warning, whatever its prefix. Fix it by the text, `-W error::`, or by one echo form for every step, not by one more prefix.
+		- A shell-regress row has a passing log with that line, and is red on the old script.
+	- Estimated effort: Low
+	- Note: a run mode (`--backlog-run-quick`, `--backlog-run-full`, `--merge-gate`) writes no log under `cicd/artifacts/lint`, so `--check` reads the last bare run. A round reads its own run with `--file`.
+	- Reproduced: 20261124. A `--backlog-run-quick python cicd` run passed, and the old lint-report read its log as FAILED, 1 error line and 1 warning line, both the `fs property: python:` line.
+	- Actual cause: both scans dropped only the `extra:` lines. The fs property step names its command under its own `fs property: NAME:` prefix, and python's `-W error::ResourceWarning` in it matches the error pattern, and its `ResourceWarning` the warning one.
+	- Actual fix: both scans read the log with python's `-W ACTION:...` options taken out of each line, whatever the line starts with. The rest of the line is still read, and the `extra:` filter stays.
+	- Decisions: fix it by the text rather than one echo form for every step. It's one line in lint-report and leaves every step's output as it is. gcc's `-Werror` and `-Wl,` forms have no colon after the letters, so they stay as they were, and neither matched before (me).
+	- Verified: 20261124. The new lint-report reads that run's log as CLEAN. shell-regress `dfrf0` fails both its checks on the old lint-report and passes on the new one, and full shell-regress passed but the known `dcvej`. shellcheck passed.
+	- Swept: a grep of `error::` under cicd/ finds only python `-W` options, in config.bash's conformance, soak and fs property steps and box-suites.bash's copies. They're echoed as `extra:` or `fs property:` lines, and both are covered now.
+	- Test case: shell-regress `dfrf0`.
+	- Branch: `nov24-2026112318030233`
+	- Acceptance signoff: Self-closed: the test failed before the fix and passes after, and the quick run's log reads CLEAN.
+	- Closed: 20261124-172106
+	- Closed reason: Done
+	- Commit: `0f54d063`
+
+- A capped parse still splits every line first, so a file of blank lines costs 17 to 48 times its size
+	- ID: 2026110707441368
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Opened: 20261107-074413
+	- Opened by: me, found working 2026110613470304
+	- Related IDs: 2026110613470304
+	- Steps to reproduce:
+		- Run `parse_limited` on 2 MB of `\n`, with caps of 1,000 nodes, 1,000 elements, and 100 diagnostics.
+	- Incorrect behavior: Python's tracemalloc peak is 34 MB, which is 17 times the file. Rust stores the split lines twice (`lines` and `src`), 16 bytes each, so a 1-byte line costs 32 to 48 bytes there. Go and C weren't measured.
+	- Expected behavior: the memory a capped parse uses stays near the file's size. The amount is linear and a byte cap on the read bounds it, so this is a constant factor rather than a hole in the caps.
+	- Possible cause: every binding splits the whole text into lines before the first cap check, and blank lines don't count against any cap.
+	- Estimated effort: Avg
+	- Target version: v3.0.0
+	- Progress log:
+		- 20261124: split. The second list and the doubling are 2026112418045534, done, which halves the cost. Walking the text with no list of lines is 2026112418052197, Queued.
+	- Test case: its children's: 2026112418045534: `blank_lines_cost_one_list_of_lines` (`dfrg6` Rust, `dfrg7` Go, `dfrg8` Python, `dfrg9` C).; 2026112418052197: none named
+	- Closed: 20261124-181035
+	- Closed reason: Done
+
+- A capped parse holds its list of lines twice, or grows it by doubling, so a file of blank lines costs 17 to 48 times its size
+	- ID: 2026112418045534
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Target version: v3.0.0
+	- Opened: 20261124-180455
+	- Opened by: Split from 2026110707441368
+	- Parent ID: 2026110707441368
+	- Steps to reproduce: run `parse_limited` on `## SHCL format 3.0` and 200,000 blank lines, with caps of 1,000 nodes, 1,000 elements, and 100 diagnostics.
+	- Incorrect behavior: Rust holds 37 times the text, Go allocates 48 times, C 29 times, and Python's peak is 16 times.
+	- Expected behavior: one list of lines, held once and sized once, about 16 times the text in Rust, Go and C, and 8 in Python, where every empty line is the one empty string.
+	- Actual cause: no cap counts a blank line, so the parse walks them all, and the list of lines is what they cost. Rust kept a copy of it as `src`. C grew it by doubling in an arena that keeps every copy. Python built a second list to trim the line ends. Go's Format line read split the whole text again, and put a value per line on the heap.
+	- Actual fix: Rust and C size the list once from a count of line ends, and Rust shares it with `src` through an `Rc`. Python trims the line ends in place. Go's Format line read cuts a line at a time, as Rust's does, and puts the value on the heap only for a line that names a format. design.md and the changelog say so.
+	- Decisions: Rust shares the list rather than reading the `E028` line from its `array_line` mark, since Go, Python and C already share the one list with `src` that way (parity). Bounds are 20 times the text, and 12 in Python, between the old cost and one list (me).
+	- Test case: `blank_lines_cost_one_list_of_lines` (`dfrg6` Rust, `dfrg7` Go, `dfrg8` Python, `dfrg9` C).
+	- Verified: 20261124. Each test failed on the old code: Rust 7.39 MB, Python 3.25 MB and C 5.84 MB for 200 KB without the stamp line, and Go 9.62 MB with it. They pass now at 3.20, 1.63, 3.60 and 3.20 MB. The quick run over rust, go, python and c read CLEAN, and perf-gate and crosscheck passed.
+	- Swept: each binding's parse split and its Format line read. Rust's `lines_of` and C's byte walk read the stamp with no list. Python's stamp read still splits the text, but frees the list before the parse makes its own, so the peak doesn't change. Go's `trimCountingNodeLines` trims in place.
+	- Branch: `nov24-2026110707441368`
+	- Commit: `4c2d0755`
+	- Acceptance signoff: Self-closed: each test failed before the fix and passes after.
+	- Closed: 20261124-180536
+	- Closed reason: Done
+
+- A capped parse holds a slot for every line, so a file of blank lines costs 8 to 16 times its size
+	- ID: 2026112418052197
+	- Type: Bug
+	- Status: Deferred
+	- Severity: Low
+	- Target version: v4
+	- Opened: 20261124-180521
+	- Opened by: Split from 2026110707441368
+	- Parent ID: 2026110707441368
+	- Prereq IDs: 2026112418045534
+	- Steps to reproduce: run `parse_limited` on 2 MB of `\n`, with caps of 1,000 nodes, 1,000 elements, and 100 diagnostics.
+	- Incorrect behavior: Rust, Go and C hold about 16 times the file, and Python's tracemalloc peak is 17 MB, 8 times. That's one slot per line in the list of lines, after 2026112418045534.
+	- Expected behavior: the memory a capped parse uses stays near the file's size.
+	- Possible cause: every binding cuts the whole text into a list of lines before its loop, and no cap counts a blank line. The loop's lookahead reads that list by index: the raw body and skipped block readers, the `E020` remainder count, and the `E028` line read back from `src`. Walking the text a line at a time means each of those reads forward from an offset instead, in all 4.
+	- Estimated effort: Avg
+	- 20261124: deferred to v4 (me). What's left is one list slot per line, which the byte cap on the read already bounds. Walking without the list changes 4 lookahead readers in all 4 bindings, and memory.md holds new performance work until 3.0.0 is out.
 
 - Hosted tests: cli-regress argv-not-utf8 rows exit 125 under Ubuntu 26.04's timeout
 	- ID: 2026112308403867

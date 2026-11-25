@@ -394,6 +394,8 @@ printf 'n: "caf\303\251 \342\202\254"\n' > "${tmpDir}/nonascii.shcl"
 ## `12:00:00` are 2 values".
 printf 'field: t\n\ttype: datetime\n\tallowed: "12:00:00"\n' > "${tmpDir}/dtsecs.schema.shcl"
 printf 't: "12:00"\n' > "${tmpDir}/dtsecs.shcl"
+printf 'field: a\n\tmeta: p\n\t\taliases: [x, y]\n\t\tfield: b\n\t\t\tbogus: 1\nfield: meta\n\ttype: int\n\tmeta:\n' > "${tmpDir}/meta.schema.shcl"
+printf 'a: 1\nmeta: no\n' > "${tmpDir}/meta.shcl"
 ## spec.md: the annotation writes "a line break inside a rendered value ... as
 ## its escape" and "other text, non-ASCII included, ... as it is".
 printf 'field: e\n\tallowed: ["a%sNEWLINE%sb", "caf\303\251", x]\n\trequired: yes\n\tdefault: x\n' "${mark}" "${mark}" > "${tmpDir}/annot.schema.shcl"
@@ -461,7 +463,9 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	default whose value breaks its type, %SK% a valued parent whose array
 ##	default has no selector spelling, %SDT%/%FDT% a datetime allowed set
 ##	with seconds and a time without, %SAN% an allowed set with a line break
-##	and a value outside ASCII,
+##	and a value outside ASCII, %SME%/%FME% a schema with a field's own
+##	`meta` lines and a declared `meta` field, and a document whose `meta`
+##	breaks its type,
 ##	%C% a path with nothing at it, cleared before every binding's run, %E% an
 ##	empty argument, %DB% a --default with a line break, %LS% a long s
 ##	(U+017F), which Unicode upper-cases to S,
@@ -1782,7 +1786,10 @@ rows=(
 	"dd50x|many-sets|get --int ${manySets}%F% k69|-|0|69\n|-"
 	## 20260725 item 17: check --schema numbered a schema fault as a document
 	## line. stderr names the schema; stdout keeps the one form.
-	'dd50y|check-schema-line-v090|check --schema=%SU% %F%|-|6|line 2: Error: V090\nfailed: 1 diagnostic(s), 1 error(s)\n|^schema line 2: Error: V090 unknown schema key .bogus.$'
+	'dd50y|check-schema-line-v090|check --schema=%SU% %F%|-|6|line 2: Error: V090\nfailed: 1 diagnostic(s), 1 error(s)\n|^schema line 2: Error: V090 unknown schema key .bogus.; a program.s own keys go under a field.s .meta.$'
+	## 2026112315300920: a field's `meta` and the lines under it are the
+	## program's, and a document's own `meta` field is still checked.
+	'dfrk4|check-schema-meta|check --schema=%SME% %FME%|-|6|line 2: Error: V003\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: V003 wrong type at .meta.'
 	'dd50z|check-schema-line-v091|check --schema=%S3% %F%|-|6|line 5: Error: V091\nfailed: 1 diagnostic(s), 1 error(s)\n|^schema line 5: Error: V091 unknown schema type .nope.$'
 	'dd510|check-schema-line-v092|check --schema=%S8% %F%|-|6|-|^schema line 3: Error: V092 bad schema constraint .default.$'
 	'dd511|check-schema-line-v093|check --schema=%SM% %F%|-|6|-|^schema line 3: Error: V093 bad schema path'
@@ -1889,6 +1896,8 @@ for row in "${rows[@]}"; do
 	argv="${argv//%SC%/${tmpDir}/seldefok.shcl}"
 	argv="${argv//%SD%/${tmpDir}/optdefbad.shcl}"
 	argv="${argv//%SDT%/${tmpDir}/dtsecs.schema.shcl}"
+	argv="${argv//%SME%/${tmpDir}/meta.schema.shcl}"
+	argv="${argv//%FME%/${tmpDir}/meta.shcl}"
 	argv="${argv//%FDT%/${tmpDir}/dtsecs.shcl}"
 	argv="${argv//%SAN%/${tmpDir}/annot.schema.shcl}"
 	argv="${argv//%SE%/${tmpDir}/optdefok.shcl}"

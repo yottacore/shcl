@@ -6170,7 +6170,13 @@ class _Parser:
 		# The whole trailing CR run goes, not just one: a raw block keeps its
 		# content untrimmed, so a line left ending in CR would be written back as
 		# CRLF and read as neither - the one shape where the count is visible.
-		lines = [ln.rstrip("\r") for ln in text.split("\n")]
+		# No cap counts a blank line, so this list is what a file of them
+		# costs. Trimmed in place, as a second list beside it doubled that.
+		lines = text.split("\n")
+		if "\r" in text:
+			for k, ln in enumerate(lines):
+				if ln.endswith("\r"):
+					lines[k] = ln.rstrip("\r")
 		# A newline-terminated text splits into one more piece than it has
 		# lines. An unterminated raw block took that empty tail as a body line,
 		# so the same last line read differently with and without its newline,
@@ -11805,9 +11811,9 @@ def _save_text(path, text, new_only=False, mode=0):
 
 def _link_at(path) -> bool:
 	"""A link at the path as given, which a create-only save refuses. The
-	resolve follows a link to nowhere and finds nothing where it points.
-	Windows is left as it was (2026110312163207)."""
-	return os.name != "nt" and os.path.islink(path)
+	resolve follows a link to nowhere and finds nothing where it points
+	(2026110312163207, and on Windows 2026110408432594)."""
+	return os.path.islink(path)
 
 
 def _something_at(path) -> bool:
@@ -14016,7 +14022,7 @@ def _build_schema(schema: Document) -> tuple[_SchemaDef, list]:
 					_vdiag(faults, kid.line, "V094", f"bad schema fragment '{_diag_name(name)}': unknown key '{_diag_name(kid.name)}'")
 			frags[name] = fcs
 		else:
-			_vdiag(faults, node.line, "V090", f"unknown schema key '{_diag_name(node.name)}'")
+			_vdiag(faults, node.line, "V090", f"unknown schema key '{_diag_name(node.name)}'{_META_HINT}")
 	# Every mount must name a declared fragment; cycles (self or mutual) are
 	# legal - expansion is demand-driven against a finite document.
 	for c in cons + [fc for fcs in frags.values() for fc in fcs]:
@@ -14026,6 +14032,10 @@ def _build_schema(schema: Document) -> tuple[_SchemaDef, list]:
 	# One constraint per line in practice, so line order = file order.
 	faults.sort(key=lambda d: d.line)
 	return _SchemaDef(cons, frags, paths_complete), faults
+
+
+# The tail of every V090, which points a program's own key at `meta`.
+_META_HINT = "; a program's own keys go under a field's 'meta'"
 
 
 def _parse_field(schema, f, faults):
@@ -14147,8 +14157,12 @@ def _parse_field(schema, f, faults):
 			if c.default_text is None:
 				c.default_text = _emit_value_inline(kid.value)
 				default_at = k
+		elif kid.name == "meta":
+			# A program's own data. shcl reads none of it, the lines under it
+			# included.
+			pass
 		else:
-			_vdiag(faults, kid.line, "V090", f"unknown schema key '{_diag_name(kid.name)}'")
+			_vdiag(faults, kid.line, "V090", f"unknown schema key '{_diag_name(kid.name)}'{_META_HINT}")
 	if required is not None:
 		c.required = required
 	# A raw block has no inline spelling, so a `default` that is one cannot reach

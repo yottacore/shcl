@@ -7163,11 +7163,20 @@ fn a_create_only_save_refuses_a_file_already_there() {
 		Err(SaveError::Exists { path: n.clone() })
 	);
 	assert_eq!(read(&n), "b: 2\n");
+	// Windows makes a link only with developer mode or the right to, so the
+	// link rows skip there without it (2026110408432594).
 	#[cfg(unix)]
-	{
+	let symlink = |to: &str, from: &str| {
+		std::os::unix::fs::symlink(to, from).unwrap();
+		true
+	};
+	#[cfg(windows)]
+	let symlink = |to: &str, from: &str| std::os::windows::fs::symlink_file(to, from).is_ok();
+	let link = at("link.shcl");
+	if !symlink(&n, &link) {
+		eprintln!("dekm5: link rows skipped (no symlink)");
+	} else {
 		// A link to a file is the file.
-		let link = at("link.shcl");
-		std::os::unix::fs::symlink(&n, &link).unwrap();
 		assert_eq!(
 			fresh.save_file_with(&link, &create),
 			Err(SaveError::Exists { path: link.clone() })
@@ -7176,7 +7185,7 @@ fn a_create_only_save_refuses_a_file_already_there() {
 		// isn't made (2026110312163207).
 		let dangling = at("dangling.shcl");
 		let nowhere = at("nowhere.shcl");
-		std::os::unix::fs::symlink(&nowhere, &dangling).unwrap();
+		assert!(symlink(&nowhere, &dangling));
 		assert_eq!(
 			fresh.save_file_with(&dangling, &create),
 			Err(SaveError::Exists {

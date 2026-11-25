@@ -8121,6 +8121,11 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 	stamp_hint(&P, full);
 	ShclVecS lines = {0};
 	{
+		/* No cap counts a blank line, so this list is what a file of them
+		   costs: sized once, as doubling in a bump arena keeps every copy. */
+		lines.cap = 1;
+		for (size_t i = 0; i < full.n; i++) lines.cap += full.p[i] == '\n';
+		lines.data = (ShclStr *)arena_alloc(P.tmp, lines.cap * sizeof *lines.data);
 		size_t start = 0;
 		for (size_t i = 0; i <= full.n; i++) {
 			if (i == full.n || full.p[i] == '\n') {
@@ -14373,6 +14378,8 @@ static ShclStr schema_text(ShclArena *a, ShclStr s) {
 	v_put_shown(a, &b, s, escape_mark);
 	return sb_S(&b);
 }
+// The tail of every V090, which points a program's own key at `meta`.
+#define V_META_HINT "; a program's own keys go under a field's 'meta'"
 static ShclStr v_msg3(ShclArena *a, const char *pre, ShclStr mid, const char *post) {
 	ShclSB s = {0, 0, 0};
 	sb_puts(a, &s, pre); sb_putS(a, &s, mid); sb_puts(a, &s, post);
@@ -14552,8 +14559,11 @@ static int v_parse_field(ShclArena *a, shcl_doc *schema, size_t f, ShclVecDiag *
 				}
 				default_at = kids.data[ki];
 			}
+		} else if (s_eq(kid->name, s_lit("meta"))) {
+			// A program's own data. shcl reads none of it, the lines under it
+			// included.
 		} else {
-			v_diag(a, faults, kid->line, "V090", v_msg3(a, "unknown schema key '", diag_name(a, kid->name), "'"));
+			v_diag(a, faults, kid->line, "V090", v_msg3(a, "unknown schema key '", diag_name(a, kid->name), "'" V_META_HINT));
 		}
 	}
 	c.required = required > 0;
@@ -14725,7 +14735,7 @@ static void v_build_schema(ShclArena *a, shcl_doc *schema, ShclVSchemaDef *def, 
 			cmap_put(a, &def->fmap, cmap_hash(name, s_empty()), def->frags.len);
 			ShclVecVFrag_push(a, &def->frags, fr);
 		} else {
-			v_diag(a, faults, node->line, "V090", v_msg3(a, "unknown schema key '", diag_name(a, node->name), "'"));
+			v_diag(a, faults, node->line, "V090", v_msg3(a, "unknown schema key '", diag_name(a, node->name), "'" V_META_HINT));
 		}
 	}
 	// Every mount must name a declared fragment; cycles (self or mutual) are
@@ -16478,15 +16488,21 @@ static int shcl_names_a_directory(const char *path) {
 // *not_regular set when that is why, since EINVAL could be anything.
 // new_only and mode are shcl_save_options' create and mode, and *exists is set
 // when create found something there.
-#ifndef _WIN32
 // A link at the path as given, which a create-only save refuses. The resolve
-// follows a link to nowhere and finds nothing where it points. Windows is left
-// as it was (2026110312163207).
+// follows a link to nowhere and finds nothing where it points
+// (2026110312163207, and on Windows 2026110408432594).
 static int s_link_at(const char *path) {
+#ifndef _WIN32
 	struct stat st;
 	return lstat(path, &st) == 0 && S_ISLNK(st.st_mode);
-}
+#else
+	wchar_t *w = shcl_widen(path);
+	if (!w) { SHCL_OOM(); abort(); }
+	DWORD a = GetFileAttributesW(w);
+	free(w);
+	return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
 #endif
+}
 
 static int s_write_file_atomic(const char *path, const char *data, size_t n, int new_only, unsigned mode, int *not_regular, int *exists) { // NOLINT(bugprone-easily-swappable-parameters): path, then data, as in shcl_write_file_atomic; see 2026101807501110
 	if (shcl_names_a_directory(path)) { errno = EISDIR; return 0; }
@@ -16547,7 +16563,7 @@ static int s_write_file_atomic(const char *path, const char *data, size_t n, int
 	}
 #else
 	(void)mode;
-	if (new_only && attrs != INVALID_FILE_ATTRIBUTES) {
+	if (new_only && (attrs != INVALID_FILE_ATTRIBUTES || s_link_at(path))) {
 		errno = EEXIST; *exists = 1;
 		free(tmp); SHCL_FILE_CLEANUP(); return 0;
 	}
