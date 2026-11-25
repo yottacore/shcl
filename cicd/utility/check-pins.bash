@@ -18,7 +18,8 @@
 ##		leave a stage out, when one of them runs both lint and tests or without
 ##		--no-container, when a
 ##		cicd/container recipe installs a pinned tool at another version, and
-##		when one fetches something it doesn't hash. A leak check's tool that
+##		when one fetches something it doesn't hash, and when a job runs on a
+##		-latest runner label rather than a fixed image. A leak check's tool that
 ##		ci.yml leaves out fails here unless every job that runs the leak
 ##		checks skips its step, and no other step may name it.
 ##	Syntax:
@@ -251,6 +252,31 @@ if ! grep -qE -- '^[[:space:]]*timeout-minutes: \$\{\{ *matrix\.minutes *\}\}' <
 	echo "check-pins: the gate's time limit and the job's timeout-minutes don't both come from matrix.minutes" >&2; nBad=$((nBad + 1))
 fi
 
+## A -latest label moves to a new image with no commit here. ubuntu-latest's
+## move to 26.04 turned the hosted gate red with no change in the code
+## (2026112509394522), so every job names its image, and a move is planned.
+fTest dfsfx hosted-runners-are-pinned
+fLatest(){ [[ "$1" == *-latest* ]] && { echo "check-pins: ci.yml runs a job on $1, which moves to a new image with no change here; name a fixed one" >&2; nBad=$((nBad + 1)); }; return 0; }
+nRunsOn=0
+while IFS= read -r label; do
+	label="${label%%#*}"; label="${label%"${label##*[![:space:]]}"}"
+	[[ -n "${label}" ]] || continue
+	nRunsOn=$((nRunsOn + 1))
+	if [[ "${label}" =~ ^\$\{\{\ *matrix\.([A-Za-z0-9_-]+)\ *\}\}$ ]]; then
+		matrixKey="${BASH_REMATCH[1]}"
+		matrixVals="$(sed -nE "s/^[[:space:]]*(-[[:space:]]+)?${matrixKey}:[[:space:]]*//p" <<<"${liveLines}" || true)"
+		[[ -n "${matrixVals}" ]] || { echo "check-pins: a job runs on matrix.${matrixKey} and no value for it was read" >&2; nBad=$((nBad + 1)); }
+		while IFS= read -r matrixVal; do
+			if [[ -n "${matrixVal}" ]]; then fLatest "${matrixVal}"; fi
+		done <<<"${matrixVals}"
+	elif [[ "${label}" == *"\${{"* ]]; then
+		echo "check-pins: a job's runs-on is an expression this check can't follow to a label: ${label}" >&2; nBad=$((nBad + 1))
+	else
+		fLatest "${label}"
+	fi
+done < <(sed -nE 's/^[[:space:]]*runs-on:[[:space:]]*//p' <<<"${liveLines}")
+((nRunsOn)) || { echo "check-pins: no runs-on line was read from ci.yml" >&2; nBad=$((nBad + 1)); }
+
 ## A leak check's tool ci.yml leaves out is skipped by name in every hosted job
 ## that runs the leak checks, the ones without --no-tests, and no other step
 ## names it. A --skip of anything else leaves out a step the runner can run.
@@ -399,7 +425,7 @@ done
 fTestEnd
 rc=0
 if [[ "${nBad}" != 0 ]]; then rc=1; fi
-((rc)) || echo "check-pins: OK: every TOOL_PINS entry the hosted gate installs matches ci.yml, every tool ci.yml pins has an entry, every download it fetches is hashed, its jobs run every stage of the gate, and the container recipes agree with the pins and hash what they fetch"
+((rc)) || echo "check-pins: OK: every TOOL_PINS entry the hosted gate installs matches ci.yml, every tool ci.yml pins has an entry, every download it fetches is hashed, its jobs run every stage of the gate on fixed runner images, and the container recipes agree with the pins and hash what they fetch"
 exit "${rc}"
 
 
@@ -425,3 +451,4 @@ exit "${rc}"
 ##		- 2026-10-28: The hosted jobs run --merge-gate, with --no-release and --no-remote
 ##		  allowed. A leak check's tool ci.yml leaves out is skipped by --skip in every
 ##		  job that runs the leak checks, and --skip names nothing else.
+##		- 2026-11-25: No job runs on a -latest runner label.

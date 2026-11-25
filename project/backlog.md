@@ -215,7 +215,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Hosted lint: analyze-c ends with exit 143 a few minutes in, under the gate step's timeout
 	- ID: 2026112421495092
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261124-214950
@@ -226,11 +226,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: analyze-c runs to its end, as it did in hosted run 45068690472 on 2026-11-22 (5 minutes) and here on the nov24 tree (428 s), and the cache save runs.
 	- Possible cause: new since 2026-11-22 is the gate step's `timeout --kill-after=60 "${left}" cicd/cicd.bash` from 2026112311213741, under the 26.04 image's uutils `timeout`. Something in analyze-c may signal its process group, which `timeout` now owns. Try analyze-c under uutils `timeout` in an `ubuntu:26.04` container first. A skipped `always()` step points at the runner canceling the job rather than the step failing.
 	- Estimated effort: Avg
+	- Reproduced: 20261125, here on the round tree. analyze-c at the runner's 4 CPUs peaked at 17.5 GB, 2 minutes in, against the runner's 16 GB. Alone, gcc -fanalyzer took 10.4 GB on conformance.c, 7.3 on fs_property.c, 6.0 on main.c, 5.3 on oom_hook.c and 4.1 on mem_bounds.c, and clang under 0.4 each. Under a 15 GB cap with no swap (`CICD_MEM_CAP=15g`), cc1 on conformance.c was killed for memory and `de2x2` failed.
+	- Actual cause: analyze-c runs 2 gcc -fanalyzer lanes at once whatever the memory, beside the clang jobs. Since 2026-11-22 shcl.h grew by about 4,700 lines and conformance.c by 2,500, and fs_property.c joined the C programs, so 2 lanes now need more than a hosted runner has. The runner then ended the step with TERM and skipped every later step, the post steps included. Who sends the TERM isn't in any log, so that part is read from the step lists, not reproduced. The `timeout` wrapper isn't the cause: 45232879461 ended in the same stage before it went in (2026112311213741).
+	- Actual fix: analyze-c works out the memory the run may use, the smaller of MemAvailable and any cgroup cap over it, such as the run's own scope or the image's `--memory`. It runs the second gcc lane only with room for 2 at 12 GB each plus 2 for the clang jobs, and prints the lane count and the room. A hosted runner gets one lane.
+	- Decisions: one lane on a small box, rather than a lower analyzer depth or a file left out, since depth 2 is the least that reports the bait and every file stays checked. A fixed figure per lane rather than a per-file estimate, since the peak doesn't follow file size: oom_hook.c, at 17 KB, took more than mem_bounds.c at 39 KB. The cost is time: one lane took 632 s here against 358 s for 2, at a load of about 25 (me).
+	- Verified: 20261125. Under `CICD_MEM_CAP=15g` analyze-c chose 1 lane and passed `de2wz` to `de2x4` (632 s), where the old script failed `de2x2`. Under the default cap (32g here) it chose 2 lanes and passed (358 s). The room read 40 GB on the host, 10 under a 10G user scope, and 14 in the 15g image. shellcheck passes.
+	- Needs external testing: the hosted ci.yml run, job ci (lint), with a cold cppcheck cache or after a shcl.h change. analyze-c should print `1 gcc -fanalyzer lane(s)` and pass, and the cppcheck cache save step should run.
+	- Test case: analyze-c `de2x2`, which the hosted lint part runs, under the runner's memory. No pipeline row runs analyze-c under a cap, since a capped run takes about 10 minutes.
+	- Swept: the other steps that run jobs side by side on the runner. analyze-c `--ctu` in the tests part took 11 s hosted, and cppcheck runs 2 at under 240 MB each. No other gate step is sized by memory.
+	- Branch: `nov25-2026112509394522`
+	- Commit: `8372ca7a`
 
 - Hosted lint: the lint part runs past its 80-minute timeout on Ubuntu 26.04
 	- ID: 2026112311213741
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261123-112137
@@ -251,7 +261,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- apt in the install step prints each fetch.
 	- Decisions: keep each part at 80 minutes. A cold cppcheck on the current code fits with about 30 to spare, so a longer limit would only hide the next slow run. Bound the gate inside the step rather than with the step's own timeout-minutes, which runs on the runner's cancel path that kept nothing here. `timeout` signals the whole process group, which a step timeout does not promise. A per-run cache key, since a cache can't be overwritten, and a partial result saved under the final key would be restored as a full hit and never saved again.
 	- Verified: 20261123. In ubuntu:26.04, uutils `timeout` returns 124 and ends a background grandchild, and 137 for a child that ignores TERM; GNU's on the host does the same. A copy of the gate step's script passes through the gate's exit code and refuses to start with under a minute left. check-pins passes, `dfpxm` included. shell-regress rows `dcqgf`, `dfpxn`, `ddwkm`, `dej8g`, `dektk`, `dcv6p`, `dcqgg` and `ddx1w` pass, and `dfpxn` fails both ways on the old check-pins. `cicd.bash --backlog-run-quick cicd` and `lint-report.bash --check --no-mark` pass. cppcheck cut off by `timeout` with a build dir keeps the result of the file it finished, and an empty one for the file it didn't.
-	- Needs external testing: a hosted ci.yml run on the branch after a shcl.h change, job ci (lint). It should finish inside its limit in about 50 minutes, print `gate time limit:`, and save a `cppcheck-<hash>-<run id>-1` cache. If it runs out of time, its log names the step. Not run: a hosted run.
+	- Needs external testing: a hosted ci.yml run on the branch after a shcl.h change, or with a cold cppcheck cache, job ci (lint) on `ubuntu-24.04`. It should finish inside its limit in about 55 minutes, print `gate time limit:`, and save a `cppcheck-<hash>-<run id>-1` cache. If it runs out of time, its log names the step.
 	- Test case: check-pins `dfpxm` (each hosted gate run is under `timeout`, from the job's own minutes) and shell-regress `dfpxn`. No test bounds the hosted time itself.
 	- Swept: every `cicd/cicd.bash` line in ci.yml (the 3 ci parts share one). The other jobs run no cicd.bash and have their own short timeouts. The setup-build job installs 2 packages under its own 15-minute timeout, and its apt line moved to -q under 2026112314544545.
 	- Branch: `nov23b-2026112311213741`
@@ -261,11 +271,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- 20261123: next try: find what the lint part leaves running after its gate, such as a background process holding the step's output, and why the gate failed at 43 minutes. A run with the lint part's gate cut down to that stage would show it in minutes.
 	- 20261124: hosted ci.yml run 45546604978 on nov24, after a shcl.h change: the lint part's install took 73 seconds, cold cppcheck 24 minutes and passed, then analyze-c ended with exit 143 (TERM) after about 3 minutes, 28 minutes into a 72-minute limit, with no output. The cache save step was skipped despite always(), so no cppcheck cache was saved. Job 138977631558 rerun to see if it recurs.
 	- 20261124: the rerun (job 138991346830) ended the same way: cold cppcheck 33 minutes and passed, then analyze-c exit 143 after 4 minutes. Filed as 2026112421495092.
+	- 20261125: the cause of the long and cut-off runs is analyze-c's memory (2026112421495092). Its 2 gcc lanes need 17.5 GB against the runner's 16 GB. The 2 runs with a log ended in analyze-c. The 2 without one stopped at about the time it starts after a cold cppcheck, one before the `timeout` wrapper and one after, which fits but is unverified. The fix there runs one lane on the runner, about 8 minutes more than 2. The lint part also moves to `ubuntu-24.04` with the runner pins (2026112509394522). What's left is the hosted run in the Needs row.
 
 - Pin the hosted runner images
 	- ID: 2026112509394522
 	- Type: Task
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Priority: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261125-093945
@@ -276,6 +287,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Every `runs-on` and matrix `runner` names a fixed image, as the release part's `ubuntu-24.04` and `macos-15` already do. Pick the Ubuntu one with the 2 hosted lint items.
 		- check-pins refuses a `-latest` label.
 		- Moving to a newer image is its own Task, planned, never a side effect.
+	- Actual fix: every Linux x86_64 job runs on `ubuntu-24.04`, and the 2 Windows x64 jobs on `windows-2025`. check-pins fails a `-latest` label in any `runs-on` or in the matrix value it reads, and a `runs-on` expression it can't follow to a label. design.md's CI/CD section says so.
+	- Decisions: `ubuntu-24.04` for every Linux job, not `ubuntu-26.04`. The release part has to stay on 24.04 for the CPU floor (2026112308072792), so one image means one set of tool versions. Lint and tests were green there through 2026-11-12 with today's tool list, and 26.04's newer gcc, mingw and uutils stay out until a planned move. The hosted lint failures since then came from analyze-c's memory (2026112421495092), which is the same on both images. `windows-2025` is the image `windows-latest` ran in 45546604978, so nothing changes there. This replaces 2026112308072792's call to keep lint and tests on the moving image (me, from JC's pin rule).
+	- Verified: 20261125. check-pins passes on the new ci.yml. It fails, with a message naming the label, on a matrix runner of `ubuntu-latest`, on `runs-on: windows-latest`, on `runs-on: ${{ inputs.os }}`, and with no runs-on line read. The old check-pins passed the first 3. shell-regress rows `dcqgf`, `dcqgg`, `dcv6p`, `ddwkm`, `dej8g`, `dektk`, `dfpxn`, `dfsfy`, `ddx1w` and `de61s` pass.
+	- Needs external testing: the hosted ci.yml run on the round branch. Every Linux x86_64 job's Set up job should show image ubuntu-24.04, and windows and setup-test windows-2025. ci (lint) and ci (tests) should pass there, apart from the known `dcvej`, and the mingw cross check of 2026112307465433 too.
+	- Test case: check-pins `dfsfx` (no job runs on a `-latest` label) and shell-regress `dfsfy`.
+	- Swept: every `runs-on` in ci.yml, the only workflow. `ubuntu-24.04-arm`, `windows-11-arm` and `macos-15` were fixed already. No cicd script or doc names a `-latest` label but design.md's rejected `macos-latest`.
+	- Branch: `nov25-2026112509394522`
+	- Commit: `8372ca7a`
 
 - `Document::merge` drops the base file's comments on every leaf the upper layer names
 	- ID: 2026111217560140
