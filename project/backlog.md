@@ -107,6 +107,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Note: until then shell-regress dcvej fails, since every fmt now ends with the stamp.
 
+- Hosted lint: analyze-c ends with exit 143 a few minutes in, under the gate step's timeout
+	- ID: 2026112421495092
+	- Type: Bug
+	- Status: Queued
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261124-214950
+	- Opened by:
+	- Related IDs: 2026112311213741
+	- Steps to reproduce: hosted ci.yml run 45546604978 on nov24, job ci (lint), first try (job 138977631558) and rerun (job 138991346830).
+	- Incorrect behavior: both times cppcheck ran cold and passed (24 and 33 minutes), then `cicd/utility/analyze-c.bash` printed nothing and the gate step ended with exit 143 (TERM) after 3 and 4 minutes, about 30 minutes into a 71 to 72 minute limit. The cache save step after it, `if: always()`, was skipped both times, so no cppcheck cache was saved.
+	- Expected behavior: analyze-c runs to its end, as it did in hosted run 45068690472 on 2026-11-22 (5 minutes) and here on the nov24 tree (428 s), and the cache save runs.
+	- Possible cause: new since 2026-11-22 is the gate step's `timeout --kill-after=60 "${left}" cicd/cicd.bash` from 2026112311213741, under the 26.04 image's uutils `timeout`. Something in analyze-c may signal its process group, which `timeout` now owns. Try analyze-c under uutils `timeout` in an `ubuntu:26.04` container first. A skipped `always()` step points at the runner canceling the job rather than the step failing.
+	- Estimated effort: Avg
+
 - Hosted lint: the lint part runs past its 80-minute timeout on Ubuntu 26.04
 	- ID: 2026112311213741
 	- Type: Bug
@@ -136,9 +151,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: every `cicd/cicd.bash` line in ci.yml (the 3 ci parts share one). The other jobs run no cicd.bash and have their own short timeouts. The setup-build job installs 2 packages under its own 15-minute timeout, and its apt line moved to -q under 2026112314544545.
 	- Branch: `nov23b-2026112311213741`
 	- Commit: `54b67873`
+	- Prereq IDs: 2026112421495092
 	- 20261123: hosted run 45301493250 on nov23b: ci (lint) was cut off at 80 minutes with no log again. The gate step ended as a failure at 43 minutes (01:45:02Z), then the runner never started the cache save, and the job sat until its limit. The tests part, under the same timeout wrapper, failed and ended normally. So the step ends, but the runner hangs after it in the lint part only. The 45232879461 hang came before the wrapper.
 	- 20261123: next try: find what the lint part leaves running after its gate, such as a background process holding the step's output, and why the gate failed at 43 minutes. A run with the lint part's gate cut down to that stage would show it in minutes.
 	- 20261124: hosted ci.yml run 45546604978 on nov24, after a shcl.h change: the lint part's install took 73 seconds, cold cppcheck 24 minutes and passed, then analyze-c ended with exit 143 (TERM) after about 3 minutes, 28 minutes into a 72-minute limit, with no output. The cache save step was skipped despite always(), so no cppcheck cache was saved. Job 138977631558 rerun to see if it recurs.
+	- 20261124: the rerun (job 138991346830) ended the same way: cold cppcheck 33 minutes and passed, then analyze-c exit 143 after 4 minutes. Filed as 2026112421495092.
 
 - `Document::merge` drops the base file's comments on every leaf the upper layer names
 	- ID: 2026111217560140
