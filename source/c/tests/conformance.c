@@ -8203,14 +8203,23 @@ int main(int argc, char **argv) {
 		if (shcl_save_file(linked, "sub/k.shcl", NULL) != SHCL_SAVE_CHANGED) fail(at, "link");
 		if (!file_is("sub/k.shcl", "b: 2\n")) fail(at, "a refused save through a link wrote");
 		shcl_free(linked);
+#endif
 		/* `.` and a doubled separator under a folder made after the load name
-		   no other file (2026110314240418). */
+		   no other file (2026110314240418, on Windows too since 2026110408432594). */
 		shcl_doc *dotted = shcl_load_file("dn/./d.shcl", NULL);
+#ifdef _WIN32
+		if (_mkdir("dn") != 0) fail(at, "mkdir dn failed");
+#else
 		if (mkdir("dn", 0700) != 0) fail(at, "mkdir dn failed");
+#endif
 		put_file("dn/d.shcl", "b: 2\n");
 		if (shcl_save_file(dotted, "dn/d.shcl", NULL) != SHCL_SAVE_CHANGED) fail(at, "dot under a new folder");
 		shcl_doc *doubled = shcl_load_file("dd//d.shcl", NULL);
+#ifdef _WIN32
+		if (_mkdir("dd") != 0) fail(at, "mkdir dd failed");
+#else
 		if (mkdir("dd", 0700) != 0) fail(at, "mkdir dd failed");
+#endif
 		put_file("dd/d.shcl", "b: 2\n");
 		if (shcl_save_file(doubled, "dd/d.shcl", NULL) != SHCL_SAVE_CHANGED) fail(at, "doubled under a new folder");
 		if (!file_is("dn/d.shcl", "b: 2\n") || !file_is("dd/d.shcl", "b: 2\n")) fail(at, "a refused save under a new folder wrote");
@@ -8218,6 +8227,7 @@ int main(int argc, char **argv) {
 		shcl_free(doubled);
 		dir_clear("dn");
 		dir_clear("dd");
+#ifndef _WIN32
 		/* A missing folder named with `..` is refused, as the kernel refuses
 		   it, rather than canceled as text. Windows cancels it itself. */
 		shcl_doc *through = shcl_load_file("q2.shcl", NULL);
@@ -8319,6 +8329,23 @@ int main(int argc, char **argv) {
 		if (symlink(nowhere, dangling) != 0) fail(at, "symlink failed");
 		if (shcl_save_file_with(fresh, dangling, create, NULL, NULL) != SHCL_SAVE_EXISTS) fail(at, "create through a link to nowhere");
 		if (lstat(nowhere, &ns) == 0) fail(at, "a refused create made the file a link to nowhere names");
+#else
+		/* Windows makes a link only with developer mode or the right to, so
+		   the link rows skip there without it (2026110408432594). */
+		char link[320], dangling[320], nowhere[320];
+		snprintf(link, sizeof link, "%s/link.shcl", xdir);
+		snprintf(dangling, sizeof dangling, "%s/dangling.shcl", xdir);
+		snprintf(nowhere, sizeof nowhere, "%s/nowhere.shcl", xdir);
+		wchar_t *wl = shcl_widen(link), *wn = shcl_widen(n), *wd = shcl_widen(dangling), *wo = shcl_widen(nowhere);
+		if (!wl || !wn || !wd || !wo) fail(at, "widen failed");
+		else if (!CreateSymbolicLinkW(wl, wn, 0x2 /* ALLOW_UNPRIVILEGED_CREATE */)) printf("conformance: dekmj link rows skipped (no symlink)\n");
+		else {
+			if (shcl_save_file_with(fresh, link, create, NULL, NULL) != SHCL_SAVE_EXISTS) fail(at, "create through a link");
+			if (!CreateSymbolicLinkW(wd, wo, 0x2)) fail(at, "symlink failed");
+			if (shcl_save_file_with(fresh, dangling, create, NULL, NULL) != SHCL_SAVE_EXISTS) fail(at, "create through a link to nowhere");
+			if (GetFileAttributesW(wo) != INVALID_FILE_ATTRIBUTES) fail(at, "a refused create made the file a link to nowhere names");
+		}
+		free(wl); free(wn); free(wd); free(wo);
 #endif
 		shcl_free(fresh);
 

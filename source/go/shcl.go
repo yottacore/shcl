@@ -11861,11 +11861,8 @@ func namesADirectory(file string) bool {
 
 // linkAt reports a link at the path as given, which a create-only save
 // refuses. The resolve follows a link to nowhere and finds nothing where it
-// points. Windows is left as it was (2026110312163207).
+// points (2026110312163207, and on Windows 2026110408432594).
 func linkAt(file string) bool {
-	if runtime.GOOS == "windows" {
-		return false
-	}
 	fi, err := os.Lstat(file)
 	return err == nil && fi.Mode()&os.ModeSymlink != 0
 }

@@ -8309,11 +8309,8 @@ func TestAChangedCheckKnowsItsFileByAnySpelling(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if runtime.GOOS == "windows" {
-		return
-	}
 	// `.` and a doubled separator under a folder made after the load name no
-	// other file (2026110314240418).
+	// other file (2026110314240418, on Windows too since 2026110408432594).
 	for _, c := range []struct{ dir, load, save string }{
 		{"dn", "dn/./d.shcl", "dn/d.shcl"},
 		{"dd", "dd//d.shcl", abs("dd/d.shcl")},
@@ -8327,6 +8324,9 @@ func TestAChangedCheckKnowsItsFileByAnySpelling(t *testing.T) {
 			t.Errorf("%s then %s: %v, want *SaveChanged", c.load, c.save, err)
 		}
 		has(c.dir+"/d.shcl", "b: 2\n")
+	}
+	if runtime.GOOS == "windows" {
+		return
 	}
 	// A missing folder named with `..` is refused, as the kernel refuses it,
 	// rather than canceled as text. Windows cancels it itself.
@@ -8443,11 +8443,14 @@ func TestACreateOnlySaveRefusesAFileAlreadyThere(t *testing.T) {
 	_, err = fresh.SaveFileWith(n, create)
 	exists("made since the load", err, n)
 	has(n, "b: 2\n")
-	if runtime.GOOS != "windows" {
-		link := at("link.shcl")
-		if err := os.Symlink(n, link); err != nil {
-			t.Fatal(err)
-		}
+	// Windows makes a link only with developer mode or the right to, so the
+	// link rows skip there without it (2026110408432594).
+	link := at("link.shcl")
+	if err := os.Symlink(n, link); err != nil && runtime.GOOS != "windows" {
+		t.Fatal(err)
+	} else if err != nil {
+		t.Logf("link rows skipped: %v", err)
+	} else {
 		_, err = fresh.SaveFileWith(link, create)
 		exists("create through a link", err, link)
 		// A link to nowhere is something at the path, so where it points

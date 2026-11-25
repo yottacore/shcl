@@ -11828,10 +11828,10 @@ fn names_a_directory(file: &str) -> bool {
 }
 
 /// A link at the path as given, which a create-only save refuses. The resolve
-/// follows a link to nowhere and finds nothing where it points. Windows is
-/// left as it was (2026110312163207).
+/// follows a link to nowhere and finds nothing where it points
+/// (2026110312163207, and on Windows 2026110408432594).
 fn link_at(file: &str) -> bool {
-	cfg!(unix) && std::fs::symlink_metadata(file).is_ok_and(|m| m.file_type().is_symlink())
+	std::fs::symlink_metadata(file).is_ok_and(|m| m.file_type().is_symlink())
 }
 
 /// The path a save actually rewrites. A symlink is followed so the write goes

@@ -11811,9 +11811,9 @@ def _save_text(path, text, new_only=False, mode=0):
 
 def _link_at(path) -> bool:
 	"""A link at the path as given, which a create-only save refuses. The
-	resolve follows a link to nowhere and finds nothing where it points.
-	Windows is left as it was (2026110312163207)."""
-	return os.name != "nt" and os.path.islink(path)
+	resolve follows a link to nowhere and finds nothing where it points
+	(2026110312163207, and on Windows 2026110408432594)."""
+	return os.path.islink(path)
 
 
 def _something_at(path) -> bool:

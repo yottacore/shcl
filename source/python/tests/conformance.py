@@ -6422,18 +6422,20 @@ def main():
 			ssame("moved left", sread("m.shcl"), "z: 0\n")
 			os.chdir(sd)
 
+			# `.` and a doubled separator under a folder made after the load
+			# name no other file (2026110314240418, on Windows too since
+			# 2026110408432594).
+			sdotted, _ = shcl.Document.load_file("dn/./d.shcl")
+			os.mkdir("dn")
+			swrite("dn/d.shcl", "b: 2\n")
+			srefused("dot under a new folder", lambda: sdotted.save_file("dn/d.shcl"), "dn/d.shcl")
+			sdoubled, _ = shcl.Document.load_file("dd//d.shcl")
+			os.mkdir("dd")
+			swrite("dd/d.shcl", "b: 2\n")
+			srefused("doubled under a new folder", lambda: sdoubled.save_file(sabs("dd/d.shcl")), sabs("dd/d.shcl"))
+			ssame("dotted left", sread("dn/d.shcl") + sread("dd/d.shcl"), "b: 2\nb: 2\n")
+
 			if os.name != "nt":
-				# `.` and a doubled separator under a folder made after the
-				# load name no other file (2026110314240418).
-				sdotted, _ = shcl.Document.load_file("dn/./d.shcl")
-				os.mkdir("dn")
-				swrite("dn/d.shcl", "b: 2\n")
-				srefused("dot under a new folder", lambda: sdotted.save_file("dn/d.shcl"), "dn/d.shcl")
-				sdoubled, _ = shcl.Document.load_file("dd//d.shcl")
-				os.mkdir("dd")
-				swrite("dd/d.shcl", "b: 2\n")
-				srefused("doubled under a new folder", lambda: sdoubled.save_file(sabs("dd/d.shcl")), sabs("dd/d.shcl"))
-				ssame("dotted left", sread("dn/d.shcl") + sread("dd/d.shcl"), "b: 2\nb: 2\n")
 				# A missing folder named with `..` is refused, as the kernel
 				# refuses it, rather than canceled as text. Windows cancels it
 				# itself.
@@ -6534,9 +6536,18 @@ def main():
 			fh.write("b: 2\n")
 		xrefused("made since", lambda: xfresh.save_file_with(xn, create), xn)
 		xsame("made since left", xread(xn), "b: 2\n")
-		if os.name != "nt":
-			xlink = os.path.join(xd, "link.shcl")
+		# Windows makes a link only with developer mode or the right to, so the
+		# link rows skip there without it (2026110408432594).
+		xlink = os.path.join(xd, "link.shcl")
+		try:
 			os.symlink(xn, xlink)
+			xlinked = True
+		except OSError:
+			if os.name != "nt":
+				raise
+			xlinked = False
+			print("conformance: dekm6 link rows skipped (no symlink)")
+		if xlinked:
 			xrefused("link", lambda: xfresh.save_file_with(xlink, create), xlink)
 			# A link to nowhere is something at the path, so where it points
 			# isn't made (2026110312163207).

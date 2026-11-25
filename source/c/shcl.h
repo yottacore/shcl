@@ -16483,15 +16483,21 @@ static int shcl_names_a_directory(const char *path) {
 // *not_regular set when that is why, since EINVAL could be anything.
 // new_only and mode are shcl_save_options' create and mode, and *exists is set
 // when create found something there.
-#ifndef _WIN32
 // A link at the path as given, which a create-only save refuses. The resolve
-// follows a link to nowhere and finds nothing where it points. Windows is left
-// as it was (2026110312163207).
+// follows a link to nowhere and finds nothing where it points
+// (2026110312163207, and on Windows 2026110408432594).
 static int s_link_at(const char *path) {
+#ifndef _WIN32
 	struct stat st;
 	return lstat(path, &st) == 0 && S_ISLNK(st.st_mode);
-}
+#else
+	wchar_t *w = shcl_widen(path);
+	if (!w) { SHCL_OOM(); abort(); }
+	DWORD a = GetFileAttributesW(w);
+	free(w);
+	return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
 #endif
+}
 
 static int s_write_file_atomic(const char *path, const char *data, size_t n, int new_only, unsigned mode, int *not_regular, int *exists) { // NOLINT(bugprone-easily-swappable-parameters): path, then data, as in shcl_write_file_atomic; see 2026101807501110
 	if (shcl_names_a_directory(path)) { errno = EISDIR; return 0; }
@@ -16552,7 +16558,7 @@ static int s_write_file_atomic(const char *path, const char *data, size_t n, int
 	}
 #else
 	(void)mode;
-	if (new_only && attrs != INVALID_FILE_ATTRIBUTES) {
+	if (new_only && (attrs != INVALID_FILE_ATTRIBUTES || s_link_at(path))) {
 		errno = EEXIST; *exists = 1;
 		free(tmp); SHCL_FILE_CLEANUP(); return 0;
 	}

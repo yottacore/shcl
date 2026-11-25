@@ -380,7 +380,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - On Windows a create-only save through a link to nowhere, and `.` under a missing folder, are unchecked
 	- ID: 2026110408432594
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Severity: Low
 	- Target version: v3.0.0
 	- Opened: 20261104-084325
@@ -396,6 +396,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Possible cause: `link_at`, `linkAt`, `_link_at`, and `s_link_at` work only off Windows, and `tidyRest` and `_tidy_rest` run only off Windows. C's Windows resolve and its `s_something_at` are separate code.
 	- Note: this needs b29w with a short-name TEMP, the way `private/claude_simple/tools/winbox-savetests/` runs it.
 	- Estimated effort: Low
+	- Needs external testing: b29w with a short-name TEMP, through `private/claude_simple/tools/winbox-savetests/` with its `run-2026110408432594.ps1` as run.ps1: the link rows of `dekm5`, `dekm6`, `dekmf` and `dekmj` run there or print a skip, and `detpn`, `detpp`, `detpq` and `detpr` pass. `dekmk`'s link row through win-runners' `c++ veneer` row. b29w gave no route to host on 20261124.
+	- Actual effort: Low
+	- Actual cause: read, not run on Windows. The save's own create check has looked at the path as given since 2026110613470307 (lstat, `GetFileAttributesW`), so a link to nowhere is Exists there on Windows too. Only the write's create check, the guard against a link planted after the save's check, still skipped links on Windows. The `.` half went with the path compare in 2026110613470307: the save reads the bytes at the path, so no spelling is compared, and the fs property row `2026110408432594-dot` already passed on b29w in all 4.
+	- Actual fix: `link_at`, `linkAt`, `_link_at` and `s_link_at` work on Windows too, and C's Windows write checks the path as given for a reparse point. The link rows in `dekm5`, `dekm6`, `dekmf`, `dekmj` and `dekmk` run on Windows when it can make a link, and print a skip when it can't. The `.` and doubled-separator rows in `detpn`, `detpp`, `detpq` and `detpr` run on Windows. The `..` rows stay POSIX, since Windows cancels `..` itself.
+	- Swept: the save's create check and the write's in Rust, Go, Python and C (the save's already looked at the path as given in all 4), and the veneer, which wraps the C save. The fs property row `2026110408432594-link` still skips on Windows, since that tree makes no links there.
+	- Verified: on Linux, `dekm5`, `dekm6`, `dekmf`, `dekmj`, `dekmk`, `detpn`, `detpp`, `detpq` and `detpr` pass, and so does `cicd.bash --backlog-run-quick rust go python c`. For Windows, the Rust tests check and build for x86_64-pc-windows-gnu, Go vets and builds its test binary with GOOS=windows, and the C runner and main.c build with mingw. None of it ran on Windows.
+	- Test case: the link-to-nowhere rows of `a_create_only_save_refuses_a_file_already_there` (`dekm5`, `dekm6`, `dekmf`, `dekmj`, `dekmk`) and the `.` rows of `a_changed_check_knows_its_file_by_any_spelling` (`detpn`, `detpp`, `detpq`, `detpr`), now on Windows too.
+	- Branch: `nov24-2026110408432594`
+	- Decisions:
+	- me, 20261124: on Windows a link row skips with a message when the box can't make a link, as C's `windangle` does, since making one takes developer mode or the right to. It fails only where a link was made.
+	- me, 20261124: the new Windows rows aren't expected to fail on the code before, since the save's own check already refused the link there. They pin it, and the write's check only covers a link planted between the two.
 
 - Rust parses about a third slower than 2.0.0
 	- ID: 2026110516100001
