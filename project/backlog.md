@@ -17978,7 +17978,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: this waits for v4, since no new performance work goes in before 3.0.0. v4's text-first storage drops the step.
 	- Estimated effort: Avg
 
-- Write v4's Rust core so it can be ported to every major language
+- Port v4 natively to every major language
 	- ID: 2026110908083108
 	- Type: Enhancement
 	- Status: Deferred
@@ -17989,20 +17989,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Related IDs: 2026101407100008
 	- Problem description: in 3.0 each binding mirrors Rust's public API as well as its core. So Go returns a status struct where a Go reader expects an error, and the style guide keeps a long list of name exceptions. v4 swaps the test CLIs for drivers, so the cross-binding check no longer needs the APIs to match.
 	- Requirements:
-		- Each binding's public API is native to its language. Names, errors, missing values, loops, and collections work the way that language does them. Its driver maps that API onto the shared ops.
-		- The core mirrors Rust's in every binding: tokenizer, parser, stored lines, edits, and emitter. A fix stays a diff of the same function in each port.
-		- The Rust core is written to be ported. It's index-based storage with plain functions, with no lifetimes, traits, borrowed views, or macros a port can't follow line for line. The Rust API on top uses any Rust idiom that fits.
-		- Languages to come: Go, C with its C++ veneer, Python, JavaScript for Node and Bun, Java and Kotlin, C#, Swift, R, Ruby, Dart, and a native PowerShell port.
-		- Each port works on its language's own strings. Rust slices UTF-8 bytes, JavaScript, Java, C#, and Dart index UTF-16 units, and Python indexes code points. The text handling sits in a small module per language that the mirrored core calls, so no port has to deal with Unicode in a form that isn't native to it.
-		- 64-bit ints use each language's own wide type, and BigInt in JavaScript. A low-priority language without one, such as R, makes do with what it has. It doesn't set limits for the others.
-		- Walks keep their own stacks, since recursion limits differ from one runtime to the next.
+		- Each binding is written in its own language's idiom, core and public API both. Names, errors, missing values, loops, and collections work the way that language does them. Its driver maps that API onto the shared ops.
+		- The bindings match on saved bytes, reads, and diagnostics, held there by the spec, the corpus, shared generated data tables, and a fuzzer that compares the drivers.
+		- Native ports: Rust, Go, C, Python, JavaScript for Node and Bun, Lua, Java and Kotlin, C#, and PowerShell.
+		- A native API over `shcl.h`: C++, Swift, Ruby, R, and Dart.
+		- Each port works on its language's own strings. Rust slices UTF-8 bytes, JavaScript, Java, and C# index UTF-16 units, and Python indexes code points.
+		- 64-bit ints use each language's own wide type, and BigInt in JavaScript. A low-priority language without one makes do with what it has. It doesn't set limits for the others.
+		- A walk can't overflow its runtime's stack at the 512 depth cap.
 		- The file tier stays apart from the core, since it's the part most tied to each OS and runtime.
-	- Reason: one format read the same way in more languages, without a separate core per language drifting away from Rust's.
+	- Reason: one format read the same way in more languages, with each port reading as native code in its language.
 	- Decisions:
-		- Native public API over a mirrored core (JC, 2026-11-09). A native core in each binding was turned down. Output has to match byte for byte, so each fix would have to be worked out again in every language.
+		- Each binding written in its own idiom, core included, one port at a time after Rust (JC, 2026-11-25). The v4 doc's "Native ports held to one spec" has the reasons.
+		- Native public API over a mirrored core (JC, 2026-11-09). Reversed on 2026-11-25 by the line above.
 		- Text handling is native per language, in its own module (JC, 2026-11-09). Making every port work on UTF-8 bytes was turned down. Unicode handled in a form a language doesn't use natively is where bugs come from.
 		- The lowest common denominator doesn't set the design (JC, 2026-11-09). R is low priority.
-	- Note: v4.0 itself ports only to C, Go, and Python, per the v4 doc's roadmap. The other languages come after.
+	- Note: v4.0 itself ports only to Go, C, and Python, in that order, per the v4 doc's roadmap. The other languages come after.
 	- Estimated effort: High
 
 - A Format or Schema line with other spacing is a plain comment

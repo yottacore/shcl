@@ -27,9 +27,9 @@ The cost is that some code reads as a little foreign to a native of its language
 
 Parity governs structure and behavior. Idiom still governs the surface, so each language keeps its own formatter, naming case, error-propagation syntax, and doc-comment conventions. The goal is "obviously the same program, written by someone fluent in each language", rather than transliterated Rust.
 
-v4 will narrow the rule to the core, which means the tokenizer, parser, stored lines, edits, and emitter. Each binding's public API in v4 will be native to its language, as [the v4 design](design_docs/20261015-072055_v4.md#native-api-over-a-mirrored-core) says.
+This rule holds for 3.0, and v4 drops it (JC, 2026-11-25). Each v4 binding will be written in its own language's idiom, core included. The spec, the corpus, shared data tables, and a fuzzer that compares the bindings will keep the output the same, as [the v4 design](design_docs/20261015-072055_v4.md#native-ports-held-to-one-spec) says.
 
-New bindings, which are Tier 3, follow the same recipe. Port the reference function for function, run the corpus, and don't release until the crosscheck is green.
+New bindings, which are Tier 3, come with v4 and follow its rules rather than this one.
 
 ## Rules for every language
 
