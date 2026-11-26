@@ -35,6 +35,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- a_save_names_this_format leaks a String on purpose, so sanitize-rust fails de2pb and de2pc on hosted
+	- ID: 2026112613535880
+	- Type: Bug
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261126-135358
+	- Opened by:
+	- Version and build: dev at f3a84334
+	- Problem description: `a_save_names_this_format` (`dfe62`, `source/rust/tests/conformance.rs` near 8489) builds one case with `.replace("{s}", s).leak()`. LeakSanitizer reports the 46 bytes (`de2pb`) and Miri stops on the leak (`de2pc`), so the hosted ci (tests) part aborts at sanitize-rust. It came in with `ff279feb` on 20261117. Hosted runs never reached sanitize-rust before nov26, so nothing showed it.
+	- Estimated effort: Low
+	- Progress log:
+		- 20261126: Hosted run 45894942389 on nov26: FAIL de2pb then de2pc, CICD ABORTED at sanitize-rust. Every other job passed.
+
 - codeql-scan: 2 findings from nov25 fail de5ag and de5ah
 	- ID: 2026112613084386
 	- Type: Bug
@@ -71,6 +85,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: analyze-c `de57z`.
 	- Branch: `nov26-2026112514344606`
 	- Commit: `214c9396`
+	- Prereq IDs: 2026112613535880
+	- 20261126: Hosted run 45894942389 on nov26: the windows job passed, with the C fs-property build. ci (tests) stopped at sanitize-rust (2026112613535880) before de57z. de57z passed locally in the nov26 gate step.
 
 - sanitize-c doesn't build shcl.h under gcc 14 or 15, since -Wclobbered flags migrate_text
 	- ID: 2026112610182646
@@ -141,6 +157,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261125: Not new. df2ss came in with 54330fb9 on 20261109, and hosted tests always stopped earlier at shell-regress dcvej until nov25 fixed the demo gif. Passes on the host. Likely fix: -u GITHUB_ACTIONS in fEngine's env, then check what else a hosted run reaches past it.
 		- 20261125: High, since a red hosted run blocks the beta.2 release bar.
 		- 20261126: a stand-in of the hosted tests part, under GITHUB_ACTIONS=true and CI=true, with the steps that passed in 45707733038 skipped, found sanitize-c red under gcc 14 (2026112610182646) and analyze-c `de57z` red (2026112610320388). Both are fixed. The rest of the part passed, but for sanitize-rust, which it skipped.
+		- 20261126: Hosted run 45894942389 on nov26: PASS df2ss, then ci (tests) stopped at sanitize-rust on a leak in an older test (2026112613535880). Still needs the part to run to its end.
 	- Actual cause [Bug]: check-push-gate's engine runs took the runner's GITHUB_ACTIONS=true, so fMemScope returned before systemd-run, and df2ss's 3 scope cases saw no calls.
 	- Actual fix [Bug]: check-push-gate unsets GITHUB_ACTIONS beside CICD_MEM_CAP and SHCL_MEM_SCOPED, so its engine runs go as on a workstation. The 2 cases that want it set it themselves.
 	- Decisions: unset once at the top rather than `-u` in fEngine, so the script's other runs of the engine and check-docs get the same. No new row: a run under GITHUB_ACTIONS=true is the test, and the hosted part is one (me).
@@ -149,6 +166,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Test case: check-push-gate `df2ss`, run under GITHUB_ACTIONS=true as the hosted tests part does.
 	- Branch: `nov26-2026112514344606`
 	- Commit: `91e42cb4`
+	- Prereq IDs: 2026112613535880
 
 - Review the whole code base for Critical and High bugs before each release
 	- ID: 2026112509394527
@@ -753,7 +771,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - At Miri's 100 iterations, 3 fuzz guards are thin
 	- ID: 2026102418441478
 	- Type: Task
-	- Status: Waiting on automated testing
+	- Status: Closed
 	- Priority: Low
 	- Target version: v3.0.0
 	- Opened: 20261024-184414
@@ -775,8 +793,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Swept: the other share guards in fuzz_smoke at 100 rounds were checked by 2026102413172941's sweep, which found only these 3 thin. The fuzz is Rust only.
 	- Test case: `a_short_guard_runs_more_rounds_only_while_short` (`dftzz`) pins the top-up. The 3 guards themselves (`dcv3k`, `da6rk`, `dcmjb`) under `--miri-all`.
 	- Branch: `nov26-2026102418441478`
-	- Needs local test suite run?: Y, `dcmjb` under `sanitize-rust.bash --miri-all --only=generated_starters_load`. It was stopped at 23 minutes, at the time cap.
+	- Needs local test suite run?: No
 	- Commit: `596e6151`
+	- Closed reason: Done
+	- Closed: 20261126
+	- Acceptance signoff: me, 20261126, the Miri run passed
+	- 20261126: Verified: sanitize-rust.bash --miri-all --only=generated_starters_load passed in the nov26 test batch (PASS de2pd, nothing reported), log /mnt/ext/wip2/wip/tmp/shcl/20261126-125941_006/run.log.
 
 - A plain `get` on an array prints its quotes, with no hint about `--array`
 	- ID: 2026111011285692
