@@ -35,6 +35,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- codeql-scan: 2 findings from nov25 fail de5ag and de5ah
+	- ID: 2026112613084386
+	- Type: Bug
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261126-130843
+	- Opened by:
+	- Version and build: dev at f3a84334
+	- Problem description: codeql-scan finds `cpp/long-switch` at `source/c/shcl.h` (the `SEL_INDEX` case of the switch near line 7341, 37 lines) and `go/useless-assignment-to-local` at `source/go/cmd/shcl/main.go` 2404 (`body` in `leadingZeroFix`). Both lines came in with nov25 (`f692c12d`, `36a65b20`). CodeQL runs in the full run and the merge gate, so the merge gate is red until they are fixed or suppressed with a reason.
+	- Estimated effort: Low
+	- Progress log:
+		- 20261126: Found by the nov26 gate step. The third finding then, py/empty-except in conformance.py, was nov26's own and is fixed in that round.
+
 - analyze-c --ctu fails de57z, since fs_property.c's own half uses the library's SHCL_NORETURN and realpath
 	- ID: 2026112610320388
 	- Type: Bug
