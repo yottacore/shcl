@@ -739,7 +739,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - At Miri's 100 iterations, 3 fuzz guards are thin
 	- ID: 2026102418441478
 	- Type: Task
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Priority: Low
 	- Target version: v3.0.0
 	- Opened: 20261024-184414
@@ -751,6 +751,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Each guard passes at Miri's count over any draw, without a floor that makes the test take hours there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261126: each loop runs its rounds, then keeps going only while its guard is short, up to 3 times its rounds more and no more than 3000 (`another_round`). A draw that meets the bar costs nothing extra, so Miri's time stays as it is today. A fixed floor would make every Miri run longer, and a lower bar would barely check the arm at 20,000. The bars are unchanged.
+		- me, 20261126: "over any draw" is met in practice rather than in proof. A short draw gets up to 4 times the rounds, where the expected hits are 23 to 46 against bars of 3 and 7.
+		- Note: `generated_starters_load_and_validate_clean` does draw from the corpus, from its `init-schema.shcl` files, so a corpus edit moves it too.
+	- Actual fix: `another_round` in fuzz_smoke, used by the 3 loops.
+	- Verified: with each test's seed varied over 300 draws at `SHCL_FUZZ_ITERS=100`, natively, the old guards failed 27, 31 and 33 times, and the new ones 0 times. The 3 tests pass natively at 100 and the default. Under Miri (`sanitize-rust.bash --miri-all --only=...`), `dftzz`, `dcv3k` (123 s) and `da6rk` (285 s) pass. `--backlog-run-quick rust`, rustfmt, clippy and `test-ids.py check` pass.
+	- Swept: the other share guards in fuzz_smoke at 100 rounds were checked by 2026102413172941's sweep, which found only these 3 thin. The fuzz is Rust only.
+	- Test case: `a_short_guard_runs_more_rounds_only_while_short` (`dftzz`) pins the top-up. The 3 guards themselves (`dcv3k`, `da6rk`, `dcmjb`) under `--miri-all`.
+	- Branch: `nov26-2026102418441478`
+	- Needs local test suite run?: Y, `dcmjb` under `sanitize-rust.bash --miri-all --only=generated_starters_load`. It was stopped at 23 minutes, at the time cap.
+	- Commit: `596e6151`
 
 - A plain `get` on an array prints its quotes, with no hint about `--array`
 	- ID: 2026111011285692
