@@ -80,6 +80,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- File every Critical or High finding, fix it, then review the whole tree again.
 		- Done for a release when 2 whole-tree reviews in a row file no new Critical or High, the 2M release fuzz is clean, and the merge gate and hosted run are green.
 		- Run it after the other beta.2 items close, so it reviews the code that goes out.
+	- Prereq IDs: 2026112514344606, 2026112517314397, 2026112516450897, 2026112517280964
+	- 20261126: Prereq IDs name the other open beta.2 items, since its own text says it runs after they close.
 
 - `upgrade` without `--from` says `--from` rewrites a comma cut inside a pair, and no cut-pair message says how to fix it
 	- ID: 2026112516450897
