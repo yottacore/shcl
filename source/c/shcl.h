@@ -10841,7 +10841,7 @@ shcl_set_status shcl_set_datetime_array(shcl_doc *d, const char *path, size_t pl
 	for (size_t i = 0; i < n; i++) t[i] = w_dt_text(a, &v[i]);
 	return w_set_marked(d, p, w_array(a, t, n), m);
 }
-shcl_set_status shcl_set_stacked(shcl_doc *d, const char *path, size_t plen, int on) {
+shcl_set_status shcl_set_stacked(shcl_doc *d, const char *path, size_t plen, int on) { // NOLINT(bugprone-easily-swappable-parameters): a length follows its pointer
 	ShclStr p; p.p = path; p.n = plen;
 	arena_reset(&d->scratch);
 	shcl_set_status why = w_check_set_path(d, &d->scratch, p);
