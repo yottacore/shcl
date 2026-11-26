@@ -263,6 +263,9 @@ copies the original beside it, with a backup tag before the extension:
 is copied to
 .BR config_backup_ YYYYmmDD - HHMMSS _format\-v2.shcl ,
 in local time, where the number is the format the file was written for.
+A file from 1.x counts as 2.x here, so its copy is named
+.B format\-v2
+too.
 It refuses at exit 8 and writes nothing when that name is taken. A file that
 only gains the Format line gets no copy.
 .B \-\-check

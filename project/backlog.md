@@ -772,7 +772,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The docs read as if an index picks an array item
 	- ID: 2026111011285705
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Closed
 	- Priority: Low
 	- Target version: v3.0.0
 	- Opened: 20261110-112856
@@ -783,6 +783,18 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- spec.md's selector section, the README and the `get` help say an index picks an instance, never an array item, and that `get --array` is how a script reads items.
 		- The released beta1 changelog section stays as it is.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261126: the `get` help says it under the get-only Types text, beside `--array`, so `shcl help get` shows it. The README says it on its repeated-fields bullet.
+		- me, 20261126: the next changelog's new Upgrading notes say it again with the bracket text of a string read, since 2026111016205715 asked for that note.
+	- Actual fix: spec.md's selector forms bullet has a sub-bullet saying an index counts instances, with `r(0)` the whole array, `r(2)` `NotFound`, and `get --array` for the items. The README and the `get` help in all 4 CLIs say the same. The beta1 changelog section is unchanged.
+	- Verified: 20261126, `r(0)` on `r: [a, b, c]` prints `[a, b, c]` and `r(2)` exits 3. `shcl help get` and `shcl help` are byte-identical across the 4 CLIs. The quick run for rust, go, python, c, and cli, and cli-regress over the 4 CLIs, pass.
+	- Test case: none, since these are doc and help sentences on behavior that didn't change. cli-regress `dcbc4` and `ddp8c` check the help text's layout.
+	- Acceptance signoff: Self-closed: docs only, each sentence probed on dev.
+	- Branch: `nov26-2026111011285705`
+	- Commit: `6ddc10e8`
+	- Closed: 20261126-121324
+	- Closed reason: Done
 
 - A string read of an array gives its bracket text at Good
 	- ID: 2026111014552301
@@ -883,7 +895,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Docs leave out what beta1 consumers had to find by probing
 	- ID: 2026111016205715
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Closed
 	- Priority: Low
 	- Target version: v3.0.0
 	- Opened: 20261110-162057
@@ -897,6 +909,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- spec.md and the `upgrade` docs say 2.x includes 1.x, and that a 1.x file's backup is named `format-v2`.
 		- The next changelog's upgrading notes say C's `SHCL_SET_OK` is 0, so old code testing a setter `!= 0` reads every success as a failure, and that a string read of an array gives its bracket text. The released beta1 section stays as it is.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261126: the `paths` comment in Rust, Go, Python, C, and the C++ interface names the instance-paths call.
+		- me, 20261126: spec.md says "2.x includes 1.x" in its Migrating section, beside the backup name. The man page's `migrate` entry, which `upgrade` points to for the backup name, and the CLI help's backup sentence say a 1.x file's copy is named `format-v2`.
+		- me, 20261126: the changelog's notes go in a new Upgrading section under Unreleased. The C note says 2.x setters returned 1 on success, since beta1's own notes didn't say so.
+	- Actual fix: `shcl.h`'s top comment says to define `SHCL_IMPLEMENTATION` in a `.c` of its own and names the `-fanalyzer` param, and its knobs list names `SHCL_ARENA_MALLOC`. spec.md says `-` and `_` don't fold. The beta1 changelog section is unchanged.
+	- Verified: 20261126, `day_length` and `day-length` read as 2 fields. `upgrade --from=1.0 --write` and `migrate --from=1.1 --write` name the backup `format-v2`. The quick run for rust, go, python, c, and cli, and cli-regress over the 4 CLIs, pass.
+	- Test case: none, since these are doc and comment sentences on behavior that didn't change, each probed above.
+	- Acceptance signoff: Self-closed: docs only, each sentence probed on dev.
+	- Branch: `nov26-2026111011285705`
+	- Commit: `6ddc10e8`
+	- Closed: 20261126-121324
+	- Closed reason: Done
 
 - Hosted lint: the mingw cross build fails on every %zu format
 	- ID: 2026112307465433

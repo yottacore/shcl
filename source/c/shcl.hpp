@@ -614,6 +614,7 @@ public:
 	Read<std::vector<std::string>> read_children(std::string_view path) const;
 	// Every field path, file order, deduplicated. A segment that is not
 	// bare-name-safe comes back quoted, so each path reads back as a lookup.
+	// Repeated instances share a path; instance_paths() indexes each one.
 	std::vector<std::string> paths() const;
 	// paths() one instance at a time: every binding's path, with (i) on each
 	// segment whose name its parent repeats, so each path reads one node.

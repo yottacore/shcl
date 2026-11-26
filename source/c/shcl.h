@@ -5,6 +5,9 @@
 // Single-header, drop-in: copy this file into your tree and, in exactly ONE .c,
 //   #define SHCL_IMPLEMENTATION
 //   #include "shcl.h"
+// Do that in a .c of its own. gcc -fanalyzer doesn't finish on this file
+// without --param=analyzer-bb-explosion-factor=2, and one run without it grew
+// to 67 GB.
 // Everything is byte-for-byte with the Rust reference (source/rust); the cicd
 // cross-binding check compares CLI stdout + exit codes across every binding.
 // The language spec lives in project/spec.md; project/conformance/ pins behavior.
@@ -26,6 +29,9 @@
 //                    default prints and exits 70, which suits the CLI and
 //                    nothing else. A parse or a validate never reaches it:
 //                    those unwind and return NULL.
+//   SHCL_ARENA_MALLOC
+//                    for a sanitizer build: every arena request is a malloc
+//                    of its own, so ASan sees an overrun a shared block hides
 // A hook that longjmps out arms its recovery point with SHCL_SETJMP, below.
 
 #ifndef SHCL_H
@@ -643,8 +649,10 @@ shcl_read_str_list shcl_read_children(shcl_doc *d, const char *path, size_t plen
 // Every field path in the document, in file order, deduplicated - a query
 // recipe for tooling. A segment that is not bare-name-safe is emitted quoted
 // and escaped - the form the path scanner accepts - so each path is a
-// well-formed lookup path and nothing in the document is hidden. Returns the
-// count; *out stays valid until shcl_free, or until shcl_reads_release.
+// well-formed lookup path and nothing in the document is hidden. The
+// instances of a repeated field share one path here, and shcl_instance_paths
+// gives each its own, with an index. Returns the count; *out stays valid until
+// shcl_free, or until shcl_reads_release.
 size_t shcl_paths(shcl_doc *d, shcl_str **out);
 // shcl_paths one instance at a time: every binding's path in file order, with
 // `(i)` on each segment whose name repeats under its parent, so each path

@@ -13302,7 +13302,9 @@ impl Document {
 	/// recipe for tooling (the differential harness derives reads over the fuzz
 	/// set from it). A segment that is not bare-name-safe is emitted quoted and
 	/// escaped - the form the path scanner accepts - so each path is a
-	/// well-formed lookup path and nothing in the document is hidden.
+	/// well-formed lookup path and nothing in the document is hidden. The
+	/// instances of a repeated field share one path here, and
+	/// [`Document::instance_paths`] gives each its own, with an index.
 	pub fn paths(&self) -> Vec<String> {
 		let mut out = Vec::new();
 		let mut seen = std::collections::HashSet::new();

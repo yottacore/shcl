@@ -154,6 +154,8 @@ Types (get only, --string by default):
   --duration prints milliseconds and --size prints bytes. A bare number takes
   its unit from the field name, such as timeout-ms or cache_mb, or else from
   the --unit option
+  An index in PATH, such as name(0), picks an instance of the field, never an
+  item of its array, so --array is how a script reads the items
 
 Options (the subcommands each belongs to are in parentheses):
   --default=VALUE                        (get) print VALUE when the read isn't
@@ -318,9 +320,9 @@ that doesn't say which rules it was written for, when the 2.x and current
 readings differ. --from=2.0 says the file is 2.x. migrate also reports a 2.x
 binding that it can't convert. With --write, migrate and upgrade save the
 original beside FILE as NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local
-time. N is the format the original was written for. When that name is taken,
-they write nothing and exit 8. An upgrade writes even when the fresh file
-drops lines or values, since the backup has them.
+time. N is the format the original was written for, and 2 for a file from
+1.x. When that name is taken, they write nothing and exit 8. An upgrade writes
+even when the fresh file drops lines or values, since the backup has them.
 FILE may be '-' for stdin. With --layer, FILE is the highest file layer, and
 each --layer is merged under it in order. --set applies last. 'fmt' with
 layers prints the merged canonical document.

@@ -13092,7 +13092,9 @@ func (d *Document) ReadCount(path string) Read[int] {
 // Paths returns every field path in the document, in file order, deduplicated -
 // a query recipe for tooling. A segment that is not bare-name-safe is emitted
 // quoted and escaped - the form the path scanner accepts - so each path is a
-// well-formed lookup path and nothing in the document is hidden.
+// well-formed lookup path and nothing in the document is hidden. The
+// instances of a repeated field share one path here, and InstancePaths gives
+// each its own, with an index.
 func (d *Document) Paths() []string {
 	d.ready()
 	var out []string

@@ -181,7 +181,7 @@ Beyond the list at the top:
 
 - Reads come as int, float, bool, datetime, duration, size, string, or raw block. Int, float, bool, datetime, and string reads have array forms too.
 
-- Repeated fields are queryable as a set. You can count them, list them, or run one read over all of them with `site(*).root`, which gives a status per slot.
+- Repeated fields are queryable as a set. You can count them, list them, or run one read over all of them with `site(*).root`, which gives a status per slot. An index such as `site(0)` picks an instance, never an item of an array, and a script reads the items with `shcl get --array`.
 
 - Raw fenced blocks work as in Markdown, and embed anything verbatim, such as SQL, code, or templates.
 

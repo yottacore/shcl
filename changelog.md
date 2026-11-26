@@ -4,6 +4,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## Unreleased
 
+### Upgrading
+
+- C's setters return a `shcl_set_status`, and `SHCL_SET_OK` is 0. They returned 1 for a write that applied in 2.x, so 2.x code that tests a setter with `!= 0` reads every write that applied as a failure. Compare the result with `SHCL_SET_OK`.
+
+- A string read of an array value gives its text in brackets, such as `[a, b, c]`. An index such as `r(0)` picks an instance of `r`, never an array item, so an array read or `shcl get --array` gives the items.
+
 ### Changed
 
 - `migrate()`, `migrate_unstamped()`, `upgrade()` and `upgrade_file()` count a comma list in `ambiguous` when its comma sits inside a backtick, paren, bracket or brace pair, such as `` sql: `select a, b from t` `` or `k: sma(close, 10)`, even with `from`. They used to split it into an array as 2.x read it, at exit 0. With `from`, `migrate()` rewrites nothing in the file then, a load that converts keeps that line as typed, and `shcl migrate` and `shcl upgrade` exit 7 and say what the count is. Without `--from`, they count those values on a line of their own, apart from the ones `--from` rewrites, and say to quote each one or split it by hand, then run again.
