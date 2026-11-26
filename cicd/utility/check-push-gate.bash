@@ -52,8 +52,10 @@ trap 'HOST_TEMP="${hostTemp}" fSafeRm "${work}"' EXIT
 ## engine's run folders, under shcl/.
 export TMPDIR="${work}" HOST_TEMP="${work}"
 ## Each engine run takes the default memory cap and no user scope, unless a
-## test gives it its own.
-unset CICD_MEM_CAP SHCL_MEM_SCOPED
+## test gives it its own. A GitHub runner's GITHUB_ACTIONS turns off the scope
+## and the macos job, so the engine runs as on a workstation there too, unless
+## a test sets it (2026112514344606).
+unset CICD_MEM_CAP SHCL_MEM_SCOPED GITHUB_ACTIONS
 export SHCL_SYSTEMD_RUN="${work}/no-systemd-run"
 
 rc=0; declare -i nFail=0
@@ -1977,3 +1979,4 @@ exit "${rc}"
 ##		- 2026-11-07: The guards take a folder with .. inside a name (2026110613470318).
 ##		- 2026-11-09: The memory cap on each container, and the run under a user scope at it.
 ##		- 2026-11-22: --keep-temp keeps the image reads and fCtrRunSelf's container too (2026110218511914).
+##		- 2026-11-26: The engine runs as on a workstation under a GitHub runner too (2026112514344606).

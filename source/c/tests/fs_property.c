@@ -14,7 +14,11 @@
 // SHCL_FS_SEED runs only that seed, to replay a failure. argv[1] is the rules
 // file (default project/fs-rules.tsv, run from the repo root as cicd does).
 
-#define _POSIX_C_SOURCE 200809L // symlink, mkfifo, realpath, lstat under -std=c11
+// symlink, mkfifo, realpath and lstat under -std=c11. realpath is XSI, and
+// analyze-c --ctu builds this file's code without the library's own
+// declaration of it.
+#define _POSIX_C_SOURCE 200809L
+#define _XOPEN_SOURCE 700
 
 #define SHCL_IMPLEMENTATION
 #include "shcl.h"
@@ -66,8 +70,17 @@ static const char FS_LOADED[] = "a: 1\n";
 static const char FS_OTHER[] = "b: 2\n";
 static const char FS_MARKER[] = "marker: 1\n";
 
+// The library's own SHCL_NORETURN is in its implementation half.
+#if defined(__GNUC__)
+	#define FS_NORETURN __attribute__((noreturn))
+#elif defined(_MSC_VER)
+	#define FS_NORETURN __declspec(noreturn)
+#else
+	#define FS_NORETURN
+#endif
+
 // The case or setup can't go on, as t.Fatal ends a Go test.
-SHCL_NORETURN static void fs_fatal(const char *fmt, ...) {
+FS_NORETURN static void fs_fatal(const char *fmt, ...) {
 	va_list ap;
 	va_start(ap, fmt);
 	fprintf(stderr, "FAIL %s: ", open_name);

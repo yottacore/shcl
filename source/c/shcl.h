@@ -4756,6 +4756,13 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
 	return sb_S(&out);
 }
 
+/* The recovery path reads only the volatile own and outer, which nothing
+   assigns, so -Wclobbered's guess at migrate's inlined locals is wrong here
+   too. gcc 14 and 15 make it at -O1 with the sanitizers. */
+#if defined(__GNUC__) && !defined(__clang__)
+	#pragma GCC diagnostic push
+	#pragma GCC diagnostic ignored "-Wclobbered"
+#endif
 /* Rewrite a document written under the 2.x rules so this parser reads the
    same tree. Each line is read with the 2.x tokenizer and rewritten only
    where the two rule sets disagree (value-syntax.md, Migration). A piece is
@@ -4826,6 +4833,9 @@ static shcl_migration migrate_text(const char *text, size_t len, int from_v2, in
 	arena_free(&done->a); arena_free(&done->sc); free(done);
 	return m;
 }
+#if defined(__GNUC__) && !defined(__clang__)
+	#pragma GCC diagnostic pop
+#endif
 
 /* restamp() for shcl_upgrade, on the line its own read of the text finds: a
    malloc'd copy with its length in *out_len, or NULL when the text names no

@@ -35,6 +35,54 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- analyze-c --ctu fails de57z, since fs_property.c's own half uses the library's SHCL_NORETURN and realpath
+	- ID: 2026112610320388
+	- Type: Bug
+	- Status: Waiting on automated testing
+	- Needs external testing: hosted ci.yml run: the windows job's C fs-property build, and ci (tests) `de57z`.
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261126-103203
+	- Opened by: 2026112514344606
+	- Related IDs: 2026112514344606
+	- Steps to reproduce: `cicd/utility/analyze-c.bash --ctu`, the first fast leak check of a full run, the merge gate and the hosted tests part.
+	- Incorrect behavior: de57z fails on fs_property.c with 'unknown type name SHCL_NORETURN' and 'call to undeclared function realpath'. The split hands the file's own code shcl.h without SHCL_IMPLEMENTATION, and both live in the implementation half.
+	- Expected behavior: every C test program that analyze-c splits builds as a program using the header would.
+	- Origin: Confirmed. `befea7fa` (20261110) brought fs_property.c in with SHCL_NORETURN, after the last bare run that passed de57z (run_20261110-065922). The quick run skips the leak checks.
+	- Actual cause [Bug]: fs_property.c's own code used 2 things only shcl.h's implementation half gives: SHCL_NORETURN, and its realpath declaration. `_POSIX_C_SOURCE 200809L` alone doesn't declare realpath in glibc, which puts it under XSI.
+	- Actual fix [Bug]: fs_property.c defines `_XOPEN_SOURCE 700` beside `_POSIX_C_SOURCE`, as shcl.h does for itself, and its own `FS_NORETURN`.
+	- Decisions: the file is made to stand alone, rather than added to analyze-c's `ctuWhole`, so the cross-file analyzer keeps checking it (me).
+	- Swept: the other 3 files analyze-c splits pass de57z with it. conformance.c, mem_bounds.c and main.c are left whole by design.
+	- Verified: 20261126. de57z failed in a stand-in run of the hosted tests part and passes on the change (`analyze-c.bash --ctu`, 4 files split, 3 whole). fs_property.c builds under gcc 12, 14 and 15, clang and mingw gcc 14, and its C test passes here (`df4ep`, `df4eq`).
+	- Test case: analyze-c `de57z`.
+	- Branch: `nov26-2026112514344606`
+	- Commit: `214c9396`
+
+- sanitize-c doesn't build shcl.h under gcc 14 or 15, since -Wclobbered flags migrate_text
+	- ID: 2026112610182646
+	- Type: Bug
+	- Status: Closed
+	- Closed reason: Done
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261126-101826
+	- Opened by: 2026112514344606
+	- Related IDs: 2026112514344606, 2026112310344449
+	- Steps to reproduce: `cicd/utility/sanitize-c.bash` on a box whose `cc` is gcc 14, as here, or a stand-in run of the hosted tests part.
+	- Incorrect behavior: every sanitizer build stops at shcl.h's migrate_text with 'variable then might be clobbered by longjmp' and the same for 'written', under -Werror at -O1 with ASan and UBSan. The merge gate and a full run fail there. gcc 12 and 13 build it. Ubuntu 24.04's default cc is gcc 13, so the hosted runner likely builds it too (unverified).
+	- Expected behavior: shcl.h builds clean under sanitize-c's flags with every gcc check-c-compilers knows.
+	- Origin: Confirmed. `4ecf81eb` (20261120) added `then` to migrate, which gcc inlines into migrate_text's setjmp frame. The quick run skips sanitize-c.
+	- Actual cause [Bug]: gcc 14 and 15 at -O1 with ASan and UBSan inline migrate into migrate_text, the frame that holds the SHCL_SETJMP, and guess that 2 of its locals are at risk. The recovery path reads only the volatile own and outer, which nothing assigns, so the guess is wrong.
+	- Actual fix [Bug]: migrate_text is wrapped in the same `-Wclobbered` pragma as do_parse, keep_text and the other setjmp frames that inline a callee.
+	- Decisions: the pragma, rather than a volatile copy as in 2026112310344449, since the flagged locals belong to the inlined callee and the recovery path never reads them (me).
+	- Swept: main.c, oom_hook.c and mem_bounds.c under gcc 14 and 15 at -O1, -O2, -O3 and -Os with sanitize-c's flags, 24 builds, all clean. check-c-compilers passed 141 builds over 5 compilers.
+	- Verified: 20261126. sanitize-c failed on all 5 builds before the fix and passes after, every row included. main.c under sanitize-c's flags fails under gcc 14 and 15 before and builds under gcc 12 to 15 and clang after. analyze-c `de2x2` to `de2x4` and `--backlog-run-quick c` pass on the change.
+	- Test case: sanitize-c `dbxj4`, `dbxj5`, `dc113`, `dc25h` and `dbz3a`, whose builds stopped here.
+	- Branch: `nov26-2026112514344606`
+	- Commit: `6bc68b21`
+	- Acceptance signoff: Self-closed: its gate failed before the fix and passes after.
+	- Closed: 20261126-103629
+
 - Writer: a way to ask for a list written one `- ` item per line
 	- ID: 2026112517314397
 	- Type: Enhancement
@@ -55,7 +103,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Hosted tests: check-push-gate df2ss fails on every hosted runner, since the scope check skips under GITHUB_ACTIONS
 	- ID: 2026112514344606
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs external testing: hosted ci.yml run, job ci (tests): `df2ss` passes and the part runs to its end. sanitize-rust, skipped in the stand-in, runs there too.
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261125-143446
@@ -64,6 +113,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- 20261125: Hosted run 45707733038 on nov25, ci (tests): FAIL df2ss, systemd-run's calls were empty, then CICD ABORTED at check-push-gate. fMemScope in cicd/utility/include/mem-cap.bash returns early when GITHUB_ACTIONS is set, and fEngine in check-push-gate.bash doesn't clear it, so the fake systemd-run is never called on a hosted runner.
 		- 20261125: Not new. df2ss came in with 54330fb9 on 20261109, and hosted tests always stopped earlier at shell-regress dcvej until nov25 fixed the demo gif. Passes on the host. Likely fix: -u GITHUB_ACTIONS in fEngine's env, then check what else a hosted run reaches past it.
 		- 20261125: High, since a red hosted run blocks the beta.2 release bar.
+		- 20261126: a stand-in of the hosted tests part, under GITHUB_ACTIONS=true and CI=true, with the steps that passed in 45707733038 skipped, found sanitize-c red under gcc 14 (2026112610182646) and analyze-c `de57z` red (2026112610320388). Both are fixed. The rest of the part passed, but for sanitize-rust, which it skipped.
+	- Actual cause [Bug]: check-push-gate's engine runs took the runner's GITHUB_ACTIONS=true, so fMemScope returned before systemd-run, and df2ss's 3 scope cases saw no calls.
+	- Actual fix [Bug]: check-push-gate unsets GITHUB_ACTIONS beside CICD_MEM_CAP and SHCL_MEM_SCOPED, so its engine runs go as on a workstation. The 2 cases that want it set it themselves.
+	- Decisions: unset once at the top rather than `-u` in fEngine, so the script's other runs of the engine and check-docs get the same. No new row: a run under GITHUB_ACTIONS=true is the test, and the hosted part is one (me).
+	- Swept: GITHUB_ACTIONS is read only by cicd.bash, for the macos job, and by fMemScope. shell-regress and check-install-dev, which also run copies of them, passed in 45707733038.
+	- Verified: 20261126. `GITHUB_ACTIONS=true CI=true check-push-gate.bash` failed df2ss with the hosted run's 3 messages before the fix, and passes all 90 rows after. It passes without GITHUB_ACTIONS too.
+	- Test case: check-push-gate `df2ss`, run under GITHUB_ACTIONS=true as the hosted tests part does.
+	- Branch: `nov26-2026112514344606`
+	- Commit: `91e42cb4`
 
 - Review the whole code base for Critical and High bugs before each release
 	- ID: 2026112509394527
