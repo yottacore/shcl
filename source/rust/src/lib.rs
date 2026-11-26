@@ -3067,9 +3067,9 @@ pub struct Migration {
 	/// other as fields, and a raw body 1.0 to 2.0 read with its shared indent
 	/// taken off or closed early, which nothing can decide between, left as
 	/// written. A backslash pair 2.x resolved is one of them, as in
-	/// `"C:\\new"`. Also a comma list whose commas cut a backtick, paren or
-	/// bracket pair in 2, such as `sma(close, 10)`, which 2.x split and nobody
-	/// meant split. That is the only kind when the caller said the file is 2.x,
+	/// `"C:\\new"`. Also a comma list whose commas cut a backtick, paren,
+	/// bracket or brace pair in 2, such as `sma(close, 10)`, which 2.x split
+	/// and nobody meant split. That is the only kind when the caller said the file is 2.x,
 	/// and then `text` is the input.
 	pub ambiguous: usize,
 	/// Lines 2.x bound a value on that nothing binds now, since there is no
@@ -11660,8 +11660,8 @@ pub enum UpgradeError {
 	NotFound(String),
 	/// The file does not say which rules it was written for, and some of it
 	/// reads two ways (`Upgrade::ambiguous`); `from` settles it. Or a comma
-	/// sits inside a backtick, paren or bracket pair, which 2.x split there,
-	/// and only a look settles that.
+	/// sits inside a backtick, paren, bracket or brace pair, which 2.x split
+	/// there, and only a look settles that.
 	Ambiguous { path: String, count: usize },
 	/// Something is already at the backup's name. It is never written over.
 	BackupTaken(String),
@@ -11680,7 +11680,7 @@ impl std::fmt::Display for UpgradeError {
 			UpgradeError::NotFound(path) => write!(f, "{}: no such file", path),
 			UpgradeError::Ambiguous { path, count } => write!(
 				f,
-				"{}: {} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for, or have a comma inside a backtick, paren or bracket pair; nothing written",
+				"{}: {} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for, or have a comma inside a backtick, paren, bracket or brace pair; nothing written",
 				path, count
 			),
 			UpgradeError::BackupTaken(name) => write!(

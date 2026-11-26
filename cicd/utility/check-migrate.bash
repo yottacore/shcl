@@ -809,7 +809,7 @@ for f in "${corpus}"/*/input.shcl "${brackets}"/*.shcl "${dump}"/*.shcl; do
 			nBad+=1
 			echo "check-migrate: DIVERGE ${name}: 2.x read a raw block that never closes, and migrate exited ${rc} without refusing over it"
 		fi
-	elif ((rc == 7)) && grep -q 'comma inside a backtick, paren or bracket pair' "${tmpDir}/migrate.err"; then
+	elif ((rc == 7)) && grep -q 'comma inside a backtick, paren, bracket or brace pair' "${tmpDir}/migrate.err"; then
 		## 2.x split such a list at the comma, but nobody meant half a pair, so
 		## migrate hands the file back for a look rather than writing that
 		## (2026111016205702). Nothing was rewritten, so there's no tree to compare.

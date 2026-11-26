@@ -1588,11 +1588,18 @@ static size_t rewritten_lines(const char *file, const char *before, size_t blen,
 	return count;
 }
 
-// What ambiguous counts once --from has said the file is 2.x: comma lists
-// 2.x split inside a pair (2026111016205702).
-static void say_split_pairs(const char *file, size_t count, const char *outcome) {
-	fprintf(stderr, "%s: %zu value(s) have a comma inside a backtick, paren or bracket pair, which 2.x split there and nobody means; %s\n", file, count, outcome);
+// The ambiguous count, cut of it comma lists 2.x split inside a pair, which
+// --from doesn't rewrite either (2026111016205702). Each kind says its own
+// way out (2026112516450897).
+static void say_ambiguous(const char *file, size_t count, size_t cut, const char *outcome) {
+	if (cut > count) cut = count;
+	if (count > cut) fprintf(stderr, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; %s (--from=FORMAT rewrites them)\n", file, count - cut, outcome);
+	if (cut) fprintf(stderr, "%s: %zu value(s) have a comma inside a backtick, paren, bracket or brace pair, which 2.x split there and nobody means; %s (quote them or split them by hand, then run again)\n", file, cut, outcome);
 }
+
+// The from that counts a file's cut pairs, since told the file is 2.x,
+// ambiguous counts nothing else. The run is in memory and writes nothing.
+#define CUT_PAIR_PROBE "2.0"
 
 // A 2.x file rewritten for the current rules. The rewrite is text to text;
 // the load after it is for the diagnostics and the save gate, the same gate
@@ -1646,8 +1653,13 @@ static int do_migrate(const Opts *o) {
 	}
 	if (m.ambiguous) {
 		// With --from, the only ones left are commas inside a pair.
-		if (o->from) say_split_pairs(file, m.ambiguous, "left as written");
-		else fprintf(stderr, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for, or have a comma inside a backtick, paren or bracket pair; left as written (--from=FORMAT rewrites them)\n", file, m.ambiguous);
+		size_t cut = m.ambiguous;
+		if (!o->from) {
+			shcl_migration probe = shcl_migrate(text, len, CUT_PAIR_PROBE);
+			cut = probe.ambiguous;
+			free(probe.text);
+		}
+		say_ambiguous(file, m.ambiguous, cut, "left as written");
 		rc = 7;
 	}
 	if (m.lost) {
@@ -1750,6 +1762,16 @@ static int file_mtime(const char *file, int64_t *out) {
 	return 1;
 }
 
+// The cut pairs among an upgrade's ambiguous count.
+static size_t cut_pairs(const Opts *o, const char *text, size_t len, const int64_t *mtime, size_t count) {
+	// With --from, the only ones left are commas inside a pair.
+	if (o->from || !count) return count;
+	shcl_upgraded probe = shcl_upgrade_dated(text, len, mtime, CUT_PAIR_PROBE, 0);
+	size_t cut = probe.ambiguous;
+	shcl_upgraded_free(&probe);
+	return cut;
+}
+
 // A file this shcl cannot load clean, backed up and written fresh: the
 // library's shcl_upgrade_file with --write, and its text half without, which
 // prints the fresh text and touches nothing.
@@ -1777,10 +1799,9 @@ static int do_upgrade(const Opts *o) {
 		if (e != SHCL_UPGRADE_OK) {
 			shcl_upgraded found = shcl_upgrade_dated(text, len, mtime, o->from, 1);
 			say_diagnostics_from("", found.diagnostics);
-			size_t split = found.ambiguous;
+			size_t count = found.ambiguous;
 			shcl_upgraded_free(&found);
-			if (e == SHCL_UPGRADE_AMBIGUOUS && o->from) say_split_pairs(file, split, "nothing written");
-			else if (e == SHCL_UPGRADE_AMBIGUOUS) fprintf(stderr, "%s (--from=FORMAT rewrites them)\n", why);
+			if (e == SHCL_UPGRADE_AMBIGUOUS) say_ambiguous(file, count, cut_pairs(o, text, len, mtime, count), "nothing written");
 			else fprintf(stderr, "%s\n", why);
 			free(why);
 			free(text);
@@ -1790,6 +1811,7 @@ static int do_upgrade(const Opts *o) {
 	} else {
 		up = shcl_upgrade_dated(text, len, mtime, o->from, 1);
 	}
+	size_t cut = cut_pairs(o, text, len, mtime, up.ambiguous);
 	free(text);
 	if (up.current) {
 		// diagnostics is NULL when current, but the file is still loaded, and
@@ -1804,8 +1826,7 @@ static int do_upgrade(const Opts *o) {
 	}
 	say_diagnostics_from("", up.diagnostics);
 	if (up.ambiguous != 0) {
-		if (o->from) say_split_pairs(file, up.ambiguous, "nothing written");
-		else fprintf(stderr, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for, or have a comma inside a backtick, paren or bracket pair; nothing written (--from=FORMAT rewrites them)\n", file, up.ambiguous);
+		say_ambiguous(file, up.ambiguous, cut, "nothing written");
 		shcl_upgraded_free(&up);
 		return 7;
 	}

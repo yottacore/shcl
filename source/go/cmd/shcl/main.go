@@ -2572,12 +2572,28 @@ func rewrittenLines(before, after string) []int {
 	return lines
 }
 
-// saySplitPairs: what Ambiguous counts once --from has said the file is 2.x,
-// comma lists 2.x split inside a pair (2026111016205702).
-func saySplitPairs(file string, count int, outcome string) {
-	fmt.Fprintf(os.Stderr, "%s: %d value(s) have a comma inside a backtick, paren or bracket pair, "+
-		"which 2.x split there and nobody means; %s\n", file, count, outcome)
+// sayAmbiguous: the Ambiguous count, cut of it comma lists 2.x split inside a
+// pair, which --from doesn't rewrite either (2026111016205702). Each kind says
+// its own way out (2026112516450897).
+func sayAmbiguous(file string, count, cut int, outcome string) {
+	if cut > count {
+		cut = count
+	}
+	if count > cut {
+		fmt.Fprintf(os.Stderr, "%s: %d value(s) read one way under 2.x and another under these rules, and "+
+			"the file doesn't say which it was written for; %s (--from=FORMAT rewrites them)\n", file, count-cut, outcome)
+	}
+	if cut != 0 {
+		fmt.Fprintf(os.Stderr, "%s: %d value(s) have a comma inside a backtick, paren, bracket or brace pair, "+
+			"which 2.x split there and nobody means; %s (quote them or split them by hand, then run again)\n",
+			file, cut, outcome)
+	}
 }
+
+// cutPairProbe: the from that counts a file's cut pairs, since told the file
+// is 2.x, Ambiguous counts nothing else. The run is in memory and writes
+// nothing.
+const cutPairProbe = "2.0"
 
 // doMigrate: a 2.x file rewritten for the current rules. The rewrite is text
 // to text; the load after it is for the diagnostics and the save gate, the
@@ -2625,13 +2641,11 @@ func doMigrate(o *opts) int {
 	rc := 0
 	if m.Ambiguous != 0 {
 		// With --from, the only ones left are commas inside a pair.
-		if o.from != "" {
-			saySplitPairs(file, m.Ambiguous, "left as written")
-		} else {
-			fmt.Fprintf(os.Stderr, "%s: %d value(s) read one way under 2.x and another under these rules, and "+
-				"the file doesn't say which it was written for, or have a comma inside a backtick, paren or "+
-				"bracket pair; left as written (--from=FORMAT rewrites them)\n", file, m.Ambiguous)
+		cut := m.Ambiguous
+		if o.from == "" {
+			cut = shcl.Migrate(text, cutPairProbe).Ambiguous
 		}
+		sayAmbiguous(file, m.Ambiguous, cut, "left as written")
 		rc = 7
 	}
 	if m.Lost != 0 {
@@ -2777,6 +2791,15 @@ func fileMtime(file string) *int64 {
 	return &t
 }
 
+// cutPairs: the cut pairs among an upgrade's Ambiguous count.
+func cutPairs(o *opts, text string, mtime *int64, count int) int {
+	// With --from, the only ones left are commas inside a pair.
+	if o.from != "" {
+		return count
+	}
+	return shcl.UpgradeDated(text, mtime, cutPairProbe, false).Ambiguous
+}
+
 // doUpgrade: a file this shcl cannot load clean, backed up and written fresh:
 // the library's UpgradeFile with --write, and its text half without, which
 // prints the fresh text and touches nothing.
@@ -2810,11 +2833,7 @@ func doUpgrade(o *opts) int {
 			sayDiagnosticsFrom("", shcl.UpgradeDated(text, mtime, from, true).Diagnostics)
 			var ue *shcl.UpgradeError
 			if errors.As(err, &ue) && ue.Kind == shcl.UpgradeAmbiguous {
-				if from != "" {
-					saySplitPairs(file, ue.Count, "nothing written")
-				} else {
-					fmt.Fprintf(os.Stderr, "%v (--from=FORMAT rewrites them)\n", err)
-				}
+				sayAmbiguous(file, ue.Count, cutPairs(o, text, mtime, ue.Count), "nothing written")
 				return 7
 			}
 			if errors.As(err, &ue) && ue.Kind == shcl.UpgradeErrorsLeft {
@@ -2839,12 +2858,7 @@ func doUpgrade(o *opts) int {
 	}
 	sayDiagnosticsFrom("", up.Diagnostics)
 	if up.Ambiguous != 0 {
-		if from != "" {
-			saySplitPairs(file, up.Ambiguous, "nothing written")
-		} else {
-			err := &shcl.UpgradeError{Kind: shcl.UpgradeAmbiguous, Path: file, Count: up.Ambiguous}
-			fmt.Fprintf(os.Stderr, "%v (--from=FORMAT rewrites them)\n", err)
-		}
+		sayAmbiguous(file, up.Ambiguous, cutPairs(o, text, mtime, up.Ambiguous), "nothing written")
 		return 7
 	}
 	if len(up.ErrorsLeft) != 0 {

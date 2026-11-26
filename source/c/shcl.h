@@ -860,8 +860,8 @@ int shcl_known_format(const char *name);
 // a raw body 1.0 to 2.0 read with its shared indent taken off or closed early,
 // which nothing can decide between, left as written. A backslash pair 2.x
 // resolved is one of them, as in `"C:\\new"`. Also a comma list whose commas
-// cut a backtick, paren or bracket pair in 2, such as `sma(close, 10)`, which
-// 2.x split and nobody meant split. That is the only kind when from named the
+// cut a backtick, paren, bracket or brace pair in 2, such as `sma(close, 10)`,
+// which 2.x split and nobody meant split. That is the only kind when from named the
 // file's format, and then text is the input. lost: lines 2.x bound a value on that nothing binds now, since
 // there is no 3.0 spelling to move to: bracket text after the colon, a
 // selector holding a comma, which matched an array value, and a comma list
@@ -1046,7 +1046,7 @@ char *shcl_backup_file_name(const char *file, uint32_t format);
 typedef enum {
 	SHCL_UPGRADE_OK,
 	SHCL_UPGRADE_NOT_FOUND,    // nothing at the path
-	SHCL_UPGRADE_AMBIGUOUS,    // the file does not say which rules it was written for, and some of it reads two ways; from settles it. Or a comma sits inside a backtick, paren or bracket pair, which 2.x split there, and only a look settles that
+	SHCL_UPGRADE_AMBIGUOUS,    // the file does not say which rules it was written for, and some of it reads two ways; from settles it. Or a comma sits inside a backtick, paren, bracket or brace pair, which 2.x split there, and only a look settles that
 	SHCL_UPGRADE_BACKUP_TAKEN, // something is already at the backup's name; it is never written over
 	SHCL_UPGRADE_IO,           // a read or write failed; the message names the file, and *why says why
 	SHCL_UPGRADE_ERRORS_LEFT,  // with from, the fresh text would still have an error on the lines errors_left names
@@ -17519,7 +17519,7 @@ shcl_upgrade_error shcl_upgrade_file(const char *path, const char *from, int ban
 	if (up.current) { // NOLINT(bugprone-branch-clone): already current and just written both hand the result back
 		*out = up;
 	} else if (up.ambiguous != 0) {
-		r = upgrade_fail(message, SHCL_UPGRADE_AMBIGUOUS, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for, or have a comma inside a backtick, paren or bracket pair; nothing written", path, up.ambiguous);
+		r = upgrade_fail(message, SHCL_UPGRADE_AMBIGUOUS, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for, or have a comma inside a backtick, paren, bracket or brace pair; nothing written", path, up.ambiguous);
 		out->ambiguous = up.ambiguous;
 		shcl_upgraded_free(&up);
 	} else if (up.errors_left_n) {

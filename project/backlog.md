@@ -157,7 +157,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - `upgrade` without `--from` says `--from` rewrites a comma cut inside a pair, and no cut-pair message says how to fix it
 	- ID: 2026112516450897
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261125-164508
@@ -174,6 +174,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- me, 20261125: Avg, since the refusal itself is right and the file is safe. It targets beta.2 because these messages are new there, and changing them after the release would break any script that matches the text.
 		- me, 20261125: the CLI gets the cut-pair count by running the upgrade again in memory with `from`, which writes nothing, so no binding's result grows a field.
+		- me, 20261126: that run passes `from` 2.0 (`CUT_PAIR_PROBE`, Go `cutPairProbe`), since told the file is 2.x, `ambiguous` counts only cut pairs. `migrate` takes the same count from a second `migrate` call. When both kinds are there, the CLIs print 2 lines, the `--from` one first, each with its own count. With `--from`, only the cut-pair line.
+		- me, 20261126: the library's `Ambiguous` text keeps both kinds in one sentence, braces added, since it can't tell them apart without a new field.
+	- Actual cause [Bug]: the CLIs printed one count for both kinds of ambiguous value, under a pointer to `--from`, which rewrites only one kind. The cut-pair text came from the first fix and listed 3 of its 4 pairs.
+	- Actual fix [Bug]: one `say_ambiguous` in each CLI (Go `sayAmbiguous`) prints the rest with the `--from` pointer and the cut pairs with "quote them or split them by hand, then run again", for `migrate`, `upgrade`, and `upgrade --write`'s refusal. The cut-pair line, the library's `Ambiguous` text in all 4, the doc comments, the man page, examples.md and the changelog name braces. check-migrate's match on the cut-pair line follows the new text.
+	- 20261126: cli-regress `dfsj0` and `dfsj1` wanted "a backtick, paren or bracket pair, which 2.x split there and nobody means; left as written" (and "nothing written"), and now want "a backtick, paren, bracket or brace pair" and "(quote them or split them by hand, then run again)" after it. Nothing else in either row changed.
+	- Swept: every ambiguous message in the 4 CLIs (`migrate`, `upgrade`, `upgrade --write`), the `Ambiguous` error text and doc comment and `Migration`'s `ambiguous` doc in the 4 libraries, the C++ veneer (no copy of the text), the man page, examples.md, value-syntax.md (already named braces), the changelog, check-migrate and cli-regress. `grep -rn "paren or bracket pair"` finds none left outside the backlog.
+	- Verified: the 5 rows fail on the C CLI built from the round branch and pass on all 4 new CLIs, whose stderr over 15 probe runs (stdin and `--write`, with and without `--from`) matched byte for byte. cli-regress over the 4 CLIs (713 rows), check-migrate (636 documents, 13 refused for a cut pair as before), `--backlog-run-quick rust go python c cli` (all 5 steps, lint report clean), the markdown check and markdownlint (only lines already there) passed.
+	- Test case: cli-regress `dfty8`, `dfty9`, `dftya`, `dfsj0`, `dfsj1`.
+	- Actual effort: Low
+	- Acceptance signoff: Self-closed: the new rows were seen to fail on the old CLI, and the named gates passed.
+	- Branch: `nov26-2026112516450897`
+	- Commit: `9a5b030f`
+	- Closed: 20261126-112131
+	- Closed reason: Done
 
 - Under Miri, every Rust save stops on `sync_dir`'s folder fsync
 	- ID: 2026112517280964

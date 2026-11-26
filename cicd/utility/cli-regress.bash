@@ -372,6 +372,8 @@ printf '%s\n' 'p: "C:\\a\nb", "D:\\c\nd"' 'q: [1, 2]' > "${tmpDir}/miglost2.shcl
 ## clean either.
 printf 'tags: a, b\nport: 80\n\n#\n# This config file format is SHCL.\n# "Simple Hierarchical Config Language"\n#    Legal    SHCL is Copyright \302\251 2026 Jim Collier. License: MIT. No warranty.\n#\n' > "${tmpDir}/upgv2.shcl"
 printf 'a: x,y\nb: "q\n' > "${tmpDir}/upgamb.shcl"
+## A comma 2.x split inside a pair, which --from doesn't rewrite either.
+printf 'a: x\nk: sma(close, 10)\n' > "${tmpDir}/upgcut.shcl"
 ## upgrade reads a file's format off its mtime too, and one with no tells
 ## written today reads as this format, which keeps its errors as typed. This
 ## date leaves 2.0 the newest format, for the rows that need a 2.x file
@@ -380,7 +382,7 @@ printf 'a: x,y\nb: "q\n' > "${tmpDir}/upgamb.shcl"
 ## (2026111912004261).
 fPin2x(){ touch -d 2026-09-01T00:00:00 "$@"; }
 printf 'p: "C:\\\\new"\nt: C:\\temp\nq: a, b\n' > "${tmpDir}/upg2read.shcl"
-fPin2x "${tmpDir}/upgamb.shcl" "${tmpDir}/upgv2.shcl" "${tmpDir}/upg2read.shcl"
+fPin2x "${tmpDir}/upgamb.shcl" "${tmpDir}/upgcut.shcl" "${tmpDir}/upgv2.shcl" "${tmpDir}/upg2read.shcl"
 ## Clean under these rules, and an array under 2.x.
 printf 'p: a,b\n' > "${tmpDir}/upgclean.shcl"
 ## A schema key nothing knows, on schema line 2.
@@ -446,6 +448,7 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	list with a field under it, after an instance of its name with fields,
 ##	%U2% a 2.x file under 2.x's info block that does not load clean, %UA% one
 ##	that reads two ways, and %U2W%/%UAW% fresh copies of them at that path,
+##	%UPW% a fresh copy there of one with a comma 2.x split inside a pair,
 ##	%U2R% 2.x text with 2 values these rules read clean another way,
 ##	%UC% one that loads clean and reads as an array under 2.x,
 ##	%W% a fresh copy of the selector-sugar file, %BS% a fresh copy of a file
@@ -872,8 +875,14 @@ rows=(
 	'dfsj3|h010-quiet-when-they-agree|check -|node: 0\n\tip: a\nnode: 1\n\tip: b\nnode: 2\n\tip: c\nnode(2).x: 1\nnode("1").y: 2\nnode(1).z: 3\n|0|ok (0 diagnostic(s))\n|!H010'
 	## 2.x split these at the comma, but nobody meant half a pair, so --from
 	## rewrites nothing, the lines around it included (2026111016205702).
-	'dfsj0|migrate-from-comma-in-parens|migrate --from=2.0 -|a: x,y\nk: sma(close, 10)\n|7|a: x,y\nk: sma(close, 10)\n|^-: 1 value.s. have a comma inside a backtick, paren or bracket pair, which 2.x split there and nobody means; left as written$'
-	'dfsj1|upgrade-from-comma-in-backticks|upgrade --from=2.0 -|q: \x60a, b\x60\n|7||^-: 1 value.s. have a comma inside a backtick, paren or bracket pair, which 2.x split there and nobody means; nothing written$'
+	'dfsj0|migrate-from-comma-in-parens|migrate --from=2.0 -|a: x,y\nk: sma(close, 10)\n|7|a: x,y\nk: sma(close, 10)\n|^-: 1 value.s. have a comma inside a backtick, paren, bracket or brace pair, which 2.x split there and nobody means; left as written [(]quote them or split them by hand, then run again[)]$'
+	'dfsj1|upgrade-from-comma-in-backticks|upgrade --from=2.0 -|q: \x60a, b\x60\n|7||^-: 1 value.s. have a comma inside a backtick, paren, bracket or brace pair, which 2.x split there and nobody means; nothing written [(]quote them or split them by hand, then run again[)]$'
+	## Without --from, a cut pair isn't one --from rewrites, so it gets its own
+	## line with the way out, and the rest keep the --from pointer
+	## (2026112516450897).
+	'dfty8|upgrade-cut-pair-alone|upgrade -|a: x\nk: sma(close, 10)\n|7||=line 2: Error: E026 a comma then a space or the end in a bare value; write an array in brackets as [a, b], or quote the text\n-: 1 value(s) have a comma inside a backtick, paren, bracket or brace pair, which 2.x split there and nobody means; nothing written (quote them or split them by hand, then run again)\n'
+	'dfty9|migrate-cut-pair-apart|migrate -|a: x,y\nk: {p, q}\n|7|a: x,y\nk: {p, q}\n|=line 2: Error: E026 a comma then a space or the end in a bare value; write an array in brackets as [a, b], or quote the text\n-: 1 value(s) read one way under 2.x and another under these rules, and the file doesn\x27t say which it was written for; left as written (--from=FORMAT rewrites them)\n-: 1 value(s) have a comma inside a backtick, paren, bracket or brace pair, which 2.x split there and nobody means; left as written (quote them or split them by hand, then run again)\n'
+	'dftya|upgrade-write-cut-pair|upgrade --write %UPW%|-|7||^.*created[.]shcl: 1 value.s. have a comma inside a backtick, paren, bracket or brace pair, which 2.x split there and nobody means; nothing written [(]quote them or split them by hand, then run again[)]$|a: x\nk: sma(close, 10)\n'
 	## A comment on a stacked item stays on it, and one among the items stays
 	## among them.
 	'ddhx2|list-item-comment-fmt|fmt -|l:\n\t# first\n\t- a  # one\n\t- b\n|0|l:\n\t# first\n\t- a  # one\n\t- b\n## SHCL format 3.0\n|-'
@@ -2096,6 +2105,9 @@ for row in "${rows[@]}"; do
 	elif [[ "${argv}" == *%UAW%* ]]; then
 		freshMigSrc=upgamb
 		argv="${argv//%UAW%/${tmpDir}/created.shcl}"
+	elif [[ "${argv}" == *%UPW%* ]]; then
+		freshMigSrc=upgcut
+		argv="${argv//%UPW%/${tmpDir}/created.shcl}"
 	elif [[ "${argv}" == *%NWW%* ]]; then
 		freshMigSrc=newer
 		argv="${argv//%NWW%/${tmpDir}/created.shcl}"

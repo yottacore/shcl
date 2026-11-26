@@ -1900,10 +1900,20 @@ def rewritten_lines(before, after):
 	return [i + 1 for i, (x, y) in enumerate(zip(b.split("\n"), after.split("\n"))) if x.rstrip("\r") != y.rstrip("\r")]
 
 
-def say_split_pairs(file, count, outcome):
-	# What ambiguous counts once --from has said the file is 2.x: comma lists
-	# 2.x split inside a pair (2026111016205702).
-	sys.stderr.write(f"{file}: {count} value(s) have a comma inside a backtick, paren or bracket pair, which 2.x split there and nobody means; {outcome}\n")
+def say_ambiguous(file, count, cut, outcome):
+	# The ambiguous count, cut of it comma lists 2.x split inside a pair,
+	# which --from doesn't rewrite either (2026111016205702). Each kind says
+	# its own way out (2026112516450897).
+	cut = min(cut, count)
+	if count > cut:
+		sys.stderr.write(f"{file}: {count - cut} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; {outcome} (--from=FORMAT rewrites them)\n")
+	if cut != 0:
+		sys.stderr.write(f"{file}: {cut} value(s) have a comma inside a backtick, paren, bracket or brace pair, which 2.x split there and nobody means; {outcome} (quote them or split them by hand, then run again)\n")
+
+
+# The from that counts a file's cut pairs, since told the file is 2.x,
+# ambiguous counts nothing else. The run is in memory and writes nothing.
+CUT_PAIR_PROBE = "2.0"
 
 
 def do_migrate(o):
@@ -1944,10 +1954,8 @@ def do_migrate(o):
 	rc = 0
 	if m.ambiguous != 0:
 		# With --from, the only ones left are commas inside a pair.
-		if o.from_ is not None:
-			say_split_pairs(file, m.ambiguous, "left as written")
-		else:
-			sys.stderr.write(f"{file}: {m.ambiguous} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for, or have a comma inside a backtick, paren or bracket pair; left as written (--from=FORMAT rewrites them)\n")
+		cut = m.ambiguous if o.from_ is not None else shcl.migrate(text, CUT_PAIR_PROBE).ambiguous
+		say_ambiguous(file, m.ambiguous, cut, "left as written")
 		rc = 7
 	if m.lost != 0:
 		sys.stderr.write(f"{file}: {m.lost} line(s) bound a value under 2.x that nothing binds now: bracket text after the colon, a selector with a comma, a comma list with lines under it, or a quoted name with a backslash escape (--lossy overrides)\n")
@@ -2059,6 +2067,14 @@ def file_mtime(file):
 	return t if t >= 0 else None
 
 
+def cut_pairs(o, text, mtime, count):
+	# The cut pairs among an upgrade's ambiguous count. With --from, the only
+	# ones left are commas inside a pair.
+	if o.from_ is not None:
+		return count
+	return shcl.upgrade_dated(text, mtime, CUT_PAIR_PROBE, False).ambiguous
+
+
 def do_upgrade(o):
 	# A file this shcl cannot load clean, backed up and written fresh: the
 	# library's upgrade_file with --write, and its text half without, which
@@ -2088,10 +2104,7 @@ def do_upgrade(o):
 		except shcl.UpgradeError as e:
 			say_diagnostics_from("", shcl.upgrade_dated(text, mtime, o.from_, True).diagnostics)
 			if isinstance(e, shcl.UpgradeAmbiguous):
-				if o.from_ is not None:
-					say_split_pairs(file, e.count, "nothing written")
-				else:
-					sys.stderr.write(f"{e} (--from=FORMAT rewrites them)\n")
+				say_ambiguous(file, e.count, cut_pairs(o, text, mtime, e.count), "nothing written")
 				return 7
 			sys.stderr.write(f"{e}\n")
 			return 7 if isinstance(e, shcl.UpgradeErrorsLeft) else EXIT_IO
@@ -2107,10 +2120,7 @@ def do_upgrade(o):
 		return 0
 	say_diagnostics_from("", up.diagnostics)
 	if up.ambiguous != 0:
-		if o.from_ is not None:
-			say_split_pairs(file, up.ambiguous, "nothing written")
-		else:
-			sys.stderr.write(f"{shcl.UpgradeAmbiguous(file, up.ambiguous)} (--from=FORMAT rewrites them)\n")
+		say_ambiguous(file, up.ambiguous, cut_pairs(o, text, mtime, up.ambiguous), "nothing written")
 		return 7
 	if up.errors_left:
 		sys.stderr.write(f"{shcl.UpgradeErrorsLeft(file, up.errors_left)}\n")
