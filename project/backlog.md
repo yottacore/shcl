@@ -85,6 +85,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 20261125: Avg, since the refusal itself is right and the file is safe. It targets beta.2 because these messages are new there, and changing them after the release would break any script that matches the text.
 		- me, 20261125: the CLI gets the cut-pair count by running the upgrade again in memory with `from`, which writes nothing, so no binding's result grows a field.
 
+- Under Miri, every Rust save stops on `sync_dir`'s folder fsync
+	- ID: 2026112517280964
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261125-172809
+	- Opened by: shcl feedback (tukzmon, 20261125)
+	- Version and build: 3.0.0-beta1, and dev as of 2026-11-25
+	- Problem description: Under Miri with isolation off, `write_file_atomic` and every save through `write_file_how` stop at `sync_dir`, with "unsupported operation: `fsync` is only supported on file-backed file descriptors". Miri ends the whole test binary there rather than returning an error, so the best-effort `let _` doesn't help. Natively nothing is wrong. A caller can't test any path that saves under Miri.
+	- Requirements:
+		- `sync_dir`'s body is gated on `not(miri)`, as `open_no_wait` already is. The folder fsync is about power loss, which Miri can't model.
+		- Check whether the conformance test ignored under Miri as "saves to disk" (`source/rust/tests/conformance.rs`) can run there after.
+	- Origin: tukzmon 2026112510392174. The draft text and a patch (`miri-sync-dir.patch`) are in `private/claude_simple/upstream/tukzmon-2026112510392174/`. tukzmon has 33 tests ignored under Miri for this alone, and one that missed its ignore stopped a long Miri run hours in.
+	- Decisions:
+		- me, 20261125: Avg, since native saves are right, but it blocks Miri for every caller that saves.
+
 - `Document::merge` drops the base file's comments on every leaf the upper layer names
 	- ID: 2026111217560140
 	- Type: Enhancement
