@@ -8,6 +8,7 @@
 
 import ast
 import collections
+import contextlib
 import errno
 import gc
 import math
@@ -2882,19 +2883,19 @@ def main():
 	# it from the top, so a fragment that mounts itself cost the square of the
 	# document's depth (2026110711492228). Four times the depth has to take
 	# under 8 times the time, twice the linear growth, where the square took 16
-	# times. Best of 3 each. Same fixture in every runner.
+	# times. Best of 7 each, the two depths taken in turn, so a busy spell
+	# slows both sides rather than only the deep one (2026112419395418). Same
+	# fixture in every runner.
 	rschema = shcl.Document.parse("fragment: f\n\tfield: a\n\t\tinherits: f\n\tfield: leaf\n\t\ttype: int\nfield: a\n\tinherits: f\n")
-	ms = []
-	for depth in (120, 480):
-		rdoc = shcl.Document.parse("".join(f"a(v{ln})." + "a." * depth + "leaf: 1\n" for ln in range(20)))
-		best = float("inf")
-		for _ in range(3):
+	rdocs = [shcl.Document.parse("".join(f"a(v{ln})." + "a." * depth + "leaf: 1\n" for ln in range(20))) for depth in (120, 480)]
+	ms = [float("inf")] * 2
+	for _ in range(7):
+		for slot, rdoc in enumerate(rdocs):
 			t0 = time.perf_counter()
 			rvs = rdoc.validate(rschema)
-			best = min(best, (time.perf_counter() - t0) * 1000.0)
+			ms[slot] = min(ms[slot], (time.perf_counter() - t0) * 1000.0)
 			if rvs:
 				raise SystemExit(f"recursive mount fixture: a legal chain was refused: {rvs!r}")
-		ms.append(best)
 	bound = max(ms[0], 1.0) * 8
 	if ms[1] > bound:
 		raise SystemExit(f"recursive mount check {ms[1]:.1f} ms at depth 480 against {ms[0]:.1f} ms at depth 120 (bound {bound:.1f} ms) - the check is not linear in the depth")
@@ -7883,6 +7884,68 @@ def main():
 		if fagot != fawant:
 			raise SystemExit(f"typed array setter wrote {fagot!r}, want {fawant!r}")
 
+	test_id("dftx9", "set_stacked_writes_the_list_stacked")
+	# set_stacked writes a list one `- ` item per line, later array setters
+	# keep it, and off, an empty list, a merge and an empty binding of its
+	# name put it in brackets. A path with no list changes nothing. Same
+	# fixture in every runner, plus a non-bool, which only Python can pass.
+	sk = shcl.SetStatus
+	skd = shcl.Document.parse("state:\n\tfirst-run-done: true\n")
+	skfavs = ["/home/me/a long folder", "C:\\dir, with a comma", "x # not a comment", "[brackets]"]
+	sksteps = [
+		("set favorites", skd.set_string_array("state.favorites", skfavs) == sk.Ok),
+		("stack favorites", skd.set_stacked("state.favorites", True) == sk.Ok),
+	]
+	sktext = skd.to_canonical()
+	skback = shcl.Document.parse(sktext)
+	sksteps += [
+		("stacked text", sktext == with_stamp("state:\n\tfirst-run-done: true\n\tfavorites:\n\t\t- \"/home/me/a long folder\"\n\t\t- \"C:\\dir, with a comma\"\n\t\t- \"x # not a comment\"\n\t\t- \"[brackets]\"\n")),
+		("read back", skback.read_string_array("state.favorites").value == skfavs),
+		("fixpoint", skback.to_canonical() == sktext),
+		# A later set keeps it stacked, one element and another type too.
+		("set 80", skd.set_int_array("state.favorites", [80]) == sk.Ok),
+		("still stacked", "\tfavorites:\n\t\t- 80\n" in skd.to_canonical()),
+		("off", skd.set_stacked("state.favorites", False) == sk.Ok),
+		("bracketed", "\tfavorites: [80]\n" in skd.to_canonical()),
+		# An empty list writes as [] either way, and the next set is in brackets.
+		("on again", skd.set_stacked("state.favorites", True) == sk.Ok),
+		("set empty", skd.set_int_array("state.favorites", []) == sk.Ok),
+		("on empty", skd.set_stacked("state.favorites", True) == sk.Ok),
+		("set 1 2", skd.set_int_array("state.favorites", [1, 2]) == sk.Ok),
+		("bracketed after empty", "\tfavorites: [1, 2]\n" in skd.to_canonical()),
+	]
+	# No list there: Ok, and nothing changes. A wildcard is refused.
+	skbefore = skd.to_canonical()
+	sksteps += [
+		("scalar", skd.set_stacked("state.first-run-done", True) == sk.Ok),
+		("missing", skd.set_stacked("nope", True) == sk.Ok),
+		("not made", not skd.exists("nope")),
+		("unchanged", skd.to_canonical() == skbefore),
+		("wildcard", skd.set_stacked("state(*)", True) == sk.Wildcard),
+	]
+	with contextlib.suppress(TypeError):
+		skd.set_stacked("state.favorites", 1)
+		sksteps.append(("non-bool on", False))
+	# A list after an empty binding of its name stays in brackets.
+	ske = shcl.Document.parse("a:\na: [1, 2]\nb: [3, 4]\nb:\n")
+	sksteps += [("a(1)", ske.set_stacked("a(1)", True) == sk.Ok), ("b(0)", ske.set_stacked("b(0)", True) == sk.Ok)]
+	sktext = ske.to_canonical()
+	sksteps += [
+		("empty binding text", sktext == with_stamp("a:\na: [1, 2]\nb:\n\t- 3\n\t- 4\nb:\n")),
+		("empty binding fixpoint", shcl.Document.parse(sktext).to_canonical() == sktext),
+	]
+	# A merge puts it back in brackets, after an earlier merge too.
+	skm = shcl.Document.parse("k: [1, 2]\n")
+	skm.merge(shcl.Document.parse("j: 1\n"))
+	sksteps += [("stack merged", skm.set_stacked("k", True) == sk.Ok), ("merged stacked", skm.to_canonical().startswith("k:\n\t- 1\n\t- 2\n"))]
+	skm.merge(shcl.Document.parse("j: 2\n"))
+	sksteps.append(("merge brackets", skm.to_canonical().startswith("k: [1, 2]\n")))
+	# Off for a list the file stacked: the comment among its items goes above.
+	sks = shcl.Document.parse("k:\n\t- 1\n\t# note\n\t- 2\n")
+	sksteps += [("off loaded", sks.set_stacked("k", False) == sk.Ok), ("off loaded text", sks.to_canonical() == with_stamp("# note\nk: [1, 2]\n"))]
+	skbad = [what for what, ok in sksteps if not ok]
+	if skbad:
+		raise SystemExit(f"set_stacked: {skbad}")
 	test_id("dfe64", "a_save_names_this_format")
 	# Every text a save writes names this format: a stamp is rewritten where
 	# it is, with its own head, and a text with none gets one as its last

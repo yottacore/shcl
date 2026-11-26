@@ -464,10 +464,6 @@ fn backup_name_puts_the_tag_before_the_extension() {
 	);
 }
 
-#[cfg_attr(
-	miri,
-	ignore = "saves to disk, and Miri has no fchown or directory fsync"
-)]
 #[test]
 fn upgrade_file_backs_up_then_rewrites() {
 	let _id = test_id("ddmhf");
@@ -579,10 +575,6 @@ fn upgrade_file_never_writes_over_a_backup() {
 
 /// The file and its text are both strings, and swapped they wrote a backup
 /// named after the text and returned its name (2026101807501110).
-#[cfg_attr(
-	miri,
-	ignore = "saves to disk, and Miri has no fchown or directory fsync"
-)]
 #[test]
 fn write_backup_refuses_a_swapped_file_and_text() {
 	let _id = test_id("de4ba");

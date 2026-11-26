@@ -154,6 +154,8 @@ Types (get only, --string by default):
   --duration prints milliseconds and --size prints bytes. A bare number takes
   its unit from the field name, such as timeout-ms or cache_mb, or else from
   the --unit option
+  An index in PATH, such as name(0), picks an instance of the field, never an
+  item of its array, so --array is how a script reads the items
 
 Options (the subcommands each belongs to are in parentheses):
   --default=VALUE                        (get) print VALUE when the read isn't
@@ -318,9 +320,9 @@ that doesn't say which rules it was written for, when the 2.x and current
 readings differ. --from=2.0 says the file is 2.x. migrate also reports a 2.x
 binding that it can't convert. With --write, migrate and upgrade save the
 original beside FILE as NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local
-time. N is the format the original was written for. When that name is taken,
-they write nothing and exit 8. An upgrade writes even when the fresh file
-drops lines or values, since the backup has them.
+time. N is the format the original was written for, and 2 for a file from
+1.x. When that name is taken, they write nothing and exit 8. An upgrade writes
+even when the fresh file drops lines or values, since the backup has them.
 FILE may be '-' for stdin. With --layer, FILE is the highest file layer, and
 each --layer is merged under it in order. --set applies last. 'fmt' with
 layers prints the merged canonical document.
@@ -2706,14 +2708,32 @@ fn rewritten_lines(before: &str, after: &str) -> Vec<usize> {
 		.collect()
 }
 
-/// What `ambiguous` counts once --from has said the file is 2.x: comma lists
-/// 2.x split inside a pair (2026111016205702).
-fn split_pairs(file: &str, count: usize) -> String {
-	format!(
-		"{}: {} value(s) have a comma inside a backtick, paren or bracket pair, which 2.x split there and nobody means",
-		file, count
-	)
+/// The `ambiguous` count, `cut` of it comma lists 2.x split inside a pair,
+/// which --from doesn't rewrite either (2026111016205702). Each kind says its
+/// own way out (2026112516450897).
+fn say_ambiguous(file: &str, count: usize, cut: usize, outcome: &str) {
+	let cut = cut.min(count);
+	if count > cut {
+		errln!(
+			"{}: {} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for; {} (--from=FORMAT rewrites them)",
+			file,
+			count - cut,
+			outcome
+		);
+	}
+	if cut != 0 {
+		errln!(
+			"{}: {} value(s) have a comma inside a backtick, paren, bracket or brace pair, which 2.x split there and nobody means; {} (quote them or split them by hand, then run again)",
+			file,
+			cut,
+			outcome
+		);
+	}
 }
+
+/// The `from` that counts a file's cut pairs, since told the file is 2.x,
+/// `ambiguous` counts nothing else. The run is in memory and writes nothing.
+const CUT_PAIR_PROBE: Option<&str> = Some("2.0");
 
 /// A 2.x file rewritten for the current rules. The rewrite is text to text;
 /// the load after it is for the diagnostics and the save gate, the same gate
@@ -2767,15 +2787,12 @@ fn do_migrate(o: &Opts) -> u8 {
 	let mut rc = 0;
 	if m.ambiguous != 0 {
 		// With --from, the only ones left are commas inside a pair.
-		if o.from.is_some() {
-			errln!("{}; left as written", split_pairs(file, m.ambiguous));
+		let cut = if o.from.is_some() {
+			m.ambiguous
 		} else {
-			errln!(
-				"{}: {} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for, or have a comma inside a backtick, paren or bracket pair; left as written (--from=FORMAT rewrites them)",
-				file,
-				m.ambiguous
-			);
-		}
+			migrate(&text, CUT_PAIR_PROBE).ambiguous
+		};
+		say_ambiguous(file, m.ambiguous, cut, "left as written");
 		rc = 7;
 	}
 	if m.lost != 0 {
@@ -2925,6 +2942,16 @@ fn migrate_would_refuse(file: &str, doc: &Document, misplaced: usize, o: &Opts) 
 	0
 }
 
+/// The cut pairs among an upgrade's `ambiguous` count.
+fn cut_pairs(o: &Opts, text: &str, mtime: Option<i64>, count: usize) -> usize {
+	// With --from, the only ones left are commas inside a pair.
+	if o.from.is_some() {
+		count
+	} else {
+		upgrade_dated(text, mtime, CUT_PAIR_PROBE, false).ambiguous
+	}
+}
+
 /// A file this shcl cannot load clean, backed up and written fresh: the
 /// library's `upgrade_file` with --write, and its text half without, which
 /// prints the fresh text and touches nothing.
@@ -2961,12 +2988,13 @@ fn do_upgrade(o: &Opts) -> u8 {
 					&upgrade_dated(&text, mtime, o.from.as_deref(), true).diagnostics,
 				);
 				return match e {
-					UpgradeError::Ambiguous { count, .. } if o.from.is_some() => {
-						errln!("{}; nothing written", split_pairs(file, count));
-						7
-					}
-					UpgradeError::Ambiguous { .. } => {
-						errln!("{} (--from=FORMAT rewrites them)", e);
+					UpgradeError::Ambiguous { count, .. } => {
+						say_ambiguous(
+							file,
+							count,
+							cut_pairs(o, &text, mtime, count),
+							"nothing written",
+						);
 						7
 					}
 					UpgradeError::ErrorsLeft { .. } => {
@@ -2996,17 +3024,12 @@ fn do_upgrade(o: &Opts) -> u8 {
 	}
 	say_diagnostics_from("", &up.diagnostics);
 	if up.ambiguous != 0 {
-		if o.from.is_some() {
-			errln!("{}; nothing written", split_pairs(file, up.ambiguous));
-		} else {
-			errln!(
-				"{} (--from=FORMAT rewrites them)",
-				UpgradeError::Ambiguous {
-					path: file.clone(),
-					count: up.ambiguous
-				}
-			);
-		}
+		say_ambiguous(
+			file,
+			up.ambiguous,
+			cut_pairs(o, &text, mtime, up.ambiguous),
+			"nothing written",
+		);
 		return 7;
 	}
 	if !up.errors_left.is_empty() {

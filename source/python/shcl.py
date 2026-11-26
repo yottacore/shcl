@@ -2833,9 +2833,9 @@ class Migration:
 	as a raw body and the other as fields, and a raw body 1.0 to 2.0 read with
 	its shared indent taken off or closed early, which nothing can decide
 	between, left as written. A backslash pair 2.x resolved is one of them, as
-	in `"C:\\new"`. Also a comma list whose commas cut a backtick, paren or
-	bracket pair in 2, such as `sma(close, 10)`, which 2.x split and nobody
-	meant split. That is the only kind when the caller said the file is 2.x,
+	in `"C:\\new"`. Also a comma list whose commas cut a backtick, paren,
+	bracket or brace pair in 2, such as `sma(close, 10)`, which 2.x split and
+	nobody meant split. That is the only kind when the caller said the file is 2.x,
 	and then text is the input. lost:
 	lines 2.x bound a value on that nothing binds now, since there is no 3.0
 	spelling to move to: bracket text after the colon, a selector holding a
@@ -9014,7 +9014,8 @@ class Document:
 		query recipe for tooling. A segment that is not bare-name-safe is
 		emitted quoted and escaped - the form the path scanner accepts - so
 		each path is a well-formed lookup path and nothing in the document is
-		hidden."""
+		hidden. The instances of a repeated field share one path here, and
+		instance_paths gives each its own, with an index."""
 		out = []
 		seen = set()
 		stack = [(c, "") for c in reversed(self.arena[_ROOT].children)]
@@ -10463,6 +10464,36 @@ class Document:
 		if not all(_datetime_reads_back(x) for x in v):
 			return self._refuse(path, SetStatus.BadDateTime)
 		return self._set_value(path, _array_cell([str(x) for x in v]))
+
+	def set_stacked(self, path: str, on: bool) -> SetStatus:
+		"""How the list at a path is written: with on, one "- " item per line,
+		and without it in brackets. It lasts through later array setters on
+		that field until one writes an empty list, and a merge puts every list
+		in brackets. A path with no list, an empty one, or a list with fields
+		under it is Ok and changes nothing, and so is on for a list after an
+		empty binding of its name, since a stacked header there would join that
+		binding on a reload. A non-bool on is a TypeError."""
+		_want("set_stacked", on, "bool")
+		why = self.check_set_path(path)
+		if why != SetStatus.Ok:
+			return why
+		idx = self._write_target(path)
+		if idx is None:
+			return SetStatus.Ok
+		nd = self.arena[idx]
+		if nd.value.kind != "array" or not nd.value.els or nd.children or _stacks(nd) == on:
+			return SetStatus.Ok
+		if on:
+			nd.star_list = True
+			nd.src = None
+			# The next merge has a stacked list to put in brackets.
+			self._bracketed = False
+			self._settle_fence_name(nd.parent, nd.name)
+		elif _unstack(nd):
+			self._refile(idx)
+		_settle_first_blank(self.arena, self.orphans)
+		self._resettle_kept()
+		return SetStatus.Ok
 
 	# Default forms - the "emit defaults" half of the Writer. Each one makes
 	# sure the field has a usable value of its type: it writes where the path
@@ -12554,15 +12585,15 @@ class UpgradeNotFound(UpgradeError):
 class UpgradeAmbiguous(UpgradeError):
 	"""The file does not say which rules it was written for, and some of it
 	reads two ways (Upgrade.ambiguous); from_ settles it. Or a comma sits
-	inside a backtick, paren or bracket pair, which 2.x split there, and only
-	a look settles that."""
+	inside a backtick, paren, bracket or brace pair, which 2.x split there,
+	and only a look settles that."""
 	path: str
 	count: int
 
 	def __init__(self, path: str, count: int):
 		self.path = path
 		self.count = count
-		super().__init__(f"{path}: {count} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for, or have a comma inside a backtick, paren or bracket pair; nothing written")
+		super().__init__(f"{path}: {count} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for, or have a comma inside a backtick, paren, bracket or brace pair; nothing written")
 
 
 class UpgradeBackupTaken(UpgradeError):

@@ -614,6 +614,7 @@ public:
 	Read<std::vector<std::string>> read_children(std::string_view path) const;
 	// Every field path, file order, deduplicated. A segment that is not
 	// bare-name-safe comes back quoted, so each path reads back as a lookup.
+	// Repeated instances share a path; instance_paths() indexes each one.
 	std::vector<std::string> paths() const;
 	// paths() one instance at a time: every binding's path, with (i) on each
 	// segment whose name its parent repeats, so each path reads one node.
@@ -718,6 +719,11 @@ public:
 	[[nodiscard]] SetStatus set_bool_array(std::string_view path, const std::vector<bool> &v);
 	[[nodiscard]] SetStatus set_string_array(std::string_view path, const std::vector<std::string> &v);
 	[[nodiscard]] SetStatus set_datetime_array(std::string_view path, const std::vector<DateTime> &v);
+	// How the list at a path is written: on, one `- ` item per line, and off in
+	// brackets. It lasts through later array setters until one writes an empty
+	// list, and a merge puts every list in brackets. A path with no list, an
+	// empty one, or a list with fields under it is Ok and changes nothing.
+	[[nodiscard]] SetStatus set_stacked(std::string_view path, bool on);
 
 	// Text bound as value syntax rather than as data, so "[80, 443]" is a
 	// two-element array where set_string would store one string. NotOneValue
@@ -1533,6 +1539,7 @@ SetStatus Document::set_float_array(std::string_view path, const std::vector<dou
 SetStatus Document::set_bool_array(std::string_view path, const std::vector<bool> &v) { auto b = detail::bool_args(v); return static_cast<SetStatus>(shcl_set_bool_array(detail::doc(*this), path.data(), path.size(), b.data(), b.size())); }
 SetStatus Document::set_string_array(std::string_view path, const std::vector<std::string> &v) { auto a = detail::str_args(v); return static_cast<SetStatus>(shcl_set_string_array(detail::doc(*this), path.data(), path.size(), a.p.data(), a.n.data(), v.size())); }
 SetStatus Document::set_datetime_array(std::string_view path, const std::vector<DateTime> &v) { auto a = detail::dt_args(v); return static_cast<SetStatus>(shcl_set_datetime_array(detail::doc(*this), path.data(), path.size(), a.data(), a.size())); }
+SetStatus Document::set_stacked(std::string_view path, bool on) { return static_cast<SetStatus>(shcl_set_stacked(detail::doc(*this), path.data(), path.size(), on ? 1 : 0)); }
 SetStatus Document::set_literal(std::string_view path, std::string_view text) { return static_cast<SetStatus>(shcl_set_literal(detail::doc(*this), path.data(), path.size(), text.data(), text.size())); }
 
 SetStatus Document::set_int_default(std::string_view path, std::int64_t v) { return static_cast<SetStatus>(shcl_set_int_default(detail::doc(*this), path.data(), path.size(), v)); }

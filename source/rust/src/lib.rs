@@ -3067,9 +3067,9 @@ pub struct Migration {
 	/// other as fields, and a raw body 1.0 to 2.0 read with its shared indent
 	/// taken off or closed early, which nothing can decide between, left as
 	/// written. A backslash pair 2.x resolved is one of them, as in
-	/// `"C:\\new"`. Also a comma list whose commas cut a backtick, paren or
-	/// bracket pair in 2, such as `sma(close, 10)`, which 2.x split and nobody
-	/// meant split. That is the only kind when the caller said the file is 2.x,
+	/// `"C:\\new"`. Also a comma list whose commas cut a backtick, paren,
+	/// bracket or brace pair in 2, such as `sma(close, 10)`, which 2.x split
+	/// and nobody meant split. That is the only kind when the caller said the file is 2.x,
 	/// and then `text` is the input.
 	pub ambiguous: usize,
 	/// Lines 2.x bound a value on that nothing binds now, since there is no
@@ -11598,6 +11598,8 @@ fn write_file_how(file: &str, data: &str, new_only: bool, mode: u32) -> Result<(
 			// old group keeps its own, which is what it had before this. The
 			// owner is not copied - see the file tier in spec.md.
 			use std::os::unix::fs::MetadataExt;
+			// Miri has no fchown and stops there
+			#[cfg(not(miri))]
 			let _ = std::os::unix::fs::fchown(&f, None, Some(m.gid()));
 			let _ = f.set_permissions(m.permissions());
 		}
@@ -11660,8 +11662,8 @@ pub enum UpgradeError {
 	NotFound(String),
 	/// The file does not say which rules it was written for, and some of it
 	/// reads two ways (`Upgrade::ambiguous`); `from` settles it. Or a comma
-	/// sits inside a backtick, paren or bracket pair, which 2.x split there,
-	/// and only a look settles that.
+	/// sits inside a backtick, paren, bracket or brace pair, which 2.x split
+	/// there, and only a look settles that.
 	Ambiguous { path: String, count: usize },
 	/// Something is already at the backup's name. It is never written over.
 	BackupTaken(String),
@@ -11680,7 +11682,7 @@ impl std::fmt::Display for UpgradeError {
 			UpgradeError::NotFound(path) => write!(f, "{}: no such file", path),
 			UpgradeError::Ambiguous { path, count } => write!(
 				f,
-				"{}: {} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for, or have a comma inside a backtick, paren or bracket pair; nothing written",
+				"{}: {} value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for, or have a comma inside a backtick, paren, bracket or brace pair; nothing written",
 				path, count
 			),
 			UpgradeError::BackupTaken(name) => write!(
@@ -11777,6 +11779,8 @@ pub fn write_backup(file: &str, text: &str, format: u32) -> Result<String, Upgra
 		#[cfg(unix)]
 		if let Ok(m) = std::fs::metadata(file) {
 			use std::os::unix::fs::MetadataExt;
+			// Miri has no fchown and stops there
+			#[cfg(not(miri))]
 			let _ = std::os::unix::fs::fchown(&f, None, Some(m.gid()));
 			let _ = f.set_permissions(m.permissions());
 		}
@@ -12727,11 +12731,12 @@ fn windows_replace_file(
 /// effort - windows has no directory fsync, and a filesystem that refuses one
 /// is not a reason to fail a write that already succeeded.
 fn sync_dir(dir: &std::path::Path) {
-	#[cfg(unix)]
+	// Miri can't fsync a folder, and stops there rather than returning an error
+	#[cfg(all(unix, not(miri)))]
 	if let Ok(d) = std::fs::File::open(dir) {
 		let _ = d.sync_all();
 	}
-	#[cfg(not(unix))]
+	#[cfg(any(not(unix), miri))]
 	let _ = dir;
 }
 
@@ -13297,7 +13302,9 @@ impl Document {
 	/// recipe for tooling (the differential harness derives reads over the fuzz
 	/// set from it). A segment that is not bare-name-safe is emitted quoted and
 	/// escaped - the form the path scanner accepts - so each path is a
-	/// well-formed lookup path and nothing in the document is hidden.
+	/// well-formed lookup path and nothing in the document is hidden. The
+	/// instances of a repeated field share one path here, and
+	/// [`Document::instance_paths`] gives each its own, with an index.
 	pub fn paths(&self) -> Vec<String> {
 		let mut out = Vec::new();
 		let mut seen = std::collections::HashSet::new();
@@ -15248,6 +15255,43 @@ impl Document {
 			return self.refuse(path, SetStatus::BadDateTime);
 		}
 		self.set_value(path, array_cell(v.iter().map(|x| x.to_string()).collect()))
+	}
+
+	/// How the list at a path is written: with `on`, one `- ` item per line,
+	/// and without it in brackets. It lasts through later array setters on
+	/// that field until one writes an empty list, and a merge puts every list
+	/// in brackets. A path with no list, an empty one, or a list with fields
+	/// under it is Ok and changes nothing, and so is `on` for a list after an
+	/// empty binding of its name, since a stacked header there would join that
+	/// binding on a reload.
+	pub fn set_stacked(&mut self, path: &str, on: bool) -> SetStatus {
+		let why = self.check_set_path(path);
+		if why != SetStatus::Ok {
+			return why;
+		}
+		let Some(node) = self.write_target(path) else {
+			return SetStatus::Ok;
+		};
+		let nd = &self.arena[node];
+		if !matches!(&nd.value, Value::Array(els) if !els.is_empty())
+			|| !nd.children.is_empty()
+			|| stacks(nd) == on
+		{
+			return SetStatus::Ok;
+		}
+		if on {
+			let (parent, name) = (nd.parent, nd.name.clone());
+			self.arena[node].star_list = true;
+			self.arena[node].src = None;
+			// The next merge has a stacked list to put in brackets.
+			self.bracketed = false;
+			self.settle_fence_name(parent, &name);
+		} else if unstack(&mut self.arena[node]) {
+			self.refile(node);
+		}
+		settle_first_blank(&mut self.arena, &mut self.orphans);
+		self.resettle_kept();
+		SetStatus::Ok
 	}
 
 	// Default forms - the "emit defaults" half of the Writer. Each one makes

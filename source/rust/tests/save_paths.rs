@@ -19,10 +19,7 @@ use shcl::{Document, FileStatus, SaveError};
 /// is a change. Nothing at the path is no change, so a file gone since the
 /// load is written back (2026110312163201, 2026110312163202,
 /// 2026110613470307, 2026110907535001).
-#[cfg_attr(
-	miri,
-	ignore = "saves to disk, and Miri has no fchown or directory fsync"
-)]
+#[cfg_attr(miri, ignore = "starts a process")]
 #[test]
 fn a_changed_check_knows_its_file_by_any_spelling() {
 	let _id = test_id("detpn");

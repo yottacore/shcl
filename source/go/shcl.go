@@ -3322,9 +3322,9 @@ type Migration struct {
 	// the other as fields, and a raw body 1.0 to 2.0 read with its shared
 	// indent taken off or closed early, which nothing can decide between, left
 	// as written. A backslash pair 2.x resolved is one of them, as in
-	// `"C:\\new"`. Also a comma list whose commas cut a backtick, paren or
-	// bracket pair in 2, such as `sma(close, 10)`, which 2.x split and nobody
-	// meant split. That is the only kind when the caller said the file is 2.x,
+	// `"C:\\new"`. Also a comma list whose commas cut a backtick, paren,
+	// bracket or brace pair in 2, such as `sma(close, 10)`, which 2.x split
+	// and nobody meant split. That is the only kind when the caller said the file is 2.x,
 	// and then Text is the input.
 	Ambiguous int
 	// Lost: lines 2.x bound a value on that nothing binds now, since there is
@@ -11683,8 +11683,8 @@ const (
 	UpgradeNotFound UpgradeErrorKind = iota
 	// UpgradeAmbiguous: the file does not say which rules it was written for,
 	// and some of it reads two ways (Upgraded.Ambiguous); from settles it. Or
-	// a comma sits inside a backtick, paren or bracket pair, which 2.x split
-	// there, and only a look settles that.
+	// a comma sits inside a backtick, paren, bracket or brace pair, which 2.x
+	// split there, and only a look settles that.
 	UpgradeAmbiguous
 	// UpgradeBackupTaken: something is already at the backup's name. It is
 	// never written over.
@@ -11725,8 +11725,8 @@ func (e *UpgradeError) Error() string {
 		return e.Path + ": no such file"
 	case UpgradeAmbiguous:
 		return fmt.Sprintf("%s: %d value(s) read one way under 2.x and another under these rules, and "+
-			"the file doesn't say which it was written for, or have a comma inside a backtick, paren or "+
-			"bracket pair; nothing written", e.Path, e.Count)
+			"the file doesn't say which it was written for, or have a comma inside a backtick, paren, "+
+			"bracket or brace pair; nothing written", e.Path, e.Count)
 	case UpgradeBackupTaken:
 		return e.Path + ": already exists; the original would be kept there, so nothing was written"
 	case UpgradeErrorsLeft:
@@ -13092,7 +13092,9 @@ func (d *Document) ReadCount(path string) Read[int] {
 // Paths returns every field path in the document, in file order, deduplicated -
 // a query recipe for tooling. A segment that is not bare-name-safe is emitted
 // quoted and escaped - the form the path scanner accepts - so each path is a
-// well-formed lookup path and nothing in the document is hidden.
+// well-formed lookup path and nothing in the document is hidden. The
+// instances of a repeated field share one path here, and InstancePaths gives
+// each its own, with an index.
 func (d *Document) Paths() []string {
 	d.ready()
 	var out []string
@@ -15275,6 +15277,40 @@ func (d *Document) SetDateTimeArray(path string, v []DateTime) SetStatus {
 		texts[i] = x.String()
 	}
 	return d.setValue(path, arrayCell(texts))
+}
+
+// SetStacked sets how the list at path is written: with on, one "- " item
+// per line, and without it in brackets. It lasts through later array setters
+// on that field until one writes an empty list, and a merge puts every list
+// in brackets. A path with no list, an empty one, or a list with fields under
+// it is Ok and changes nothing, and so is on for a list after an empty binding
+// of its name, since a stacked header there would join that binding on a
+// reload.
+func (d *Document) SetStacked(path string, on bool) SetStatus {
+	d.ready()
+	if why := d.CheckSetPath(path); why != SetOk {
+		return why
+	}
+	idx, ok := d.writeTarget(path)
+	if !ok {
+		return SetOk
+	}
+	nd := &d.arena[idx]
+	if nd.value.kind != vArray || len(nd.value.els) == 0 || len(nd.children) != 0 || stacks(nd) == on {
+		return SetOk
+	}
+	if on {
+		nd.starList = true
+		nd.src = nil
+		// The next merge has a stacked list to put in brackets.
+		d.bracketed = false
+		d.settleFenceName(nd.parent, nd.name)
+	} else if unstack(nd) {
+		d.refile(idx)
+	}
+	settleFirstBlank(d.arena, &d.orphans)
+	d.resettleKept()
+	return SetOk
 }
 
 // Default forms - the "emit defaults" half of the Writer. Each one makes sure

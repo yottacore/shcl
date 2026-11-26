@@ -2734,10 +2734,6 @@ fn read_surface_line_quoted_children() {
 	assert_eq!(d3.to_canonical(), "\"ab◉TAB◉cd\": 2\n## SHCL format 3.0\n");
 }
 
-#[cfg_attr(
-	miri,
-	ignore = "saves to disk, and Miri has no fchown or directory fsync"
-)]
 #[test]
 fn file_tier_load_save() {
 	let _id = test_id("dbcwv");
@@ -2827,11 +2823,15 @@ fn file_tier_load_save() {
 			|p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o7777;
 		// BSD gives a new file the directory's group, and refuses setgid on a
 		// file whose group the caller is not in. Its own group fixes both.
-		unsafe extern "C" {
-			fn getegid() -> u32;
+		// Miri has no getegid or chown, so the set-id half takes its skip there.
+		#[cfg(not(miri))]
+		{
+			unsafe extern "C" {
+				fn getegid() -> u32;
+			}
+			// SAFETY: getegid takes nothing and can't fail.
+			let _ = std::os::unix::fs::chown(&born, None, Some(unsafe { getegid() }));
 		}
-		// SAFETY: getegid takes nothing and can't fail.
-		let _ = std::os::unix::fs::chown(&born, None, Some(unsafe { getegid() }));
 		let set = std::fs::set_permissions(&born, std::fs::Permissions::from_mode(0o6750));
 		if set.is_ok() && id_of(&born) == 0o6750 {
 			fdoc.save_file(born.to_str().unwrap()).unwrap();
@@ -2916,10 +2916,6 @@ fn set_raw_keeps_a_shared_indent_and_trims_the_info() {
 }
 
 #[cfg(unix)]
-#[cfg_attr(
-	miri,
-	ignore = "saves to disk, and Miri has no fchown or directory fsync"
-)]
 #[test]
 fn save_creates_the_file_behind_a_dangling_symlink() {
 	let _id = test_id("dbxk2");
@@ -3096,10 +3092,6 @@ fn set_attrs(path: &std::path::Path, attrs: u32) {
 /// component is `.` or `..` - is not a document. A canonicalize drops the
 /// trailing separator first, so `save_file("f/")` used to rewrite `f`. Same
 /// fixture in every runner.
-#[cfg_attr(
-	miri,
-	ignore = "saves to disk, and Miri has no fchown or directory fsync"
-)]
 #[test]
 fn save_refuses_a_directory_shaped_path() {
 	let _id = test_id("dc42j");
@@ -3185,10 +3177,7 @@ fn write_status_values_in_order() {
 /// `write_file_atomic`, a save, `write_backup` and `upgrade_file`. A full disk
 /// and a read-only filesystem can't be made here without root; the library's
 /// own test maps those. Same fixture in every runner.
-#[cfg_attr(
-	miri,
-	ignore = "saves to disk, and Miri has no fchown or directory fsync"
-)]
+#[cfg_attr(miri, ignore = "starts a process")]
 #[test]
 fn write_status_names_each_failure() {
 	let _id = test_id("ddqfr");
@@ -3578,7 +3567,9 @@ fn escapes_decode_in_linear_time() {
 /// it from the top, so a fragment that mounts itself cost the square of the
 /// document's depth (2026110711492228). Four times the depth has to take under
 /// 8 times the time, twice the linear growth, where the square took 16 times.
-/// Best of 3 each. Same fixture in every runner.
+/// Best of 7 each, the two depths taken in turn, so a busy spell slows both
+/// sides rather than only the deep one (2026112419395418). Same fixture in
+/// every runner.
 #[cfg_attr(
 	miri,
 	ignore = "times a ratio, which means nothing under Miri, and never finishes there (2026102106592600)"
@@ -3593,14 +3584,15 @@ fn recursive_mount_check_is_linear_in_depth() {
 	let schema = Document::parse(
 		"fragment: f\n\tfield: a\n\t\tinherits: f\n\tfield: leaf\n\t\ttype: int\nfield: a\n\tinherits: f\n",
 	);
-	let mut ms = [0.0f64; 2];
-	for (slot, depth) in ms.iter_mut().zip([120, 480]) {
+	let docs = [120, 480].map(|depth| {
 		let text: String = (0..20)
 			.map(|ln| format!("a(v{}).{}leaf: 1\n", ln, "a.".repeat(depth)))
 			.collect();
-		let d = Document::parse(&text);
-		*slot = f64::INFINITY;
-		for _ in 0..3 {
+		Document::parse(&text)
+	});
+	let mut ms = [f64::INFINITY; 2];
+	for _ in 0..7 {
+		for (slot, d) in ms.iter_mut().zip(&docs) {
 			let t0 = std::time::Instant::now();
 			let vs = d.validate(&schema);
 			*slot = slot.min(t0.elapsed().as_secs_f64() * 1000.0);
@@ -4101,10 +4093,6 @@ fn a_replaced_leaf_keeps_the_lines_kept_in_its_block() {
 	}
 }
 
-#[cfg_attr(
-	miri,
-	ignore = "saves to disk, and Miri has no fchown or directory fsync"
-)]
 #[test]
 fn lost_and_save_gate() {
 	let _id = test_id("dbcxe");
@@ -5490,8 +5478,8 @@ fn e003_quotes_the_index_as_written() {
 /// checks what an in-memory reload does not: a setter once took bytes the
 /// save wrote and the next load refused. Same fixture in every runner.
 #[cfg_attr(
-	miri,
-	ignore = "saves to disk, and Miri has no fchown or directory fsync"
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
 )]
 #[test]
 fn setters_write_only_what_reads_back() {
@@ -7001,10 +6989,6 @@ fn format_array_is_the_setters_text() {
 /// document never read, a parse's included, is refused the same way, and
 /// nothing at the path is written (2026102910482342, 2026110613470307,
 /// 2026110907535001).
-#[cfg_attr(
-	miri,
-	ignore = "saves to disk, and Miri has no fchown or directory fsync"
-)]
 #[test]
 fn a_save_over_a_file_changed_since_the_load_is_refused() {
 	let _id = test_id("dekj6");
@@ -7115,10 +7099,6 @@ fn a_save_over_a_file_changed_since_the_load_is_refused() {
 /// A create-only save refuses a file that's there, and only one of several
 /// saves at once makes it. A new file takes the mode asked for, whatever the
 /// umask, and one already there keeps its own (2026102910482343).
-#[cfg_attr(
-	miri,
-	ignore = "saves to disk, and Miri has no fchown or directory fsync"
-)]
 #[test]
 fn a_create_only_save_refuses_a_file_already_there() {
 	let _id = test_id("dekm5");
@@ -7255,7 +7235,6 @@ fn a_create_only_save_refuses_a_file_already_there() {
 /// of it is refused with nothing written, whatever the options, before any
 /// other check. The same reading as H006 decides, and a merge takes a newer
 /// layer's (2026102910482344).
-#[cfg_attr(miri, ignore = "saves to disk")]
 #[test]
 fn a_newer_format_document_saves_nowhere() {
 	let _id = test_id("dekvt");
@@ -8613,4 +8592,69 @@ fn a_merge_keeps_one_format_line() {
 		doc.merge(&Document::parse(&layer));
 		assert_eq!(doc.to_canonical(), want, "{base:?} under {layer:?}");
 	}
+}
+
+/// set_stacked writes a list one `- ` item per line, later array setters keep
+/// it, and off, an empty list, a merge and an empty binding of its name put it
+/// in brackets. A path with no list changes nothing. Same fixture in every
+/// runner.
+#[test]
+fn set_stacked_writes_the_list_stacked() {
+	let _id = test_id("dftx7");
+	use shcl::SetStatus;
+	let mut d = Document::parse("state:\n\tfirst-run-done: true\n");
+	let favs = [
+		"/home/me/a long folder",
+		"C:\\dir, with a comma",
+		"x # not a comment",
+		"[brackets]",
+	];
+	assert_eq!(d.set_string_array("state.favorites", &favs), SetStatus::Ok);
+	assert_eq!(d.set_stacked("state.favorites", true), SetStatus::Ok);
+	let t = d.to_canonical();
+	assert_eq!(
+		t,
+		with_stamp(
+			"state:\n\tfirst-run-done: true\n\tfavorites:\n\t\t- \"/home/me/a long folder\"\n\t\t- \"C:\\dir, with a comma\"\n\t\t- \"x # not a comment\"\n\t\t- \"[brackets]\"\n"
+		)
+	);
+	let back = Document::parse(&t);
+	assert_eq!(back.read_string_array("state.favorites").value, favs);
+	assert_eq!(back.to_canonical(), t);
+	// A later set keeps it stacked, one element and another type too.
+	assert_eq!(d.set_int_array("state.favorites", &[80]), SetStatus::Ok);
+	assert!(d.to_canonical().contains("\tfavorites:\n\t\t- 80\n"));
+	assert_eq!(d.set_stacked("state.favorites", false), SetStatus::Ok);
+	assert!(d.to_canonical().contains("\tfavorites: [80]\n"));
+	// An empty list writes as [] either way, and the next set is in brackets.
+	assert_eq!(d.set_stacked("state.favorites", true), SetStatus::Ok);
+	assert_eq!(d.set_int_array("state.favorites", &[]), SetStatus::Ok);
+	assert_eq!(d.set_stacked("state.favorites", true), SetStatus::Ok);
+	assert_eq!(d.set_int_array("state.favorites", &[1, 2]), SetStatus::Ok);
+	assert!(d.to_canonical().contains("\tfavorites: [1, 2]\n"));
+	// No list there: Ok, and nothing changes. A wildcard is refused.
+	let before = d.to_canonical();
+	assert_eq!(d.set_stacked("state.first-run-done", true), SetStatus::Ok);
+	assert_eq!(d.set_stacked("nope", true), SetStatus::Ok);
+	assert!(!d.exists("nope"));
+	assert_eq!(d.to_canonical(), before);
+	assert_eq!(d.set_stacked("state(*)", true), SetStatus::Wildcard);
+	// A list after an empty binding of its name stays in brackets.
+	let mut e = Document::parse("a:\na: [1, 2]\nb: [3, 4]\nb:\n");
+	assert_eq!(e.set_stacked("a(1)", true), SetStatus::Ok);
+	assert_eq!(e.set_stacked("b(0)", true), SetStatus::Ok);
+	let t = e.to_canonical();
+	assert_eq!(t, with_stamp("a:\na: [1, 2]\nb:\n\t- 3\n\t- 4\nb:\n"));
+	assert_eq!(Document::parse(&t).to_canonical(), t);
+	// A merge puts it back in brackets, after an earlier merge too.
+	let mut m = Document::parse("k: [1, 2]\n");
+	m.merge(&Document::parse("j: 1\n"));
+	assert_eq!(m.set_stacked("k", true), SetStatus::Ok);
+	assert!(m.to_canonical().starts_with("k:\n\t- 1\n\t- 2\n"));
+	m.merge(&Document::parse("j: 2\n"));
+	assert!(m.to_canonical().starts_with("k: [1, 2]\n"));
+	// Off for a list the file stacked: the comment among its items goes above.
+	let mut s = Document::parse("k:\n\t- 1\n\t# note\n\t- 2\n");
+	assert_eq!(s.set_stacked("k", false), SetStatus::Ok);
+	assert_eq!(s.to_canonical(), with_stamp("# note\nk: [1, 2]\n"));
 }

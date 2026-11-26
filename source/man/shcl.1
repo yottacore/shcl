@@ -3,7 +3,7 @@
 .\"
 .\" Has no version string on purpose: the release bump touches eight files
 .\" and this is not one of them. Keep it in step with HELP in the four CLIs.
-.TH SHCL 1 2026-11-25 shcl "User Commands"
+.TH SHCL 1 2026-11-26 shcl "User Commands"
 .SH NAME
 shcl \- read, edit, validate and format Simple Hierarchical Config Language files
 .SH SYNOPSIS
@@ -263,6 +263,9 @@ copies the original beside it, with a backup tag before the extension:
 is copied to
 .BR config_backup_ YYYYmmDD - HHMMSS _format\-v2.shcl ,
 in local time, where the number is the format the file was written for.
+A file from 1.x counts as 2.x here, so its copy is named
+.B format\-v2
+too.
 It refuses at exit 8 and writes nothing when that name is taken. A file that
 only gains the Format line gets no copy.
 .B \-\-check
@@ -1005,11 +1008,13 @@ rewrites is stamped with the line, so a second run has the answer the first
 one didn't. A raw block that never closes leaves the line nowhere to go, so
 .B migrate
 exits 7 and writes nothing until the block is closed.
-A comma list whose comma sits inside a backtick, paren or bracket pair, such as
+A comma list whose comma sits inside a backtick, paren, bracket or brace pair,
+such as
 .BR "k: sma(close, 10)" ,
 was split there by 2.x, which nobody meant, so it is exit 7 too, even with
 .BR \-\-from ,
 and then no line of the file is rewritten.
+Quote such a value, or split it by hand, then run again.
 .PP
 Bracket text after the colon, a selector with a comma, a comma list on a
 field with lines under it, and a quoted name with a backslash pair are what

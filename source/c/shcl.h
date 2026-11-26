@@ -5,6 +5,9 @@
 // Single-header, drop-in: copy this file into your tree and, in exactly ONE .c,
 //   #define SHCL_IMPLEMENTATION
 //   #include "shcl.h"
+// Do that in a .c of its own. gcc -fanalyzer doesn't finish on this file
+// without --param=analyzer-bb-explosion-factor=2, and one run without it grew
+// to 67 GB.
 // Everything is byte-for-byte with the Rust reference (source/rust); the cicd
 // cross-binding check compares CLI stdout + exit codes across every binding.
 // The language spec lives in project/spec.md; project/conformance/ pins behavior.
@@ -26,6 +29,9 @@
 //                    default prints and exits 70, which suits the CLI and
 //                    nothing else. A parse or a validate never reaches it:
 //                    those unwind and return NULL.
+//   SHCL_ARENA_MALLOC
+//                    for a sanitizer build: every arena request is a malloc
+//                    of its own, so ASan sees an overrun a shared block hides
 // A hook that longjmps out arms its recovery point with SHCL_SETJMP, below.
 
 #ifndef SHCL_H
@@ -643,8 +649,10 @@ shcl_read_str_list shcl_read_children(shcl_doc *d, const char *path, size_t plen
 // Every field path in the document, in file order, deduplicated - a query
 // recipe for tooling. A segment that is not bare-name-safe is emitted quoted
 // and escaped - the form the path scanner accepts - so each path is a
-// well-formed lookup path and nothing in the document is hidden. Returns the
-// count; *out stays valid until shcl_free, or until shcl_reads_release.
+// well-formed lookup path and nothing in the document is hidden. The
+// instances of a repeated field share one path here, and shcl_instance_paths
+// gives each its own, with an index. Returns the count; *out stays valid until
+// shcl_free, or until shcl_reads_release.
 size_t shcl_paths(shcl_doc *d, shcl_str **out);
 // shcl_paths one instance at a time: every binding's path in file order, with
 // `(i)` on each segment whose name repeats under its parent, so each path
@@ -860,8 +868,8 @@ int shcl_known_format(const char *name);
 // a raw body 1.0 to 2.0 read with its shared indent taken off or closed early,
 // which nothing can decide between, left as written. A backslash pair 2.x
 // resolved is one of them, as in `"C:\\new"`. Also a comma list whose commas
-// cut a backtick, paren or bracket pair in 2, such as `sma(close, 10)`, which
-// 2.x split and nobody meant split. That is the only kind when from named the
+// cut a backtick, paren, bracket or brace pair in 2, such as `sma(close, 10)`,
+// which 2.x split and nobody meant split. That is the only kind when from named the
 // file's format, and then text is the input. lost: lines 2.x bound a value on that nothing binds now, since
 // there is no 3.0 spelling to move to: bracket text after the colon, a
 // selector holding a comma, which matched an array value, and a comma list
@@ -1046,7 +1054,7 @@ char *shcl_backup_file_name(const char *file, uint32_t format);
 typedef enum {
 	SHCL_UPGRADE_OK,
 	SHCL_UPGRADE_NOT_FOUND,    // nothing at the path
-	SHCL_UPGRADE_AMBIGUOUS,    // the file does not say which rules it was written for, and some of it reads two ways; from settles it. Or a comma sits inside a backtick, paren or bracket pair, which 2.x split there, and only a look settles that
+	SHCL_UPGRADE_AMBIGUOUS,    // the file does not say which rules it was written for, and some of it reads two ways; from settles it. Or a comma sits inside a backtick, paren, bracket or brace pair, which 2.x split there, and only a look settles that
 	SHCL_UPGRADE_BACKUP_TAKEN, // something is already at the backup's name; it is never written over
 	SHCL_UPGRADE_IO,           // a read or write failed; the message names the file, and *why says why
 	SHCL_UPGRADE_ERRORS_LEFT,  // with from, the fresh text would still have an error on the lines errors_left names
@@ -1175,6 +1183,13 @@ shcl_set_status shcl_set_float_array(shcl_doc *d, const char *path, size_t plen,
 shcl_set_status shcl_set_bool_array(shcl_doc *d, const char *path, size_t plen, const int *v, size_t n);
 shcl_set_status shcl_set_string_array(shcl_doc *d, const char *path, size_t plen, const char *const *v, const size_t *lens, size_t n);
 shcl_set_status shcl_set_datetime_array(shcl_doc *d, const char *path, size_t plen, const shcl_datetime *v, size_t n);
+// How the list at a path is written: on 1, one `- ` item per line, and on 0 in
+// brackets. It lasts through later array setters on that field until one
+// writes an empty list, and a merge puts every list in brackets. A path with
+// no list, an empty one, or a list with fields under it is SHCL_SET_OK and
+// changes nothing, and so is on 1 for a list after an empty binding of its
+// name, since a stacked header there would join that binding on a reload.
+shcl_set_status shcl_set_stacked(shcl_doc *d, const char *path, size_t plen, int on);
 
 // Binds text as value syntax rather than as data: "[80, 443]" becomes a
 // two-element array where shcl_set_string would store one string that has to be
@@ -4756,6 +4771,13 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
 	return sb_S(&out);
 }
 
+/* The recovery path reads only the volatile own and outer, which nothing
+   assigns, so -Wclobbered's guess at migrate's inlined locals is wrong here
+   too. gcc 14 and 15 make it at -O1 with the sanitizers. */
+#if defined(__GNUC__) && !defined(__clang__)
+	#pragma GCC diagnostic push
+	#pragma GCC diagnostic ignored "-Wclobbered"
+#endif
 /* Rewrite a document written under the 2.x rules so this parser reads the
    same tree. Each line is read with the 2.x tokenizer and rewritten only
    where the two rule sets disagree (value-syntax.md, Migration). A piece is
@@ -4826,6 +4848,9 @@ static shcl_migration migrate_text(const char *text, size_t len, int from_v2, in
 	arena_free(&done->a); arena_free(&done->sc); free(done);
 	return m;
 }
+#if defined(__GNUC__) && !defined(__clang__)
+	#pragma GCC diagnostic pop
+#endif
 
 /* restamp() for shcl_upgrade, on the line its own read of the text finds: a
    malloc'd copy with its length in *out_len, or NULL when the text names no
@@ -10815,6 +10840,28 @@ shcl_set_status shcl_set_datetime_array(shcl_doc *d, const char *path, size_t pl
 	ShclArena *a = &d->arena; ShclMark m = arena_mark(a); ShclStr *t = (ShclStr *)arena_alloc(a, (n ? n : 1) * sizeof(ShclStr));
 	for (size_t i = 0; i < n; i++) t[i] = w_dt_text(a, &v[i]);
 	return w_set_marked(d, p, w_array(a, t, n), m);
+}
+shcl_set_status shcl_set_stacked(shcl_doc *d, const char *path, size_t plen, int on) { // NOLINT(bugprone-easily-swappable-parameters): a length follows its pointer
+	ShclStr p; p.p = path; p.n = plen;
+	arena_reset(&d->scratch);
+	shcl_set_status why = w_check_set_path(d, &d->scratch, p);
+	size_t idx;
+	int found = why == SHCL_SET_OK && w_write_target(d, p, &idx);
+	arena_reset(&d->scratch);
+	if (!found) return why;
+	ShclNode *nd = &NODE(d, idx);
+	on = on != 0;
+	if (nd->value.kind != V_ARRAY || !nd->value.nels || nd->children.len || (stacks(nd) != 0) == on) return SHCL_SET_OK;
+	if (on) {
+		nd->star_list = 1;
+		nd->src = s_empty();
+		/* The next merge has a stacked list to put in brackets. */
+		d->bracketed = 0;
+		w_settle_fence_name(d, nd->parent, nd->name);
+	} else if (unstack(d, nd)) refile(d, idx);
+	settle_first_blank(d);
+	resettle_kept(d);
+	return SHCL_SET_OK;
 }
 
 /* Default forms - the "emit defaults" half of the Writer. Each one makes sure
@@ -17480,7 +17527,7 @@ shcl_upgrade_error shcl_upgrade_file(const char *path, const char *from, int ban
 	if (up.current) { // NOLINT(bugprone-branch-clone): already current and just written both hand the result back
 		*out = up;
 	} else if (up.ambiguous != 0) {
-		r = upgrade_fail(message, SHCL_UPGRADE_AMBIGUOUS, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for, or have a comma inside a backtick, paren or bracket pair; nothing written", path, up.ambiguous);
+		r = upgrade_fail(message, SHCL_UPGRADE_AMBIGUOUS, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for, or have a comma inside a backtick, paren, bracket or brace pair; nothing written", path, up.ambiguous);
 		out->ambiguous = up.ambiguous;
 		shcl_upgraded_free(&up);
 	} else if (up.errors_left_n) {

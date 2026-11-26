@@ -168,6 +168,37 @@ fn iter_count(floor: usize) -> usize {
 	iter_count_from(std::env::var("SHCL_FUZZ_ITERS").ok().as_deref(), floor)
 }
 
+/// Whether a loop whose share guard needs a few hits runs round `i`: all of
+/// its `iters`, then more while `short` says the guard isn't met yet, up to 3
+/// times `iters` more, and no more than 3000. At Miri's 100 rounds such a
+/// guard cleared its bar by a few hits, so a moved draw would fail it about 1
+/// time in 10. A fixed floor would make the Miri run hours long, and a lower
+/// bar would barely check the arm at 20,000.
+fn another_round(i: usize, iters: usize, short: bool) -> bool {
+	i < iters || (short && i < iters + 3 * iters.min(1000))
+}
+
+#[test]
+fn a_short_guard_runs_more_rounds_only_while_short() {
+	let _id = test_id("dftzz");
+	assert!(another_round(99, 100, false));
+	assert!(
+		!another_round(100, 100, false),
+		"a met guard stops at iters"
+	);
+	assert!(another_round(100, 100, true));
+	assert!(another_round(399, 100, true));
+	assert!(
+		!another_round(400, 100, true),
+		"the top-up is 3 times iters"
+	);
+	assert!(another_round(22_999, 20_000, true));
+	assert!(
+		!another_round(23_000, 20_000, true),
+		"the top-up stops at 3000"
+	);
+}
+
 #[test]
 fn the_iteration_count_refuses_a_value_that_is_not_one() {
 	let _id = test_id("dcvfj");
@@ -887,7 +918,9 @@ fn a_cap_refuses_only_a_line_that_would_bind() {
 	let mut rng = Rng(0x5EED_57A7_1C00_0009);
 	let mut kept_under_cap = 0usize;
 	let mut capped_broken = 0usize;
-	for i in 0..iters {
+	let bar = iters / 16;
+	let mut i = 0;
+	while another_round(i, iters, kept_under_cap <= bar || capped_broken <= bar) {
 		let text = structural(&mut rng);
 		let open = Document::parse(&text);
 		let capped = Document::parse_limited(&text, Strictness::Standard, 0, 1, 0).unwrap();
@@ -943,12 +976,14 @@ fn a_cap_refuses_only_a_line_that_would_bind() {
 			);
 			kept_under_cap += 1;
 		}
+		i += 1;
 	}
 	assert!(
-		kept_under_cap > iters / 16 && capped_broken > iters / 16,
-		"the soup checked only {} bracket lines kept and {} refused under a cap",
+		kept_under_cap > bar && capped_broken > bar,
+		"the soup checked only {} bracket lines kept and {} refused under a cap, in {} rounds",
 		kept_under_cap,
-		capped_broken
+		capped_broken,
+		i
 	);
 }
 
@@ -1781,7 +1816,9 @@ fn writer_roundtrips_and_stays_fixpoint() {
 			soup_text(rng, 12)
 		}
 	};
-	for i in 0..iters {
+	let bar = iters / 50;
+	let mut i = 0;
+	while another_round(i, iters, thousands <= bar) {
 		let s = soup(&mut rng);
 		if thousands_by_spec(&s).is_some() {
 			thousands += 1;
@@ -1855,11 +1892,9 @@ fn writer_roundtrips_and_stays_fixpoint() {
 		);
 		let ra = Document::parse(&da.to_canonical()).read_string_array("k");
 		assert_eq!(ra.value, owned, "array round-trip #{}", i);
+		i += 1;
 	}
-	assert!(
-		thousands > iters / 50,
-		"only {thousands} thousands numbers in {iters}"
-	);
+	assert!(thousands > bar, "only {thousands} thousands numbers in {i}");
 }
 
 /// Text that sits near the number readers: digits, signs, radix letters,
@@ -5871,17 +5906,20 @@ fn generated_starters_load_and_validate_clean() {
 	// checks what it generated, so a run whose every mutated schema was refused
 	// came back clean.
 	let mut mutated = 0usize;
-	for _ in 0..iters {
+	let bar = iters / 16;
+	let mut rounds = 0;
+	while another_round(rounds, iters, mutated <= bar) {
 		let base = &seeds[rng.below(seeds.len())];
 		if generate_checked(&mutate(&mut rng, base)).is_some() {
 			mutated += 1;
 		}
+		rounds += 1;
 	}
 	assert!(
-		mutated > iters / 16,
+		mutated > bar,
 		"only {} of {} mutated schemas generated",
 		mutated,
-		iters
+		rounds
 	);
 
 	assert_eq!(
