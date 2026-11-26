@@ -3567,7 +3567,9 @@ fn escapes_decode_in_linear_time() {
 /// it from the top, so a fragment that mounts itself cost the square of the
 /// document's depth (2026110711492228). Four times the depth has to take under
 /// 8 times the time, twice the linear growth, where the square took 16 times.
-/// Best of 3 each. Same fixture in every runner.
+/// Best of 7 each, the two depths taken in turn, so a busy spell slows both
+/// sides rather than only the deep one (2026112419395418). Same fixture in
+/// every runner.
 #[cfg_attr(
 	miri,
 	ignore = "times a ratio, which means nothing under Miri, and never finishes there (2026102106592600)"
@@ -3582,14 +3584,15 @@ fn recursive_mount_check_is_linear_in_depth() {
 	let schema = Document::parse(
 		"fragment: f\n\tfield: a\n\t\tinherits: f\n\tfield: leaf\n\t\ttype: int\nfield: a\n\tinherits: f\n",
 	);
-	let mut ms = [0.0f64; 2];
-	for (slot, depth) in ms.iter_mut().zip([120, 480]) {
+	let docs = [120, 480].map(|depth| {
 		let text: String = (0..20)
 			.map(|ln| format!("a(v{}).{}leaf: 1\n", ln, "a.".repeat(depth)))
 			.collect();
-		let d = Document::parse(&text);
-		*slot = f64::INFINITY;
-		for _ in 0..3 {
+		Document::parse(&text)
+	});
+	let mut ms = [f64::INFINITY; 2];
+	for _ in 0..7 {
+		for (slot, d) in ms.iter_mut().zip(&docs) {
 			let t0 = std::time::Instant::now();
 			let vs = d.validate(&schema);
 			*slot = slot.min(t0.elapsed().as_secs_f64() * 1000.0);

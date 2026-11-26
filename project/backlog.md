@@ -312,7 +312,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Rust dfjq6 recursive_mount_check_is_linear_in_depth fails under load
 	- ID: 2026112419395418
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Priority: Low
 	- Target version: v3.0.0
 	- Opened: 20261124-193954
@@ -323,6 +323,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Expected behavior: the test passes under load. It compares one timing at each depth, so one slow sample at the deep end fails it.
 	- Possible cause: a single wall-clock sample per depth, against a fixed 8x bound. Taking the best of several samples per depth, or comparing CPU time, would keep it from failing on a busy box. The same test is in all 4 runners (`df080`, `dfjq7`, `dfjq8`).
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Reproduced: 20261126, Rust. Each test already took the best of 3, but ran all 3 at one depth before the other. 8 copies of the test binary at a time, 3,000 runs at a load of 14 to 21, failed 7 times and then 2 times, at about 8.5 ms against 1.0 ms. Alone, best of 9 is 4.0 ms against 0.97 ms, so the check is linear.
+	- Actual cause: the deep side's 3 samples run back to back, so one busy spell slows all 3 while the shallow side's best came from a quiet one. The deep side's larger working set also suffers more from neighbors.
+	- Actual fix: the two depths are timed in turn, 7 rounds, best of 7 each, in all 4 runners. The bound stays at 8 times, and the square still gives 16.
+	- Decisions:
+		- Taking turns over CPU time, since none of the 4 runners reads a thread's CPU clock today, and process CPU time counts the other test threads in Rust and Go.
+		- Best of each side over a per-round ratio, since a slow shallow sample would make a round's ratio pass too easily.
+	- Swept: `df080` (C), `dfjq6` (Rust), `dfjq7` (Go) and `dfjq8` (Python) all changed. The other timing ratios in the same files (`df02a` and its twins, the re-opened blocks test) still time one size before the other, and haven't failed.
+	- Test case: `dfjq6`, `dfjq7`, `dfjq8`, `df080`. Verified: under the same 8-copy stress, the old Rust test failed 9 of 6,000 runs and the new one 0 of 6,000.
+	- Branch: `nov26-2026112419395418`
+	- Acceptance signoff: Self-closed: the failure reproduced on the old test and not on the new one.
+	- Closed: 20261126-120024
+	- Closed reason: Done
 
 - Rust parses about a third slower than 2.0.0
 	- ID: 2026110516100001

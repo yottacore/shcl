@@ -741,13 +741,16 @@ int main(void) {
 	   node then still built its chain from the root and matched it from the
 	   top, which is the square (2026110711492228). Four times the depth has to
 	   take under 8 times the time, twice the linear growth, where the square
-	   took 16 times. Best of 3 each. Same fixture in every runner, and corpus
-	   case 220 pins the answers at depth. */
+	   took 16 times. Best of 7 each, the two depths taken in turn, so a busy
+	   spell slows both sides rather than only the deep one
+	   (2026112419395418). Same fixture in every runner, and corpus case 220
+	   pins the answers at depth. */
 	test_id("df080", "recursive_mount_check_is_linear_in_depth");
 	{
 		static const char rschema[] = "fragment: f\n\tfield: a\n\t\tinherits: f\n\tfield: leaf\n\t\ttype: int\nfield: a\n\tinherits: f\n";
 		shcl_doc *rs = shcl_parse(rschema, sizeof rschema - 1);
-		double t[2];
+		shcl_doc *rd[2] = {NULL, NULL};
+		double t[2] = {1e300, 1e300};
 		size_t depths[2] = {120, 480}, lines = 20, cap = lines * (480 * 2 + 32) + 1;
 		char *rtext = (char *)malloc(cap);
 		if (!rs || !rtext) { fail("recursive mount fixture: no memory"); free(rtext); shcl_free(rs); return test_id_end(1); }
@@ -759,20 +762,22 @@ int main(void) {
 				for (size_t k = 0; k < depths[side]; k++) { memcpy(rtext + len, "a.", 2); len += 2; }
 				memcpy(rtext + len, "leaf: 1\n", 8); len += 8;
 			}
-			shcl_doc *rd = shcl_parse(rtext, len);
-			if (!rd) { fail("recursive mount fixture: no memory"); free(rtext); shcl_free(rs); return test_id_end(1); }
-			t[side] = 1e300;
-			for (int r = 0; r < 3; r++) {
+			rd[side] = shcl_parse(rtext, len);
+			if (!rd[side]) { fail("recursive mount fixture: no memory"); free(rtext); shcl_free(rd[0]); shcl_free(rs); return test_id_end(1); }
+		}
+		free(rtext);
+		for (int r = 0; r < 7; r++) {
+			for (int side = 0; side < 2; side++) {
 				double c0 = wall_ms();
-				shcl_validation *v = shcl_validate(rd, rs);
+				shcl_validation *v = shcl_validate(rd[side], rs);
 				double ms = wall_ms() - c0;
 				if (ms < t[side]) t[side] = ms;
 				if (!v || shcl_validation_count(v) != 0) fail("recursive mount fixture: a legal chain was refused");
 				shcl_validation_free(v);
 			}
-			shcl_free(rd);
 		}
-		free(rtext);
+		shcl_free(rd[0]);
+		shcl_free(rd[1]);
 		shcl_free(rs);
 		printf("mem_bounds: recursive mount check: %.1f ms at depth 120, %.1f ms at depth 480\n", t[0], t[1]);
 #ifdef SHCL_UNDER_ASAN

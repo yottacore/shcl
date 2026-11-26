@@ -3373,22 +3373,26 @@ func TestEscapesDecodeInLinearTime(t *testing.T) {
 // it from the top, so a fragment that mounts itself cost the square of the
 // document's depth (2026110711492228). Four times the depth has to take under
 // 8 times the time, twice the linear growth, where the square took 16 times.
-// Best of 3 each. Same fixture in every runner.
+// Best of 7 each, the two depths taken in turn, so a busy spell slows both
+// sides rather than only the deep one (2026112419395418). Same fixture in
+// every runner.
 func TestRecursiveMountCheckIsLinearInDepth(t *testing.T) {
 	defer testID(t, "dfjq7")
 	if raceOn {
 		t.Skip("not timed under -race")
 	}
 	schema := Parse("fragment: f\n\tfield: a\n\t\tinherits: f\n\tfield: leaf\n\t\ttype: int\nfield: a\n\tinherits: f\n")
-	var ms [2]float64
+	var docs [2]*Document
 	for slot, depth := range []int{120, 480} {
 		var text strings.Builder
 		for ln := 0; ln < 20; ln++ {
 			fmt.Fprintf(&text, "a(v%d).%sleaf: 1\n", ln, strings.Repeat("a.", depth))
 		}
-		d := Parse(text.String())
-		ms[slot] = math.Inf(1)
-		for r := 0; r < 3; r++ {
+		docs[slot] = Parse(text.String())
+	}
+	ms := [2]float64{math.Inf(1), math.Inf(1)}
+	for r := 0; r < 7; r++ {
+		for slot, d := range docs {
 			t0 := time.Now()
 			vs := d.Validate(schema)
 			ms[slot] = math.Min(ms[slot], float64(time.Since(t0).Microseconds())/1000.0)
