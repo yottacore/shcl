@@ -2734,10 +2734,6 @@ fn read_surface_line_quoted_children() {
 	assert_eq!(d3.to_canonical(), "\"ab◉TAB◉cd\": 2\n## SHCL format 3.0\n");
 }
 
-#[cfg_attr(
-	miri,
-	ignore = "saves to disk, and Miri has no fchown or directory fsync"
-)]
 #[test]
 fn file_tier_load_save() {
 	let _id = test_id("dbcwv");
@@ -2827,11 +2823,15 @@ fn file_tier_load_save() {
 			|p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o7777;
 		// BSD gives a new file the directory's group, and refuses setgid on a
 		// file whose group the caller is not in. Its own group fixes both.
-		unsafe extern "C" {
-			fn getegid() -> u32;
+		// Miri has no getegid or chown, so the set-id half takes its skip there.
+		#[cfg(not(miri))]
+		{
+			unsafe extern "C" {
+				fn getegid() -> u32;
+			}
+			// SAFETY: getegid takes nothing and can't fail.
+			let _ = std::os::unix::fs::chown(&born, None, Some(unsafe { getegid() }));
 		}
-		// SAFETY: getegid takes nothing and can't fail.
-		let _ = std::os::unix::fs::chown(&born, None, Some(unsafe { getegid() }));
 		let set = std::fs::set_permissions(&born, std::fs::Permissions::from_mode(0o6750));
 		if set.is_ok() && id_of(&born) == 0o6750 {
 			fdoc.save_file(born.to_str().unwrap()).unwrap();
@@ -2916,10 +2916,6 @@ fn set_raw_keeps_a_shared_indent_and_trims_the_info() {
 }
 
 #[cfg(unix)]
-#[cfg_attr(
-	miri,
-	ignore = "saves to disk, and Miri has no fchown or directory fsync"
-)]
 #[test]
 fn save_creates_the_file_behind_a_dangling_symlink() {
 	let _id = test_id("dbxk2");
@@ -3096,10 +3092,6 @@ fn set_attrs(path: &std::path::Path, attrs: u32) {
 /// component is `.` or `..` - is not a document. A canonicalize drops the
 /// trailing separator first, so `save_file("f/")` used to rewrite `f`. Same
 /// fixture in every runner.
-#[cfg_attr(
-	miri,
-	ignore = "saves to disk, and Miri has no fchown or directory fsync"
-)]
 #[test]
 fn save_refuses_a_directory_shaped_path() {
 	let _id = test_id("dc42j");
@@ -3185,10 +3177,7 @@ fn write_status_values_in_order() {
 /// `write_file_atomic`, a save, `write_backup` and `upgrade_file`. A full disk
 /// and a read-only filesystem can't be made here without root; the library's
 /// own test maps those. Same fixture in every runner.
-#[cfg_attr(
-	miri,
-	ignore = "saves to disk, and Miri has no fchown or directory fsync"
-)]
+#[cfg_attr(miri, ignore = "starts a process")]
 #[test]
 fn write_status_names_each_failure() {
 	let _id = test_id("ddqfr");
@@ -4101,10 +4090,6 @@ fn a_replaced_leaf_keeps_the_lines_kept_in_its_block() {
 	}
 }
 
-#[cfg_attr(
-	miri,
-	ignore = "saves to disk, and Miri has no fchown or directory fsync"
-)]
 #[test]
 fn lost_and_save_gate() {
 	let _id = test_id("dbcxe");
@@ -5490,8 +5475,8 @@ fn e003_quotes_the_index_as_written() {
 /// checks what an in-memory reload does not: a setter once took bytes the
 /// save wrote and the next load refused. Same fixture in every runner.
 #[cfg_attr(
-	miri,
-	ignore = "saves to disk, and Miri has no fchown or directory fsync"
+	all(miri, not(shcl_miri_all)),
+	ignore = "slow under Miri; --miri-all runs it"
 )]
 #[test]
 fn setters_write_only_what_reads_back() {
@@ -7001,10 +6986,6 @@ fn format_array_is_the_setters_text() {
 /// document never read, a parse's included, is refused the same way, and
 /// nothing at the path is written (2026102910482342, 2026110613470307,
 /// 2026110907535001).
-#[cfg_attr(
-	miri,
-	ignore = "saves to disk, and Miri has no fchown or directory fsync"
-)]
 #[test]
 fn a_save_over_a_file_changed_since_the_load_is_refused() {
 	let _id = test_id("dekj6");
@@ -7115,10 +7096,6 @@ fn a_save_over_a_file_changed_since_the_load_is_refused() {
 /// A create-only save refuses a file that's there, and only one of several
 /// saves at once makes it. A new file takes the mode asked for, whatever the
 /// umask, and one already there keeps its own (2026102910482343).
-#[cfg_attr(
-	miri,
-	ignore = "saves to disk, and Miri has no fchown or directory fsync"
-)]
 #[test]
 fn a_create_only_save_refuses_a_file_already_there() {
 	let _id = test_id("dekm5");
@@ -7255,7 +7232,6 @@ fn a_create_only_save_refuses_a_file_already_there() {
 /// of it is refused with nothing written, whatever the options, before any
 /// other check. The same reading as H006 decides, and a merge takes a newer
 /// layer's (2026102910482344).
-#[cfg_attr(miri, ignore = "saves to disk")]
 #[test]
 fn a_newer_format_document_saves_nowhere() {
 	let _id = test_id("dekvt");

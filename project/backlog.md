@@ -192,7 +192,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Under Miri, every Rust save stops on `sync_dir`'s folder fsync
 	- ID: 2026112517280964
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261125-172809
@@ -205,6 +205,15 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Origin: tukzmon 2026112510392174. The draft text and a patch (`miri-sync-dir.patch`) are in `private/claude_simple/upstream/tukzmon-2026112510392174/`. tukzmon has 33 tests ignored under Miri for this alone, and one that missed its ignore stopped a long Miri run hours in.
 	- Decisions:
 		- me, 20261125: Avg, since native saves are right, but it blocks Miri for every caller that saves.
+		- 20261126: the same wall sat behind it. Miri has no `fchown` either, so the 2 best-effort group copies in `write_file_atomic` and `write_backup` are gated on `not(miri)` too. Natively nothing changes. The set-id half of `file_tier_load_save` skips its own `chown` under Miri and takes the test's existing skip branch.
+	- Fixed: `sync_dir` and the 2 `fchown` calls skip under Miri. 9 tests lost their "saves to disk" ignore. 2 that start a process (`write_status_names_each_failure`, `a_changed_check_knows_its_file_by_any_spelling`) keep an ignore with that reason. `setters_write_only_what_reads_back` runs about 50 minutes under Miri, so it is ignored as slow and `--miri-all` runs it.
+	- Test case: the 9 tests unblocked, run under Miri: `file_tier_load_save`, `save_creates_the_file_behind_a_dangling_symlink`, `save_refuses_a_directory_shaped_path`, `lost_and_save_gate`, `a_save_over_a_file_changed_since_the_load_is_refused`, `a_create_only_save_refuses_a_file_already_there`, `a_newer_format_document_saves_nowhere`, `upgrade_file_backs_up_then_rewrites`, `write_backup_refuses_a_swapped_file_and_text`.
+	- Verified: `a_create_only_save_refuses_a_file_already_there` fails under Miri with the fsync error on the ungated `sync_dir`, and the 9 pass with the fix (`sanitize-rust.bash --miri --only=...`). Native `cargo test` and clippy pass.
+	- Swept: every `sync_dir` caller goes through the one function. `fchown` appears only at the 2 sites gated. The Miri ignores for "saves to disk" are all removed or re-reasoned.
+	- Note: the quick run's check-docs fails `dcv66` (man page date older than its last commit), which is not from this change.
+	- Acceptance signoff: Self-closed. The test fails before and passes after.
+	- Closed: 20261126-114800
+	- Closed reason: Done
 
 - `Document::merge` drops the base file's comments on every leaf the upper layer names
 	- ID: 2026111217560140

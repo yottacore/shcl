@@ -11598,6 +11598,8 @@ fn write_file_how(file: &str, data: &str, new_only: bool, mode: u32) -> Result<(
 			// old group keeps its own, which is what it had before this. The
 			// owner is not copied - see the file tier in spec.md.
 			use std::os::unix::fs::MetadataExt;
+			// Miri has no fchown and stops there
+			#[cfg(not(miri))]
 			let _ = std::os::unix::fs::fchown(&f, None, Some(m.gid()));
 			let _ = f.set_permissions(m.permissions());
 		}
@@ -11777,6 +11779,8 @@ pub fn write_backup(file: &str, text: &str, format: u32) -> Result<String, Upgra
 		#[cfg(unix)]
 		if let Ok(m) = std::fs::metadata(file) {
 			use std::os::unix::fs::MetadataExt;
+			// Miri has no fchown and stops there
+			#[cfg(not(miri))]
 			let _ = std::os::unix::fs::fchown(&f, None, Some(m.gid()));
 			let _ = f.set_permissions(m.permissions());
 		}
@@ -12727,11 +12731,12 @@ fn windows_replace_file(
 /// effort - windows has no directory fsync, and a filesystem that refuses one
 /// is not a reason to fail a write that already succeeded.
 fn sync_dir(dir: &std::path::Path) {
-	#[cfg(unix)]
+	// Miri can't fsync a folder, and stops there rather than returning an error
+	#[cfg(all(unix, not(miri)))]
 	if let Ok(d) = std::fs::File::open(dir) {
 		let _ = d.sync_all();
 	}
-	#[cfg(not(unix))]
+	#[cfg(any(not(unix), miri))]
 	let _ = dir;
 }
 
