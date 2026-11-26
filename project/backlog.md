@@ -35,6 +35,23 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- Writer: a way to ask for a list written one `- ` item per line
+	- ID: 2026112517314397
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Target version: v3.1.0
+	- Opened: 20261125-173143
+	- Opened by: nemo-anywhere 2026110911301888
+	- Version and build: `3.0.0-beta1`
+	- Problem description: a typed array setter writes a list it makes in brackets, however long it is. A list stays stacked only when the loaded file already had it that way, so a program can't ask for the stacked form. A long list it writes, such as folder paths, comes out as one long line. Smallest case: parse `state:` with one key under it, set `favorites` to 3 long strings, and the text has `favorites: ["...", "...", "..."]`.
+	- Requirements:
+		- A call such as `shcl_set_stacked(doc, path, plen, on)` sets how the list at a path is written, after any typed array setter. One call covers every array type.
+		- A later set keeps the layout, and off puts it back in brackets. A path with no list, or an empty one, changes nothing.
+		- All 4 bindings agree, a conformance row pins it, and the spec's writer section says so.
+	- Estimated effort: Avg
+	- Origin: nemo-anywhere 2026110911301888. The draft text and a patch for the C header (`set-stacked.patch`, against `v3.0.0-beta1`) are in `private/claude_simple/upstream/nemo-anywhere-2026110911301888/`. nemo-anywhere works around it today by giving each long list a stacked stand-in in the saved text, setting the real items over it, and keeping the result only when every key reads the same.
+
 - Hosted tests: check-push-gate df2ss fails on every hosted runner, since the scope check skips under GITHUB_ACTIONS
 	- ID: 2026112514344606
 	- Type: Bug
