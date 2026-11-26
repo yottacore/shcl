@@ -64,6 +64,27 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Done for a release when 2 whole-tree reviews in a row file no new Critical or High, the 2M release fuzz is clean, and the merge gate and hosted run are green.
 		- Run it after the other beta.2 items close, so it reviews the code that goes out.
 
+- `upgrade` without `--from` says `--from` rewrites a comma cut inside a pair, and no cut-pair message says how to fix it
+	- ID: 2026112516450897
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261125-164508
+	- Opened by:
+	- Related IDs: 2026111016205702, 2026111016205703
+	- Version and build: dev at `188f58bd`
+	- Problem description: On a file of `a: x` and `k: sma(close, 10)`, `shcl upgrade` says "1 value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for, or have a comma inside a backtick, paren or bracket pair; nothing written (--from=FORMAT rewrites them)", exit 7. `shcl upgrade --from=2.0` on the same file then refuses at exit 7 too, so the hint sends the user in a loop. The `--from` message, "which 2.x split there and nobody means", doesn't say what to do either. Neither message names braces, which count too.
+	- Requirements:
+		- Without `--from`, the hint promises a rewrite only for the values `--from` would rewrite, and names the cut-pair ones apart.
+		- Every cut-pair message says the way out: quote the value, or split it by hand, then run again.
+		- The CLI messages and the library's `Ambiguous` text name braces with the other pairs.
+		- The 4 CLIs stay byte-identical, with cli-regress rows for both cases.
+		- Line numbers stay with 2026111016205703.
+	- Decisions:
+		- me, 20261125: Avg, since the refusal itself is right and the file is safe. It targets beta.2 because these messages are new there, and changing them after the release would break any script that matches the text.
+		- me, 20261125: the CLI gets the cut-pair count by running the upgrade again in memory with `from`, which writes nothing, so no binding's result grows a field.
+
 - `Document::merge` drops the base file's comments on every leaf the upper layer names
 	- ID: 2026111217560140
 	- Type: Enhancement
@@ -747,7 +768,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261123, in an ubuntu:26.04 container with gcc-mingw-w64-x86-64 (gcc 13-win32, mingw-w64 13.0.0). The cross check gives 92 format errors on the round branch.
 	- Actual cause: gcc 13, and maybe later ones, adds its builtin printf check, which is ms_printf on mingw, to printf, fprintf and snprintf, even where the header declares them with gnu_printf (gcc PR 95130). mingw-w64 13 declares them as plain aliases of `__mingw_printf` and the rest, so the builtin check now applies. Under `-std=c11` with msvcrt, mingw-w64 turns on `__USE_MINGW_ANSI_STDIO`, so the calls go to mingw's own printf, which handles `%zu`. The build fails, but the program prints size_t right.
 	- Actual fix: the mingw cross check turns off the printf-family builtins (`-fno-builtin-printf` and its 7 siblings, in `MINGW_PRINTF_BUILTINS_OFF` in `cicd/config.bash`). The header's own gnu_printf check still runs. shcl.h and the C CLI are unchanged.
-	- Test case: the cross check itself. It passes in the ubuntu:26.04 container and in the project container, and still fails on a planted `%d` for a size_t in the CLI.
+	- Test case: None by ID, since the cross checks print no test ID. It's the "C library + CLI for Windows x86_64 (mingw)" row of `CROSS_CHECKS` in `cicd/config.bash`. It passes in the ubuntu:26.04 container and in the project container, and still fails on a planted `%d` for a size_t in the CLI.
 	- Branch: `nov23-2026112307465433`
 	- Decisions: fix it in the cross check's flags rather than in shcl.h and the C CLI. The code is right: on mingw-w64 the calls print `%zu` correctly under msvcrt (mingw's own printf) and under UCRT. The failure is a false compiler warning, which a user meets only with `-Werror` on this toolchain. Rewriting about 40 format strings, or a mingw-only pragma in shcl.h, would hide a compiler bug in the library and cost the 37-minute cppcheck run. Turning off only the printf builtins keeps format checking on, against the header's gnu_printf declarations (me).
 	- Swept: `x86_64-w64-mingw32-gcc` appears only in this cross check (and install-dev's tool check). The hosted windows job builds the C runners with the image's own gcc under `-Werror` in win-runners.bash, and passed in run 45068690472, so it is unchanged. It would need the same flags if that image moves to mingw-w64 13 with an affected gcc.
@@ -840,6 +861,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- me, 20261125: with `from`, a cut pair makes `migrate` and `migrate_unstamped` hand back the whole file as written, not only its line. Its other lines rewritten without a stamp would be rewritten again on the next run, which the corpus fixpoint check caught on case 195. A load that converts in memory writes nothing, so it converts the rest and keeps that line as typed.
 		- me, 20261125: the count goes in `ambiguous`, as asked, with no new field. With `--from`, the CLIs say "value(s) have a comma inside a backtick, paren or bracket pair, which 2.x split there and nobody means", since the usual message's "the file doesn't say which it was written for" and "--from rewrites them" aren't true then. Without it, the usual message and the library's `Ambiguous` error add "or have a comma inside a backtick, paren or bracket pair".
 		- me, 20261125: without `from`, a file that loads clean now, such as a lone backtick value, is still `current` and left alone, as a good file is.
+		- me, 20261125: the 4 calls above stand as built, checked against the objectives on the questions.md Check entry. The CLI messages' follow-up is 2026112516450897.
 	- Actual fix: `v2_split_cuts_pair` and its twins (`v2SplitCutsPair` in Go, `_v2_split_cuts_pair` in Python) count such a list in `ambiguous` before the split, in all 4. Told the file is 2.x, `migrate_text` then hands back the input. `upgrade` no longer takes a clean file migrate left alone as current when something was left for a look. Docs: value-syntax.md's Migration section, the man page, examples.md and the changelog.
 	- Swept: every 2.x comma split in the line rewrite, in all 4: the field value branch is the only one that splits. A `*` item with a comma is refused, and a selector or `name:[disc]` body with one is counted lost. The `clean && unchanged` early return in `upgrade` in all 4. The ambiguous messages in all 4 CLIs and libraries.
 	- Verified: the 4 new tests fail with the check disabled and pass with it. The 4 conformance suites, cli-regress over the 4 CLIs and crosscheck over the corpus pass.
