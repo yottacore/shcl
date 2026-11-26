@@ -8,6 +8,7 @@
 
 import ast
 import collections
+import contextlib
 import errno
 import gc
 import math
@@ -7922,11 +7923,9 @@ def main():
 		("unchanged", skd.to_canonical() == skbefore),
 		("wildcard", skd.set_stacked("state(*)", True) == sk.Wildcard),
 	]
-	try:
+	with contextlib.suppress(TypeError):
 		skd.set_stacked("state.favorites", 1)
 		sksteps.append(("non-bool on", False))
-	except TypeError:
-		pass
 	# A list after an empty binding of its name stays in brackets.
 	ske = shcl.Document.parse("a:\na: [1, 2]\nb: [3, 4]\nb:\n")
 	sksteps += [("a(1)", ske.set_stacked("a(1)", True) == sk.Ok), ("b(0)", ske.set_stacked("b(0)", True) == sk.Ok)]
