@@ -10464,6 +10464,36 @@ class Document:
 			return self._refuse(path, SetStatus.BadDateTime)
 		return self._set_value(path, _array_cell([str(x) for x in v]))
 
+	def set_stacked(self, path: str, on: bool) -> SetStatus:
+		"""How the list at a path is written: with on, one "- " item per line,
+		and without it in brackets. It lasts through later array setters on
+		that field until one writes an empty list, and a merge puts every list
+		in brackets. A path with no list, an empty one, or a list with fields
+		under it is Ok and changes nothing, and so is on for a list after an
+		empty binding of its name, since a stacked header there would join that
+		binding on a reload. A non-bool on is a TypeError."""
+		_want("set_stacked", on, "bool")
+		why = self.check_set_path(path)
+		if why != SetStatus.Ok:
+			return why
+		idx = self._write_target(path)
+		if idx is None:
+			return SetStatus.Ok
+		nd = self.arena[idx]
+		if nd.value.kind != "array" or not nd.value.els or nd.children or _stacks(nd) == on:
+			return SetStatus.Ok
+		if on:
+			nd.star_list = True
+			nd.src = None
+			# The next merge has a stacked list to put in brackets.
+			self._bracketed = False
+			self._settle_fence_name(nd.parent, nd.name)
+		elif _unstack(nd):
+			self._refile(idx)
+		_settle_first_blank(self.arena, self.orphans)
+		self._resettle_kept()
+		return SetStatus.Ok
+
 	# Default forms - the "emit defaults" half of the Writer. Each one makes
 	# sure the field has a usable value of its type: it writes where the path
 	# is missing, where the field is empty, and where its value does not read

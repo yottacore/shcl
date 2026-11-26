@@ -15277,6 +15277,40 @@ func (d *Document) SetDateTimeArray(path string, v []DateTime) SetStatus {
 	return d.setValue(path, arrayCell(texts))
 }
 
+// SetStacked sets how the list at path is written: with on, one "- " item
+// per line, and without it in brackets. It lasts through later array setters
+// on that field until one writes an empty list, and a merge puts every list
+// in brackets. A path with no list, an empty one, or a list with fields under
+// it is Ok and changes nothing, and so is on for a list after an empty binding
+// of its name, since a stacked header there would join that binding on a
+// reload.
+func (d *Document) SetStacked(path string, on bool) SetStatus {
+	d.ready()
+	if why := d.CheckSetPath(path); why != SetOk {
+		return why
+	}
+	idx, ok := d.writeTarget(path)
+	if !ok {
+		return SetOk
+	}
+	nd := &d.arena[idx]
+	if nd.value.kind != vArray || len(nd.value.els) == 0 || len(nd.children) != 0 || stacks(nd) == on {
+		return SetOk
+	}
+	if on {
+		nd.starList = true
+		nd.src = nil
+		// The next merge has a stacked list to put in brackets.
+		d.bracketed = false
+		d.settleFenceName(nd.parent, nd.name)
+	} else if unstack(nd) {
+		d.refile(idx)
+	}
+	settleFirstBlank(d.arena, &d.orphans)
+	d.resettleKept()
+	return SetOk
+}
+
 // Default forms - the "emit defaults" half of the Writer. Each one makes sure
 // the field has a usable value of its type: it writes where the path is
 // missing, where the field is empty, and where its value does not read as

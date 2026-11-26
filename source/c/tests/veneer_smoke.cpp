@@ -1370,6 +1370,9 @@ int main() {
 		CHECK(w.set_float_array("fs", {1.5, 2}) == S::Ok && w.read_float_array("fs").value == std::vector<double>({1.5, 2}));
 		CHECK(w.set_bool_array("flags", {true, false, true}) == S::Ok && w.read_bool_array("flags").value == std::vector<bool>({true, false, true}));
 		CHECK(w.set_string_array("tags", {"red", "a,b", ""}) == S::Ok && w.read_string_array("tags").value == std::vector<std::string>({"red", "a,b", ""}));
+		CHECK(w.set_stacked("tags", true) == S::Ok && w.to_canonical().find("tags:\n\t- red\n") != std::string::npos && w.read_string_array("tags").value == std::vector<std::string>({"red", "a,b", ""}));
+		CHECK(w.set_stacked("tags", false) == S::Ok && w.to_canonical().find("tags: [red, ") != std::string::npos);
+		CHECK(w.set_stacked("tags(*)", true) == S::Wildcard);
 		CHECK(w.set_literal("lit", "[80, 443] # two") == S::NotOneValue && !w.exists("lit"));
 		CHECK(w.set_literal("lit", "x#y") == S::NotOneValue && !w.exists("lit"));
 		CHECK(w.set_literal("lit", "[80, 443]") == S::Ok && w.read_int_array("lit").value == std::vector<int64_t>({80, 443}));

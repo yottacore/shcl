@@ -1175,6 +1175,13 @@ shcl_set_status shcl_set_float_array(shcl_doc *d, const char *path, size_t plen,
 shcl_set_status shcl_set_bool_array(shcl_doc *d, const char *path, size_t plen, const int *v, size_t n);
 shcl_set_status shcl_set_string_array(shcl_doc *d, const char *path, size_t plen, const char *const *v, const size_t *lens, size_t n);
 shcl_set_status shcl_set_datetime_array(shcl_doc *d, const char *path, size_t plen, const shcl_datetime *v, size_t n);
+// How the list at a path is written: on 1, one `- ` item per line, and on 0 in
+// brackets. It lasts through later array setters on that field until one
+// writes an empty list, and a merge puts every list in brackets. A path with
+// no list, an empty one, or a list with fields under it is SHCL_SET_OK and
+// changes nothing, and so is on 1 for a list after an empty binding of its
+// name, since a stacked header there would join that binding on a reload.
+shcl_set_status shcl_set_stacked(shcl_doc *d, const char *path, size_t plen, int on);
 
 // Binds text as value syntax rather than as data: "[80, 443]" becomes a
 // two-element array where shcl_set_string would store one string that has to be
@@ -10825,6 +10832,28 @@ shcl_set_status shcl_set_datetime_array(shcl_doc *d, const char *path, size_t pl
 	ShclArena *a = &d->arena; ShclMark m = arena_mark(a); ShclStr *t = (ShclStr *)arena_alloc(a, (n ? n : 1) * sizeof(ShclStr));
 	for (size_t i = 0; i < n; i++) t[i] = w_dt_text(a, &v[i]);
 	return w_set_marked(d, p, w_array(a, t, n), m);
+}
+shcl_set_status shcl_set_stacked(shcl_doc *d, const char *path, size_t plen, int on) {
+	ShclStr p; p.p = path; p.n = plen;
+	arena_reset(&d->scratch);
+	shcl_set_status why = w_check_set_path(d, &d->scratch, p);
+	size_t idx;
+	int found = why == SHCL_SET_OK && w_write_target(d, p, &idx);
+	arena_reset(&d->scratch);
+	if (!found) return why;
+	ShclNode *nd = &NODE(d, idx);
+	on = on != 0;
+	if (nd->value.kind != V_ARRAY || !nd->value.nels || nd->children.len || (stacks(nd) != 0) == on) return SHCL_SET_OK;
+	if (on) {
+		nd->star_list = 1;
+		nd->src = s_empty();
+		/* The next merge has a stacked list to put in brackets. */
+		d->bracketed = 0;
+		w_settle_fence_name(d, nd->parent, nd->name);
+	} else if (unstack(d, nd)) refile(d, idx);
+	settle_first_blank(d);
+	resettle_kept(d);
+	return SHCL_SET_OK;
 }
 
 /* Default forms - the "emit defaults" half of the Writer. Each one makes sure

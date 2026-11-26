@@ -9834,3 +9834,62 @@ func TestAMergeKeepsOneFormatLine(t *testing.T) {
 		}
 	}
 }
+
+// A list SetStacked marks is written one "- " item per line, later array
+// setters keep it, and off, an empty list, a merge and an empty binding of its
+// name put it in brackets. A path with no list changes nothing. Same fixture
+// in every runner.
+func TestSetStackedWritesTheListStacked(t *testing.T) {
+	defer testID(t, "dftx8")
+	expect := func(what string, ok bool) {
+		t.Helper()
+		if !ok {
+			t.Error(what)
+		}
+	}
+	d := Parse("state:\n\tfirst-run-done: true\n")
+	favs := []string{"/home/me/a long folder", "C:\\dir, with a comma", "x # not a comment", "[brackets]"}
+	expect("set favorites", d.SetStringArray("state.favorites", favs) == SetOk)
+	expect("stack favorites", d.SetStacked("state.favorites", true) == SetOk)
+	text := d.ToCanonical()
+	expect("stacked text: "+text, text == withStamp("state:\n\tfirst-run-done: true\n\tfavorites:\n\t\t- \"/home/me/a long folder\"\n\t\t- \"C:\\dir, with a comma\"\n\t\t- \"x # not a comment\"\n\t\t- \"[brackets]\"\n"))
+	back := Parse(text)
+	expect("read back", reflect.DeepEqual(back.ReadStringArray("state.favorites").Value, favs))
+	expect("fixpoint", back.ToCanonical() == text)
+	// A later set keeps it stacked, one element and another type too.
+	expect("set 80", d.SetIntArray("state.favorites", []int64{80}) == SetOk)
+	expect("still stacked", strings.Contains(d.ToCanonical(), "\tfavorites:\n\t\t- 80\n"))
+	expect("off", d.SetStacked("state.favorites", false) == SetOk)
+	expect("bracketed", strings.Contains(d.ToCanonical(), "\tfavorites: [80]\n"))
+	// An empty list writes as [] either way, and the next set is in brackets.
+	expect("on again", d.SetStacked("state.favorites", true) == SetOk)
+	expect("set empty", d.SetIntArray("state.favorites", []int64{}) == SetOk)
+	expect("on empty", d.SetStacked("state.favorites", true) == SetOk)
+	expect("set 1 2", d.SetIntArray("state.favorites", []int64{1, 2}) == SetOk)
+	expect("bracketed after empty", strings.Contains(d.ToCanonical(), "\tfavorites: [1, 2]\n"))
+	// No list there: Ok, and nothing changes. A wildcard is refused.
+	before := d.ToCanonical()
+	expect("scalar", d.SetStacked("state.first-run-done", true) == SetOk)
+	expect("missing", d.SetStacked("nope", true) == SetOk)
+	expect("not made", !d.Exists("nope"))
+	expect("unchanged", d.ToCanonical() == before)
+	expect("wildcard", d.SetStacked("state(*)", true) == SetWildcard)
+	// A list after an empty binding of its name stays in brackets.
+	e := Parse("a:\na: [1, 2]\nb: [3, 4]\nb:\n")
+	expect("a(1)", e.SetStacked("a(1)", true) == SetOk)
+	expect("b(0)", e.SetStacked("b(0)", true) == SetOk)
+	text = e.ToCanonical()
+	expect("empty binding text: "+text, text == withStamp("a:\na: [1, 2]\nb:\n\t- 3\n\t- 4\nb:\n"))
+	expect("empty binding fixpoint", Parse(text).ToCanonical() == text)
+	// A merge puts it back in brackets, after an earlier merge too.
+	m := Parse("k: [1, 2]\n")
+	m.Merge(Parse("j: 1\n"))
+	expect("stack merged", m.SetStacked("k", true) == SetOk)
+	expect("merged stacked", strings.HasPrefix(m.ToCanonical(), "k:\n\t- 1\n\t- 2\n"))
+	m.Merge(Parse("j: 2\n"))
+	expect("merge brackets", strings.HasPrefix(m.ToCanonical(), "k: [1, 2]\n"))
+	// Off for a list the file stacked: the comment among its items goes above.
+	s := Parse("k:\n\t- 1\n\t# note\n\t- 2\n")
+	expect("off loaded", s.SetStacked("k", false) == SetOk)
+	expect("off loaded text", s.ToCanonical() == withStamp("# note\nk: [1, 2]\n"))
+}

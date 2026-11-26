@@ -7883,6 +7883,70 @@ def main():
 		if fagot != fawant:
 			raise SystemExit(f"typed array setter wrote {fagot!r}, want {fawant!r}")
 
+	test_id("dftx9", "set_stacked_writes_the_list_stacked")
+	# set_stacked writes a list one `- ` item per line, later array setters
+	# keep it, and off, an empty list, a merge and an empty binding of its
+	# name put it in brackets. A path with no list changes nothing. Same
+	# fixture in every runner, plus a non-bool, which only Python can pass.
+	sk = shcl.SetStatus
+	skd = shcl.Document.parse("state:\n\tfirst-run-done: true\n")
+	skfavs = ["/home/me/a long folder", "C:\\dir, with a comma", "x # not a comment", "[brackets]"]
+	sksteps = [
+		("set favorites", skd.set_string_array("state.favorites", skfavs) == sk.Ok),
+		("stack favorites", skd.set_stacked("state.favorites", True) == sk.Ok),
+	]
+	sktext = skd.to_canonical()
+	skback = shcl.Document.parse(sktext)
+	sksteps += [
+		("stacked text", sktext == with_stamp("state:\n\tfirst-run-done: true\n\tfavorites:\n\t\t- \"/home/me/a long folder\"\n\t\t- \"C:\\dir, with a comma\"\n\t\t- \"x # not a comment\"\n\t\t- \"[brackets]\"\n")),
+		("read back", skback.read_string_array("state.favorites").value == skfavs),
+		("fixpoint", skback.to_canonical() == sktext),
+		# A later set keeps it stacked, one element and another type too.
+		("set 80", skd.set_int_array("state.favorites", [80]) == sk.Ok),
+		("still stacked", "\tfavorites:\n\t\t- 80\n" in skd.to_canonical()),
+		("off", skd.set_stacked("state.favorites", False) == sk.Ok),
+		("bracketed", "\tfavorites: [80]\n" in skd.to_canonical()),
+		# An empty list writes as [] either way, and the next set is in brackets.
+		("on again", skd.set_stacked("state.favorites", True) == sk.Ok),
+		("set empty", skd.set_int_array("state.favorites", []) == sk.Ok),
+		("on empty", skd.set_stacked("state.favorites", True) == sk.Ok),
+		("set 1 2", skd.set_int_array("state.favorites", [1, 2]) == sk.Ok),
+		("bracketed after empty", "\tfavorites: [1, 2]\n" in skd.to_canonical()),
+	]
+	# No list there: Ok, and nothing changes. A wildcard is refused.
+	skbefore = skd.to_canonical()
+	sksteps += [
+		("scalar", skd.set_stacked("state.first-run-done", True) == sk.Ok),
+		("missing", skd.set_stacked("nope", True) == sk.Ok),
+		("not made", not skd.exists("nope")),
+		("unchanged", skd.to_canonical() == skbefore),
+		("wildcard", skd.set_stacked("state(*)", True) == sk.Wildcard),
+	]
+	try:
+		skd.set_stacked("state.favorites", 1)
+		sksteps.append(("non-bool on", False))
+	except TypeError:
+		pass
+	# A list after an empty binding of its name stays in brackets.
+	ske = shcl.Document.parse("a:\na: [1, 2]\nb: [3, 4]\nb:\n")
+	sksteps += [("a(1)", ske.set_stacked("a(1)", True) == sk.Ok), ("b(0)", ske.set_stacked("b(0)", True) == sk.Ok)]
+	sktext = ske.to_canonical()
+	sksteps += [
+		("empty binding text", sktext == with_stamp("a:\na: [1, 2]\nb:\n\t- 3\n\t- 4\nb:\n")),
+		("empty binding fixpoint", shcl.Document.parse(sktext).to_canonical() == sktext),
+	]
+	# A merge puts it back in brackets, after an earlier merge too.
+	skm = shcl.Document.parse("k: [1, 2]\n")
+	skm.merge(shcl.Document.parse("j: 1\n"))
+	sksteps += [("stack merged", skm.set_stacked("k", True) == sk.Ok), ("merged stacked", skm.to_canonical().startswith("k:\n\t- 1\n\t- 2\n"))]
+	skm.merge(shcl.Document.parse("j: 2\n"))
+	sksteps.append(("merge brackets", skm.to_canonical().startswith("k: [1, 2]\n")))
+	# Off for a list the file stacked: the comment among its items goes above.
+	sks = shcl.Document.parse("k:\n\t- 1\n\t# note\n\t- 2\n")
+	sksteps += [("off loaded", sks.set_stacked("k", False) == sk.Ok), ("off loaded text", sks.to_canonical() == with_stamp("# note\nk: [1, 2]\n"))]
+	skbad = [what for what, ok in sksteps if not ok]
+	if skbad:
+		raise SystemExit(f"set_stacked: {skbad}")
 	test_id("dfe64", "a_save_names_this_format")
 	# Every text a save writes names this format: a stamp is rewritten where
 	# it is, with its own head, and a text with none gets one as its last

@@ -86,7 +86,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Writer: a way to ask for a list written one `- ` item per line
 	- ID: 2026112517314397
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Closed
 	- Priority: Low
 	- Target version: v3.1.0
 	- Opened: 20261125-173143
@@ -98,6 +98,19 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A later set keeps the layout, and off puts it back in brackets. A path with no list, or an empty one, changes nothing.
 		- All 4 bindings agree, a conformance row pins it, and the spec's writer section says so.
 	- Estimated effort: Avg
+	- Decisions:
+		- 20261126: `set_stacked(path, on)` in all 4 and C++ (Go `SetStacked`, C `shcl_set_stacked`), as the item names it (me). A path with no list, an empty list, or a list with fields under it is `Ok` and changes nothing, as the item asks, and so is on for a list after an empty binding of its name, which stays in brackets through the same settle a setter uses. A path a setter refuses gets the setter's status, such as `Wildcard`.
+		- 20261126: each item keeps the quotes its array setter gave it, so a path with a blank comes out `- "/home/me/a long folder"` (me). Quotes for the stacked form would change what Loose reads for `"1,200"`. It's the text nemo-anywhere's stand-in gives today. questions.md has a `Check:` entry for it.
+		- 20261126: no CLI flag. The item asks for the library call.
+	- Actual fix: `set_stacked` marks the list stacked, or puts it back in brackets with the lines among its items above it, as a setter does. On also lets the next merge bracket it again. spec.md's Writer and Arrays, and the changelog's New, say so.
+	- Swept: each binding has the call beside its typed array setters, built on the same `stacks`, `unstack`, settle and kept-line steps as `set_value` (`grep -n 'star_list = stacked\|starList = stacked'`). `check-veneer.bash` counts the C call made by `shcl.hpp`. A method needs no `__all__` entry, and Go's calls `ready()` first.
+	- Verified: the 4 runners' new test passes, and fails in Rust without the empty-binding settle and in Python without the merge reset. The quick run over rust, go, python and c, the veneer smoke, check-veneer, check-docs and markdownlint passed too.
+	- Test case: `set_stacked_writes_the_list_stacked` in all 4 runners: Rust `dftx7`, Go `dftx8`, Python `dftx9`, C `dftxa`. C++ is in the veneer smoke `d9v59`.
+	- Branch: `nov26-2026112517314397`
+	- Commit: `2b8a40da`
+	- Acceptance signoff: Self-closed: built as the item asks, and the new runner tests fail without the fix and pass with it. The quoting call is in questions.md as a `Check:` entry.
+	- Closed: 20261126-110500
+	- Closed reason: Done
 	- Origin: nemo-anywhere 2026110911301888. The draft text and a patch for the C header (`set-stacked.patch`, against `v3.0.0-beta1`) are in `private/claude_simple/upstream/nemo-anywhere-2026110911301888/`. nemo-anywhere works around it today by giving each long list a stacked stand-in in the saved text, setting the real items over it, and keeping the result only when every key reads the same.
 
 - Hosted tests: check-push-gate df2ss fails on every hosted runner, since the scope check skips under GITHUB_ACTIONS
@@ -210,7 +223,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Allow callers to request the multiline list form for arrays
 	- ID: 2026110911441449
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Closed
 	- Priority: Avg
 	- Target version: v3.1.0
 	- Opened: 20261109-114414
@@ -220,6 +233,10 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Allow callers to request the multiline list form for arrays.
 	- Note: 20261110, nemo-anywhere asked for it too.
 	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
+	- Test case: see 2026112517314397 (`dftx7`).
+	- Superseded by ID: 2026112517314397
+	- Closed: 20261126-110500
+	- Closed reason: Duplicate
 
 - `Migration` and `Upgrade` give counts with no line numbers
 	- ID: 2026111016205703

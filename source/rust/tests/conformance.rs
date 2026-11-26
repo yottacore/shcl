@@ -8614,3 +8614,68 @@ fn a_merge_keeps_one_format_line() {
 		assert_eq!(doc.to_canonical(), want, "{base:?} under {layer:?}");
 	}
 }
+
+/// set_stacked writes a list one `- ` item per line, later array setters keep
+/// it, and off, an empty list, a merge and an empty binding of its name put it
+/// in brackets. A path with no list changes nothing. Same fixture in every
+/// runner.
+#[test]
+fn set_stacked_writes_the_list_stacked() {
+	let _id = test_id("dftx7");
+	use shcl::SetStatus;
+	let mut d = Document::parse("state:\n\tfirst-run-done: true\n");
+	let favs = [
+		"/home/me/a long folder",
+		"C:\\dir, with a comma",
+		"x # not a comment",
+		"[brackets]",
+	];
+	assert_eq!(d.set_string_array("state.favorites", &favs), SetStatus::Ok);
+	assert_eq!(d.set_stacked("state.favorites", true), SetStatus::Ok);
+	let t = d.to_canonical();
+	assert_eq!(
+		t,
+		with_stamp(
+			"state:\n\tfirst-run-done: true\n\tfavorites:\n\t\t- \"/home/me/a long folder\"\n\t\t- \"C:\\dir, with a comma\"\n\t\t- \"x # not a comment\"\n\t\t- \"[brackets]\"\n"
+		)
+	);
+	let back = Document::parse(&t);
+	assert_eq!(back.read_string_array("state.favorites").value, favs);
+	assert_eq!(back.to_canonical(), t);
+	// A later set keeps it stacked, one element and another type too.
+	assert_eq!(d.set_int_array("state.favorites", &[80]), SetStatus::Ok);
+	assert!(d.to_canonical().contains("\tfavorites:\n\t\t- 80\n"));
+	assert_eq!(d.set_stacked("state.favorites", false), SetStatus::Ok);
+	assert!(d.to_canonical().contains("\tfavorites: [80]\n"));
+	// An empty list writes as [] either way, and the next set is in brackets.
+	assert_eq!(d.set_stacked("state.favorites", true), SetStatus::Ok);
+	assert_eq!(d.set_int_array("state.favorites", &[]), SetStatus::Ok);
+	assert_eq!(d.set_stacked("state.favorites", true), SetStatus::Ok);
+	assert_eq!(d.set_int_array("state.favorites", &[1, 2]), SetStatus::Ok);
+	assert!(d.to_canonical().contains("\tfavorites: [1, 2]\n"));
+	// No list there: Ok, and nothing changes. A wildcard is refused.
+	let before = d.to_canonical();
+	assert_eq!(d.set_stacked("state.first-run-done", true), SetStatus::Ok);
+	assert_eq!(d.set_stacked("nope", true), SetStatus::Ok);
+	assert!(!d.exists("nope"));
+	assert_eq!(d.to_canonical(), before);
+	assert_eq!(d.set_stacked("state(*)", true), SetStatus::Wildcard);
+	// A list after an empty binding of its name stays in brackets.
+	let mut e = Document::parse("a:\na: [1, 2]\nb: [3, 4]\nb:\n");
+	assert_eq!(e.set_stacked("a(1)", true), SetStatus::Ok);
+	assert_eq!(e.set_stacked("b(0)", true), SetStatus::Ok);
+	let t = e.to_canonical();
+	assert_eq!(t, with_stamp("a:\na: [1, 2]\nb:\n\t- 3\n\t- 4\nb:\n"));
+	assert_eq!(Document::parse(&t).to_canonical(), t);
+	// A merge puts it back in brackets, after an earlier merge too.
+	let mut m = Document::parse("k: [1, 2]\n");
+	m.merge(&Document::parse("j: 1\n"));
+	assert_eq!(m.set_stacked("k", true), SetStatus::Ok);
+	assert!(m.to_canonical().starts_with("k:\n\t- 1\n\t- 2\n"));
+	m.merge(&Document::parse("j: 2\n"));
+	assert!(m.to_canonical().starts_with("k: [1, 2]\n"));
+	// Off for a list the file stacked: the comment among its items goes above.
+	let mut s = Document::parse("k:\n\t- 1\n\t# note\n\t- 2\n");
+	assert_eq!(s.set_stacked("k", false), SetStatus::Ok);
+	assert_eq!(s.to_canonical(), with_stamp("# note\nk: [1, 2]\n"));
+}

@@ -15250,6 +15250,43 @@ impl Document {
 		self.set_value(path, array_cell(v.iter().map(|x| x.to_string()).collect()))
 	}
 
+	/// How the list at a path is written: with `on`, one `- ` item per line,
+	/// and without it in brackets. It lasts through later array setters on
+	/// that field until one writes an empty list, and a merge puts every list
+	/// in brackets. A path with no list, an empty one, or a list with fields
+	/// under it is Ok and changes nothing, and so is `on` for a list after an
+	/// empty binding of its name, since a stacked header there would join that
+	/// binding on a reload.
+	pub fn set_stacked(&mut self, path: &str, on: bool) -> SetStatus {
+		let why = self.check_set_path(path);
+		if why != SetStatus::Ok {
+			return why;
+		}
+		let Some(node) = self.write_target(path) else {
+			return SetStatus::Ok;
+		};
+		let nd = &self.arena[node];
+		if !matches!(&nd.value, Value::Array(els) if !els.is_empty())
+			|| !nd.children.is_empty()
+			|| stacks(nd) == on
+		{
+			return SetStatus::Ok;
+		}
+		if on {
+			let (parent, name) = (nd.parent, nd.name.clone());
+			self.arena[node].star_list = true;
+			self.arena[node].src = None;
+			// The next merge has a stacked list to put in brackets.
+			self.bracketed = false;
+			self.settle_fence_name(parent, &name);
+		} else if unstack(&mut self.arena[node]) {
+			self.refile(node);
+		}
+		settle_first_blank(&mut self.arena, &mut self.orphans);
+		self.resettle_kept();
+		SetStatus::Ok
+	}
+
 	// Default forms - the "emit defaults" half of the Writer. Each one makes
 	// sure the field has a usable value of its type: it writes where the path
 	// is missing, where the field is empty, and where its value does not read

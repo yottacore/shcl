@@ -58,6 +58,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### New
 
+- `set_stacked(path, on)` (each binding's spelling) writes the list at a path one `- ` item per line, or in brackets again with on false. Later array setters on the field keep the form. Before, only a list the file already had stacked was written that way.
+
 - Hint `H010`: a file line whose bare number in a selector picks an instance by position, such as `node(2)`, where another instance of that name has that number as its value, gets a hint naming the quoted spelling, `("2")`, that picks it by value. The line binds as before.
 
 - A schema `field` takes a `meta` key for a program's own data, with any value and any lines under it. Validation and `init` read none of it. Any other unknown key is still `V090`, and its message now says a program's own keys go under `meta`.

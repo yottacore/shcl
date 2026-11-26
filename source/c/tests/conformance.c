@@ -216,6 +216,29 @@ static void fa_check(const char *const *av, const size_t *al, size_t an) {
 	if (!same) fa_fail("texts did not read back", last, lastn);
 	shcl_free(b); free(line); free(v); shcl_free(d);
 }
+/* set_stacked's fixture: the canonical text is want plus the stamp (exact),
+   or has want in it, or starts with it. */
+static int sk_canon(shcl_doc *d, const char *want, int how) {
+	shcl_str c = shcl_to_canonical(d);
+	size_t wn = strlen(want);
+	if (how == 0) return c.n == wn + sizeof SHCL_STAMP_LINE && !memcmp(c.p, want, wn) && !memcmp(c.p + wn, SHCL_STAMP_LINE "\n", sizeof SHCL_STAMP_LINE);
+	if (how == 2) return c.n >= wn && !memcmp(c.p, want, wn);
+	for (size_t i = 0; i + wn <= c.n; i++) if (!memcmp(c.p + i, want, wn)) return 1;
+	return 0;
+}
+/* The canonical text, reloaded, gives the same canonical text. */
+static int sk_fixpoint(shcl_doc *d) {
+	shcl_str c = shcl_to_canonical(d);
+	char *t = (char *)malloc(c.n ? c.n : 1);
+	if (!t) return 0;
+	memcpy(t, c.p, c.n);
+	size_t tn = c.n;
+	shcl_doc *b = shcl_parse(t, tn);
+	shcl_str bc = shcl_to_canonical(b);
+	int same = bc.n == tn && !memcmp(bc.p, t, tn);
+	shcl_free(b); free(t);
+	return same;
+}
 /* The typed array setter's canonical text equals `k: ` plus
    shcl_format_array of its values' texts. */
 static void fa_typed(shcl_doc *d, const char *const *texts, size_t n, const char *what) {
@@ -8005,6 +8028,73 @@ int main(int argc, char **argv) {
 		char *dv = shcl_format_array(dtt, &dbn, 1, NULL);
 		if (!dv || strcmp(dv, "[\"2026-07-12T14:30\"]")) fail("format_array", "datetime quoted");
 		free(dv);
+	}
+	test_id("dftxa", "set_stacked_writes_the_list_stacked");
+	/* shcl_set_stacked writes a list one `- ` item per line, later array
+	   setters keep it, and off, an empty list, a merge and an empty binding
+	   of its name put it in brackets. A path with no list changes nothing.
+	   Same fixture in every runner. */
+	{
+#define SK(what, ok) do { if (!(ok)) fail("set_stacked", what); } while (0)
+		static const char st[] = "state:\n\tfirst-run-done: true\n";
+		shcl_doc *d = shcl_parse(st, sizeof st - 1);
+		const char *favs[] = { "/home/me/a long folder", "C:\\dir, with a comma", "x # not a comment", "[brackets]" };
+		size_t flens[4];
+		for (size_t i = 0; i < 4; i++) flens[i] = strlen(favs[i]);
+		SK("set favorites", shcl_set_string_array(d, "state.favorites", 15, favs, flens, 4) == SHCL_SET_OK);
+		SK("stack favorites", shcl_set_stacked(d, "state.favorites", 15, 1) == SHCL_SET_OK);
+		SK("stacked text", sk_canon(d, "state:\n\tfirst-run-done: true\n\tfavorites:\n\t\t- \"/home/me/a long folder\"\n\t\t- \"C:\\dir, with a comma\"\n\t\t- \"x # not a comment\"\n\t\t- \"[brackets]\"\n", 0));
+		SK("fixpoint", sk_fixpoint(d));
+		{
+			shcl_read_str_arr r = shcl_read_string_array(d, "state.favorites", 15);
+			int same = r.status == SHCL_GOOD && r.n == 4;
+			for (size_t i = 0; same && i < 4; i++) same = r.values[i].n == flens[i] && !memcmp(r.values[i].p, favs[i], flens[i]);
+			SK("read back", same);
+		}
+		/* A later set keeps it stacked, one element and another type too. */
+		const int64_t eighty = 80, onetwo[2] = { 1, 2 };
+		SK("set 80", shcl_set_int_array(d, "state.favorites", 15, &eighty, 1) == SHCL_SET_OK);
+		SK("still stacked", sk_canon(d, "\tfavorites:\n\t\t- 80\n", 1));
+		SK("off", shcl_set_stacked(d, "state.favorites", 15, 0) == SHCL_SET_OK);
+		SK("bracketed", sk_canon(d, "\tfavorites: [80]\n", 1));
+		/* An empty list writes as [] either way, and the next set is in
+		   brackets. */
+		SK("on again", shcl_set_stacked(d, "state.favorites", 15, 1) == SHCL_SET_OK);
+		SK("set empty", shcl_set_int_array(d, "state.favorites", 15, NULL, 0) == SHCL_SET_OK);
+		SK("on empty", shcl_set_stacked(d, "state.favorites", 15, 1) == SHCL_SET_OK);
+		SK("set 1 2", shcl_set_int_array(d, "state.favorites", 15, onetwo, 2) == SHCL_SET_OK);
+		SK("bracketed after empty", sk_canon(d, "\tfavorites: [1, 2]\n", 1));
+		/* No list there: Ok, and nothing changes. A wildcard is refused. */
+		SK("scalar", shcl_set_stacked(d, "state.first-run-done", 20, 1) == SHCL_SET_OK);
+		SK("missing", shcl_set_stacked(d, "nope", 4, 1) == SHCL_SET_OK);
+		SK("not made", !shcl_exists(d, "nope", 4));
+		SK("unchanged", sk_canon(d, "state:\n\tfirst-run-done: true\n\tfavorites: [1, 2]\n", 0));
+		SK("wildcard", shcl_set_stacked(d, "state(*)", 8, 1) == SHCL_SET_WILDCARD);
+		shcl_free(d);
+		/* A list after an empty binding of its name stays in brackets. */
+		static const char et[] = "a:\na: [1, 2]\nb: [3, 4]\nb:\n";
+		shcl_doc *e = shcl_parse(et, sizeof et - 1);
+		SK("a(1)", shcl_set_stacked(e, "a(1)", 4, 1) == SHCL_SET_OK);
+		SK("b(0)", shcl_set_stacked(e, "b(0)", 4, 1) == SHCL_SET_OK);
+		SK("empty binding text", sk_canon(e, "a:\na: [1, 2]\nb:\n\t- 3\n\t- 4\nb:\n", 0));
+		SK("empty binding fixpoint", sk_fixpoint(e));
+		shcl_free(e);
+		/* A merge puts it back in brackets, after an earlier merge too. */
+		shcl_doc *m = shcl_parse("k: [1, 2]\n", 10), *o1 = shcl_parse("j: 1\n", 5), *o2 = shcl_parse("j: 2\n", 5);
+		shcl_merge(m, o1);
+		SK("stack merged", shcl_set_stacked(m, "k", 1, 1) == SHCL_SET_OK);
+		SK("merged stacked", sk_canon(m, "k:\n\t- 1\n\t- 2\n", 2));
+		shcl_merge(m, o2);
+		SK("merge brackets", sk_canon(m, "k: [1, 2]\n", 2));
+		shcl_free(o2); shcl_free(o1); shcl_free(m);
+		/* Off for a list the file stacked: the comment among its items goes
+		   above. */
+		static const char lt[] = "k:\n\t- 1\n\t# note\n\t- 2\n";
+		shcl_doc *s = shcl_parse(lt, sizeof lt - 1);
+		SK("off loaded", shcl_set_stacked(s, "k", 1, 0) == SHCL_SET_OK);
+		SK("off loaded text", sk_canon(s, "# note\nk: [1, 2]\n", 0));
+		shcl_free(s);
+#undef SK
 	}
 	test_id("dekkm", "a_save_over_a_file_changed_since_the_load_is_refused");
 	{
