@@ -170,6 +170,7 @@ REMOTE_BOXES=()     ## "BOX|SSH_TARGET|os-arch[|suites[=LIST]][|suites-long[=LIS
 HOSTED_WORKFLOW=""; HOSTED_JOB=""; HOSTED_TARGET=""
 QUICK_SKIP=()       ## steps --quick leaves out, by text; see fQuickDrop
 BACKLOG_ALONE=()    ## steps fRunSide runs one at a time, by text
+LINT_BESIDE=()      ## lint steps that run beside the tests stage, by text; see fBesideStart
 PACKAGE_ENABLE=0   ## config opts in; installer packages built off the release artifacts
 ## -q: "-q" for the eval'd config strings to pass to tools that take one (ruff);
 ## cargo reads CARGO_TERM_QUIET from the environment instead. Empty otherwise.
@@ -203,6 +204,31 @@ fRunExtras(){
 	for c in "$@"; do fCpuStep "${c}" "${hard}"; fEcho_Clean "extra: ${c}"; eval "${c}"; done
 }
 fStep(){ fCpuStep "$*"; "$@"; }
+## fBesideStart STEP...: start each in the background, its output held, so a
+## long lint step such as cppcheck after a C change runs beside the tests
+## rather than before them (2026110215285706). fBesideWait prints each one's
+## output in order and stops the run at the first that failed.
+beside_dir=""; beside_pids=(); beside_cmds=()
+fBesideStart(){
+	local c
+	(($#)) || return 0
+	[[ -n "${beside_dir}" ]] || beside_dir="$(mktemp -d)"
+	for c in "$@"; do
+		fCpuStep "${c}"
+		( trap - ERR; eval "${c}" ) > "${beside_dir}/${#beside_pids[@]}" 2>&1 &
+		beside_pids+=("$!"); beside_cmds+=("${c}")
+	done
+}
+fBesideWait(){
+	local i rc
+	for i in "${!beside_pids[@]}"; do
+		rc=0; wait "${beside_pids[i]}" || rc=$?
+		fEcho_Clean "extra: ${beside_cmds[i]}"
+		cat "${beside_dir}/${i}"
+		((rc == 0)) || fDie "exit ${rc}: ${beside_cmds[i]}"
+	done
+	beside_pids=(); beside_cmds=()
+}
 ## fRunSide STEP...: a backlog quick run's steps, up to 4 side by side, each
 ## with its share of the run's cores, so the run fits in about 4 minutes
 ## (2026102515494624). Each one's output is held and printed in order, and the
@@ -1559,9 +1585,17 @@ else
 			fi
 			fRunSide "${lintSide[@]}" "${LINT_EXTRA[@]}"
 		else
-			fRunExtras "${LINT_EXTRA[@]}"
+			lintNow=(); lintBeside=()
+			for c in "${LINT_EXTRA[@]}"; do
+				for pat in "${LINT_BESIDE[@]}"; do
+					if [[ "${c}" == *"${pat}"* ]] && fStepOn tests; then lintBeside+=("${c}"); continue 2; fi
+				done
+				lintNow+=("${c}")
+			done
+			fBesideStart "${lintBeside[@]}"
+			fRunExtras "${lintNow[@]}"
 		fi
-		fEcho "OK: lint clean"
+		if ((${#beside_pids[@]})); then fEcho "OK: lint clean, ${#beside_pids[@]} step(s) still running beside the tests"; else fEcho "OK: lint clean"; fi
 	fi
 	if ((${#SHELLCHECK_TARGETS[@]})); then
 		if ((shellcheck_side)); then
@@ -1617,6 +1651,10 @@ else
 	if ((${#LEAKCHECK_STEPS[@]})); then
 		fRunExtras --hard "${LEAKCHECK_STEPS[@]}"
 		fEcho "OK: leak checks passed"
+	fi
+	if ((${#beside_pids[@]})); then
+		fBesideWait
+		fEcho "OK: lint steps beside the tests clean"
 	fi
 	if [[ "${step_open}" == tests ]]; then fStepEnd; fi
 	## Stage 5: profiler. Non-gating artifact, not a pass/fail test: an optimized
@@ -2098,3 +2136,4 @@ exit 0
 ##		- 2026-11-04: --quick leaves out the test boxes. A run that picked the main image itself goes on here when it won't build.
 ##		- 2026-11-09: A memory cap with no swap, CICD_MEM_CAP: the run under a user scope, and each container it starts.
 ##		- 2026-11-22: --keep-temp keeps the image reads and the gate scripts' containers too, through SHCL_KEEP_TEMP.
+##		- 2026-11-27: The lint steps LINT_BESIDE names run beside the tests stage, which waits for them before it passes.

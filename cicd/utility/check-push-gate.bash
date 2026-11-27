@@ -508,6 +508,11 @@ BACKLOG_SKIP=(STUB_BSKIP); TEST_EXTRA+=('echo b > "${STUB_BSKIP:-/dev/null}"')
 ## side by side; one at a time, the second still finds what the first left.
 TEST_EXTRA+=('if [[ -n "${STUB_SIDE:-}" ]]; then : > "${STUB_SIDE}.a"; for i in {1..50}; do [[ -e "${STUB_SIDE}.b" ]] && break; sleep 0.1; done; [[ -e "${STUB_SIDE}.b" ]] && echo side-a-met-b; fi; true'
 	'if [[ -n "${STUB_SIDE:-}" ]]; then : > "${STUB_SIDE}.b"; for i in {1..50}; do [[ -e "${STUB_SIDE}.a" ]] && break; sleep 0.1; done; [[ -e "${STUB_SIDE}.a" ]] && echo side-b-met-a; [[ -z "${STUB_SIDE_FAIL:-}" ]]; fi')
+## A lint step that runs beside the tests, and meets a test step's file only
+## when it does (dfw8s).
+LINT_BESIDE=(STUB_BESIDE)
+LINT_EXTRA+=('if [[ -n "${STUB_BESIDE:-}" ]]; then for i in {1..50}; do [[ -e "${STUB_BESIDE}.t" ]] && break; sleep 0.1; done; [[ -e "${STUB_BESIDE}.t" ]] && echo beside-met-tests; [[ -z "${STUB_BESIDE_FAIL:-}" ]]; fi; true')
+TEST_EXTRA+=('if [[ -n "${STUB_BESIDE:-}" ]]; then : > "${STUB_BESIDE}.t"; fi')
 LEAKCHECK_STEPS=('echo leak > "${STUB_LEAK:-/dev/null}"')
 LEAKCHECK_FAST=('echo fast > "${STUB_LEAK_FAST:-/dev/null}"'); LEAKCHECK_LONG=('echo long > "${STUB_LEAK_LONG:-/dev/null}"')
 LEAKCHECK_TESTS=(STUB_LEAK_TEST); TEST_EXTRA+=('echo t > "${STUB_LEAK_TEST:-/dev/null}"')
@@ -627,6 +632,27 @@ fQuick --merge-gate
 ((engRc == 0 && slowRan == 1 && xcheckRan == 1)) || fail "a --merge-gate run left out a step QUICK_SKIP names: exit ${engRc}, the named step ran ${slowRan}, the crosscheck ${xcheckRan}"
 fQuick -y --no-sync
 ((engRc == 0 && slowRan == 1 && xcheckRan == 1)) || fail "a run with no flags left out a step QUICK_SKIP names: exit ${engRc}, the named step ran ${slowRan}, the crosscheck ${xcheckRan}"
+fTest dfw8s a LINT_BESIDE step runs beside the tests stage, which waits for it
+## 2026110215285706: cppcheck after a C change took over half an hour before
+## the tests began. It runs beside them, the run still fails on it, and a run
+## with no tests stage runs it in the lint stage.
+fBeside(){  ## fBeside [VAR=VALUE ...] -- ARGS... -> engRc, engRecorded, besideMet, besideAfter
+	rm -f "${work}/eng.beside.t"
+	fEngine STUB_BESIDE="${work}/eng.beside" "$@"
+	besideMet=0; besideAfter=0
+	if grep -qx beside-met-tests "${work}/eng.log"; then besideMet=1; fi
+	if sed -n '/OK: tests passed/,$p' "${work}/eng.log" | grep -q '^extra: .*STUB_BESIDE'; then besideAfter=1; fi
+}
+fBeside -- -y --no-sync
+((engRc == 0 && engRecorded == 1 && besideMet == 1 && besideAfter == 1)) || fail "a run with no flags and a LINT_BESIDE step: exit ${engRc}, recorded ${engRecorded}, met the tests ${besideMet}, shown after them ${besideAfter}: $(tail -3 "${work}/eng.log")"
+fBeside -- --merge-gate
+((engRc == 0 && engRecorded == 1 && besideMet == 1 && besideAfter == 1)) || fail "a --merge-gate run and a LINT_BESIDE step: exit ${engRc}, recorded ${engRecorded}, met the tests ${besideMet}, shown after them ${besideAfter}"
+fBeside STUB_BESIDE_FAIL=1 -- --merge-gate
+((engRc != 0 && engRecorded == 0)) || fail "a --merge-gate run whose LINT_BESIDE step fails: exit ${engRc}, recorded ${engRecorded}"
+grep -q 'FAILED: exit 1: .*STUB_BESIDE' "${work}/eng.log" || fail "a failed LINT_BESIDE step isn't named: $(tail -3 "${work}/eng.log")"
+fBeside -- --merge-gate --no-tests
+besideRan=0; if grep -q '^extra: .*STUB_BESIDE' "${work}/eng.log"; then besideRan=1; fi
+((engRc == 0 && besideRan == 1 && besideMet == 0 && besideAfter == 0)) || fail "a --no-tests run and a LINT_BESIDE step: exit ${engRc}, ran ${besideRan}, met the tests ${besideMet}, shown after them ${besideAfter}"
 fTest dewd9 --quick leaves out the test boxes
 ## 2026110215285702: a box is another host, as the GitHub job is. A run with
 ## no flags lists it.

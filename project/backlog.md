@@ -280,7 +280,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The default run takes over an hour
 	- ID: 2026110215285706
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on automated testing
+	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full` on a tree with `shcl.h` changed since cppcheck's last pass, to read the new length. The Lint step should drop to about 6 minutes, with cppcheck's output after `OK: tests passed`.
 	- Priority: Avg
 	- Target version: v3.0.0
 	- Opened: 20261102-152857
@@ -290,6 +291,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Requirements:
 		- Time each step over 2 runs, then move what pushes the run past an hour to `--long`.
 	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Progress log:
+		- 20261127: step times from the bare run logs in `cicd/artifacts/lint/`. The last 2 bare runs, `run_20261117-172546` and `run_20261125-092049`, failed in the Tests step, so the times come from the last 2 that finished, `run_20261110-000836` (60 min) and `run_20261110-065922` (63 min): Lint 5 min, Tests 34 and 37, Release builds 6, Test boxes 14, the rest under a minute each. Lint took 38 to 48 minutes in 6 bare runs after a C change (`run_20261107-162435`, `run_20261108-122450`, `run_20261109-184836`, `run_20261109-230349`, `run_20261117-140035`, `run_20261117-172546`). Against a warm Lint of 5 minutes, the rest is cppcheck's exhaustive pass on 2 cores (inferred, since the log doesn't time it). That's what puts a run near 100 minutes.
+		- The logs don't time the steps inside the Tests stage, so none of them is picked out here.
+		- 20261127: cppcheck, named in config.bash's new `LINT_BESIDE`, starts with the lint stage and runs beside the tests stage. The tests stage waits for it after the leak checks, prints its output there, and fails on it. A run without the tests stage, such as the hosted lint job, runs it in the lint stage. design.md's CI/CD section says so.
+	- Decisions:
+		- me: cppcheck runs beside the tests rather than moving to `--long`, since this departs from the wording but meets the intent. A run with no flags that left it out would have to stop recording its tree, so every push to main would run the whole merge gate again. `Check:` in questions.md.
+		- me: `--merge-gate` and `--backlog-run-full` lose no check. They run the same steps, cppcheck beside the tests. A recorded tree still means cppcheck passed. `--backlog-run-quick` and `--quick` leave cppcheck out through `QUICK_SKIP`, as before.
+		- me: a cppcheck failure shows in the Tests step, under the cppcheck command, rather than in Lint.
+	- Swept: the other paths that run `LINT_EXTRA`: `--backlog-run-quick`'s side-by-side path is unchanged, and `--no-tests` (hosted lint job) runs it inline. An early stop takes the background job down through `fStopDescendants`. Nothing in the tests stage writes `shcl.h`, `main.c` or `conformance.c` while cppcheck reads them. lint-report reads the whole log, so where the output lands doesn't change it.
+	- Verified: check-push-gate passed, `dfw8s` included, and `dfw8s` failed on the old engine with its 2 run cases and the failure message. shell-regress, `cicd.bash --backlog-run-quick cicd` (lint-report CLEAN), shellcheck and `test-ids.py check` passed.
+	- Test case: check-push-gate `dfw8s`: a LINT_BESIDE step meets a test step's file in a bare run and a `--merge-gate` run, its output follows `OK: tests passed`, a failing one fails the run and records nothing, and `--no-tests` runs it in the lint stage.
+	- Branch: `nov27-2026110215285706`
+	- Commit: `ab54861f`
 
 - Allow callers to request the multiline list form for arrays
 	- ID: 2026110911441449
