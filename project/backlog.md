@@ -52,22 +52,37 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Avg
 	- Note: the 2M release fuzz is part of the release bar, so it targets beta.2.
 
-- A comment set above a new quoted field is lost when the next op edits that field
+- The placement property misses a `clear_comments` target when the path also names a line with a bad name
 	- ID: 2026112711395514
 	- Type: Bug
-	- Status: Queued
-	- Priority: Avg
+	- Status: Closed
+	- Severity: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261127-113955
 	- Opened by: me, the 2M release fuzz on 2026112711020529
 	- Related IDs: 2026112711020529
 	- Version and build: nov27-2026112711020529, dev at `64321dd5` plus corpus 225
-	- Steps to reproduce: `SHCL_FUZZ_ITERS=2000000` on `dderx` (`kept_lines_survive_edits`) in release fails at iteration 589199. The base has a misplaced line under `a:` whose name is a flag emoji (U+1F3F4), 2 tabs and `ll`. Op 3 sets that name, quoted with its tabs as escapes, with the selector `(q)` and the comment `# added`, and op 4 edits the same name without the selector.
-	- Incorrect behavior: after op 4 the saved text has the new field line with no `# added` above it, so `comments` on that path goes from `# added` to nothing.
-	- Expected behavior: the comment stays above the field it was set on.
+	- Steps to reproduce: `SHCL_FUZZ_ITERS=2000000` on `dderx` (`kept_lines_survive_edits`) in release fails at iteration 589199. The base has a misplaced line under `a:` whose name is a flag emoji (U+1F3F4), 2 tabs and `ll`. Op 3 sets that name, quoted with its tabs as escapes, with the selector `(q)` and the comment `# added`, and op 4 clears the comments on the same name without the selector.
+	- Incorrect behavior: `placement_slips` reports `# added` as moved off the field, though op 4 named that field.
+	- Expected behavior: the property lets a `clear_comments` take the comments of every line its path names.
 	- Reproduced: 20261127, the Rust fuzz only. The new corpus case 225 shifted the seeds onto it. That change touches only the 2.x read in `migrate`, and this test loads under the current rules, so the bug is older than the round. The other 3 bindings weren't tried.
+	- Reproduced: 20261127, `dderx` at 600,000 in release on nov27 at `9fb68363` fails at iteration 589199. Op 4 there is `clear_comments`, not a setter, and the comment it takes is the target's own. The Rust, Go, C and Python CLIs give the same text for that op, with `# added` gone.
+	- Actual cause [Bug]: the library is right. The misplaced line `🏴<TAB><TAB>ll: 7` loads as a field with `E014` and keeps its block, so the path names it and the new field, and `clear_comments` takes `# added` from the field. `placement_slips` took the target's key from the path's first line only, the misplaced one, so the field's comments counted as moved.
 	- Estimated effort: Avg
 	- Note: the 2M release fuzz is part of the release bar, so it targets beta.2.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261127: no placement.txt row and no library change, since no edit put a comment in the wrong place. The case goes in `df50j`, as the property misread 2026112113030549's did, and the 4 CLIs were checked on it by hand.
+		- me, 20261127: the title was "A comment set above a new quoted field is lost when the next op edits that field", which the reproduction showed was a misread.
+		- me, 20261127: not shared with 2026112711395535, whose ops are setters on a list. Whether that one is a misread too wasn't checked.
+	- Actual fix [Bug]: `placement_slips` in `fuzz_smoke.rs` holds every line the path names as the target. A setter and `set_comment` refuse such a path (`Multiple`), so this changes only what `clear_comments` and `remove` are held to.
+	- Swept: `setter_left_behind` and `taken_lines` already walk every line a path names. `setter_reach`, `setter_comments` and `setter_moved` serve setters, which refuse such a path. The Go, Python and C fuzzers have no placement property.
+	- Test case: `df50j` (`the_placement_property_reads_a_list_replace`), its new case, and `dderx`.
+	- Branch: `nov27-2026112711395514`
+	- Verified: the new `df50j` case fails on the old `placement_slips` and passes on the fix. `dderx` at 2,000,000 in release passes, iteration 589199 included. `dd3t9` at 2,000,000 in release still fails only at iteration 828523, on 2026112711395535. `--backlog-run-quick rust` (lint report clean), clippy with `-D warnings` and rustfmt passed.
+	- Acceptance signoff: Self-closed: a property misread, watched to fail on its new case.
+	- Closed: 20261127-115908
+	- Closed reason: Done
 
 - a_save_names_this_format leaks a String on purpose, so sanitize-rust fails de2pb and de2pc on hosted
 	- ID: 2026112613535880

@@ -2877,21 +2877,24 @@ fn placement_slips(
 					.is_some_and(|r| r.starts_with('.'))
 		})
 	};
-	// The target's key is the one its line has, since a path spells some
-	// names apart from the text.
+	// The target's keys are the ones its lines have, since a path spells some names apart from the text. A path can name a line with a bad name as well, which keeps its block and is written as is, and a remove or clear_comments takes both (2026112711395514).
 	let base = Document::parse(before);
 	// A comment edit on a path with no line makes the field, which settles the lines around it as a setter does.
 	let making = edit == Placed::Comment && base.lines(path).is_empty();
-	let path = base
+	let mut targets: Vec<String> = base
 		.lines(path)
-		.first()
-		.and_then(|&n| was.iter().find(|a| a.line + 1 == n))
-		.map_or_else(|| plain_path(&without_selectors(path)), |a| a.key.clone());
+		.iter()
+		.filter_map(|&n| was.iter().find(|a| a.line + 1 == n))
+		.map(|a| a.key.clone())
+		.collect();
+	if targets.len() < base.lines(path).len().max(1) {
+		targets.push(plain_path(&without_selectors(path)));
+	}
+	let is_target = |key: &str| targets.iter().any(|t| t == key);
 	let below =
 		|owner: &str, key: &str| key.strip_prefix(owner).is_some_and(|r| r.starts_with('.'));
-	let under = |key: &str| below(&path, key);
-	// An item of `owner` the edit wrote anew, which went even where the new
-	// one reads the same. One that kept its comments is a line it left.
+	let under = |key: &str| targets.iter().any(|t| below(t, key));
+	// An item of `owner` the edit wrote anew, which went even where the new one reads the same. One that kept its comments is a line it left.
 	let new_item = |owner: &str, g: &Anchor| {
 		g.key
 			.strip_prefix(owner)
@@ -2916,10 +2919,9 @@ fn placement_slips(
 				}
 			}
 	};
-	// A setter writes its target's list anew, and a merge may write any list
-	// as a bracket array.
+	// A setter writes its target's list anew, and a merge may write any list as a bracket array.
 	let rewrites = |owner: &str| match edit {
-		Placed::Set => owner == path,
+		Placed::Set => is_target(owner),
 		Placed::Merge => was.iter().any(|g| new_item(owner, g)),
 		_ => false,
 	};
@@ -2951,25 +2953,22 @@ fn placement_slips(
 		let Some(b) = one_anchor(&now, &a.key) else {
 			continue;
 		};
-		let target = a.key == path;
+		let target = is_target(&a.key);
 		if item(a)
 			|| edit == Placed::Comment && (target || under(&a.key))
 			|| edit == Placed::Merge && layered(&a.key)
 		{
 			continue;
 		}
-		// A remove takes the comments under its target up to the first kept
-		// line, by design.md's table.
+		// A remove takes the comments under its target up to the first kept line, by design.md's table.
 		let after_target = a.above.and_then(|k| was.iter().rev().find(|w| w.line <= k));
 		if edit == Placed::Remove
 			&& kept.contains(&a.line)
-			&& after_target.is_some_and(|w| w.key == path || under(&w.key))
+			&& after_target.is_some_and(|w| is_target(&w.key) || under(&w.key))
 		{
 			continue;
 		}
-		// A setter that writes a kept line heading its target as a comment
-		// puts it, and the comments above it, over the target's own, and the
-		// line it writes is a new one.
+		// A setter that writes a kept line heading its target as a comment puts it, and the comments above it, over the target's own, and the line it writes is a new one.
 		let old = format!("# {}", a.text);
 		let noted = b.lead.iter().any(|l| l.contains("  ## ") || *l == old);
 		if a.trailing.is_some() && b.trailing != a.trailing && !(target && noted) {
@@ -3098,7 +3097,7 @@ fn placement_slips(
 		// wrote a line of its own there.
 		let by_target = |k: Option<usize>, v: &[Anchor]| {
 			k.and_then(|k| v.iter().rev().find(|w| w.line <= k))
-				.is_some_and(|w| w.key == path || under(&w.key))
+				.is_some_and(|w| is_target(&w.key) || under(&w.key))
 		};
 		let plain = |r: &[String]| {
 			r.iter()
@@ -3204,6 +3203,17 @@ fn the_placement_property_reads_a_list_replace() {
 	// The blank is still held where the setter left it.
 	let moved = after.replacen("\n\n# `", "\n# `", 1);
 	assert!(!placement_slips(before, &moved, path, Placed::Set, "").is_empty());
+	// A path that names a line with a bad name names the field too, and clear_comments takes the field's comments.
+	let before = "a:\n\tf(*): 4\n\td: 2\n\t\te: 3\n\th.i]j: k\n\u{1f3f4}\t\tll: 7\n\tm:\n\n# added\n\"\u{1f3f4}\u{25c9}TAB\u{25c9}\u{25c9}TAB\u{25c9}ll\": q\n";
+	let path = "\"\u{1f3f4}\u{25c9}TAB\u{25c9}\u{25c9}TAB\u{25c9}ll\"";
+	let mut doc = Document::parse(before);
+	assert_eq!(doc.lines(path).len(), 2);
+	assert_eq!(doc.clear_comments(path), 1);
+	let after = doc.to_canonical();
+	assert!(!after.contains("# added"), "{after}");
+	let slips = placement_slips(before, &after, path, Placed::Comment, "");
+	assert!(slips.is_empty(), "{slips:?}");
+	assert!(!placement_slips(before, &after, "a.d", Placed::Comment, "").is_empty());
 	// A misplaced line among the items moves above the field with them.
 	let before = "outer:\n\t: 1\n\t# added\n\tlist:\n\t\t*first\n\t\t- a\n\t\t*bad\n\n\t\tq: [\u{3000}x\n  kept: 1\n\t\t- b\n\t\t*end\n\ty: 2\n";
 	let after = "outer:\n\t: 1\n\t# added\n\t*first\n\t*bad\n\n\tq: [\u{3000}x\n  kept: 1\n\tlist:\n\t\t- 9\n\t\t- 8\n\t\t*end\n\ty: 2\n";
