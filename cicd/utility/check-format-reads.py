@@ -7,7 +7,8 @@
 ##		when the format's own CLI loads it clean. The current CLI's `upgrade
 ##		--from=FORMAT` converts it, and the two readings have to match: the
 ##		paths in order, the instance count at each, and each instance's string
-##		array and raw body, with exit codes. 1.0 to 2.0 have no `paths`
+##		array, raw body and info string, with exit codes. A fence label
+##		with a '#' is left out, as the spec leaves it. 1.0 to 2.0 have no `paths`
 ##		command, so their side is asked the paths of the converted file and of
 ##		the original under the current rules, and a path with a quoted name is
 ##		left out on both sides. An element holding a line break is printed as
@@ -162,6 +163,13 @@ def reads(cli: Cli, doc: str, paths: list[str], new: str, old: bool) -> list[obj
 			if old and rc not in (0, 2):
 				raw = ""
 			got.append(("raw", rc, raw))
+			## An empty binding's info string was BadType before 3.0 and is Empty now, as check-migrate's fAge2xReads has it.
+			irc, info = cli.ask(["get", "--rawinfo"], doc, q)
+			if old and irc == 4 and rc == 2:
+				irc = 2
+			if old and irc not in (0, 2):
+				info = ""
+			got.append(("rawinfo", irc, info))
 	return got
 
 
@@ -211,6 +219,10 @@ def one(fmt: str, old: Cli, new: Cli, src: str, data: bytes, tmp: str, tally: Ta
 			paths_old = paths_new = old_paths(new_paths, paths(new.path, f))
 		a = [len(paths_old), *reads(old, f, paths_old, new.path, True)]
 		b = [len(paths_new), *reads(new, g, paths_new, new.path, False)]
+		## A fence label with a '#' ran to the line end before 3.0 and ends at the '#' now. The spec leaves it as written, since a label has no quoting, and check-migrate takes such lines out too.
+		for i, (x, y) in enumerate(zip(a, b)):
+			if isinstance(x, tuple) and isinstance(y, tuple) and x[0] == y[0] == "rawinfo" and "#" in x[2]:
+				b[i] = x
 		with tally.lock:
 			tally.n["compared"] += 1
 			if a == b:
@@ -295,3 +307,4 @@ if __name__ == "__main__":
 ##	History:
 ##		2026-11-20  Created: each published format and pin round-trips
 ##		            against its own CLI (2026111907080466).
+##		2026-11-27  The info string is compared too (2026110409565662).

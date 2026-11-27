@@ -528,19 +528,48 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - check-migrate compares 2.x reads with the pinned dev build, not 2.0.0
 	- ID: 2026110409565662
 	- Type: Task
-	- Status: Queued
+	- Status: Closed
 	- Priority: Low
 	- Target version: v3.0.0
 	- Opened: 20261104-095656
 	- Opened by: me, from 2026110312163206
 	- Parent ID: 2026110312163206
-	- Related IDs: 2026102620591100
+	- Related IDs: 2026102620591100, 2026112711020529
 	- Problem description:
 		- The pinned build `7be348d0` came after reads changed from 2.0.0, so check-migrate agrees with any 2.x read the dev line changed. The trim and the mid-piece quote were 2 of them.
 	- Requirements:
 		- Check the other read changes between `v2.0.0` and `7be348d0`, such as `07c2becc`, `3dd0f252`, `28fd7485`, `92f165e2`, and `6b776f9a`, against what `migrate` writes. Or compare against `v2.0.0` itself.
 		- Each one that reads apart either converts or is refused.
 	- Estimated effort: Avg
+	- Decisions:
+		- me, 20261127: v2.0.0 itself is the oracle through check-formats `dfjae`, which compares `upgrade --from=2.0` with the v2.0.0 CLI. check-migrate keeps the pinned build, since `migrate` without `from` stands for the 2.x dev builds (2026112008173348), and its header now says so.
+		- me, 20261127: a fence label with a `#` stays as spec.md's Migration section leaves it, so check-formats leaves that read out, as check-migrate does.
+	- Actual fix: probes of each listed change against the v2.0.0 CLI. `07c2becc`'s mid-piece quote converts (2026102620591100, 2026112008173388), and its bracket behind a colon was an error in 2.0. `28fd7485` and `6b776f9a` touch bracket values, which 2.0 refused. `92f165e2`'s same-line label reads `html` in 2.0 and now. `0f818d71`'s trim converts (2026110312163206). `3dd0f252`'s quote in a selector reads apart, and is Bug 2026112711020529. check-formats now compares the info string too, which it skipped.
+	- Swept: the 5 listed commits and `0f818d71`, by 20 probes in the 2.0 spelling. The rest of the 331 commits from `v2.0.0` to `7be348d0` through check-formats' corpus and fuzz documents.
+	- Verified: check-formats over all 11 formats passes with the info string compared, and fails on corpus 056 and 068 at 1.0, 1.1 and 2.0 without the label exception. shell-regress `dct58` and `debqj`, ruff, shellcheck, and `--backlog-run-quick cicd`.
+	- Test case: check-formats `dfjae`, and `dfjac` to `dfjap` for the info string.
+	- Branch: `nov27-2026110409565662`
+	- Acceptance signoff: Self-closed: the comparison against v2.0.0 runs and passes, and the one read that converts wrongly is filed as its own Bug.
+	- Closed: 20261127-110700
+	- Closed reason: Done
+
+- Upgrade from 1.0, 1.1 or 2.0 turns a value's text into a comment after a quote in a selector
+	- ID: 2026112711020529
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261127-110205
+	- Opened by: me
+	- Related IDs: 2026110409565662, 2026112008173388, 2026102620591100
+	- Version and build: dev at `03a40279`
+	- Steps to reproduce: `printf "a[b'c].d: 1 # e\n" > q.shcl`, then `shcl upgrade --from=2.0 q.shcl`, and read `a("b'c").d` from the output.
+	- Incorrect behavior: exit 0 in all 4 CLIs, with `a("b'c").d: 1 # e` written, which reads `1`. The v1.0.0, v1.1.0 and v2.0.0 CLIs all read `1 # e`, since a quote anywhere in the name half opened and ran to the line end, so the `#` was text. `migrate` and `upgrade` without `from` give the same at exit 0. A comma there splits the same in both, so only the `#` reads apart.
+	- Expected behavior: as for a mid-piece quote in a value (2026112008173388). With `--from` naming 1.0, 1.1 or 2.0, the value is written so it reads `1 # e`. Without `from`, the line reads 2 ways, since the 2.x dev builds after `3dd0f252` read `1`, so `migrate` exits 7.
+	- Reproduced: 20261127, the Rust, Go, C and Python CLIs on dev against the v1.0.0, v1.1.0 and v2.0.0 CLIs.
+	- Estimated effort: Avg
+	- Origin: Confirmed. `3dd0f252` (2026-09-05) made a selector's quote open only at a body's first character, after v2.0.0. check-migrate's pinned build reads it as now, and no corpus input has the 2.x spelling, so check-formats `dfjae` never saw it.
+	- Sweep: `scan_piece` and the name-half scan of the 2.x steps in all 4 bindings, the selector body and a quoted name with a quote inside. Add a corpus case with the 2.x spelling, which shifts the fuzz seeds, so run the 2M fuzz and check-migrate on the same commit.
 
 - README: the demo gif opens on an empty prompt, and one table cell needs a check
 	- ID: 2026110216254301

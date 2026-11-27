@@ -8,7 +8,7 @@
 ##		counts when the old CLI loads it clean, with its stamp lines taken
 ##		out. The current CLI's `upgrade --from=FORMAT` converts it, and its
 ##		output, read by the current CLI, has to give the paths, the instance
-##		counts, and each instance's string array and raw body that the old
+##		counts, and each instance's string array, raw body and info string that the old
 ##		CLI gave for the original. check-format-reads.py does the comparing,
 ##		and its help says what counts and what fails.
 ##
@@ -127,3 +127,4 @@ esac
 ##	History:
 ##		2026-11-20  Created: each published format and pin round-trips
 ##		            against its own CLI (2026111907080466).
+##		2026-11-27  The info string is compared too (2026110409565662).

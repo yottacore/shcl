@@ -97,7 +97,7 @@ while (($#)); do case "$1" in
 esac; done
 [[ -d "${corpus}" ]] || { echo "check-migrate: no corpus dir: ${corpus}" >&2; exit 2; }
 
-##	The last dev commit before the lexical cut: the funnel merge.
+##	The last dev commit before the lexical cut: the funnel merge. Not v2.0.0, which reads 519 documents differently; check-formats dfjae compares `upgrade --from=2.0` against that tag.
 pin="7be348d0de309ead4cba9f2fa28650b48b320519"
 if ! git -C "${root}" cat-file -e "${pin}^{commit}" 2>/dev/null; then
 	## A shallow clone (the hosted runner) has no history; a full sha can still
