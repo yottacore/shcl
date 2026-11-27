@@ -494,7 +494,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Lift the placement property's iteration cap in the fuzz
 	- ID: 2026111109371400
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Closed
 	- Priority: Low
 	- Target version: v3.0.0
 	- Opened: 20261111-093714
@@ -510,6 +510,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Note: the misreads left should mostly go once 2026110712372276 and 2026110712372281 simplify where the library puts lines, so this waits on them.
 	- Prereq IDs: 2026110712372276, 2026110712372281
 	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Progress log:
+		- 20261127, round nov27: the cap is out, and the banner over an info block after the first field line is checked again. Only the comments it moves out from under the block are left out (`freed_by_banner`). The first 2M release run passed `dd3t9` and failed `dderx` at 1449647, a misread: a comment edit that makes a field settles a kept line as a comment over the next line, as a setter does, and the property held a comment edit to the exact run. It now allows those lines, as for a setter.
+	- Decisions:
+		- me, 20261127: on a banner op the property skips only the deeper comments right under an info block, by their text, and holds every other line. Where corpus 161's move puts them is the corpus's to pin. Skipping the whole op, as before, checked nothing there.
+		- me, 20261127: a comment edit on a path with no line makes the field, so lines the settle wrote as comments above a run count as a setter's do. The `int` op on the same path gives the same text.
+	- Swept: both property sites, in `dd3t9` and `dderx` (the merge step included). No other check reads `PLACEMENT_ITERS` or `info_block_inside`.
+	- Test case: `df50j` (rows for corpus 161 through the banner, a lost comment there still caught, and `dderx`'s 1449647 case), `dd3t9`, `dderx`.
+	- Verified: the corpus 161 row fails with the whole-op skip back in, and the 1449647 row fails without the comment edit allowance. Both pass now. `dd3t9` and `dderx` passed 2,000,000 in release with the property on every iteration (505 s). All of `fuzz_smoke` in debug, clippy `--all-targets`, rustfmt, and `--backlog-run-quick rust`.
+	- Needs local test suite run?: No. The 2M release run passed on 20261127.
+	- Branch: `nov27-2026111109371400`
+	- Acceptance signoff: Self-closed: each new row was seen to fail without its change, and the 2M release run passed with the cap gone.
+	- Closed: 20261127-105421
+	- Closed reason: Done
 
 - check-migrate compares 2.x reads with the pinned dev build, not 2.0.0
 	- ID: 2026110409565662

@@ -2784,14 +2784,7 @@ fn without_selectors(path: &str) -> String {
 	out
 }
 
-/// The placement property fails a fuzz run only below this iteration, and
-/// past it nothing is checked. Each failure the 2M release run still found past
-/// it was a misread of the property, not a library bug, and the run has to stay
-/// usable for the other properties. 2026111109371400 lifts the cap.
-const PLACEMENT_ITERS: usize = 1_000_000;
-
-/// An info block line with a line that is not blank or a comment above it and
-/// one below it, as corpus 161 has.
+/// An info block line with a line that is not blank or a comment above it and one below it, as corpus 161 has.
 fn info_block_inside(text: &str) -> bool {
 	let lines: Vec<&str> = text.lines().collect();
 	let raw = raw_spans(text);
@@ -2807,9 +2800,32 @@ fn info_block_inside(text: &str) -> bool {
 	})
 }
 
-/// The comments in a layer's canonical text that a blank sets off from the
-/// line below, which are the line above's. A merge keeps that blank under them
-/// (2026112112314153).
+/// The comments the banner moves out to an info block's column: the deeper ones under the block's last line, up to the next line that isn't blank or a comment. Where they go is corpus 161's, so the property leaves them out.
+fn freed_by_banner(text: &str) -> std::collections::HashSet<String> {
+	let lines: Vec<&str> = text.lines().collect();
+	let raw = raw_spans(text);
+	let tabs = |l: &str| l.len() - l.trim_start_matches('\t').len();
+	let mut out = std::collections::HashSet::new();
+	let mut block: Option<usize> = None;
+	for (k, line) in lines.iter().enumerate() {
+		let t = line.trim_matches(BLANKS);
+		if raw.iter().any(|&(o, c)| k >= o && k < c) {
+			block = None;
+		} else if t.starts_with("##") {
+			block = Some(tabs(line));
+		} else if t.is_empty() {
+		} else if t.starts_with('#') {
+			if block.is_some_and(|d| tabs(line) > d) {
+				out.insert(t.to_string());
+			}
+		} else {
+			block = None;
+		}
+	}
+	out
+}
+
+/// The comments in a layer's canonical text that a blank sets off from the line below, which are the line above's. A merge keeps that blank under them (2026112112314153).
 fn set_off_in(layer: &str) -> std::collections::HashSet<String> {
 	let text = Document::parse(layer).to_canonical();
 	let lines: Vec<&str> = text.lines().map(|l| l.trim_matches(BLANKS)).collect();
@@ -2842,12 +2858,12 @@ fn placement_slips(
 	edit: Placed,
 	layer: &str,
 ) -> Vec<String> {
-	// The banner takes an info block off wherever it sits after the first
-	// field line, and moves a comment nested under it out to its column.
-	// Corpus 161 holds that move, so the property doesn't.
-	if edit == Placed::Other && info_block_inside(before) {
-		return Vec::new();
-	}
+	// The banner takes an info block off wherever it sits after the first field line, and moves a comment nested under it out to its column. Corpus 161 holds that move, so the property skips only those lines.
+	let freed = if edit == Placed::Other && info_block_inside(before) {
+		freed_by_banner(before)
+	} else {
+		Default::default()
+	};
 	let (was, now) = (anchors(before), anchors(after));
 	let theirs: Vec<String> = anchors(&Document::parse(layer).to_canonical())
 		.into_iter()
@@ -2864,6 +2880,8 @@ fn placement_slips(
 	// The target's key is the one its line has, since a path spells some
 	// names apart from the text.
 	let base = Document::parse(before);
+	// A comment edit on a path with no line makes the field, which settles the lines around it as a setter does.
+	let making = edit == Placed::Comment && base.lines(path).is_empty();
 	let path = base
 		.lines(path)
 		.first()
@@ -2962,7 +2980,7 @@ fn placement_slips(
 		}
 		// The banner takes an info block's lines wherever it finds one, and
 		// reads them loosely.
-		let ours = |l: &String| edit != Placed::Other || !l.starts_with("##");
+		let ours = |l: &String| edit != Placed::Other || !l.starts_with("##") && !freed.contains(l);
 		let mut want: Vec<String> = a.lead.iter().filter(|l| ours(l)).cloned().collect();
 		let (mut lead, mut blank) = (
 			b.lead
@@ -3065,6 +3083,10 @@ fn placement_slips(
 					blank = lead[p - 1].is_empty();
 				}
 				top.is_some()
+			}
+			// A kept line the settle wrote as a comment joins the run below.
+			Placed::Comment if making => {
+				(0..=lead.len()).any(|p| lead[p..] == want[..] && lead[..p].iter().all(written))
 			}
 			_ => lead == want,
 		};
@@ -3262,8 +3284,7 @@ fn the_placement_property_reads_a_list_replace() {
 	);
 	let slips = placement_slips(&before, &after, "c", Placed::Set, "");
 	assert!(slips.is_empty(), "{slips:?}");
-	// A banner over an info block after the first field line isn't held, as
-	// corpus 161 holds it.
+	// A banner over an info block after the first field line is held, but for the comment nested under the block, which it moves out as corpus 161 holds (2026111109371400).
 	let base = "a: 1\n##\n## This config file format is SHCL.\n##\n\t# a note\nkept line\n";
 	let before = Document::parse(base).to_canonical();
 	let mut doc = Document::parse(base);
@@ -3275,6 +3296,30 @@ fn the_placement_property_reads_a_list_replace() {
 	assert!(!info_block_inside(
 		"a: 1\n\n##\n## This config file format is SHCL.\n##\n"
 	));
+	let base = include_str!("../../../project/conformance/161-banner-moved/input.shcl");
+	let before = Document::parse(base).to_canonical();
+	let mut doc = Document::parse(base);
+	doc.set_banner(true);
+	let after = doc.to_canonical();
+	assert!(
+		freed_by_banner(&before).contains("# a note under the old footer block"),
+		"{before}"
+	);
+	let slips = placement_slips(&before, &after, "", Placed::Other, "");
+	assert!(slips.is_empty(), "{slips:?}\n{before}--- after\n{after}");
+	// The other comments there are still held.
+	let lost = after.replacen("\t# a note of the file's own\n", "", 1);
+	assert_ne!(lost, after);
+	let slips = placement_slips(&before, &lost, "", Placed::Other, "");
+	assert!(!slips.is_empty(), "{before}--- after\n{lost}");
+	// A comment edit that makes a field settles a kept line as a comment over the next line, as a setter does (2026111109371400, dderx at 1449647).
+	let base = "r:\n\t$\n\t  q\n\n\t `\n-$z\n";
+	let before = Document::parse(base).to_canonical();
+	let mut doc = Document::parse(base);
+	assert_eq!(doc.set_comment("r.\"$\"(q)", "added"), shcl::SetStatus::Ok);
+	let after = doc.to_canonical();
+	let slips = placement_slips(&before, &after, "r.\"$\"(q)", Placed::Comment, "");
+	assert!(slips.is_empty(), "{slips:?}\n{before}--- after\n{after}");
 	// A comment a blank sets off above a top-level kept line starts its run
 	// at column 0 on a load, as after an edit (2026111111560900).
 	let base = "# note 0\n\n    # note 2\n        b: [3\n";
@@ -3557,13 +3602,11 @@ fn keeping_lines_reloads_as_the_document() {
 						&& (!a.lead.is_empty() || a.trailing.is_some())
 				}));
 			}
-			if i < PLACEMENT_ITERS {
-				let slips = placement_slips(&before, &after, &path, edit, "");
-				assert!(
-					slips.is_empty(),
-					"iteration {i}: comments moved {slips:?}:\n{log}--- before\n{before}--- after\n{after}"
-				);
-			}
+			let slips = placement_slips(&before, &after, &path, edit, "");
+			assert!(
+				slips.is_empty(),
+				"iteration {i}: comments moved {slips:?}:\n{log}--- before\n{before}--- after\n{after}"
+			);
 		}
 		if let Some(dir) = &dump_dir
 			&& dumped < 100
@@ -5082,7 +5125,7 @@ fn kept_lines_survive_edits() {
 				ops.push_str(&line);
 				ops.push('\n');
 			}
-			if (took || op == 10) && i < PLACEMENT_ITERS {
+			if took || op == 10 {
 				let edit = match op {
 					0 | 1 | 2 | 5 | 6 | 9 => Placed::Set,
 					3 | 4 => Placed::Comment,
