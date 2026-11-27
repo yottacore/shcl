@@ -117,8 +117,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- ID: 2026112517314397
 	- Type: Enhancement
 	- Status: Closed
-	- Priority: Low
-	- Target version: v3.1.0
+	- Priority: High
+	- Target version: v3.0.0-beta.2
 	- Opened: 20261125-173143
 	- Opened by: nemo-anywhere 2026110911301888
 	- Version and build: `3.0.0-beta1`
