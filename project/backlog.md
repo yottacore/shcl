@@ -38,7 +38,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - a_save_names_this_format leaks a String on purpose, so sanitize-rust fails de2pb and de2pc on hosted
 	- ID: 2026112613535880
 	- Type: Bug
-	- Status: Done
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261126-135358
