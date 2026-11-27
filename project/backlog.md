@@ -35,6 +35,40 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- A comment after a list item moves out of its list when a later op rewrites the list
+	- ID: 2026112711395535
+	- Type: Bug
+	- Status: Queued
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261127-113955
+	- Opened by: me, the 2M release fuzz on 2026112711020529
+	- Related IDs: 2026112711020529
+	- Version and build: nov27-2026112711020529, dev at `64321dd5` plus corpus 225
+	- Steps to reproduce: `SHCL_FUZZ_ITERS=2000000` on `dd3t9` (`keeping_lines_reloads_as_the_document`) in release fails at iteration 828523. The base has a top-level name holding a byte order mark (U+FEFF) with a `list:` under it, whose item has the comment `#<TAB>*bad` after it, among `*first` and `*end` lines kept for an error. Ops 4 and 8 rewrite that list, the last as a raw block.
+	- Incorrect behavior: the saved text has `#<TAB>*bad` on its own line above `list:`, so `comments` on the list goes from `#<TAB>*bad` to nothing.
+	- Expected behavior: the comment stays with the list, or goes with the item the rewrite removed, as the placement rules say.
+	- Reproduced: 20261127, the Rust fuzz only. The new corpus case 225 shifted the seeds onto it. That change touches only the 2.x read in `migrate`, and this test loads under the current rules, so the bug is older than the round. The other 3 bindings weren't tried.
+	- Estimated effort: Avg
+	- Note: the 2M release fuzz is part of the release bar, so it targets beta.2.
+
+- A comment set above a new quoted field is lost when the next op edits that field
+	- ID: 2026112711395514
+	- Type: Bug
+	- Status: Queued
+	- Priority: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261127-113955
+	- Opened by: me, the 2M release fuzz on 2026112711020529
+	- Related IDs: 2026112711020529
+	- Version and build: nov27-2026112711020529, dev at `64321dd5` plus corpus 225
+	- Steps to reproduce: `SHCL_FUZZ_ITERS=2000000` on `dderx` (`kept_lines_survive_edits`) in release fails at iteration 589199. The base has a misplaced line under `a:` whose name is a flag emoji (U+1F3F4), 2 tabs and `ll`. Op 3 sets that name, quoted with its tabs as escapes, with the selector `(q)` and the comment `# added`, and op 4 edits the same name without the selector.
+	- Incorrect behavior: after op 4 the saved text has the new field line with no `# added` above it, so `comments` on that path goes from `# added` to nothing.
+	- Expected behavior: the comment stays above the field it was set on.
+	- Reproduced: 20261127, the Rust fuzz only. The new corpus case 225 shifted the seeds onto it. That change touches only the 2.x read in `migrate`, and this test loads under the current rules, so the bug is older than the round. The other 3 bindings weren't tried.
+	- Estimated effort: Avg
+	- Note: the 2M release fuzz is part of the release bar, so it targets beta.2.
+
 - a_save_names_this_format leaks a String on purpose, so sanitize-rust fails de2pb and de2pc on hosted
 	- ID: 2026112613535880
 	- Type: Bug
@@ -556,7 +590,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Upgrade from 1.0, 1.1 or 2.0 turns a value's text into a comment after a quote in a selector
 	- ID: 2026112711020529
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Severity: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261127-110205
@@ -570,6 +604,20 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Avg
 	- Origin: Confirmed. `3dd0f252` (2026-09-05) made a selector's quote open only at a body's first character, after v2.0.0. check-migrate's pinned build reads it as now, and no corpus input has the 2.x spelling, so check-formats `dfjae` never saw it.
 	- Sweep: `scan_piece` and the name-half scan of the 2.x steps in all 4 bindings, the selector body and a quoted name with a quote inside. Add a corpus case with the 2.x spelling, which shifts the fuzz seeds, so run the 2M fuzz and check-migrate on the same commit.
+	- Actual cause [Bug]: 1.0 to 2.0 stripped a line's comment before reading its path, with a backslash shielding the next character and a quote open until the same quote, so a quote left open in the name half kept a later `#` as text. The 2.x read in `migrate` found the comment in the value alone, as the builds after `3dd0f252` did.
+	- Actual fix [Bug]: under the 2.x rules the line tokenizer runs 2.0's comment strip over the name half, and when a quote is left open there, finds the comment from that quote's close and splits the value up to it with no comment of its own, in `lex_line` and `scan_value` (Rust and C), `lexLine` and `scanValue` (Go), and `_lex_line` and `_scan_value` (Python). Every step out of 1.0 to 2.0 and `migrate` read it so. Without `from`, `migrate_line` and its twins count such a line as ambiguous when the value or comment reads otherwise than the plain 2.x scan, and leave it as written. check-migrate's mid-quote finder flags such a line too. The value-syntax Migration table, the format versions doc, the corpus README and the changelog say so.
+	- Decisions:
+		- me, 20261127: the 2.0 reading goes in the 2.x tokenizer, not only in `migrate_line`, so every 2.x step reads one line one way, as the mid-piece quote fix put it in `scan_piece` (2026112008173388).
+		- me, 20261127: without `from` the line counts as ambiguous even though the bracket selector makes it refused now, since both readings rewrite it and give different values. That's the issue's expected exit 7.
+		- me, 20261127: check-format-reads.py leaves a path out of the name comparison when a name isn't led by a letter, since the pins print it bare and the current CLI quotes it. Corpus 225's seeds put 2 such fuzz documents in front of the pins. Their reads are still compared.
+	- Swept: `scan_piece` (its quoted arm now honors `comments`, which every value caller passes as true), `lex_line`, `scan_value` and `migrate_line` in all 4 bindings. A quoted name or selector with a quote of the other kind inside, such as `"b'c"`, is balanced for 2.0's strip too, and moves nothing. A selector with a backslash before the quote, `[a\'b]`, is shielded in 2.0 and here. A `*` item has no name half. The pin steps read by `Lex::Pin` and are unchanged, since the pins came after `3dd0f252`. The format tells' `quote_tells` reads the value alone, as before. A line whose `#` then sits after the path, with no colon, is a fault under the 2.x rules and stays as written, as 2.0 refused it.
+	- Verified: corpus 225's migrate golden fails on the old Python library and passes on the fix in all 4 runners. The 4 CLIs give the same output over 14 probe lines, with and without `--from=2.0`, and the converted reads match the v1.0.0, v1.1.0 and v2.0.0 CLIs. The 4 conformance suites, `--backlog-run-quick rust go python c cli` (lint report clean), crosscheck (24216 comparisons), check-migrate (646 documents, `dcqf3` and the new `dfwb9`), check-formats over all 11 formats, check-doc-examples, shell-regress `dct58` and `debqj`, `test-ids.py check`, clippy, gofmt, go vet, ruff, mypy and the markdown check passed. The 2M release fuzz passed 33 of its 35 tests. `dderx` and `dd3t9` failed on 2 older placement bugs that corpus 225's seeds reached, filed as 2026112711395514 and 2026112711395535.
+	- Test case: corpus `dfwb8` (`225-migrate-selector-quote`)'s migrate golden in all 4 runners, and check-migrate `dfwb9`.
+	- Branch: `nov27-2026112711020529`
+	- Actual effort: Avg
+	- Acceptance signoff: Self-closed: the golden failed on the old code, and the converted reads match the v1.0.0, v1.1.0 and v2.0.0 CLIs.
+	- Closed: 20261127-114116
+	- Closed reason: Done
 
 - README: the demo gif opens on an empty prompt, and one table cell needs a check
 	- ID: 2026110216254301

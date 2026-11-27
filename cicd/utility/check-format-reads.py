@@ -46,6 +46,8 @@ import threading
 STAMP = re.compile(rb"^[ \t]*##[ \t]+(SHCL[ \t]+format|Format)\b", re.I)
 STATUS = re.compile(r"^(Good|Empty|NotFound|BadType|Multiple)\t")
 QUOTED = re.compile("[\"'\u25c9\\\\]")
+## A name not led by a letter, such as `9x`, is bare in the pins' paths and quoted in the current one's.
+RESPELLED = re.compile(r"(^|\.)[^A-Za-z]")
 
 
 ##	One test per format, and the formats it can be asked for.
@@ -148,7 +150,7 @@ def reads(cli: Cli, doc: str, paths: list[str], new: str, old: bool) -> list[obj
 	"""Each path, as `~` when the 2 CLIs would spell its name differently."""
 	got: list[object] = []
 	for p in paths:
-		got.append("~" if QUOTED.search(p) else p)
+		got.append("~" if QUOTED.search(p) or RESPELLED.search(p) else p)
 		rc, n = cli.ask(["count"], doc, p)
 		got.append(("count", rc, n.strip()))
 		if rc != 0 or not n.strip().isdigit():
@@ -308,3 +310,5 @@ if __name__ == "__main__":
 ##		2026-11-20  Created: each published format and pin round-trips
 ##		            against its own CLI (2026111907080466).
 ##		2026-11-27  The info string is compared too (2026110409565662).
+##		2026-11-27  A name not led by a letter isn't compared either, since
+##		            the current CLI quotes it (2026112711020529).

@@ -2139,7 +2139,9 @@ static int src_matches_display(ShclArena *a, const ShclValue *v, ShclStr s) {
 // shcl_migrate: every comma splits, a backslash shields the next character in
 // bare and single-quoted value text, a bare selector body still runs to its
 // first `]`, a separator followed by `[` is the selector sugar, and an open
-// quote swallows the rest of the line. Under the private SHCL_LEX_PIN it reads
+// quote swallows the rest of the line.
+// A quote left open in a line's name half, as in `a[b'c]`, keeps a `#`
+// after it as text up to that quote's close. Under the private SHCL_LEX_PIN it reads
 // the spellings of the pins from 3.0-1f8 to 3.0-a37, for their conversion
 // step: every comma splits, a backslash escapes in double quotes only, a
 // selector is in brackets, and a `[` after the separator is plain text.
@@ -2297,7 +2299,7 @@ static size_t scan_piece(ShclStr s, size_t pos, char term, ShclLex rules, int co
 			int ended;
 			if (i < s.n) {
 				char c = s.p[i];
-				ended = (c == term && (every_comma || loose_comma(s, i))) || (array && c == ']') || (term == ',' && comment_at(s, i));
+				ended = (c == term && (every_comma || loose_comma(s, i))) || (array && c == ']') || (term == ',' && comments && comment_at(s, i));
 			} else ended = term == ',';
 			if (ended) {
 				out->start = pos + 1; out->end = close;
@@ -2372,14 +2374,30 @@ static void scan_array(ShclArena *a, ShclStr text, size_t from, size_t open_at, 
 
 /* The value half: everything from `from` on, split into pieces, with the
    comment found on the way. */
-static void scan_value(ShclArena *a, ShclStr text, size_t from, ShclLex rules, ShclTokens *out) {
+/* 2.0's comment strip from pos to end, with the quote *open already open (0
+   for none): a backslash shields the next character, and a quote opens until
+   the same quote. Leaves in *open the quote still open at end, and gives the
+   first `#` outside quotes, where the strip stopped, or end for none. */
+static size_t v2_quotes(ShclStr s, size_t pos, size_t end, unsigned char *open) {
+	while (pos < end) {
+		unsigned char b = (unsigned char)s.p[pos];
+		if (b == '\\') { pos += 1 + (pos + 1 < end ? utf8_len(s, pos + 1) : 0); continue; }
+		if (*open) { if (b == *open) *open = 0; }
+		else if (b == '"' || b == '\'') *open = b;
+		else if (b == '#') return pos;
+		pos += utf8_len(s, pos);
+	}
+	return end;
+}
+
+static void scan_value(ShclArena *a, ShclStr text, size_t from, ShclLex rules, int comments, ShclTokens *out) {
 	if (rules == SHCL_LEX_CURRENT) {
 		size_t at = from; skip_wsp(text, &at);
 		if (at < text.n && text.p[at] == '[') { scan_array(a, text, from, at, out); return; }
 	}
 	size_t pos = from, stop_at, count = 0;
 	for (;;) {
-		ShclPiece piece; size_t stop = scan_piece(text, pos, ',', rules, 1, 0, &piece);
+		ShclPiece piece; size_t stop = scan_piece(text, pos, ',', rules, comments, 0, &piece);
 		tok_push_elem(a, out, piece);
 		if (piece.quote != SHCL_QUOTE_NONE || piece.end > piece.start) {
 			count++;
@@ -2462,7 +2480,7 @@ static void scan_array(ShclArena *a, ShclStr s, size_t from, size_t open_at, Shc
 }
 static void lex_value(ShclArena *a, ShclStr text, size_t from, ShclLex rules, ShclTokens *out) {
 	tok_clear(out);
-	scan_value(a, text, from, rules, out);
+	scan_value(a, text, from, rules, 1, out);
 }
 static void tokenize_value(ShclArena *a, ShclStr text, size_t from, ShclRules rules, ShclTokens *out) {
 	lex_value(a, text, from, lex_of(rules), out);
@@ -2543,7 +2561,22 @@ static void lex_line(ShclArena *a, ShclStr text, char sep, int path, ShclLex rul
 		if (pos >= s.n) return;
 		char b = s.p[pos];
 		if (b == '.') { pos++; continue; }
-		if (b == sep) { out->has_sep = 1; out->sep = pos; scan_value(a, text, pos + 1, rules, out); return; }
+		/* 2.0 stripped a comment off the whole line before reading its path,
+		   so a quote left open in the name half, as in `a[b'c]`, kept a `#`
+		   after it as text up to that quote's close. Commas split the value
+		   alone, so only where the comment starts moves. */
+		unsigned char carried = 0;
+		if (rules == SHCL_LEX_V2 && !path) (void)v2_quotes(s, 0, pos, &carried);
+		if (b == sep) {
+			out->has_sep = 1; out->sep = pos;
+			if (!carried) { scan_value(a, text, pos + 1, rules, 1, out); return; }
+			size_t comment = v2_quotes(s, pos + 1, s.n, &carried);
+			scan_value(a, s_slice(text, 0, comment), pos + 1, rules, 0, out);
+			if (comment < s.n) { out->has_comment = 1; out->comment = comment; }
+			return;
+		}
+		/* 2.0 read that `#` as text after the path, and refused the line. */
+		if (comment_at(s, pos) && carried) { tok_fault(out, pos, "unexpected character after the path"); return; }
 		if (comment_at(s, pos)) { out->has_comment = 1; out->comment = pos; return; }
 		tok_fault(out, pos, "unexpected character after the path");
 		return;
@@ -3903,6 +3936,18 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 	} else {
 		lex_line(ta, rest, ':', 0, st->rules, tok);
 		if (tok->has_fault || old_refused(rest, tok, 0, st)) return rest;
+		/* A quote in the name half moved the comment for 1.0 to 2.0, and not
+		   for the 2.x builds after them, so a file that doesn't say which it
+		   was written for reads 2 ways. */
+		unsigned char carried = 0;
+		if (tok->has_sep && st->rules == SHCL_LEX_V2 && !st->from_v2) (void)v2_quotes(rest, 0, tok->sep, &carried);
+		if (carried) {
+			ShclTokens plain; memset(&plain, 0, sizeof plain);
+			lex_value(ta, rest, tok->sep + 1, SHCL_LEX_V2, &plain);
+			int same = plain.has_comment == tok->has_comment && (!plain.has_comment || plain.comment == tok->comment) && plain.nelem == tok->nelem;
+			for (size_t i = 0; same && i < plain.nelem; i++) same = plain.elements[i].start == tok->elements[i].start && plain.elements[i].end == tok->elements[i].end && plain.elements[i].quote == tok->elements[i].quote;
+			if (!same) { st->ambiguous++; return rest; }
+		}
 		size_t last = tok->nseg - 1;
 		/* A selector in brackets is E029 now, so its line never reads clean
 		   and is rewritten whatever the file says it is. Only `name:[disc]`

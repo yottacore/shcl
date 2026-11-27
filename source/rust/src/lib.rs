@@ -1613,7 +1613,9 @@ const TMP_NAME_BYTES: usize = 64;
 // `migrate`: every comma splits, a backslash shields the next character in
 // bare and single-quoted value text, a bare selector body still runs to its
 // first `]`, a separator followed by `[` is the selector sugar, and an open
-// quote swallows the rest of the line. Under the private `Lex::Pin` it reads
+// quote swallows the rest of the line.
+// A quote left open in a line's name half, as in `a[b'c]`, keeps a `#`
+// after it as text up to that quote's close. Under the private `Lex::Pin` it reads
 // the spellings of the pins from 3.0-1f8 to 3.0-a37, for their conversion
 // step: every comma splits, a backslash escapes in double quotes only, a
 // selector is in brackets, and a `[` after the separator is plain text.
@@ -1893,7 +1895,9 @@ fn scan_piece(
 				let mut i = close + 1;
 				skip_blank(s, &mut i, edges);
 				let ended = if i < s.len() {
-					ends_at(s, i) || (array && s[i] == b']') || (term == b',' && comment_at(s, i))
+					ends_at(s, i)
+						|| (array && s[i] == b']')
+						|| (term == b',' && comments && comment_at(s, i))
 				} else {
 					term == b','
 				};
@@ -2028,10 +2032,41 @@ pub fn tokenize_value(text: &str, from: usize, rules: Rules, out: &mut Tokens) {
 
 fn lex_value(text: &str, from: usize, rules: Lex, out: &mut Tokens) {
 	out.clear();
-	scan_value(text, from, rules, out);
+	scan_value(text, from, rules, true, out);
 }
 
-fn scan_value(text: &str, from: usize, rules: Lex, out: &mut Tokens) {
+/// 2.0's comment strip from `pos` to `end`, with the quote `open` already
+/// open: a backslash shields the next character, and a quote opens until the
+/// same quote. Gives the quote still open at `end`, and the first `#` outside
+/// quotes, where the strip stopped.
+fn v2_quotes(
+	s: &[u8],
+	mut pos: usize,
+	end: usize,
+	mut open: Option<u8>,
+) -> (Option<u8>, Option<usize>) {
+	while pos < end {
+		let b = s[pos];
+		if b == b'\\' {
+			pos += 1 + if pos + 1 < end {
+				utf8_len(s[pos + 1])
+			} else {
+				0
+			};
+			continue;
+		}
+		match open {
+			Some(q) if b == q => open = None,
+			None if b == b'"' || b == b'\'' => open = Some(b),
+			None if b == b'#' => return (None, Some(pos)),
+			_ => {}
+		}
+		pos += utf8_len(b);
+	}
+	(open, None)
+}
+
+fn scan_value(text: &str, from: usize, rules: Lex, comments: bool, out: &mut Tokens) {
 	let s = text.as_bytes();
 	let mut pos = from;
 	skip_wsp(s, &mut pos);
@@ -2043,7 +2078,7 @@ fn scan_value(text: &str, from: usize, rules: Lex, out: &mut Tokens) {
 	let stop_at;
 	let mut count = 0usize;
 	loop {
-		let (piece, stop) = scan_piece(s, pos, b',', rules, true, false);
+		let (piece, stop) = scan_piece(s, pos, b',', rules, comments, false);
 		out.elements.push(piece);
 		if piece.quote != Quote::None || piece.end > piece.start {
 			count += 1;
@@ -2316,9 +2351,35 @@ fn lex_line(text: &str, sep: u8, path: bool, rules: Lex, out: &mut Tokens) {
 			pos += 1;
 			continue;
 		}
+		// 2.0 stripped a comment off the whole line before reading its path,
+		// so a quote left open in the name half, as in `a[b'c]`, kept a `#`
+		// after it as text up to that quote's close. Commas split the value
+		// alone, so only where the comment starts moves.
+		let carried = if rules == Lex::V2 && !path {
+			v2_quotes(s, 0, pos, None).0
+		} else {
+			None
+		};
 		if b == sep {
 			out.sep = Some(pos);
-			scan_value(text, pos + 1, rules, out);
+			let Some(q) = carried else {
+				scan_value(text, pos + 1, rules, true, out);
+				return;
+			};
+			let comment = v2_quotes(s, pos + 1, s.len(), Some(q)).1;
+			scan_value(
+				&text[..comment.unwrap_or(s.len())],
+				pos + 1,
+				rules,
+				false,
+				out,
+			);
+			out.comment = comment;
+			return;
+		}
+		// 2.0 read that `#` as text after the path, and refused the line.
+		if comment_at(s, pos) && carried.is_some() {
+			out.fault = Some((pos, "unexpected character after the path"));
 			return;
 		}
 		if comment_at(s, pos) {
@@ -5069,6 +5130,21 @@ fn migrate_line(
 		lex_line(rest, b':', false, st.rules, tok);
 		if tok.fault.is_some() || old_refused(rest, tok, false, st) {
 			return rest.to_string();
+		}
+		// A quote in the name half moved the comment for 1.0 to 2.0, and not
+		// for the 2.x builds after them, so a file that doesn't say which it
+		// was written for reads 2 ways.
+		if let Some(sep) = tok.sep
+			&& st.rules == Lex::V2
+			&& !st.from_v2
+			&& v2_quotes(s, 0, sep, None).0.is_some()
+		{
+			let mut plain = Tokens::default();
+			lex_value(rest, sep + 1, Lex::V2, &mut plain);
+			if plain.elements != tok.elements || plain.comment != tok.comment {
+				st.ambiguous += 1;
+				return rest.to_string();
+			}
 		}
 		let last = tok.segments.len() - 1;
 		// A selector in brackets is E029 now, so its line never reads clean

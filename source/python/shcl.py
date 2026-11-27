@@ -1529,7 +1529,9 @@ _TMP_NAME_BYTES = 64
 # every comma splits, a backslash shields the next character in bare and
 # single-quoted value text, a bare selector body still runs to its first `]`,
 # a separator followed by `[` is the selector sugar, and an open quote
-# swallows the rest of the line. Under the private _Lex.Pin it reads the
+# swallows the rest of the line.
+# A quote left open in a line's name half, as in `a[b'c]`, keeps a `#`
+# after it as text up to that quote's close. Under the private _Lex.Pin it reads the
 # spellings of the pins from 3.0-1f8 to 3.0-a37, for their conversion step:
 # every comma splits, a backslash escapes in double quotes only, a selector is
 # in brackets, and a `[` after the separator is plain text.
@@ -1934,7 +1936,7 @@ def _scan_piece(s, pos, term, rules, comments, array=False):
 				c = s[i]
 				ended = ((c == term and (every_comma or _loose_comma(s, i)))
 					or (array and c == _B_RBRACKET)
-					or (term == _B_COMMA and _comment_at(s, i)))
+					or (term == _B_COMMA and comments and _comment_at(s, i)))
 			else:
 				ended = term == _B_COMMA
 			if ended:
@@ -2039,10 +2041,31 @@ def _lex_value(text: str, from_: int, rules: _Lex, out: Tokens) -> None:
 	# The save is where text with no UTF-8 spelling fails.
 	s = text.encode("utf-8", "surrogatepass")
 	out.src = s
-	_scan_value(s, from_, rules, out)
+	_scan_value(s, from_, rules, True, out)
 
 
-def _scan_value(s, from_, rules, out):
+def _v2_quotes(s, pos, end, open_):
+	"""2.0's comment strip from pos to end, with the quote open_ already open
+	(None for none): a backslash shields the next character, and a quote opens
+	until the same quote. Gives the quote still open at end, and the first `#`
+	outside quotes, where the strip stopped."""
+	while pos < end:
+		b = s[pos]
+		if b == _B_BACKSLASH:
+			pos += 1 + (_utf8_len(s[pos + 1]) if pos + 1 < end else 0)
+			continue
+		if open_ is not None:
+			if b == open_:
+				open_ = None
+		elif b in (_B_DQUOTE, _B_SQUOTE):
+			open_ = b
+		elif b == _B_HASH:
+			return None, pos
+		pos += _utf8_len(b)
+	return open_, None
+
+
+def _scan_value(s, from_, rules, comments, out):
 	n = len(s)
 	if rules is _Lex.Current:
 		pos = _skip_wsp(s, from_)
@@ -2087,7 +2110,7 @@ def _scan_value(s, from_, rules, out):
 	pos = from_
 	count = 0
 	while True:
-		piece, stop = _scan_piece(s, pos, _B_COMMA, rules, True)
+		piece, stop = _scan_piece(s, pos, _B_COMMA, rules, comments)
 		out.elements.append(piece)
 		if piece.quote is not Quote.None_ or piece.end > piece.start:
 			count += 1
@@ -2292,9 +2315,23 @@ def _lex_line(text: str, sep: str, path: bool, rules: _Lex, out: Tokens) -> None
 		if b == _B_DOT:
 			pos += 1
 			continue
+		# 2.0 stripped a comment off the whole line before reading its path,
+		# so a quote left open in the name half, as in `a[b'c]`, kept a `#`
+		# after it as text up to that quote's close. Commas split the value
+		# alone, so only where the comment starts moves.
+		carried = _v2_quotes(s, 0, pos, None)[0] if rules is _Lex.V2 and not path else None
 		if b == sep_b:
 			out.sep = pos
-			_scan_value(s, pos + 1, rules, out)
+			if carried is None:
+				_scan_value(s, pos + 1, rules, True, out)
+				return
+			comment = _v2_quotes(s, pos + 1, n, carried)[1]
+			_scan_value(s[:n if comment is None else comment], pos + 1, rules, False, out)
+			out.comment = comment
+			return
+		# 2.0 read that `#` as text after the path, and refused the line.
+		if _comment_at(s, pos) and carried is not None:
+			out.fault = (pos, "unexpected character after the path")
 			return
 		if _comment_at(s, pos):
 			out.comment = pos
@@ -2784,7 +2821,7 @@ def _line_fence(tok):
 			return None
 		value = Tokens()
 		value.src = s
-		_scan_value(s, sep + 1, _Lex.Current, value)
+		_scan_value(s, sep + 1, _Lex.Current, True, value)
 		return _fence_open(s[value.value[0]:value.value[1]].decode("utf-8", "surrogatepass"))
 	if tok.sep is None:
 		return None
@@ -4479,6 +4516,15 @@ def _migrate_line(rest, tok, fence, st):
 		_lex_line(rest, ":", False, st.rules, tok)
 		if tok.fault is not None or _old_refused(s, tok, False, st):
 			return rest, fence
+		# A quote in the name half moved the comment for 1.0 to 2.0, and not
+		# for the 2.x builds after them, so a file that doesn't say which it
+		# was written for reads 2 ways.
+		if tok.sep is not None and st.rules is _Lex.V2 and not st.from_v2 and _v2_quotes(s, 0, tok.sep, None)[0] is not None:
+			plain = Tokens()
+			_lex_value(rest, tok.sep + 1, _Lex.V2, plain)
+			if plain.elements != tok.elements or plain.comment != tok.comment:
+				st.ambiguous += 1
+				return rest, fence
 		last = len(tok.segments) - 1
 		# A selector in brackets is E029 now, so its line never reads clean
 		# and is rewritten whatever the file says it is. Only `name:[disc]`
