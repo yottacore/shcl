@@ -783,7 +783,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Dogfood leftovers and gaps
 	- ID: 2026110215285714
 	- Type: Task
-	- Status: Queued
+	- Status: Closed
 	- Priority: Low
 	- Target version: v3.0.0
 	- Opened: 20261102-152857
@@ -800,6 +800,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Decisions:
 		- me, 20261120: the macOS pool stays in `~/.local/bin`, as on Linux. `~/Applications` is where app bundles go and isn't on PATH, and the installer's own link on macOS is `~/.local/bin/shcl`. So the shared rule's `~/Applications` rows don't apply to shcl, and nothing moves.
 			- me, 20261120: JC was asked whether the shared rule should win, and the call came back to me. It stays. A command line tool that isn't where the installer puts it, or where Linux has it, surprises more than one that differs from a rule written for apps.
+	- Test case: shell-regress `dd2gp` also checks that the cross-built dogfood install asks `fInUse` first. The text check fails on the old cicd.bash.
+	- Swept: the 3 install sites in stage 7 (native, cross loop, runner copies). The runners are scripts and aren't run from the dest, so they get no check. A grep of the synced util tree and the repo found no user of the trashed files.
+	- Verified: shell-regress passed in full, `dd2gp` included. The in-use check for a Windows or macOS binary only sees processes on this box.
+	- Done: trashed `0_crossplatform/shcl.ps1`, `include/shcl.bash` under the linux, macos and wsl bash dirs, and `wsl/bin/shcl` in the synced util tree, with JC's go-ahead. The macOS pool stays, per Decisions.
+	- Closed: 20261127-122500
+	- Closed reason: Done
+	- Acceptance signoff: Self-closed: mechanical, and the check passed.
 
 - Some install paths differ from the shared install table
 	- ID: 2026110215285717

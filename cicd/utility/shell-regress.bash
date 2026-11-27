@@ -3771,6 +3771,8 @@ elif [[ -d /proc/self ]]; then
 	fInUse "${tmpDir}/inuse-bin" && fBad "cicd.bash called an idle dogfood binary running"
 	# shellcheck disable=SC2016  ## cicd.bash's own text, matched literally
 	grep -qF 'fInUse "${dogfood_dest}/${EXE_NAME}"' "${repoDir}/cicd/cicd.bash" || fBad "cicd.bash no longer asks whether the dogfood binary is running"
+	# shellcheck disable=SC2016  ## cicd.bash's own text, matched literally
+	grep -qF 'fInUse "${x_dest}/${EXE_NAME}${x_ext}"' "${repoDir}/cicd/cicd.bash" || fBad "cicd.bash no longer asks whether a cross-built dogfood binary is running"
 fi
 
 fTest dc7gc 20260904-25-largedoc-small-size

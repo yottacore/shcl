@@ -1949,6 +1949,7 @@ if fStepOn dogfood && [[ -f "${RELEASE_NATIVE_BIN:-/nonexist}" ]]; then
 		unset -n x_dests
 		[[ -n "$x_dest" ]] || { fEcho "WARNING: no ${x_osarch} dogfood dest exists+writable; skipping"; continue; }
 		x_ext=""; [[ "$x_src" == *.exe ]] && x_ext=".exe"
+		if fInUse "${x_dest}/${EXE_NAME}${x_ext}"; then fEcho "WARNING: ${x_dest}/${EXE_NAME}${x_ext} is running; dogfood copy skipped"; continue; fi
 		fInstallAtomic "$x_src" "$x_dest" "${EXE_NAME}${x_ext}"
 	done
 	## The runner and its launchers, only where they changed, so an ordinary run
