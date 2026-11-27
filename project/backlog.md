@@ -130,7 +130,8 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Avg
 	- Decisions:
 		- 20261126: `set_stacked(path, on)` in all 4 and C++ (Go `SetStacked`, C `shcl_set_stacked`), as the item names it (me). A path with no list, an empty list, or a list with fields under it is `Ok` and changes nothing, as the item asks, and so is on for a list after an empty binding of its name, which stays in brackets through the same settle a setter uses. A path a setter refuses gets the setter's status, such as `Wildcard`.
-		- 20261126: each item keeps the quotes its array setter gave it, so a path with a blank comes out `- "/home/me/a long folder"` (me). Quotes for the stacked form would change what Loose reads for `"1,200"`. It's the text nemo-anywhere's stand-in gives today. questions.md has a `Check:` entry for it.
+		- 20261126: each item keeps the quotes its array setter gave it, so a path with a blank comes out `- "/home/me/a long folder"` (me). Quotes for the stacked form would change what Loose reads for `"1,200"`. It's the text nemo-anywhere's stand-in gives today.
+			- 20261127: kept as built (me). A re-quote would make on and off read differently under Loose, and the quotes match what a scalar setter and a set over a list already stacked write. The reasons are in questions.md.
 		- 20261126: no CLI flag. The item asks for the library call.
 	- Actual fix: `set_stacked` marks the list stacked, or puts it back in brackets with the lines among its items above it, as a setter does. On also lets the next merge bracket it again. spec.md's Writer and Arrays, and the changelog's New, say so.
 	- Swept: each binding has the call beside its typed array setters, built on the same `stacks`, `unstack`, settle and kept-line steps as `set_value` (`grep -n 'star_list = stacked\|starList = stacked'`). `check-veneer.bash` counts the C call made by `shcl.hpp`. A method needs no `__all__` entry, and Go's calls `ready()` first.
