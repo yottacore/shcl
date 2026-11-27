@@ -172,7 +172,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Review the whole code base for Critical and High bugs before each release
 	- ID: 2026112509394527
 	- Type: Task
-	- Status: Queued
+	- Status: Stalled
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261125-093945
@@ -186,6 +186,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Run it after the other beta.2 items close, so it reviews the code that goes out.
 	- Prereq IDs: 2026112514344606, 2026112517314397, 2026112516450897, 2026112517280964
 	- 20261126: Prereq IDs name the other open beta.2 items, since its own text says it runs after they close.
+	- 20261127: Held for the other beta.2 items to close, a hosted run on them, and a bare cicd run, per its own text that it runs after they close.
 
 - `upgrade` without `--from` says `--from` rewrites a comma cut inside a pair, and no cut-pair message says how to fix it
 	- ID: 2026112516450897
