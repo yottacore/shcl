@@ -535,12 +535,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - win-runners: give the c++ veneer row a test ID, so a check-boxes log shows its pass
 	- ID: 2026112317335202
 	- Type: Task
-	- Status: Queued
+	- Status: Waiting on automated testing
 	- Priority: Low
 	- Opened: 20261123-173352
 	- Opened by: 2026110710374327's box run
 	- Problem description: the row has no fRun --id, so a b29w suites visit shows it only inside the win-runners row total.
 	- Estimated effort: Low
+	- Actual fix: the `c++ veneer` row of win-runners.bash is `fRun --id dfwd8`, so it prints its own `PASS dfwd8 win-runners c++ veneer` line.
+	- Test case: `dfwd8`, in a b29w `suites` visit through check-boxes (under `den85`).
+	- Needs external testing: a b29w `suites` visit through check-boxes, reading `PASS dfwd8` in its log.
+	- Verified: `test-ids.py check` passed (2464 tests) with the new ID. The row's command is unchanged, so only the status line is new.
+	- Swept: the other rows without `--id` in win-runners.bash (rust, go, python, c, oom, mem bounds, cli regress, windows path) are separate rows, not filed here.
 
 - Rust's file calls can't save to a path that isn't UTF-8
 	- ID: 2026111217560157
