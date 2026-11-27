@@ -509,7 +509,7 @@ fRun "go cli"      "go"             go -C source/go/cmd test -count=1 ./...
 fRun "python"      "${py}"          "${py}" -X dev -W error::ResourceWarning source/python/tests/conformance.py
 fRun "python soak" "${py}"          "${py}" -X dev -W error::ResourceWarning source/python/tests/soak.py
 fRun "c"           "${cc}"          fRunC
-fRun "c++ veneer"  "${cxx}"         fRunCxx
+fRun --id dfwd8 "c++ veneer"  "${cxx}"         fRunCxx
 fRun "c oom hook"  "${cc}"          fRunOomSweep oom_hook
 fRun "c oom recover" "${cc}"        fRunOomSweep oom_recover
 fRun "c mem bounds" "${cc}"         fRunMemBounds

@@ -97,7 +97,7 @@ while (($#)); do case "$1" in
 esac; done
 [[ -d "${corpus}" ]] || { echo "check-migrate: no corpus dir: ${corpus}" >&2; exit 2; }
 
-##	The last dev commit before the lexical cut: the funnel merge.
+##	The last dev commit before the lexical cut: the funnel merge. Not v2.0.0, which reads 519 documents differently; check-formats dfjae compares `upgrade --from=2.0` against that tag.
 pin="7be348d0de309ead4cba9f2fa28650b48b320519"
 if ! git -C "${root}" cat-file -e "${pin}^{commit}" 2>/dev/null; then
 	## A shallow clone (the hosted runner) has no history; a full sha can still
@@ -413,6 +413,11 @@ for n, line in enumerate(text.split("\n"), 1):
 ##	            before its close, or after it when it never closes. 2.0 kept
 ##	            the piece whole, and migrate does too (2026102620591100,
 ##	            2026112008173388), while the pinned build cut it there.
+##	            Also a line whose name half leaves a quote open, as in
+##	            `a[b'c].d: 1 # e`, with a `#` after it. 2.0 stripped the
+##	            comment off the whole line, so that `#` was text up to the
+##	            same quote, and migrate --from=2.0 reads it so too
+##	            (2026112711020529), while the pinned build read a comment.
 ##	  edge      a run of blanks at a piece's edge holding one other than a
 ##	            space, a tab or a CR, such as a no-break space. 2.0 trimmed
 ##	            every Unicode White_Space character there, and migrate does
@@ -449,6 +454,19 @@ fence = None
 def opens(v):
 	m = re.match(r"(`{3,}|~{3,})", v.lstrip(" \t"))
 	return (m.group(1)[0], len(m.group(1))) if m else None
+def open20(t):
+	q, k = None, 0
+	while k < len(t):
+		c = t[k]
+		if c == "\\":
+			k += 2
+			continue
+		if q:
+			q = None if c == q else q
+		elif c in "\"\x27":
+			q = c
+		k += 1
+	return q is not None
 def close(s, i):
 	j = i + 1
 	while j < len(s) and s[j] != s[i]:
@@ -507,6 +525,9 @@ for n, line in enumerate(text.split("\n"), 1):
 			else:
 				i += 2 if s[i] == "\\" else 1
 		i += 1
+		if mode == "midquote" and "#" in s[i:] and open20(s[:i - 1]):
+			print(n)
+			continue
 		fence = opens(s[i:])
 		if fence:
 			continue
@@ -918,6 +939,10 @@ fTest dej4h 210 still has a quote in a piece that closes past a comma and a hash
 ## Line 6's quote never closes, and has a comma after it.
 [[ "$(fMidQuote2x "${corpus}/210-migrate-mid-quote-comma/input.shcl" | paste -sd ' ')" == "1 2 3 4 5 6" ]] \
 	|| { echo "check-migrate: 210-migrate-mid-quote-comma no longer has a quote in a piece closing past a comma or a #, or never closing before one, on lines 1 to 6" >&2; nBad+=1; }
+fTest dfwb9 225 still has a quote left open in a selector with a hash after it
+## Lines 5 and 6 close the quote or shield it, and stay compared.
+[[ "$(fMidQuote2x "${corpus}/225-migrate-selector-quote/input.shcl" | paste -sd ' ')" == "1 2 3 4" ]] \
+	|| { echo "check-migrate: 225-migrate-selector-quote no longer has a quote left open in a selector with a # after it on lines 1 to 4 only" >&2; nBad+=1; }
 fTest dfjbm 058 still has a raw body that 2.0 and the pinned build read apart
 ## Its other 2 blocks read the same under both, and stay compared.
 [[ "$(fRawIndent2x "${corpus}/058-raw-indent/input.shcl" | paste -sd ' ')" == "2 3 4 5" ]] \

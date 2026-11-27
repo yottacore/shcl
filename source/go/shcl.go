@@ -1679,7 +1679,9 @@ const tmpNameBytes = 64
 // every comma splits, a backslash shields the next character in bare and
 // single-quoted value text, a bare selector body still runs to its first `]`,
 // a separator followed by `[` is the selector sugar, and an open quote
-// swallows the rest of the line. Under the unexported lexPin it reads the
+// swallows the rest of the line.
+// A quote left open in a line's name half, as in `a[b'c]`, keeps a `#`
+// after it as text up to that quote's close. Under the unexported lexPin it reads the
 // spellings of the pins from 3.0-1f8 to 3.0-a37, for their conversion step:
 // every comma splits, a backslash escapes in double quotes only, a selector
 // is in brackets, and a `[` after the separator is plain text.
@@ -1977,7 +1979,7 @@ func scanPiece(s string, pos int, term byte, rules lex, comments, array bool) (P
 			i := skipBlank(s, close+1, edges)
 			var ended bool
 			if i < len(s) {
-				ended = endsAt(i) || (array && s[i] == ']') || (term == ',' && commentAt(s, i))
+				ended = endsAt(i) || (array && s[i] == ']') || (term == ',' && comments && commentAt(s, i))
 			} else {
 				ended = term == ','
 			}
@@ -2087,10 +2089,37 @@ func lexValue(text string, from int, rules lex, out *Tokens) {
 	if from < 0 {
 		from = 0
 	}
-	scanValue(text, from, rules, out)
+	scanValue(text, from, rules, true, out)
 }
 
-func scanValue(text string, from int, rules lex, out *Tokens) {
+// v2Quotes is 2.0's comment strip from pos to end, with the quote open
+// already open (0 for none): a backslash shields the next character, and a
+// quote opens until the same quote. It gives the quote still open at end, and
+// the first `#` outside quotes, where the strip stopped (-1 for none).
+func v2Quotes(s string, pos, end int, open byte) (byte, int) {
+	for pos < end {
+		b := s[pos]
+		if b == '\\' {
+			pos++
+			if pos < end {
+				pos += utf8Len(s, pos)
+			}
+			continue
+		}
+		switch {
+		case open != 0 && b == open:
+			open = 0
+		case open == 0 && (b == '"' || b == '\''):
+			open = b
+		case open == 0 && b == '#':
+			return 0, pos
+		}
+		pos += utf8Len(s, pos)
+	}
+	return open, -1
+}
+
+func scanValue(text string, from int, rules lex, comments bool, out *Tokens) {
 	s := text
 	pos := skipWsp(s, from)
 	if rules == lexCurrent && pos < len(s) && s[pos] == '[' {
@@ -2101,7 +2130,7 @@ func scanValue(text string, from int, rules lex, out *Tokens) {
 	var stopAt int
 	count := 0
 	for {
-		piece, stop := scanPiece(s, pos, ',', rules, true, false)
+		piece, stop := scanPiece(s, pos, ',', rules, comments, false)
 		out.Elements = append(out.Elements, piece)
 		if piece.Quote != QuoteNone || piece.End > piece.Start {
 			count++
@@ -2357,9 +2386,32 @@ func lexLine(text string, sep byte, path bool, rules lex, out *Tokens) {
 			pos++
 			continue
 		}
+		// 2.0 stripped a comment off the whole line before reading its path,
+		// so a quote left open in the name half, as in `a[b'c]`, kept a `#`
+		// after it as text up to that quote's close. Commas split the value
+		// alone, so only where the comment starts moves.
+		var carried byte
+		if rules == lexV2 && !path {
+			carried, _ = v2Quotes(s, 0, pos, 0)
+		}
 		if b == sep {
 			out.Sep = pos
-			scanValue(text, pos+1, rules, out)
+			if carried == 0 {
+				scanValue(text, pos+1, rules, true, out)
+				return
+			}
+			_, comment := v2Quotes(s, pos+1, len(s), carried)
+			end := len(s)
+			if comment >= 0 {
+				end = comment
+			}
+			scanValue(text[:end], pos+1, rules, false, out)
+			out.Comment = comment
+			return
+		}
+		// 2.0 read that `#` as text after the path, and refused the line.
+		if commentAt(s, pos) && carried != 0 {
+			out.Fault, out.FaultReason = pos, "unexpected character after the path"
 			return
 		}
 		if commentAt(s, pos) {
@@ -5458,6 +5510,23 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 		lexLine(rest, ':', false, st.rules, tok)
 		if tok.Fault >= 0 || oldRefused(rest, tok, false, st) {
 			return rest
+		}
+		// A quote in the name half moved the comment for 1.0 to 2.0, and not
+		// for the 2.x builds after them, so a file that doesn't say which it
+		// was written for reads 2 ways.
+		if tok.Sep >= 0 && st.rules == lexV2 && !st.fromV2 {
+			if q, _ := v2Quotes(rest, 0, tok.Sep, 0); q != 0 {
+				var plain Tokens
+				lexValue(rest, tok.Sep+1, lexV2, &plain)
+				same := plain.Comment == tok.Comment && len(plain.Elements) == len(tok.Elements)
+				for i := 0; same && i < len(plain.Elements); i++ {
+					same = plain.Elements[i] == tok.Elements[i]
+				}
+				if !same {
+					st.ambiguous++
+					return rest
+				}
+			}
 		}
 		last := len(tok.Segments) - 1
 		// A selector in brackets is E029 now, so its line never reads clean and

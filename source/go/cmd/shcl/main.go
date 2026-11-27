@@ -2401,11 +2401,9 @@ func doGet(o *opts) int {
 // such as `0o644 for octal or 644 for decimal` for `0644`, or false when v has
 // none. A read refuses one outside Loose (parseIntText in the library).
 func leadingZeroFix(v string) (string, bool) {
-	sign, body := "", v
+	sign, body := "", strings.TrimPrefix(v, "+")
 	if strings.HasPrefix(v, "-") {
 		sign, body = "-", v[1:]
-	} else {
-		body = strings.TrimPrefix(v, "+")
 	}
 	if len(body) < 2 || body[0] != '0' {
 		return "", false

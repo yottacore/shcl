@@ -101,6 +101,7 @@ WPM_DIGITS    = 63           # default; scenario wpm_digits overrides
 WPM_NOTES     = (233, 263)   # "# comment" lines fly by
 FLAG_PAUSE_MS = (200, 380)   # a beat of thought before a -flag token
 TYPO_RATE     = 0.018        # per letter; capped at 2 fixes per command
+POSTER_MS = 100
 BLACK_HOLD_MS = 3000         # dark beat at the loop seam; a cut, not a fade
 BLINK_MS      = 530          # cursor on/off half-period while idle at the prompt;
                              # one frame per phase, and only the block changes
@@ -685,6 +686,8 @@ def fMain() -> None:
 
 	clearBetween = bool(sc.get("clear", True))
 	blankAfter = bool(sc.get("blankafter", True))
+	posterStep = sc.get("posterstep")                # step whose finished frame opens the gif
+	poster = None
 	snap(700)                                        # opening frame = loop-in target
 	for stepIdx, step in enumerate(sc["step"]):
 		if clearBetween and stepIdx:
@@ -739,6 +742,8 @@ def fMain() -> None:
 			if scr.fRestScroll() > scr.scroll + 0.5:
 				settle(rate)
 			snap(60)
+			if posterStep == stepIdx:
+				poster = mov.frames[-1].copy()
 			##	Hold past the read time when the window is about to wipe - the
 			##	output should not vanish the instant the eye finishes it.
 			holdPause(1000 * float(step.get("pause", 2.6))
@@ -749,6 +754,11 @@ def fMain() -> None:
 	##	Hard cut to black and hold. A crossfade reads nicer but every fade frame
 	##	changes every pixel, so it is dozens of full frames the optimizer cannot
 	##	diff away - most of the file for a second nobody watches.
+	if poster is not None:
+		##	First frame of the file is what a still or a preview shows, so it
+		##	carries a command and its output. It is a brief flash on each loop.
+		mov.frames.insert(0, poster)
+		mov.durs.insert(0, POSTER_MS)
 	black = mov.frames[0].copy()
 	black.putpalette([0] * len(mov.frames[0].getpalette()))
 	mov.frames.append(black)

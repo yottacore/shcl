@@ -35,144 +35,39 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- a_save_names_this_format leaks a String on purpose, so sanitize-rust fails de2pb and de2pc on hosted
-	- ID: 2026112613535880
-	- Type: Bug
-	- Status: Queued
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261126-135358
-	- Opened by:
-	- Version and build: dev at f3a84334
-	- Problem description: `a_save_names_this_format` (`dfe62`, `source/rust/tests/conformance.rs` near 8489) builds one case with `.replace("{s}", s).leak()`. LeakSanitizer reports the 46 bytes (`de2pb`) and Miri stops on the leak (`de2pc`), so the hosted ci (tests) part aborts at sanitize-rust. It came in with `ff279feb` on 20261117. Hosted runs never reached sanitize-rust before nov26, so nothing showed it.
-	- Estimated effort: Low
-	- Progress log:
-		- 20261126: Hosted run 45894942389 on nov26: FAIL de2pb then de2pc, CICD ABORTED at sanitize-rust. Every other job passed.
-
-- codeql-scan: 2 findings from nov25 fail de5ag and de5ah
-	- ID: 2026112613084386
-	- Type: Bug
-	- Status: Queued
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261126-130843
-	- Opened by:
-	- Version and build: dev at f3a84334
-	- Problem description: codeql-scan finds `cpp/long-switch` at `source/c/shcl.h` (the `SEL_INDEX` case of the switch near line 7341, 37 lines) and `go/useless-assignment-to-local` at `source/go/cmd/shcl/main.go` 2404 (`body` in `leadingZeroFix`). Both lines came in with nov25 (`f692c12d`, `36a65b20`). CodeQL runs in the full run and the merge gate, so the merge gate is red until they are fixed or suppressed with a reason.
-	- Estimated effort: Low
-	- Progress log:
-		- 20261126: Found by the nov26 gate step. The third finding then, py/empty-except in conformance.py, was nov26's own and is fixed in that round.
-
-- analyze-c --ctu fails de57z, since fs_property.c's own half uses the library's SHCL_NORETURN and realpath
-	- ID: 2026112610320388
-	- Type: Bug
-	- Status: Waiting on automated testing
-	- Needs external testing: hosted ci.yml run: the windows job's C fs-property build, and ci (tests) `de57z`.
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261126-103203
-	- Opened by: 2026112514344606
-	- Related IDs: 2026112514344606
-	- Steps to reproduce: `cicd/utility/analyze-c.bash --ctu`, the first fast leak check of a full run, the merge gate and the hosted tests part.
-	- Incorrect behavior: de57z fails on fs_property.c with 'unknown type name SHCL_NORETURN' and 'call to undeclared function realpath'. The split hands the file's own code shcl.h without SHCL_IMPLEMENTATION, and both live in the implementation half.
-	- Expected behavior: every C test program that analyze-c splits builds as a program using the header would.
-	- Origin: Confirmed. `befea7fa` (20261110) brought fs_property.c in with SHCL_NORETURN, after the last bare run that passed de57z (run_20261110-065922). The quick run skips the leak checks.
-	- Actual cause [Bug]: fs_property.c's own code used 2 things only shcl.h's implementation half gives: SHCL_NORETURN, and its realpath declaration. `_POSIX_C_SOURCE 200809L` alone doesn't declare realpath in glibc, which puts it under XSI.
-	- Actual fix [Bug]: fs_property.c defines `_XOPEN_SOURCE 700` beside `_POSIX_C_SOURCE`, as shcl.h does for itself, and its own `FS_NORETURN`.
-	- Decisions: the file is made to stand alone, rather than added to analyze-c's `ctuWhole`, so the cross-file analyzer keeps checking it (me).
-	- Swept: the other 3 files analyze-c splits pass de57z with it. conformance.c, mem_bounds.c and main.c are left whole by design.
-	- Verified: 20261126. de57z failed in a stand-in run of the hosted tests part and passes on the change (`analyze-c.bash --ctu`, 4 files split, 3 whole). fs_property.c builds under gcc 12, 14 and 15, clang and mingw gcc 14, and its C test passes here (`df4ep`, `df4eq`).
-	- Test case: analyze-c `de57z`.
-	- Branch: `nov26-2026112514344606`
-	- Commit: `214c9396`
-	- Prereq IDs: 2026112613535880
-	- 20261126: Hosted run 45894942389 on nov26: the windows job passed, with the C fs-property build. ci (tests) stopped at sanitize-rust (2026112613535880) before de57z. de57z passed locally in the nov26 gate step.
-
-- sanitize-c doesn't build shcl.h under gcc 14 or 15, since -Wclobbered flags migrate_text
-	- ID: 2026112610182646
-	- Type: Bug
-	- Status: Closed
-	- Closed reason: Done
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261126-101826
-	- Opened by: 2026112514344606
-	- Related IDs: 2026112514344606, 2026112310344449
-	- Steps to reproduce: `cicd/utility/sanitize-c.bash` on a box whose `cc` is gcc 14, as here, or a stand-in run of the hosted tests part.
-	- Incorrect behavior: every sanitizer build stops at shcl.h's migrate_text with 'variable then might be clobbered by longjmp' and the same for 'written', under -Werror at -O1 with ASan and UBSan. The merge gate and a full run fail there. gcc 12 and 13 build it. Ubuntu 24.04's default cc is gcc 13, so the hosted runner likely builds it too (unverified).
-	- Expected behavior: shcl.h builds clean under sanitize-c's flags with every gcc check-c-compilers knows.
-	- Origin: Confirmed. `4ecf81eb` (20261120) added `then` to migrate, which gcc inlines into migrate_text's setjmp frame. The quick run skips sanitize-c.
-	- Actual cause [Bug]: gcc 14 and 15 at -O1 with ASan and UBSan inline migrate into migrate_text, the frame that holds the SHCL_SETJMP, and guess that 2 of its locals are at risk. The recovery path reads only the volatile own and outer, which nothing assigns, so the guess is wrong.
-	- Actual fix [Bug]: migrate_text is wrapped in the same `-Wclobbered` pragma as do_parse, keep_text and the other setjmp frames that inline a callee.
-	- Decisions: the pragma, rather than a volatile copy as in 2026112310344449, since the flagged locals belong to the inlined callee and the recovery path never reads them (me).
-	- Swept: main.c, oom_hook.c and mem_bounds.c under gcc 14 and 15 at -O1, -O2, -O3 and -Os with sanitize-c's flags, 24 builds, all clean. check-c-compilers passed 141 builds over 5 compilers.
-	- Verified: 20261126. sanitize-c failed on all 5 builds before the fix and passes after, every row included. main.c under sanitize-c's flags fails under gcc 14 and 15 before and builds under gcc 12 to 15 and clang after. analyze-c `de2x2` to `de2x4` and `--backlog-run-quick c` pass on the change.
-	- Test case: sanitize-c `dbxj4`, `dbxj5`, `dc113`, `dc25h` and `dbz3a`, whose builds stopped here.
-	- Branch: `nov26-2026112514344606`
-	- Commit: `6bc68b21`
-	- Acceptance signoff: Self-closed: its gate failed before the fix and passes after.
-	- Closed: 20261126-103629
-
-- Writer: a way to ask for a list written one `- ` item per line
-	- ID: 2026112517314397
+- The default run takes over an hour
+	- ID: 2026110215285706
 	- Type: Enhancement
-	- Status: Closed
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261125-173143
-	- Opened by: nemo-anywhere 2026110911301888
-	- Version and build: `3.0.0-beta1`
-	- Problem description: a typed array setter writes a list it makes in brackets, however long it is. A list stays stacked only when the loaded file already had it that way, so a program can't ask for the stacked form. A long list it writes, such as folder paths, comes out as one long line. Smallest case: parse `state:` with one key under it, set `favorites` to 3 long strings, and the text has `favorites: ["...", "...", "..."]`.
-	- Requirements:
-		- A call such as `shcl_set_stacked(doc, path, plen, on)` sets how the list at a path is written, after any typed array setter. One call covers every array type.
-		- A later set keeps the layout, and off puts it back in brackets. A path with no list, or an empty one, changes nothing.
-		- All 4 bindings agree, a conformance row pins it, and the spec's writer section says so.
-	- Estimated effort: Avg
-	- Decisions:
-		- 20261126: `set_stacked(path, on)` in all 4 and C++ (Go `SetStacked`, C `shcl_set_stacked`), as the item names it (me). A path with no list, an empty list, or a list with fields under it is `Ok` and changes nothing, as the item asks, and so is on for a list after an empty binding of its name, which stays in brackets through the same settle a setter uses. A path a setter refuses gets the setter's status, such as `Wildcard`.
-		- 20261126: each item keeps the quotes its array setter gave it, so a path with a blank comes out `- "/home/me/a long folder"` (me). Quotes for the stacked form would change what Loose reads for `"1,200"`. It's the text nemo-anywhere's stand-in gives today.
-			- 20261127: kept as built (me). A re-quote would make on and off read differently under Loose, and the quotes match what a scalar setter and a set over a list already stacked write. The reasons are in questions.md.
-		- 20261126: no CLI flag. The item asks for the library call.
-	- Actual fix: `set_stacked` marks the list stacked, or puts it back in brackets with the lines among its items above it, as a setter does. On also lets the next merge bracket it again. spec.md's Writer and Arrays, and the changelog's New, say so.
-	- Swept: each binding has the call beside its typed array setters, built on the same `stacks`, `unstack`, settle and kept-line steps as `set_value` (`grep -n 'star_list = stacked\|starList = stacked'`). `check-veneer.bash` counts the C call made by `shcl.hpp`. A method needs no `__all__` entry, and Go's calls `ready()` first.
-	- Verified: the 4 runners' new test passes, and fails in Rust without the empty-binding settle and in Python without the merge reset. The quick run over rust, go, python and c, the veneer smoke, check-veneer, check-docs and markdownlint passed too.
-	- Test case: `set_stacked_writes_the_list_stacked` in all 4 runners: Rust `dftx7`, Go `dftx8`, Python `dftx9`, C `dftxa`. C++ is in the veneer smoke `d9v59`.
-	- Branch: `nov26-2026112517314397`
-	- Commit: `2b8a40da`
-	- Acceptance signoff: Self-closed: built as the item asks, and the new runner tests fail without the fix and pass with it. The quoting call is in questions.md as a `Check:` entry.
-	- Closed: 20261126-110500
-	- Closed reason: Done
-	- Origin: nemo-anywhere 2026110911301888. The draft text and a patch for the C header (`set-stacked.patch`, against `v3.0.0-beta1`) are in `private/claude_simple/upstream/nemo-anywhere-2026110911301888/`. nemo-anywhere works around it today by giving each long list a stacked stand-in in the saved text, setting the real items over it, and keeping the result only when every key reads the same.
-
-- Hosted tests: check-push-gate df2ss fails on every hosted runner, since the scope check skips under GITHUB_ACTIONS
-	- ID: 2026112514344606
-	- Type: Bug
 	- Status: Waiting on automated testing
-	- Needs external testing: hosted ci.yml run, job ci (tests): `df2ss` passes and the part runs to its end. sanitize-rust, skipped in the stand-in, runs there too.
-	- Priority: High
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261125-143446
-	- Opened by:
+	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full` on a tree with `shcl.h` changed since cppcheck's last pass, to read the new length. The Lint step should drop to about 6 minutes, with cppcheck's output after `OK: tests passed`.
+	- Priority: Avg
+	- Target version: v3.0.0
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 6
+	- Related IDs: 2026102515494614
+	- Problem description: `run_20261101-103838` took 76 minutes and `run_20261101-120609` took 72, with 49 of them in tests. The run lengths item closed on a 59-minute run, before the box step and the hosted job were added.
+	- Requirements:
+		- Time each step over 2 runs, then move what pushes the run past an hour to `--long`.
+	- Estimated effort: Avg
+	- Actual effort: Avg
 	- Progress log:
-		- 20261125: Hosted run 45707733038 on nov25, ci (tests): FAIL df2ss, systemd-run's calls were empty, then CICD ABORTED at check-push-gate. fMemScope in cicd/utility/include/mem-cap.bash returns early when GITHUB_ACTIONS is set, and fEngine in check-push-gate.bash doesn't clear it, so the fake systemd-run is never called on a hosted runner.
-		- 20261125: Not new. df2ss came in with 54330fb9 on 20261109, and hosted tests always stopped earlier at shell-regress dcvej until nov25 fixed the demo gif. Passes on the host. Likely fix: -u GITHUB_ACTIONS in fEngine's env, then check what else a hosted run reaches past it.
-		- 20261125: High, since a red hosted run blocks the beta.2 release bar.
-		- 20261126: a stand-in of the hosted tests part, under GITHUB_ACTIONS=true and CI=true, with the steps that passed in 45707733038 skipped, found sanitize-c red under gcc 14 (2026112610182646) and analyze-c `de57z` red (2026112610320388). Both are fixed. The rest of the part passed, but for sanitize-rust, which it skipped.
-		- 20261126: Hosted run 45894942389 on nov26: PASS df2ss, then ci (tests) stopped at sanitize-rust on a leak in an older test (2026112613535880). Still needs the part to run to its end.
-	- Actual cause [Bug]: check-push-gate's engine runs took the runner's GITHUB_ACTIONS=true, so fMemScope returned before systemd-run, and df2ss's 3 scope cases saw no calls.
-	- Actual fix [Bug]: check-push-gate unsets GITHUB_ACTIONS beside CICD_MEM_CAP and SHCL_MEM_SCOPED, so its engine runs go as on a workstation. The 2 cases that want it set it themselves.
-	- Decisions: unset once at the top rather than `-u` in fEngine, so the script's other runs of the engine and check-docs get the same. No new row: a run under GITHUB_ACTIONS=true is the test, and the hosted part is one (me).
-	- Swept: GITHUB_ACTIONS is read only by cicd.bash, for the macos job, and by fMemScope. shell-regress and check-install-dev, which also run copies of them, passed in 45707733038.
-	- Verified: 20261126. `GITHUB_ACTIONS=true CI=true check-push-gate.bash` failed df2ss with the hosted run's 3 messages before the fix, and passes all 90 rows after. It passes without GITHUB_ACTIONS too.
-	- Test case: check-push-gate `df2ss`, run under GITHUB_ACTIONS=true as the hosted tests part does.
-	- Branch: `nov26-2026112514344606`
-	- Commit: `91e42cb4`
-	- Prereq IDs: 2026112613535880
+		- 20261127: step times from the bare run logs in `cicd/artifacts/lint/`. The last 2 bare runs, `run_20261117-172546` and `run_20261125-092049`, failed in the Tests step, so the times come from the last 2 that finished, `run_20261110-000836` (60 min) and `run_20261110-065922` (63 min): Lint 5 min, Tests 34 and 37, Release builds 6, Test boxes 14, the rest under a minute each. Lint took 38 to 48 minutes in 6 bare runs after a C change (`run_20261107-162435`, `run_20261108-122450`, `run_20261109-184836`, `run_20261109-230349`, `run_20261117-140035`, `run_20261117-172546`). Against a warm Lint of 5 minutes, the rest is cppcheck's exhaustive pass on 2 cores (inferred, since the log doesn't time it). That's what puts a run near 100 minutes.
+		- The logs don't time the steps inside the Tests stage, so none of them is picked out here.
+		- 20261127: cppcheck, named in config.bash's new `LINT_BESIDE`, starts with the lint stage and runs beside the tests stage. The tests stage waits for it after the leak checks, prints its output there, and fails on it. A run without the tests stage, such as the hosted lint job, runs it in the lint stage. design.md's CI/CD section says so.
+	- Decisions:
+		- me: cppcheck runs beside the tests rather than moving to `--long`, since this departs from the wording but meets the intent. A run with no flags that left it out would have to stop recording its tree, so every push to main would run the whole merge gate again. `Check:` in questions.md.
+		- me: `--merge-gate` and `--backlog-run-full` lose no check. They run the same steps, cppcheck beside the tests. A recorded tree still means cppcheck passed. `--backlog-run-quick` and `--quick` leave cppcheck out through `QUICK_SKIP`, as before.
+		- me: a cppcheck failure shows in the Tests step, under the cppcheck command, rather than in Lint.
+	- Swept: the other paths that run `LINT_EXTRA`: `--backlog-run-quick`'s side-by-side path is unchanged, and `--no-tests` (hosted lint job) runs it inline. An early stop takes the background job down through `fStopDescendants`. Nothing in the tests stage writes `shcl.h`, `main.c` or `conformance.c` while cppcheck reads them. lint-report reads the whole log, so where the output lands doesn't change it.
+	- Verified: check-push-gate passed, `dfw8s` included, and `dfw8s` failed on the old engine with its 2 run cases and the failure message. shell-regress, `cicd.bash --backlog-run-quick cicd` (lint-report CLEAN), shellcheck and `test-ids.py check` passed.
+	- Test case: check-push-gate `dfw8s`: a LINT_BESIDE step meets a test step's file in a bare run and a `--merge-gate` run, its output follows `OK: tests passed`, a failing one fails the run and records nothing, and `--no-tests` runs it in the lint stage.
+	- Branch: `nov27-2026110215285706`
+	- Commit: `ab54861f`
 
 - Review the whole code base for Critical and High bugs before each release
 	- ID: 2026112509394527
 	- Type: Task
-	- Status: Queued
+	- Status: Stalled
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261125-093945
@@ -186,67 +81,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Run it after the other beta.2 items close, so it reviews the code that goes out.
 	- Prereq IDs: 2026112514344606, 2026112517314397, 2026112516450897, 2026112517280964
 	- 20261126: Prereq IDs name the other open beta.2 items, since its own text says it runs after they close.
-
-- `upgrade` without `--from` says `--from` rewrites a comma cut inside a pair, and no cut-pair message says how to fix it
-	- ID: 2026112516450897
-	- Type: Bug
-	- Status: Closed
-	- Severity: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261125-164508
-	- Opened by:
-	- Related IDs: 2026111016205702, 2026111016205703
-	- Version and build: dev at `188f58bd`
-	- Problem description: On a file of `a: x` and `k: sma(close, 10)`, `shcl upgrade` says "1 value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for, or have a comma inside a backtick, paren or bracket pair; nothing written (--from=FORMAT rewrites them)", exit 7. `shcl upgrade --from=2.0` on the same file then refuses at exit 7 too, so the hint sends the user in a loop. The `--from` message, "which 2.x split there and nobody means", doesn't say what to do either. Neither message names braces, which count too.
-	- Requirements:
-		- Without `--from`, the hint promises a rewrite only for the values `--from` would rewrite, and names the cut-pair ones apart.
-		- Every cut-pair message says the way out: quote the value, or split it by hand, then run again.
-		- The CLI messages and the library's `Ambiguous` text name braces with the other pairs.
-		- The 4 CLIs stay byte-identical, with cli-regress rows for both cases.
-		- Line numbers stay with 2026111016205703.
-	- Decisions:
-		- me, 20261125: Avg, since the refusal itself is right and the file is safe. It targets beta.2 because these messages are new there, and changing them after the release would break any script that matches the text.
-		- me, 20261125: the CLI gets the cut-pair count by running the upgrade again in memory with `from`, which writes nothing, so no binding's result grows a field.
-		- me, 20261126: that run passes `from` 2.0 (`CUT_PAIR_PROBE`, Go `cutPairProbe`), since told the file is 2.x, `ambiguous` counts only cut pairs. `migrate` takes the same count from a second `migrate` call. When both kinds are there, the CLIs print 2 lines, the `--from` one first, each with its own count. With `--from`, only the cut-pair line.
-		- me, 20261126: the library's `Ambiguous` text keeps both kinds in one sentence, braces added, since it can't tell them apart without a new field.
-	- Actual cause [Bug]: the CLIs printed one count for both kinds of ambiguous value, under a pointer to `--from`, which rewrites only one kind. The cut-pair text came from the first fix and listed 3 of its 4 pairs.
-	- Actual fix [Bug]: one `say_ambiguous` in each CLI (Go `sayAmbiguous`) prints the rest with the `--from` pointer and the cut pairs with "quote them or split them by hand, then run again", for `migrate`, `upgrade`, and `upgrade --write`'s refusal. The cut-pair line, the library's `Ambiguous` text in all 4, the doc comments, the man page, examples.md and the changelog name braces. check-migrate's match on the cut-pair line follows the new text.
-	- 20261126: cli-regress `dfsj0` and `dfsj1` wanted "a backtick, paren or bracket pair, which 2.x split there and nobody means; left as written" (and "nothing written"), and now want "a backtick, paren, bracket or brace pair" and "(quote them or split them by hand, then run again)" after it. Nothing else in either row changed.
-	- Swept: every ambiguous message in the 4 CLIs (`migrate`, `upgrade`, `upgrade --write`), the `Ambiguous` error text and doc comment and `Migration`'s `ambiguous` doc in the 4 libraries, the C++ veneer (no copy of the text), the man page, examples.md, value-syntax.md (already named braces), the changelog, check-migrate and cli-regress. `grep -rn "paren or bracket pair"` finds none left outside the backlog.
-	- Verified: the 5 rows fail on the C CLI built from the round branch and pass on all 4 new CLIs, whose stderr over 15 probe runs (stdin and `--write`, with and without `--from`) matched byte for byte. cli-regress over the 4 CLIs (713 rows), check-migrate (636 documents, 13 refused for a cut pair as before), `--backlog-run-quick rust go python c cli` (all 5 steps, lint report clean), the markdown check and markdownlint (only lines already there) passed.
-	- Test case: cli-regress `dfty8`, `dfty9`, `dftya`, `dfsj0`, `dfsj1`.
-	- Actual effort: Low
-	- Acceptance signoff: Self-closed: the new rows were seen to fail on the old CLI, and the named gates passed.
-	- Branch: `nov26-2026112516450897`
-	- Commit: `9a5b030f`
-	- Closed: 20261126-112131
-	- Closed reason: Done
-
-- Under Miri, every Rust save stops on `sync_dir`'s folder fsync
-	- ID: 2026112517280964
-	- Type: Bug
-	- Status: Closed
-	- Severity: Avg
-	- Target version: v3.0.0-beta.2
-	- Opened: 20261125-172809
-	- Opened by: shcl feedback (tukzmon, 20261125)
-	- Version and build: 3.0.0-beta1, and dev as of 2026-11-25
-	- Problem description: Under Miri with isolation off, `write_file_atomic` and every save through `write_file_how` stop at `sync_dir`, with "unsupported operation: `fsync` is only supported on file-backed file descriptors". Miri ends the whole test binary there rather than returning an error, so the best-effort `let _` doesn't help. Natively nothing is wrong. A caller can't test any path that saves under Miri.
-	- Requirements:
-		- `sync_dir`'s body is gated on `not(miri)`, as `open_no_wait` already is. The folder fsync is about power loss, which Miri can't model.
-		- Check whether the conformance test ignored under Miri as "saves to disk" (`source/rust/tests/conformance.rs`) can run there after.
-	- Origin: tukzmon 2026112510392174. The draft text and a patch (`miri-sync-dir.patch`) are in `private/claude_simple/upstream/tukzmon-2026112510392174/`. tukzmon has 33 tests ignored under Miri for this alone, and one that missed its ignore stopped a long Miri run hours in.
-	- Decisions:
-		- me, 20261125: Avg, since native saves are right, but it blocks Miri for every caller that saves.
-		- 20261126: the same wall sat behind it. Miri has no `fchown` either, so the 2 best-effort group copies in `write_file_atomic` and `write_backup` are gated on `not(miri)` too. Natively nothing changes. The set-id half of `file_tier_load_save` skips its own `chown` under Miri and takes the test's existing skip branch.
-	- Fixed: `sync_dir` and the 2 `fchown` calls skip under Miri. 9 tests lost their "saves to disk" ignore. 2 that start a process (`write_status_names_each_failure`, `a_changed_check_knows_its_file_by_any_spelling`) keep an ignore with that reason. `setters_write_only_what_reads_back` runs about 50 minutes under Miri, so it is ignored as slow and `--miri-all` runs it.
-	- Test case: `dbcwv`, `dbxk2`, `dc42j`, `dbcxe`, `dekj6`, `dekm5`, `dekvt`, `ddmhf` and `de4ba`, the 9 Rust tests unblocked, run under Miri
-	- Verified: `a_create_only_save_refuses_a_file_already_there` fails under Miri with the fsync error on the ungated `sync_dir`, and the 9 pass with the fix (`sanitize-rust.bash --miri --only=...`). Native `cargo test` and clippy pass.
-	- Swept: every `sync_dir` caller goes through the one function. `fchown` appears only at the 2 sites gated. The Miri ignores for "saves to disk" are all removed or re-reasoned.
-	- Note: the quick run's check-docs fails `dcv66` (man page date older than its last commit), which is not from this change.
-	- Acceptance signoff: Self-closed. The test fails before and passes after.
-	- Closed: 20261126-114800
-	- Closed reason: Done
+	- 20261127: Held for the other beta.2 items to close, a hosted run on them, and a bare cicd run, per its own text that it runs after they close.
 
 - `Document::merge` drops the base file's comments on every leaf the upper layer names
 	- ID: 2026111217560140
@@ -261,38 +96,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Priority: Avg
 	- Target version: v3.1.0
 	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
-
-- The default run takes over an hour
-	- ID: 2026110215285706
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Avg
-	- Target version: v3.0.0
-	- Opened: 20261102-152857
-	- Opened by: Code review 20261102 item 6
-	- Related IDs: 2026102515494614
-	- Problem description: `run_20261101-103838` took 76 minutes and `run_20261101-120609` took 72, with 49 of them in tests. The run lengths item closed on a 59-minute run, before the box step and the hosted job were added.
-	- Requirements:
-		- Time each step over 2 runs, then move what pushes the run past an hour to `--long`.
-	- Estimated effort: Avg
-
-- Allow callers to request the multiline list form for arrays
-	- ID: 2026110911441449
-	- Type: Enhancement
-	- Status: Closed
-	- Priority: Avg
-	- Target version: v3.1.0
-	- Opened: 20261109-114414
-	- Opened by: JC
-	- Problem description: an array setter writes the bracket form. Only a list already stacked with `- ` items in the file stays stacked.
-	- Requirements:
-		- Allow callers to request the multiline list form for arrays.
-	- Note: 20261110, nemo-anywhere asked for it too.
-	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
-	- Test case: see 2026112517314397 (`dftx7`).
-	- Superseded by ID: 2026112517314397
-	- Closed: 20261126-110500
-	- Closed reason: Duplicate
 
 - `Migration` and `Upgrade` give counts with no line numbers
 	- ID: 2026111016205703
@@ -341,34 +144,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The `_or` doc says a repeat gives the default, and points to that read.
 	- Estimated effort: Avg
 	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
-
-- Rust dfjq6 recursive_mount_check_is_linear_in_depth fails under load
-	- ID: 2026112419395418
-	- Type: Bug
-	- Status: Closed
-	- Priority: Low
-	- Target version: v3.0.0
-	- Opened: 20261124-193954
-	- Opened by:
-	- Related IDs: 2026110711492228
-	- Steps to reproduce: nov24 gate step quick run (`--backlog-run-quick rust go python c cli cicd`) at a load of 21 to 26 on 32 cores.
-	- Incorrect behavior: `recursive mount check 16.9 ms at depth 480 against 1.9 ms at depth 120 (bound 15.5 ms) - the check is not linear in the depth`. The test alone passed 3 times right after, at the same load.
-	- Expected behavior: the test passes under load. It compares one timing at each depth, so one slow sample at the deep end fails it.
-	- Possible cause: a single wall-clock sample per depth, against a fixed 8x bound. Taking the best of several samples per depth, or comparing CPU time, would keep it from failing on a busy box. The same test is in all 4 runners (`df080`, `dfjq7`, `dfjq8`).
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Reproduced: 20261126, Rust. Each test already took the best of 3, but ran all 3 at one depth before the other. 8 copies of the test binary at a time, 3,000 runs at a load of 14 to 21, failed 7 times and then 2 times, at about 8.5 ms against 1.0 ms. Alone, best of 9 is 4.0 ms against 0.97 ms, so the check is linear.
-	- Actual cause: the deep side's 3 samples run back to back, so one busy spell slows all 3 while the shallow side's best came from a quiet one. The deep side's larger working set also suffers more from neighbors.
-	- Actual fix: the two depths are timed in turn, 7 rounds, best of 7 each, in all 4 runners. The bound stays at 8 times, and the square still gives 16.
-	- Decisions:
-		- Taking turns over CPU time, since none of the 4 runners reads a thread's CPU clock today, and process CPU time counts the other test threads in Rust and Go.
-		- Best of each side over a per-round ratio, since a slow shallow sample would make a round's ratio pass too easily.
-	- Swept: `df080` (C), `dfjq6` (Rust), `dfjq7` (Go) and `dfjq8` (Python) all changed. The other timing ratios in the same files (`df02a` and its twins, the re-opened blocks test) still time one size before the other, and haven't failed.
-	- Test case: `dfjq6`, `dfjq7`, `dfjq8`, `df080`. Verified: under the same 8-copy stress, the old Rust test failed 9 of 6,000 runs and the new one 0 of 6,000.
-	- Branch: `nov26-2026112419395418`
-	- Acceptance signoff: Self-closed: the failure reproduced on the old test and not on the new one.
-	- Closed: 20261126-120024
-	- Closed reason: Done
 
 - Rust parses about a third slower than 2.0.0
 	- ID: 2026110516100001
@@ -438,16 +213,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Avg
 	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): parser speed work waits until 3.0.0 is out, since it is the riskiest churn and the item is Low.
 
-- win-runners: give the c++ veneer row a test ID, so a check-boxes log shows its pass
-	- ID: 2026112317335202
-	- Type: Task
-	- Status: Queued
-	- Priority: Low
-	- Opened: 20261123-173352
-	- Opened by: 2026110710374327's box run
-	- Problem description: the row has no fRun --id, so a b29w suites visit shows it only inside the win-runners row total.
-	- Estimated effort: Low
-
 - Rust's file calls can't save to a path that isn't UTF-8
 	- ID: 2026111217560157
 	- Type: Enhancement
@@ -460,60 +225,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Priority: Low
 	- Target version: v3.1.0
 	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
-
-- Lift the placement property's iteration cap in the fuzz
-	- ID: 2026111109371400
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Low
-	- Target version: v3.0.0
-	- Opened: 20261111-093714
-	- Opened by: run b2bits, from 2026111022322992
-	- Related IDs: 2026111012160121, 2026111022322992, 2026110712372276, 2026110712372281
-	- Problem description: the placement property in `fuzz_smoke.rs` fails `dd3t9` and `dderx` only below iteration 1,000,000 (`PLACEMENT_ITERS`), and doesn't check anything past it. The 2M release run still found failures past it, and so far each one was a misread of the property.
-	- Failures past the cap:
-		- `dd3t9` at 1503277, `op 7`, the banner: `under the old footer block: comments [] are now ["# a nte"]`. The banner moves `\t# a nte`, nested under a footer info block it takes, out to the block's column, as corpus 161 pins. The property reads a deeper comment as the block above's trailing line, so the comment isn't in the run it joins.
-		- A fix for that alone, adding such a comment to the run on the banner, made `dd3t9` fail at 207445, also from the banner: `ck: comments ["# a note under the old footer blo"] are now []`. That one wasn't judged, and the fix was backed out.
-		- On the tree after 2026110712372276 and corpus 222, `dd3t9` at 561196, `op 7`, the banner: `ck: comments [] are now ["# a nte under the old footer bl"]`, under the cap.
-		- 207445 and 561196 are the same class as 1503277: a banner over an info block after the first field line. The property no longer checks those ops (`info_block_inside`, corpus 161), so lifting the cap includes checking them again.
-	- Requirements: the cap goes, and `dd3t9` and `dderx` pass 2,000,000 in release with the property checked on every iteration.
-	- Note: the misreads left should mostly go once 2026110712372276 and 2026110712372281 simplify where the library puts lines, so this waits on them.
-	- Prereq IDs: 2026110712372276, 2026110712372281
-	- Estimated effort: Avg
-
-- check-migrate compares 2.x reads with the pinned dev build, not 2.0.0
-	- ID: 2026110409565662
-	- Type: Task
-	- Status: Queued
-	- Priority: Low
-	- Target version: v3.0.0
-	- Opened: 20261104-095656
-	- Opened by: me, from 2026110312163206
-	- Parent ID: 2026110312163206
-	- Related IDs: 2026102620591100
-	- Problem description:
-		- The pinned build `7be348d0` came after reads changed from 2.0.0, so check-migrate agrees with any 2.x read the dev line changed. The trim and the mid-piece quote were 2 of them.
-	- Requirements:
-		- Check the other read changes between `v2.0.0` and `7be348d0`, such as `07c2becc`, `3dd0f252`, `28fd7485`, `92f165e2`, and `6b776f9a`, against what `migrate` writes. Or compare against `v2.0.0` itself.
-		- Each one that reads apart either converts or is refused.
-	- Estimated effort: Avg
-
-- README: the demo gif opens on an empty prompt, and one table cell needs a check
-	- ID: 2026110216254301
-	- Type: Task
-	- Status: Queued
-	- Priority: Low
-	- Target version: v3.0.0
-	- Opened: 20261102-162543
-	- Opened by: 2026110215285723
-	- Problem description:
-		- The gif's first frame is a blank prompt, so a reduced-motion viewer or a link preview sees an empty terminal. It should open on a frame that already shows a command and its output.
-		- The projects table marks GitNiblet Enterprise Edition as open source, and its link goes to a product page.
-	- Question: is GitNiblet Enterprise Edition open source?
-		- No
-	- Estimated effort: Low
-	- Progress log:
-		- 20261105: the table cell now says No. The gif is left for its next render.
 
 - Cache cleanup leaves some caches to grow
 	- ID: 2026110215285707
@@ -628,27 +339,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Add a veneer soak with a growth bait, beside the C one.
 	- Estimated effort: Low
 	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
-
-- Dogfood leftovers and gaps
-	- ID: 2026110215285714
-	- Type: Task
-	- Status: Queued
-	- Priority: Low
-	- Target version: v3.0.0
-	- Opened: 20261102-152857
-	- Opened by: Code review 20261102 item 14
-	- Problem description:
-		- The cross builds' dogfood copies skip the in-use check the native one has.
-		- Copies of the wrappers retired in 2026100818251401 are still in the synced util tree: `shcl.ps1` in the cross-platform dir, `include/shcl.bash` under the linux, macos, and wsl bash dirs, and an Oct 4 `util/wsl/bin/shcl` that no dogfood setting writes now. A search didn't find anything that still uses them.
-		- On macOS the dogfood runner puts its pool in `~/.local/bin`, where the shared rules name `~/Applications/shcl_versions` and `~/Applications/shcl`.
-	- Question: trash the retired wrapper copies from the synced tree? It's outside the repo.
-		- Yes
-	- Question: move the macOS pool to `~/Applications`, or keep `~/.local/bin` as on Linux?
-		- Whichever makes the most sense for a CLI utility.
-	- Estimated effort: Low
-	- Decisions:
-		- me, 20261120: the macOS pool stays in `~/.local/bin`, as on Linux. `~/Applications` is where app bundles go and isn't on PATH, and the installer's own link on macOS is `~/.local/bin/shcl`. So the shared rule's `~/Applications` rows don't apply to shcl, and nothing moves.
-			- me, 20261120: JC was asked whether the shared rule should win, and the call came back to me. It stays. A command line tool that isn't where the installer puts it, or where Linux has it, surprises more than one that differs from a rule written for apps.
 
 - Some install paths differ from the shared install table
 	- ID: 2026110215285717
@@ -769,38 +459,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Avg
 	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
 
-- At Miri's 100 iterations, 3 fuzz guards are thin
-	- ID: 2026102418441478
-	- Type: Task
-	- Status: Closed
-	- Priority: Low
-	- Target version: v3.0.0
-	- Opened: 20261024-184414
-	- Opened by: 2026102413172941's sweep
-	- Related IDs: 2026102413172941
-	- Problem description:
-		- At `--miri-all`'s 100 iterations, 3 share guards clear their bar by a few hits, as `de116`'s did before it broke. Per 100 rounds at 20,000: `a_cap_refuses_only_a_line_that_would_bind` keeps 11.6 bracket lines under a cap and needs 7, `writer_roundtrips_and_stays_fixpoint` writes 5.8 thousands numbers and needs 3, and `generated_starters_load_and_validate_clean` generates 10.2 mutated schemas and needs 7. Each would fail about 1 time in 10 once its draws move.
-		- None of them draws from the corpus, so only a change to its own generator or to the library moves them. All 3 pass at 100 today.
-	- Requirements:
-		- Each guard passes at Miri's count over any draw, without a floor that makes the test take hours there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Decisions:
-		- me, 20261126: each loop runs its rounds, then keeps going only while its guard is short, up to 3 times its rounds more and no more than 3000 (`another_round`). A draw that meets the bar costs nothing extra, so Miri's time stays as it is today. A fixed floor would make every Miri run longer, and a lower bar would barely check the arm at 20,000. The bars are unchanged.
-		- me, 20261126: "over any draw" is met in practice rather than in proof. A short draw gets up to 4 times the rounds, where the expected hits are 23 to 46 against bars of 3 and 7.
-		- Note: `generated_starters_load_and_validate_clean` does draw from the corpus, from its `init-schema.shcl` files, so a corpus edit moves it too.
-	- Actual fix: `another_round` in fuzz_smoke, used by the 3 loops.
-	- Verified: with each test's seed varied over 300 draws at `SHCL_FUZZ_ITERS=100`, natively, the old guards failed 27, 31 and 33 times, and the new ones 0 times. The 3 tests pass natively at 100 and the default. Under Miri (`sanitize-rust.bash --miri-all --only=...`), `dftzz`, `dcv3k` (123 s) and `da6rk` (285 s) pass. `--backlog-run-quick rust`, rustfmt, clippy and `test-ids.py check` pass.
-	- Swept: the other share guards in fuzz_smoke at 100 rounds were checked by 2026102413172941's sweep, which found only these 3 thin. The fuzz is Rust only.
-	- Test case: `a_short_guard_runs_more_rounds_only_while_short` (`dftzz`) pins the top-up. The 3 guards themselves (`dcv3k`, `da6rk`, `dcmjb`) under `--miri-all`.
-	- Branch: `nov26-2026102418441478`
-	- Needs local test suite run?: No
-	- Commit: `596e6151`
-	- Closed reason: Done
-	- Closed: 20261126
-	- Acceptance signoff: me, 20261126, the Miri run passed
-	- 20261126: Verified: sanitize-rust.bash --miri-all --only=generated_starters_load passed in the nov26 test batch (PASS de2pd, nothing reported), log /mnt/ext/wip2/wip/tmp/shcl/20261126-125941_006/run.log.
-
 - A plain `get` on an array prints its quotes, with no hint about `--array`
 	- ID: 2026111011285692
 	- Type: Enhancement
@@ -817,33 +475,6 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- All 4 CLIs print the same text.
 	- Estimated effort: Low
 	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
-
-- The docs read as if an index picks an array item
-	- ID: 2026111011285705
-	- Type: Enhancement
-	- Status: Closed
-	- Priority: Low
-	- Target version: v3.0.0
-	- Opened: 20261110-112856
-	- Opened by: tukfs-hash feedback
-	- Version and build: beta1 build `df3v5`
-	- Problem description: the beta1 changelog says "an index is `site(0)`". On a field whose value is an array, `rar_excludes(0)` gives the whole array and `rar_excludes(2)` exits 3 with "no value at that path". That's right by spec.md, since an index counts instances, but nothing near the selector text says so, and a path can't name one array item.
-	- Requirements:
-		- spec.md's selector section, the README and the `get` help say an index picks an instance, never an array item, and that `get --array` is how a script reads items.
-		- The released beta1 changelog section stays as it is.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Decisions:
-		- me, 20261126: the `get` help says it under the get-only Types text, beside `--array`, so `shcl help get` shows it. The README says it on its repeated-fields bullet.
-		- me, 20261126: the next changelog's new Upgrading notes say it again with the bracket text of a string read, since 2026111016205715 asked for that note.
-	- Actual fix: spec.md's selector forms bullet has a sub-bullet saying an index counts instances, with `r(0)` the whole array, `r(2)` `NotFound`, and `get --array` for the items. The README and the `get` help in all 4 CLIs say the same. The beta1 changelog section is unchanged.
-	- Verified: 20261126, `r(0)` on `r: [a, b, c]` prints `[a, b, c]` and `r(2)` exits 3. `shcl help get` and `shcl help` are byte-identical across the 4 CLIs. The quick run for rust, go, python, c, and cli, and cli-regress over the 4 CLIs, pass.
-	- Test case: none, since these are doc and help sentences on behavior that didn't change. cli-regress `dcbc4` and `ddp8c` check the help text's layout.
-	- Acceptance signoff: Self-closed: docs only, each sentence probed on dev.
-	- Branch: `nov26-2026111011285705`
-	- Commit: `6ddc10e8`
-	- Closed: 20261126-121324
-	- Closed reason: Done
 
 - A string read of an array gives its bracket text at Good
 	- ID: 2026111014552301
@@ -940,6 +571,556 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- A taken name gets a counter, such as `_2`, before the extension. A backup is still never written over. This goes in all 4 and the CLIs.
 	- Estimated effort: Low
 	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
+
+- The placement property takes a blank between lines a list replace moves up for the field's, when a moved comment is above it
+	- ID: 2026112711395535
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261127-113955
+	- Opened by: me, the 2M release fuzz on 2026112711020529
+	- Related IDs: 2026112711020529
+	- Version and build: nov27-2026112711020529, dev at `64321dd5` plus corpus 225
+	- Steps to reproduce: `SHCL_FUZZ_ITERS=2000000` on `dd3t9` (`keeping_lines_reloads_as_the_document`) in release fails at iteration 828523. The base has a top-level name holding a byte order mark (U+FEFF) with a `list:` under it, whose item has the comment `#<TAB>*bad` after it, among `*first` and `*end` lines kept for an error. Ops 4 and 8 rewrite that list, the last as a raw block.
+	- Incorrect behavior: the saved text has `#<TAB>*bad` on its own line above `list:`, so `comments` on the list goes from `#<TAB>*bad` to nothing.
+	- Expected behavior: the comment stays with the list, or goes with the item the rewrite removed, as the placement rules say.
+	- Reproduced: 20261127, the Rust fuzz only. The new corpus case 225 shifted the seeds onto it. That change touches only the 2.x read in `migrate`, and this test loads under the current rules, so the bug is older than the round. The other 3 bindings weren't tried.
+	- Estimated effort: Avg
+	- Note: the 2M release fuzz is part of the release bar, so it targets beta.2.
+	- Reproduced: 20261127, `dd3t9` at 830,000 in release on nov27 at `0a41b094` fails at iteration 828523. The ops are logged by kind, so `op 4` is a `clear_comments` and `op 8` a `set_raw`, and the failing op is the `set_raw`. The Rust, Go, C and Python CLIs give the same text for those 2 ops. The bad name and the byte order mark play no part: `a:`, `x: 1`, then `list:` with `*first`, `- a  # bad`, a blank and `q: [x` gives the same shape.
+	- Actual cause [Bug]: the library is right. The `set_raw` moves the kept lines among the items above `list:` in file order, with the removed item's comment where the item was, and keeps the blank above the kept line `q: [x`, as design.md's "Lines an edit takes from their node" says: a blank above a kept line among the moved lines stays, and no comment crosses a kept line. `lead_over` in `fuzz_smoke.rs` dropped a blank right under a moved line, but not one with a moved comment between it and the moved line above, so it read that blank as the field's and the comment as the line above's.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261127: no placement.txt row and no library change, since no edit put a comment in the wrong place. The case goes in `df50j`, as 2026112711395514's did.
+		- me, 20261127: the title was "A comment after a list item moves out of its list when a later op rewrites the list", which the reproduction showed was a misread.
+		- me, 20261127: `lead_over` drops only a blank right above a moved line at the field's level, and only once another moved line turns up above it. A blank above every moved line is still the field's, and a blank above a moved comment is still held, since design.md drops that one.
+	- Actual fix [Bug]: `lead_over` notes each blank right above a moved line at the field's level, and drops those blanks when it reaches another moved line above them.
+	- Swept: all 3 places `lead_over` passes a moved line (a raw opener, a kept or misplaced line, and one the setter wrote as a comment) drop the noted blanks. Only the first 2 note the blank above them, since one the setter wrote is a comment, and design.md drops a blank above a moved comment. `anchors()` reads no moved lines. The Go, Python and C fuzzers have no placement property.
+	- Test case: `df50j` (`the_placement_property_reads_a_list_replace`), its new case, `dd3t9` and `dderx`.
+	- Branch: `nov27-2026112711395535`
+	- Verified: the new `df50j` case fails on the old `lead_over`, with the comment and the blank both reported, and passes on the fix. Its 2 checks that a lost comment and a blank above the moved lines are still caught pass. `dd3t9` and `dderx` at 2,000,000 in release pass (514 s), iteration 828523 included. The 4 CLIs agree on the iteration's 2 ops. `--backlog-run-quick rust` (lint report clean), clippy `--all-targets` with `-D warnings` and `cargo fmt --check` passed.
+	- Acceptance signoff: Self-closed: a property misread, watched to fail on its new case.
+	- Closed: 20261127-121802
+	- Closed reason: Done
+
+- The placement property misses a `clear_comments` target when the path also names a line with a bad name
+	- ID: 2026112711395514
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261127-113955
+	- Opened by: me, the 2M release fuzz on 2026112711020529
+	- Related IDs: 2026112711020529
+	- Version and build: nov27-2026112711020529, dev at `64321dd5` plus corpus 225
+	- Steps to reproduce: `SHCL_FUZZ_ITERS=2000000` on `dderx` (`kept_lines_survive_edits`) in release fails at iteration 589199. The base has a misplaced line under `a:` whose name is a flag emoji (U+1F3F4), 2 tabs and `ll`. Op 3 sets that name, quoted with its tabs as escapes, with the selector `(q)` and the comment `# added`, and op 4 clears the comments on the same name without the selector.
+	- Incorrect behavior: `placement_slips` reports `# added` as moved off the field, though op 4 named that field.
+	- Expected behavior: the property lets a `clear_comments` take the comments of every line its path names.
+	- Reproduced: 20261127, the Rust fuzz only. The new corpus case 225 shifted the seeds onto it. That change touches only the 2.x read in `migrate`, and this test loads under the current rules, so the bug is older than the round. The other 3 bindings weren't tried.
+	- Reproduced: 20261127, `dderx` at 600,000 in release on nov27 at `9fb68363` fails at iteration 589199. Op 4 there is `clear_comments`, not a setter, and the comment it takes is the target's own. The Rust, Go, C and Python CLIs give the same text for that op, with `# added` gone.
+	- Actual cause [Bug]: the library is right. The misplaced line `🏴<TAB><TAB>ll: 7` loads as a field with `E014` and keeps its block, so the path names it and the new field, and `clear_comments` takes `# added` from the field. `placement_slips` took the target's key from the path's first line only, the misplaced one, so the field's comments counted as moved.
+	- Estimated effort: Avg
+	- Note: the 2M release fuzz is part of the release bar, so it targets beta.2.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261127: no placement.txt row and no library change, since no edit put a comment in the wrong place. The case goes in `df50j`, as the property misread 2026112113030549's did, and the 4 CLIs were checked on it by hand.
+		- me, 20261127: the title was "A comment set above a new quoted field is lost when the next op edits that field", which the reproduction showed was a misread.
+		- me, 20261127: not shared with 2026112711395535, whose ops are setters on a list. Whether that one is a misread too wasn't checked.
+	- Actual fix [Bug]: `placement_slips` in `fuzz_smoke.rs` holds every line the path names as the target. A setter and `set_comment` refuse such a path (`Multiple`), so this changes only what `clear_comments` and `remove` are held to.
+	- Swept: `setter_left_behind` and `taken_lines` already walk every line a path names. `setter_reach`, `setter_comments` and `setter_moved` serve setters, which refuse such a path. The Go, Python and C fuzzers have no placement property.
+	- Test case: `df50j` (`the_placement_property_reads_a_list_replace`), its new case, and `dderx`.
+	- Branch: `nov27-2026112711395514`
+	- Verified: the new `df50j` case fails on the old `placement_slips` and passes on the fix. `dderx` at 2,000,000 in release passes, iteration 589199 included. `dd3t9` at 2,000,000 in release still fails only at iteration 828523, on 2026112711395535. `--backlog-run-quick rust` (lint report clean), clippy with `-D warnings` and rustfmt passed.
+	- Acceptance signoff: Self-closed: a property misread, watched to fail on its new case.
+	- Closed: 20261127-115908
+	- Closed reason: Done
+
+- a_save_names_this_format leaks a String on purpose, so sanitize-rust fails de2pb and de2pc on hosted
+	- ID: 2026112613535880
+	- Type: Bug
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261126-135358
+	- Opened by:
+	- Version and build: dev at f3a84334
+	- Problem description: `a_save_names_this_format` (`dfe62`, `source/rust/tests/conformance.rs` near 8489) builds one case with `.replace("{s}", s).leak()`. LeakSanitizer reports the 46 bytes (`de2pb`) and Miri stops on the leak (`de2pc`), so the hosted ci (tests) part aborts at sanitize-rust. It came in with `ff279feb` on 20261117. Hosted runs never reached sanitize-rust before nov26, so nothing showed it.
+	- Estimated effort: Low
+	- Progress log:
+		- 20261126: Hosted run 45894942389 on nov26: FAIL de2pb then de2pc, CICD ABORTED at sanitize-rust. Every other job passed.
+		- Fixed: the case borrows a string built once before the loop instead of leaking one. Verified: dfe62 passes, sanitize-rust --asan (de2pb) and --miri --only=a_save_names_this_format (de2pc) pass. Not run on the unfixed code: the hosted run 45894942389 is the failing run.
+		- Swept: grep for leak() in source/rust/tests, none left.
+	- Test case: sanitize-rust de2pb and de2pc, conformance dfe62
+	- Closed: 20261127-175000
+	- Closed reason: Done
+	- Acceptance signoff: Self-closed: the leak is gone, dfe62 passes, and the ASan and LSan run and the Miri run of dfe62 pass.
+
+- codeql-scan: 2 findings from nov25 fail de5ag and de5ah
+	- ID: 2026112613084386
+	- Type: Bug
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261126-130843
+	- Opened by:
+	- Version and build: dev at f3a84334
+	- Problem description: codeql-scan finds `cpp/long-switch` at `source/c/shcl.h` (the `SEL_INDEX` case of the switch near line 7341, 37 lines) and `go/useless-assignment-to-local` at `source/go/cmd/shcl/main.go` 2404 (`body` in `leadingZeroFix`). Both lines came in with nov25 (`f692c12d`, `36a65b20`). CodeQL runs in the full run and the merge gate, so the merge gate is red until they are fixed or suppressed with a reason.
+	- Estimated effort: Low
+	- Progress log:
+		- 20261126: Found by the nov26 gate step. The third finding then, py/empty-except in conformance.py, was nov26's own and is fixed in that round.
+	- Actual fix: the `SEL_INDEX` case of `attach_path` is its own function, `attach_index_seg`, with the same body, so the switch has no long case. In `leadingZeroFix`, `body` is set once from the `+` trim and the `-` branch overrides it.
+	- Swept: the other switches in `attach_path` have cases under 30 lines, and the scan reports no other `cpp/long-switch` or `go/useless-assignment-to-local`.
+	- Verified: 20261127, codeql-scan.bash passed every test, `de5ag`, `de5ah` and `de5am` among them (443 s). `cicd.bash --backlog-run-quick go c --no-lint` passed. The lint step of the quick run fails check-docs `dfebr` on item 2026112613535880's status, which is not this change.
+	- Test case: codeql-scan `de5ag` and `de5ah`, which failed on dev at f3a84334 and pass now.
+	- Acceptance signoff: Self-closed: the 2 tests failed before and pass after, and the code is behavior-neutral.
+	- Branch: `nov27-2026112613084386`
+	- Closed: 20261127-095700
+	- Closed reason: Done
+
+- analyze-c --ctu fails de57z, since fs_property.c's own half uses the library's SHCL_NORETURN and realpath
+	- ID: 2026112610320388
+	- Type: Bug
+	- Status: Closed
+	- Needs external testing: No
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261126-103203
+	- Opened by: 2026112514344606
+	- Related IDs: 2026112514344606
+	- Steps to reproduce: `cicd/utility/analyze-c.bash --ctu`, the first fast leak check of a full run, the merge gate and the hosted tests part.
+	- Incorrect behavior: de57z fails on fs_property.c with 'unknown type name SHCL_NORETURN' and 'call to undeclared function realpath'. The split hands the file's own code shcl.h without SHCL_IMPLEMENTATION, and both live in the implementation half.
+	- Expected behavior: every C test program that analyze-c splits builds as a program using the header would.
+	- Origin: Confirmed. `befea7fa` (20261110) brought fs_property.c in with SHCL_NORETURN, after the last bare run that passed de57z (run_20261110-065922). The quick run skips the leak checks.
+	- Actual cause [Bug]: fs_property.c's own code used 2 things only shcl.h's implementation half gives: SHCL_NORETURN, and its realpath declaration. `_POSIX_C_SOURCE 200809L` alone doesn't declare realpath in glibc, which puts it under XSI.
+	- Actual fix [Bug]: fs_property.c defines `_XOPEN_SOURCE 700` beside `_POSIX_C_SOURCE`, as shcl.h does for itself, and its own `FS_NORETURN`.
+	- Decisions: the file is made to stand alone, rather than added to analyze-c's `ctuWhole`, so the cross-file analyzer keeps checking it (me).
+	- Swept: the other 3 files analyze-c splits pass de57z with it. conformance.c, mem_bounds.c and main.c are left whole by design.
+	- Verified: 20261126. de57z failed in a stand-in run of the hosted tests part and passes on the change (`analyze-c.bash --ctu`, 4 files split, 3 whole). fs_property.c builds under gcc 12, 14 and 15, clang and mingw gcc 14, and its C test passes here (`df4ep`, `df4eq`).
+	- Test case: analyze-c `de57z`.
+	- Branch: `nov26-2026112514344606`
+	- Commit: `214c9396`
+	- Prereq IDs: 2026112613535880
+	- Closed reason: Done
+	- Acceptance signoff: Self-closed: the hosted run passed what the item names.
+	- Closed: 20261127-134109
+	- 20261126: Hosted run 45894942389 on nov26: the windows job passed, with the C fs-property build. ci (tests) stopped at sanitize-rust (2026112613535880) before de57z. de57z passed locally in the nov26 gate step.
+	- 20261127: Verified: hosted ci.yml run 46065077336 on nov27 passed every job, windows included; ci (tests) has PASS df2ss, de57z, de2pb and de2pc, and ran to its end.
+
+- sanitize-c doesn't build shcl.h under gcc 14 or 15, since -Wclobbered flags migrate_text
+	- ID: 2026112610182646
+	- Type: Bug
+	- Status: Closed
+	- Closed reason: Done
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261126-101826
+	- Opened by: 2026112514344606
+	- Related IDs: 2026112514344606, 2026112310344449
+	- Steps to reproduce: `cicd/utility/sanitize-c.bash` on a box whose `cc` is gcc 14, as here, or a stand-in run of the hosted tests part.
+	- Incorrect behavior: every sanitizer build stops at shcl.h's migrate_text with 'variable then might be clobbered by longjmp' and the same for 'written', under -Werror at -O1 with ASan and UBSan. The merge gate and a full run fail there. gcc 12 and 13 build it. Ubuntu 24.04's default cc is gcc 13, so the hosted runner likely builds it too (unverified).
+	- Expected behavior: shcl.h builds clean under sanitize-c's flags with every gcc check-c-compilers knows.
+	- Origin: Confirmed. `4ecf81eb` (20261120) added `then` to migrate, which gcc inlines into migrate_text's setjmp frame. The quick run skips sanitize-c.
+	- Actual cause [Bug]: gcc 14 and 15 at -O1 with ASan and UBSan inline migrate into migrate_text, the frame that holds the SHCL_SETJMP, and guess that 2 of its locals are at risk. The recovery path reads only the volatile own and outer, which nothing assigns, so the guess is wrong.
+	- Actual fix [Bug]: migrate_text is wrapped in the same `-Wclobbered` pragma as do_parse, keep_text and the other setjmp frames that inline a callee.
+	- Decisions: the pragma, rather than a volatile copy as in 2026112310344449, since the flagged locals belong to the inlined callee and the recovery path never reads them (me).
+	- Swept: main.c, oom_hook.c and mem_bounds.c under gcc 14 and 15 at -O1, -O2, -O3 and -Os with sanitize-c's flags, 24 builds, all clean. check-c-compilers passed 141 builds over 5 compilers.
+	- Verified: 20261126. sanitize-c failed on all 5 builds before the fix and passes after, every row included. main.c under sanitize-c's flags fails under gcc 14 and 15 before and builds under gcc 12 to 15 and clang after. analyze-c `de2x2` to `de2x4` and `--backlog-run-quick c` pass on the change.
+	- Test case: sanitize-c `dbxj4`, `dbxj5`, `dc113`, `dc25h` and `dbz3a`, whose builds stopped here.
+	- Branch: `nov26-2026112514344606`
+	- Commit: `6bc68b21`
+	- Acceptance signoff: Self-closed: its gate failed before the fix and passes after.
+	- Closed: 20261126-103629
+
+- Writer: a way to ask for a list written one `- ` item per line
+	- ID: 2026112517314397
+	- Type: Enhancement
+	- Status: Closed
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261125-173143
+	- Opened by: nemo-anywhere 2026110911301888
+	- Version and build: `3.0.0-beta1`
+	- Problem description: a typed array setter writes a list it makes in brackets, however long it is. A list stays stacked only when the loaded file already had it that way, so a program can't ask for the stacked form. A long list it writes, such as folder paths, comes out as one long line. Smallest case: parse `state:` with one key under it, set `favorites` to 3 long strings, and the text has `favorites: ["...", "...", "..."]`.
+	- Requirements:
+		- A call such as `shcl_set_stacked(doc, path, plen, on)` sets how the list at a path is written, after any typed array setter. One call covers every array type.
+		- A later set keeps the layout, and off puts it back in brackets. A path with no list, or an empty one, changes nothing.
+		- All 4 bindings agree, a conformance row pins it, and the spec's writer section says so.
+	- Estimated effort: Avg
+	- Decisions:
+		- 20261126: `set_stacked(path, on)` in all 4 and C++ (Go `SetStacked`, C `shcl_set_stacked`), as the item names it (me). A path with no list, an empty list, or a list with fields under it is `Ok` and changes nothing, as the item asks, and so is on for a list after an empty binding of its name, which stays in brackets through the same settle a setter uses. A path a setter refuses gets the setter's status, such as `Wildcard`.
+		- 20261126: each item keeps the quotes its array setter gave it, so a path with a blank comes out `- "/home/me/a long folder"` (me). Quotes for the stacked form would change what Loose reads for `"1,200"`. It's the text nemo-anywhere's stand-in gives today.
+			- 20261127: kept as built (me). A re-quote would make on and off read differently under Loose, and the quotes match what a scalar setter and a set over a list already stacked write. The reasons are in questions.md.
+		- 20261126: no CLI flag. The item asks for the library call.
+	- Actual fix: `set_stacked` marks the list stacked, or puts it back in brackets with the lines among its items above it, as a setter does. On also lets the next merge bracket it again. spec.md's Writer and Arrays, and the changelog's New, say so.
+	- Swept: each binding has the call beside its typed array setters, built on the same `stacks`, `unstack`, settle and kept-line steps as `set_value` (`grep -n 'star_list = stacked\|starList = stacked'`). `check-veneer.bash` counts the C call made by `shcl.hpp`. A method needs no `__all__` entry, and Go's calls `ready()` first.
+	- Verified: the 4 runners' new test passes, and fails in Rust without the empty-binding settle and in Python without the merge reset. The quick run over rust, go, python and c, the veneer smoke, check-veneer, check-docs and markdownlint passed too.
+	- Test case: `set_stacked_writes_the_list_stacked` in all 4 runners: Rust `dftx7`, Go `dftx8`, Python `dftx9`, C `dftxa`. C++ is in the veneer smoke `d9v59`.
+	- Branch: `nov26-2026112517314397`
+	- Commit: `2b8a40da`
+	- Acceptance signoff: Self-closed: built as the item asks, and the new runner tests fail without the fix and pass with it. The quoting call is in questions.md as a `Check:` entry.
+	- Closed: 20261126-110500
+	- Closed reason: Done
+	- Origin: nemo-anywhere 2026110911301888. The draft text and a patch for the C header (`set-stacked.patch`, against `v3.0.0-beta1`) are in `private/claude_simple/upstream/nemo-anywhere-2026110911301888/`. nemo-anywhere works around it today by giving each long list a stacked stand-in in the saved text, setting the real items over it, and keeping the result only when every key reads the same.
+
+- Hosted tests: check-push-gate df2ss fails on every hosted runner, since the scope check skips under GITHUB_ACTIONS
+	- ID: 2026112514344606
+	- Type: Bug
+	- Status: Closed
+	- Needs external testing: No
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261125-143446
+	- Opened by:
+	- Progress log:
+		- 20261125: Hosted run 45707733038 on nov25, ci (tests): FAIL df2ss, systemd-run's calls were empty, then CICD ABORTED at check-push-gate. fMemScope in cicd/utility/include/mem-cap.bash returns early when GITHUB_ACTIONS is set, and fEngine in check-push-gate.bash doesn't clear it, so the fake systemd-run is never called on a hosted runner.
+		- 20261125: Not new. df2ss came in with 54330fb9 on 20261109, and hosted tests always stopped earlier at shell-regress dcvej until nov25 fixed the demo gif. Passes on the host. Likely fix: -u GITHUB_ACTIONS in fEngine's env, then check what else a hosted run reaches past it.
+		- 20261125: High, since a red hosted run blocks the beta.2 release bar.
+		- 20261126: a stand-in of the hosted tests part, under GITHUB_ACTIONS=true and CI=true, with the steps that passed in 45707733038 skipped, found sanitize-c red under gcc 14 (2026112610182646) and analyze-c `de57z` red (2026112610320388). Both are fixed. The rest of the part passed, but for sanitize-rust, which it skipped.
+		- 20261126: Hosted run 45894942389 on nov26: PASS df2ss, then ci (tests) stopped at sanitize-rust on a leak in an older test (2026112613535880). Still needs the part to run to its end.
+		- 20261127: Verified: hosted ci.yml run 46065077336 on nov27 passed every job, windows included; ci (tests) has PASS df2ss, de57z, de2pb and de2pc, and ran to its end.
+	- Actual cause [Bug]: check-push-gate's engine runs took the runner's GITHUB_ACTIONS=true, so fMemScope returned before systemd-run, and df2ss's 3 scope cases saw no calls.
+	- Actual fix [Bug]: check-push-gate unsets GITHUB_ACTIONS beside CICD_MEM_CAP and SHCL_MEM_SCOPED, so its engine runs go as on a workstation. The 2 cases that want it set it themselves.
+	- Decisions: unset once at the top rather than `-u` in fEngine, so the script's other runs of the engine and check-docs get the same. No new row: a run under GITHUB_ACTIONS=true is the test, and the hosted part is one (me).
+	- Swept: GITHUB_ACTIONS is read only by cicd.bash, for the macos job, and by fMemScope. shell-regress and check-install-dev, which also run copies of them, passed in 45707733038.
+	- Verified: 20261126. `GITHUB_ACTIONS=true CI=true check-push-gate.bash` failed df2ss with the hosted run's 3 messages before the fix, and passes all 90 rows after. It passes without GITHUB_ACTIONS too.
+	- Test case: check-push-gate `df2ss`, run under GITHUB_ACTIONS=true as the hosted tests part does.
+	- Branch: `nov26-2026112514344606`
+	- Commit: `91e42cb4`
+	- Prereq IDs: 2026112613535880
+	- Closed reason: Done
+	- Acceptance signoff: Self-closed: the hosted run passed what the item names.
+	- Closed: 20261127-134109
+
+- `upgrade` without `--from` says `--from` rewrites a comma cut inside a pair, and no cut-pair message says how to fix it
+	- ID: 2026112516450897
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261125-164508
+	- Opened by:
+	- Related IDs: 2026111016205702, 2026111016205703
+	- Version and build: dev at `188f58bd`
+	- Problem description: On a file of `a: x` and `k: sma(close, 10)`, `shcl upgrade` says "1 value(s) read one way under 2.x and another under these rules, and the file doesn't say which it was written for, or have a comma inside a backtick, paren or bracket pair; nothing written (--from=FORMAT rewrites them)", exit 7. `shcl upgrade --from=2.0` on the same file then refuses at exit 7 too, so the hint sends the user in a loop. The `--from` message, "which 2.x split there and nobody means", doesn't say what to do either. Neither message names braces, which count too.
+	- Requirements:
+		- Without `--from`, the hint promises a rewrite only for the values `--from` would rewrite, and names the cut-pair ones apart.
+		- Every cut-pair message says the way out: quote the value, or split it by hand, then run again.
+		- The CLI messages and the library's `Ambiguous` text name braces with the other pairs.
+		- The 4 CLIs stay byte-identical, with cli-regress rows for both cases.
+		- Line numbers stay with 2026111016205703.
+	- Decisions:
+		- me, 20261125: Avg, since the refusal itself is right and the file is safe. It targets beta.2 because these messages are new there, and changing them after the release would break any script that matches the text.
+		- me, 20261125: the CLI gets the cut-pair count by running the upgrade again in memory with `from`, which writes nothing, so no binding's result grows a field.
+		- me, 20261126: that run passes `from` 2.0 (`CUT_PAIR_PROBE`, Go `cutPairProbe`), since told the file is 2.x, `ambiguous` counts only cut pairs. `migrate` takes the same count from a second `migrate` call. When both kinds are there, the CLIs print 2 lines, the `--from` one first, each with its own count. With `--from`, only the cut-pair line.
+		- me, 20261126: the library's `Ambiguous` text keeps both kinds in one sentence, braces added, since it can't tell them apart without a new field.
+	- Actual cause [Bug]: the CLIs printed one count for both kinds of ambiguous value, under a pointer to `--from`, which rewrites only one kind. The cut-pair text came from the first fix and listed 3 of its 4 pairs.
+	- Actual fix [Bug]: one `say_ambiguous` in each CLI (Go `sayAmbiguous`) prints the rest with the `--from` pointer and the cut pairs with "quote them or split them by hand, then run again", for `migrate`, `upgrade`, and `upgrade --write`'s refusal. The cut-pair line, the library's `Ambiguous` text in all 4, the doc comments, the man page, examples.md and the changelog name braces. check-migrate's match on the cut-pair line follows the new text.
+	- 20261126: cli-regress `dfsj0` and `dfsj1` wanted "a backtick, paren or bracket pair, which 2.x split there and nobody means; left as written" (and "nothing written"), and now want "a backtick, paren, bracket or brace pair" and "(quote them or split them by hand, then run again)" after it. Nothing else in either row changed.
+	- Swept: every ambiguous message in the 4 CLIs (`migrate`, `upgrade`, `upgrade --write`), the `Ambiguous` error text and doc comment and `Migration`'s `ambiguous` doc in the 4 libraries, the C++ veneer (no copy of the text), the man page, examples.md, value-syntax.md (already named braces), the changelog, check-migrate and cli-regress. `grep -rn "paren or bracket pair"` finds none left outside the backlog.
+	- Verified: the 5 rows fail on the C CLI built from the round branch and pass on all 4 new CLIs, whose stderr over 15 probe runs (stdin and `--write`, with and without `--from`) matched byte for byte. cli-regress over the 4 CLIs (713 rows), check-migrate (636 documents, 13 refused for a cut pair as before), `--backlog-run-quick rust go python c cli` (all 5 steps, lint report clean), the markdown check and markdownlint (only lines already there) passed.
+	- Test case: cli-regress `dfty8`, `dfty9`, `dftya`, `dfsj0`, `dfsj1`.
+	- Actual effort: Low
+	- Acceptance signoff: Self-closed: the new rows were seen to fail on the old CLI, and the named gates passed.
+	- Branch: `nov26-2026112516450897`
+	- Commit: `9a5b030f`
+	- Closed: 20261126-112131
+	- Closed reason: Done
+
+- Under Miri, every Rust save stops on `sync_dir`'s folder fsync
+	- ID: 2026112517280964
+	- Type: Bug
+	- Status: Closed
+	- Severity: Avg
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261125-172809
+	- Opened by: shcl feedback (tukzmon, 20261125)
+	- Version and build: 3.0.0-beta1, and dev as of 2026-11-25
+	- Problem description: Under Miri with isolation off, `write_file_atomic` and every save through `write_file_how` stop at `sync_dir`, with "unsupported operation: `fsync` is only supported on file-backed file descriptors". Miri ends the whole test binary there rather than returning an error, so the best-effort `let _` doesn't help. Natively nothing is wrong. A caller can't test any path that saves under Miri.
+	- Requirements:
+		- `sync_dir`'s body is gated on `not(miri)`, as `open_no_wait` already is. The folder fsync is about power loss, which Miri can't model.
+		- Check whether the conformance test ignored under Miri as "saves to disk" (`source/rust/tests/conformance.rs`) can run there after.
+	- Origin: tukzmon 2026112510392174. The draft text and a patch (`miri-sync-dir.patch`) are in `private/claude_simple/upstream/tukzmon-2026112510392174/`. tukzmon has 33 tests ignored under Miri for this alone, and one that missed its ignore stopped a long Miri run hours in.
+	- Decisions:
+		- me, 20261125: Avg, since native saves are right, but it blocks Miri for every caller that saves.
+		- 20261126: the same wall sat behind it. Miri has no `fchown` either, so the 2 best-effort group copies in `write_file_atomic` and `write_backup` are gated on `not(miri)` too. Natively nothing changes. The set-id half of `file_tier_load_save` skips its own `chown` under Miri and takes the test's existing skip branch.
+	- Fixed: `sync_dir` and the 2 `fchown` calls skip under Miri. 9 tests lost their "saves to disk" ignore. 2 that start a process (`write_status_names_each_failure`, `a_changed_check_knows_its_file_by_any_spelling`) keep an ignore with that reason. `setters_write_only_what_reads_back` runs about 50 minutes under Miri, so it is ignored as slow and `--miri-all` runs it.
+	- Test case: `dbcwv`, `dbxk2`, `dc42j`, `dbcxe`, `dekj6`, `dekm5`, `dekvt`, `ddmhf` and `de4ba`, the 9 Rust tests unblocked, run under Miri
+	- Verified: `a_create_only_save_refuses_a_file_already_there` fails under Miri with the fsync error on the ungated `sync_dir`, and the 9 pass with the fix (`sanitize-rust.bash --miri --only=...`). Native `cargo test` and clippy pass.
+	- Swept: every `sync_dir` caller goes through the one function. `fchown` appears only at the 2 sites gated. The Miri ignores for "saves to disk" are all removed or re-reasoned.
+	- Note: the quick run's check-docs fails `dcv66` (man page date older than its last commit), which is not from this change.
+	- Acceptance signoff: Self-closed. The test fails before and passes after.
+	- Closed: 20261126-114800
+	- Closed reason: Done
+
+- Allow callers to request the multiline list form for arrays
+	- ID: 2026110911441449
+	- Type: Enhancement
+	- Status: Closed
+	- Priority: Avg
+	- Target version: v3.1.0
+	- Opened: 20261109-114414
+	- Opened by: JC
+	- Problem description: an array setter writes the bracket form. Only a list already stacked with `- ` items in the file stays stacked.
+	- Requirements:
+		- Allow callers to request the multiline list form for arrays.
+	- Note: 20261110, nemo-anywhere asked for it too.
+	- Note: 20261125, moved to v3.1.0 by the 3.0 freeze (JC): no new features, gates or code-wide tidies before 3.0.0.
+	- Test case: see 2026112517314397 (`dftx7`).
+	- Superseded by ID: 2026112517314397
+	- Closed: 20261126-110500
+	- Closed reason: Duplicate
+
+- Rust dfjq6 recursive_mount_check_is_linear_in_depth fails under load
+	- ID: 2026112419395418
+	- Type: Bug
+	- Status: Closed
+	- Priority: Low
+	- Target version: v3.0.0
+	- Opened: 20261124-193954
+	- Opened by:
+	- Related IDs: 2026110711492228
+	- Steps to reproduce: nov24 gate step quick run (`--backlog-run-quick rust go python c cli cicd`) at a load of 21 to 26 on 32 cores.
+	- Incorrect behavior: `recursive mount check 16.9 ms at depth 480 against 1.9 ms at depth 120 (bound 15.5 ms) - the check is not linear in the depth`. The test alone passed 3 times right after, at the same load.
+	- Expected behavior: the test passes under load. It compares one timing at each depth, so one slow sample at the deep end fails it.
+	- Possible cause: a single wall-clock sample per depth, against a fixed 8x bound. Taking the best of several samples per depth, or comparing CPU time, would keep it from failing on a busy box. The same test is in all 4 runners (`df080`, `dfjq7`, `dfjq8`).
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Reproduced: 20261126, Rust. Each test already took the best of 3, but ran all 3 at one depth before the other. 8 copies of the test binary at a time, 3,000 runs at a load of 14 to 21, failed 7 times and then 2 times, at about 8.5 ms against 1.0 ms. Alone, best of 9 is 4.0 ms against 0.97 ms, so the check is linear.
+	- Actual cause: the deep side's 3 samples run back to back, so one busy spell slows all 3 while the shallow side's best came from a quiet one. The deep side's larger working set also suffers more from neighbors.
+	- Actual fix: the two depths are timed in turn, 7 rounds, best of 7 each, in all 4 runners. The bound stays at 8 times, and the square still gives 16.
+	- Decisions:
+		- Taking turns over CPU time, since none of the 4 runners reads a thread's CPU clock today, and process CPU time counts the other test threads in Rust and Go.
+		- Best of each side over a per-round ratio, since a slow shallow sample would make a round's ratio pass too easily.
+	- Swept: `df080` (C), `dfjq6` (Rust), `dfjq7` (Go) and `dfjq8` (Python) all changed. The other timing ratios in the same files (`df02a` and its twins, the re-opened blocks test) still time one size before the other, and haven't failed.
+	- Test case: `dfjq6`, `dfjq7`, `dfjq8`, `df080`. Verified: under the same 8-copy stress, the old Rust test failed 9 of 6,000 runs and the new one 0 of 6,000.
+	- Branch: `nov26-2026112419395418`
+	- Acceptance signoff: Self-closed: the failure reproduced on the old test and not on the new one.
+	- Closed: 20261126-120024
+	- Closed reason: Done
+
+- win-runners: give the c++ veneer row a test ID, so a check-boxes log shows its pass
+	- ID: 2026112317335202
+	- Type: Task
+	- Status: Closed
+	- Closed reason: Done
+	- Priority: Low
+	- Opened: 20261123-173352
+	- Closed: 20261127-132000
+	- Opened by: 2026110710374327's box run
+	- Problem description: the row has no fRun --id, so a b29w suites visit shows it only inside the win-runners row total.
+	- Estimated effort: Low
+	- Actual fix: the `c++ veneer` row of win-runners.bash is `fRun --id dfwd8`, so it prints its own `PASS dfwd8 win-runners c++ veneer` line.
+	- Test case: `dfwd8`, in a b29w `suites` visit through check-boxes (under `den85`).
+	- Verified: a b29w `suites` visit through check-boxes on nov27 printed `PASS dfwd8 b29w: win-runners c++ veneer`, then `PASS den85`, and `check-boxes: OK`. No FAIL lines.
+	- Acceptance signoff: Self-closed: mechanical, dfwd8 and den85 passed on b29w.
+	- Verified: `test-ids.py check` passed (2464 tests) with the new ID. The row's command is unchanged, so only the status line is new.
+	- Swept: the other rows without `--id` in win-runners.bash (rust, go, python, c, oom, mem bounds, cli regress, windows path) are separate rows, not filed here.
+
+- Lift the placement property's iteration cap in the fuzz
+	- ID: 2026111109371400
+	- Type: Enhancement
+	- Status: Closed
+	- Priority: Low
+	- Target version: v3.0.0
+	- Opened: 20261111-093714
+	- Opened by: run b2bits, from 2026111022322992
+	- Related IDs: 2026111012160121, 2026111022322992, 2026110712372276, 2026110712372281
+	- Problem description: the placement property in `fuzz_smoke.rs` fails `dd3t9` and `dderx` only below iteration 1,000,000 (`PLACEMENT_ITERS`), and doesn't check anything past it. The 2M release run still found failures past it, and so far each one was a misread of the property.
+	- Failures past the cap:
+		- `dd3t9` at 1503277, `op 7`, the banner: `under the old footer block: comments [] are now ["# a nte"]`. The banner moves `\t# a nte`, nested under a footer info block it takes, out to the block's column, as corpus 161 pins. The property reads a deeper comment as the block above's trailing line, so the comment isn't in the run it joins.
+		- A fix for that alone, adding such a comment to the run on the banner, made `dd3t9` fail at 207445, also from the banner: `ck: comments ["# a note under the old footer blo"] are now []`. That one wasn't judged, and the fix was backed out.
+		- On the tree after 2026110712372276 and corpus 222, `dd3t9` at 561196, `op 7`, the banner: `ck: comments [] are now ["# a nte under the old footer bl"]`, under the cap.
+		- 207445 and 561196 are the same class as 1503277: a banner over an info block after the first field line. The property no longer checks those ops (`info_block_inside`, corpus 161), so lifting the cap includes checking them again.
+	- Requirements: the cap goes, and `dd3t9` and `dderx` pass 2,000,000 in release with the property checked on every iteration.
+	- Note: the misreads left should mostly go once 2026110712372276 and 2026110712372281 simplify where the library puts lines, so this waits on them.
+	- Prereq IDs: 2026110712372276, 2026110712372281
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Progress log:
+		- 20261127, round nov27: the cap is out, and the banner over an info block after the first field line is checked again. Only the comments it moves out from under the block are left out (`freed_by_banner`). The first 2M release run passed `dd3t9` and failed `dderx` at 1449647, a misread: a comment edit that makes a field settles a kept line as a comment over the next line, as a setter does, and the property held a comment edit to the exact run. It now allows those lines, as for a setter.
+	- Decisions:
+		- me, 20261127: on a banner op the property skips only the deeper comments right under an info block, by their text, and holds every other line. Where corpus 161's move puts them is the corpus's to pin. Skipping the whole op, as before, checked nothing there.
+		- me, 20261127: a comment edit on a path with no line makes the field, so lines the settle wrote as comments above a run count as a setter's do. The `int` op on the same path gives the same text.
+	- Swept: both property sites, in `dd3t9` and `dderx` (the merge step included). No other check reads `PLACEMENT_ITERS` or `info_block_inside`.
+	- Test case: `df50j` (rows for corpus 161 through the banner, a lost comment there still caught, and `dderx`'s 1449647 case), `dd3t9`, `dderx`.
+	- Verified: the corpus 161 row fails with the whole-op skip back in, and the 1449647 row fails without the comment edit allowance. Both pass now. `dd3t9` and `dderx` passed 2,000,000 in release with the property on every iteration (505 s). All of `fuzz_smoke` in debug, clippy `--all-targets`, rustfmt, and `--backlog-run-quick rust`.
+	- Needs local test suite run?: No. The 2M release run passed on 20261127.
+	- Branch: `nov27-2026111109371400`
+	- Acceptance signoff: Self-closed: each new row was seen to fail without its change, and the 2M release run passed with the cap gone.
+	- Closed: 20261127-105421
+	- Closed reason: Done
+
+- check-migrate compares 2.x reads with the pinned dev build, not 2.0.0
+	- ID: 2026110409565662
+	- Type: Task
+	- Status: Closed
+	- Priority: Low
+	- Target version: v3.0.0
+	- Opened: 20261104-095656
+	- Opened by: me, from 2026110312163206
+	- Parent ID: 2026110312163206
+	- Related IDs: 2026102620591100, 2026112711020529
+	- Problem description:
+		- The pinned build `7be348d0` came after reads changed from 2.0.0, so check-migrate agrees with any 2.x read the dev line changed. The trim and the mid-piece quote were 2 of them.
+	- Requirements:
+		- Check the other read changes between `v2.0.0` and `7be348d0`, such as `07c2becc`, `3dd0f252`, `28fd7485`, `92f165e2`, and `6b776f9a`, against what `migrate` writes. Or compare against `v2.0.0` itself.
+		- Each one that reads apart either converts or is refused.
+	- Estimated effort: Avg
+	- Decisions:
+		- me, 20261127: v2.0.0 itself is the oracle through check-formats `dfjae`, which compares `upgrade --from=2.0` with the v2.0.0 CLI. check-migrate keeps the pinned build, since `migrate` without `from` stands for the 2.x dev builds (2026112008173348), and its header now says so.
+		- me, 20261127: a fence label with a `#` stays as spec.md's Migration section leaves it, so check-formats leaves that read out, as check-migrate does.
+	- Actual fix: probes of each listed change against the v2.0.0 CLI. `07c2becc`'s mid-piece quote converts (2026102620591100, 2026112008173388), and its bracket behind a colon was an error in 2.0. `28fd7485` and `6b776f9a` touch bracket values, which 2.0 refused. `92f165e2`'s same-line label reads `html` in 2.0 and now. `0f818d71`'s trim converts (2026110312163206). `3dd0f252`'s quote in a selector reads apart, and is Bug 2026112711020529. check-formats now compares the info string too, which it skipped.
+	- Swept: the 5 listed commits and `0f818d71`, by 20 probes in the 2.0 spelling. The rest of the 331 commits from `v2.0.0` to `7be348d0` through check-formats' corpus and fuzz documents.
+	- Verified: check-formats over all 11 formats passes with the info string compared, and fails on corpus 056 and 068 at 1.0, 1.1 and 2.0 without the label exception. shell-regress `dct58` and `debqj`, ruff, shellcheck, and `--backlog-run-quick cicd`.
+	- Test case: check-formats `dfjae`, and `dfjac` to `dfjap` for the info string.
+	- Branch: `nov27-2026110409565662`
+	- Acceptance signoff: Self-closed: the comparison against v2.0.0 runs and passes, and the one read that converts wrongly is filed as its own Bug.
+	- Closed: 20261127-110700
+	- Closed reason: Done
+
+- Upgrade from 1.0, 1.1 or 2.0 turns a value's text into a comment after a quote in a selector
+	- ID: 2026112711020529
+	- Type: Bug
+	- Status: Closed
+	- Severity: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261127-110205
+	- Opened by: me
+	- Related IDs: 2026110409565662, 2026112008173388, 2026102620591100
+	- Version and build: dev at `03a40279`
+	- Steps to reproduce: `printf "a[b'c].d: 1 # e\n" > q.shcl`, then `shcl upgrade --from=2.0 q.shcl`, and read `a("b'c").d` from the output.
+	- Incorrect behavior: exit 0 in all 4 CLIs, with `a("b'c").d: 1 # e` written, which reads `1`. The v1.0.0, v1.1.0 and v2.0.0 CLIs all read `1 # e`, since a quote anywhere in the name half opened and ran to the line end, so the `#` was text. `migrate` and `upgrade` without `from` give the same at exit 0. A comma there splits the same in both, so only the `#` reads apart.
+	- Expected behavior: as for a mid-piece quote in a value (2026112008173388). With `--from` naming 1.0, 1.1 or 2.0, the value is written so it reads `1 # e`. Without `from`, the line reads 2 ways, since the 2.x dev builds after `3dd0f252` read `1`, so `migrate` exits 7.
+	- Reproduced: 20261127, the Rust, Go, C and Python CLIs on dev against the v1.0.0, v1.1.0 and v2.0.0 CLIs.
+	- Estimated effort: Avg
+	- Origin: Confirmed. `3dd0f252` (2026-09-05) made a selector's quote open only at a body's first character, after v2.0.0. check-migrate's pinned build reads it as now, and no corpus input has the 2.x spelling, so check-formats `dfjae` never saw it.
+	- Sweep: `scan_piece` and the name-half scan of the 2.x steps in all 4 bindings, the selector body and a quoted name with a quote inside. Add a corpus case with the 2.x spelling, which shifts the fuzz seeds, so run the 2M fuzz and check-migrate on the same commit.
+	- Actual cause [Bug]: 1.0 to 2.0 stripped a line's comment before reading its path, with a backslash shielding the next character and a quote open until the same quote, so a quote left open in the name half kept a later `#` as text. The 2.x read in `migrate` found the comment in the value alone, as the builds after `3dd0f252` did.
+	- Actual fix [Bug]: under the 2.x rules the line tokenizer runs 2.0's comment strip over the name half, and when a quote is left open there, finds the comment from that quote's close and splits the value up to it with no comment of its own, in `lex_line` and `scan_value` (Rust and C), `lexLine` and `scanValue` (Go), and `_lex_line` and `_scan_value` (Python). Every step out of 1.0 to 2.0 and `migrate` read it so. Without `from`, `migrate_line` and its twins count such a line as ambiguous when the value or comment reads otherwise than the plain 2.x scan, and leave it as written. check-migrate's mid-quote finder flags such a line too. The value-syntax Migration table, the format versions doc, the corpus README and the changelog say so.
+	- Decisions:
+		- me, 20261127: the 2.0 reading goes in the 2.x tokenizer, not only in `migrate_line`, so every 2.x step reads one line one way, as the mid-piece quote fix put it in `scan_piece` (2026112008173388).
+		- me, 20261127: without `from` the line counts as ambiguous even though the bracket selector makes it refused now, since both readings rewrite it and give different values. That's the issue's expected exit 7.
+		- me, 20261127: check-format-reads.py leaves a path out of the name comparison when a name isn't led by a letter, since the pins print it bare and the current CLI quotes it. Corpus 225's seeds put 2 such fuzz documents in front of the pins. Their reads are still compared.
+	- Swept: `scan_piece` (its quoted arm now honors `comments`, which every value caller passes as true), `lex_line`, `scan_value` and `migrate_line` in all 4 bindings. A quoted name or selector with a quote of the other kind inside, such as `"b'c"`, is balanced for 2.0's strip too, and moves nothing. A selector with a backslash before the quote, `[a\'b]`, is shielded in 2.0 and here. A `*` item has no name half. The pin steps read by `Lex::Pin` and are unchanged, since the pins came after `3dd0f252`. The format tells' `quote_tells` reads the value alone, as before. A line whose `#` then sits after the path, with no colon, is a fault under the 2.x rules and stays as written, as 2.0 refused it.
+	- Verified: corpus 225's migrate golden fails on the old Python library and passes on the fix in all 4 runners. The 4 CLIs give the same output over 14 probe lines, with and without `--from=2.0`, and the converted reads match the v1.0.0, v1.1.0 and v2.0.0 CLIs. The 4 conformance suites, `--backlog-run-quick rust go python c cli` (lint report clean), crosscheck (24216 comparisons), check-migrate (646 documents, `dcqf3` and the new `dfwb9`), check-formats over all 11 formats, check-doc-examples, shell-regress `dct58` and `debqj`, `test-ids.py check`, clippy, gofmt, go vet, ruff, mypy and the markdown check passed. The 2M release fuzz passed 33 of its 35 tests. `dderx` and `dd3t9` failed on 2 older placement bugs that corpus 225's seeds reached, filed as 2026112711395514 and 2026112711395535.
+	- Test case: corpus `dfwb8` (`225-migrate-selector-quote`)'s migrate golden in all 4 runners, and check-migrate `dfwb9`.
+	- Branch: `nov27-2026112711020529`
+	- Actual effort: Avg
+	- Acceptance signoff: Self-closed: the golden failed on the old code, and the converted reads match the v1.0.0, v1.1.0 and v2.0.0 CLIs.
+	- Closed: 20261127-114116
+	- Closed reason: Done
+
+- README: the demo gif opens on an empty prompt, and one table cell needs a check
+	- ID: 2026110216254301
+	- Type: Task
+	- Status: Closed
+	- Priority: Low
+	- Target version: v3.0.0
+	- Opened: 20261102-162543
+	- Opened by: 2026110215285723
+	- Problem description:
+		- The gif's first frame is a blank prompt, so a reduced-motion viewer or a link preview sees an empty terminal. It should open on a frame that already shows a command and its output.
+		- The projects table marks GitNiblet Enterprise Edition as open source, and its link goes to a product page.
+	- Question: is GitNiblet Enterprise Edition open source?
+		- No
+	- Estimated effort: Low
+	- Progress log:
+		- 20261105: the table cell now says No. The gif is left for its next render.
+		- 20261127: the gif opens on the finished `get` step, a 100 ms frame, then the loop runs as before.
+	- Decisions: the opening frame is a copy of the finished `get` step's frame, set by `posterstep` in the scenario, so a still or preview shows a command and its output. It flashes for 100 ms at each loop start (me).
+	- Test case: none, a render change. `cicd/demo/expected.txt` is unchanged and matches the demo steps' output.
+	- Verified: rendered `assets/demo.gif`, and its first frame shows the command and `8080`. The golden diff against the Rust CLI is empty.
+	- Acceptance signoff: Self-closed: mechanical render change, the table cell was already fixed.
+	- Closed: 20261127-202900
+	- Closed reason: Done
+
+- Dogfood leftovers and gaps
+	- ID: 2026110215285714
+	- Type: Task
+	- Status: Closed
+	- Priority: Low
+	- Target version: v3.0.0
+	- Opened: 20261102-152857
+	- Opened by: Code review 20261102 item 14
+	- Problem description:
+		- The cross builds' dogfood copies skip the in-use check the native one has.
+		- Copies of the wrappers retired in 2026100818251401 are still in the synced util tree: `shcl.ps1` in the cross-platform dir, `include/shcl.bash` under the linux, macos, and wsl bash dirs, and an Oct 4 `util/wsl/bin/shcl` that no dogfood setting writes now. A search didn't find anything that still uses them.
+		- On macOS the dogfood runner puts its pool in `~/.local/bin`, where the shared rules name `~/Applications/shcl_versions` and `~/Applications/shcl`.
+	- Question: trash the retired wrapper copies from the synced tree? It's outside the repo.
+		- Yes
+	- Question: move the macOS pool to `~/Applications`, or keep `~/.local/bin` as on Linux?
+		- Whichever makes the most sense for a CLI utility.
+	- Estimated effort: Low
+	- Decisions:
+		- me, 20261120: the macOS pool stays in `~/.local/bin`, as on Linux. `~/Applications` is where app bundles go and isn't on PATH, and the installer's own link on macOS is `~/.local/bin/shcl`. So the shared rule's `~/Applications` rows don't apply to shcl, and nothing moves.
+			- me, 20261120: JC was asked whether the shared rule should win, and the call came back to me. It stays. A command line tool that isn't where the installer puts it, or where Linux has it, surprises more than one that differs from a rule written for apps.
+	- Test case: shell-regress `dd2gp` also checks that the cross-built dogfood install asks `fInUse` first. The text check fails on the old cicd.bash.
+	- Swept: the 3 install sites in stage 7 (native, cross loop, runner copies). The runners are scripts and aren't run from the dest, so they get no check. A grep of the synced util tree and the repo found no user of the trashed files.
+	- Verified: shell-regress passed in full, `dd2gp` included. The in-use check for a Windows or macOS binary only sees processes on this box.
+	- Done: trashed `0_crossplatform/shcl.ps1`, `include/shcl.bash` under the linux, macos and wsl bash dirs, and `wsl/bin/shcl` in the synced util tree, with JC's go-ahead. The macOS pool stays, per Decisions.
+	- Closed: 20261127-122500
+	- Closed reason: Done
+	- Acceptance signoff: Self-closed: mechanical, and the check passed.
+
+- At Miri's 100 iterations, 3 fuzz guards are thin
+	- ID: 2026102418441478
+	- Type: Task
+	- Status: Closed
+	- Priority: Low
+	- Target version: v3.0.0
+	- Opened: 20261024-184414
+	- Opened by: 2026102413172941's sweep
+	- Related IDs: 2026102413172941
+	- Problem description:
+		- At `--miri-all`'s 100 iterations, 3 share guards clear their bar by a few hits, as `de116`'s did before it broke. Per 100 rounds at 20,000: `a_cap_refuses_only_a_line_that_would_bind` keeps 11.6 bracket lines under a cap and needs 7, `writer_roundtrips_and_stays_fixpoint` writes 5.8 thousands numbers and needs 3, and `generated_starters_load_and_validate_clean` generates 10.2 mutated schemas and needs 7. Each would fail about 1 time in 10 once its draws move.
+		- None of them draws from the corpus, so only a change to its own generator or to the library moves them. All 3 pass at 100 today.
+	- Requirements:
+		- Each guard passes at Miri's count over any draw, without a floor that makes the test take hours there. `generated_starters_load_and_validate_clean` is among the slowest under Miri already.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261126: each loop runs its rounds, then keeps going only while its guard is short, up to 3 times its rounds more and no more than 3000 (`another_round`). A draw that meets the bar costs nothing extra, so Miri's time stays as it is today. A fixed floor would make every Miri run longer, and a lower bar would barely check the arm at 20,000. The bars are unchanged.
+		- me, 20261126: "over any draw" is met in practice rather than in proof. A short draw gets up to 4 times the rounds, where the expected hits are 23 to 46 against bars of 3 and 7.
+		- Note: `generated_starters_load_and_validate_clean` does draw from the corpus, from its `init-schema.shcl` files, so a corpus edit moves it too.
+	- Actual fix: `another_round` in fuzz_smoke, used by the 3 loops.
+	- Verified: with each test's seed varied over 300 draws at `SHCL_FUZZ_ITERS=100`, natively, the old guards failed 27, 31 and 33 times, and the new ones 0 times. The 3 tests pass natively at 100 and the default. Under Miri (`sanitize-rust.bash --miri-all --only=...`), `dftzz`, `dcv3k` (123 s) and `da6rk` (285 s) pass. `--backlog-run-quick rust`, rustfmt, clippy and `test-ids.py check` pass.
+	- Swept: the other share guards in fuzz_smoke at 100 rounds were checked by 2026102413172941's sweep, which found only these 3 thin. The fuzz is Rust only.
+	- Test case: `a_short_guard_runs_more_rounds_only_while_short` (`dftzz`) pins the top-up. The 3 guards themselves (`dcv3k`, `da6rk`, `dcmjb`) under `--miri-all`.
+	- Branch: `nov26-2026102418441478`
+	- Needs local test suite run?: No
+	- Commit: `596e6151`
+	- Closed reason: Done
+	- Closed: 20261126
+	- Acceptance signoff: me, 20261126, the Miri run passed
+	- 20261126: Verified: sanitize-rust.bash --miri-all --only=generated_starters_load passed in the nov26 test batch (PASS de2pd, nothing reported), log /mnt/ext/wip2/wip/tmp/shcl/20261126-125941_006/run.log.
+
+- The docs read as if an index picks an array item
+	- ID: 2026111011285705
+	- Type: Enhancement
+	- Status: Closed
+	- Priority: Low
+	- Target version: v3.0.0
+	- Opened: 20261110-112856
+	- Opened by: tukfs-hash feedback
+	- Version and build: beta1 build `df3v5`
+	- Problem description: the beta1 changelog says "an index is `site(0)`". On a field whose value is an array, `rar_excludes(0)` gives the whole array and `rar_excludes(2)` exits 3 with "no value at that path". That's right by spec.md, since an index counts instances, but nothing near the selector text says so, and a path can't name one array item.
+	- Requirements:
+		- spec.md's selector section, the README and the `get` help say an index picks an instance, never an array item, and that `get --array` is how a script reads items.
+		- The released beta1 changelog section stays as it is.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261126: the `get` help says it under the get-only Types text, beside `--array`, so `shcl help get` shows it. The README says it on its repeated-fields bullet.
+		- me, 20261126: the next changelog's new Upgrading notes say it again with the bracket text of a string read, since 2026111016205715 asked for that note.
+	- Actual fix: spec.md's selector forms bullet has a sub-bullet saying an index counts instances, with `r(0)` the whole array, `r(2)` `NotFound`, and `get --array` for the items. The README and the `get` help in all 4 CLIs say the same. The beta1 changelog section is unchanged.
+	- Verified: 20261126, `r(0)` on `r: [a, b, c]` prints `[a, b, c]` and `r(2)` exits 3. `shcl help get` and `shcl help` are byte-identical across the 4 CLIs. The quick run for rust, go, python, c, and cli, and cli-regress over the 4 CLIs, pass.
+	- Test case: none, since these are doc and help sentences on behavior that didn't change. cli-regress `dcbc4` and `ddp8c` check the help text's layout.
+	- Acceptance signoff: Self-closed: docs only, each sentence probed on dev.
+	- Branch: `nov26-2026111011285705`
+	- Commit: `6ddc10e8`
+	- Closed: 20261126-121324
+	- Closed reason: Done
 
 - Docs leave out what beta1 consumers had to find by probing
 	- ID: 2026111016205715

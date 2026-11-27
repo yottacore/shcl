@@ -1,0 +1,7 @@
+a[b'c].d: 1 # e
+f[g'h].i: it's # j
+k[l'm].n: 1, 2 # o
+p[q"r].s: x'y # t
+u[v'w'].x: 1 # y
+z[a\'b].c: 1 # d
+last: 1

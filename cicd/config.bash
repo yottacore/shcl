@@ -630,6 +630,15 @@ BACKLOG_ALONE=(
 	'pwsh '
 	'check-wheel.bash'
 )
+## Lint steps that run beside the tests stage rather than before it, matched as
+## text. cppcheck replays its cache in seconds, but after a C change it took 32
+## to 43 minutes of a run, on 2 cores, which put a bare run near 100 minutes
+## (2026110215285706). Its result is still waited for before the tests stage
+## passes, so no run leaves it out. A run without the tests stage runs it in
+## the lint stage.
+LINT_BESIDE=(
+	'cppcheck'
+)
 
 ## Test boxes, after the release builds, on this box rather than in the image,
 ## since the host lock and the ssh keys are here (2026102419263412). One row per
@@ -834,3 +843,4 @@ PUBLISH_AUTO_MESSAGE=""
 ##		- 2026-11-02 JC: The hosted macos job runs under --long only.
 ##		- 2026-11-04: CTR_BUILDER is gone, since the images build on docker's default builder again.
 ##		- 2026-11-22: The Rust, Go and Python soaks are fast leak checks, out of the suites.
+##		- 2026-11-27: LINT_BESIDE, the lint steps that run beside the tests stage: cppcheck.
