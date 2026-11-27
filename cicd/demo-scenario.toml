@@ -11,6 +11,7 @@ title = "shcl"
 prog  = "shcl"
 seed  = 7
 font  = ["Monaspace Argon SemiBold"]
+posterstep = 1                  # first gif frame: the finished get step, for previews
 blankafter = false              # output shape is the point here - no padding line
                                 # between it and the next prompt to misread
 

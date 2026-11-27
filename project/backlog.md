@@ -657,7 +657,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - README: the demo gif opens on an empty prompt, and one table cell needs a check
 	- ID: 2026110216254301
 	- Type: Task
-	- Status: Queued
+	- Status: Closed
 	- Priority: Low
 	- Target version: v3.0.0
 	- Opened: 20261102-162543
@@ -670,6 +670,13 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Progress log:
 		- 20261105: the table cell now says No. The gif is left for its next render.
+		- 20261127: the gif opens on the finished `get` step, a 100 ms frame, then the loop runs as before.
+	- Decisions: the opening frame is a copy of the finished `get` step's frame, set by `posterstep` in the scenario, so a still or preview shows a command and its output. It flashes for 100 ms at each loop start (me).
+	- Test case: none, a render change. `cicd/demo/expected.txt` is unchanged and matches the demo steps' output.
+	- Verified: rendered `assets/demo.gif`, and its first frame shows the command and `8080`. The golden diff against the Rust CLI is empty.
+	- Acceptance signoff: Self-closed: mechanical render change, the table cell was already fixed.
+	- Closed: 20261127-202900
+	- Closed reason: Done
 
 - Cache cleanup leaves some caches to grow
 	- ID: 2026110215285707
