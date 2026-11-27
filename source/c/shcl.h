@@ -7321,6 +7321,48 @@ static size_t array_under(ShclParser *P, size_t node) {
 	return node;
 }
 
+/* The index selector's step: picks the nth instance of the segment's name under *cur_io, or refuses the line (0). */
+static int attach_index_seg(ShclParser *P, size_t *cur_io, const ShclSegment *seg, int is_last, const ShclValue *value_p, size_t line, ShclStr indent) {
+	size_t cur = *cur_io; ShclValue value = *value_p;
+	size_t found = (size_t)-1, nth = 0; ShclVecSize ch = NODE(P->d, cur).children;
+	for (size_t k = 0; k < ch.len; k++) {
+		size_t c = ch.data[k];
+		if (!s_eq(NODE(P->d, c).name, seg->name)) continue;
+		if (nth == seg->sel.index) { found = c; break; }
+		nth++;
+	}
+	if (found != (size_t)-1) {
+		/* A bare number picks by position, so where another instance
+		   has it as its value, that may be the one meant (H010). */
+		ShclSB nb = {0}; sb_put_u64(P->line, &nb, seg->sel.index);
+		size_t named = find_by_value(P, cur, seg->name, sb_S(&nb));
+		if (named != (size_t)-1 && named != found) {
+			ShclSB m = {0};
+			sb_puts(P->line, &m, "index "); sb_putS(P->line, &m, sb_S(&nb));
+			sb_puts(P->line, &m, " picks a '"); sb_putS(P->line, &m, diag_name(P->line, seg->name));
+			sb_puts(P->line, &m, "' by position, not the one whose value is "); sb_putS(P->line, &m, sb_S(&nb));
+			sb_puts(P->line, &m, "; write (\""); sb_putS(P->line, &m, sb_S(&nb)); sb_puts(P->line, &m, "\") to pick that one by value");
+			p_diag(P, line, SHCL_SEV_HINT, "H010", sb_S(&m));
+		}
+		cur = found;
+		/* A field through an index onto an array line goes as one on
+		   the line under `srv(0):` does (E028). */
+		if (!is_last && !NODE(P->d, cur).star_list && NODE(P->d, cur).value.kind == V_ARRAY) cur = array_under(P, cur);
+	} else {
+		/* index_miss keeps a parsed line with one first (E003). */
+		ShclSB m = {0}; sb_puts(P->line, &m, "no instance "); sb_put_u64(P->line, &m, seg->sel.index); sb_puts(P->line, &m, " of '"); sb_putS(P->line, &m, diag_name(P->line, seg->name)); sb_putc(P->line, &m, '\'');
+		p_refuse(P, line, "E003", sb_S(&m), out_kind(OUT_DROPPED), indent); return 0;
+	}
+	/* Same as the value selector: the instance is already chosen, so a
+	   trailing value has nowhere to bind. */
+	if (is_last && !v_is_empty(&value)) {
+		ShclSB m = {0}; sb_puts(P->line, &m, "value after selector on '"); sb_putS(P->line, &m, diag_name(P->line, seg->name)); sb_puts(P->line, &m, "' ignored");
+		p_refuse(P, line, "E002", sb_S(&m), out_kind(OUT_VALUE_DROPPED), indent);
+	}
+	*cur_io = cur;
+	return 1;
+}
+
 static int attach_path(ShclParser *P, size_t parent, ShclSegment *segs, size_t nsegs, ShclValue value, size_t line, ShclStr indent, size_t *out) {
 	ShclArena *a = &P->d->arena;
 	star_flush(P);
@@ -7361,44 +7403,9 @@ static int attach_path(ShclParser *P, size_t parent, ShclSegment *segs, size_t n
 			}
 			break;
 		}
-		case SEL_INDEX: {
-			size_t found = (size_t)-1, nth = 0; ShclVecSize ch = NODE(P->d, cur).children;
-			for (size_t k = 0; k < ch.len; k++) {
-				size_t c = ch.data[k];
-				if (!s_eq(NODE(P->d, c).name, seg->name)) continue;
-				if (nth == seg->sel.index) { found = c; break; }
-				nth++;
-			}
-			if (found != (size_t)-1) {
-				/* A bare number picks by position, so where another instance
-				   has it as its value, that may be the one meant (H010). */
-				ShclSB nb = {0}; sb_put_u64(P->line, &nb, seg->sel.index);
-				size_t named = find_by_value(P, cur, seg->name, sb_S(&nb));
-				if (named != (size_t)-1 && named != found) {
-					ShclSB m = {0};
-					sb_puts(P->line, &m, "index "); sb_putS(P->line, &m, sb_S(&nb));
-					sb_puts(P->line, &m, " picks a '"); sb_putS(P->line, &m, diag_name(P->line, seg->name));
-					sb_puts(P->line, &m, "' by position, not the one whose value is "); sb_putS(P->line, &m, sb_S(&nb));
-					sb_puts(P->line, &m, "; write (\""); sb_putS(P->line, &m, sb_S(&nb)); sb_puts(P->line, &m, "\") to pick that one by value");
-					p_diag(P, line, SHCL_SEV_HINT, "H010", sb_S(&m));
-				}
-				cur = found;
-				/* A field through an index onto an array line goes as one on
-				   the line under `srv(0):` does (E028). */
-				if (!is_last && !NODE(P->d, cur).star_list && NODE(P->d, cur).value.kind == V_ARRAY) cur = array_under(P, cur);
-			} else {
-				/* index_miss keeps a parsed line with one first (E003). */
-				ShclSB m = {0}; sb_puts(P->line, &m, "no instance "); sb_put_u64(P->line, &m, seg->sel.index); sb_puts(P->line, &m, " of '"); sb_putS(P->line, &m, diag_name(P->line, seg->name)); sb_putc(P->line, &m, '\'');
-				p_refuse(P, line, "E003", sb_S(&m), out_kind(OUT_DROPPED), indent); return 0;
-			}
-			/* Same as the value selector: the instance is already chosen, so a
-			   trailing value has nowhere to bind. */
-			if (is_last && !v_is_empty(&value)) {
-				ShclSB m = {0}; sb_puts(P->line, &m, "value after selector on '"); sb_putS(P->line, &m, diag_name(P->line, seg->name)); sb_puts(P->line, &m, "' ignored");
-				p_refuse(P, line, "E002", sb_S(&m), out_kind(OUT_VALUE_DROPPED), indent);
-			}
+		case SEL_INDEX:
+			if (!attach_index_seg(P, &cur, seg, is_last, &value, line, indent)) return 0;
 			break;
-		}
 		case SEL_WILDCARD: /* name_fault keeps a parsed line with one first (E004) */
 			p_refuse(P, line, "E004", s_lit("wildcard selector is query-only"), out_kind(OUT_DROPPED), indent); return 0;
 		case SEL_NONE: {

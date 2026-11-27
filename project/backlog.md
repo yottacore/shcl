@@ -58,7 +58,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - codeql-scan: 2 findings from nov25 fail de5ag and de5ah
 	- ID: 2026112613084386
 	- Type: Bug
-	- Status: Queued
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261126-130843
@@ -68,6 +68,14 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Progress log:
 		- 20261126: Found by the nov26 gate step. The third finding then, py/empty-except in conformance.py, was nov26's own and is fixed in that round.
+	- Actual fix: the `SEL_INDEX` case of `attach_path` is its own function, `attach_index_seg`, with the same body, so the switch has no long case. In `leadingZeroFix`, `body` is set once from the `+` trim and the `-` branch overrides it.
+	- Swept: the other switches in `attach_path` have cases under 30 lines, and the scan reports no other `cpp/long-switch` or `go/useless-assignment-to-local`.
+	- Verified: 20261127, codeql-scan.bash passed every test, `de5ag`, `de5ah` and `de5am` among them (443 s). `cicd.bash --backlog-run-quick go c --no-lint` passed. The lint step of the quick run fails check-docs `dfebr` on item 2026112613535880's status, which is not this change.
+	- Test case: codeql-scan `de5ag` and `de5ah`, which failed on dev at f3a84334 and pass now.
+	- Acceptance signoff: Self-closed: the 2 tests failed before and pass after, and the code is behavior-neutral.
+	- Branch: `nov27-2026112613084386`
+	- Closed: 20261127-095700
+	- Closed reason: Done
 
 - analyze-c --ctu fails de57z, since fs_property.c's own half uses the library's SHCL_NORETURN and realpath
 	- ID: 2026112610320388
