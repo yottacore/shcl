@@ -35,11 +35,11 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
-- A comment after a list item moves out of its list when a later op rewrites the list
+- The placement property takes a blank between lines a list replace moves up for the field's, when a moved comment is above it
 	- ID: 2026112711395535
 	- Type: Bug
-	- Status: Queued
-	- Priority: Avg
+	- Status: Closed
+	- Severity: Avg
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261127-113955
 	- Opened by: me, the 2M release fuzz on 2026112711020529
@@ -51,6 +51,21 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Reproduced: 20261127, the Rust fuzz only. The new corpus case 225 shifted the seeds onto it. That change touches only the 2.x read in `migrate`, and this test loads under the current rules, so the bug is older than the round. The other 3 bindings weren't tried.
 	- Estimated effort: Avg
 	- Note: the 2M release fuzz is part of the release bar, so it targets beta.2.
+	- Reproduced: 20261127, `dd3t9` at 830,000 in release on nov27 at `0a41b094` fails at iteration 828523. The ops are logged by kind, so `op 4` is a `clear_comments` and `op 8` a `set_raw`, and the failing op is the `set_raw`. The Rust, Go, C and Python CLIs give the same text for those 2 ops. The bad name and the byte order mark play no part: `a:`, `x: 1`, then `list:` with `*first`, `- a  # bad`, a blank and `q: [x` gives the same shape.
+	- Actual cause [Bug]: the library is right. The `set_raw` moves the kept lines among the items above `list:` in file order, with the removed item's comment where the item was, and keeps the blank above the kept line `q: [x`, as design.md's "Lines an edit takes from their node" says: a blank above a kept line among the moved lines stays, and no comment crosses a kept line. `lead_over` in `fuzz_smoke.rs` dropped a blank right under a moved line, but not one with a moved comment between it and the moved line above, so it read that blank as the field's and the comment as the line above's.
+	- Actual effort: Low
+	- Decisions:
+		- me, 20261127: no placement.txt row and no library change, since no edit put a comment in the wrong place. The case goes in `df50j`, as 2026112711395514's did.
+		- me, 20261127: the title was "A comment after a list item moves out of its list when a later op rewrites the list", which the reproduction showed was a misread.
+		- me, 20261127: `lead_over` drops only a blank right above a moved line at the field's level, and only once another moved line turns up above it. A blank above every moved line is still the field's, and a blank above a moved comment is still held, since design.md drops that one.
+	- Actual fix [Bug]: `lead_over` notes each blank right above a moved line at the field's level, and drops those blanks when it reaches another moved line above them.
+	- Swept: all 3 places `lead_over` passes a moved line (a raw opener, a kept or misplaced line, and one the setter wrote as a comment) drop the noted blanks. Only the first 2 note the blank above them, since one the setter wrote is a comment, and design.md drops a blank above a moved comment. `anchors()` reads no moved lines. The Go, Python and C fuzzers have no placement property.
+	- Test case: `df50j` (`the_placement_property_reads_a_list_replace`), its new case, `dd3t9` and `dderx`.
+	- Branch: `nov27-2026112711395535`
+	- Verified: the new `df50j` case fails on the old `lead_over`, with the comment and the blank both reported, and passes on the fix. Its 2 checks that a lost comment and a blank above the moved lines are still caught pass. `dd3t9` and `dderx` at 2,000,000 in release pass (514 s), iteration 828523 included. The 4 CLIs agree on the iteration's 2 ops. `--backlog-run-quick rust` (lint report clean), clippy `--all-targets` with `-D warnings` and `cargo fmt --check` passed.
+	- Acceptance signoff: Self-closed: a property misread, watched to fail on its new case.
+	- Closed: 20261127-121802
+	- Closed reason: Done
 
 - The placement property misses a `clear_comments` target when the path also names a line with a bad name
 	- ID: 2026112711395514

@@ -2526,8 +2526,7 @@ fn lead_over(
 	let mut lead: Vec<String> = Vec::new();
 	let tabs = |l: &str| l.len() - l.trim_start_matches('\t').len();
 	let odd = |l: &str| l.trim_start_matches('\t').starts_with(' ');
-	// The lines that left the field's block, as often as they left it. A line
-	// with the text of one still under the field is no moved line.
+	// The lines that left the field's block, as often as they left it. A line with the text of one still under the field is no moved line.
 	let mut left: Vec<&str> = moved.to_vec();
 	for l in lines[at + 1..]
 		.iter()
@@ -2543,17 +2542,20 @@ fn lead_over(
 			.map(|p| left.swap_remove(p))
 			.is_some()
 	};
-	// A blank under a line that moved up to the field's level, or a
-	// misplaced one, is one between 2 of the lines that moved, and the
-	// field's blank goes above them all (design.md, Lines an edit takes from
-	// their node). A deeper one may be the block above's.
-	let past_moved = |lead: &mut Vec<String>, up: &str| {
+	// A blank under a line that moved up to the field's level, or a misplaced one, is one between 2 of the lines that moved, and the field's blank goes above them all (design.md, Lines an edit takes from their node). A deeper one may be the block above's.
+	// A blank right above a moved line at that level is one between 2 of them too, once another moved line turns up above it, with the moved comments between them or not, since a blank above a kept line among them stays (2026112711395535).
+	let past_moved = |lead: &mut Vec<String>, over: &mut Vec<usize>, up: &str| {
 		if tabs(up) == depth || odd(up) {
+			while let Some(p) = over.pop() {
+				lead.remove(p);
+			}
 			while lead.last().is_some_and(String::is_empty) {
 				lead.pop();
 			}
 		}
 	};
+	let mut over: Vec<usize> = Vec::new();
+	let mut under_moved = false;
 	for (k, up) in lines[..at].iter().enumerate().rev() {
 		let t = up.trim_matches(BLANKS);
 		if let Some(&(o, _)) = raw.iter().find(|&&(o, c)| k + 1 >= o && k < c) {
@@ -2564,26 +2566,32 @@ fn lead_over(
 			if left.contains(&opener) {
 				if k == at_opener {
 					take(&mut left, opener);
-					past_moved(&mut lead, up);
+					past_moved(&mut lead, &mut over, up);
+					under_moved = tabs(up) == depth || odd(up);
 				}
 				continue;
 			}
 			break;
 		}
 		if t.is_empty() {
+			if under_moved {
+				over.push(lead.len());
+			}
 			lead.push(String::new());
+			continue;
 		} else if stamp(up) {
 			continue;
 		} else if take(&mut left, t) {
-			past_moved(&mut lead, up);
+			past_moved(&mut lead, &mut over, up);
+			under_moved = tabs(up) == depth || odd(up);
 			continue;
-		} else if t.strip_prefix("# ").is_some_and(|c| moved.contains(&c))
+		}
+		under_moved = false;
+		if t.strip_prefix("# ").is_some_and(|c| moved.contains(&c))
 			&& (tabs(up) > depth || !had.contains(t))
 		{
-			// One the setter or the settle wrote as a comment: under a moved
-			// line, or at the field's own level, where it would bind
-			// (design.md, Load outcomes).
-			past_moved(&mut lead, up);
+			// One the setter or the settle wrote as a comment: under a moved line, or at the field's own level, where it would bind (design.md, Load outcomes).
+			past_moved(&mut lead, &mut over, up);
 			continue;
 		} else if t.starts_with('#')
 			&& tabs(up) > depth
@@ -2598,8 +2606,7 @@ fn lead_over(
 				.is_some_and(|l| {
 					(tabs(l) >= depth || odd(l)) && left.contains(&l.trim_matches(BLANKS))
 				}) {
-			// A deeper comment under a moved line moves with it, the line at
-			// any depth under the field's.
+			// A deeper comment under a moved line moves with it, the line at any depth under the field's.
 			continue;
 		} else if t.starts_with('#') && tabs(up) == depth {
 			lead.push(t.to_string());
@@ -3235,6 +3242,23 @@ fn the_placement_property_reads_a_list_replace() {
 	let set_off = after
 		.replacen("\n\n", "\n", 1)
 		.replacen("x: 1\n", "x: 1\n\n", 1);
+	assert!(!placement_slips(&before, &set_off, "outer.list", Placed::Set, "").is_empty());
+	// So is a blank above a kept line with the comment of an item that went between it and the kept line above (2026112711395535, dd3t9 at 828523).
+	let base = "outer:\n\tx: 1\n\tlist:\n\t\t*first\n\t\t- a  #\t*bad\n\n\t\tq: [x\n  kept: 1\n\t\t- b\n\t\t*end\ny: 2\n";
+	let before = Document::parse(base).to_canonical();
+	let mut doc = Document::parse(base);
+	assert_eq!(doc.set_raw("outer.list", "one", "sh"), shcl::SetStatus::Ok);
+	let after = doc.to_canonical();
+	assert!(
+		after.contains("\tx: 1\n\t*first\n\t#\t*bad\n\n\tq: [x\n  kept: 1\n\tlist:\n"),
+		"{after}"
+	);
+	let slips = placement_slips(&before, &after, "outer.list", Placed::Set, "");
+	assert!(slips.is_empty(), "{slips:?}\n{after}");
+	// The comment and the field's blank are still held.
+	let lost = after.replacen("\t#\t*bad\n", "", 1);
+	assert!(!placement_slips(&before, &lost, "outer.list", Placed::Set, "").is_empty());
+	let set_off = after.replacen("x: 1\n", "x: 1\n\n", 1);
 	assert!(!placement_slips(&before, &set_off, "outer.list", Placed::Set, "").is_empty());
 	// A deeper line of the block above, with the text of an item that went,
 	// is none of the lines that moved, so the blank under it is the field's.
