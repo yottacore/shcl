@@ -38,7 +38,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - a_save_names_this_format leaks a String on purpose, so sanitize-rust fails de2pb and de2pc on hosted
 	- ID: 2026112613535880
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261126-135358
@@ -48,6 +48,12 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Estimated effort: Low
 	- Progress log:
 		- 20261126: Hosted run 45894942389 on nov26: FAIL de2pb then de2pc, CICD ABORTED at sanitize-rust. Every other job passed.
+		- Fixed: the case borrows a string built once before the loop instead of leaking one. Verified: dfe62 passes, sanitize-rust --asan (de2pb) and --miri --only=a_save_names_this_format (de2pc) pass. Not run on the unfixed code: the hosted run 45894942389 is the failing run.
+		- Swept: grep for leak() in source/rust/tests, none left.
+	- Test case: sanitize-rust de2pb and de2pc, conformance dfe62
+	- Closed: 20261127-175000
+	- Closed reason: Done
+	- Acceptance signoff: Self-closed: the leak is gone, dfe62 passes, and the ASan and LSan run and the Miri run of dfe62 pass.
 
 - codeql-scan: 2 findings from nov25 fail de5ag and de5ah
 	- ID: 2026112613084386

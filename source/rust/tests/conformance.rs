@@ -8460,6 +8460,7 @@ fn a_save_names_this_format() {
 	let _id = test_id("dfe62");
 	let s = STAMP_LINE;
 	let f = FORMAT_LINE;
+	let stamped = format!("a: 1\n{s}\n");
 	for (text, canonical, kept) in [
 		("", format!("{s}\n"), format!("{s}\n")),
 		("a: 1\n", format!("a: 1\n{s}\n"), format!("a: 1\n{s}\n")),
@@ -8486,7 +8487,7 @@ fn a_save_names_this_format() {
 			format!("{s}\na: 1\n"),
 		),
 		(
-			"a: 1\n{s}\n".replace("{s}", s).leak(),
+			stamped.as_str(),
 			format!("a: 1\n{s}\n"),
 			format!("a: 1\n{s}\n"),
 		),
