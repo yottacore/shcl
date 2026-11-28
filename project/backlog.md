@@ -38,8 +38,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - The default run takes over an hour
 	- ID: 2026110215285706
 	- Type: Enhancement
-	- Status: Waiting on automated testing
-	- Needs local test suite run?: `cicd/cicd.bash --backlog-run-full` on a tree with `shcl.h` changed since cppcheck's last pass, to read the new length. The Lint step should drop to about 6 minutes, with cppcheck's output after `OK: tests passed`.
+	- Status: Queued
 	- Priority: Avg
 	- Target version: v3.0.0
 	- Opened: 20261102-152857
@@ -55,6 +54,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- The logs don't time the steps inside the Tests stage, so none of them is picked out here.
 		- 20261127: cppcheck, named in config.bash's new `LINT_BESIDE`, starts with the lint stage and runs beside the tests stage. The tests stage waits for it after the leak checks, prints its output there, and fails on it. A run without the tests stage, such as the hosted lint job, runs it in the lint stage. design.md's CI/CD section says so.
 		- 20261127: JC kept cppcheck beside the tests as built, over moving steps to --long. The next bare run times the new length and is watched for timing flakes in the tests stage.
+		- 20261128: run_20261127-140853 on 0c3b032e passed all 11 steps in 89 min: Lint 8, Tests 55, Release builds 6, Test boxes 18. cppcheck beside the tests finished before the leak checks did, so it added no wait, but its cache was likely warm from the nov27 gate step. Tests is now what keeps the run past an hour, and the log doesn't time the steps inside it, so the next step is printing each extra step's duration (that changes shell-regress ded1t's expected output).
 	- Decisions:
 		- me: cppcheck runs beside the tests rather than moving to `--long`, since this departs from the wording but meets the intent. A run with no flags that left it out would have to stop recording its tree, so every push to main would run the whole merge gate again. `Check:` in questions.md.
 		- me: `--merge-gate` and `--backlog-run-full` lose no check. They run the same steps, cppcheck beside the tests. A recorded tree still means cppcheck passed. `--backlog-run-quick` and `--quick` leave cppcheck out through `QUICK_SKIP`, as before.
@@ -68,7 +68,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Review the whole code base for Critical and High bugs before each release
 	- ID: 2026112509394527
 	- Type: Task
-	- Status: Stalled
+	- Status: Queued
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261125-093945
@@ -83,6 +83,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- Prereq IDs: 2026112514344606, 2026112517314397, 2026112516450897, 2026112517280964
 	- 20261126: Prereq IDs name the other open beta.2 items, since its own text says it runs after they close.
 	- 20261127: Held for the other beta.2 items to close, a hosted run on them, and a bare cicd run, per its own text that it runs after they close.
+	- 20261128: Back to Queued. The other beta.2 items are closed, and a full default run (run_20261127-140853) passed on 0c3b032e.
 
 - `Document::merge` drops the base file's comments on every leaf the upper layer names
 	- ID: 2026111217560140
