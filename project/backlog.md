@@ -35,6 +35,24 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 
 ## Issues
 
+- A Loose int read of a decimal past 2^53 gives a different integer than the text
+	- ID: 2026112810190744
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Target version: v3.0.0
+	- Opened: 20261128-101907
+	- Opened by: me
+	- Related IDs: 2026112810040707
+	- Steps to reproduce: a file with `a: 9007199254740993.0` and `b: 4503599627370496.5`, then `shcl get --int --strictness=loose FILE a` and the same for `b`.
+	- Incorrect behavior: `a` reads as 9007199254740992 and `b` as 4503599627370496, at exit 0 with no diagnostic. The same goes for a `%` value, such as `92233720368547758070%`, which reads as 922337203685477632. The Rust, C, Go and Python CLIs all give these numbers.
+	- Expected behavior: 9007199254740993 for `a`, since the text names a whole number, and 4503599627370497 for `b`, since spec.md says Loose rounds half away from zero.
+	- Reproduced: Yes, 20261128, with the Rust, C, Go and Python CLIs from nov28 at bd2c3cdc.
+	- Possible cause: `parse_int_text` sends a Loose decimal with a fraction through `parse_float_text` and rounds the double. A double holds every integer only up to 2^53, so the parse has already rounded the text before the half-away rounding runs. The other 3 bindings give the same numbers, so their twins likely work the same way (not read).
+	- Estimated effort: Low
+	- Decisions: Avg rather than High: it needs Loose, a decimal or percent value past about 9e15, and the workaround is to write the number without a fraction, which reads exact.
+	- Test case: none yet. A corpus `reads.tsv` row at Loose for each of the 2 values would pin it in all 4.
+
 - The default run takes over an hour
 	- ID: 2026110215285706
 	- Type: Enhancement
@@ -89,7 +107,7 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 - Whole-tree review: Rust parse and read half
 	- ID: 2026112810040707
 	- Type: Task
-	- Status: Queued
+	- Status: Closed
 	- Priority: High
 	- Target version: v3.0.0-beta.2
 	- Opened: 20261128-100407
@@ -103,6 +121,17 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 		- Don't fix findings here. Each Bug joins the queue.
 		- Note on this item which parts were read and found clean, so the second review knows what this one covered.
 	- Estimated effort: High
+	- Coverage: nov28 at bd2c3cdc, release Rust CLI plus a small program over the library's read calls.
+		- Read: the line tokenizer (`lex_line`, `scan_piece`, `quote_close`, the comment rules), `path_of`, `scan_lookup`, `selector_of` and the index rules, `resolve_from`, the read core (`read_scalar`, `read_array`, `read_named`), the int, float, bool, duration and size parsers, `same_moment`, escape resolution, the format stamp and `pick_format` / `most_legal`, and the BOM-led line rule.
+		- Probed and found clean: typed reads at all 3 levels (i64 and double bounds, radix, leading zeros, currency, percent, thousands, booleans, datetimes with calendar, zone and 12-hour edges, durations and sizes with units from the name), selectors and lookup paths (value, quoted, index, past-u64 index, wildcards, malformed paths), instance merge identity, raw blocks and refused lines that take them, stacked lists, CR, BOM, NUL and NBSP input, escapes in names, selectors and values, `paths` round trips on quoted names, Schema and Format lines, schema checks (types, allowed with datetimes, bounds with units, repeat, required through wildcards, recursive fragments), Strict failure, and `fields`, `instance_paths`, `read_kind`, `read_authored_name`, `read_line`, `read_comments`.
+		- No crash, hang or blowup on depth past the 512 cap, a 60,000-segment lookup path, 100,000 repeated leaves, a 200,000-element array, or long quote and mark runs. All finished in under 0.3 s CPU.
+		- A differential fuzz of 6,300 random documents through the Rust, C and Go CLIs (`fmt`, `paths`, `check`, `get --array --slots`) found no disagreement, crash or timeout. The tool is `private/claude_simple/tools/cli-read-difffuzz.py`.
+		- Not read line by line, and covered only by the probes above: the parser state machine, the comment placement and settle code, migrate and upgrade, the schema builder and validator internals, and the generator.
+	- Progress log: 20261128: 1 finding, filed as 2026112810190744 (Avg). No Critical or High found in this area.
+	- Test case: n/a, a review. Its finding has its own item.
+	- Acceptance signoff: Self-closed: review done, its finding filed.
+	- Closed: 20261128-102121
+	- Closed reason: Done
 
 - Whole-tree review: Rust write half and CLI
 	- ID: 2026112810040755
