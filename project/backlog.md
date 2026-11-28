@@ -84,6 +84,133 @@ Outside reports use GitHub Issues (see `contributing.md`), but the work itself i
 	- 20261126: Prereq IDs name the other open beta.2 items, since its own text says it runs after they close.
 	- 20261127: Held for the other beta.2 items to close, a hosted run on them, and a bare cicd run, per its own text that it runs after they close.
 	- 20261128: Back to Queued. The other beta.2 items are closed, and a full default run (run_20261127-140853) passed on 0c3b032e.
+	- 20261128: Split into 7 area children, one per binding core, the C++ interface and the installers, so each fits one worker.
+
+- Whole-tree review: Rust parse and read half
+	- ID: 2026112810040707
+	- Type: Task
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261128-100407
+	- Opened by: me
+	- Parent ID: 2026112509394527
+	- Problem description: one area of the whole-tree review 2026112509394527, which needs every Critical and High bug in the code base filed before beta.2.
+	- Requirements:
+		- Read `source/rust/src/lib.rs` for the tokenizer, parser, value layer, selectors, getters, schema checks and format detection.
+		- Use the severity rule in the template notes. Critical or High is wrong data, data loss, a crash or hang, a security hole, or a broken install.
+		- File each finding as its own Bug, at its own severity, with steps to reproduce and a failing test or command. Avg and Low findings get filed too.
+		- Don't fix findings here. Each Bug joins the queue.
+		- Note on this item which parts were read and found clean, so the second review knows what this one covered.
+	- Estimated effort: High
+
+- Whole-tree review: Rust write half and CLI
+	- ID: 2026112810040755
+	- Type: Task
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261128-100407
+	- Opened by: me
+	- Parent ID: 2026112509394527
+	- Problem description: one area of the whole-tree review 2026112509394527, which needs every Critical and High bug in the code base filed before beta.2.
+	- Requirements:
+		- Read `source/rust/src/lib.rs` for the setters, the emitter, `keep_lines`, the save rules, the file calls and `upgrade_file`, and `source/rust/src/main.rs` for its options, exit codes and `--write`.
+		- Use the severity rule in the template notes. Critical or High is wrong data, data loss, a crash or hang, a security hole, or a broken install.
+		- File each finding as its own Bug, at its own severity, with steps to reproduce and a failing test or command. Avg and Low findings get filed too.
+		- Don't fix findings here. Each Bug joins the queue.
+		- Note on this item which parts were read and found clean, so the second review knows what this one covered.
+	- Estimated effort: High
+
+- Whole-tree review: C core and C CLI
+	- ID: 2026112810040804
+	- Type: Task
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261128-100408
+	- Opened by: me
+	- Parent ID: 2026112509394527
+	- Problem description: one area of the whole-tree review 2026112509394527, which needs every Critical and High bug in the code base filed before beta.2.
+	- Requirements:
+		- Read `source/c/shcl.h` and `source/c/cmd/shcl/main.c` for memory safety, arena and `SHCL_SETJMP` paths, allocation failure, integer overflow, the file calls and save rules, and any place it reads text differently from Rust.
+		- Use the severity rule in the template notes. Critical or High is wrong data, data loss, a crash or hang, a security hole, or a broken install.
+		- File each finding as its own Bug, at its own severity, with steps to reproduce and a failing test or command. Avg and Low findings get filed too.
+		- Don't fix findings here. Each Bug joins the queue.
+		- Note on this item which parts were read and found clean, so the second review knows what this one covered.
+	- Estimated effort: High
+
+- Whole-tree review: C++ interface
+	- ID: 2026112810040844
+	- Type: Task
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261128-100408
+	- Opened by: me
+	- Parent ID: 2026112509394527
+	- Problem description: one area of the whole-tree review 2026112509394527, which needs every Critical and High bug in the code base filed before beta.2.
+	- Requirements:
+		- Read `source/c/shcl.hpp` for the lifetime of answers taken from the core arena, the lock, exceptions across the C boundary, and the file calls.
+		- Use the severity rule in the template notes. Critical or High is wrong data, data loss, a crash or hang, a security hole, or a broken install.
+		- File each finding as its own Bug, at its own severity, with steps to reproduce and a failing test or command. Avg and Low findings get filed too.
+		- Don't fix findings here. Each Bug joins the queue.
+		- Note on this item which parts were read and found clean, so the second review knows what this one covered.
+	- Estimated effort: High
+
+- Whole-tree review: Go binding and CLI
+	- ID: 2026112810040889
+	- Type: Task
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261128-100408
+	- Opened by: me
+	- Parent ID: 2026112509394527
+	- Problem description: one area of the whole-tree review 2026112509394527, which needs every Critical and High bug in the code base filed before beta.2.
+	- Requirements:
+		- Read `source/go/shcl.go` and `source/go/cmd/shcl/main.go` for panics, the file calls and save rules, Windows paths, and any place it reads text differently from Rust.
+		- Use the severity rule in the template notes. Critical or High is wrong data, data loss, a crash or hang, a security hole, or a broken install.
+		- File each finding as its own Bug, at its own severity, with steps to reproduce and a failing test or command. Avg and Low findings get filed too.
+		- Don't fix findings here. Each Bug joins the queue.
+		- Note on this item which parts were read and found clean, so the second review knows what this one covered.
+	- Estimated effort: High
+
+- Whole-tree review: Python binding and CLI
+	- ID: 2026112810040931
+	- Type: Task
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261128-100409
+	- Opened by: me
+	- Parent ID: 2026112509394527
+	- Problem description: one area of the whole-tree review 2026112509394527, which needs every Critical and High bug in the code base filed before beta.2.
+	- Requirements:
+		- Read `source/python/shcl.py` and `source/python/cmd/shcl/main.py` for exceptions that escape, the file calls and save rules, text encoding, Windows paths, and any place it reads text differently from Rust.
+		- Use the severity rule in the template notes. Critical or High is wrong data, data loss, a crash or hang, a security hole, or a broken install.
+		- File each finding as its own Bug, at its own severity, with steps to reproduce and a failing test or command. Avg and Low findings get filed too.
+		- Don't fix findings here. Each Bug joins the queue.
+		- Note on this item which parts were read and found clean, so the second review knows what this one covered.
+	- Estimated effort: High
+
+- Whole-tree review: installers
+	- ID: 2026112810040975
+	- Type: Task
+	- Status: Queued
+	- Priority: High
+	- Target version: v3.0.0-beta.2
+	- Opened: 20261128-100409
+	- Opened by: me
+	- Parent ID: 2026112509394527
+	- Problem description: one area of the whole-tree review 2026112509394527, which needs every Critical and High bug in the code base filed before beta.2.
+	- Requirements:
+		- Read `install.bash` and `install.ps1` for the download and checksum checks, the paths they write or remove, an upgrade over an older install, PATH edits, and a failure halfway through.
+		- Use the severity rule in the template notes. Critical or High is wrong data, data loss, a crash or hang, a security hole, or a broken install.
+		- File each finding as its own Bug, at its own severity, with steps to reproduce and a failing test or command. Avg and Low findings get filed too.
+		- Don't fix findings here. Each Bug joins the queue.
+		- Note on this item which parts were read and found clean, so the second review knows what this one covered.
+	- Estimated effort: High
 
 - `Document::merge` drops the base file's comments on every leaf the upper layer names
 	- ID: 2026111217560140
